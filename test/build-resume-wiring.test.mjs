@@ -568,3 +568,59 @@ test("THE FIRE'S TRACE SAYS done: false — the build is not over, it has moved"
   assert.match(after, /rec\.finish\(\s*tr\.done\(\)/,
     "the fire must pass the trace snapshot, or every mark including `fired` is discarded");
 });
+
+// ── A RECORDER THAT IS NEVER IDENTIFIED IS SILENT ───────────────────────────
+//
+// RUN 40 COULD NOT BE DIAGNOSED BECAUSE OF THIS, and it is the sharpest kind of
+// bug this repo keeps finding: not a wrong answer, but an instrument that
+// cannot answer. `makeRecorder` HOLDS its snapshot until it is told which site
+// it is recording — `pump()` returns early on `!slug` and so does `finish()` —
+// so a recorder that is never identified writes NOTHING, ever. Driven to be
+// sure rather than read: un-identified, 0 rows; identified, 1 row.
+//
+// `runResumedSiteBuild` built its own recorder and never called `identify`, so
+// the WHOLE SECOND HALF of every resumed build was unrecordable: no marks, no
+// outcome, no timings. Worse than a missing row — it made two separate pieces
+// of evidence blind at once, because a resume that gives up publishes the
+// stand-in, which is already standing, so the site looks identical too. Every
+// terminal outcome was therefore indistinguishable from the resume never being
+// delivered, which is precisely the wrong conclusion an hour of watching
+// produced. It also made the outcome fix beside it inert.
+test("EVERY RECORDER IS IDENTIFIED, or it writes nothing at all", () => {
+  const at = [...CODE.matchAll(/makeRecorder\(/g)].map((m) => m.index);
+  assert.ok(at.length >= 3,
+    `expected at least 3 makeRecorder call sites, found ${at.length} — a scan that stopped ` +
+    "matching would report a clean file and every check below would pass over nothing");
+
+  // Each window runs to whichever comes first: the next recorder, or the next
+  // top-level declaration. A window that ran past either would let one call
+  // site's `identify` vouch for another's.
+  const tops = [...CODE.matchAll(/\n(?:async )?function /g)].map((m) => m.index);
+  for (const i of at) {
+    const nextRec = at.find((j) => j > i);
+    const nextTop = tops.find((j) => j > i);
+    const end = Math.min(nextRec === undefined ? CODE.length : nextRec,
+      nextTop === undefined ? CODE.length : nextTop);
+    const body = CODE.slice(i, end);
+    // TWO HONEST SHAPES. Either this function names the site itself, or it hands
+    // the recorder to `runSiteBuild`, which does. Anything else is silent.
+    const own = /\.identify\(/.test(body);
+    const handed = /runSiteBuild\(/.test(body);
+    assert.ok(own || handed,
+      "a recorder is created here and never identified, so it can never write a row: " +
+      JSON.stringify(CODE.slice(i, i + 50)));
+  }
+});
+
+test("makeTrace IS GIVEN A CLOCK, never a slug", () => {
+  // `makeTrace(now, onStep)` — the FIRST parameter is the clock. The resume
+  // passed `design.slug` into it, a string. Every clock read in trace.mjs is
+  // guarded, so it did not throw: it returned 0, and every timing on a resumed
+  // build was zero. The slug belongs to the RECORDER, via `identify`.
+  const args = [...CODE.matchAll(/makeTrace\(\s*([^,)]*)/g)].map((m) => m[1].trim());
+  assert.ok(args.length >= 3, `expected at least 3 makeTrace call sites, found ${args.length}`);
+  for (const a of args) {
+    assert.equal(a, "undefined",
+      `makeTrace's first argument is the clock and must be left to its default; found ${JSON.stringify(a)}`);
+  }
+});

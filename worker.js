@@ -10224,7 +10224,31 @@ async function runResumedSiteBuild(env, ctx, id) {
     write: (row) => writeBuildRecord(env, row),
     hold: (p) => { try { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); } catch { /* never */ } },
   });
-  const tr = makeTrace(design.slug, (snap) => rec.step(snap));
+  // ── THE RECORDER HAS TO BE TOLD WHICH SITE IT IS RECORDING ──────────────────
+  //
+  // WITHOUT THIS THE WHOLE SECOND HALF OF EVERY RESUMED BUILD IS UNRECORDABLE,
+  // and it is why run 40 could not be diagnosed. `makeRecorder` holds its
+  // snapshot until it has a slug to upsert on — `pump` returns early on
+  // `!slug`, and so does `finish` — so a recorder that is never identified
+  // writes NOTHING, ever. `rec.identify` is called in exactly one place in this
+  // file, inside `runSiteBuild`, and this path builds its own recorder and
+  // never called it.
+  //
+  // The consequence is worse than a missing row: it made two separate pieces of
+  // evidence blind at once. The trace could not move whether or not the resume
+  // ran, and a resume that gives up publishes the stand-in — which is already
+  // standing — so the site looks identical too. Every terminal outcome was
+  // therefore indistinguishable from the resume never being delivered, which is
+  // exactly the wrong conclusion an hour of watching produced.
+  //
+  // It also made the outcome fix below INERT: `rec.finish(tr.done(), {...})`
+  // returns at its own `!slug` guard.
+  rec.identify(design.slug, claimed.uid || "");
+  // THE CLOCK, NOT THE SLUG. `makeTrace(now, onStep)` — the first parameter is
+  // the clock, and this passed a STRING into it. Every read is guarded, so it
+  // did not throw; it returned 0, and every timing on a resumed build was zero.
+  // Both other call sites in this file pass `undefined`, which is the default.
+  const tr = makeTrace(undefined, (snap) => rec.step(snap));
   const budget = makeBudget();
   const genPath = {};
   // WHAT THE GENERATOR IS HANDED, and the three cases are not interchangeable.
