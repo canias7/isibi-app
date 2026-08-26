@@ -970,6 +970,10 @@ let _chain = Promise.resolve();
 // continuous figure tells them apart.
 let _busy = 0;
 let _busySince = 0;
+// Set by the SIGTERM handler below and never cleared: once the platform has
+// asked this instance to stop, that fact is true for the rest of its life.
+// Declared beside the busy counter because `busyState` reports it.
+let _stopping = false;
 function oneAtATime(fn) {
   if (_busy === 0) _busySince = Date.now();
   _busy++;
@@ -991,7 +995,12 @@ function oneAtATime(fn) {
 
 /** What `/busy` answers. Exported shape, so the Worker's hold rule can read it. */
 function busyState() {
-  return { busy: _busy > 0, jobs: _busy, sinceMs: _busy > 0 ? Date.now() - _busySince : 0 };
+  // `stopping` is the one bit that separates "the platform sent SIGTERM and the
+  // drain below is holding this instance open" from "no kill has arrived". The
+  // hold probe's look reads it through the Worker's verbatim pass-through, so a
+  // survival past the death window stops being ambiguous: survived-under-fire
+  // and never-fired-upon are different findings and want different next steps.
+  return { busy: _busy > 0, jobs: _busy, sinceMs: _busy > 0 ? Date.now() - _busySince : 0, stopping: _stopping };
 }
 
 // ── THE PLATFORM'S OWN KILL, SURVIVED ────────────────────────────────────────
@@ -1019,7 +1028,6 @@ function busyState() {
 // IDLE DIES AT ONCE. An idle instance being stopped is the ordinary lifecycle,
 // and holding it open is a container billing for nothing.
 const TERM_DRAIN_MS = 13 * 60 * 1000;
-let _stopping = false;
 process.on("SIGTERM", () => {
   if (_stopping) return;
   _stopping = true;

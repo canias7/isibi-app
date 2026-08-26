@@ -543,3 +543,40 @@ test("a crash names itself, and does not cost an in-flight generation", () => {
   assert.match(ur, /stack/, "an unhandled rejection is logged without its stack");
   assert.ok(!/process\.exit/.test(ur), "an unhandled rejection exits the process — Node's default kill, reinstated by hand");
 });
+
+// ── the look can tell survived-under-fire from never-fired-upon ──────────────
+//
+// Run 41's two instances died at identical 7-8 minute ages right after an
+// image-changing deploy, and the first probe run to outlive that window could
+// not say WHY it lived: a SIGTERM the drain refused and a kill that never came
+// are opposite findings wearing one "busy: true". `stopping` on /busy is the
+// discriminator, and these hold its three legs — the flag is on the wire, only
+// the platform's own signal can raise it, and the probe speaks all three
+// verdicts rather than narrating one as another.
+test("/busy carries `stopping`, and only SIGTERM can raise it", () => {
+  const b = SRV_BARE.indexOf("function busyState()");
+  assert.ok(b > 0, "busyState is gone — rescope this guard");
+  const bw = SRV_BARE.slice(b, SRV_BARE.indexOf("\n}", b));
+  assert.match(bw, /stopping: _stopping/, "/busy does not report `stopping` — the probe cannot tell a refused kill from no kill");
+  // ONLY THE SIGTERM HANDLER SETS IT. Raised anywhere else — a crash handler,
+  // a drain path — the probe reports "SIGTERM arrived" about something that was
+  // never a platform stop, which is a false alarm in the one field built to end
+  // the ambiguity.
+  const sets = [...SRV_BARE.matchAll(/_stopping = true/g)];
+  assert.equal(sets.length, 1, `_stopping is set ${sets.length} times — exactly one (the SIGTERM handler) may raise it`);
+  const h = handlerWindow("SIGTERM");
+  assert.ok(h.includes("_stopping = true"), "the one raise is not inside the SIGTERM handler");
+});
+
+test("the probe reads `stopping` and speaks all three verdicts", () => {
+  const probe = readFileSync(new URL("../scripts/container-hold-probe.mjs", import.meta.url), "utf8");
+  const bare = probe.split("\n").map((l) => (l.trim().startsWith("//") ? "" : l)).join("\n");
+  assert.match(bare, /stopping = b\.stopping/, "the look never parses `stopping` off /busy");
+  // Three legs, each a different next step: refused (kill and fix both proven),
+  // never arrived (kill theory still open), unreadable (old image — rollout
+  // still propagating, no verdict). A missing leg means that outcome gets
+  // narrated by a branch written for a different one — the `gen probe` failure.
+  assert.match(bare, /stopping === true/, "no refused-kill branch");
+  assert.match(bare, /stopping === false/, "no never-arrived branch");
+  assert.match(bare, /UNREADABLE/, "an absent field is not called out — an old image would be narrated as one of the real verdicts");
+});

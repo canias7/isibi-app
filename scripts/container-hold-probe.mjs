@@ -202,8 +202,8 @@ log(`step 6 — after ${waited}s total, the lane answered: ${JSON.stringify(afte
 const hook = await fetch(`${BASE}/api/_hold?log=1`, { headers: auth }).then((r) => r.json()).catch((e) => ({ err: String(e) }));
 log(`step 6 — the hook's own record: ${JSON.stringify(hook)}`);
 
-let busy = null, sinceMs = null;
-try { const b = JSON.parse(after.body); busy = b.busy; sinceMs = b.sinceMs; } catch { /* reported below */ }
+let busy = null, sinceMs = null, stopping = null;
+try { const b = JSON.parse(after.body); busy = b.busy; sinceMs = b.sinceMs; stopping = b.stopping; } catch { /* reported below */ }
 
 // WHAT THE HOOK SAYS, turned into the sentence a reader can act on. Each of
 // these wants a completely different next step, and collapsing them into "NOT
@@ -280,6 +280,28 @@ if (busy === true) {
   log("        onActivityExpired asked, was told the container was busy, and held it.");
   log("        Fire-and-forget is viable: generation can move into the container.");
   log(whyLine(true));
+  // SURVIVED-UNDER-FIRE AND NEVER-FIRED-UPON ARE DIFFERENT FINDINGS, and until
+  // `stopping` rode on /busy this look could not tell them apart. Run 41's two
+  // instances died at identical 7-8 minute ages right after an image-changing
+  // deploy; this probe is born in the same shadow ON PURPOSE, so:
+  //   stopping true  → the platform really did send SIGTERM in the window and
+  //                    the drain held — the kill is proven AND the fix is.
+  //   stopping false → nothing was fired at this instance; survival says
+  //                    nothing about the drain, and the kill theory stays open.
+  //   absent         → the look reached an image from before the field existed,
+  //                    which is a rollout still propagating — say so, never guess.
+  log("");
+  if (stopping === true) {
+    log("SIGTERM: ARRIVED AND WAS REFUSED — the platform asked this instance to stop during the");
+    log("         silent window and the drain held it open. The deploy-shadow kill is real, and");
+    log("         the fix is what kept the container alive past it.");
+  } else if (stopping === false) {
+    log("SIGTERM: NEVER ARRIVED — no stop was requested in this window. Survival here says the");
+    log("         platform did not fire on this instance, not that the drain works under fire.");
+  } else {
+    log("SIGTERM: UNREADABLE — /busy carried no `stopping` field, so the look reached an image");
+    log("         from before it existed (rollout still propagating). No verdict either way.");
+  }
   process.exit(0);
 }
 if (busy === false) {
