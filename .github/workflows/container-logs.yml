@@ -10,6 +10,10 @@
 # container's stderr, retained since observability went on and readable by
 # nobody — a session holds no Cloudflare token, and the dashboard needs a
 # person. CI's own deploy token can ask; this is the asking.
+#
+# Each re-read is a nudge commit to this file — the read below is attempt 4,
+# after the observability scope was added to token 896904cf… (a USER token;
+# the first edit landed on a different one).
 name: container logs
 
 on:
