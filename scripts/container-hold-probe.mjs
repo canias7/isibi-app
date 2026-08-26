@@ -163,8 +163,20 @@ if (egress) {
 // success it did not earn. Checked rather than assumed.
 const pre = await fetch(`${BASE}/api/_hold?check=1`, { headers: auth }).then((r) => r.json()).catch((e) => ({ err: String(e) }));
 log(`step 3 — lane before: ${JSON.stringify(pre)}`);
-let preBusy = null;
-try { preBusy = JSON.parse(pre.body).busy; } catch { /* not JSON — reported below */ }
+let preBusy = null, preStopping;
+try { const pb = JSON.parse(pre.body); preBusy = pb.busy; preStopping = pb.stopping; } catch { /* not JSON — reported below */ }
+// SAY UP FRONT WHICH IMAGE THIS RUN IS MEASURING. Run 2 held for ten minutes
+// and only the final look revealed the instance predated the `stopping` field
+// — the "before" body had already said so, unread. An instance started seconds
+// after a deploy keeps the PREVIOUS image for its whole life (measured: 9s
+// after "deploy completed", stale at the 9.5-minute look), so a probe fired by
+// an image-rolling commit always tests the image before its own. A commit that
+// touches only this script deploys without rolling the image, and that is the
+// run that can read the field.
+if (preStopping === undefined) {
+  log("step 3 — NOTE: this instance predates the `stopping` field (rollout lag), so the SIGTERM");
+  log("         verdict below will be UNREADABLE unless the platform swaps the instance mid-hold.");
+}
 if (preBusy === true) {
   fail("the probe lane is ALREADY busy — something else is using it, and a container kept alive " +
        "by real work would report a success this run did not earn");
