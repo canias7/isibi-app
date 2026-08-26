@@ -23,6 +23,24 @@
 # never spell it — spell it ONLY in the one commit deliberately buying a
 # build. (Cancelling the run from a session is not a fallback: the API
 # answers 403, the same scope wall as workflow_dispatch.)
+#
+# AND THE MARKER ALONE IS NOT THE TRIGGER — the PATH FILTER is ANDed with it,
+# so a commit carrying the marker and touching neither of these two files fires
+# nothing at all, silently. That happened on the way to run 41: the marker was
+# spelled correctly in a commit that touched only CLAUDE.md, and the only sign
+# was `build as owner` simply missing from the run list. Recorded here because
+# "the workflow did not fire" and "the workflow ran and refused" look identical
+# from a session, and only one of them is a gate doing its job.
+#
+# RUN 41 (2026-08-26) is what this note is attached to. It reads whether a fired
+# generation now FINISHES, after the two fixes on 30153f2: a lost generation
+# re-fires at the container instead of re-running in the Worker under a
+# ten-minute cap, and the answer is POSTed out of one container instance's
+# memory into R2 the moment it exists. The trace row is the measurement —
+# `resume:refire` is the container having lost the work and the generation
+# started again where it can live, `resume:finish` on the first look is the
+# persisted answer being collected, and a `TimeoutError` where run 40 died
+# would say neither reached it.
 name: build as owner
 
 on:
