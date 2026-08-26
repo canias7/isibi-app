@@ -228,7 +228,22 @@ test("A BUILD THAT ANSWERED 202 CAN BE ASKED ABOUT LATER", () => {
   assert.match(CODE, /url\.pathname\.startsWith\("\/api\/site\/build\/"\) && request\.method === "GET"/,
     "there is no way to ask about a build that has not answered yet");
   const at = CODE.indexOf('url.pathname.startsWith("/api/site/build/")');
-  const block = CODE.slice(at, at + 2200);
+  // BOUNDED BY THE NEXT ROUTE, NEVER BY A BYTE COUNT. This was `at + 2200`, and
+  // it went red the moment the pending branch grew its flight block — reporting
+  // that "any signed-in caller can read any build's answer" about an ownership
+  // check that is right there, a few hundred bytes further down. Never size a
+  // source-read window in bytes: this repo has recorded that own-goal ten-plus
+  // times and every instance is a guard failing against a correct change.
+  const rest = CODE.slice(at + 1);
+  const nextRoute = rest.search(/\n\s{4}if \(\(?url\.pathname/);
+  const block = nextRoute > 0 ? CODE.slice(at, at + 1 + nextRoute) : CODE.slice(at);
+  // …AND THE BOUND IS ASSERTED IN BOTH DIRECTIONS. A terminator that stopped
+  // matching answers -1 and the window silently becomes the whole rest of the
+  // file, where every assertion below passes against something else entirely —
+  // which is exactly how one of these guards went quiet earlier in this arc.
+  assert.ok(nextRoute > 0, "the next route matcher is gone — this window has no end and proves nothing");
+  assert.ok(block.length > 800 && block.length < 6000,
+    `the result route reads as ${block.length} bytes — the window has lost its bounds`);
   // AUTHENTICATED, like every other route on this surface.
   assert.match(block, /await authUser\(request, env\)/, "the build result route is not behind a sign-in");
   // AND OWNED. A result body carries the site's slug, its cost and its notes.
@@ -252,7 +267,13 @@ test("A BUILD THAT ANSWERED 202 CAN BE ASKED ABOUT LATER", () => {
   // repeated; what has to hold is which status the branch answers.
   const missing = block.indexOf("if (!obj)");
   assert.ok(missing > 0, "the route no longer distinguishes a result that is not there yet");
-  const pend = block.slice(missing, block.indexOf(";", missing) + 1);
+  // SCOPED TO THE BRANCH'S OWN RETURN, not to the first `;` after the `if`. That
+  // spelling assumed a one-line branch and stopped meaning anything the moment
+  // the branch grew a body — it would have sliced `let flight = null;` and
+  // reported that a pending build no longer answers 202.
+  const pendReturn = block.indexOf("return ", missing);
+  assert.ok(pendReturn > missing, "the no-result branch does not return");
+  const pend = block.slice(pendReturn, block.indexOf(";", pendReturn) + 1);
   assert.match(pend, /pending: true/, "a build still being written does not answer as pending");
   assert.match(pend, /\b202\b/, "a build still being written does not answer 202");
   // THE READ THAT FAILED. `catch` is where a bucket blip lands, and it must not
@@ -623,4 +644,107 @@ test("makeTrace IS GIVEN A CLOCK, never a slug", () => {
     assert.equal(a, "undefined",
       `makeTrace's first argument is the clock and must be left to its default; found ${JSON.stringify(a)}`);
   }
+});
+
+// ── A FIRED BUILD MUST BE ABLE TO SAY HOW IT IS GOING ───────────────────────
+//
+// Stage 2 answers 202 with a job id and finishes in a LATER invocation, and
+// until now this route said one word — `pending` — for every state a fired build
+// can be in. Run 40 is what that cost: the message never delivered, the
+// container losing the work, and a resume looping all produce the same three
+// observations from outside (the stand-in is up, the trace is quiet, the route
+// says pending), so an hour of watching separated none of them.
+//
+// DRIVEN, NOT SOURCE-READ. The pieces are a pure function that is already driven
+// with literals one file over; what nothing else can see is whether the route
+// CALLS it, gates it on the owner, and — the half that matters most — keeps the
+// record's access token out of the response.
+const RESUME_JOB = "c".repeat(32);
+const RECORD = {
+  v: 1, kind: "site-build-resume", id: RESUME_JOB,
+  auth: "Bearer sekrit-access-token", uid: "owner-1", slug: "fold-lane",
+  lane: "build-k-fold-lane", genId: "gen-abc-123", firedAt: Date.now() - 40 * 60 * 1000,
+  charged: ["deposit", "schema"], looks: 0,
+  design: { brand: "Fold Coffee", css: ":root{--x:1}" },
+};
+
+/** An R2 stand-in that answers per key, so the two reads can differ. */
+const bucketOf = (map) => ({
+  SITES_BUCKET: {
+    get: async (k) => (Object.prototype.hasOwnProperty.call(map, k)
+      ? (typeof map[k] === "function" ? map[k]() : { text: async () => map[k] })
+      : null),
+    delete: async () => {},
+    put: async () => ({}),
+  },
+});
+const RESUME_KEY = `jobs/${RESUME_JOB}.resume.json`;
+
+test("A FIRED BUILD REPORTS ITS FLIGHT — looks against looks due", async () => {
+  const r = await asUser("owner-1", () => hit(`/api/site/build/${RESUME_JOB}`, {
+    headers: AUTHED, env: bucketOf({ [RESUME_KEY]: JSON.stringify(RECORD) }),
+  }));
+  assert.equal(r.status, 202, "a fired build no longer answers 202");
+  const f = r.json && r.json.flight;
+  assert.ok(f, "the route answered `pending` and nothing else — the flight is not wired");
+  assert.equal(f.slug, "fold-lane");
+  assert.equal(f.looks, 0);
+  assert.ok(f.due > 0, `a record forty minutes old reports ${f.due} looks due — the comparison says nothing`);
+  assert.ok(f.elapsedMs > 30 * 60 * 1000, "the age is not being measured from the record's own fire time");
+});
+
+test("…AND THE FLIGHT NEVER CARRIES THE ACCESS TOKEN OR THE DESIGN", async () => {
+  // THE ONE THING THAT MUST HOLD AT THE WIRE. The record is a live bearer token
+  // plus the whole design; a route that spread the record instead of shaping it
+  // would hand both to whoever asks, and every other assertion here would still
+  // pass. Checked on the RESPONSE TEXT, because a key-set check passes on a
+  // field that happens to be named innocently.
+  const r = await asUser("owner-1", () => hit(`/api/site/build/${RESUME_JOB}`, {
+    headers: AUTHED, env: bucketOf({ [RESUME_KEY]: JSON.stringify(RECORD) }),
+  }));
+  for (const secret of [RECORD.auth, "sekrit-access-token", RECORD.genId, RECORD.lane, RECORD.design.css]) {
+    assert.ok(!r.text.includes(secret), `the 202 leaks ${JSON.stringify(secret)}`);
+  }
+});
+
+test("A STRANGER IS TOLD NOTHING ABOUT SOMEBODY ELSE'S BUILD IN FLIGHT", async () => {
+  // The result half already refuses on the record's own uid, and so does this:
+  // a flight names the site's slug, which is not a stranger's business. Still
+  // 202 — the job id is 32 unguessable hex and the pending answer is what any
+  // caller gets for a job with no result.
+  for (const [uid, why] of [["someone-else", "a stranger"], ["", "a record written before the field existed"]]) {
+    const r = await asUser("owner-1", () => hit(`/api/site/build/${RESUME_JOB}`, {
+      headers: AUTHED, env: bucketOf({ [RESUME_KEY]: JSON.stringify({ ...RECORD, uid }) }),
+    }));
+    assert.equal(r.status, 202);
+    assert.equal(r.json && r.json.flight, undefined, `${why} was handed a flight`);
+  }
+});
+
+test("THE FLIGHT IS A COURTESY AND MAY NEVER CHANGE THE ANSWER", async () => {
+  // Pending is the real reply. A blip reading the RESULT is a 503 on purpose —
+  // reading it as pending would poll for ever against a finished build — but the
+  // same blip on this strictly less important read must not take a healthy
+  // in-flight build down with it.
+  for (const [record, why] of [
+    [() => { throw new Error("r2 down"); }, "a read that threw"],
+    ["not json at all", "a record that will not parse"],
+    [JSON.stringify({ v: 99, kind: "site-build-resume" }), "a record from another version"],
+  ]) {
+    const r = await asUser("owner-1", () => hit(`/api/site/build/${RESUME_JOB}`, {
+      headers: AUTHED, env: bucketOf({ [RESUME_KEY]: record }),
+    }));
+    assert.equal(r.status, 202, `${why} turned a pending build into ${r.status}`);
+    assert.equal(r.json && r.json.pending, true, `${why} lost the pending answer`);
+    assert.equal(r.json && r.json.flight, undefined, `${why} produced a flight anyway`);
+  }
+});
+
+test("AN ORDINARY QUEUED BUILD'S 202 IS UNCHANGED", async () => {
+  // No resume record means no fire — an ordinary build still in the consumer.
+  // Its body must be byte-identical to what it was before this existed, or a
+  // client reading the shape learns a field that is usually absent.
+  const r = await asUser("owner-1", () => hit(`/api/site/build/${RESUME_JOB}`, { headers: AUTHED, env: bucketOf({}) }));
+  assert.equal(r.status, 202);
+  assert.deepEqual(r.json, { ok: false, pending: true, job: RESUME_JOB });
 });

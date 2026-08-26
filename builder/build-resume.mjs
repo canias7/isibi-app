@@ -440,3 +440,73 @@ export function resumeDecision({ poll, record, now }) {
   if (spent) return { act: "stop", why: "looks", looks };
   return { act: "wait", delaySeconds: looks === 0 ? RESUME_FIRST_SECONDS : RESUME_POLL_SECONDS, elapsed };
 }
+
+/**
+ * HOW MANY LOOKS THE SCHEDULE SHOULD HAVE PRODUCED BY NOW.
+ *
+ * DERIVED FROM THE TWO CONSTANTS THAT DO THE SCHEDULING, never restated. The
+ * whole value of this number is that it can be compared against the looks a
+ * record has REALLY had, and a second hand-written copy of the cadence would
+ * drift the first time either constant moved — at which point the comparison
+ * starts reporting a healthy build as stalled, or a stalled one as healthy.
+ *
+ * THE FIRST INTERVAL IS COUNTED TWICE, and that is the schedule rather than an
+ * off-by-one. The fire sends with `RESUME_FIRST_SECONDS`; the look that arrives
+ * then sees `looks === 0` and `resumeDecision` gives it `RESUME_FIRST_SECONDS`
+ * AGAIN — read off that expression rather than remembered, because it is the
+ * one line that decides it. Every look after the second is `RESUME_POLL_SECONDS`.
+ *
+ * BOUNDED BY `RESUME_MAX_LOOKS`, or an abandoned record hours old reports a
+ * number that says nothing: past the cap no further look is scheduled whatever
+ * the clock says.
+ */
+export function looksDue(elapsedMs) {
+  const e = Number(elapsedMs);
+  if (!Number.isFinite(e) || e <= 0) return 0;
+  const first = RESUME_FIRST_SECONDS * 1000;
+  if (e < first) return 0;
+  if (e < first * 2) return 1;
+  const after = Math.floor((e - first * 2) / (RESUME_POLL_SECONDS * 1000));
+  return Math.min(2 + after, RESUME_MAX_LOOKS);
+}
+
+/**
+ * WHAT A BUILD THAT HAS BEEN FIRED AND HAS NOT ANSWERED CAN SAY ABOUT ITSELF.
+ *
+ * A fired build was UNOBSERVABLE between the fire and the publish, and run 40
+ * is what that cost: the site serves the stand-in (which it also does while a
+ * build is working perfectly), the trace goes quiet, and the only other reader
+ * answers a bare `pending`. Every way it can go wrong — the message never
+ * delivered, the container losing the work, a resume looping — produced exactly
+ * the same three observations, so an hour of watching could not separate them.
+ *
+ * `looks` VERSUS `due` IS THE MEASUREMENT THAT SEPARATES THEM, and it is worth
+ * saying which failure each shape names:
+ *
+ *   looks 0, due 0    too early to tell; the first look is minutes away.
+ *   looks 0, due N>0  NO RESUME EVER RAN. The record is here, so the fire
+ *                     stored it — what did not happen is the delivery of a
+ *                     DELAYED message, which nothing before stage 2 exercised.
+ *   looks ≈ due       the resume is running and the generation is still going.
+ *   looks << due      looks are happening and losing their claim, or failing
+ *                     to schedule the next one.
+ *
+ * IT CARRIES COUNTERS AND THE SLUG AND NOTHING ELSE. The record also holds the
+ * caller's own access token and the whole design; neither has any business in a
+ * response, and the way that stays true is that this function is the only thing
+ * that ever shapes one — a route reaching into the record itself is one edit
+ * from returning the token with it.
+ */
+export function flightOf(record, now) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return null;
+  const firedAt = Number(record.firedAt) || 0;
+  const looks = Number.isFinite(record.looks) && record.looks > 0 ? Math.trunc(record.looks) : 0;
+  const elapsedMs = Number.isFinite(now) && firedAt > 0 ? Math.max(0, Math.trunc(now - firedAt)) : 0;
+  return {
+    slug: typeof record.slug === "string" ? record.slug : "",
+    firedAt,
+    elapsedMs,
+    looks,
+    due: looksDue(elapsedMs),
+  };
+}

@@ -33,7 +33,7 @@ import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "./builder/build-budget.mjs";
 import { JOB_KIND, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
-import { RESUME_FIRST_SECONDS, resumeKey, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, alreadyCharged, withCharged, firedError, readFired } from "./builder/build-resume.mjs";
+import { RESUME_FIRST_SECONDS, resumeKey, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -15809,7 +15809,35 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, stage: "queue", error: "could not read the result" }, { status: 503 });
       }
       // NOT AN ERROR — the ordinary answer while a build is still being written.
-      if (!obj) return Response.json({ ok: false, pending: true, job: jid }, { status: 202 });
+      //
+      // AND IT SAYS HOW THE FLIGHT IS GOING, because a bare `pending` is what
+      // made run 40 undiagnosable. A fired build looks identical from outside
+      // whether the resume is polling happily, has lost every claim, or was
+      // never delivered at all: the site serves the stand-in on all three, and
+      // this route said the same word on all three. `flightOf` compares the
+      // looks a record has HAD against the looks the schedule is DUE, which is
+      // the one comparison that separates them — see its own note.
+      //
+      // BEST-EFFORT, AND NEVER ABLE TO CHANGE THE ANSWER. Pending is the real
+      // reply; the flight is a detail on top of it, so a bucket blip here must
+      // not turn a healthy in-flight build into a 503 — the mistake the read
+      // above deliberately does NOT make about the result itself, arriving on a
+      // strictly less important read. Omitted when there is nothing to say, so
+      // an ordinary queued build's body is byte-identical to before.
+      //
+      // OWNED, on the record's own uid and by the same rule as the result: a
+      // job id is 32 unguessable hex, and this still carries the site's slug.
+      if (!obj) {
+        let flight = null;
+        try {
+          const rObj = await env.SITES_BUCKET.get(resumeKey(jid));
+          if (rObj) {
+            const rec = readResume(JSON.parse(await rObj.text()));
+            if (rec && rec.uid && rec.uid === bu.id) flight = flightOf(rec, Date.now());
+          }
+        } catch { /* the flight is a courtesy; `pending` is the answer */ }
+        return Response.json(flight ? { ok: false, pending: true, job: jid, flight } : { ok: false, pending: true, job: jid }, { status: 202 });
+      }
       let out = null;
       try { out = readResult(JSON.parse(await obj.text())); } catch { out = null; }
       if (!out) {

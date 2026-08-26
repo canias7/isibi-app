@@ -1,0 +1,82 @@
+# DID A FIRED BUILD'S RESUME EVER RUN?
+#
+# Stage 2 returns a 202 with a job id and finishes the build in a LATER
+# invocation. Run 40 fired correctly and then produced no site, and nothing on
+# the platform could say which link broke — see scripts/build-flight.mjs for the
+# three failures that look identical from outside and the one comparison that
+# separates them.
+#
+# POINTED BY HAND, at one job, and that is deliberate. Set PROBE_JOB below to the
+# id the build answered with, push, and read the log. Left empty the job is a
+# no-op that costs a few seconds — the alternative is remembering a marker, and a
+# probe nobody can run is a probe nobody runs.
+#
+# COSTS NOTHING: one authenticated GET against a route that reads two R2 keys. No
+# model call, no container, no build, no Neon project, no publish.
+#
+# IT WAITS FOR THIS PUSH'S DEPLOY FIRST, like `container reach`. Without that it
+# asks whatever Worker happens to be live, which on a change to the route itself
+# is the version before the change — the mistake edit-smoke recorded on
+# 2026-08-12.
+name: build flight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  flight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The job id to look up. 32 hex, out of the 202 the build answered with.
+      # Empty means "nothing to ask about" and the job stops immediately.
+      PROBE_JOB: dce16075a25944ec2bdf6d56e83ae4d0
+    steps:
+      - name: is there a job to ask about
+        id: gate
+        run: |
+          if [ -z "$PROBE_JOB" ]; then
+            echo "PROBE_JOB is empty — nothing to look up. Set it in this workflow to use the probe."
+            echo "go=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.go == 'yes'
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.go == 'yes'
+        with:
+          node-version: '22'
+      - name: wait for this push's deploy
+        if: steps.gate.outputs.go == 'yes'
+        run: |
+          # ASK deploy.yml FOR ITS OWN RUNS, never `actions/runs?head_sha=` plus a
+          # find-by-name: a push can fire a dozen workflows and the deploy falls
+          # off page one, which build-as-owner recorded as ten minutes of `none`
+          # followed by a job that measured nothing.
+          for i in $(seq 1 40); do
+            state=$(curl -sf "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?head_sha=${{ github.sha }}&per_page=1" \
+              | node -e 'let s="";process.stdin.on("data",(c)=>s+=c).on("end",()=>{const d=JSON.parse(s);const r=(d.workflow_runs||[])[0];console.log(r?r.status+"/"+r.conclusion:"none");})') || state=err
+            echo "deploy: $state (poll $i)"
+            case "$state" in
+              completed/success) exit 0 ;;
+              completed/*) echo "the deploy failed — probing it proves nothing"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "deploy never finished in 10 minutes"; exit 1
+      - name: ask what happened to the fired build
+        if: steps.gate.outputs.go == 'yes'
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          OWNER_BASE_URL: https://gofarther.dev
+        run: node scripts/build-flight.mjs
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.gate.outputs.go == 'yes'
+        with:
+          name: build-flight-log
+          path: flight-probe.md
+          if-no-files-found: ignore

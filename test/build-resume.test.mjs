@@ -14,7 +14,7 @@ import {
   MAX_DELAY_SECONDS,
   isResumeId, resumeKey, packResume, readResume, alreadyCharged, withCharged, resumeDecision,
   packResumeMessage, readResumeMessage, nextLook, queueDelay,
-  FIRED_NAME, firedError, readFired,
+  FIRED_NAME, firedError, readFired, looksDue, flightOf,
 } from "../builder/build-resume.mjs";
 import { JOB_KIND, readMessage } from "../builder/build-job.mjs";
 import { BUILDER_CALL_MS, retryHere } from "../builder/build-call.mjs";
@@ -391,4 +391,108 @@ test("A DONE ANSWER WINS OVER THE DEADLINE", () => {
   // most expensive mistake available here: the tokens are spent either way.
   const d = resumeDecision({ poll: { state: "done", answer: { ok: 1 } }, record: { ...GOOD, looks: RESUME_MAX_LOOKS }, now: at(RESUME_DEADLINE_MS * 10) });
   assert.equal(d.act, "finish", "a finished generation past the deadline was discarded");
+});
+
+// ── WHAT A FIRED BUILD CAN SAY ABOUT ITSELF ─────────────────────────────────
+//
+// Run 40 fired correctly and produced no site, and three failures with three
+// different fixes all looked identical from outside: the site serves the
+// stand-in, the trace goes quiet, and the result route says `pending`. The one
+// comparison that separates them is the looks a record has HAD against the
+// looks the schedule is DUE — so that comparison is what is driven here.
+
+test("looksDue AGREES WITH THE SCHEDULE resumeDecision ACTUALLY PRODUCES", () => {
+  // THE STRONGEST FORM THIS CAN TAKE, and the reason `looksDue` is derived at
+  // all: rather than restating the cadence, walk the real decision function and
+  // require the count to match at every arrival. A hand-written expectation
+  // here would drift the first time either constant moved, and the comparison
+  // would then start calling a healthy build stalled.
+  let t = RESUME_FIRST_SECONDS * 1000; // the fire's own delay — the first look
+  let looks = 0;
+  let n = 0;
+  for (;;) {
+    n += 1;
+    assert.equal(looksDue(t), n,
+      `look ${n} arrives at ${t}ms and the schedule reads that as ${looksDue(t)} looks due`);
+    const d = resumeDecision({ poll: { state: "pending" }, record: { ...GOOD, looks }, now: GOOD.firedAt + t });
+    if (d.act !== "wait") break;
+    looks += 1;
+    t += d.delaySeconds * 1000;
+  }
+  // A FLOOR, or a decision function that stopped waiting immediately would end
+  // the walk at one look and this would pass over a cadence it never checked.
+  assert.ok(n >= 4, `the walk ended after ${n} looks — too short to be checking a cadence`);
+});
+
+test("THE FIRST INTERVAL IS COUNTED TWICE, because the schedule spends it twice", () => {
+  // The fire sends with RESUME_FIRST_SECONDS and the look that arrives then is
+  // given RESUME_FIRST_SECONDS AGAIN, because it sees `looks === 0`. Reading
+  // that as one interval makes every later count one too high, which reports a
+  // healthy build as having missed a look.
+  const F = RESUME_FIRST_SECONDS * 1000;
+  assert.equal(looksDue(F - 1), 0, "a look is counted before it could possibly have arrived");
+  assert.equal(looksDue(F), 1);
+  assert.equal(looksDue(2 * F - 1), 1, "the second look is counted early — the first interval was spent once");
+  assert.equal(looksDue(2 * F), 2);
+  assert.equal(looksDue(2 * F + RESUME_POLL_SECONDS * 1000), 3);
+});
+
+test("looksDue IS BOUNDED BY THE LOOK CAP, and answers 0 for junk", () => {
+  // Past the cap no further look is scheduled whatever the clock says, so a
+  // record abandoned for hours must not report a number that says nothing.
+  assert.equal(looksDue(1000 * 60 * 60 * 24 * 30), RESUME_MAX_LOOKS);
+  for (const bad of [null, undefined, "", NaN, Infinity, -1, 0, [], {}]) {
+    assert.equal(looksDue(bad), 0, `looksDue answered something for ${JSON.stringify(bad)}`);
+  }
+  // A NUMERIC STRING IS COERCED, deliberately and like every other reader in
+  // this module. The one caller passes a real number computed from two clocks,
+  // so this can only arrive by hand — and answering 0 for "600000" would be the
+  // shape that reads as "no looks due" on a build ten minutes old.
+  assert.equal(looksDue("600000"), looksDue(600000));
+});
+
+test("A FIRED BUILD WITH ZERO LOOKS AND LOOKS DUE IS THE DISCRIMINATING SHAPE", () => {
+  // This is the whole point of the pair. `looks 0 / due 0` is too early to say
+  // anything; `looks 0 / due N` is a record the fire stored and nothing ever
+  // came back to — which is delivery of a DELAYED message, the one link in this
+  // path nothing before stage 2 exercised.
+  const early = flightOf({ ...GOOD, looks: 0 }, GOOD.firedAt + 1000);
+  assert.equal(early.looks, 0);
+  assert.equal(early.due, 0, "a build one second old already reads as having missed a look");
+
+  const stalled = flightOf({ ...GOOD, looks: 0 }, GOOD.firedAt + 40 * 60 * 1000);
+  assert.equal(stalled.looks, 0);
+  assert.ok(stalled.due > 0, "a record forty minutes old reports no looks due, so nothing can be concluded");
+
+  const running = flightOf({ ...GOOD, looks: 5 }, GOOD.firedAt + 10 * 60 * 1000);
+  assert.equal(running.looks, 5);
+  assert.ok(running.due > 0);
+});
+
+test("THE FLIGHT CARRIES COUNTERS AND THE SLUG AND NOTHING ELSE", () => {
+  // THE SECURITY PROPERTY, and the reason a route may not reach into the record
+  // itself: it holds the caller's own live access token and the whole design.
+  // Asserted as an EXACT key set, so a field added here has to be a deliberate
+  // decision rather than a spread nobody re-read.
+  const f = flightOf(GOOD, GOOD.firedAt + 5000);
+  assert.deepEqual(Object.keys(f).sort(), ["due", "elapsedMs", "firedAt", "looks", "slug"]);
+  // …and by value, because a key check passes on a field that happens to be
+  // named innocently. Nothing the record keeps secret may appear in the output.
+  const json = JSON.stringify(f);
+  for (const secret of [GOOD.auth, GOOD.genId, GOOD.lane, DESIGN.css, DESIGN.brand]) {
+    assert.ok(!json.includes(secret), `the flight leaks ${JSON.stringify(secret)}`);
+  }
+});
+
+test("flightOf REFUSES A SHAPE IT WAS NOT GIVEN, and never invents a clock", () => {
+  for (const bad of [null, undefined, "", 7, [], "record"]) {
+    assert.equal(flightOf(bad, 1000), null, `flightOf answered for ${JSON.stringify(bad)}`);
+  }
+  // No `firedAt` means no elapsed time — a build we cannot time is one whose
+  // due count must stay 0 rather than being computed from an epoch.
+  const none = flightOf({ ...GOOD, firedAt: 0 }, Date.now());
+  assert.equal(none.elapsedMs, 0);
+  assert.equal(none.due, 0);
+  // A clock behind the fire is a clock, not a negative age.
+  assert.equal(flightOf(GOOD, GOOD.firedAt - 99999).elapsedMs, 0);
 });
