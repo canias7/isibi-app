@@ -23,6 +23,25 @@
   // it does cost is that a genuinely runaway request can now burn 5 minutes of
   // CPU rather than 30 seconds before the platform stops it.
   "limits": { "cpu_ms": 300000 },
+  // ── NOTHING WAS BEING KEPT, WHICH IS WHY NO DEAD BUILD COULD BE DIAGNOSED ──
+  //
+  // Runs 40 and 41 each lost a generation inside the container and nothing
+  // could say why, and the reason is plain: this key was ABSENT, so Workers
+  // Logs retained nothing. Every `console.error` the resume, the fire hop and
+  // `onActivityExpired` write went to a stream nobody kept — and the container's
+  // OWN stdout/stderr, the one place an OOM or a SIGTERM announces itself, only
+  // reaches Workers Logs when observability is enabled (Cloudflare's container
+  // FAQ says so in as many words). `wrangler tail` and the dashboard's live view
+  // show only what is happening NOW; by the time anybody asks, it is gone.
+  //
+  // 7 DAYS' RETENTION ON PAID, 20 million logs a month included, then $0.60 per
+  // extra million. The number scales with SITE TRAFFIC, not with builds: this
+  // Worker runs for every asset request so harden() can attach headers, so a
+  // page view is ~10-20 invocations — the allowance is roughly a million page
+  // views a month, far above today's traffic. If it ever binds, the lever is
+  // scoping what logs, NOT `head_sampling_rate` below 1: the runs worth reading
+  // are the rare ones, and sampling drops exactly the failure that matters.
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

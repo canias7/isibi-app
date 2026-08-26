@@ -111,3 +111,25 @@ test("the reasoning is recorded where the setting is, not only in a commit", () 
   assert.match(above, /cpu/i, "nothing above the limits block explains what it is for");
   assert.match(above, /30 second|30s|default/i, "nothing above it records the default being raised");
 });
+
+// ── OBSERVABILITY: THE ONLY WAY A DEAD CONTAINER CAN SAY WHAT KILLED IT ──────
+//
+// Runs 40 and 41 each lost a generation inside the container, and every
+// diagnosis stalled at the same wall: the container's stdout/stderr — the one
+// place an OOM or a rollout's SIGTERM announces itself — reaches Workers Logs
+// ONLY when observability is enabled, and this key was absent, so nothing was
+// ever retained. The absence is the danger, exactly like `limits` above: a
+// tidy-up that drops the block does not break a build, it silently restores
+// the state where no failed build can ever be explained.
+test("observability is on, so container stderr is retained rather than lost", () => {
+  const cfg = config();
+  assert.ok(cfg.observability, "wrangler.jsonc has no `observability` block — container deaths are unreadable again");
+  assert.equal(cfg.observability.enabled, true, "observability is declared and switched off, which reads as on");
+});
+
+test("nothing is sampled away — the failure that matters is the one a rate drops", () => {
+  // The runs worth reading are the rare ones. A head_sampling_rate below 1
+  // trades exactly those away; if volume ever binds, scope WHAT logs instead.
+  const rate = config().observability.head_sampling_rate;
+  assert.ok(rate === undefined || rate === 1, `head_sampling_rate is ${rate} — a sampled log drops the rare failure it exists for`);
+});
