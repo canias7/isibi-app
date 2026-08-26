@@ -10,6 +10,40 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## THE SECOND KILLER, CAUGHT ON CAMERA — and the fix is streaming (2026-08-26, night)
+
+**Run 44 ran the fixed transport, unambiguously (fired 20 minutes after its
+deploy), and STILL died the same two-step death — so there was a second killer
+under the first one. The container's own retained log named it in one line:**
+
+    model call failed after 270036 ms — socket hang up
+
+**Something on the container's network closes a connection that has carried no
+data for ~4.5 minutes.** A generation is exactly that — one silent connection
+for 5–10 minutes while the model thinks — so every fired build died at ~270s,
+whatever transport made the call. It is the same ~4–5 minute wall that has been
+resetting the app's own long requests all month, seen from the other side.
+
+- **The fix: the container now asks the model to STREAM its answer** — tokens
+  flow back continuously from the first second, so the connection is never
+  quiet and there is nothing for the wall to kill. Everything downstream is
+  unchanged; the stream is folded back into the ordinary answer shape before
+  anything reads it. Your Worker path is untouched (it never had this wall).
+- **Reading that log line took its own fight**: the CI token needed the
+  "Workers Observability Read" permission, and the first edit landed on a
+  different token than the one GitHub holds — the log reader now prints WHICH
+  token it is holding on a refusal, so that guess never has to be made again.
+  Thanks for clicking through it twice.
+- **Run 43 (6 credits) taught the timing lesson the hard way**: its generation
+  fired 12.5 minutes after an image deploy — inside the ~10–15 minute rollout
+  window — so which code held the call is unknowable. Runs 43 and 44 together
+  cost ~12 credits and bought the diagnosis; **balance 181**, husks
+  northgroup-5 through -8 still standing as you asked.
+- **Run 45 is the live proof** (your call, ask-first as agreed): fresh slug,
+  fired 15–20 minutes after this deploy. If it still dies, the log line now
+  also says whether any bytes were flowing when the wire dropped — which would
+  point at the one remaining suspect (a hard lifetime cap) and its different fix.
+
 ## SOLVED, PROPERLY THIS TIME — run 42 found the real killer (2026-08-26, later)
 
 **The SIGTERM story below is true and was not what ate the builds.** Run 42

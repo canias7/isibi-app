@@ -73,9 +73,30 @@ export const BUILDER_CALL_MS = 600000;
  * `send` defaults to the global fetch, so the Worker is byte-for-byte
  * unchanged; the container passes its own `node:https` sender, which has no
  * headers timeout at all and honours the same AbortSignal.
+ *
+ * `opts.stream` ASKS THE PROVIDER TO STREAM, AND IT EXISTS BECAUSE THE WALL
+ * THAT KILLED RUN 44 WAS NOT A TIMEOUT OF OURS AT ALL. With the undici ceiling
+ * gone (longPost, no headers timeout), the fired generation still died — the
+ * container's own log says how: `model call failed after 270036 ms — socket
+ * hang up`. Something on the container's egress closes a connection that has
+ * carried no application bytes for ~270 seconds, and a non-streaming
+ * generation is exactly that: one silent connection for 333–620s while the
+ * provider thinks. TCP keepalive at 30s did not save it, because keepalive
+ * frames are not data and an L7 proxy does not count them.
+ *
+ * `stream: true` makes the provider send tokens AS THEY ARE GENERATED, so real
+ * bytes cross the connection every few seconds and there is no quiet period to
+ * kill. THE TRANSPORT AND EVERYTHING DOWNSTREAM ARE UNCHANGED: the sender
+ * buffers until the connection closes (an SSE body is still one body), and the
+ * transcript is reassembled HERE into the exact non-streaming shape, so
+ * `fromXaiResponse` and every reader after it cannot tell the difference. The
+ * Worker keeps sending exactly what it always sent — workerd's fetch held
+ * ten-minute quiet generations for months, and a path that works is not
+ * re-plumbed for a wall it does not have. Only the container asks to stream.
  */
-export async function callBuilderModel(keys, req, budget = null, send = null) {
+export async function callBuilderModel(keys, req, budget = null, send = null, opts = null) {
   const doFetch = send || fetch;
+  const streaming = !!(opts && opts.stream === true);
   const k = keys || {};
   // The sooner of the call's own ceiling and what is left of the build. See
   // `builder/build-budget.mjs`: the two bounds have to COMPOSE, or a pages call
@@ -102,10 +123,15 @@ export async function callBuilderModel(keys, req, budget = null, send = null) {
       throw new Error("XAI_API_KEY is not set");
     }
     const { body, droppedDocs } = toXaiRequest(req);
+    // `stream_options.include_usage` is the OpenAI-compatible way to get the
+    // usage totals on a stream — without it the final chunk carries none and
+    // the build would be billed off an empty object. xAI-only: Anthropic's API
+    // refuses unknown top-level fields, so its branch must never gain this.
+    const wireBody = streaming ? { ...body, stream: true, stream_options: { include_usage: true } } : body;
     const r = await doFetch(XAI_ENDPOINT, {
       method: "POST",
       headers: { Authorization: `Bearer ${k.xai}`, "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(wireBody),
       signal: AbortSignal.timeout(callMs),
     });
     if (!r.ok) {
@@ -121,7 +147,7 @@ export async function callBuilderModel(keys, req, budget = null, send = null) {
       e.detail = xaiErrorDetail(await r.text().catch(() => ""));
       throw e;
     }
-    const out = fromXaiResponse(await r.json());
+    const out = fromXaiResponse(streaming ? await readXaiStream(r) : await r.json());
     // Reported rather than swallowed: a PDF cannot cross into the chat shape, so
     // a customer whose attached price list was ignored has a reason for it.
     if (droppedDocs) console.error("xai: dropped", droppedDocs, "document attachment(s) — no chat-shape equivalent");
@@ -138,7 +164,11 @@ export async function callBuilderModel(keys, req, budget = null, send = null) {
   const r = await doFetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": k.anthropic, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify(req),
+    // `stream: true` and NOTHING ELSE — no `stream_options`, which is the
+    // OpenAI-compatible spelling and an unknown top-level field here. This API
+    // 400s unknown fields, so gaining it would refuse every Anthropic build on
+    // the platform (the exact reason `budget` is an argument, not a field).
+    body: JSON.stringify(streaming ? { ...req, stream: true } : req),
     signal: AbortSignal.timeout(callMs),
   });
   if (!r.ok) {
@@ -147,7 +177,212 @@ export async function callBuilderModel(keys, req, budget = null, send = null) {
     e.detail = (await r.text().catch(() => "")).slice(0, 300);
     throw e;
   }
-  return r.json();
+  return streaming ? readAnthropicStream(r) : r.json();
+}
+
+// ── SSE REASSEMBLY — a stream read back into the non-streaming shape ────────
+//
+// The point of streaming here is the WIRE, not the interface: bytes flowing
+// every few seconds is what keeps the container's egress from killing a quiet
+// connection at ~270s (run 44's `socket hang up`). Nothing downstream wants a
+// stream — the parsers read one finished answer — so the transcript is folded
+// back into exactly the shape the non-streaming call returns, and the seam is
+// invisible from both sides.
+//
+// THE TRANSPORT ALREADY BUFFERS. `longPost` resolves when the connection
+// closes with everything it carried, SSE or not — so there is no mid-flight
+// parser, no chunk boundary handling against a live socket, and the whole of
+// this is string processing that a unit test can drive with a literal.
+
+/** Server-sent events out of a buffered transcript: `[{event, data}]`.
+ * A data field spanning several `data:` lines is joined with newlines, per the
+ * SSE spec; comment lines (`:`) and bare `event:` lines carry no data of their
+ * own. An input with no `data:` lines at all answers an empty list, which the
+ * callers read as "this was never SSE" and fall back to plain JSON. */
+function sseEvents(text) {
+  const out = [];
+  let event = "", data = [];
+  const flush = () => {
+    if (data.length) out.push({ event, data: data.join("\n") });
+    event = ""; data = [];
+  };
+  for (const raw of String(text == null ? "" : text).split(/\r?\n/)) {
+    if (raw === "") { flush(); continue; }
+    if (raw.startsWith(":")) continue;
+    if (raw.startsWith("event:")) { event = raw.slice(6).trim(); continue; }
+    if (raw.startsWith("data:")) { data.push(raw.slice(5).replace(/^ /, "")); continue; }
+  }
+  flush();
+  return out;
+}
+
+/**
+ * An OpenAI-shaped SSE transcript as the non-streaming response body.
+ *
+ * Answers null when the text holds no SSE at all (a provider that ignored the
+ * stream flag answers plain JSON — read it as such rather than failing a build
+ * over a flag). Otherwise `{error}` for a mid-stream error chunk, `{complete:
+ * false}` for a transcript that ends without `[DONE]` or a finish_reason —
+ * which is a connection cut mid-generation, the exact death being defended
+ * against, and must NOT be read as "the model answered with nothing" — or
+ * `{complete: true, response}` in the shape `fromXaiResponse` reads.
+ *
+ * TOOL-CALL ARGUMENTS ARE CONCATENATED BY INDEX. The arguments arrive as
+ * string fragments across many chunks; the name and id arrive once on the
+ * first. Assigning instead of appending keeps only the last fragment — a page
+ * of TSX reduced to its final brace, which parses to nothing and reads
+ * downstream as an empty tool call.
+ */
+export function joinXaiStream(text) {
+  const evs = sseEvents(text);
+  if (!evs.length) return null;
+  let content = "", finish = null, usage = null, done = false, error = null;
+  const calls = [];
+  for (const ev of evs) {
+    if (ev.data.trim() === "[DONE]") { done = true; continue; }
+    let j; try { j = JSON.parse(ev.data); } catch { continue; }
+    if (!j || typeof j !== "object") continue;
+    if (j.error) { error = j; continue; }
+    // Later wins: with `include_usage` the totals ride the final chunk, and
+    // earlier chunks may carry `usage: null`, which the typeof guard drops.
+    if (j.usage && typeof j.usage === "object") usage = j.usage;
+    const ch = (Array.isArray(j.choices) ? j.choices : [])[0];
+    if (!ch) continue;
+    if (ch.finish_reason) finish = ch.finish_reason;
+    const d = ch.delta || {};
+    if (typeof d.content === "string") content += d.content;
+    for (const tc of Array.isArray(d.tool_calls) ? d.tool_calls : []) {
+      const i = Math.max(0, Number(tc && tc.index) || 0);
+      const slot = calls[i] || (calls[i] = { function: { name: "", arguments: "" } });
+      const fn = (tc && tc.function) || {};
+      if (typeof fn.name === "string" && fn.name) slot.function.name = fn.name;
+      if (typeof fn.arguments === "string") slot.function.arguments += fn.arguments;
+    }
+  }
+  if (error) return { error };
+  // `finish_reason: "length"` without [DONE] is still a finished response —
+  // the provider stopped at its token cap and said so. Neither marker is a
+  // wire that died mid-generation.
+  if (!done && !finish) return { complete: false };
+  return {
+    complete: true,
+    response: {
+      choices: [{ message: { content: content || null, tool_calls: calls.filter(Boolean) }, finish_reason: finish || "stop" }],
+      usage: usage || {},
+    },
+  };
+}
+
+/**
+ * An Anthropic SSE transcript as the non-streaming message object.
+ *
+ * Same contract as `joinXaiStream`: null for not-SSE, `{error}` for the API's
+ * own `error` event, `{complete: false}` for a cut wire, else the message.
+ *
+ * A TOOL_USE BLOCK WHOSE ACCUMULATED JSON DOES NOT PARSE IS AN INCOMPLETE
+ * STREAM, never `input: {}`. Downstream reads an empty input as "the model
+ * called the tool with nothing in it" — a recorded misdiagnosis this repo has
+ * already paid for once — and the truth here is that bytes were lost. An
+ * incomplete answer throws upstream with no status, which `retryHere` reads as
+ * no-request and refires: the honest outcome for a half-delivered generation.
+ */
+export function joinAnthropicStream(text) {
+  const evs = sseEvents(text);
+  if (!evs.length) return null;
+  let msg = null, stop = null, usageDelta = null, stopped = false, error = null;
+  const blocks = [];
+  for (const ev of evs) {
+    let j; try { j = JSON.parse(ev.data); } catch { continue; }
+    if (!j || typeof j !== "object") continue;
+    const t = j.type || ev.event;
+    if (t === "message_start") { msg = j.message && typeof j.message === "object" ? j.message : {}; continue; }
+    if (t === "content_block_start") {
+      const i = Math.max(0, Number(j.index) || 0);
+      blocks[i] = { start: j.content_block && typeof j.content_block === "object" ? j.content_block : {}, json: "", text: "" };
+      continue;
+    }
+    if (t === "content_block_delta") {
+      const i = Math.max(0, Number(j.index) || 0);
+      const b = blocks[i] || (blocks[i] = { start: {}, json: "", text: "" });
+      const d = j.delta || {};
+      if (d.type === "text_delta" && typeof d.text === "string") b.text += d.text;
+      if (d.type === "input_json_delta" && typeof d.partial_json === "string") b.json += d.partial_json;
+      continue;
+    }
+    if (t === "message_delta") {
+      if (j.delta && j.delta.stop_reason) stop = j.delta.stop_reason;
+      // The final cumulative output count rides here; the input and cache
+      // counts came with message_start. Merged below, delta winning.
+      if (j.usage && typeof j.usage === "object") usageDelta = j.usage;
+      continue;
+    }
+    if (t === "message_stop") { stopped = true; continue; }
+    if (t === "error") { error = j; continue; }
+  }
+  if (error) return { error };
+  if (!msg || !stopped) return { complete: false };
+  const content = [];
+  for (const b of blocks) {
+    if (!b) continue;
+    const s = b.start || {};
+    if (s.type === "tool_use") {
+      let input = null;
+      try { input = JSON.parse(b.json === "" ? "{}" : b.json); } catch { input = null; }
+      if (!input || typeof input !== "object" || Array.isArray(input)) return { complete: false };
+      content.push({ ...s, input });
+    } else if (s.type === "text" || b.text) {
+      content.push({ type: "text", text: String(s.text || "") + b.text });
+    } else {
+      // A block type this reader does not know (nothing on these calls emits
+      // one today) passes through as its start block rather than vanishing.
+      content.push(s);
+    }
+  }
+  return {
+    complete: true,
+    response: {
+      ...msg,
+      content,
+      stop_reason: stop || msg.stop_reason || null,
+      usage: { ...(msg.usage || {}), ...(usageDelta || {}) },
+    },
+  };
+}
+
+/** The streamed xAI response, read and folded — or thrown, with the same
+ * shapes the non-streaming path throws: a mid-stream error keeps the
+ * provider's envelope in `detail` (so `upstreamKind` and the billing sentence
+ * still fire), and a cut wire throws with NO status, which is the truth — the
+ * request went out and no priced answer came back. */
+async function readXaiStream(r) {
+  const text = await r.text();
+  const joined = joinXaiStream(text);
+  // Not SSE at all: the provider (or a proxy) answered plain JSON despite the
+  // flag. It is the non-streaming body — read it as one.
+  if (joined === null) return JSON.parse(text);
+  if (joined.error) {
+    const e = new Error("xai stream error");
+    e.detail = xaiErrorDetail(JSON.stringify(joined.error));
+    throw e;
+  }
+  if (!joined.complete) throw new Error("model stream ended early — the connection closed mid-generation");
+  return joined.response;
+}
+
+/** The streamed Anthropic response, same contract as `readXaiStream`. The
+ * API's own `error` event already IS the envelope `upstreamKind` parses, so it
+ * rides `detail` verbatim at the non-streaming path's cap. */
+async function readAnthropicStream(r) {
+  const text = await r.text();
+  const joined = joinAnthropicStream(text);
+  if (joined === null) return JSON.parse(text);
+  if (joined.error) {
+    const e = new Error("anthropic stream error");
+    e.detail = JSON.stringify(joined.error).slice(0, 300);
+    throw e;
+  }
+  if (!joined.complete) throw new Error("model stream ended early — the connection closed mid-generation");
+  return joined.response;
 }
 
 /** WHICH ENVIRONMENT VARIABLE CARRIES WHICH KEY — the one list.

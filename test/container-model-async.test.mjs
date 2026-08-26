@@ -276,6 +276,13 @@ test("every model call in the container carries longPost", () => {
   assert.ok(calls.length >= 2, `expected the two model call sites, found ${calls.length} — rescope this guard`);
   for (const c of calls) {
     assert.match(c[1], /longPost/, "a model call site does not pass the transport — that call runs on undici's 300s headers timeout");
+    // AND THE STREAM, which is the fix for the wall the transport could not
+    // touch: run 44 died at 270s as `socket hang up` on a connection that had
+    // carried no bytes while the provider thought. `stream: true` keeps real
+    // bytes flowing, so there is no quiet period for the egress to kill — and
+    // a call site that drops it restores that death silently, with every
+    // other test green.
+    assert.match(c[1], /stream:\s*true/, "a model call site does not ask for the stream — that call is one quiet 270s from run 44's socket hang up");
   }
   // And the transport is the node module's `.request`, with no fetch anywhere
   // inside it — the 300s wall coming back in through the function built to
@@ -287,6 +294,10 @@ test("every model call in the container carries longPost", () => {
   // so `retryHere` refuses to bill a second call for a timeout, rather than
   // misreading it as a request that never went out and refiring forever.
   assert.match(w, /signal\.reason/, "an aborted call does not carry the signal's reason — a timeout would be classified no-request and refired");
+  // A socket error carries the wire's own account (headers-at, chars flowed),
+  // which is what tells a quiet-connection kill from a lifetime cap if a
+  // streamed call ever dies the way run 44's did.
+  assert.match(w, /e\.wire = wire/, "a socket error does not carry the wire meta — the next 270s death is undiagnosable again");
 });
 
 function fnWindow(anchor) {

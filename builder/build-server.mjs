@@ -213,6 +213,14 @@ function longPost(url, init) {
     const u = new URL(url);
     const payload = Buffer.from(String((init && init.body) || ""), "utf8");
     let settled = false;
+    // WHAT THE WIRE DID BEFORE IT DIED — when the headers arrived and how many
+    // body characters had flowed — attached to a socket error, so the failure
+    // log can place a death BEFORE the stream opened (a quiet-connection kill)
+    // or AFTER bytes were moving (a total-lifetime cap, which streaming cannot
+    // beat and the next fix would have to). Run 44's `socket hang up` at 270s
+    // could not say which, and the difference is the whole next decision.
+    const t0 = Date.now();
+    const wire = { headersMs: -1, chars: 0 };
     // Protocol-faithful, so the harness can drive this against a plain local
     // server. Both provider endpoints are https literals in build-call.mjs —
     // no caller-chosen URL ever reaches here.
@@ -222,9 +230,10 @@ function longPost(url, init) {
       hostname: u.hostname, port: u.port || undefined, path: u.pathname + u.search, method: (init && init.method) || "POST",
       headers: { ...((init && init.headers) || {}), "content-length": payload.length },
     }, (res) => {
+      wire.headersMs = Date.now() - t0;
       let text = "";
       res.setEncoding("utf8");
-      res.on("data", (c) => { text += c; });
+      res.on("data", (c) => { text += c; wire.chars += c.length; });
       res.on("end", () => {
         if (settled) return;
         settled = true;
@@ -239,7 +248,7 @@ function longPost(url, init) {
     req.on("socket", (s) => { try { s.setKeepAlive(true, 30000); } catch { /* diagnostic comfort only */ } });
     const onAbort = () => { if (settled) return; settled = true; req.destroy(); bail(); };
     if (signal) signal.addEventListener("abort", onAbort, { once: true });
-    req.on("error", (e) => { if (settled) return; settled = true; reject(e); });
+    req.on("error", (e) => { if (settled) return; settled = true; try { e.wire = wire; } catch { /* a frozen error still rejects */ } reject(e); });
     req.on("close", () => { if (signal) signal.removeEventListener("abort", onAbort); });
     req.write(payload);
     req.end();
@@ -1387,7 +1396,7 @@ const server = http.createServer((req, res) => {
       oneAtATime(async () => {
         const at = Date.now();
         try {
-          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost);
+          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost, { stream: true });
           MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
           await sendModelReport(report, { state: "done", answer });
         } catch (e) {
@@ -1397,9 +1406,13 @@ const server = http.createServer((req, res) => {
           // our own abort, anything else is the network. Runs 41-43 failed here
           // and the retained logs held NOTHING, because nothing logged. Never
           // `detail` — it can quote the request, and the request is the brief.
+          // `wire` is longPost's account of the connection (headers-at, chars
+          // flowed), which is what separates a quiet-connection kill from a
+          // lifetime cap if a streamed call ever dies the way run 44's did.
           console.error("model call failed after", Date.now() - at, "ms —",
-            String((e && e.name) || "Error"), String((e && e.cause && e.cause.code) || ""),
-            String((e && e.message) || e).slice(0, 200));
+            String((e && e.name) || "Error"), String((e && e.code) || (e && e.cause && e.cause.code) || ""),
+            String((e && e.message) || e).slice(0, 200),
+            e && e.wire ? "wire=" + JSON.stringify(e.wire) : "");
           // THE SHAPE IS PRESERVED, exactly as `/model` preserves it: the Worker
           // parses `detail` for the provider's error type and reports `upstream`
           // as the numeric status and nothing else, and `retryHere` reads
@@ -1485,7 +1498,7 @@ const server = http.createServer((req, res) => {
       return oneAtATime(async () => {
         const at = Date.now();
         try {
-          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost);
+          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost, { stream: true });
           send(res, 200, { ok: true, answer, ms: Date.now() - at });
         } catch (e) {
           // THE SHAPE IS PRESERVED, not flattened to a message. `upstreamKind`
@@ -1727,7 +1740,8 @@ const server = http.createServer((req, res) => {
   });
 });
 const PORT = process.env.PORT || 8080;
-// `transport=longPost` is the IMAGE MARKER: run 43 was undiagnosable partly
-// because no log line could say which image the instance booted, and the
-// rollout lag makes that the first question every failed run asks.
-server.listen(PORT, () => console.log("isibi site build-service on :" + PORT + " transport=longPost"));
+// `transport=…` is the IMAGE MARKER: run 43 was undiagnosable partly because
+// no log line could say which image the instance booted, and the rollout lag
+// makes that the first question every failed run asks. `+stream` is the image
+// that asks the provider to stream — the fix for run 44's quiet-wire kill.
+server.listen(PORT, () => console.log("isibi site build-service on :" + PORT + " transport=longPost+stream"));

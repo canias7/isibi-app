@@ -389,3 +389,190 @@ test("a supplied transport carries the call on BOTH providers — global fetch i
     }
   } finally { globalThis.fetch = real; }
 });
+
+// ── STREAMING: THE WIRE FIX FOR RUN 44's QUIET-CONNECTION KILL ──────────────
+//
+// The container's own log line is the finding these exist for: `model call
+// failed after 270036 ms — socket hang up`. Not undici (the transport above
+// removed it), not our abort (600s) — the container's egress closes a
+// connection that has carried no bytes for ~270s, and a non-streaming
+// generation is one quiet connection for 333–620s. `opts.stream` asks the
+// provider to send tokens as they are generated, so bytes flow and there is
+// nothing quiet to kill; the transcript is reassembled into the exact
+// non-streaming shape, and PARITY with the plain call is the assertion that
+// matters — a reassembly that drifts is a second parser on the money path.
+
+/** A transport whose answer is a fixed text. `json()` THROWS on purpose: the
+ * streaming path must read the transcript as text, and a revert to `r.json()`
+ * would otherwise pass by parsing the first chunk as the whole answer. */
+function textSend(text) {
+  const sent = [];
+  const send = async (url, init) => {
+    sent.push({ url: String(url), init, body: JSON.parse(init.body) });
+    return { ok: true, status: 200, text: async () => text, json: async () => { throw new Error("json() read on a stream — the transcript must be read as text"); } };
+  };
+  return { send, sent };
+}
+
+const sseChunk = (o) => "data: " + JSON.stringify(o);
+const sseEvent = (event, o) => "event: " + event + "\ndata: " + JSON.stringify(o);
+
+// One logical xAI answer, spoken both ways: the plain body, and the same
+// answer as a stream — the tool arguments split MID-TOKEN across chunks,
+// because that is how they really arrive and it is exactly what an
+// assign-instead-of-append reassembly gets wrong.
+const XAI_PLAIN = {
+  choices: [{
+    message: {
+      content: "done",
+      tool_calls: [{ id: "c1", function: { name: "write_pages", arguments: '{"pages":[{"path":"index.tsx"}]}' } }],
+    },
+    finish_reason: "stop",
+  }],
+  usage: { prompt_tokens: 100, completion_tokens: 50, prompt_tokens_details: { cached_tokens: 40 } },
+};
+const XAI_STREAM = [
+  sseChunk({ choices: [{ delta: { role: "assistant", content: "" }, finish_reason: null }] }),
+  sseChunk({ choices: [{ delta: { tool_calls: [{ index: 0, id: "c1", function: { name: "write_pages", arguments: "" } }] }, finish_reason: null }] }),
+  sseChunk({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"pages":[{"pa' } }] }, finish_reason: null }] }),
+  sseChunk({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'th":"index.tsx"}]}' } }] }, finish_reason: null }] }),
+  sseChunk({ choices: [{ delta: { content: "done" }, finish_reason: null }], usage: null }),
+  sseChunk({ choices: [{ delta: {}, finish_reason: "stop" }] }),
+  sseChunk({ choices: [], usage: { prompt_tokens: 100, completion_tokens: 50, prompt_tokens_details: { cached_tokens: 40 } } }),
+  "data: [DONE]",
+].join("\n\n") + "\n\n";
+
+const XAI_REQ = { model: "grok-4.6", max_tokens: 10, messages: [{ role: "user", content: "hi" }] };
+
+test("a streamed xAI call answers EXACTLY what the plain call answers — and asks for the stream on the wire", async () => {
+  const plain = await captured(() => callBuilderModel(KEYS, XAI_REQ), XAI_PLAIN);
+  const { send, sent } = textSend(XAI_STREAM);
+  const streamed = await callBuilderModel(KEYS, XAI_REQ, null, send, { stream: true });
+  // PARITY IS THE WHOLE ASSERTION: same content blocks, same parsed tool
+  // input, same usage mapping (cached tokens OUT of `input_tokens`), same
+  // stop_reason. A reassembly that drifts from the plain parse is a second
+  // opinion on the money path.
+  assert.deepEqual(streamed, plain.out);
+  // And the request said so: `stream` plus the OpenAI-compatible usage opt-in,
+  // without which the final chunk carries no totals and the bill reads zero.
+  assert.equal(sent[0].body.stream, true);
+  assert.deepEqual(sent[0].body.stream_options, { include_usage: true });
+  // The mapping itself, pinned once outright — parity alone would also pass
+  // if BOTH paths broke together.
+  assert.deepEqual(streamed.usage, { input_tokens: 60, output_tokens: 50, cache_read_input_tokens: 40, cache_creation_input_tokens: 0 });
+  assert.equal(streamed.stop_reason, "stop");
+});
+
+test("the default sends NO stream field on either provider — the Worker's wire is byte-identical", async () => {
+  for (const [model, reply] of [
+    ["claude-sonnet-5", { usage: {}, content: [], stop_reason: "end_turn" }],
+    ["grok-4.6", XAI_PLAIN],
+  ]) {
+    const { seen } = await captured(() => callBuilderModel(KEYS, { model, max_tokens: 10, messages: [{ role: "user", content: "hi" }] }), reply);
+    const body = JSON.parse(seen[0].init.body);
+    assert.ok(!("stream" in body), model + ": the Worker's request grew a stream flag nobody asked for");
+    assert.ok(!("stream_options" in body), model + ": stream_options leaked onto the default path");
+  }
+});
+
+test("a streamed Anthropic call carries stream and NEVER stream_options, and folds the message back", async () => {
+  const transcript = [
+    sseEvent("message_start", { type: "message_start", message: { id: "m1", role: "assistant", model: "claude-sonnet-5", content: [], stop_reason: null, usage: { input_tokens: 100, output_tokens: 1, cache_read_input_tokens: 40, cache_creation_input_tokens: 5 } } }),
+    sseEvent("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "t1", name: "design_schema", input: {} } }),
+    ": keep-alive comment",
+    sseEvent("ping", { type: "ping" }),
+    sseEvent("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"tables":' } }),
+    sseEvent("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: "[]}" } }),
+    sseEvent("content_block_stop", { type: "content_block_stop", index: 0 }),
+    sseEvent("message_delta", { type: "message_delta", delta: { stop_reason: "tool_use", stop_sequence: null }, usage: { output_tokens: 50 } }),
+    sseEvent("message_stop", { type: "message_stop" }),
+  ].join("\n\n") + "\n\n";
+  const { send, sent } = textSend(transcript);
+  const out = await callBuilderModel(KEYS, { model: "claude-sonnet-5", max_tokens: 10, messages: [] }, null, send, { stream: true });
+  assert.equal(sent[0].body.stream, true);
+  // This API 400s unknown top-level fields, so the OpenAI spelling here is
+  // every Anthropic build on the platform refused — the `budget` lesson.
+  assert.ok(!("stream_options" in sent[0].body), "stream_options reached the Anthropic wire — a 400 on every sonnet build");
+  assert.deepEqual(out.content, [{ type: "tool_use", id: "t1", name: "design_schema", input: { tables: [] } }]);
+  assert.equal(out.stop_reason, "tool_use");
+  // Usage merged: input and cache counts from message_start, the FINAL output
+  // count from message_delta — the start's placeholder must lose.
+  assert.deepEqual(out.usage, { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 40, cache_creation_input_tokens: 5 });
+});
+
+test("a stream cut mid-generation throws with NO status — the shape that refires, never the one that bills", async () => {
+  // xAI: deltas flowed, then the wire died — no finish_reason, no [DONE].
+  const cutXai = [
+    sseChunk({ choices: [{ delta: { tool_calls: [{ index: 0, id: "c1", function: { name: "write_pages", arguments: '{"pa' } }] }, finish_reason: null }] }),
+  ].join("\n\n") + "\n\n";
+  await assert.rejects(
+    () => callBuilderModel(KEYS, XAI_REQ, null, textSend(cutXai).send, { stream: true }),
+    (e) => {
+      assert.match(String(e.message), /ended early/);
+      assert.equal(e.status, undefined, "a cut wire grew a status — retryHere would refuse the refire");
+      assert.equal(retryHere({ status: e.status || null, kind: e.name }), true, "the classification the resume applies must say refire");
+      return true;
+    });
+  // Anthropic: everything arrived but message_stop — same verdict.
+  const cutAnth = [
+    sseEvent("message_start", { type: "message_start", message: { usage: { input_tokens: 1 } } }),
+    sseEvent("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+  ].join("\n\n") + "\n\n";
+  await assert.rejects(
+    () => callBuilderModel(KEYS, { model: "claude-sonnet-5", max_tokens: 10, messages: [] }, null, textSend(cutAnth).send, { stream: true }),
+    /ended early/);
+});
+
+test("a tool_use stream that LOST BYTES is incomplete — never read as the model answering with nothing", async () => {
+  // message_stop arrived, so a completeness check on events alone passes —
+  // but the accumulated tool JSON does not parse, which means bytes are gone.
+  // `input: {}` here would read downstream as "the generator called the tool
+  // with no pages in it": a recorded misdiagnosis, about a lost wire.
+  const transcript = [
+    sseEvent("message_start", { type: "message_start", message: { usage: { input_tokens: 1 } } }),
+    sseEvent("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "t1", name: "write_pages", input: {} } }),
+    sseEvent("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"pages":[{"pa' } }),
+    sseEvent("message_delta", { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 2 } }),
+    sseEvent("message_stop", { type: "message_stop" }),
+  ].join("\n\n") + "\n\n";
+  await assert.rejects(
+    () => callBuilderModel(KEYS, { model: "claude-sonnet-5", max_tokens: 10, messages: [] }, null, textSend(transcript).send, { stream: true }),
+    /ended early/);
+});
+
+test("a mid-stream provider error keeps its envelope — the billing sentence can still fire", async () => {
+  // xAI speaks the OpenAI error chunk; the detail must come out translated the
+  // way the non-streaming refusal is, or `upstreamType` is null and `billing`
+  // false on exactly the failure those fields exist for.
+  const xaiErr = [
+    sseChunk({ choices: [{ delta: { content: "st" }, finish_reason: null }] }),
+    sseChunk({ error: { message: "Your credit balance is too low to access the API", code: "insufficient_quota" } }),
+  ].join("\n\n") + "\n\n";
+  await assert.rejects(
+    () => callBuilderModel(KEYS, XAI_REQ, null, textSend(xaiErr).send, { stream: true }),
+    (e) => {
+      const d = JSON.parse(e.detail);
+      assert.equal(d.error.type, "insufficient_quota");
+      assert.match(d.error.message, /credit balance is too low/);
+      return true;
+    });
+  // Anthropic's own error event IS the envelope `upstreamKind` parses.
+  const anthErr = [
+    sseEvent("message_start", { type: "message_start", message: { usage: {} } }),
+    sseEvent("error", { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }),
+  ].join("\n\n") + "\n\n";
+  await assert.rejects(
+    () => callBuilderModel(KEYS, { model: "claude-sonnet-5", max_tokens: 10, messages: [] }, null, textSend(anthErr).send, { stream: true }),
+    (e) => {
+      const d = JSON.parse(e.detail);
+      assert.equal(d.error.type, "overloaded_error");
+      return true;
+    });
+});
+
+test("a provider that ignores the stream flag answers plain JSON — read as-is, not failed over a flag", async () => {
+  const { send } = textSend(JSON.stringify(XAI_PLAIN));
+  const out = await callBuilderModel(KEYS, XAI_REQ, null, send, { stream: true });
+  const plain = await captured(() => callBuilderModel(KEYS, XAI_REQ), XAI_PLAIN);
+  assert.deepEqual(out, plain.out);
+});
