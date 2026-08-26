@@ -748,3 +748,47 @@ test("AN ORDINARY QUEUED BUILD'S 202 IS UNCHANGED", async () => {
   assert.equal(r.status, 202);
   assert.deepEqual(r.json, { ok: false, pending: true, job: RESUME_JOB });
 });
+
+// ── A FAILED RESUME MUST SAY WHICH ROUTE IT TOOK ────────────────────────────
+//
+// Run 40's answer was `{stage:"resume", error:"the build failed",
+// kind:"TimeoutError"}` — a build that had walked the whole path correctly,
+// reported in six words. The SUCCESS line carries `resumed: decision.act`; the
+// failure line did not, so a resume that worked said which of the three
+// terminal branches it took and one that failed said nothing. Inverted, on the
+// case where it is the only thing worth knowing.
+
+test("BOTH ENDS OF THE RESUME NAME THE BRANCH, not just the one that worked", () => {
+  const body = fn("runResumedSiteBuild");
+  const packs = [...body.matchAll(/packResult\(\{[\s\S]{0,600}?\}\)/g)].map((m) => m[0]);
+  assert.ok(packs.length >= 2, `the resume packs ${packs.length} results — one of the two outcomes is gone`);
+  for (const p of packs) {
+    assert.match(p, /resumed: decision\.act/,
+      "a resume outcome does not say which terminal branch produced it — the one fact that separates a replayed answer from a Worker-side retry that hit the ceiling");
+  }
+  // AND THE FAILURE CARRIES THE UPSTREAM SHAPE, like the synchronous path.
+  // Without it a real 429 — a refusal the customer can act on — arrives wearing
+  // "the build failed", which is one they cannot.
+  const fail = packs.find((p) => p.includes("the build failed"));
+  assert.ok(fail, "the resume's failure result is gone — rescope this guard");
+  for (const field of ["why: decision.why", "upstream:", "upstreamType:"]) {
+    assert.ok(fail.includes(field), `the failure result drops \`${field}\``);
+  }
+  // …AND NEVER THE PROVIDER'S DETAIL, which can quote the request, and the
+  // request is the customer's brief.
+  assert.ok(!/detail/.test(fail), "the resume's failure result carries the provider's detail — that can quote the brief");
+});
+
+test("THE BRANCH IS IN THE TRACE BEFORE ANY OF THE WORK", () => {
+  // The result is DELETE-ON-READ and may never be collected — run 40's sat in
+  // R2 for 78 minutes because nothing polls a fired build. The trace is the
+  // record that survives nobody looking, and writing it FIRST is what makes an
+  // isolate that dies mid-build still say which route it was on.
+  const body = fn("runResumedSiteBuild");
+  const mark = body.indexOf('tr.at("resume:" + decision.act)');
+  assert.ok(mark > 0, "the resumed branch is not recorded in the trace at all");
+  const build = body.indexOf("buildAndPublishPages(env, {");
+  assert.ok(build > 0, "the resume no longer builds — rescope this guard");
+  assert.ok(mark < build,
+    "the branch is marked after the build starts, so a build whose isolate dies never records which route it took");
+});

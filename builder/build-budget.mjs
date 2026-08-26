@@ -256,6 +256,13 @@ export function budgetStage(steps) {
     // same thing to a customer, and they are named by the provisioner rather
     // than by this file, so a prefix is the only reading that cannot go stale.
     if (name.startsWith("prov:")) return "provision";
+    // `resume:finish` / `resume:here` / `resume:stop` — which of the three
+    // terminal branches a resumed build took. Named by `resumeDecision` rather
+    // than by this file, so the prefix is again the only reading that cannot go
+    // stale, and all three mean the same thing to a CUSTOMER: the pages have
+    // not been written yet. The mark is the FIRST thing a resume writes, so a
+    // deadline landing on it is a build whose second half had barely begun.
+    if (name.startsWith("resume:")) return "generate";
     if (Object.hasOwn(STAGE, name)) return STAGE[name];
   }
   // Nothing recognised — including an empty trace, which is a build that died

@@ -611,3 +611,19 @@ test("the budget and the recorder are declared ABOVE the wrapper, or the race ca
       `the build is no longer handed ${name} — the deadline and the trace are watching nothing`);
   }
 });
+
+test("A RESUMED BUILD'S BRANCH MARK READS AS `generate`, whichever branch it was", () => {
+  // `resume:finish` / `resume:here` / `resume:stop` are named by
+  // `resumeDecision`, not by this file, so the mapping is a PREFIX for the same
+  // reason `prov:` is — a hand-kept list of three goes stale the day a fourth
+  // terminal branch exists. All three mean one thing to a customer: the pages
+  // are not written yet, which is exactly what "generate" says.
+  for (const act of ["finish", "here", "stop", "some-later-branch"]) {
+    assert.equal(budgetStage([{ s: "fonts" }, { s: "resume:" + act }]), "generate",
+      `a resumed build on the ${act} branch reads as something other than generate`);
+  }
+  // …and it does not swallow a LATER mark. The branch is written first, so a
+  // resume that got as far as the container must still read as `publish`.
+  assert.equal(budgetStage([{ s: "resume:here" }, { s: "gen" }, { s: "img" }, { s: "container" }]), "publish",
+    "the branch mark overrides the marks written after it");
+});

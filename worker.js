@@ -10249,6 +10249,21 @@ async function runResumedSiteBuild(env, ctx, id) {
   // did not throw; it returned 0, and every timing on a resumed build was zero.
   // Both other call sites in this file pass `undefined`, which is the default.
   const tr = makeTrace(undefined, (snap) => rec.step(snap));
+  // ── AND THE BRANCH GOES IN THE TRACE, BEFORE ANY OF THE WORK ──────────────
+  //
+  // The result carries it too, and the result is DELETE-ON-READ and may never
+  // be collected at all: run 40's sat in R2 for 78 minutes because the harness
+  // had stopped watching and nothing else polls a fired build. The trace is the
+  // record that survives nobody looking, and it is written FIRST so an isolate
+  // that dies mid-build still says which of the three routes it was on.
+  //
+  // THE NAME IS THE FACT, because `makeTrace` takes only finite NUMBERS as
+  // extras — deliberately, so a connection string can never reach a trace by
+  // accident — and what has to be recorded here is a word. `prov:project` and
+  // `prov:database` already use the same prefixed form, and `budgetStage` walks
+  // backwards to the last mark it recognises, so an unfamiliar one costs
+  // nothing.
+  try { tr.at("resume:" + decision.act); } catch { /* a trace must never break a build */ }
   const budget = makeBudget();
   const genPath = {};
   // WHAT THE GENERATOR IS HANDED, and the three cases are not interchangeable.
@@ -10285,8 +10300,44 @@ async function runResumedSiteBuild(env, ctx, id) {
     });
     out = packResult({ status: 200, type: "application/json", body: JSON.stringify({ ok: true, resumed: decision.act, ...pages }), uid: claimed.uid });
   } catch (e) {
-    console.error("build resume: the build threw for", id, String((e && e.stack) || (e && e.message) || e));
-    out = packResult({ status: 500, type: "application/json", body: JSON.stringify({ ok: false, stage: "resume", error: "the build failed", kind: String((e && e.name) || "Error") }), uid: claimed.uid });
+    // ── A FAILED RESUME MUST SAY WHICH ROUTE IT TOOK ──────────────────────────
+    //
+    // Run 40 landed here and the answer was `{stage:"resume", error:"the build
+    // failed", kind:"TimeoutError"}` — six words for a build that had walked the
+    // whole path correctly. The success line one statement up carries
+    // `resumed: decision.act`; this one did not, so a resume that WORKED said
+    // which of the three terminal branches it took and one that FAILED said
+    // nothing. Inverted, on the case where it is the only thing worth knowing.
+    //
+    // THE BRANCH IS THE DIAGNOSIS, because the three spend completely different
+    // money and fail for completely different reasons: `finish` replays a stored
+    // answer and makes no request at all, `here` re-runs the whole generation IN
+    // THE WORKER under `capMs(BUILDER_CALL_MS)` — the ten-minute ceiling this
+    // feature exists to get out from under — and `stop` gives up and publishes
+    // what it has. `TimeoutError` from the first is impossible, from the second
+    // is the fallback hitting the wall, and from the third cannot happen either.
+    // Without `act` and `why` that has to be inferred from the error's NAME.
+    //
+    // AND THE UPSTREAM SHAPE, so this path reports what the synchronous one
+    // reports. That one parses `upstreamKind(e.detail)` for the provider's own
+    // error type and the one sentence that names an empty account; here a real
+    // 429 arrived wearing "the build failed", which is a refusal the customer
+    // could have acted on reduced to one they cannot. `detail` is deliberately
+    // NOT carried — it can quote the request, and the request is the brief.
+    const rk = upstreamKind(e && e.detail);
+    console.error("build resume: the build threw for", id, "act=" + decision.act, "why=" + (decision.why || "-"), String((e && e.stack) || (e && e.message) || e));
+    out = packResult({
+      status: 500, type: "application/json", uid: claimed.uid,
+      body: JSON.stringify({
+        ok: false, stage: "resume", error: "the build failed",
+        kind: String((e && e.name) || "Error"),
+        resumed: decision.act,
+        why: decision.why || null,
+        upstream: (e && e.status) || null,
+        upstreamType: rk.type,
+        ...(rk.billing ? { billing: true } : {}),
+      }),
+    });
   }
   // ── AND THE SECOND HALF'S TRACE, CLOSED WITH WHAT ACTUALLY HAPPENED ────────
   //
