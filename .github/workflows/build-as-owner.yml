@@ -475,7 +475,7 @@ jobs:
           # site is the bonus. Rule 16 (every band inside `mx-auto max-w-6xl
           # px-6`) and the photo clock (`compile` ~0.1s with nothing bought when
           # the spare time is under 35,000ms) are only readable if it publishes.
-          OWNER_SLUG: northgroup-6
+          OWNER_SLUG: northgroup-7
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
