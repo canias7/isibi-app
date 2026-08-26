@@ -232,6 +232,11 @@ function longPost(url, init) {
         resolve({ ok: status >= 200 && status < 300, status, text: async () => text, json: async () => JSON.parse(text) });
       });
     });
+    // The flow is QUIET for the whole generation — no bytes move while the
+    // provider thinks — and a quiet flow is what NAT and egress state timeouts
+    // drop. Keepalives every 30s hold that state open; fetch could never ask
+    // for this, node:https can.
+    req.on("socket", (s) => { try { s.setKeepAlive(true, 30000); } catch { /* diagnostic comfort only */ } });
     const onAbort = () => { if (settled) return; settled = true; req.destroy(); bail(); };
     if (signal) signal.addEventListener("abort", onAbort, { once: true });
     req.on("error", (e) => { if (settled) return; settled = true; reject(e); });
@@ -1386,6 +1391,15 @@ const server = http.createServer((req, res) => {
           MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
           await sendModelReport(report, { state: "done", answer });
         } catch (e) {
+          // NAMED IN THE LOG, WITH THE ELAPSED MS — which is the whole diagnosis
+          // for a status-less death: ~300000 is undici's headers wall (the
+          // transport below exists so this can never be it again), ~callMs is
+          // our own abort, anything else is the network. Runs 41-43 failed here
+          // and the retained logs held NOTHING, because nothing logged. Never
+          // `detail` — it can quote the request, and the request is the brief.
+          console.error("model call failed after", Date.now() - at, "ms —",
+            String((e && e.name) || "Error"), String((e && e.cause && e.cause.code) || ""),
+            String((e && e.message) || e).slice(0, 200));
           // THE SHAPE IS PRESERVED, exactly as `/model` preserves it: the Worker
           // parses `detail` for the provider's error type and reports `upstream`
           // as the numeric status and nothing else, and `retryHere` reads
@@ -1713,4 +1727,7 @@ const server = http.createServer((req, res) => {
   });
 });
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => console.log("isibi site build-service on :" + PORT));
+// `transport=longPost` is the IMAGE MARKER: run 43 was undiagnosable partly
+// because no log line could say which image the instance booted, and the
+// rollout lag makes that the first question every failed run asks.
+server.listen(PORT, () => console.log("isibi site build-service on :" + PORT + " transport=longPost"));
