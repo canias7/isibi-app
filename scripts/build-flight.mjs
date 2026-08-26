@@ -115,8 +115,44 @@ if (SLUG) {
   let rec = null;
   try { rec = JSON.parse(hl.body); } catch { rec = null; }
   const last = rec && rec.last;
+
+  // ── IS THIS RECORD EVEN ABOUT THE BUILD BEING ASKED ABOUT? ────────────────
+  //
+  // `lastExpiry` is the LAST one, and a lane is a SLUG — so a slug reused by two
+  // builds keeps only the newer record, and a lane whose latest build never
+  // expired keeps the OLDER one. The first run of this probe read a record from
+  // 2026-08-25T20:07 for `northgroup-5` and narrated it as though it described
+  // run 41, fourteen hours later: the disease this whole probe exists to end,
+  // arriving inside the cure. `gen probe` printed "STILL FAILED" about a job
+  // that had settled, for exactly this reason.
+  //
+  // PROBE_SINCE is when the build being asked about started — an ISO time or
+  // epoch ms. Without it the record is REPORTED and no verdict is drawn, because
+  // "we do not know whether this is about your build" is the honest answer and a
+  // confident wrong one sends the next session at the wrong layer.
+  const sinceRaw = String(process.env.PROBE_SINCE || "").trim();
+  const since = sinceRaw ? (Number.isFinite(Number(sinceRaw)) ? Number(sinceRaw) : Date.parse(sinceRaw)) : NaN;
+  const at = last && Number.isFinite(Number(last.at)) ? Number(last.at) : NaN;
+  const stale = Number.isFinite(since) && Number.isFinite(at) && at < since;
+
   log("");
-  if (hl.status !== 200 || !rec || rec.ok !== true) {
+  if (last && Number.isFinite(since) && !Number.isFinite(at)) {
+    log("HOOK RECORD: present but undated — it cannot be placed against your build.");
+    log("  " + JSON.stringify(last));
+  } else if (stale) {
+    // A RECORD OLDER THAN THE BUILD IS THE SAME ANSWER AS NO RECORD AT ALL, and
+    // it is a real one: the hook was NOT called for this lane while that build
+    // ran. So the idle timer is not what stopped it.
+    const oldBy = ((since - at) / 60000).toFixed(1);
+    log(`HOOK RECORD: STALE — the last expiry for this lane was ${oldBy} minutes BEFORE the build you are asking about.`);
+    log(`  (why=${last.why} at ${new Date(at).toISOString()}, build started ${new Date(since).toISOString()})`);
+    log("");
+    log("VERDICT: `onActivityExpired` was NEVER CALLED for this lane while that");
+    log("  build ran, so the idle timer is not what stopped its container. What");
+    log("  is left is Cloudflare reclaiming the instance, or the Node process");
+    log("  exiting — a crash, an OOM, or a platform lifetime cap. None of those");
+    log("  is reachable from here; the container's own stderr is where they live.");
+  } else if (hl.status !== 200 || !rec || rec.ok !== true) {
     log("HOOK RECORD: COULD NOT ASK. That is a fault in this probe or the route,");
     log("  never a verdict about the container — do not read it as one.");
   } else if (!last) {
@@ -130,9 +166,17 @@ if (SLUG) {
     log("  crash or an OOM). Neither is reachable from here; the container's own");
     log("  stderr is where that lives.");
   } else {
-    const ago = Number.isFinite(Number(last.at)) ? ((Date.now() - Number(last.at)) / 60000).toFixed(1) + "m ago" : "at ?";
+    const ago = Number.isFinite(at) ? ((Date.now() - at) / 60000).toFixed(1) + "m ago" : "at ?";
     log(`HOOK RECORD: why=${last.why} hold=${last.hold} busy=${last.busy} jobs=${last.jobs} sinceMs=${last.sinceMs} (${ago})`);
     log("");
+    if (!Number.isFinite(since)) {
+      // NOT DATED AGAINST ANYTHING. Every verdict below assumes this record is
+      // about the build you are asking about, and only PROBE_SINCE can say so.
+      log("  (PROBE_SINCE is not set, so nothing places this record against a particular");
+      log("   build. Read the verdict below as being about the LAST expiry on this lane,");
+      log("   whenever that was.)");
+      log("");
+    }
     // FIVE REASONS, FIVE DIFFERENT FIXES — the whole point of keeping them
     // apart in `holdDecision` rather than collapsing them to a boolean.
     if (last.why === "busy") {

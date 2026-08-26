@@ -320,7 +320,14 @@ test("the probe route exists, is gated, and can occupy only one lane", () => {
   const logBranch = blk.indexOf('url.searchParams.get("log")');
   assert.ok(logBranch > 0 && logBranch < holdCall, "the log branch is gone or has moved below the hold — rescope this guard");
   const aimed = [...blk.matchAll(/getContainer\(env\.SITE_BUILD_CONTAINER,\s*laneName\(([^)]*)\)\)/g)];
-  assert.ok(aimed.length >= 2, `the probe resolves ${aimed.length} containers — the addressable read is gone`);
+  // THE PROPERTY, NOT A COUNT. This was `aimed.length >= 2` and the mutant that
+  // switched the whole addressable read off SURVIVED: the block already holds
+  // TWO pinned `laneName("hold-probe")` calls, so the floor was satisfied by
+  // them while the slug was read, ignored, and every probe answered about the
+  // wrong lane — silently, which is the shape this feature exists to end. A
+  // count standing in for a property, in the guard written for it.
+  assert.ok(aimed.some((m) => m[1].trim() === "forSlug"),
+    `the log branch resolves no slug-addressed container — every probe would answer about the hold-probe's own lane. Found: ${aimed.map((m) => m[1].trim()).join(" | ")}`);
   for (const m of aimed) {
     const arg = m[1].trim();
     if (arg === '"hold-probe"') continue;
