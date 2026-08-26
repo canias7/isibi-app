@@ -42,6 +42,7 @@
 
 - **STATED HONESTLY: R2 persistence fixes `unknown` and does NOT fix `no-request`.** Which one run 40 hit is still unknown. Fix 1 covers both, which is why both shipped together.
 - 4319 tests (+10), **`site build` 253/253** against the real container (+7, the driven report block), **19/19 mutations as expected across three sweeps** from verified-green isolated baselines, each with a comment-only control that had to survive and each proved byte-identical to the source afterwards — after the three gaps above were closed and re-proven, plus one survivor measured inert. **NOT PROVEN LIVE** — run 41 is the measurement, and what it settles is whether a fired build now finishes.
+- **DEPLOYED ON `30153f2` AND RUN 41 IS FIRED AGAINST IT.** The deploy is green and `gen probe` passed on the same commit, so the container's key still works and its egress is still open — both of which would otherwise send every fired build straight back to a ten-minute generation in the Worker. **What the run reads is the trace row**: `resume:refire` says the container lost the work and the generation was started again where it can live; `resume:finish` on the first look says the persisted answer was collected; and a `TimeoutError` at the same place as run 40 would say neither fix reached it.
 
 ## A FIRED BUILD CAN SAY HOW IT IS GOING, AND UNTIL NOW IT COULD NOT (2026-08-26)
 
