@@ -109,7 +109,12 @@ jobs:
           # spent nothing. A per-workflow endpoint is exact and cannot be
           # crowded out however many other workflows a push happens to trigger.
           for i in $(seq 1 40); do
-            state=$(curl -sf "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?head_sha=${{ github.sha }}&per_page=1" \
+            # AUTHENTICATED, because run 42's first firing died right here: every
+            # unauthenticated poll was rate-limited for ten straight minutes (60/hr
+            # per IP, and a runner's IP is shared), the deploy completed unseen, and
+            # the job gave up having spent nothing. The workflow's own token gets
+            # 1,000/hr per repo and cannot be crowded out by other tenants.
+            state=$(curl -sf -H "authorization: Bearer ${{ github.token }}" "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?head_sha=${{ github.sha }}&per_page=1" \
               | node -e 'let s="";process.stdin.on("data",(c)=>s+=c).on("end",()=>{const d=JSON.parse(s);const r=(d.workflow_runs||[])[0];console.log(r?r.status+"/"+r.conclusion:"none");})') || state=err
             echo "deploy: $state (poll $i)"
             case "$state" in
