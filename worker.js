@@ -14822,6 +14822,85 @@ async function handleRequest(request, env, ctx) {
 
     // ── Game builder (Phase 3) ────────────────────────────────────────────
     // Health probe for the game build-service container (mirrors site build-health).
+    // GET /api/site/genprobe — DRIVE THE FIRE-AND-COLLECT PAIR, FOR NOTHING.
+    //
+    // `/api/site/reach` proves the container can reach a provider. It does NOT
+    // prove the mechanism stage 2 rests on: `/model/start` takes a job, runs the
+    // call in the BACKGROUND, and `/model/result` hands the answer back to a
+    // LATER, separate Worker invocation. Run 40 walked that whole path and came
+    // back `TimeoutError`, and every attempt to say which link broke has been an
+    // inference off an error name.
+    //
+    // ── WHY THIS COSTS NOTHING ──────────────────────────────────────────────
+    //
+    // The request names a model that does not exist. The provider refuses it
+    // before generating a token, so there is no spend — and the STATUS is itself
+    // the measurement: 404 means the key was accepted and the model was not,
+    // 401/403 means the container's key is missing or wrong. Those two need
+    // completely opposite fixes and have never been told apart.
+    //
+    // ── AND WHAT THE SECOND CALL MEASURES ───────────────────────────────────
+    //
+    // Poll the same id minutes later and the answer says whether the container
+    // still HAS it. `MODEL_JOBS` is in one instance's memory with a 45-minute
+    // TTL, so `unknown` inside that window means the instance was recycled —
+    // which is one of exactly two shapes that send a resume down the `here`
+    // branch, and the one a fired build cannot survive. A failed job holds no
+    // busy counter, so it is the honest test: nothing is keeping the container
+    // awake, which is the state a build is in between checkpoints.
+    //
+    // ITS OWN LANE, never a customer's. `laneName("gen-probe")` is a fixed
+    // label, so this can never queue behind — or ahead of — a real build.
+    if (url.pathname === "/api/site/genprobe" && request.method === "GET") {
+      const gu = await authUser(request);
+      if (!gu) return UNAUTHED();
+      if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, error: "container binding not configured" }, { status: 501 });
+      // THE LANE IS THE LITERAL AT THE CALL SITE, not a variable holding it, and
+      // that is a rule rather than a style: `build-lane.test.mjs` admits a bare
+      // identifier in exactly ONE function, because an identifier permitted
+      // anywhere is a door onto the caller-supplied key the whole check refuses.
+      // Reported through a SECOND call to the same pure function with the same
+      // literal — two evaluations of `laneName("gen-probe")` cannot disagree.
+      const lane = laneName("gen-probe");
+      const want = url.searchParams.get("id") || "";
+      const t0 = Date.now();
+      try {
+        const c = getContainer(env.SITE_BUILD_CONTAINER, laneName("gen-probe"));
+        // COLLECT — the container's own answer, passed through unchanged. This
+        // is the one place the shape `resumeDecision` reads is directly visible.
+        if (want) {
+          const r = await c.fetch(new Request("http://build/model/result?id=" + encodeURIComponent(want), {
+            method: "GET", signal: AbortSignal.timeout(FIRE_HOP_MS),
+          }));
+          const raw = await r.text();
+          let body = null; try { body = JSON.parse(raw); } catch { body = null; }
+          if (!body) return Response.json({ ok: false, phase: "result", status: r.status, body: raw.slice(0, 300), ms: Date.now() - t0 }, { status: 502 });
+          return Response.json({ ...body, phase: "result", lane, id: want, containerStatus: r.status, ms: Date.now() - t0 });
+        }
+        // FIRE. A model id no provider has, so the call is refused before a
+        // token is generated. `grok-` is the prefix `isXaiModel` routes on, so
+        // this exercises the same provider a real build uses.
+        const probeReq = {
+          model: "grok-no-such-model-probe",
+          max_tokens: 1,
+          messages: [{ role: "user", content: "probe" }],
+        };
+        const r = await c.fetch(new Request("http://build/model/start", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ req: probeReq, callMs: 30000 }),
+          signal: AbortSignal.timeout(FIRE_HOP_MS),
+        }));
+        const raw = await r.text();
+        let body = null; try { body = JSON.parse(raw); } catch { body = null; }
+        if (!body) return Response.json({ ok: false, phase: "start", status: r.status, body: raw.slice(0, 300), ms: Date.now() - t0 }, { status: 502 });
+        return Response.json({ ...body, phase: "start", lane, containerStatus: r.status, ms: Date.now() - t0 });
+      } catch (e) {
+        // THE CONTAINER ITSELF WAS UNREACHABLE, which is a different answer from
+        // anything it could have told us, and must not wear its wording.
+        return Response.json({ ok: false, phase: want ? "result" : "start", lane, error: "the container could not be reached: " + String((e && e.message) || e).slice(0, 200), kind: String((e && e.name) || "Error"), ms: Date.now() - t0 }, { status: 502 });
+      }
+    }
+
     // GET /api/site/reach — CAN THE BUILD CONTAINER REACH A MODEL PROVIDER.
     //
     // The one question the container-generation change rests on, and it has cost

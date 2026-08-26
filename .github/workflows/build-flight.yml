@@ -32,7 +32,7 @@ jobs:
     env:
       # The job id to look up. 32 hex, out of the 202 the build answered with.
       # Empty means "nothing to ask about" and the job stops immediately.
-      PROBE_JOB: dce16075a25944ec2bdf6d56e83ae4d0
+      PROBE_JOB: ""
     steps:
       - name: is there a job to ask about
         id: gate
