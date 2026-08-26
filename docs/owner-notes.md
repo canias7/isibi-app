@@ -10,6 +10,28 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## SOLVED — why the container kept losing the generation (2026-08-26)
+
+**Found it, fixed it, and photographed the fix working — for free.** Cloudflare
+stops container instances whenever it likes; the stop is polite (SIGTERM, then
+up to 15 minutes before the hard kill) and our build server had no handler, so
+it dropped dead instantly and threw away the paid generation every time. That is
+what killed run 41 twice at the 7–8-minute mark.
+
+- **The fix:** the container now refuses to die while a generation is running —
+  it finishes the model call, posts the answer to R2, then exits. Idle
+  containers still exit at once. Crashes now log their cause (logs are retained
+  7 days now — they used to go nowhere).
+- **The proof, live and free:** a probe held a container through the death
+  window and the answer came back `busy:true, stopping:true` — the platform HAD
+  sent the kill mid-window and the drain held it open.
+- **One trap measured on the way:** after a deploy that changes the container,
+  new instances keep getting the OLD image for ~10 minutes. **Fire paid builds
+  ~10 minutes after their deploy**, or they run last deploy's code.
+- **What run 42 settles (paid, your call):** a real generation riding through a
+  kill end to end — the trace should read `resume:finish` where run 41 read
+  `resume:refire` then `stop`.
+
 ## OPEN — waiting to be picked up
 
 **THE 15-MINUTE CAP — HALF FIXED, AND HERE IS EXACTLY WHERE IT STANDS (2026-08-25).**
