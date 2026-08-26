@@ -306,6 +306,29 @@ test("the probe route exists, is gated, and can occupy only one lane", () => {
   assert.ok(!/await c\.fetch\(new Request\("http:\/\/build\/hold/.test(blk),
     "the probe AWAITS the hold — an awaited fetch keeps inflightRequests above zero, " +
     "so the alarm never fires and the thing under test never happens");
+
+  // THE READ MAY BE AIMED AND THE HOLD MAY NOT, and the difference is what each
+  // one does to the platform. Reading the hook's record wakes a Durable Object
+  // and reads storage — it starts no container and occupies no lane — so it is
+  // addressable by slug, which is the only way the record can be read for a
+  // build that really happened. Holding OCCUPIES a lane, so a caller-chosen one
+  // there is a probe that can starve a customer's build. Asserted apart,
+  // because the natural tidy-up is to hoist the slug to the top and let both
+  // use it, and that reads like a simplification.
+  const holdCall = blk.indexOf('c.fetch(new Request("http://build/hold');
+  assert.ok(holdCall > 0, "the hold fetch is gone — rescope this guard");
+  const logBranch = blk.indexOf('url.searchParams.get("log")');
+  assert.ok(logBranch > 0 && logBranch < holdCall, "the log branch is gone or has moved below the hold — rescope this guard");
+  const aimed = [...blk.matchAll(/getContainer\(env\.SITE_BUILD_CONTAINER,\s*laneName\(([^)]*)\)\)/g)];
+  assert.ok(aimed.length >= 2, `the probe resolves ${aimed.length} containers — the addressable read is gone`);
+  for (const m of aimed) {
+    const arg = m[1].trim();
+    if (arg === '"hold-probe"') continue;
+    // Anything that is NOT the pinned literal has to live inside the log
+    // branch AND above the hold, so it can never be what gets held.
+    assert.ok(m.index > logBranch && m.index < holdCall,
+      `a container is resolved from ${arg} outside the log branch — a caller-chosen lane must never be one this route can OCCUPY`);
+  }
 });
 
 test("THE HOLD IS HELD ON ctx.waitUntil — an abandoned fetch is CANCELLED", () => {

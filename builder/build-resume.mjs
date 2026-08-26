@@ -43,6 +43,12 @@ export const RESUME_PREFIX = "jobs/";
 export const RESUME_KIND = "site-build-resume";
 export const RESUME_VERSION = 1;
 
+// HOW MANY CARRIED MARKS A RECORD MAY HOLD. A fire's whole trace is ~16, and
+// this record is read and re-written on every look — so an unbounded list is a
+// record that grows for as long as a build keeps being looked at. The OLDEST go,
+// because the marks nearest the failure are the ones anybody is reading for.
+export const MAX_RESUME_STEPS = 40;
+
 // CLOUDFLARE'S OWN CEILING ON A DELAYED MESSAGE — 24 hours, for `send()` and
 // `msg.retry()` alike (verified against their documentation rather than
 // assumed). A value past it is not a slower resume, it is a call the platform
@@ -333,7 +339,7 @@ export function readGenReport(raw) {
  * shape that already has one, and the day they disagree the resume refuses a
  * design that is perfectly good.
  */
-export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, charged, looks, refires, design }) {
+export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, charged, looks, refires, steps, design }) {
   return {
     v: RESUME_VERSION,
     kind: RESUME_KIND,
@@ -357,8 +363,41 @@ export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, 
     // clock being reset (a re-fire IS a new generation, so `firedAt` and `looks`
     // both go back; if the count went with them nothing would ever stop).
     refires: Number.isFinite(refires) && refires > 0 ? Math.trunc(refires) : 0,
+    // WHAT THIS BUILD HAD ALREADY RECORDED WHEN IT FIRED.
+    //
+    // `site_builds` is one row per SLUG and every invocation starts a fresh
+    // recorder, so without this each resume REPLACES the build's history with
+    // its own two or three marks. Measured on `northgroup-5`: the row for a
+    // build that made a design call, provisioned, fired, refired and gave up
+    // read `[{resume:stop}, {fonts}] total_ms 56`. The trace exists precisely so
+    // a build nobody is watching can still say where it got to, and on the one
+    // path where nobody IS watching it was erasing itself.
+    //
+    // BOUNDED AND NARROWED, because this is a record read back and re-written on
+    // every look: a name and finite numbers only, oldest dropped past the cap.
+    // OPTIONAL — a record written before this has none and resumes exactly as it
+    // did, with a short trace rather than no build.
+    steps: normalizeSteps(steps),
     design: design && typeof design === "object" && !Array.isArray(design) ? design : null,
   };
+}
+
+/** The same bar a live mark clears: a name, and numbers that are numbers. */
+function normalizeSteps(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const s of list.slice(-MAX_RESUME_STEPS)) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) continue;
+    const name = typeof s.s === "string" ? s.s.slice(0, 40) : "";
+    if (!name) continue;
+    const step = { s: name };
+    for (const [k, v] of Object.entries(s)) {
+      if (k === "s") continue;
+      if (typeof v === "number" && Number.isFinite(v)) step[k] = v;
+    }
+    out.push(step);
+  }
+  return out;
 }
 
 /** An unknown step name is DROPPED rather than kept. What a kept typo produces
@@ -417,6 +456,11 @@ export function readResume(raw) {
     // re-fire. Reading a missing count as "already spent" would refuse the
     // recovery to exactly the in-flight builds this shipped to rescue.
     refires: Number.isFinite(raw.refires) && raw.refires > 0 ? Math.trunc(raw.refires) : 0,
+    // NARROWED AGAIN ON THE WAY OUT, not merely on the way in. These marks go
+    // straight into a row, and a record written by an older version — or edited
+    // by hand while somebody was debugging — has never been through the writer
+    // above. One reading, both directions.
+    steps: normalizeSteps(raw.steps),
     design: raw.design,
   };
 }

@@ -10358,6 +10358,21 @@ async function runResumedSiteBuild(env, ctx, id) {
   const rec = makeRecorder({
     write: (row) => writeBuildRecord(env, row),
     hold: (p) => { try { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); } catch { /* never */ } },
+    // ── THE BUILD'S OWN HISTORY, CARRIED RATHER THAN REPLACED ────────────────
+    //
+    // `site_builds` is one row per SLUG and every invocation starts a fresh
+    // recorder, so without this each terminal look OVERWRITES everything the
+    // build did before it. Measured on `northgroup-5`: a build that designed,
+    // provisioned, fired, refired and gave up left a row reading
+    // `[{resume:stop}, {fonts}] total_ms 56` — the whole expensive half gone,
+    // in the record that exists precisely because nobody is watching a fired
+    // build. Reading it, the design call and the provisioning looked as though
+    // they had never happened.
+    //
+    // A `wait` look deliberately gets no recorder at all, above, for the same
+    // reason inverted: it would replace the row with its own single mark. How
+    // many looks there have been is `looks`, which `build flight` prints.
+    prior: claimed.steps,
   });
   // ── THE RECORDER HAS TO BE TOLD WHICH SITE IT IS RECORDING ──────────────────
   //
@@ -12134,6 +12149,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             // settled against it, both long before the generation started.
             charged: ["deposit", "schema"],
             looks: 0,
+            // WHAT THIS BUILD HAS ALREADY RECORDED, so the resume can carry it
+            // rather than replacing it. Taken HERE rather than after the `fired`
+            // mark below, which is honest: that mark is about the handoff, and
+            // this snapshot is what the build had done when it decided to fire.
+            steps: (() => { try { return tr.done().steps; } catch { return []; } })(),
             design: { ...design, attachments: [] },
           })));
           stored = true;
@@ -14354,9 +14374,29 @@ async function handleRequest(request, env, ctx) {
       // stopped the container. Recorded in DO storage, which SURVIVES the
       // container being stopped — the container's own memory does not, which is
       // exactly why the first run could say nothing.
+      //
+      // ADDRESSABLE BY SLUG, AND ONLY THIS BRANCH IS. The hold above is pinned
+      // to one lane for a stated reason — it OCCUPIES that lane, so a
+      // caller-supplied one is a probe that can starve a real build. Reading a
+      // record occupies nothing: it wakes the Durable Object, reads storage and
+      // does not start the container image (traced through the library's
+      // constructor, which schedules an alarm and checks `container.running`
+      // without ever starting it). So the two questions get two rules, and the
+      // guard asserts the hold still cannot be aimed.
+      //
+      // WITHOUT THIS THE RECORD IS UNREADABLE FOR EVERY BUILD THERE HAS EVER
+      // BEEN. A fired build's container is `laneName(slug)` and this route knew
+      // only `laneName("hold-probe")`, so the one piece of evidence that
+      // survives a stopped container could be read for a lane no build uses.
+      // Run 41 lost two generations and this is what says which of the five
+      // things stopped that container.
       if (url.searchParams.get("log")) {
+        const forSlug = String(url.searchParams.get("slug") || "").trim();
         try {
-          return Response.json({ ok: true, last: await c.lastExpiry() });
+          const target = forSlug
+            ? getContainer(env.SITE_BUILD_CONTAINER, laneName(forSlug))
+            : c;
+          return Response.json({ ok: true, lane: forSlug ? laneName(forSlug) : laneName("hold-probe"), last: await target.lastExpiry() });
         } catch (e) {
           return Response.json({ ok: false, err: String((e && e.name) || e) });
         }

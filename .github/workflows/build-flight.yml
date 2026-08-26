@@ -31,14 +31,20 @@ jobs:
     timeout-minutes: 20
     env:
       # The job id to look up. 32 hex, out of the 202 the build answered with.
-      # Empty means "nothing to ask about" and the job stops immediately.
+      # Empty means "nothing to ask about". SETTING THIS CONSUMES THE RESULT —
+      # the route is delete-on-read — so point it at an abandoned job only.
       PROBE_JOB: ""
+      # THE SITE'S SLUG, for the OTHER question about the same dead build: why
+      # its container stopped. A PURE READ of a record in Durable Object
+      # storage — it starts no container, occupies no lane and consumes nothing,
+      # so unlike the job id above this one is safe to leave pointed anywhere.
+      PROBE_SLUG: "northgroup-5"
     steps:
-      - name: is there a job to ask about
+      - name: is there anything to ask about
         id: gate
         run: |
-          if [ -z "$PROBE_JOB" ]; then
-            echo "PROBE_JOB is empty — nothing to look up. Set it in this workflow to use the probe."
+          if [ -z "$PROBE_JOB" ] && [ -z "$PROBE_SLUG" ]; then
+            echo "PROBE_JOB and PROBE_SLUG are both empty — nothing to look up. Set one in this workflow to use the probe."
             echo "go=no" >> "$GITHUB_OUTPUT"
           else
             echo "go=yes" >> "$GITHUB_OUTPUT"
@@ -73,6 +79,12 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           OWNER_EMAIL: aniascristian@gmail.com
           OWNER_BASE_URL: https://gofarther.dev
+          # FORWARDED EXPLICITLY. A job-level `env` is visible to the step, but
+          # naming them here is what makes it obvious that adding a third
+          # variable means adding it in two places — and a variable the script
+          # reads and the step never passes is a probe silently asking nothing.
+          PROBE_JOB: ${{ env.PROBE_JOB }}
+          PROBE_SLUG: ${{ env.PROBE_SLUG }}
         run: node scripts/build-flight.mjs
       - uses: actions/upload-artifact@v4
         if: always() && steps.gate.outputs.go == 'yes'

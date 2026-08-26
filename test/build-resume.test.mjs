@@ -11,7 +11,7 @@ import fs from "node:fs";
 import {
   RESUME_PREFIX, RESUME_KIND, RESUME_VERSION, RESUME_POLL_SECONDS, RESUME_FIRST_SECONDS,
   RESUME_DEADLINE_MS, RESUME_SLACK_MS, RESUME_MAX_LOOKS, RESUME_MAX_REFIRES, CHARGE_STEPS,
-  MAX_DELAY_SECONDS, isTerminal,
+  MAX_DELAY_SECONDS, isTerminal, MAX_RESUME_STEPS,
   isResumeId, resumeKey, isReportToken, genKey, readGenReport,
   packResume, readResume, alreadyCharged, withCharged, resumeDecision,
   packResumeMessage, readResumeMessage, nextLook, queueDelay,
@@ -661,4 +661,41 @@ test("flightOf REFUSES A SHAPE IT WAS NOT GIVEN, and never invents a clock", () 
   assert.equal(none.due, 0);
   // A clock behind the fire is a clock, not a negative age.
   assert.equal(flightOf(GOOD, GOOD.firedAt - 99999).elapsedMs, 0);
+});
+
+test("THE RECORD CARRIES THE BUILD'S OWN MARKS, narrowed both ways", () => {
+  // Without this a resume's fresh recorder replaces the build's history — the
+  // row for `northgroup-5` read two marks for a build that made a design call,
+  // provisioned, fired and refired. Narrowed on the way IN and again on the way
+  // OUT, because a record written by an older version, or edited by hand while
+  // somebody was debugging, has never been through the writer.
+  const base = { id: "a".repeat(32), auth: "t", uid: "u", slug: "s", lane: "L", genId: "g", firedAt: 1, design: {} };
+  const packed = packResume({ ...base, steps: [
+    { s: "design", ms: 10, conn: "postgres://u:p@h/d" },
+    { s: "gate", ms: 1, n: NaN },
+    { s: "", ms: 1 },
+    "gate",
+    null,
+  ] });
+  assert.deepEqual(packed.steps, [{ s: "design", ms: 10 }, { s: "gate", ms: 1 }],
+    "the record stores free text or a nameless mark — a trace step is a NAME and finite numbers");
+  assert.deepEqual(readResume(packed).steps, packed.steps, "a stored mark does not survive the read back");
+
+  // ABSENT READS AS NONE, which is every record written before this existed.
+  // Refusing one would strand every build in flight the moment it shipped.
+  const { steps: _drop, ...old } = packed;
+  assert.deepEqual(readResume({ ...old }).steps, [], "a record with no marks is refused rather than resumed");
+  assert.ok(readResume({ ...old }) !== null, "a record written before marks were carried can no longer be resumed");
+
+  // AND A HAND-EDITED RECORD IS NARROWED ON READ, not trusted for having been
+  // stored: this list goes straight into a row.
+  assert.deepEqual(readResume({ ...packed, steps: [{ s: "x", brief: "a customer's words" }] }).steps, [{ s: "x" }],
+    "a stored mark's free text reaches the row");
+  assert.deepEqual(readResume({ ...packed, steps: "design" }).steps, [], "a non-list of marks is not refused");
+
+  // BOUNDED, oldest dropped — the record is re-written on every look.
+  const many = Array.from({ length: MAX_RESUME_STEPS + 5 }, (_, i) => ({ s: "m" + i }));
+  const cap = packResume({ ...base, steps: many });
+  assert.equal(cap.steps.length, MAX_RESUME_STEPS, `stored ${cap.steps.length} marks against a cap of ${MAX_RESUME_STEPS}`);
+  assert.equal(cap.steps[cap.steps.length - 1].s, "m" + (MAX_RESUME_STEPS + 4), "the NEWEST marks were dropped");
 });

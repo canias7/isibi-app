@@ -51,6 +51,14 @@ const BASE = process.env.OWNER_BASE_URL || "https://gofarther.dev";
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || anonKeyFromFrontend();
 const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 const JOB = String(process.env.PROBE_JOB || "").trim();
+// AND WHY THE CONTAINER STOPPED, which is a different question about the same
+// dead build and the only record that survives the container itself. Run 41 lost
+// two generations: the container answered `pending` for four minutes and then
+// answered `unknown`, and nothing anywhere could say which of five things
+// stopped it. `onActivityExpired` writes its decision to Durable Object storage,
+// which outlives the container by design — see `builder/container-hold.mjs` for
+// the five reasons and why each wants a different response.
+const SLUG = String(process.env.PROBE_SLUG || "").trim();
 
 const LOG_FILE = process.env.FLIGHT_LOG || "flight-probe.md";
 const lines = ["# Fired-build flight probe", "", "Started " + new Date().toISOString(), ""];
@@ -67,12 +75,12 @@ const desc = (v) => (v ? `set (${String(v).length} chars)` : "MISSING");
 // A JOB ID IS 32 HEX AND IS CHECKED HERE, not left to the route. An unset or
 // mistyped one answers 404 there, which reads exactly like "that build has no
 // record" — the false negative this probe exists to avoid producing.
-if (!JOB) fail("PROBE_JOB is not set — nothing to look up");
-if (!/^[0-9a-f]{32}$/.test(JOB)) fail(`PROBE_JOB is not a job id (32 hex): ${JOB.slice(0, 40)}`);
+if (!JOB && !SLUG) fail("neither PROBE_JOB nor PROBE_SLUG is set — nothing to look up");
+if (JOB && !/^[0-9a-f]{32}$/.test(JOB)) fail(`PROBE_JOB is not a job id (32 hex): ${JOB.slice(0, 40)}`);
 if (!EMAIL) fail("OWNER_EMAIL is not set");
 if (!SERVICE_KEY) fail("SUPABASE_SERVICE_KEY is not set");
 if (!ANON_KEY) fail("SUPABASE_ANON_KEY is not set");
-log(`step 0 — base=${BASE} job=${JOB} email=${EMAIL} service_key=${desc(SERVICE_KEY)} anon_key=${desc(ANON_KEY)}`);
+log(`step 0 — base=${BASE} job=${JOB || "-"} slug=${SLUG || "-"} email=${EMAIL} service_key=${desc(SERVICE_KEY)} anon_key=${desc(ANON_KEY)}`);
 
 // ── sign in as the owner (admin magic link; no password anywhere) ────────────
 const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };
@@ -92,6 +100,76 @@ const session = await vr.json().catch(() => ({}));
 const jwt = session.access_token;
 log(`step 2 — verify answered ${vr.status}; access_token ${desc(jwt)}`);
 if (!vr.ok || !jwt) fail("could not open a session: " + JSON.stringify(session).slice(0, 300));
+
+// ── why did the container stop? ──────────────────────────────────────────────
+//
+// FIRST, because it is the pure read: the job lookup below is DELETE-ON-READ and
+// a failure there must not cost this answer too. Runs on its own gate, so a
+// slug-only probe is a complete run.
+if (SLUG) {
+  const hl = await fetch(`${BASE}/api/_hold?log=1&slug=${encodeURIComponent(SLUG)}`, {
+    headers: { Authorization: `Bearer ${jwt}` },
+    signal: AbortSignal.timeout(30000),
+  }).then(async (x) => ({ status: x.status, body: await x.text() })).catch((e) => ({ status: 0, body: String((e && e.message) || e) }));
+  log(`step 2c — the hook's record for ${SLUG}: ${hl.status} ${String(hl.body).slice(0, 400)}`);
+  let rec = null;
+  try { rec = JSON.parse(hl.body); } catch { rec = null; }
+  const last = rec && rec.last;
+  log("");
+  if (hl.status !== 200 || !rec || rec.ok !== true) {
+    log("HOOK RECORD: COULD NOT ASK. That is a fault in this probe or the route,");
+    log("  never a verdict about the container — do not read it as one.");
+  } else if (!last) {
+    // THE HOOK NEVER RAN. Which is itself an answer, and the one that rules the
+    // hold mechanism out entirely: the container was stopped by something that
+    // never consulted us — Cloudflare reclaiming the instance, or the process
+    // exiting on its own.
+    log("HOOK RECORD: NONE — `onActivityExpired` was never called for this lane.");
+    log("  So the idle timer is NOT what stopped that container. What is left is");
+    log("  Cloudflare reclaiming the instance, or the Node process exiting (a");
+    log("  crash or an OOM). Neither is reachable from here; the container's own");
+    log("  stderr is where that lives.");
+  } else {
+    const ago = Number.isFinite(Number(last.at)) ? ((Date.now() - Number(last.at)) / 60000).toFixed(1) + "m ago" : "at ?";
+    log(`HOOK RECORD: why=${last.why} hold=${last.hold} busy=${last.busy} jobs=${last.jobs} sinceMs=${last.sinceMs} (${ago})`);
+    log("");
+    // FIVE REASONS, FIVE DIFFERENT FIXES — the whole point of keeping them
+    // apart in `holdDecision` rather than collapsing them to a boolean.
+    if (last.why === "busy") {
+      log("VERDICT: THE HOOK HELD IT. The hold mechanism did its job, so whatever");
+      log("  stopped that container did not go through us. Same shortlist as the");
+      log("  no-record case: eviction, or the process exiting.");
+    } else if (last.why === "no-answer") {
+      log("VERDICT: THE HOOK STOPPED A CONTAINER IT COULD NOT REACH.");
+      log("  `containerFetch` to /busy failed or timed out inside the alarm and");
+      log("  `holdDecision` fails CLOSED, so a container that was mid-generation");
+      log("  was stopped. That is a silent kill of live work, and the fix is in");
+      log("  `holdDecision` — the trade it makes is stated in its own source.");
+    } else if (last.why === "idle") {
+      log("VERDICT: THE CONTAINER SAID IT WAS IDLE WHILE A GENERATION WAS RUNNING.");
+      log("  The busy counter is what `oneAtATime` holds for exactly this, so it");
+      log("  was released early — a real bug in the container, not in the hook.");
+    } else if (last.why === "unreadable") {
+      log("VERDICT: VERSION SKEW. The container answered /busy in a shape the");
+      log("  Worker does not understand, so it could not be capped and was");
+      log("  stopped. A deploy problem rather than a wedge.");
+    } else if (last.why === "stuck") {
+      log("VERDICT: HELD PAST MAX_BUSY_HOLD_MS and then stopped. Re-measure that");
+      log("  bound against how long a generation really takes.");
+    } else {
+      // REPORTED RATHER THAN NARRATED. An unanticipated reason must never be
+      // described by a branch written for something else — `gen probe` printed
+      // "STILL FAILED" about a job that had settled, for exactly that reason.
+      log("VERDICT: an outcome none of these branches knows: " + JSON.stringify(last));
+    }
+  }
+  log("");
+}
+
+if (!JOB) {
+  log("PROBE_JOB is not set, so there is no stored result to collect. Done.");
+  process.exit(0);
+}
 
 // ── ask the route ────────────────────────────────────────────────────────────
 let r, raw, body;

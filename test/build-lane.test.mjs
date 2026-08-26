@@ -312,6 +312,29 @@ test("EVERY SITE BUILD IS KEYED BY THE SLUG, and only a probe may key by a liter
     // permitted anywhere is a door onto exactly the caller-supplied key the rest
     // of this check refuses.
     if (arg === "lane" && enclosing(at) === "askContainerResult") continue;
+    // A SLUG-ADDRESSED READ IS THE FOURTH LEGAL SHAPE, and it is admitted for
+    // the reason this rule exists rather than in spite of it. What the rule
+    // protects is OCCUPANCY — "a probe keyed by something caller-supplied could
+    // pick a container and starve a real build" — and reading the hook's own
+    // record occupies nothing: it wakes a Durable Object and reads storage,
+    // starting no container (traced through the library's constructor, which
+    // schedules an alarm and checks `container.running` without ever starting
+    // it). Without it the one record that survives a stopped container could
+    // only be read for a lane no build has ever used.
+    //
+    // BY PLACE AS WELL AS BY NAME, and the place is checked HERE rather than
+    // left to the sibling guard: `/api/_hold` also HOLDS a container, and a
+    // slug-addressed lane that drifted into that branch is exactly the starving
+    // probe this loop refuses. Two guards each assuming the other checks the
+    // position is how a shape gets permitted everywhere.
+    if (arg === "laneName(forSlug)") {
+      const logAt = code.indexOf('url.searchParams.get("log")');
+      const holdAt = code.indexOf('c.fetch(new Request("http://build/hold');
+      assert.ok(logAt > 0 && holdAt > logAt, "the hold probe's log branch or its hold has moved — rescope this exception");
+      assert.ok(at > logAt && at < holdAt,
+        "a slug-addressed container is resolved outside the log branch — a caller-chosen lane must never be one this route can OCCUPY");
+      continue;
+    }
     // Anything else that is not a build must be a FIXED literal. A probe keyed by
     // something caller-supplied could pick a container and starve a real build.
     assert.ok(arg === "laneName(slug)" || /^laneName\("[a-z0-9-]+"\)$/.test(arg),

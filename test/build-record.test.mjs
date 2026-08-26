@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { makeRecorder, BUILD_RECORD_TABLE } from "../builder/build-record.mjs";
+import { makeRecorder, BUILD_RECORD_TABLE, MAX_PRIOR_STEPS } from "../builder/build-record.mjs";
 import { makeTrace } from "../builder/trace.mjs";
 
 /** A write that records what it was given and resolves when told to. */
@@ -303,4 +303,86 @@ test("deleting a site deletes its build record", () => {
   assert.ok(del, "a deleted site keeps its build record, which the next owner of that slug inherits");
   const idx = body.indexOf(del[0]);
   assert.match(body.slice(idx, idx + 400), /method: "DELETE"/, "the cleanup is not a DELETE");
+});
+
+// ── A LATER INVOCATION MUST NOT ERASE AN EARLIER ONE ────────────────────────
+//
+// The row is keyed on the SLUG and upserted, so every recorder writes over the
+// last one. That was the whole truth while a build was ONE invocation; a fired
+// build is several, and each terminal look was replacing the design call, the
+// provisioning and the fire with its own two marks. Measured on `northgroup-5`.
+
+test("A RECORDER CARRIES AN EARLIER INVOCATION'S MARKS", () => {
+  const rows = [];
+  const rec = makeRecorder({
+    write: (row) => { rows.push(row); return Promise.resolve(); },
+    prior: [{ s: "design", ms: 170000 }, { s: "provision", ms: 200 }, { s: "fired", ms: 1 }],
+  });
+  rec.identify("northgroup-5", "u1");
+  rec.step({ steps: [{ s: "resume:refire", ms: 0 }], totalMs: 40 });
+  const row = rows[rows.length - 1];
+  assert.deepEqual(row.steps.map((s) => s.s), ["design", "provision", "fired", "resume:refire"],
+    "the resume's marks replaced the build's history instead of continuing it");
+  // `at` IS READ OFF THE STEPS, so it must name THIS invocation's last mark and
+  // not a carried one — "where did it get to" is a question about now.
+  assert.equal(row.at, "resume:refire", "`at` names a carried mark rather than where the build actually is");
+  // TIME SPENT, NOT ELAPSED. The carried total is added, because a fired build
+  // spends most of its life waiting in a queue and none of that is work.
+  assert.equal(row.total_ms, 170241, `total_ms is ${row.total_ms} — the earlier invocations' time was dropped`);
+});
+
+test("A CARRIED MARK CLEARS THE SAME BAR A LIVE ONE DOES", () => {
+  // These come off a stored record, so they have to be narrowed on the way IN
+  // as well as on the way out. `makeTrace` accepts a name and finite numbers and
+  // nothing else, deliberately, so a connection string cannot reach this table
+  // by any route — a mark read back is not exempt for having been ours once.
+  const rows = [];
+  const rec = makeRecorder({
+    write: (row) => { rows.push(row); return Promise.resolve(); },
+    prior: [
+      { s: "design", ms: 10, conn: "postgres://u:p@host/db" },
+      { s: "ok", ms: NaN, n: Infinity, good: 5 },
+      { s: "", ms: 1 },
+      { ms: 1 },
+      null,
+      "design",
+      { s: "x".repeat(90), ms: 1 },
+    ],
+  });
+  rec.identify("s", "u");
+  rec.step({ steps: [], totalMs: 0 });
+  const steps = rows[rows.length - 1].steps;
+  assert.deepEqual(steps.map((s) => s.s), ["design", "ok", "x".repeat(40)],
+    "a nameless or non-object mark was kept");
+  assert.deepEqual(steps[0], { s: "design", ms: 10 }, "a carried mark kept free text — a connection string can reach the trace");
+  assert.deepEqual(steps[1], { s: "ok", good: 5 }, "a carried mark kept a value that is not a finite number");
+});
+
+test("THE CARRIED LIST IS BOUNDED, oldest first", () => {
+  // This record is read and re-written on every look, so an unbounded list is a
+  // record that grows for as long as a build keeps being looked at. The OLDEST
+  // go, because the marks nearest the failure are what anybody is reading for.
+  const rows = [];
+  const many = Array.from({ length: MAX_PRIOR_STEPS + 10 }, (_, i) => ({ s: "m" + i, ms: 1 }));
+  const rec = makeRecorder({ write: (row) => { rows.push(row); return Promise.resolve(); }, prior: many });
+  rec.identify("s", "u");
+  rec.step({ steps: [], totalMs: 0 });
+  const steps = rows[rows.length - 1].steps;
+  assert.equal(steps.length, MAX_PRIOR_STEPS, `kept ${steps.length} carried marks against a cap of ${MAX_PRIOR_STEPS}`);
+  assert.equal(steps[steps.length - 1].s, "m" + (MAX_PRIOR_STEPS + 9), "the NEWEST marks were dropped — the tail is what a reader wants");
+});
+
+test("NO PRIOR IS THE ORDINARY BUILD, byte for byte", () => {
+  // Every recorder that is not a resume passes none, so a build that does not
+  // use this must be unchanged — including the shapes a caller could pass by
+  // accident, none of which may become a mark.
+  for (const prior of [undefined, null, [], "design", 7, {}]) {
+    const rows = [];
+    const rec = makeRecorder({ write: (row) => { rows.push(row); return Promise.resolve(); }, prior });
+    rec.identify("s", "u");
+    rec.step({ steps: [{ s: "gate", ms: 3 }], totalMs: 9 });
+    const row = rows[rows.length - 1];
+    assert.deepEqual(row.steps, [{ s: "gate", ms: 3 }], `prior=${JSON.stringify(prior)} changed an ordinary build's marks`);
+    assert.equal(row.total_ms, 9, `prior=${JSON.stringify(prior)} changed an ordinary build's total`);
+  }
 });

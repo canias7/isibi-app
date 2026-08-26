@@ -54,9 +54,46 @@ export const BUILD_RECORD_TABLE = "site_builds";
  * whatever went wrong. Optional, because a caller with no request context is
  * better off recording most of a build than none of it.
  */
-export function makeRecorder({ write, hold = null, now = () => Date.now() } = {}) {
+/** How many carried-forward marks a row may hold. A fire's whole trace is ~16
+ *  and a bound is what stops a record that keeps being re-read growing without
+ *  one. The OLDEST are dropped, because a truncated tail loses the marks nearest
+ *  the failure and those are the ones anybody is reading for. */
+export const MAX_PRIOR_STEPS = 40;
+
+export function makeRecorder({ write, hold = null, now = () => Date.now(), prior = null } = {}) {
   let slug = null;
   let uid = null;
+  // WHAT AN EARLIER INVOCATION OF THIS BUILD ALREADY RECORDED.
+  //
+  // `site_builds` is one row per SLUG, upserted — which was the whole truth
+  // while a build was ONE invocation. Stage 2 makes it several: a fire, then a
+  // look every minute, then the one that finishes. Each starts a fresh recorder,
+  // so each REPLACED the row and the build's history was whatever the last
+  // invocation happened to do. Measured on `northgroup-5`, the run that lost two
+  // generations: the row read `[{resume:stop}, {fonts}] total_ms 56` — the
+  // design call, the provisioning and the fire were all gone, and the trace is
+  // the record that is supposed to survive nobody looking.
+  //
+  // NARROWED THE SAME WAY A LIVE MARK IS. `makeTrace` accepts a name and finite
+  // numbers and nothing else, deliberately, so a connection string cannot reach
+  // this table by any route — and a mark read back off a stored record has to
+  // clear the same bar rather than being trusted for having been ours once.
+  const carried = [];
+  let carriedMs = 0;
+  if (Array.isArray(prior)) {
+    for (const s of prior.slice(-MAX_PRIOR_STEPS)) {
+      if (!s || typeof s !== "object") continue;
+      const name = typeof s.s === "string" ? s.s.slice(0, 40) : "";
+      if (!name) continue;
+      const step = { s: name };
+      for (const [k, v] of Object.entries(s)) {
+        if (k === "s") continue;
+        if (typeof v === "number" && Number.isFinite(v)) step[k] = v;
+      }
+      if (typeof step.ms === "number") carriedMs += Math.max(0, step.ms);
+      carried.push(step);
+    }
+  }
   // THE NEWEST SNAPSHOT NOT YET WRITTEN — the SNAPSHOT, not a finished row.
   //
   // Built into a row at step time instead, a buffered step captures `slug` as it
@@ -111,8 +148,15 @@ export function makeRecorder({ write, hold = null, now = () => Date.now() } = {}
 
   /** The row as it stands. Only names and finite numbers reach it — see above. */
   function rowFor(snapshot, extra) {
-    const steps = (snapshot && Array.isArray(snapshot.steps)) ? snapshot.steps : [];
-    const total = snapshot && Number.isFinite(snapshot.totalMs) ? snapshot.totalMs : Math.max(0, clock() - started);
+    const mine = (snapshot && Array.isArray(snapshot.steps)) ? snapshot.steps : [];
+    const steps = carried.length ? carried.concat(mine) : mine;
+    const own = snapshot && Number.isFinite(snapshot.totalMs) ? snapshot.totalMs : Math.max(0, clock() - started);
+    // TIME SPENT, NOT TIME ELAPSED, which is what `total_ms` has always meant
+    // and is why the carried total is ADDED rather than the wall clock since the
+    // fire being used. A fired build spends most of its life waiting in a queue
+    // and none of that is work; how long it has been waiting is `looks` against
+    // the schedule, which `build flight` already prints.
+    const total = own + carriedMs;
     return {
       slug,
       uid: uid || null,

@@ -1053,3 +1053,56 @@ test("THE CONTAINER REPORTS A FAILURE AS WELL AS AN ANSWER", () => {
   assert.doesNotMatch(send, /\bthrow\b/,
     "the report send can throw — an unreachable Worker would take the generation's in-memory answer with it");
 });
+
+// ── THE BUILD'S TRACE SURVIVES ITS OWN RESUMES ──────────────────────────────
+//
+// `site_builds` is one row per SLUG, upserted — the whole truth while a build
+// was ONE invocation, and stage 2 makes it several. Each starts a fresh
+// recorder, so without carrying the marks forward every terminal look REPLACES
+// the build's history with its own two or three.
+//
+// MEASURED, not feared. `northgroup-5` designed, provisioned, fired, refired
+// and gave up, and its row read `[{s:"resume:stop"},{s:"fonts"}] total_ms 56`.
+// The design call, the provisioning and the fire were gone — from the record
+// that exists precisely because nobody is watching a fired build.
+
+test("THE FIRE STORES WHAT IT HAD ALREADY RECORDED", () => {
+  // THE FIRE'S OWN CALL, NOT THE FIRST `packResume` IN THE FILE. `recordRefire`
+  // writes one too and it comes EARLIER, so a bare `indexOf` reads the refire —
+  // which carries the marks by SPREADING the record it already read and spells
+  // no `steps:` at all. The wrong-occurrence trap, and it caught this guard on
+  // its first run. Anchored on the one thing only the fire says: it is the
+  // invocation that took the deposit and settled the design call.
+  const mark = CODE.indexOf('charged: ["deposit", "schema"]');
+  assert.ok(mark > 0, "the fire's resume record is gone — rescope this guard");
+  const at = CODE.lastIndexOf("packResume({", mark);
+  assert.ok(at > 0 && at < mark, "the fire no longer writes a resume record — rescope this guard");
+  const call = CODE.slice(at, close(CODE, at + "packResume".length));
+  assert.ok(call.includes('charged: ["deposit", "schema"]'), "the window does not cover the fire's own call");
+  assert.match(call, /steps:/, "the fire stores no marks, so every resume replaces the build's history");
+  // FROM THE TRACE ITSELF, never a hand-kept list: a second place naming the
+  // steps is a second thing that can disagree about what this build did.
+  assert.match(call, /tr\.done\(\)\.steps/, "the fire's stored marks do not come from the trace");
+  // AND IT CANNOT BREAK THE BUILD. A trace is never worth a build — the rule
+  // every other `tr` call on this path already lives under.
+  assert.match(call, /catch/, "the snapshot is taken without a catch — a trace must never break a build");
+});
+
+test("THE RESUME CARRIES THE MARKS RATHER THAN REPLACING THEM", () => {
+  const body = fn("runResumedSiteBuild");
+  const at = body.indexOf("makeRecorder({");
+  assert.ok(at > 0, "the resume builds no recorder — rescope this guard");
+  const call = body.slice(at, close(body, at + "makeRecorder".length));
+  assert.match(call, /prior: claimed\.steps/,
+    "the resume's recorder starts empty, so every terminal look overwrites the build's own history");
+
+  // A `wait` LOOK GETS NO RECORDER AT ALL, and that is the same rule inverted:
+  // it would replace the row with one mark. How many looks there have been is
+  // `looks`, which the flight probe prints. Asserted as an ORDERING, because
+  // hoisting the recorder above the wait is the tidy-looking change that
+  // reintroduces exactly the overwrite this fixes.
+  const waitReturn = body.indexOf('decision.act === "wait"');
+  assert.ok(waitReturn > 0, "the wait branch is gone — rescope this guard");
+  assert.ok(waitReturn < at,
+    "the recorder is built before the wait branch returns, so a look that does no work still overwrites the row");
+});
