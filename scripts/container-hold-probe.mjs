@@ -57,17 +57,26 @@ const BASE = process.env.OWNER_BASE_URL || "https://gofarther.dev";
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || anonKeyFromFrontend();
 const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 
-// HOW LONG THE CONTAINER IS ASKED TO WORK, and how long we stay away. The wait
-// must exceed `sleepAfter` (5m) by enough for the alarm to have fired — the
-// library schedules one at most three minutes out and again at `sleepAfterMs`,
-// so seven minutes is comfortably past the first opportunity. The hold is longer
-// still, so "not busy" at the end cannot mean "the work finished".
-// The gap between them is a margin on BOTH sides: three minutes of hold left
-// when the check lands, so a slow runner cannot turn "still working" into a
-// false NOT PROVEN — and only three minutes of the lane held afterwards, since
-// a probe lane a real build hashes into is one that build queues behind.
-const HOLD_MS = 10 * 60 * 1000;
-const WAIT_MS = 7 * 60 * 1000;
+// HOW LONG THE CONTAINER IS ASKED TO WORK, and how long we stay away.
+//
+// The wait must exceed `sleepAfter` (5m) by enough for the alarm to have fired
+// — the library schedules one at most three minutes out and again at
+// `sleepAfterMs` — which seven minutes satisfied. IT IS 9.5 NOW, AND THE GAP IS
+// THE FINDING: run 41's two container instances died at IDENTICAL ages, 7.1 to
+// 8.4 minutes, minutes after an image deploy — and both of this repo's survival
+// probes had stopped looking JUST short of that window (`gen probe`'s idle
+// check last looked at +425.8s = 7.1m; this one's single look landed at 7.0m).
+// A probe that stops looking at the near edge of the death window proves
+// survival of nothing. 9.5 minutes is past the far edge with margin.
+//
+// The hold is longer still — 2.5 minutes of hold left when the look lands, so a
+// slow runner cannot turn "still working" into a false NOT PROVEN, and "not
+// busy" at the look cannot mean "the work finished". It means the instance is
+// gone: culled by the platform, or culled and the SIGTERM drain in
+// `build-server.mjs` failed to hold it — the log now says which, since
+// observability retains the container's own last words.
+const HOLD_MS = 12 * 60 * 1000;
+const WAIT_MS = 9.5 * 60 * 1000;
 
 const LOG_FILE = process.env.HOLD_LOG || "hold-probe.md";
 const lines = ["# Container hold probe", "", "Started " + new Date().toISOString(), ""];

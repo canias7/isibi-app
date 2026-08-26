@@ -994,6 +994,59 @@ function busyState() {
   return { busy: _busy > 0, jobs: _busy, sinceMs: _busy > 0 ? Date.now() - _busySince : 0 };
 }
 
+// ── THE PLATFORM'S OWN KILL, SURVIVED ────────────────────────────────────────
+//
+// Cloudflare stops an instance by sending SIGTERM to the main process, waiting
+// UP TO FIFTEEN MINUTES for it to exit, and only then sending SIGKILL — their
+// own documented sequence. Node's DEFAULT disposition for SIGTERM is to exit
+// IMMEDIATELY, and this file installed no handler: so every platform stop (an
+// image rollout replacing instances, a host drain, an operator action) killed a
+// five-to-ten-minute generation ON THE SPOT, declining a grace window longer
+// than any generation ever measured. Run 41 lost two generations at identical
+// ~7-8 minute instance ages, minutes after an image deploy, and the busy
+// counter was never consulted — a platform stop never asks; the grace window
+// is the only voice this process gets, and the default handler was refusing it.
+//
+// BUSY REFUSES TO DIE. With work in flight the process stays up: the model
+// fetch keeps running (a signal does not touch it), `sendModelReport` still
+// POSTs the answer to the Worker, and the resume collects it from R2 even
+// though this instance is then culled. So the kill stops costing the paid call.
+//
+// BOUNDED INSIDE THE GRACE. The exit is forced at TERM_DRAIN_MS — under the
+// platform's fifteen minutes — so a wedged job cannot turn the grace into a
+// hang that ends in SIGKILL anyway, at a moment nobody chose.
+//
+// IDLE DIES AT ONCE. An idle instance being stopped is the ordinary lifecycle,
+// and holding it open is a container billing for nothing.
+const TERM_DRAIN_MS = 13 * 60 * 1000;
+let _stopping = false;
+process.on("SIGTERM", () => {
+  if (_stopping) return;
+  _stopping = true;
+  const at = Date.now();
+  console.log("build-server: SIGTERM, busy=" + _busy + (_busy > 0 ? " — refusing to exit until the work lands" : " — idle, exiting"));
+  const leave = () => { console.log("build-server: exiting after SIGTERM, busy=" + _busy + " waited=" + Math.round((Date.now() - at) / 1000) + "s"); process.exit(0); };
+  if (_busy === 0) return leave();
+  // The interval itself keeps the event loop alive even if nothing else does,
+  // which is what makes "refuse to die" more than a wish.
+  const tick = setInterval(() => { if (_busy === 0 || Date.now() - at > TERM_DRAIN_MS) { clearInterval(tick); leave(); } }, 1000);
+});
+
+// A CRASH MUST NAME ITSELF BEFORE IT COSTS A GENERATION. Node kills the process
+// on either of these by default, silently from outside — which is exactly what
+// a lost instance looks like. Logged with the stack (observability now retains
+// it), and while work is IN FLIGHT the process stays up: a possibly-wounded
+// container that lands a paid answer beats a clean corpse that loses it, and
+// `MAX_BUSY_HOLD_MS` upstream still bounds a container that goes truly wrong.
+// Idle, an uncaught exception exits honestly — nothing is owed.
+process.on("uncaughtException", (e) => {
+  console.error("build-server: UNCAUGHT EXCEPTION, busy=" + _busy, (e && e.stack) || String(e));
+  if (_busy === 0) process.exit(1);
+});
+process.on("unhandledRejection", (e) => {
+  console.error("build-server: UNHANDLED REJECTION, busy=" + _busy, (e && e.stack) || String(e));
+});
+
 // WHICH TEMPLATE IS BAKED INTO THIS IMAGE.
 //
 // The template — `@/lib/rows.ts` above all — is baked into the container image,

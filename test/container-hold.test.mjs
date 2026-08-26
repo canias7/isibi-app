@@ -486,3 +486,60 @@ test("THE ANON KEY IS READ OUT OF public/auth.js, and every copy of it agrees", 
   }
   assert.equal(literals, 2, "the scan found a different number of fallbacks than the two that exist");
 });
+
+// ── THE PLATFORM'S KILL IS SURVIVED, NOT DECLINED ───────────────────────────
+//
+// Cloudflare stops an instance with SIGTERM and waits up to FIFTEEN MINUTES
+// before SIGKILL; Node's default disposition exits immediately. Until the
+// drain existed, every platform stop — an image rollout, a host drain — killed
+// a five-to-ten-minute generation on the spot, declining a grace window longer
+// than any generation ever measured. Run 41 lost two generations at identical
+// ~7-8 minute instance ages minutes after an image deploy. These guards hold
+// the drain as SOURCE properties (the server listens at import time and cannot
+// be imported); comments are blanked first, because the prose above the
+// handler necessarily spells the thing being asserted.
+const SRV_BARE = server.split("\n").map((l) => (l.trim().startsWith("//") ? "" : l)).join("\n");
+
+function handlerWindow(name) {
+  const at = SRV_BARE.indexOf('process.on("' + name + '"');
+  assert.ok(at > 0, "build-server has no " + name + " handler — the platform's grace window is being declined again");
+  let d = 0, end = -1;
+  for (let i = SRV_BARE.indexOf("(", at); i < SRV_BARE.length; i++) {
+    const c = SRV_BARE[i];
+    if (c === "(" || c === "{") d++;
+    else if (c === ")" || c === "}") { d--; if (!d) { end = i; break; } }
+  }
+  assert.ok(end > at, "the " + name + " handler never closes — the scan cannot read it");
+  return SRV_BARE.slice(at, end + 1);
+}
+
+test("SIGTERM with work in flight refuses to exit, bounded inside the grace", () => {
+  const h = handlerWindow("SIGTERM");
+  // IDLE DIES AT ONCE — a stopped idle instance is the ordinary lifecycle, and
+  // holding it open is a container billing for nothing.
+  assert.match(h, /_busy === 0/, "the handler never asks the busy counter, so it treats a mid-generation kill like an idle one");
+  assert.match(h, /process\.exit\(0\)/, "the handler can never exit, so the grace always ends in SIGKILL at a moment nobody chose");
+  // THE EXIT IS BOUNDED UNDER THE PLATFORM'S FIFTEEN MINUTES, read off the
+  // constant's own arithmetic rather than restated.
+  const m = SRV_BARE.match(/const TERM_DRAIN_MS = (\d+) \* 60 \* 1000/);
+  assert.ok(m, "TERM_DRAIN_MS is gone or no longer minutes-shaped — rescope this guard");
+  assert.ok(Number(m[1]) < 15, `TERM_DRAIN_MS is ${m[1]} minutes — at or past the platform's grace, so the drain ends in SIGKILL anyway`);
+  assert.match(h, /TERM_DRAIN_MS/, "the drain never reads its own bound");
+  // AND SOMETHING KEEPS THE LOOP ALIVE — refusing to exit is a wish unless a
+  // timer holds the event loop open.
+  assert.match(h, /setInterval/, "nothing holds the event loop open, so a drained queue exits early anyway");
+});
+
+test("a crash names itself, and does not cost an in-flight generation", () => {
+  const ue = handlerWindow("uncaughtException");
+  // Logged WITH the stack — observability now retains it, and a crash that
+  // cannot name itself is exactly what runs 40 and 41 looked like from outside.
+  assert.match(ue, /stack/, "an uncaught exception is logged without its stack — the one fact worth having");
+  // The exit is GATED ON IDLE: a possibly-wounded container that lands a paid
+  // answer beats a clean corpse that loses it. MAX_BUSY_HOLD_MS upstream still
+  // bounds a container that goes truly wrong.
+  assert.match(ue, /if \(_busy === 0\) process\.exit\(1\)/, "an uncaught exception exits unconditionally — a paid generation dies with it");
+  const ur = handlerWindow("unhandledRejection");
+  assert.match(ur, /stack/, "an unhandled rejection is logged without its stack");
+  assert.ok(!/process\.exit/.test(ur), "an unhandled rejection exits the process — Node's default kill, reinstated by hand");
+});
