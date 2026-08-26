@@ -496,3 +496,75 @@ test("the follower asks the route that exists, and gives up rather than polling 
   assert.match(body, /r\.status === 202/, "the follower treats 'still building' as an answer");
   assert.match(body, /Date\.now\(\) < until/, "the follower has no bound, so a tab polls for ever");
 });
+
+// ── THE TRACE MUST NOT ANNOUNCE AN ENDING THAT HAS NOT HAPPENED ─────────────
+//
+// RUN 40 (2026-08-26) IS WHY THIS EXISTS, and it is the one bug that run found.
+// Both stage-2 paths closed the trace with a bare `rec.finish()`, which writes
+// `rowFor(undefined, { done: true })` — three separate faults from one call:
+//
+//   1. `done: true` on a build that has just been handed to a container and is
+//      still running. The trace exists so a build with NOBODY CONNECTED can
+//      narrate itself, which is the whole diagnostic capability runs 38 and 39
+//      were lost for want of; on the fired path it narrated an ending.
+//   2. `steps: []` — the snapshot is dropped, so every mark is thrown away.
+//      On the fire that is the whole prologue including the `fired` mark
+//      written one line above; on the RESUME it is generation, images, compile,
+//      container and publish — the trace destroyed at the moment it is worth
+//      reading.
+//   3. The row is upserted per SLUG and a bare finish names neither `ok` nor
+//      `page`, so an omitted column KEEPS THE PREVIOUS BUILD'S VALUE. Measured
+//      live on `northgroup-5`: `ok: false, page: "placeholder"` were run 39's,
+//      a day old, sitting in a row whose `done` and `total_ms` were run 40's.
+//      One row, two builds' facts.
+//
+// `build-as-owner` read that row, believed `done: true`, and stopped watching
+// after a single poll — ~130 credits' worth of run measuring nothing. So this
+// is asserted as a PROPERTY over every call site rather than at the two known
+// today, because a third path added later inherits the same default.
+test("EVERY rec.finish CLOSES THE ROW WITH REAL FACTS — never a bare call", () => {
+  const calls = [...CODE.matchAll(/rec\.finish\(/g)].map((m) => {
+    // The call's own argument list, by depth from the opening paren.
+    let d = 0;
+    let i = m.index + m[0].length - 1;
+    for (; i < CODE.length; i++) {
+      if (CODE[i] === "(") d++;
+      else if (CODE[i] === ")") { d--; if (d === 0) break; }
+    }
+    return CODE.slice(m.index, i + 1);
+  });
+  // THE FLOOR. A scan that stopped matching would report a clean file and every
+  // assertion below would pass over nothing — the vacuous-clean shape this repo
+  // has shipped once already in a check of exactly this kind.
+  assert.ok(calls.length >= 3,
+    `expected at least 3 rec.finish call sites (the synchronous build, the fire, the resume), found ${calls.length}`);
+
+  for (const c of calls) {
+    const args = c.slice("rec.finish(".length, -1).trim();
+    assert.ok(args.length > 0,
+      "a bare rec.finish() drops the snapshot AND inherits the previous build of this slug's " +
+      "ok/page. Pass the trace snapshot and name the outcome: " + c.slice(0, 60));
+    // NAMED, NEVER OMITTED. An absent column is not "unset" — it is whatever
+    // the last build of this slug wrote, which is how the stale pair got there.
+    assert.match(c, /\bok:/, "rec.finish must state `ok` — an omitted column keeps the previous build's: " + c.slice(0, 60));
+    assert.match(c, /\bpage:/, "rec.finish must state `page` — an omitted column keeps the previous build's: " + c.slice(0, 60));
+  }
+});
+
+test("THE FIRE'S TRACE SAYS done: false — the build is not over, it has moved", () => {
+  // The one fact that decides whether anything watching keeps watching. `done`
+  // defaults to TRUE inside `finish`, so this has to be stated to be false, and
+  // stating it is one word away from being deleted again.
+  const at = CODE.indexOf('tr.at("fired"');
+  assert.ok(at > 0, "the fired mark is gone — rescope this guard");
+  const after = CODE.slice(at, CODE.indexOf("return Response.json(", at));
+  assert.ok(after.length > 40, "could not isolate the fire's own finish — this check would be vacuous");
+  assert.match(after, /rec\.finish\(/, "the fire no longer flushes its marks, so the prologue is lost when the isolate ends");
+  assert.match(after, /done:\s*false/,
+    "the fire must record `done: false`. Left at the default, the trace declares a build over that " +
+    "is running in a container, and anything watching it — the harness, an operator, a status route " +
+    "— reads a live build as a dead one. That is what stopped run 40 after one poll.");
+  // AND THE SNAPSHOT, or `at` is null and the row cannot say how far it got.
+  assert.match(after, /rec\.finish\(\s*tr\.done\(\)/,
+    "the fire must pass the trace snapshot, or every mark including `fired` is discarded");
+});

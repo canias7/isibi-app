@@ -10244,8 +10244,12 @@ async function runResumedSiteBuild(env, ctx, id) {
       });
 
   let out;
+  // HOISTED so the trace below can be closed with the build's OWN outcome. It
+  // was declared inside the try, which is what forced the bare `rec.finish()`
+  // underneath — see the comment there for what that cost.
+  let pages = null;
   try {
-    const pages = await buildAndPublishPages(env, {
+    pages = await buildAndPublishPages(env, {
       ...design,
       mark: (n) => { try { tr.at(n); } catch { /* a trace must never break a build */ } },
       budget,
@@ -10260,7 +10264,26 @@ async function runResumedSiteBuild(env, ctx, id) {
     console.error("build resume: the build threw for", id, String((e && e.stack) || (e && e.message) || e));
     out = packResult({ status: 500, type: "application/json", body: JSON.stringify({ ok: false, stage: "resume", error: "the build failed", kind: String((e && e.name) || "Error") }), uid: claimed.uid });
   }
-  try { rec.finish(); } catch { /* the trace is never worth a build */ }
+  // ── AND THE SECOND HALF'S TRACE, CLOSED WITH WHAT ACTUALLY HAPPENED ────────
+  //
+  // The same bare `rec.finish()` bug as the fire, and worse here: this is the
+  // one that runs when the build FINISHES. `tr.at` has been writing marks
+  // through the whole second half — generation, images, compile, container,
+  // publish — and a bare finish overwrites all of them with `steps: []`,
+  // destroying the trace at the exact moment it is worth reading, and leaving
+  // `ok`/`page` as whatever the fire (or a previous build of this slug) wrote.
+  //
+  // The same four fields as the synchronous path's own finish, so a resumed
+  // build's row and an ordinary build's row say the same things in the same
+  // way. `ok` is `page === "app"` — a published app and nothing else.
+  try {
+    rec.finish(tr.done(), {
+      stage: (pages && pages.stage) || "resume",
+      page: (pages && pages.page) || null,
+      error: pages && pages.error ? String(pages.error).slice(0, 300) : null,
+      ok: !!(pages && pages.page === "app"),
+    });
+  } catch { /* the trace is never worth a build */ }
 
   // THE RECORD GOES LAST, AND ONLY ON A TERMINAL OUTCOME. Deleted before the
   // work, a redelivery would find nothing, read it as a finished resume, and
@@ -11853,7 +11876,37 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
           try {
             await env.BUILD_QUEUE.send(packResumeMessage(jobId), { delaySeconds: queueDelay(RESUME_FIRST_SECONDS) });
             tr.at("fired", { genTried: 1 });
-            try { rec.finish(); } catch { /* the trace is never worth a build */ }
+            // ── THE TRACE MUST NOT ANNOUNCE AN ENDING THAT HAS NOT HAPPENED ──
+            //
+            // This was a bare `rec.finish()` and it cost run 40 its measurement.
+            // Bare, it writes `rowFor(undefined, { done: true })`: the build is
+            // declared OVER while the generation is running in a container, the
+            // whole prologue's marks are thrown away with the snapshot (this
+            // very `fired` mark included), and — because the row is upserted per
+            // SLUG and bare `finish` names neither column — `ok` and `page` are
+            // whatever the PREVIOUS build of this slug left behind. Measured on
+            // `northgroup-5`: `done: true, ok: false, page: "placeholder",
+            // steps: []`, where the ok and the page were run 39's, a day old.
+            //
+            // One row, two builds' facts, and the one fact it stated about THIS
+            // build was false. The trace exists precisely so a build with nobody
+            // connected can still narrate itself; on this path it narrated an
+            // ending. `build-as-owner` read it, believed it, and stopped
+            // watching a build that had barely started.
+            //
+            // So: the SNAPSHOT is passed (the marks survive, and `at` becomes
+            // `fired`, which is the true answer to "how far did it get"), `done`
+            // is false, and `ok`/`page` are set to null EXPLICITLY rather than
+            // left out — an omitted column keeps the previous build's value,
+            // which is how the stale pair got there in the first place.
+            //
+            // `finish` rather than `step` because this isolate really is done
+            // writing: it closes the recorder so a straggling promise cannot
+            // overwrite the row, and it is the flush that gets the marks to
+            // Supabase before the isolate ends.
+            try {
+              rec.finish(tr.done(), { stage: "resuming", page: null, error: null, ok: null, done: false });
+            } catch { /* the trace is never worth a build */ }
             // THE CUSTOMER IS TOLD THE TRUTH: the site has a real page at its
             // real address and the rest is still being written. Not `ok: true`,
             // because nothing has published yet and a client reading that would

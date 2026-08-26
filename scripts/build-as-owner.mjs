@@ -299,12 +299,30 @@ if (build && build.status === 202 && d && d.job) {
 async function readTrace(slug) {
   try {
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/site_builds?slug=eq.${encodeURIComponent(slug)}&select=done,ok,page,total_ms,at,steps`,
+      `${SUPABASE_URL}/rest/v1/site_builds?slug=eq.${encodeURIComponent(slug)}&select=done,ok,page,total_ms,at,steps,updated_at`,
       { headers: svc });
     if (!r.ok) return { err: `trace read ${r.status}` };
     const rows = await r.json();
     const row = rows && rows[0];
     if (!row) return { err: "no trace row yet" };
+    // ── SCOPED TO THIS BUILD, THE WAY `discoverSlug` ALREADY IS ───────────────
+    //
+    // `site_builds` is ONE ROW PER SLUG, upserted — so on a revise the row
+    // sitting there at the first poll belongs to the PREVIOUS build of this
+    // site. Run 40 (2026-08-26) is what this cost: the watch's first look read
+    // `done: true` off run 39's day-old row, concluded the build was over, and
+    // stopped after one poll on a build that had just been fired.
+    //
+    // Same argument `discoverSlug` makes about `site_backends` in as many
+    // words: an unscoped row "answers with a site published hours ago" and
+    // reports an outcome that did not happen. A row from before this build's
+    // own POST is not evidence about this build, so it is reported as a row we
+    // cannot use rather than as a fact — which keeps the watch WAITING, the
+    // same safe direction an unreadable read already takes.
+    const at = Date.parse(row.updated_at || "");
+    if (Number.isFinite(at) && at < bt - 60000) {
+      return { err: `the trace row is from an earlier build (${((bt - at) / 60000).toFixed(1)}m before this POST)` };
+    }
     return { row };
   } catch (e) {
     return { err: `trace unreadable (${String((e && e.message) || e).slice(0, 60)})` };
