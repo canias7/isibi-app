@@ -475,7 +475,33 @@ jobs:
           # site is the bonus. Rule 16 (every band inside `mx-auto max-w-6xl
           # px-6`) and the photo clock (`compile` ~0.1s with nothing bought when
           # the spare time is under 35,000ms) are only readable if it publishes.
-          OWNER_SLUG: northgroup-8
+          # ── RUN 45: THE STREAMING IMAGE — the second killer's fix, live ─────
+          #
+          # Run 44 proved the transport fix alone was not enough: both attempts
+          # died no-request, and the container's first retained failure line
+          # named the real killer — `model call failed after 270036 ms — socket
+          # hang up`. The egress kills a wire that has carried no bytes for
+          # ~270s, and a non-streaming generation is quiet for 333-620s while
+          # the provider thinks. d515a462's image asks the provider to STREAM
+          # (boot marker `transport=longPost+stream`): tokens flow from the
+          # first second, so there is no quiet period to kill.
+          #
+          # TIMED LIKE RUN 44: that image's deploy completed 23:29:47Z, this
+          # commit is workflow-only (rolls no image), and it is pushed so the
+          # generation fires >=15 minutes after the rollout began — the
+          # measured ambiguity window is 10-15.5 minutes and run 43 was spent
+          # learning it.
+          #
+          # READ: a published site, or `resume:finish` collecting the answer,
+          # is the proof. A death at ~270s again now carries
+          # `wire={headersMs,chars}` in the container log — bytes flowing at
+          # death would mean a LIFETIME cap rather than an idle kill, which
+          # streaming cannot beat and whose fix (chunking the call, or moving
+          # it back behind workerd's fetch) is different in kind.
+          #
+          # Fresh slug: northgroup-8 is run 44's husk, and ownership decides
+          # `revise`, so re-using it would measure an edit of an empty shell.
+          OWNER_SLUG: northgroup-9
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
