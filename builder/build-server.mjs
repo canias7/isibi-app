@@ -18,6 +18,7 @@
 // previous build's pages — and the template's own reference page, which queries a
 // schema this site does not have — can never leak into someone's site.
 import http from "node:http";
+import https from "node:https";
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -178,6 +179,66 @@ async function sendModelReport(report, body) {
     console.error("model report: could not deliver the answer —", String((e && e.name) || "Error"), String((e && e.message) || e));
     return false;
   }
+}
+
+// ── THE TRANSPORT UNDER THE MODEL CALL — `node:https`, NOT Node's fetch ─────
+//
+// Node's `fetch` is undici, and undici's HEADERS TIMEOUT is 300 seconds: not a
+// knob on the request, not movable by an AbortSignal set longer — the headers
+// timeout fires first. A non-streaming provider sends its response headers only
+// when the WHOLE generation is done, and this platform's generations measure
+// 333–620 seconds — so every generation fired at this container died at
+// exactly 300s as `TypeError: fetch failed`, which carries no status and is
+// therefore classified `no-request` upstream: refire, the same wall, stop.
+// Runs 41 and 42, four attempts, four identical deaths. The Worker never hit
+// it because workerd's fetch has no such ceiling — which is precisely why the
+// call worked for months until stage 2 moved it into Node.
+//
+// The repo has paid for this ceiling once already, in the harness: `postLong`
+// in `scripts/build-as-owner.mjs` exists for exactly this reason, and this is
+// that pattern with the AbortSignal honoured. `node:https` has NO timeout of
+// any kind unless one is asked for; the signal (the composed build budget) is
+// the one bound, and its `reason` is what a rejection carries — a TimeoutError,
+// so `retryHere` upstream still refuses to bill a second call for a timeout
+// instead of misreading it as a request that never went out.
+//
+// Answers the subset of the Response shape `callBuilderModel` reads: `ok`,
+// `status`, `text()`, `json()`. No `accept-encoding` is ever sent, so the body
+// arrives identity-encoded and there is nothing to decompress.
+function longPost(url, init) {
+  return new Promise((resolve, reject) => {
+    const signal = init && init.signal;
+    const bail = (e) => reject((signal && signal.reason) || e || new Error("aborted"));
+    if (signal && signal.aborted) return bail();
+    const u = new URL(url);
+    const payload = Buffer.from(String((init && init.body) || ""), "utf8");
+    let settled = false;
+    // Protocol-faithful, so the harness can drive this against a plain local
+    // server. Both provider endpoints are https literals in build-call.mjs —
+    // no caller-chosen URL ever reaches here.
+    const req = (u.protocol === "http:" ? http : https).request({
+      // The port travels too — dropped, a URL naming one dials the protocol
+      // default instead, which the driven test caught on its first run.
+      hostname: u.hostname, port: u.port || undefined, path: u.pathname + u.search, method: (init && init.method) || "POST",
+      headers: { ...((init && init.headers) || {}), "content-length": payload.length },
+    }, (res) => {
+      let text = "";
+      res.setEncoding("utf8");
+      res.on("data", (c) => { text += c; });
+      res.on("end", () => {
+        if (settled) return;
+        settled = true;
+        const status = res.statusCode || 0;
+        resolve({ ok: status >= 200 && status < 300, status, text: async () => text, json: async () => JSON.parse(text) });
+      });
+    });
+    const onAbort = () => { if (settled) return; settled = true; req.destroy(); bail(); };
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
+    req.on("error", (e) => { if (settled) return; settled = true; reject(e); });
+    req.on("close", () => { if (signal) signal.removeEventListener("abort", onAbort); });
+    req.write(payload);
+    req.end();
+  });
 }
 
 function sweepModelJobs(now = Date.now()) {
@@ -1273,7 +1334,8 @@ const server = http.createServer((req, res) => {
   // consumer invocation is ever long, and the cap stops binding.
   //
   // THE BUSY COUNTER IS WHAT MAKES THIS SAFE, and it is why the work goes
-  // through `oneAtATime` even though nothing awaits it. That helper counts AT
+  // through `oneAtATime` even though nothing awaits it. THE TRANSPORT UNDER the
+  // model call is `longPost` below, never Node's own fetch — see its comment. That helper counts AT
   // THE DOOR and releases on SETTLEMENT — not on anybody awaiting — so a job
   // nobody is holding still reports through `/busy`, and `onActivityExpired`
   // keeps this container alive instead of stopping it five minutes in. Without
@@ -1320,7 +1382,7 @@ const server = http.createServer((req, res) => {
       oneAtATime(async () => {
         const at = Date.now();
         try {
-          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget);
+          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost);
           MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
           await sendModelReport(report, { state: "done", answer });
         } catch (e) {
@@ -1409,7 +1471,7 @@ const server = http.createServer((req, res) => {
       return oneAtATime(async () => {
         const at = Date.now();
         try {
-          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget);
+          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost);
           send(res, 200, { ok: true, answer, ms: Date.now() - at });
         } catch (e) {
           // THE SHAPE IS PRESERVED, not flattened to a message. `upstreamKind`

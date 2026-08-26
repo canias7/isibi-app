@@ -304,8 +304,11 @@ test("the xAI branch refuses a missing key by name, before spending a request", 
   // that SOMETHING refuses before the request, not which object it reads.
   const refuse = body.search(/if \(!\w+\.xai\)|!env\.XAI_API_KEY/);
   assert.ok(refuse >= 0, "nothing refuses a missing xAI key before the request");
-  assert.ok(refuse < body.indexOf("fetch(XAI_ENDPOINT"),
-    "the key check must come before the request");
+  // The send is `doFetch` since the transport became a parameter (the 300s
+  // undici wall) — matched by either name, since the property is the ORDER.
+  const sendAt = body.search(/\b(?:doFetch|fetch)\(XAI_ENDPOINT/);
+  assert.ok(sendAt > 0, "the xAI send is gone — rescope this guard");
+  assert.ok(refuse < sendAt, "the key check must come before the request");
   // AND THE ANTHROPIC BRANCH REFUSES TOO, which it did not while both keys came
   // off `env`: an unset one sent `"x-api-key": undefined`, which reaches the
   // provider as the literal string and comes back 401 — a real provider status
@@ -313,8 +316,9 @@ test("the xAI branch refuses a missing key by name, before spending a request", 
   // refused by name. The asymmetry was invisible until the keys were arguments.
   const anthRefuse = body.search(/if \(!\w+\.anthropic\)/);
   assert.ok(anthRefuse >= 0, "nothing refuses a missing Anthropic key before the request");
-  assert.ok(anthRefuse < body.indexOf('fetch("https://api.anthropic.com'),
-    "the Anthropic key check must come before its request");
+  const anthSendAt = body.search(/\b(?:doFetch|fetch)\("https:\/\/api\.anthropic\.com/);
+  assert.ok(anthSendAt > 0, "the Anthropic send is gone — rescope this guard");
+  assert.ok(anthRefuse < anthSendAt, "the Anthropic key check must come before its request");
   assert.match(body, /isXaiModel\(req\.model\)/);
 });
 
@@ -392,8 +396,11 @@ test("A BUILDER MODEL CALL IS BOUNDED — every fetch in it, both providers", ()
   const body = buildPathFn("callBuilderModel").body;
   assert.ok(body.length > 500, "the callBuilderModel window is empty — rescope this");
 
-  const calls = [...body.matchAll(/\bfetch\(/g)];
-  assert.ok(calls.length >= 2, "expected a fetch per provider; found " + calls.length);
+  // `doFetch` OR `fetch`: the send went through a transport parameter when the
+  // 300s undici headers timeout was found (the container's side of one shared
+  // module), and the bound has to hold whichever transport carries it.
+  const calls = [...body.matchAll(/\b(?:doFetch|fetch)\(/g)];
+  assert.ok(calls.length >= 2, "expected a send per provider; found " + calls.length);
   for (const m of calls) {
     // Read to the end of this call by bracket depth — a request init is full of
     // braces and a flat scan has been written wrong here four times.

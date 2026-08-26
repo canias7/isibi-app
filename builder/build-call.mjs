@@ -54,8 +54,28 @@ export const BUILDER_CALL_MS = 600000;
  * bite live.
  *
  * Null on every path but the build, so the ordinary per-call bound is unchanged.
+ *
+ * THE TRANSPORT IS THE FOURTH PARAMETER, AND IT EXISTS BECAUSE `fetch` MEANS
+ * TWO DIFFERENT THINGS ON THE TWO SIDES THAT SHARE THIS MODULE. In the Worker,
+ * `fetch` is workerd's, which held ten-minute generations for months. In the
+ * container it is Node's undici, whose HEADERS TIMEOUT is 300 seconds and is
+ * not raisable from the fetch options — the AbortSignal above never gets a
+ * say, because a non-streaming provider sends its headers only when the whole
+ * generation is done. This brief measures 333–620s, so EVERY fired generation
+ * died at exactly 300s as `TypeError: fetch failed` — no status, classified
+ * `no-request`, refired into the same wall, and stopped. Runs 41 and 42, four
+ * attempts, four identical deaths; the "identical 7–8 minute instance ages"
+ * were this timeout plus the resume's look schedule, not the platform killing
+ * anything. The repo already learned this ceiling once, in the harness — it is
+ * the whole reason `postLong` exists — and stage 2 walked the same fetch into
+ * the same wall by moving it into Node.
+ *
+ * `send` defaults to the global fetch, so the Worker is byte-for-byte
+ * unchanged; the container passes its own `node:https` sender, which has no
+ * headers timeout at all and honours the same AbortSignal.
  */
-export async function callBuilderModel(keys, req, budget = null) {
+export async function callBuilderModel(keys, req, budget = null, send = null) {
+  const doFetch = send || fetch;
   const k = keys || {};
   // The sooner of the call's own ceiling and what is left of the build. See
   // `builder/build-budget.mjs`: the two bounds have to COMPOSE, or a pages call
@@ -82,7 +102,7 @@ export async function callBuilderModel(keys, req, budget = null) {
       throw new Error("XAI_API_KEY is not set");
     }
     const { body, droppedDocs } = toXaiRequest(req);
-    const r = await fetch(XAI_ENDPOINT, {
+    const r = await doFetch(XAI_ENDPOINT, {
       method: "POST",
       headers: { Authorization: `Bearer ${k.xai}`, "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -115,7 +135,7 @@ export async function callBuilderModel(keys, req, budget = null) {
   // invisible while both lived beside `env`; it is obvious once the keys are
   // two named arguments.
   if (!k.anthropic) throw new Error("ANTHROPIC_API_KEY is not set");
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
+  const r = await doFetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": k.anthropic, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify(req),

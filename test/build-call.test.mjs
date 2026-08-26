@@ -354,3 +354,38 @@ test("THE CALLER IS USED, not merely accepted", async () => {
   assert.equal(s2.length, 1, "a lane that passes no caller no longer reaches a provider");
   assert.equal(s2[0].url, "https://api.anthropic.com/v1/messages");
 });
+
+// ── the transport parameter — the fix for the 300-second undici wall ─────────
+//
+// In the container, `fetch` is Node's undici, whose headers timeout is 300s and
+// is not raisable from the request — so every fired generation on this brief
+// (333–620s measured) died at exactly 300s as a status-less `TypeError`,
+// classified `no-request`, refired into the same wall and stopped. Runs 41 and
+// 42, four attempts, four identical deaths. The fourth parameter is the way
+// out: the container passes its own `node:https` sender. These hold BOTH
+// halves — a supplied transport really carries the call (global fetch is a
+// throw, so a revert to the bare fetch cannot pass), and the default is still
+// the global fetch, which every test above already drives.
+test("a supplied transport carries the call on BOTH providers — global fetch is never touched", async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("global fetch used despite a supplied transport — in the container that is the 300s undici headers timeout, restored");
+  };
+  try {
+    for (const [model, reply] of [
+      ["claude-sonnet-5", { usage: {}, content: [], stop_reason: "end_turn" }],
+      ["grok-4.6", { choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: {} }],
+    ]) {
+      const sent = [];
+      const send = async (url, init) => {
+        sent.push({ url: String(url), init });
+        return { ok: true, status: 200, json: async () => reply, text: async () => JSON.stringify(reply) };
+      };
+      await callBuilderModel(KEYS, { model, max_tokens: 10, messages: [{ role: "user", content: "hi" }] }, null, send);
+      assert.equal(sent.length, 1, model + ": the transport was not what carried the call");
+      // The same request the fetch path sends — the transport changes the WIRE,
+      // never the request: the signal (the composed bound) still rides on it.
+      assert.ok(sent[0].init.signal instanceof AbortSignal, model + ": the AbortSignal was dropped from the transport call — the one bound left");
+    }
+  } finally { globalThis.fetch = real; }
+});

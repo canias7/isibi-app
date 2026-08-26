@@ -252,3 +252,103 @@ test("THE ID IS UNGUESSABLE, not a counter", () => {
   assert.match(src, /import \{[^}]*randomUUID[^}]*\} from "node:crypto"/,
     "randomUUID is used and never imported — a ReferenceError on the one route that fires the generation");
 });
+
+// ── the model call rides `longPost`, never Node's fetch ──────────────────────
+//
+// Node's fetch is undici; undici's headers timeout is 300 seconds and cannot be
+// raised from the request. A non-streaming provider sends headers only when the
+// whole generation is done, and generations here measure 333–620s — so every
+// fired generation died at exactly 300s, status-less, classified `no-request`,
+// refired into the same wall and stopped (runs 41 and 42, four for four). The
+// container's own `node:https` sender is the way out, and these hold it at both
+// ends: every model call site passes it, and the function itself really works —
+// driven against a live local server, because "the parameter is declared and
+// passed" survived a mutant here once before while every generation still ran
+// on the transport being avoided.
+test("every model call in the container carries longPost", () => {
+  // DERIVED over every CALL site (the import line names it too, so calls are
+  // matched by the leading `await `): a third call site added later is covered
+  // without anybody remembering this file.
+  // To the end of the statement, not to the first `)` — the first argument is
+  // `keysFrom(BUILD_KEYS)`, and a flat `[^)]*` scan stops inside it. This repo
+  // has recorded that exact miss five times; this was the sixth.
+  const calls = [...SERVER_SRC.matchAll(/await callBuilderModel\((.+)\);/g)];
+  assert.ok(calls.length >= 2, `expected the two model call sites, found ${calls.length} — rescope this guard`);
+  for (const c of calls) {
+    assert.match(c[1], /longPost/, "a model call site does not pass the transport — that call runs on undici's 300s headers timeout");
+  }
+  // And the transport is the node module's `.request`, with no fetch anywhere
+  // inside it — the 300s wall coming back in through the function built to
+  // avoid it would be the quietest possible regression.
+  const w = fnWindow("function longPost(");
+  assert.match(w, /\.request\(/, "longPost does not use node http/https");
+  assert.ok(!/\bfetch\(/.test(w), "longPost calls fetch — the exact ceiling it exists to avoid");
+  // A rejection on abort carries the SIGNAL'S OWN REASON — a TimeoutError —
+  // so `retryHere` refuses to bill a second call for a timeout, rather than
+  // misreading it as a request that never went out and refiring forever.
+  assert.match(w, /signal\.reason/, "an aborted call does not carry the signal's reason — a timeout would be classified no-request and refired");
+});
+
+function fnWindow(anchor) {
+  const at = SERVER_SRC.indexOf(anchor);
+  assert.ok(at > 0, anchor + " is gone — rescope this guard");
+  let d = 0;
+  for (let i = SERVER_SRC.indexOf("{", at); i < SERVER_SRC.length; i++) {
+    const ch = SERVER_SRC[i];
+    if (ch === "{") d++;
+    else if (ch === "}") { d--; if (d === 0) return SERVER_SRC.slice(at, i + 1); }
+  }
+  assert.fail("unbalanced braces after " + anchor);
+}
+
+// DRIVEN, with the function's real text lifted out of the source — the server
+// listens at import time, so it cannot be imported; running a copy typed here
+// would prove the copy. The local server answers over plain http, which the
+// function serves protocol-faithfully for exactly this reason.
+test("longPost survives late headers, reports a refusal, and aborts as a TimeoutError", async (t) => {
+  const { createServer } = await import("node:http");
+  const httpsMod = (await import("node:https")).default;
+  const httpMod = (await import("node:http")).default;
+  const longPost = new Function("http", "https", "return " + fnWindow("function longPost("))(httpMod, httpsMod);
+
+  let seen = null;
+  const srv = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      seen = { method: req.method, headers: req.headers, body };
+      if (req.url === "/slow") {
+        // HEADERS DELAYED past the request being fully sent — the shape a
+        // non-streaming generation has, and the shape undici's fetch kills.
+        setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end('{"answer":42}'); }, 150);
+      } else if (req.url === "/refuse") {
+        res.writeHead(429); res.end("busy");
+      } // /never: no answer at all — the abort case.
+    });
+  });
+  await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  t.after(() => srv.close());
+
+  const r = await longPost(base + "/slow", { method: "POST", headers: { "content-type": "application/json" }, body: '{"q":1}' });
+  assert.equal(r.ok, true);
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { answer: 42 });
+  assert.equal(seen.body, '{"q":1}');
+  assert.equal(seen.headers["content-length"], "7", "content-length is not the payload's own");
+  // NO accept-encoding: fetch always sends one, so its absence is the proof the
+  // request did not ride fetch — and it is what keeps the body identity-encoded,
+  // since nothing here decompresses.
+  assert.equal(seen.headers["accept-encoding"], undefined, "an accept-encoding header went out — the answer may come back compressed with nothing to decompress it");
+
+  const bad = await longPost(base + "/refuse", { method: "POST", body: "x" });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.status, 429);
+  assert.equal(await bad.text(), "busy");
+
+  await assert.rejects(
+    () => longPost(base + "/never", { method: "POST", body: "x", signal: AbortSignal.timeout(120) }),
+    (e) => e && e.name === "TimeoutError",
+    "an aborted call must reject with the signal's TimeoutError, or retryHere reads it as no-request and refires",
+  );
+});

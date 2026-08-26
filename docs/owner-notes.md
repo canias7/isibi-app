@@ -10,6 +10,23 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## SOLVED, PROPERLY THIS TIME — run 42 found the real killer (2026-08-26, later)
+
+**The SIGTERM story below is true and was not what ate the builds.** Run 42
+(5 credits, no site) died identically to run 41, and the new diagnostics named
+the real cause: **the container's model call was being cut at exactly 300
+seconds by a timeout buried in Node itself** — one that ignores every timeout
+we set. Your generations take 5–10 minutes, so every single fired build died
+at 5:00 on the dot, twice per run. The Worker never had this ceiling, which is
+why generation worked for months before it moved into the container.
+
+- **Fixed:** the container now makes the call over a transport with no such
+  ceiling; our own 10-minute bound is the only clock. Proven against a live
+  server in tests; the SIGTERM drain from this morning stays and still matters.
+- **Run 43 is the live proof** — fire it ~10 minutes after this deploy (new
+  container image needs time to roll out). Expected: a real site at last, or
+  `resume:finish` collecting the answer even if the platform kills mid-call.
+
 ## SOLVED — why the container kept losing the generation (2026-08-26)
 
 **Found it, fixed it, and photographed the fix working — for free.** Cloudflare
