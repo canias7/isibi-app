@@ -64,7 +64,32 @@ if (!r.ok) {
   console.error("query answered", r.status, text.slice(0, 600));
   if (r.status === 403 || /authentication/i.test(text)) {
     console.error("If the token is otherwise good, it is missing the observability READ scope —");
-    console.error("add 'Workers Observability: Read' (or 'Account Analytics: Read') to CLOUDFLARE_API_TOKEN.");
+    console.error("add Account -> 'Workers Observability' -> Read to CLOUDFLARE_API_TOKEN, and press");
+    console.error("'Continue to summary' -> 'Update token' — the editor saves nothing until then.");
+    // WHICH token is this? Editing the wrong one in the dashboard produces
+    // exactly this state — the permission added, the 403 unchanged — and with
+    // several tokens in an account it is the likeliest cause. The verify
+    // endpoints answer with the token's ID (metadata, not secret: it is in the
+    // dashboard edit page's own URL), so the reader can match it against the
+    // token they edited. User tokens and account-owned tokens verify at
+    // DIFFERENT paths, and which path answers says where the token must be
+    // edited — profile -> API Tokens for a user token, Manage Account -> API
+    // Tokens for an account one. The token itself is never printed.
+    for (const [kind, vurl] of [
+      ["USER token — edit it under profile -> API Tokens", "https://api.cloudflare.com/client/v4/user/tokens/verify"],
+      ["ACCOUNT token — edit it under Manage Account -> API Tokens", `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/tokens/verify`],
+    ]) {
+      try {
+        const v = await fetch(vurl, { headers: { authorization: `Bearer ${TOKEN}` }, signal: AbortSignal.timeout(20000) });
+        const vj = await v.json().catch(() => null);
+        if (v.ok && vj && vj.result && vj.result.id) {
+          console.error(`the token GitHub is holding verifies as a ${kind}`);
+          console.error(`its id is ${vj.result.id} (status: ${vj.result.status}) — match this against the`);
+          console.error("id in the URL of the token you edited; a mismatch means the edit went to a different token.");
+          break;
+        }
+      } catch { /* the query's own error above is the headline either way */ }
+    }
   }
   process.exit(1);
 }

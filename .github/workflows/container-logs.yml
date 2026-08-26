@@ -35,6 +35,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # The window and the filter for THIS read. Hours back from now;
           # needle is a substring of the log message, empty for everything.
-          LOG_HOURS: '6'
+          # 72h: run 44's two failure lines must stay inside the window however
+          # long the token back-and-forth takes — the needle keeps it tiny.
+          LOG_HOURS: '72'
           LOG_NEEDLE: 'model call failed'
         run: node scripts/container-logs.mjs
