@@ -33,7 +33,7 @@ import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "./builder/build-budget.mjs";
 import { JOB_KIND, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
-import { RESUME_FIRST_SECONDS, resumeKey, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
+import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -5497,6 +5497,21 @@ const MODEL_HOP_SLACK_MS = 30000;
 // away costs one look rather than an invocation.
 const FIRE_HOP_MS = 20000;
 
+// HOW BIG A REPORTED GENERATION MAY BE, and it is derived rather than picked.
+// `SITE_PAGES_MAX_TOKENS` is 30,000, so the model cannot emit more than that
+// however long it runs; JSON-escaped TSX at a pessimistic eight bytes a token is
+// ~240KB, which matches the "few hundred kilobytes" the hop's own comment above
+// already measures. Four megabytes is ~17x that — it can never refuse a real
+// answer, and it is far under the isolate's 128MB.
+//
+// A FAILURE CAN NEVER REACH IT, checked rather than assumed: both provider
+// branches truncate `detail` at 300 characters (`xaiErrorDetail`, and the
+// Anthropic branch's own `.slice(0, 300)`) and `message` is sliced the same way
+// in the container. So the one report shape that MUST land — a failure, which is
+// what stops a re-fire buying a second generation to be told the same thing — is
+// a few hundred bytes and cannot be refused for size.
+const MAX_GEN_REPORT = 4 * 1024 * 1024;
+
 /**
  * MAKE THE PAGE-GENERATION CALL IN THE CONTAINER — the side with no clock.
  *
@@ -5646,12 +5661,25 @@ function containerPagesFire(env, slug, out) {
     // must still say that the container was reached for.
     out.tried = 1;
     let genId = null;
+    // WHERE THE ANSWER IS TO BE LEFT, minted HERE because the fire is the last
+    // moment both sides can agree on a name without a second round trip: the
+    // resume id does not exist yet (the caller mints it from the sentinel this
+    // throws) and the container's job id does not exist until it answers.
+    //
+    // IT IS ALSO THE ONLY CREDENTIAL on the receiving route, which the container
+    // reaches with no session of its own. 128 bits, never returned to any
+    // caller, never logged.
+    const report = reportToken();
     try {
       const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
       const r = await c.fetch(new Request("http://build/model/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ req, callMs }),
+        // AN ABSOLUTE URL, because the container is a separate process with no
+        // notion of our origin. `APP_ZONE` is the one place that is written
+        // down; a value threaded from a request would be whatever host the
+        // customer happened to arrive on, including a custom domain.
+        body: JSON.stringify({ req, callMs, report: { url: `https://${APP_ZONE}/api/site/genresult`, token: report } }),
         // THE FIRE, NOT THE GENERATION. This hop stores a job and returns; it
         // is milliseconds of work, so it is bounded like one. Bounding it at
         // `callMs` would hold this invocation for ten minutes on a container
@@ -5677,8 +5705,20 @@ function containerPagesFire(env, slug, out) {
     // if that function ever changes while a build is in flight: the answer is
     // in ONE instance's memory, and a recomputed lane would ask a container
     // that never had the work and be told `unknown`.
-    throw firedError({ genId, lane: laneName(slug), firedAt: Date.now() });
+    throw firedError({ genId, lane: laneName(slug), report, firedAt: Date.now() });
   };
+}
+
+/**
+ * A NAME BOTH SIDES CAN USE FOR ONE GENERATION'S ANSWER, and the credential for
+ * writing it. 128 bits from the platform's own CSPRNG — guessing one is the only
+ * way to forge a report, and the route it authorises can write exactly one
+ * build's answer.
+ */
+function reportToken() {
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -5691,6 +5731,37 @@ function containerPagesFire(env, slug, out) {
  * `resumeDecision` treats an unreadable answer as still-pending, bounded by the
  * same deadline, which is what stops a blip becoming a lost generation.
  */
+/**
+ * HAS THE CONTAINER ALREADY LEFT THE ANSWER SOMEWHERE DURABLE?
+ *
+ * READ BEFORE THE CONTAINER IS ASKED ANYTHING, because this survives the
+ * instance and the container's own `MODEL_JOBS` does not. A recycled instance
+ * answers `unknown` — "the work is gone" — for a generation that finished and
+ * was persisted, and acting on that buys a replacement for something already in
+ * hand.
+ *
+ * A MISS AND A BLIP ARE THE SAME ANSWER HERE, and that is safe in a way it is
+ * not elsewhere: falling through to the container is the behaviour every build
+ * had before this existed, and the container is the one holding the live job. A
+ * read that throws therefore costs nothing but a poll.
+ *
+ * NEVER DELETED ON READ, unlike the build's own result. A queue delivers at
+ * least once and a re-fire rewrites the pointer, so an answer that vanished when
+ * somebody looked at it would turn a duplicate look into a lost generation. The
+ * record's own deletion at the end of a terminal resume is what bounds it.
+ */
+async function readGenResult(env, token) {
+  if (!isReportToken(token) || !env.SITES_BUCKET) return null;
+  try {
+    const obj = await env.SITES_BUCKET.get(genKey(token));
+    if (!obj) return null;
+    return readGenReport(JSON.parse(await obj.text()));
+  } catch (e) {
+    console.error("build resume: could not read the stored generation —", String((e && e.message) || e));
+    return null;
+  }
+}
+
 async function askContainerResult(env, lane, genId) {
   try {
     const c = getContainer(env.SITE_BUILD_CONTAINER, lane);
@@ -10146,6 +10217,50 @@ async function runQueuedSiteBuild(env, ctx, id) {
  * money decision rather than a guarantee. A record whose `pages` is marked is a
  * build whose paid half already ran, and it is refused rather than run again.
  */
+/**
+ * A GENERATION WAS STARTED AGAIN — POINT THE RECORD AT IT AND SCHEDULE A LOOK.
+ *
+ * WHY THE RECORD IS REWRITTEN RATHER THAN LEFT ALONE: it names ONE container job
+ * in ONE instance's memory (`genId` + `lane`), and after a refire that pair is
+ * stale. A resume that kept the old one would poll a job that does not exist,
+ * be told `unknown`, and refire again — burning the whole allowance chasing an
+ * answer it had just started.
+ *
+ * THE CLOCK GOES BACK AND THE COUNT DOES NOT. `firedAt` and `looks` reset
+ * because this really is a new generation and the deadline is measured from when
+ * one starts; `refires` is the only thing bounding the recursion, so it survives
+ * the reset. Getting that backwards is an unbounded loop that buys a generation
+ * a minute for ever.
+ *
+ * NO ETAG ON THIS WRITE, deliberately, unlike the claim. The claim is the
+ * compare-and-set that decided who acts; this invocation already WON it, so
+ * there is no second writer to lose to — and a conditional write that failed
+ * here would strand a generation that is genuinely running.
+ *
+ * A FAILED WRITE IS SURVIVABLE AND SAYS SO. The generation is running and we
+ * could not record where: the next look reads the OLD pointer, is told
+ * `unknown`, and refires — bounded, so it converges on an honest failure rather
+ * than looping. Worth one wasted generation against losing the build outright.
+ */
+async function recordRefire(env, id, claimed, stored, resume, decision, tr, rec) {
+  try {
+    await env.SITES_BUCKET.put(resumeKey(id), JSON.stringify(packResume({
+      ...claimed,
+      lane: resume.lane, genId: resume.genId, report: resume.report, firedAt: resume.firedAt,
+      looks: 0, refires: (Number(stored.refires) || 0) + 1,
+    })));
+    await env.BUILD_QUEUE.send(packResumeMessage(id), { delaySeconds: queueDelay(RESUME_FIRST_SECONDS) });
+    console.log("build resume:", id, "started the generation again —", decision.why, "→", resume.genId);
+  } catch (e) {
+    console.error("build resume: re-fired but could not record it for", id, String((e && e.message) || e));
+  }
+  // THE TRACE IS CLOSED WITHOUT `done`, because this build is not done. A bare
+  // `rec.finish()` here would overwrite every mark with `steps: []` and leave
+  // `ok`/`page` as whatever a previous look wrote — the same bug the fire and
+  // the terminal path have each already paid for.
+  try { rec.step(tr.done()); } catch { /* the trace is never worth a build */ }
+}
+
 async function runResumedSiteBuild(env, ctx, id) {
   let stored = null;
   let etag = "";
@@ -10178,15 +10293,35 @@ async function runResumedSiteBuild(env, ctx, id) {
     return;
   }
 
-  const poll = await askContainerResult(env, stored.lane, stored.genId);
+  // ── R2 FIRST, THE CONTAINER SECOND ────────────────────────────────────────
+  //
+  // The stored report is the SOURCE OF TRUTH and `MODEL_JOBS` is a cache. That
+  // ordering is the whole point of persisting the answer: an instance that has
+  // been recycled answers `unknown` for work that finished perfectly well, and
+  // asking it first would read a durable answer as a lost one and buy another
+  // generation to replace something already in hand.
+  //
+  // BOTH SPEAK ONE VOCABULARY, so nothing below can tell them apart — `poll` is
+  // `{state, answer|status, kind, message}` either way. A second shape here
+  // would be a second set of branches, one of which nobody drives.
+  //
+  // AN OLDER RECORD HAS NO TOKEN and simply falls through to the container,
+  // which is exactly what every build did before this existed.
+  let poll = await readGenResult(env, stored.report);
+  if (!poll) poll = await askContainerResult(env, stored.lane, stored.genId);
   const decision = resumeDecision({ poll, record: stored, now: Date.now() });
 
   // THE CLAIM SAYS WHAT THIS LOOK IS ABOUT TO DO. A terminal one is about to
   // spend, so it is marked here — before the money moves — and a redelivery
   // then finds the mark rather than a record that reads as untouched.
-  const claimed = decision.act === "wait"
-    ? { ...stored, looks: nextLook(stored).looks }
-    : withCharged({ ...stored, looks: nextLook(stored).looks }, "pages");
+  //
+  // ASKED OF `isTerminal`, NEVER SPELLED AS "everything except wait". That was
+  // the rule here until 2026-08-26 and it was true only while `wait` was the one
+  // non-terminal act. `refire` is the second, and a refire marked as charged is
+  // a build that starts a second generation and then refuses to collect it —
+  // silently, because the mark reads exactly like a build that already paid.
+  const bumped = { ...stored, looks: nextLook(stored).looks };
+  const claimed = isTerminal(decision.act) ? withCharged(bumped, "pages") : bumped;
   let won = null;
   try {
     won = await env.SITES_BUCKET.put(resumeKey(id), JSON.stringify(packResume(claimed)), { onlyIf: { etagMatches: etag } });
@@ -10266,8 +10401,19 @@ async function runResumedSiteBuild(env, ctx, id) {
   try { tr.at("resume:" + decision.act); } catch { /* a trace must never break a build */ }
   const budget = makeBudget();
   const genPath = {};
-  // WHAT THE GENERATOR IS HANDED, and the three cases are not interchangeable.
-  const resumeCall = decision.act === "here"
+  // ── WHAT THE GENERATOR IS HANDED, and the three cases are not interchangeable.
+  //
+  // A REFIRE HANDS IT NOTHING, so the ordinary firing caller is built instead
+  // and the generation starts again IN THE CONTAINER — the side with no clock.
+  // That reuses the whole fire path (`pagesRequest` rebuilds the request,
+  // `containerPagesFire` posts it and throws the sentinel) rather than being a
+  // second copy of it, which is what keeps the two fires from drifting.
+  //
+  // THIS IS WHERE `here` USED TO BE, and the difference is the whole fix: that
+  // one passed `null` with `canFire: false`, so `publishPages` built a WORKER
+  // caller and re-ran a 333k-620k ms generation under a ten-minute cap. Run 40
+  // died in it. Same `null`, opposite meaning, because `canFire` moves with it.
+  const resumeCall = decision.act === "refire"
     ? null
     : (decision.act === "finish"
       ? async () => decision.answer
@@ -10293,11 +10439,34 @@ async function runResumedSiteBuild(env, ctx, id) {
       mark: (n) => { try { tr.at(n); } catch { /* a trace must never break a build */ } },
       budget,
       genPathOut: genPath,
-      // NEVER FIRE AGAIN. A second fire would start a second generation beside
-      // the one this record exists for — charged, and racing its own resume.
-      canFire: false,
+      // FIRE ONLY ON A REFIRE, and the condition is the whole safety argument.
+      // Firing while a generation is still running would start a second one
+      // beside it — charged, and racing its own resume — which is why this was
+      // a flat `false`. On a refire there is nothing running: `unknown` means
+      // the instance lost the work and `no-request` means it never left. So the
+      // one case where a second fire is safe is exactly the one where it is the
+      // only way to finish the build.
+      //
+      // BOUNDED IN `resumeDecision`, NOT HERE. `RESUME_MAX_REFIRES` is what
+      // stops this becoming a generation a minute for ever, and it lives beside
+      // the decision that reads the count rather than at the call site that
+      // acts on it — a bound the caller has to remember is one a second caller
+      // forgets.
+      canFire: decision.act === "refire",
       resumeCall,
     });
+    // ── A REFIRE HAS NOT FINISHED ANYTHING; IT HAS STARTED SOMETHING ─────────
+    //
+    // `buildAndPublishPages` comes back with `stage: "resuming"` and a pointer
+    // to the new generation. That is not an outcome to publish or a result to
+    // store — it is the same record, pointing somewhere new, plus a look
+    // scheduled for it. Falling through to `packResult` would write a result
+    // saying `resuming` into a delete-on-read key and DELETE the record, losing
+    // a generation that is running.
+    if (pages && pages.stage === "resuming" && pages.resume) {
+      await recordRefire(env, id, claimed, stored, pages.resume, decision, tr, rec);
+      return;
+    }
     out = packResult({ status: 200, type: "application/json", body: JSON.stringify({ ok: true, resumed: decision.act, ...pages }), uid: claimed.uid });
   } catch (e) {
     // ── A FAILED RESUME MUST SAY WHICH ROUTE IT TOOK ──────────────────────────
@@ -11935,7 +12104,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
         try {
           await env.SITES_BUCKET.put(resumeKey(jobId), JSON.stringify(packResume({
             id: jobId, auth, uid: (bu && bu.id) || "", slug,
-            lane: pages.resume.lane, genId: pages.resume.genId, firedAt: pages.resume.firedAt,
+            lane: pages.resume.lane, genId: pages.resume.genId, report: pages.resume.report, firedAt: pages.resume.firedAt,
             // WHAT THIS INVOCATION ALREADY TOOK. The resume must not re-charge
             // either: the deposit was taken at the gate and the design call was
             // settled against it, both long before the generation started.
@@ -14851,6 +15020,54 @@ async function handleRequest(request, env, ctx) {
     //
     // ITS OWN LANE, never a customer's. `laneName("gen-probe")` is a fixed
     // label, so this can never queue behind — or ahead of — a real build.
+    // ── THE CONTAINER HANDS BACK A FINISHED GENERATION ────────────────────────
+    //
+    // `MODEL_JOBS` is a Map in ONE container instance's memory holding whole
+    // model answers. Cloudflare does not promise that instance survives, and
+    // when it does not the generation is unrecoverable — the resume is told
+    // `unknown` and the only way back is to buy another one. This is where the
+    // answer stops depending on an instance staying alive.
+    //
+    // UNAUTHENTICATED BY NECESSITY, AND THE TOKEN IS THE WHOLE CREDENTIAL. The
+    // container holds no session; what it holds is a 128-bit name minted for
+    // this one generation at fire time and stored in the resume record. Knowing
+    // it authorises writing exactly one build's answer and nothing else. That is
+    // the same shape as a site's inbound webhook secret, and it is why the token
+    // travels in a HEADER rather than the URL — a URL reaches logs and proxies.
+    //
+    // IT VALIDATES BEFORE IT BUILDS A KEY. The token decides an R2 path, so an
+    // unvalidated one is a path a caller chooses — the rule `isResumeId` already
+    // exists for. `genKey` refuses anything that is not 32 hex.
+    //
+    // THE SHAPE IS THE POLL'S, so a stored answer and a live one are
+    // indistinguishable to `resumeDecision`. `readGenReport` is what refuses a
+    // body that is neither, rather than storing junk for a resume to publish.
+    if (url.pathname === "/api/site/genresult" && request.method === "POST") {
+      const token = request.headers.get("x-gen-report") || "";
+      // NOT 401. This route's existence is not a secret worth confirming to
+      // somebody probing it, and a container that got the token wrong has no
+      // recovery either way — 404 says the same thing to both.
+      if (!isReportToken(token) || !env.SITES_BUCKET) return Response.json({ ok: false }, { status: 404 });
+      const tlG = tooLargeBody(request, MAX_GEN_REPORT); if (tlG) return tlG;
+      let body = null;
+      try { body = JSON.parse(await request.text()); } catch { body = null; }
+      const rep = readGenReport(body);
+      if (!rep) return Response.json({ ok: false, error: "not a generation answer" }, { status: 400 });
+      try {
+        await env.SITES_BUCKET.put(genKey(token), JSON.stringify(rep));
+      } catch (e) {
+        // 5xx SO THE CONTAINER KNOWS IT DID NOT LAND. Answering 200 on a failed
+        // write is the one response that loses the answer silently: the
+        // container has already dropped it from nothing but its own memory's
+        // reach, and the resume will look here and find nothing.
+        console.error("gen result: could not store the answer —", String((e && e.message) || e));
+        return Response.json({ ok: false, error: "could not store" }, { status: 503 });
+      }
+      // NO JOB ID, NO SLUG, NOTHING ABOUT THE BUILD comes back. The caller is
+      // the container and it needs one bit: did this land.
+      return Response.json({ ok: true });
+    }
+
     if (url.pathname === "/api/site/genprobe" && request.method === "GET") {
       const gu = await authUser(request);
       if (!gu) return UNAUTHED();

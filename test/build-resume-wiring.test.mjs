@@ -16,7 +16,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { hit } from "./fixtures/worker-harness.mjs";
+import { hit, isUnrouted } from "./fixtures/worker-harness.mjs";
+// THE KEY IS ASKED OF THE MODULE, never restated. Both ends of this feature
+// build it through `genKey`, so importing it here asserts they AGREE rather
+// than that they both happen to match a literal written down twice.
+import { genKey } from "../builder/build-resume.mjs";
 
 const RAW = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const CODE = RAW.split("\n")
@@ -47,15 +51,32 @@ function fn(name) {
   return body;
 }
 
-test("THE BUILD MAY FIRE AND THE RESUME MAY NOT — the one flag that decides", () => {
-  // A resume that fired again would start a SECOND generation beside the one its
-  // own record exists for: charged, running in the same container, and racing
-  // the look that is about to read the first one's answer. Asserted in BOTH
-  // directions, because either alone is satisfied by a build that never fires.
+test("THE RESUME MAY FIRE ONLY TO REPLACE A GENERATION THAT IS GONE", () => {
+  // THIS WAS `canFire: false` UNTIL 2026-08-26 and the change is the run-40 fix.
+  // A resume that fires while a generation is RUNNING starts a second one beside
+  // it — charged, in the same container, racing the look about to read the
+  // first's answer. But a resume that can NEVER fire has only one answer when
+  // the container has lost the work: re-run the whole generation in the Worker,
+  // under a ten-minute cap, on a brief measured at 333k-620k ms. That is what
+  // run 40 died in.
+  //
+  // So the property is not "never" and not "always" — it is that firing is
+  // CONDITIONED ON THE DECISION, and the only decision that permits it is the
+  // one that means nothing is running.
   const resume = fn("runResumedSiteBuild");
-  assert.match(resume, /canFire:\s*false/,
-    "the resume does not switch firing off, so a look could start a second generation");
-  assert.doesNotMatch(resume, /canFire:\s*true/, "the resume fires");
+  assert.doesNotMatch(resume, /canFire:\s*true/,
+    "the resume fires unconditionally, so a look can start a second generation beside a running one");
+  const gate = /canFire:\s*([^,\n]+)/.exec(resume);
+  assert.ok(gate, "the resume no longer decides whether to fire in a way this guard can read");
+  assert.match(gate[1], /decision\.act\s*===\s*"refire"/,
+    `the resume fires on \`${gate[1].trim()}\` rather than on a refire decision`);
+  // AND THE WORKER MUST NEVER BE THE ONE THAT CALLS THE MODEL HERE. `here` was
+  // the act that passed a null caller WITHOUT firing, so `publishPages` built a
+  // Worker caller and made the ten-minute call itself. Its absence is what makes
+  // "on the fired path, only the container calls the model" structural rather
+  // than remembered.
+  assert.doesNotMatch(resume, /"here"/,
+    "the `here` act is back — a resume can re-run the generation in the Worker again");
 
   // And the build path does, or the whole feature is off and every build holds
   // a consumer invocation for the full generation exactly as before.
@@ -127,21 +148,34 @@ test("THE POLL COMES BEFORE THE CLAIM, and its own answer is what decides", () =
   // so marking a terminal one needs a SECOND write, and the gap between those
   // two writes is exactly the window the mark exists to close.
   const resume = fn("runResumedSiteBuild");
+  const stored = resume.indexOf("await readGenResult(");
   const poll = resume.indexOf("await askContainerResult(");
   const decide = resume.indexOf("resumeDecision(");
   const claim = resume.indexOf("onlyIf: { etagMatches:");
-  assert.ok(poll > 0 && decide > 0 && claim > 0, "the resume no longer polls, decides and claims");
+  assert.ok(stored > 0 && poll > 0 && decide > 0 && claim > 0, "the resume no longer reads both sources, decides and claims");
   assert.ok(poll < decide, "the resume decides before it has an answer to decide on");
   assert.ok(decide < claim, "the claim is written before the decision it is supposed to record");
 
-  // THE NAME THE POLL WROTE MUST BE THE NAME THE DECISION READS. Order alone is
-  // satisfied by a poll whose answer is thrown away — `const poll = null;` beside
-  // a second variable holding the real one keeps every index above in the right
-  // place and decides on nothing. Found by mutation; the ordering survived it.
-  const asg = /const (\w+) = await askContainerResult\(/.exec(resume);
-  assert.ok(asg, "the poll's answer is not bound to a name this guard can follow");
-  assert.match(resume.slice(decide, decide + 120), new RegExp(`\\{\\s*poll:\\s*${asg[1]}\\b|\\{\\s*${asg[1]}\\s*,`),
-    `the decision is not given \`${asg[1]}\`, which is the only thing that asked the container`);
+  // R2 BEFORE THE CONTAINER, and this ordering is the feature rather than a
+  // preference. `askContainerResult` answers a SHAPE for `unknown` — a recycled
+  // instance is still an answer — so a container-first read leaves the `if (!poll)`
+  // fallback permanently false and the persisted copy is never looked at. The
+  // whole of Fix 2 dead, silently, with every other assertion here still green.
+  assert.ok(stored < poll,
+    "the container is asked before the stored answer — `unknown` is truthy, so the persisted copy would never be read");
+
+  // THE NAME THE READS WROTE MUST BE THE NAME THE DECISION READS, and BOTH must
+  // write it. Order alone is satisfied by a read whose answer is thrown away —
+  // `const poll = null;` beside a second variable holding the real one keeps
+  // every index above in the right place and decides on nothing. Found by
+  // mutation; the ordering survived it.
+  const asg = /(?:const|let) (\w+) = await readGenResult\(/.exec(resume);
+  assert.ok(asg, "the stored answer is not bound to a name this guard can follow");
+  const name = asg[1];
+  assert.match(resume, new RegExp(`\\n\\s*if \\(!${name}\\) ${name} = await askContainerResult\\(`),
+    `the container's answer does not land in \`${name}\` — one of the two sources is being discarded`);
+  assert.match(resume.slice(decide, decide + 120), new RegExp(`\\{\\s*poll:\\s*${name}\\b|\\{\\s*${name}\\s*,`),
+    `the decision is not given \`${name}\`, which is the only thing that asked either source`);
 });
 
 test("THE PAID HALF IS MARKED IN THE CLAIM, and a marked record is refused", () => {
@@ -162,19 +196,22 @@ test("THE PAID HALF IS MARKED IN THE CLAIM, and a marked record is refused", () 
   assert.match(resume.slice(gate, gate + 400), /\n\s*return;/,
     "the already-charged check does not stop the resume, so a marked record is run anyway");
 
-  // ON THE TERMINAL PATH ONLY. Marking a `wait` would refuse the very next look
-  // — the build would stall with its generation finished and unread, which is
-  // the feature failing in the one way the customer cannot see.
+  // ON THE TERMINAL PATH ONLY. Marking a non-terminal look would refuse the very
+  // next one — the build would stall with its generation finished and unread,
+  // which is the feature failing in the one way the customer cannot see.
   //
-  // ASSERTED PER BRANCH. This compared the mark's INDEX against the wait test's,
-  // which is true of both branches of the same ternary: the mutant that marks a
-  // wait survived it. The ternary's two arms are read apart now.
-  const tern = /decision\.act === "wait"\s*\?([\s\S]*?):([\s\S]*?);\n/.exec(resume);
-  assert.ok(tern, "the claim is no longer a wait/terminal choice this guard can read");
-  assert.doesNotMatch(tern[1], /withCharged\(/,
-    "a look that is only waiting is marked as having spent — the next look would refuse and the build would stall");
-  assert.match(tern[2], /withCharged\(/,
+  // ASKED OF `isTerminal`, NOT SPELLED. This read `decision.act === "wait" ? …`,
+  // which was the whole non-terminal set while `wait` was the only member — and
+  // silently wrong the moment `refire` existed, because a refire would have been
+  // marked as CHARGED and the look that came back for its new generation would
+  // have refused the build outright. The list lives in the module now, so a
+  // fifth act cannot repeat it.
+  const tern = /isTerminal\(decision\.act\)\s*\?([\s\S]*?):([\s\S]*?);\n/.exec(resume);
+  assert.ok(tern, "the claim no longer asks `isTerminal`, so the non-terminal set is spelled at the call site again");
+  assert.match(tern[1], /withCharged\(/,
     "the terminal claim does not mark the pages charge, so a redelivery would charge again");
+  assert.doesNotMatch(tern[2], /withCharged\(/,
+    "a look that is not terminal is marked as having spent — the next look would refuse and the build would stall");
 
   // AND THE REFUSAL COMES BEFORE THE MONEY. A check after the build is a check
   // that reports a double charge rather than preventing one.
@@ -791,4 +828,198 @@ test("THE BRANCH IS IN THE TRACE BEFORE ANY OF THE WORK", () => {
   assert.ok(build > 0, "the resume no longer builds — rescope this guard");
   assert.ok(mark < build,
     "the branch is marked after the build starts, so a build whose isolate dies never records which route it took");
+});
+
+// ── FIX 2: THE ANSWER LEAVES THE CONTAINER'S MEMORY ─────────────────────────
+//
+// `MODEL_JOBS` is a Map in ONE instance's memory. Cloudflare does not promise
+// that instance survives a ten-minute generation, and when it does not the work
+// is gone: the resume is told `unknown` and the only way back is to buy another
+// one. Every check below holds one link of the path that stops depending on it —
+// the fire minting a name, the container being told where to write, the record
+// remembering it, and the route that receives it.
+
+const REPORT = "0123456789abcdef0123456789abcdef";
+
+/** Where the bracket opened at `from` closes. Comments are already blanked. */
+function close(src, from) {
+  let d = 0;
+  for (let i = from; i < src.length; i++) {
+    const c = src[i];
+    if (c === "(" || c === "{" || c === "[") d++;
+    else if (c === ")" || c === "}" || c === "]") { d--; if (!d) return i + 1; }
+  }
+  assert.fail("a bracket opened and never closed — the blanker or the anchor is wrong");
+}
+
+test("THE FIRE MINTS A NAME FOR THE ANSWER AND TELLS BOTH SIDES", () => {
+  const fire = CODE.slice(CODE.indexOf("function containerPagesFire("), CODE.indexOf("function reportToken("));
+  assert.ok(fire.length > 500, "the window on containerPagesFire is too small — rescope this guard");
+
+  // MINTED FROM THE PLATFORM'S CSPRNG, never from a clock or a counter. It is
+  // the ONLY credential on an unauthenticated route, so a predictable one is a
+  // stranger writing a customer's site.
+  assert.match(fire, /const report = reportToken\(\);/, "the fire no longer mints a report token");
+  const mint = CODE.slice(CODE.indexOf("function reportToken("), CODE.indexOf("function reportToken(") + 400);
+  assert.match(mint, /crypto\.getRandomValues\(/, "the report token is not from a CSPRNG — a guessable one authorises writing somebody's site");
+  assert.ok(!/Date\.now\(\)|Math\.random/.test(mint), "the report token is derived from a clock or Math.random — both are predictable");
+
+  // THE CONTAINER IS TOLD WHERE, AND THE URL IS OURS. A host threaded from the
+  // request would be whatever the customer arrived on, including a custom
+  // domain — so the container would POST a site's whole generation at an
+  // address the owner controls.
+  const body = /body: JSON\.stringify\(\{ req, callMs, report: \{ url: `([^`]+)`, token: report \} \}\)/.exec(fire);
+  assert.ok(body, "the fire no longer tells the container where to leave the answer");
+  assert.match(body[1], /^https:\/\/\$\{APP_ZONE\}\/api\/site\/genresult$/,
+    "the report URL is not built from APP_ZONE — a request-derived host lets a customer's domain collect their own generation");
+
+  // AND THE SENTINEL CARRIES IT, or the record cannot remember the one name the
+  // answer was written under and the persisted copy is unreachable.
+  assert.match(fire, /throw firedError\(\{ genId, lane: laneName\(slug\), report, firedAt: Date\.now\(\) \}\)/,
+    "the fire sentinel drops the report token — the answer is written and nothing can find it");
+});
+
+test("THE RECORD REMEMBERS THE TOKEN, at both write sites", () => {
+  // TWO SITES, and forgetting either one is silent. The first fire's record is
+  // written by the build route; a re-fire's is written by `recordRefire`, and a
+  // refire whose record kept the OLD token would collect an answer for a
+  // generation that is already gone.
+  // THE FIRST ONE IS IN THE ROUTER, not in a named function, so it is windowed
+  // from the put itself — the same anchor the record-before-message guard above
+  // already uses, which is what keeps the two from drifting onto different
+  // write sites.
+  //
+  // BOUNDED BY THE CALL'S OWN CLOSE, never by a byte count. A window sized in
+  // bytes is outrun by its own subject's comments — this repo's most repeated
+  // own-goal — and one that overran would be satisfied by a NEIGHBOURING write.
+  const at = CODE.indexOf("SITES_BUCKET.put(resumeKey(jobId)");
+  assert.ok(at > 0, "the route no longer stores a resume record — rescope this guard");
+  const build = CODE.slice(at, close(CODE, CODE.indexOf("(", at)));
+  assert.ok(build.length > 200, `the window on the record write is ${build.length} characters — this guard would be vacuous`);
+  assert.match(build, /report: pages\.resume\.report/,
+    "the first fire's record drops the report token — every fired build falls back to asking the container");
+  const again = fn("recordRefire");
+  assert.match(again, /report: resume\.report/,
+    "a re-fire's record keeps the OLD token, so it collects an answer the new generation never writes");
+  assert.match(again, /refires: \(Number\(stored\.refires\) \|\| 0\) \+ 1/,
+    "a re-fire does not increment the count — the bound resets every look and the build re-fires for ever");
+  assert.match(again, /looks: 0/,
+    "a re-fire keeps the old look count, so the new generation is judged against the first one's schedule");
+});
+
+test("THE REPORT ROUTE IS REACHABLE WITHOUT A SESSION", async () => {
+  // The container holds no Supabase session and never will — it is our own
+  // compute reached over a queue, not a person. A 401 here would mean the
+  // answer can never be delivered, which is the whole feature dead.
+  const r = await hit("/api/site/genresult", {
+    method: "POST",
+    headers: { "x-gen-report": REPORT, "content-type": "application/json" },
+    body: JSON.stringify({ state: "done", answer: { content: [] } }),
+    env: { SITES_BUCKET: { put: async () => ({}) } },
+  });
+  assert.ok(!isUnrouted(r), "the report route is unreachable — the container's answer has nowhere to land");
+  assert.equal(r.status, 200, `a valid report was refused: ${r.status} ${r.text.slice(0, 200)}`);
+});
+
+test("THE ROUTE VALIDATES THE TOKEN BEFORE IT BUILDS A KEY", async () => {
+  // The token decides an R2 path and arrives in a header on an unauthenticated
+  // route, so it is the most caller-controlled string in the feature. A key
+  // built from it unvalidated is a path the caller chose.
+  //
+  // NOTHING IS WRITTEN on a refusal, which is the half a status alone cannot
+  // say: a 404 answered AFTER a put is a stranger's object in the bucket.
+  for (const bad of ["", "not-a-token", "../../etc/passwd", REPORT.toUpperCase(), "a".repeat(31)]) {
+    const keys = [];
+    const r = await hit("/api/site/genresult", {
+      method: "POST",
+      headers: bad ? { "x-gen-report": bad } : {},
+      body: JSON.stringify({ state: "done", answer: { content: [] } }),
+      env: { SITES_BUCKET: { put: async (k) => { keys.push(k); return {}; } } },
+    });
+    assert.equal(r.status, 404, `a token of ${JSON.stringify(bad)} was not refused`);
+    assert.deepEqual(keys, [], `a refused token still wrote to ${JSON.stringify(keys)}`);
+  }
+});
+
+test("THE ANSWER LANDS UNDER THE TOKEN'S OWN KEY, and only if it IS an answer", async () => {
+  const puts = [];
+  const env = { SITES_BUCKET: { put: async (k, v) => { puts.push([k, v]); return {}; } } };
+  const ok = await hit("/api/site/genresult", {
+    method: "POST",
+    headers: { "x-gen-report": REPORT },
+    body: JSON.stringify({ state: "done", answer: { content: [{ type: "tool_use" }] } }),
+    env,
+  });
+  assert.equal(ok.status, 200);
+  assert.equal(puts.length, 1, "the answer was not stored");
+  assert.equal(puts[0][0], genKey(REPORT), "the answer landed somewhere other than the key the resume reads");
+  assert.match(puts[0][0], /^jobs\//, "the answer is under a prefix something serves — it is a customer's whole site");
+  assert.deepEqual(JSON.parse(puts[0][1]), { state: "done", answer: { content: [{ type: "tool_use" }] } });
+
+  // A BODY THAT IS NEITHER ANSWER IS REFUSED RATHER THAN STORED. Stored, the
+  // resume collects it and publishes whatever it is.
+  for (const bad of ['{"state":"pending"}', "{}", "not json at all", "[]", '{"state":"done"}']) {
+    const seen = [];
+    const r = await hit("/api/site/genresult", {
+      method: "POST",
+      headers: { "x-gen-report": REPORT },
+      body: bad,
+      env: { SITES_BUCKET: { put: async (k) => { seen.push(k); return {}; } } },
+    });
+    assert.equal(r.status, 400, `a body of ${bad} was accepted`);
+    assert.deepEqual(seen, [], "a refused body was still written");
+  }
+});
+
+test("A FAILED STORE ANSWERS 5xx, so the container knows the answer did not land", async () => {
+  // 200 on a failed write is the one response that loses the answer silently:
+  // the container has already dropped it from everything but its own memory's
+  // reach, and the resume will look here and find nothing.
+  const r = await hit("/api/site/genresult", {
+    method: "POST",
+    headers: { "x-gen-report": REPORT },
+    body: JSON.stringify({ state: "done", answer: { content: [] } }),
+    env: { SITES_BUCKET: { put: async () => { throw new Error("r2 is having a moment"); } } },
+  });
+  assert.ok(r.status >= 500, `a failed store answered ${r.status} — the container reads that as delivered`);
+  assert.ok(!r.text.includes("r2 is having a moment"), "the store's own error text reached the caller");
+});
+
+test("THE CONTAINER REPORTS A FAILURE AS WELL AS AN ANSWER", () => {
+  // Reported only on success, a container that FAILED and was then recycled
+  // looks exactly like one that lost the work — so the resume buys another
+  // generation to be told the same thing, which is the money the re-fire bound
+  // exists to protect.
+  const srv = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8")
+    .split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? " ".repeat(l.length) : l)).join("\n");
+  //
+  // ANCHORED AT THE START OF THE STATEMENT, and the sweep is why. Written as a
+  // bare `await sendModelReport\(`, the pattern is satisfied by
+  // `if (false) await sendModelReport(…)` — the call is still there and reaches
+  // nothing. A presence standing in for a property, in the guard written for
+  // it, which is this repo's most repeated own-goal.
+  const calls = [...srv.matchAll(/\n\s+await sendModelReport\(report, \{\s*\n?\s*state: "(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual(calls.sort(), ["done", "failed"],
+    `the container reports ${JSON.stringify(calls)} — a generation that failed and was recycled is indistinguishable from one that was lost`);
+
+  // IT IS BOUNDED, and by its own ceiling rather than the generation's. This
+  // POST is a few hundred kilobytes over an already-open path; bounding it at
+  // `callMs` would hold the container for ten more minutes on a Worker that is
+  // not answering, having already made the call it was fired for.
+  const send = srv.slice(srv.indexOf("async function sendModelReport("), srv.indexOf("async function sweepModelJobs("));
+  assert.ok(send.length > 200, "the window on sendModelReport is too small — rescope this guard");
+  assert.match(send, /AbortSignal\.timeout\(REPORT_CALL_MS\)/, "the report POST is unbounded — a hung Worker holds the container open");
+  assert.match(send, /"x-gen-report": report\.token/, "the container does not send the token — the route cannot authorise the write");
+
+  // AND IT NEVER THROWS. `MODEL_JOBS` is set BEFORE this runs, so a Worker that
+  // is unreachable must leave the in-memory answer collectable rather than
+  // taking the whole `oneAtATime` body down with it.
+  assert.match(send, /catch \(e\) \{/, "the report send does not catch — an unreachable Worker loses the in-memory answer too");
+  assert.match(send, /return false;/, "the report send has no failure return — a caller cannot tell it did not land");
+  // THE CATCH MUST NOT RETHROW, and asserting the catch EXISTS does not say so:
+  // `} catch (e) { throw e; }` keeps both matches above and still takes the
+  // whole `oneAtATime` body down on a Worker that is not answering. Found by
+  // mutation. The property is that this function has no way out but a boolean.
+  assert.doesNotMatch(send, /\bthrow\b/,
+    "the report send can throw — an unreachable Worker would take the generation's in-memory answer with it");
 });

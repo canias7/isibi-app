@@ -135,6 +135,51 @@ const MODEL_JOB_TTL_MS = 45 * 60 * 1000;
  * for ten minutes and a poll refreshes it, so a start-time TTL would delete a
  * job while it was still being produced.
  */
+// HOW LONG TO SPEND HANDING THE ANSWER BACK. The body is megabytes and the far
+// end is a Worker, so this is a real upload — but it runs inside `oneAtATime`,
+// which means a report that hangs holds the busy counter open long after the
+// generation finished and keeps a container alive doing nothing.
+const REPORT_CALL_MS = 120_000;
+
+/**
+ * PUT THE ANSWER SOMEWHERE THAT OUTLIVES THIS INSTANCE.
+ *
+ * `MODEL_JOBS` is a `Map` in this process's memory holding whole model answers.
+ * Cloudflare does not promise the instance survives, and when it does not the
+ * generation is unrecoverable: the Worker is told `unknown` and the only way
+ * back is to buy another one. That is what stage 2 kept losing builds to, and
+ * this is the half that makes the loss impossible rather than merely rare.
+ *
+ * NO REPORT IS NOT AN ERROR. Every caller before 2026-08-26 sent none, and such
+ * a job behaves exactly as it always did — answered from the Map alone.
+ *
+ * BEST-EFFORT, AND THAT IS NOT A HEDGE. The Map is written FIRST and still
+ * answers `/model/result`, so a failed report costs the DURABILITY and never the
+ * answer. Throwing would be worse than useless: this runs on a promise nobody
+ * awaits, so an escaping rejection is an unhandled one — which in a Node request
+ * handler kills the process and takes every other build on this container with
+ * it, the exact reason the caller catches everything itself.
+ */
+async function sendModelReport(report, body) {
+  if (!report || typeof report.url !== "string" || !report.url) return false;
+  if (typeof report.token !== "string" || !report.token) return false;
+  try {
+    const r = await fetch(report.url, {
+      method: "POST",
+      // THE TOKEN IN A HEADER, NOT THE URL. A URL reaches logs, proxies and
+      // error messages; this one is the only credential the receiving route has.
+      headers: { "content-type": "application/json", "x-gen-report": report.token },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REPORT_CALL_MS),
+    });
+    if (!r.ok) { console.error("model report: the worker answered", r.status); return false; }
+    return true;
+  } catch (e) {
+    console.error("model report: could not deliver the answer —", String((e && e.name) || "Error"), String((e && e.message) || e));
+    return false;
+  }
+}
+
 function sweepModelJobs(now = Date.now()) {
   for (const [id, job] of MODEL_JOBS) {
     if (now - (job.touchedAt || job.startedAt || 0) > MODEL_JOB_TTL_MS) MODEL_JOBS.delete(id);
@@ -1201,6 +1246,10 @@ const server = http.createServer((req, res) => {
       if (MODEL_JOBS.size >= MAX_MODEL_JOBS) {
         return send(res, 429, { ok: false, error: "too many generation jobs on this container" });
       }
+      // WHERE TO SEND THE ANSWER SO IT OUTLIVES THIS INSTANCE. Optional: with no
+      // report the job behaves exactly as it always has, answered only from the
+      // Map below — which is what every caller did before 2026-08-26.
+      const report = payload && payload.report && typeof payload.report === "object" ? payload.report : null;
       const id = randomUUID();
       MODEL_JOBS.set(id, { state: "pending", startedAt: Date.now(), touchedAt: Date.now() });
       // NOT AWAITED. The response goes back now; the counter holds until this
@@ -1212,6 +1261,7 @@ const server = http.createServer((req, res) => {
         try {
           const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget);
           MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
+          await sendModelReport(report, { state: "done", answer });
         } catch (e) {
           // THE SHAPE IS PRESERVED, exactly as `/model` preserves it: the Worker
           // parses `detail` for the provider's error type and reports `upstream`
@@ -1228,6 +1278,18 @@ const server = http.createServer((req, res) => {
             },
             ms: Date.now() - at,
             touchedAt: Date.now(),
+          });
+          // A FAILURE IS AN ANSWER AND MUST BE PERSISTED TOO. Reported only on
+          // success, a container that failed and was then recycled looks exactly
+          // like one that lost the work — so the resume would buy another
+          // generation to be told the same thing, which is the money the bound
+          // on re-fires exists to protect.
+          await sendModelReport(report, {
+            state: "failed",
+            status: (e && e.status) || null,
+            detail: e && typeof e.detail === "string" ? e.detail : "",
+            message: String((e && e.message) || e).slice(0, 300),
+            kind: String((e && e.name) || "Error"),
           });
         }
       });

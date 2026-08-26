@@ -10,9 +10,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   RESUME_PREFIX, RESUME_KIND, RESUME_VERSION, RESUME_POLL_SECONDS, RESUME_FIRST_SECONDS,
-  RESUME_DEADLINE_MS, RESUME_SLACK_MS, RESUME_MAX_LOOKS, CHARGE_STEPS,
-  MAX_DELAY_SECONDS,
-  isResumeId, resumeKey, packResume, readResume, alreadyCharged, withCharged, resumeDecision,
+  RESUME_DEADLINE_MS, RESUME_SLACK_MS, RESUME_MAX_LOOKS, RESUME_MAX_REFIRES, CHARGE_STEPS,
+  MAX_DELAY_SECONDS, isTerminal,
+  isResumeId, resumeKey, isReportToken, genKey, readGenReport,
+  packResume, readResume, alreadyCharged, withCharged, resumeDecision,
   packResumeMessage, readResumeMessage, nextLook, queueDelay,
   FIRED_NAME, firedError, readFired, looksDue, flightOf,
 } from "../builder/build-resume.mjs";
@@ -45,12 +46,97 @@ test("THE KEY IS BUILT ONLY FROM AN ID WE MINTED", () => {
   assert.equal(isResumeId("A".repeat(32)), false, "an uppercase id is not the shape we mint");
 });
 
+test("THE REPORT KEY IS BUILT ONLY FROM A TOKEN WE MINTED", () => {
+  // The token arrives in a HEADER on an UNAUTHENTICATED route and decides an R2
+  // path, so it is the most caller-controlled string in the whole feature. It
+  // gets `resumeKey`'s discipline exactly: refuse rather than sanitise, because
+  // a sanitiser has to be right about every escape and a shape check does not.
+  const T = "0123456789abcdef0123456789abcdef";
+  assert.equal(genKey(T), `${RESUME_PREFIX}gen-${T}.json`);
+  assert.match(genKey(T), /^jobs\//, "the answer must live under the prefix nothing serves — it is a customer's whole site");
+  for (const bad of ["", "../etc/passwd", "gen-" + T, T.toUpperCase(), "a".repeat(31), "a".repeat(33), 42, null, undefined, [T], { t: T }]) {
+    assert.throws(() => genKey(bad), /did not mint/, `a key was built from ${JSON.stringify(bad)}`);
+  }
+  assert.equal(isReportToken(T), true);
+  assert.equal(isReportToken(T.toUpperCase()), false, "an uppercase token is not the shape we mint — two spellings would be two keys for one answer");
+
+  // IT CANNOT COLLIDE WITH THE RECORD OR THE RESULT, which share the prefix and
+  // are keyed on a 32-hex id of the same shape. `gen-` is what keeps a report
+  // from landing on `<id>.resume.json` or `<id>.result.json`.
+  assert.notEqual(genKey(T), resumeKey(T));
+  assert.ok(!genKey(T).includes(".resume."), "a report key can collide with a resume record");
+  assert.ok(!genKey(T).includes(".result."), "a report key can collide with a stored result");
+});
+
+test("A STORED REPORT IS NARROWED THE WAY A LIVE POLL IS, or the two are not one vocabulary", () => {
+  // The whole point of persisting is that `resumeDecision` cannot tell a stored
+  // answer from a live one. That holds only while the SHAPES match: a body that
+  // is neither is refused here rather than stored for a resume to publish.
+  const ans = { content: [{ type: "tool_use", input: { pages: [] } }] };
+  assert.deepEqual(readGenReport({ state: "done", answer: ans }), { state: "done", answer: ans });
+
+  const f = readGenReport({ state: "failed", status: 429, detail: "{}", message: "rate limited", kind: "Error" });
+  assert.deepEqual(f, { state: "failed", status: 429, detail: "{}", message: "rate limited", kind: "Error" });
+
+  // `retryHere` READS `status` AND `kind` AND NOTHING ELSE, so those two are the
+  // fields whose narrowing decides money. A status that is not a positive finite
+  // number becomes null — which `retryHere` reads as "no request was ever made",
+  // the direction that re-fires rather than the one that gives up on a paid call.
+  for (const bad of [0, -1, "429", NaN, Infinity, null, undefined, {}]) {
+    assert.equal(readGenReport({ state: "failed", status: bad }).status, null, `a status of ${JSON.stringify(bad)} was carried through`);
+  }
+  assert.equal(readGenReport({ state: "failed", status: 429.9 }).status, 429, "a fractional status was not truncated");
+  assert.equal(readGenReport({ state: "failed" }).kind, "Error", "a failure with no kind read as one `retryHere` cannot classify");
+  assert.equal(readGenReport({ state: "failed", kind: "" }).kind, "Error");
+  assert.equal(readGenReport({ state: "failed", detail: { a: 1 } }).detail, "", "a non-string detail reached `upstreamKind`, which parses it");
+
+  // NEITHER STATE IS NOT AN ANSWER. A `pending` or a bare object stored here
+  // would be collected as though the generation had settled.
+  for (const bad of [null, undefined, 42, "done", [], ["done"], {}, { state: "pending" }, { state: "unknown" }, { state: "done" }, { state: "done", answer: null }, { state: "done", answer: "text" }]) {
+    assert.equal(readGenReport(bad), null, `a body that is not an answer was accepted: ${JSON.stringify(bad)}`);
+  }
+});
+
 test("A ROUND TRIP KEEPS EVERY FIELD A LATER INVOCATION NEEDS", () => {
   const back = readResume(packResume(GOOD));
   assert.ok(back, "a record we just wrote does not read back");
   for (const k of ["id", "auth", "uid", "slug", "lane", "genId", "firedAt"]) {
     assert.equal(back[k], GOOD[k], `\`${k}\` did not survive the round trip`);
   }
+
+  // THE REPORT TOKEN AND THE REFIRE COUNT ARE BOTH OPTIONAL, and both default to
+  // the value every record written before them already has. A build fired before
+  // this existed reads back with no token and falls through to asking the
+  // container — which is exactly what it did — rather than failing to parse.
+  assert.equal(back.report, "", "an older record without a token does not read back as having none");
+  assert.equal(back.refires, 0, "an older record without a count does not read back as never re-fired");
+  const T = "0123456789abcdef0123456789abcdef";
+  const with2 = readResume(packResume({ ...GOOD, report: T, refires: 1 }));
+  assert.equal(with2.report, T, "the report token did not survive the round trip — the answer becomes uncollectable");
+  assert.equal(with2.refires, 1, "the refire count did not survive — the bound resets on every look and the build re-fires for ever");
+  assert.equal(readResume(packResume({ ...GOOD, report: "not-a-token" })).report, "",
+    "a junk token round-tripped, so it reaches `genKey` on the resume path and throws there instead of falling back");
+  // A LITERAL TABLE, never the implementation's own expression restated. An
+  // expected value computed the way the code computes it follows a change in it
+  // silently, which is the assertion agreeing with itself rather than pinning
+  // anything.
+  for (const [bad, want] of [[-1, 0], [0, 0], [1.7, 1], [3, 3], ["2", 0], [NaN, 0], [Infinity, 0], [null, 0], [{}, 0], [[2], 0]]) {
+    assert.equal(readResume(packResume({ ...GOOD, refires: bad })).refires, want,
+      `a refire count of ${JSON.stringify(bad)} did not normalise to ${want}`);
+  }
+});
+
+test("THE FLIGHT READ NEVER CARRIES THE REPORT TOKEN", () => {
+  // `flightOf` is the ONE thing that shapes a courtesy response, and the record
+  // it reads now holds a second credential beside the caller's access token. It
+  // builds its output from scratch rather than spreading, which is why this
+  // holds — and this is what says so, driven with a record that HAS one so the
+  // assertion cannot pass vacuously.
+  const T = "0123456789abcdef0123456789abcdef";
+  const f = flightOf({ ...GOOD, report: T, refires: 1 }, 5000);
+  assert.deepEqual(Object.keys(f).sort(), ["due", "elapsedMs", "firedAt", "looks", "slug"]);
+  assert.ok(!JSON.stringify(f).includes(T), "the report token reached a response body");
+  assert.ok(!JSON.stringify(f).includes(GOOD.auth), "the caller's access token reached a response body");
 });
 
 test("THE LANE IS REQUIRED — the answer lives in ONE container's memory", () => {
@@ -201,7 +287,25 @@ test("THE FIRE SENTINEL CARRIES WHERE THE ANSWER WILL BE, and cannot look like a
   const e = firedError({ genId: "g-1", lane: "build-k-cafe", firedAt: 1000 });
   assert.equal(e.name, FIRED_NAME);
   assert.ok(e instanceof Error, "the sentinel is not an Error — a throw site would not be able to rethrow it");
-  assert.deepEqual(readFired(e), { genId: "g-1", lane: "build-k-cafe", firedAt: 1000 });
+  assert.deepEqual(readFired(e), { genId: "g-1", lane: "build-k-cafe", report: "", firedAt: 1000 });
+
+  // THE REPORT TOKEN RIDES WITH THE LANE, because it names the same answer from
+  // the other side: the lane says which instance's memory to ask, the token says
+  // which R2 key the container was told to write to. A fire that carried one and
+  // not the other would store a record that can only be collected one way.
+  const tok = "0123456789abcdef0123456789abcdef";
+  assert.deepEqual(readFired(firedError({ genId: "g-1", lane: "build-k-cafe", report: tok, firedAt: 1000 })),
+    { genId: "g-1", lane: "build-k-cafe", report: tok, firedAt: 1000 });
+
+  // A TOKEN WE DID NOT MINT IS DROPPED RATHER THAN CARRIED. It decides an R2
+  // path further down, so the shape check belongs at every door it can enter
+  // by — `genKey` refusing it later is a throw on the resume path rather than a
+  // record that simply falls back to asking the container, which is what every
+  // build did before this existed.
+  assert.equal(readFired(firedError({ genId: "g-1", lane: "l", report: "../../etc/passwd", firedAt: 1000 })).report, "",
+    "a report token that is not 32 hex was carried into the record");
+  assert.equal(readFired(firedError({ genId: "g-1", lane: "l", report: tok.toUpperCase(), firedAt: 1000 })).report, "",
+    "an upper-case token was accepted — the key is built by concatenation, so two spellings are two keys");
 
   // IT MUST NEVER READ AS A FAILURE THAT COST MONEY. `retryHere` decides that
   // from `e.name`, and a fire read as a failed call is retried in the Worker —
@@ -348,28 +452,90 @@ test("THE MONEY RULE IS `retryHere`, NEVER A SECOND COPY OF IT", () => {
   ];
   for (const poll of cases) {
     const d = resumeDecision({ poll, record: GOOD, now: at(5000) });
-    assert.equal(d.act === "here", retryHere(poll),
+    assert.equal(d.act === "refire", retryHere(poll),
       `the resume decision and retryHere disagree about ${JSON.stringify(poll)} — a money rule in two places`);
   }
 });
 
-test("A FAILURE WITH NO REQUEST BEHIND IT IS RETRIED IN THE WORKER", () => {
+test("A FAILURE WITH NO REQUEST BEHIND IT STARTS THE GENERATION AGAIN", () => {
   // A key the container was not given, egress refusing the provider, an answer
-  // that is not a model answer. Nothing was spent, so making the call here
-  // costs a wait and no money — against a customer with no site.
+  // that is not a model answer. Nothing was spent, so starting it again costs a
+  // wait and no money — against a customer with no site.
+  //
+  // IN THE CONTAINER. This was `here` — the Worker made the call itself, under a
+  // ten-minute cap, on a brief measured at 333k-620k ms. Run 40 died in it.
   const d = resumeDecision({ poll: { state: "failed", status: null, kind: "Error", message: "XAI_API_KEY is not set" }, record: GOOD, now: at(5000) });
-  assert.equal(d.act, "here");
+  assert.equal(d.act, "refire");
   assert.equal(d.why, "no-request");
   assert.match(d.message, /XAI_API_KEY/, "the reason is dropped — an operator cannot tell a missing key from blocked egress");
 });
 
-test("UNKNOWN MEANS THE CONTAINER LOST THE WORK, and is retried rather than mourned", () => {
+test("UNKNOWN MEANS THE CONTAINER LOST THE WORK, and it is started again", () => {
   // The container's own TTL is far longer than this deadline, so inside the
   // window `unknown` is a recycled instance rather than an answer that aged
   // out. Nothing is producing the generation anywhere.
   const d = resumeDecision({ poll: { state: "unknown" }, record: { ...GOOD, looks: 2 }, now: at(120_000) });
-  assert.equal(d.act, "here");
+  assert.equal(d.act, "refire");
   assert.equal(d.why, "lost");
+});
+
+test("A RE-FIRE IS BOUNDED, AND THE BOUND IS WHAT STOPS IT BUYING A GENERATION FOR EVER", () => {
+  // Each re-fire is a real provider call. Unbounded, a container that keeps
+  // answering `unknown` would buy one every look until the deadline — which is
+  // the money hole `here` never had, arriving through its replacement.
+  // THE VALUE IS PINNED, NOT JUST THE MECHANISM, and the sweep is what said so:
+  // every count below was written as `RESUME_MAX_REFIRES` and raising the
+  // constant to 99 raised the ASSERTION with it — the test agreeing with itself
+  // rather than holding anything. Same shape as the `MIN_PANEL_ALPHA` floor
+  // this repo already records. So the numbers are literals and the constant is
+  // pinned outright, because ONE is a money decision rather than a tuning one.
+  assert.equal(RESUME_MAX_REFIRES, 1,
+    "the re-fire bound moved — each one is a real generation somebody pays for, so this is a money decision and belongs in a commit that says so");
+
+  const lost = { state: "unknown" };
+  for (const why of [["unknown", lost], ["no-request", { state: "failed", kind: "Error", message: "no key" }]]) {
+    const [name, poll] = why;
+    // Within budget: start it again.
+    const first = resumeDecision({ poll, record: { ...GOOD, refires: 0 }, now: at(5000) });
+    assert.equal(first.act, "refire", `${name} does not start the generation again on the first try`);
+    // Past it: stop, and SAY WHICH failure ran out of tries rather than
+    // collapsing every give-up into one word an operator cannot act on.
+    const done = resumeDecision({ poll, record: { ...GOOD, refires: 1 }, now: at(5000) });
+    assert.equal(done.act, "stop", `${name} keeps re-firing past the bound — a generation bought every look`);
+    assert.equal(done.why, "refires");
+    assert.equal(done.was, name === "unknown" ? "lost" : "no-request",
+      "the original reason is dropped, so a log cannot say whether the work was lost or never left");
+    // AND NOTHING PAST IT EITHER. A record that somehow carries a higher count
+    // must still stop rather than reading as under a raised bound.
+    for (const n of [2, 7, 99]) {
+      assert.equal(resumeDecision({ poll, record: { ...GOOD, refires: n }, now: at(5000) }).act, "stop",
+        `${name} re-fires again at ${n} refires`);
+    }
+  }
+});
+
+test("`isTerminal` KNOWS WHICH ACTS SPEND, and a refire is not one of them", () => {
+  // THE RULE THE CALL SITE USED TO SPELL. It read "every act except `wait`",
+  // which was the whole non-terminal set while `wait` was the only member — and
+  // a refire marked as charged is a build that starts a second generation and
+  // then refuses to collect it, silently, because the mark reads exactly like a
+  // build that already paid.
+  assert.equal(isTerminal("finish"), true);
+  assert.equal(isTerminal("stop"), true);
+  assert.equal(isTerminal("wait"), false);
+  assert.equal(isTerminal("refire"), false, "a refire is treated as spending — the next look would refuse the build");
+  // AND EVERY ACT THE DECISION CAN PRODUCE IS CLASSIFIED. A fifth one added
+  // without a verdict here falls through as non-terminal, which is the direction
+  // that charges twice.
+  const acts = new Set();
+  for (const poll of [{ state: "done", answer: {} }, { state: "pending" }, { state: "unknown" },
+    { state: "failed", status: 429 }, { state: "failed", kind: "Error" }, null]) {
+    for (const refires of [0, RESUME_MAX_REFIRES]) {
+      acts.add(resumeDecision({ poll, record: { ...GOOD, refires }, now: at(5000) }).act);
+    }
+  }
+  assert.ok(acts.size >= 4, `only ${acts.size} acts reachable — this sweep is not exercising the decision`);
+  for (const a of acts) assert.equal(typeof isTerminal(a), "boolean", `\`${a}\` has no verdict`);
 });
 
 test("AN UNREADABLE ANSWER IS NOT A FINISHED GENERATION", () => {

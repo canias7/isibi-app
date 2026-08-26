@@ -120,6 +120,46 @@ export const RESUME_DEADLINE_MS = BUILDER_CALL_MS + RESUME_SLACK_MS;
 // build reaches it: the deadline is hit ~11 minutes in, which is ~11 looks.
 export const RESUME_MAX_LOOKS = 40;
 
+// ── WHEN THE CONTAINER HAS NOT GOT IT: FIRE AGAIN, ON THE SIDE WITH NO CLOCK ──
+//
+// THIS REPLACES A FALLBACK THAT WAS DOOMED BY ARITHMETIC. Until 2026-08-26 a
+// container that could not produce the answer sent the resume down `here`: the
+// Worker re-ran the WHOLE generation itself under `capMs(BUILDER_CALL_MS)`, ten
+// minutes. This brief measures 333k-620k ms with two recent runs CUT past 600k,
+// so that fallback walked straight back into the ceiling stage 2 exists to
+// escape — and run 40 died in exactly it, `TimeoutError`, no site.
+//
+// The container has no fixed runtime limit. So the answer to "the work is gone"
+// is to start it again THERE, not here.
+//
+// ONE, AND THE NUMBER IS A MONEY DECISION RATHER THAN A TUNING ONE. Each re-fire
+// is a real generation somebody pays a provider for. One is exactly what the old
+// `here` already cost — a single extra call — so this is not a new spend, it is
+// the same spend moved to the side that can finish it. Past it the build stops
+// and says so, which is more honest than another ten minutes of waiting for a
+// call that cannot fit.
+//
+// A RE-FIRE IS NOT A CHARGE OF OURS, which is why it must not claim the `pages`
+// mark: nothing has left the ledger, and marking it would make the very next
+// look refuse the build outright.
+export const RESUME_MAX_REFIRES = 1;
+
+/**
+ * The acts that END a build, and therefore the ones whose claim marks `pages`.
+ *
+ * DERIVED FROM HERE RATHER THAN SPELLED AT THE CALL SITE, because the call site
+ * used to read `act === "wait" ? claim : chargeClaim` — a rule stated as "every
+ * act except one", which was true while `wait` was the only non-terminal act and
+ * silently wrong the moment `refire` existed. A refire marked as charged is a
+ * build that fires a second generation and then refuses to collect it.
+ */
+export const TERMINAL_ACTS = Object.freeze(["finish", "stop"]);
+
+/** Does this decision end the build — i.e. is it about to spend? */
+export function isTerminal(act) {
+  return TERMINAL_ACTS.includes(act);
+}
+
 /** The names of the things that cost money, so "what has already been taken"
  *  is a closed vocabulary rather than whatever string a call site invents. A
  *  typo in a free-form name is a second charge for work already paid for, and
@@ -169,7 +209,12 @@ export function readFired(e) {
   if (typeof r.genId !== "string" || !r.genId) return null;
   if (typeof r.lane !== "string" || !r.lane) return null;
   if (!Number.isFinite(r.firedAt) || r.firedAt <= 0) return null;
-  return { genId: r.genId, lane: r.lane, firedAt: Math.trunc(r.firedAt) };
+  // THE REPORT TOKEN IS OPTIONAL AND THE OTHER THREE ARE NOT, deliberately. A
+  // fire with no token still produces a resumable build — the answer is only in
+  // the container's memory, which is what every build did before it existed — so
+  // refusing one here would turn a durability improvement into a way to lose a
+  // generation that is running perfectly well.
+  return { genId: r.genId, lane: r.lane, report: isReportToken(r.report) ? r.report : "", firedAt: Math.trunc(r.firedAt) };
 }
 
 /** A resume id is the BUILD's own job id — 32 hex characters, minted by
@@ -191,6 +236,69 @@ export function isResumeId(id) {
 export function resumeKey(id) {
   if (!isResumeId(id)) throw new Error("build-resume: refusing to build a key from an id we did not mint");
   return `${RESUME_PREFIX}${id}.resume.json`;
+}
+
+/**
+ * WHERE THE ANSWER LIVES ONCE IT IS OUT OF THE CONTAINER'S MEMORY.
+ *
+ * THE PROBLEM THIS SOLVES. `MODEL_JOBS` is a `Map` in ONE container instance's
+ * memory holding whole model answers — the container's own comment says
+ * "megabytes each". If that instance goes, the generation is unrecoverable: the
+ * poll answers `unknown` and the only way back is to buy another one. Cloudflare
+ * gives no guarantee an instance survives, so the answer must not live only
+ * there.
+ *
+ * KEYED BY THE REPORT TOKEN, NOT BY THE JOB ID, and that is forced rather than
+ * chosen: the container is told where to report at FIRE time, and the fire does
+ * not know the resume id — the id is minted by the caller from the sentinel this
+ * throws. A token minted before the POST is the one name both sides can agree on
+ * without a second round trip.
+ *
+ * SO THE TOKEN IS ALSO THE CREDENTIAL, and it is the only one. The route that
+ * receives the report is unauthenticated — the container holds no session — so
+ * whoever knows the token can write one generation's answer. 128 bits, minted
+ * per job, stored in the record, never returned to any caller and never logged.
+ * The alternative was a presigned R2 PUT, which needs SigV4 and therefore R2 S3
+ * credentials in the Worker: a new credential type and a new secret to rotate,
+ * for the same scoping this already has.
+ *
+ * VALIDATED BEFORE IT REACHES A KEY, by the same rule `isResumeId` exists for: a
+ * value a caller supplies is a path a caller chooses.
+ */
+export function isReportToken(t) {
+  return typeof t === "string" && /^[0-9a-f]{32}$/.test(t);
+}
+
+export function genKey(token) {
+  if (!isReportToken(token)) throw new Error("build-resume: refusing to build a key from a token we did not mint");
+  return `${RESUME_PREFIX}gen-${token}.json`;
+}
+
+/**
+ * WHAT THE CONTAINER REPORTED, READ BACK IN THE SHAPE THE POLL ALREADY SPEAKS.
+ *
+ * ONE VOCABULARY, DELIBERATELY. `resumeDecision` reads `{state, answer|status,
+ * kind, message}` — the body of `GET /model/result` — and this hands back the
+ * same thing, so a stored answer and a polled one are indistinguishable to every
+ * branch below. A second shape here would be a second set of branches, one of
+ * which nobody drives.
+ *
+ * THE PRESENCE OF THE OBJECT IS THE STATUS. There is no `completed` flag to
+ * write after the bytes, so there is no window in which a record says the answer
+ * is ready and the answer is not — the ordering problem is removed rather than
+ * solved.
+ */
+export function readGenReport(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (raw.state === "done") return raw.answer && typeof raw.answer === "object" ? { state: "done", answer: raw.answer } : null;
+  if (raw.state !== "failed") return null;
+  return {
+    state: "failed",
+    status: Number.isFinite(raw.status) && raw.status > 0 ? Math.trunc(raw.status) : null,
+    detail: typeof raw.detail === "string" ? raw.detail : "",
+    message: typeof raw.message === "string" ? raw.message : "",
+    kind: typeof raw.kind === "string" && raw.kind ? raw.kind : "Error",
+  };
 }
 
 /**
@@ -225,7 +333,7 @@ export function resumeKey(id) {
  * shape that already has one, and the day they disagree the resume refuses a
  * design that is perfectly good.
  */
-export function packResume({ id, auth, uid, slug, lane, genId, firedAt, charged, looks, design }) {
+export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, charged, looks, refires, design }) {
   return {
     v: RESUME_VERSION,
     kind: RESUME_KIND,
@@ -235,9 +343,20 @@ export function packResume({ id, auth, uid, slug, lane, genId, firedAt, charged,
     slug: String(slug || ""),
     lane: String(lane || ""),
     genId: String(genId || ""),
+    // WHERE THE CONTAINER WAS TOLD TO PUT THE ANSWER, and therefore where to
+    // look for it before asking that container anything. OPTIONAL: every record
+    // written before this existed has none, and such a build must still resume —
+    // it simply falls back to polling, which is what it did all along.
+    report: isReportToken(report) ? report : "",
     firedAt: Number(firedAt) || 0,
     charged: normalizeCharged(charged),
     looks: Number.isFinite(looks) && looks > 0 ? Math.trunc(looks) : 0,
+    // HOW MANY GENERATIONS THIS BUILD HAS ALREADY STARTED, over and above the
+    // first. It is the ONLY thing bounding the re-fire, and each one is a real
+    // provider call — so it is stored rather than derived, and it survives the
+    // clock being reset (a re-fire IS a new generation, so `firedAt` and `looks`
+    // both go back; if the count went with them nothing would ever stop).
+    refires: Number.isFinite(refires) && refires > 0 ? Math.trunc(refires) : 0,
     design: design && typeof design === "object" && !Array.isArray(design) ? design : null,
   };
 }
@@ -285,9 +404,19 @@ export function readResume(raw) {
     slug: typeof raw.slug === "string" ? raw.slug : "",
     lane: raw.lane,
     genId: raw.genId,
+    // NOT REQUIRED, unlike `genId` and `lane`. A record with no report token is
+    // one written before the answer was persisted at all, and it resumes exactly
+    // as it always did — by polling. Refusing it would strand every build in
+    // flight at the moment this shipped.
+    report: isReportToken(raw.report) ? raw.report : "",
     firedAt: Math.trunc(raw.firedAt),
     charged: normalizeCharged(raw.charged),
     looks: Number.isFinite(raw.looks) && raw.looks > 0 ? Math.trunc(raw.looks) : 0,
+    // ABSENT READS AS ZERO, which is the right answer for every record written
+    // before this field existed: such a build has fired once and is owed its one
+    // re-fire. Reading a missing count as "already spent" would refuse the
+    // recovery to exactly the in-flight builds this shipped to rescue.
+    refires: Number.isFinite(raw.refires) && raw.refires > 0 ? Math.trunc(raw.refires) : 0,
     design: raw.design,
   };
 }
@@ -369,21 +498,34 @@ export function withCharged(record, step) {
 /**
  * WHAT TO DO, GIVEN WHAT THE CONTAINER JUST SAID.
  *
- * Five answers, and collapsing any two is a real failure:
+ * Four answers, and collapsing any two is a real failure:
  *
  *   finish  the answer is in hand — publish, then charge for the pages
  *   wait    still running, look again in `delaySeconds`
- *   here    make the call in the Worker instead; nothing was spent there
+ *   refire  the work is gone — start it again IN THE CONTAINER and keep waiting
  *   stop    give up on generation and publish what we have
  *
  * `poll` is the body of `GET /model/result`, passed in rather than fetched, so
  * every branch is drivable with a literal.
  *
- * THE ASYMMETRY THAT DECIDES `here` VERSUS `stop` IS MONEY, and it is the same
+ * THE ASYMMETRY THAT DECIDES `refire` VERSUS `stop` IS MONEY, and it is the same
  * question `retryHere` already answers on the synchronous path: a numeric
  * `status` is a provider's own answer, so the tokens are gone and repeating the
  * call spends them twice AND replaces a message the customer can act on with a
  * second identical failure. Everything else means no request was ever made.
+ *
+ * ── `here` IS GONE, AND ITS REMOVAL IS THE POINT ─────────────────────────────
+ *
+ * There used to be a fifth: make the call in the WORKER instead. It read as the
+ * safe fallback and was the opposite. The Worker's side is the one with the
+ * ceiling — `capMs(BUILDER_CALL_MS)`, ten minutes — and this brief measures
+ * 333k-620k ms with two recent runs cut off past 600k. So "the container could
+ * not do it, so we will" meant "retry the ten-minute job on the ten-minute
+ * clock", and run 40 died in it after walking the rest of stage 2 perfectly.
+ *
+ * Deleting it also makes a rule structural rather than remembered: on the FIRED
+ * path the Worker never calls the model. `runResumedSiteBuild` always supplies a
+ * `resumeCall` now, so `publishPages` can no longer build its own caller there.
  */
 export function resumeDecision({ poll, record, now }) {
   const looks = (record && Number(record.looks)) || 0;
@@ -391,6 +533,16 @@ export function resumeDecision({ poll, record, now }) {
   const elapsed = Number.isFinite(now) && firedAt > 0 ? now - firedAt : 0;
   const late = firedAt > 0 && elapsed > RESUME_DEADLINE_MS;
   const spent = looks >= RESUME_MAX_LOOKS;
+  const refires = (record && Number(record.refires)) || 0;
+
+  /** START IT AGAIN, OR ADMIT WE CANNOT — one place, because the bound is the
+   *  only thing standing between "recover a lost generation" and "buy a
+   *  generation every minute for ever". Both arms carry the ORIGINAL `why`, so a
+   *  log can still say whether the work was lost or never left the container;
+   *  collapsing them into one "gave up" loses the half that says where to look. */
+  const again = (why, extra) => (refires >= RESUME_MAX_REFIRES
+    ? { act: "stop", why: "refires", was: why, refires, ...extra }
+    : { act: "refire", why, refires, ...extra });
 
   // AN UNREADABLE ANSWER IS NOT A FINISHED GENERATION. A container that
   // answered something we cannot parse has told us nothing about the work, so
@@ -412,7 +564,7 @@ export function resumeDecision({ poll, record, now }) {
     // and a message is the runtime's rather than ours. `retryHere` reads the
     // error's NAME, because one abort reaches workerd as `TimeoutError` and Node
     // as `AbortError` — and this decides whether somebody is billed twice.
-    if (retryHere(poll)) return { act: "here", why: "no-request", message };
+    if (retryHere(poll)) return again("no-request", { message });
     // Not retryable, and WHY is worth keeping apart: a provider's own numeric
     // status is a refusal the customer can act on ("rate limited, try in a
     // minute"), where a timeout is nobody having answered at all. Collapsed,
@@ -429,10 +581,10 @@ export function resumeDecision({ poll, record, now }) {
     // rather than that the answer aged out — the generation is not running
     // anywhere and nobody is going to answer for it.
     //
-    // Retried here rather than stopped, and the reason is the same asymmetry:
+    // STARTED AGAIN rather than stopped, and the reason is the same asymmetry:
     // a recycled container spent nothing we can observe, and the alternative is
     // a customer with no site over an instance Cloudflare reclaimed.
-    return { act: "here", why: "lost" };
+    return again("lost");
   }
 
   // Still running, or an answer we could not read.

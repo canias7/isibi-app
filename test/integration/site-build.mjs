@@ -13,6 +13,7 @@
 //   node test/integration/site-build.mjs
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -504,6 +505,102 @@ try {
     const busyAfter = await fetch(`http://127.0.0.1:${PORT}/busy`).then((r) => r.json()).catch(() => null);
     ok("…and a fired-and-forgotten job still released its queue slot when it settled",
       busyAfter && busyAfter.busy === false && busyAfter.jobs === 0, JSON.stringify(busyAfter));
+  }
+
+  // ── THE ANSWER LEAVES THE CONTAINER'S MEMORY, DRIVEN ────────────────────────
+  //
+  // `MODEL_JOBS` is a Map in ONE instance's memory. Cloudflare does not promise
+  // that instance survives a ten-minute generation, and run 40's resume was told
+  // `unknown` for work it had no way to recover. So the container POSTs the
+  // answer back the moment it has one.
+  //
+  // A SOURCE READ CANNOT SEE THAT IT REALLY LEAVES. `sendModelReport` can be
+  // perfectly correct and called from neither branch — the wiring layer this
+  // repo has recorded twelve dead features in — so this stands up a real HTTP
+  // server, fires a real job at it, and asserts what ARRIVED.
+  //
+  // FREE, and free for the same reason the block above is: with no key the call
+  // refuses by name before a request is made. What is under test is the report,
+  // and a FAILURE is exactly the report shape most likely to be forgotten —
+  // reported only on success, a container that failed and was then recycled
+  // looks identical to one that lost the work, so the resume buys another
+  // generation to be told the same thing.
+  {
+    const seen = [];
+    const sink = http.createServer((rq, rs) => {
+      let body = "";
+      rq.on("data", (c) => { body += c; });
+      rq.on("end", () => {
+        seen.push({ method: rq.method, url: rq.url, token: rq.headers["x-gen-report"] || "", body });
+        rs.writeHead(200, { "content-type": "application/json" });
+        rs.end('{"ok":true}');
+      });
+    });
+    await new Promise((r) => sink.listen(0, "127.0.0.1", r));
+    const sinkPort = sink.address().port;
+    const TOKEN = "0123456789abcdef0123456789abcdef";
+    try {
+      const started = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          req: { model: "grok-4.6", messages: [] },
+          callMs: 5000,
+          report: { url: `http://127.0.0.1:${sinkPort}/api/site/genresult`, token: TOKEN },
+        }),
+      }).then((r) => r.json()).catch(() => ({}));
+      ok("a fire carrying a report destination is accepted like any other",
+        started && started.ok === true && typeof started.id === "string", JSON.stringify(started).slice(0, 160));
+
+      // Bounded, because a report that never arrives must FAIL here rather than
+      // hang the run — and "it never arrived" is the exact bug being guarded.
+      for (let i = 0; i < 50 && !seen.length; i++) await new Promise((r) => setTimeout(r, 100));
+      ok("…and the container POSTed the answer back out of its own memory", seen.length === 1,
+        `${seen.length} reports arrived`);
+
+      const rep = seen[0] || {};
+      ok("…as a POST, carrying the token in a header rather than the path",
+        rep.method === "POST" && rep.token === TOKEN && !String(rep.url).includes(TOKEN),
+        `${rep.method} ${rep.url} token=${rep.token ? "present" : "absent"}`);
+
+      // THE SHAPE IS THE POLL'S. `resumeDecision` must not be able to tell a
+      // stored answer from a live one, and `retryHere` reads `status` and `kind`
+      // to decide whether money was spent — a key we forgot to set must not
+      // arrive looking like a provider that answered.
+      let sent = null;
+      try { sent = JSON.parse(rep.body || ""); } catch { sent = null; }
+      ok("…and a FAILURE is reported, not only a success",
+        sent && sent.state === "failed" && /XAI_API_KEY is not set/.test(String(sent.message)),
+        JSON.stringify(sent).slice(0, 200));
+      ok("…with no provider status, so the resume reads it as a call that was never made",
+        sent && sent.status === null, `status ${JSON.stringify(sent && sent.status)}`);
+
+      // AND IT IS STILL IN MEMORY TOO. The report is a second copy rather than a
+      // handover: a Worker that could not be reached must leave the in-memory
+      // answer collectable, which is the fallback the whole design rests on.
+      const still = await fetch(`http://127.0.0.1:${PORT}/model/result?id=${encodeURIComponent(started.id || "")}`)
+        .then((r) => r.json()).catch(() => null);
+      ok("…and the answer is still readable from the container as well",
+        still && still.state === "failed", JSON.stringify(still).slice(0, 120));
+
+      // A FIRE WITH NO REPORT IS UNCHANGED, which is what makes this safe to
+      // deploy: every build fired before this existed carries no destination and
+      // must behave exactly as it did.
+      const before = seen.length;
+      const bare = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ req: { model: "grok-4.6", messages: [] }, callMs: 5000 }),
+      }).then((r) => r.json()).catch(() => ({}));
+      for (let i = 0; i < 20; i++) {
+        const st = await fetch(`http://127.0.0.1:${PORT}/model/result?id=${encodeURIComponent(bare.id || "")}`)
+          .then((r) => r.json()).catch(() => null);
+        if (st && st.state !== "pending") break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      ok("a fire with no report destination sends nothing, and does not throw",
+        seen.length === before, `${seen.length - before} unexpected reports`);
+    } finally {
+      await new Promise((r) => sink.close(r));
+    }
   }
 
   console.log("\nbuilding a two-page site…");
