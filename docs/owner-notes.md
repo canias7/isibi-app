@@ -46,6 +46,22 @@ whenever you say.
 bug (including the exact one from runs 43–46, and a gutted tool rule) was
 caught, and the do-nothing control survived as it must. Not proven live.
 
+**Follow-up, same day — you went through the steps with me and found two more
+places the landing page is hardcoded:**
+
+1. **The `action` field — DONE, your call ("delete whats inside").** It used to
+   tell the designer the button "leads the header, the hero and the closing
+   band" and is "the ONE thing you want a **visitor** to do" — so on a tool,
+   "Add deal" wasn't even an eligible answer and it picked "Request a quote".
+   It now says only its purpose: *"The site's primary action: the ONE thing
+   this site most wants done, worded exactly as its button will say it. What
+   that is — and who presses it — comes from the brief."* Guarded so the old
+   wording can't creep back.
+2. **The `shape` field's worked example for "/" is a barber-shop brochure**
+   (hero → service-list → team-grid → map-card) — and northgroup-10's home page
+   is that example copied, while its pipeline page copied the field's other
+   example (filter-bar → data-table). Found, not yet changed — say the word.
+
 ## ✅ SOLVED AND PROVEN — run 45 published. The fired build works, end to end (2026-08-26, midnight)
 
 **`https://northgroup-9.gofarther.app/` — the CRM, live.** The generation ran
