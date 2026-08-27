@@ -130,6 +130,14 @@ export function currentStateNote(current) {
       (sd.dark && typeof sd.dark === "object" && str(sd.dark.paper) ? " · its own dark half" : " · dark derived"));
   }
   add("family", c.family);
+  // WHAT KIND OF THING THE SITE IS — shopfront or working tool — stated before
+  // the other plan axes because it is the frame they are all read in. The
+  // sharpest version of this note's own argument: a revise designer not told a
+  // site is a `tool` has every reason to answer `shopfront` afresh on a
+  // request that was only ever about a column width, and that one answer
+  // un-tools the whole site — a hero, a closing pitch and a photograph budget
+  // arriving on a CRM because somebody asked for wider rows.
+  add("kind of site", c.kind);
   // THE FIVE OTHER PLAN AXES, for the reason every line here exists and with the
   // same edge as `lang` below. These replaced `family` on 2026-08-20, so they are
   // no longer looked up from a table — they are values THIS site's designer wrote
@@ -569,7 +577,31 @@ export function clearsField(field, v) {
  * function that takes a field name from whoever calls it, which is one new
  * caller away from mattering; the test drives it directly for that reason.
  */
-const FIELD_KEEPS = { seeds: (v) => !!normalizeSeeds(v).theme };
+const FIELD_KEEPS = {
+  seeds: (v) => !!normalizeSeeds(v).theme,
+  // AN ANSWERED-EMPTY `images` IS A VALUE, NOT SILENCE (2026-08-27). The tool
+  // field promises "send an empty list to say it should have none", `images`
+  // is REQUIRED on a first build — and `hasValue([])` is false, so this merge
+  // nulled the one documented way of saying "no photographs" before it could
+  // be stored, and the derived rule then bought the home page one anyway. The
+  // `langs: []` bug of 2026-08-21, one field over: a removal verb the tool
+  // documents and the merge reads as saying nothing.
+  //
+  // ANY ARRAY COUNTS, including one full of junk entries — filtering entries
+  // is `pageImages`'s job at plan composition, where the page list is in
+  // hand, and an answered list whose every entry was refused buys NOTHING
+  // rather than a fallback photograph nobody described. What must NOT count
+  // is a non-array, so a stored `null` still reads as absent and the ordinary
+  // absent-means-unchanged chain still runs.
+  //
+  // NOT `CLEARABLE_LISTS`, and the difference matters: that mechanism fires
+  // only on the instructed path, and the build that needs this most is the
+  // FIRST one — uninstructed by definition — where there is no stored value
+  // to clear, only a designed answer to keep. On the instructed path the
+  // designed value already leads the chain, so `[]` winning there is this
+  // same rule, not a second one.
+  images: (v) => Array.isArray(v),
+};
 
 export function keepsValue(field, v) {
   return Object.hasOwn(FIELD_KEEPS, field) ? FIELD_KEEPS[field](v) : hasValue(v);

@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
 import { PAGE_RULES, FRONTEND_PAGE_RULES, frontendRules, siteHasTables, pagesRequest, pagesPrompt } from "../builder/page-gen.mjs";
+import { PLAN_FIELDS } from "../builder/site-plan.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
@@ -111,6 +112,29 @@ test("the two system prompts are different strings and each says the other's opp
   // a capability was conditioned on a fact the model was never given.
   assert.match(feText, /written into the page source/i,
     "the frontend prompt never says where the content actually goes");
+});
+
+test("the frontend prompt names both kinds — the mold is no longer hard-coded (2026-08-27)", () => {
+  // THE ESPRESSO-MACHINE BUG. The prompt opened "You design a small business
+  // website from one brief" — one kind of thing, asserted before the brief was
+  // read — so a brief for a working tool ("a working tool rather than a
+  // website", the owner's own CRM brief) was squeezed through the shopfront
+  // mold: a marketing hero with a product photograph on a CRM. The prompt now
+  // names the two kinds and the `kind` field carries the decision.
+  const src = bare(WORKER);
+  const fe = src.slice(src.indexOf("const FRONTEND_SCHEMA_SYSTEM ="));
+  const feText = fe.slice(0, fe.indexOf('";'));
+  // DERIVED FROM THE FIELD'S OWN ENUM, so a third kind added to the tool must
+  // be described to the designer or this goes red — a value the model can
+  // answer and was never told the meaning of is the `publicView` failure.
+  assert.ok(Array.isArray(PLAN_FIELDS.kind && PLAN_FIELDS.kind.enum) && PLAN_FIELDS.kind.enum.length >= 2,
+    "the kind field lost its enum — the answer is read by code and free text cannot be branched on");
+  for (const k of PLAN_FIELDS.kind.enum) {
+    assert.ok(feText.includes("`" + k + "`"), "the designer's prompt never names `" + k + "`");
+  }
+  // And the old single-kind opener must not come back as a tidy-up.
+  assert.ok(!feText.includes("You design a small business website from one brief"),
+    "the first sentence hard-codes one kind again — the espresso-machine mold restored");
 });
 
 test("only the build route asks for the frontend tool, and it does so on a first build", () => {

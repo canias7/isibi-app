@@ -4828,8 +4828,26 @@ const SITE_SCHEMA_SYSTEM =
  * model was never given. So this states where the content lives, in as many
  * words, before it states anything else.
  */
+// THE FIRST SENTENCE NO LONGER HARD-CODES "WEBSITE" (2026-08-27, owner's
+// report: "he made an espresso machine on a CRM"). It read "You design a small
+// business website from one brief" — one kind of thing, asserted before the
+// brief was even quoted — so a brief for a working tool was squeezed through
+// the shopfront mold: a marketing hero with a product photograph, a
+// "Request a quote" band and a team section, with the CRM bolted on behind.
+// The two kinds are named here AND carried as the `kind` field (first of the
+// plan spread, enum, enforced in code — `planBudget` answers 0 photographs for
+// a tool and `directiveFromPlan` leads the page directive with the tool
+// block), because a distinction that lives only in prose is one the model
+// eventually reads past.
 const FRONTEND_SCHEMA_SYSTEM =
-  "You design a small business website from one brief. THIS SITE HAS NO DATABASE and does not need one: " +
+  "You design a small business site from one brief, and the FIRST decision is `kind` — what kind of thing " +
+  "this is. Nearly every brief is a `shopfront`: a site that persuades a visitor, with a hero, photographs " +
+  "and a call to action. Some briefs are a `tool` — a thing the business itself works IN rather than shows: " +
+  "a CRM, a tracker, a booking desk, a dashboard. The brief usually says so in as many words. A tool is not " +
+  "a website about the tool: no hero, no marketing bands, no team section, no photographs — its front page " +
+  "opens straight into the work, and every page is a working screen. Design the kind the brief asks for, " +
+  "not the kind websites usually are.\n\n" +
+  "THIS SITE HAS NO DATABASE and does not need one: " +
   "everything on it — the services, the prices, the opening hours, the words — is written into the page source " +
   "by the step after you. That is not a limitation to design around, it is what a first build is. If the owner " +
   "later wants bookings, an editable menu or customer accounts, that is a separate step which builds the " +

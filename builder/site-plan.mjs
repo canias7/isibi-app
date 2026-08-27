@@ -88,9 +88,14 @@ import { MAX_PROMPT_CHARS as MAX_IMAGE_PROMPT } from "./site-images.mjs";
  * pages, action, components, … , shape. What this list is for is everything
  * else: what `normalizePlan` may produce, what an edit may move, and what a
  * look change escalates on. Every guard derives from it rather than restating
- * it, which is why it must stay all five.
+ * it, which is why it must stay the whole set.
+ *
+ * `kind` IS FIRST (2026-08-27, owner's report: "he made an espresso machine on
+ * a CRM"). Everything below it is a decision ABOUT the kind of thing being
+ * built, so it is the one field that has to exist before any other answer
+ * means anything — see KIND_FIELD.
  */
-export const PLAN_KEYS = ["purpose", "shape", "pages", "action", "components", "images"];
+export const PLAN_KEYS = ["kind", "purpose", "shape", "pages", "action", "components", "images"];
 
 /** Every plan axis an edit may move — the same five, so `EDIT_FIELDS` derives rather than restates. */
 export const PLAN_EDIT_FIELDS = PLAN_KEYS;
@@ -494,6 +499,13 @@ export function normalizePlan(input) {
   if (!purpose || !pages.length) return null;
 
   const out = { purpose, pages };
+  // STRICT EQUALITY AGAINST THE TWO LEGAL VALUES, never a truthiness or a
+  // String() — `["tool"]` stringifies to "tool", which is the coercion this
+  // codebase has shipped as a real bug four times (a role, an access level, a
+  // mode, a build model). Anything else is dropped, and absent means shopfront
+  // everywhere downstream, which is what every plan stored before the field
+  // existed already is.
+  if (p.kind === "shopfront" || p.kind === "tool") out.kind = p.kind;
   // AFTER `pages`, because it is checked against them. A stored `shape` from
   // before 2026-08-21 is a flat string array and `pageShapes` answers `[]` for
   // it — so the plan still normalises and the old value simply buys nothing,
@@ -508,8 +520,21 @@ export function normalizePlan(input) {
   if (components.length) out.components = components;
   // AFTER `pages` for the reason `shape` is: each entry names one, and a picture
   // for a page the site does not have is a photograph nobody can ever see.
+  //
+  // KEYED ON THE INPUT BEING AN ARRAY, NOT ON THE RESULT HAVING ENTRIES
+  // (2026-08-27). `if (images.length)` dropped an explicit `[]` — so the ONE
+  // way IMAGES_FIELD documents for saying "this site has no photographs" was
+  // structurally unsendable: the answer vanished here, `planBudget` read
+  // absent, and the derived rule bought the home page a photograph anyway.
+  // Measured on four consecutive builds of a brief saying "no photographs
+  // anywhere" (runs 43–46), every one of which bought one. Answered-but-empty
+  // and answered-but-unusable both survive as `[]` now — an answered field
+  // whose entries were all refused buys NOTHING rather than a fallback picture
+  // nobody described, the same rule `planImages` applies to an empty prompt.
+  // Absent stays absent, so every stored plan from before the field behaves
+  // exactly as it did.
   const images = pageImages(p.images, pages);
-  if (images.length) out.images = images;
+  if (Array.isArray(p.images)) out.images = images;
   return out;
 }
 
@@ -517,6 +542,26 @@ export function normalizePlan(input) {
 export function hasPlan(look) {
   return normalizePlan(look) !== null;
 }
+
+/**
+ * What the page writer is told when the site is a WORKING TOOL, verbatim.
+ *
+ * ONE STRING, EXPORTED, so the module test can assert the directive carries it
+ * without pinning a spelling — and so the sentence exists in exactly one place.
+ * Every prohibition in it is a real thing the shopfront mold produced on a
+ * tool brief, measured on a live build (northgroup-10, 2026-08-26): a hero
+ * with a product photograph, a "Request a quote" closing band, a team section
+ * of placeholder panels — a coffee company's brochure with the CRM bolted on
+ * behind it. The positive half matters as much as the prohibitions ("the front
+ * page IS the tool"), because a model told only what not to draw still has to
+ * put SOMETHING first — the `publicView` lesson, where deleting instructions
+ * without stating the replacement left the model inventing one.
+ */
+export const TOOL_DIRECTIVE =
+  "THIS SITE IS A WORKING TOOL, NOT A SHOPFRONT. No hero, no marketing bands, no team section, " +
+  "no testimonials, no closing pitch — and no photographs or picture slots anywhere. " +
+  "The front page opens straight into the work itself: the table, the board, the list — dense, " +
+  "figure-first, columns that line up. Every page is a working screen of the tool.";
 
 /**
  * The directive, composed from authored fields instead of a table row.
@@ -535,10 +580,21 @@ export function directiveFromPlan(plan) {
   const p = normalizePlan(plan);
   if (!p) return null;
   const lines2 = [`LAYOUT — ${p.purpose}.`];
+  // THE TOOL BLOCK LEADS, directly under the purpose, because it is the frame
+  // every line after it is read in. The page writer's whole training set is
+  // shopfronts — hero, pitch, team, closing band — so a tool that merely lists
+  // its pages still comes out wearing a brochure. Stated here rather than only
+  // in the design tool, because this is the one block the PAGE WRITER reads.
+  if (p.kind === "tool") lines2.push(TOOL_DIRECTIVE);
   if (p.action && p.action.length) {
-    lines2.push(
-      `Primary action: ${p.action.map((c) => `"${c}"`).join(" / ")} — this verb leads the header, the hero, and the closing band.`,
-    );
+    const verbs = p.action.map((c) => `"${c}"`).join(" / ");
+    // PER KIND, because the shopfront wording asserts a hero exists — telling
+    // the page writer the verb "leads the hero" on a site the line above just
+    // forbade a hero on is the prompt contradicting itself, which is the
+    // UI_SHORTLIST failure this repo has already paid a whole build for.
+    lines2.push(p.kind === "tool"
+      ? `Primary action: ${verbs} — the working verb; it leads the header and sits beside the work. There is no hero and no closing band.`
+      : `Primary action: ${verbs} — this verb leads the header, the hero, and the closing band.`);
   }
   if (p.components && p.components.length) lines2.push(`Reach first for: ${p.components.join(", ")}.`);
   lines2.push(`This site has ${p.pages.length} page${p.pages.length === 1 ? "" : "s"}:`);
@@ -568,6 +624,35 @@ export function directiveFromPlan(plan) {
  * `design_schema.properties` so the tool has ONE definition of them.
  */
 export const PLAN_FIELDS = {
+  // FIRST OF THE SPREAD, AND THAT IS THE FIX (owner's report, 2026-08-27: "he
+  // made an espresso machine on a CRM"). Until this field existed the pipeline
+  // had exactly one mold — a shopfront — so a brief for a working tool was
+  // squeezed through it: a marketing hero with a product photograph, a
+  // "Request a quote" band and a team section, with the tool bolted on behind.
+  // The failure was never the image count; it was that nothing anywhere asked
+  // WHAT KIND OF THING the brief describes. A tool's property order is its
+  // generation order, so this sits before `purpose`: every later answer is an
+  // answer ABOUT the kind.
+  //
+  // AN ENUM, NOT PROSE, because the answer is read by CODE as well as by the
+  // page writer: `planBudget` answers 0 photographs for a tool whatever else is
+  // declared, and `directiveFromPlan` leads the page-generation directive with
+  // the tool block. A cap a model is merely told about is not a cap.
+  kind: {
+    type: "string",
+    enum: ["shopfront", "tool"],
+    description:
+      "What KIND of thing this site is — decide it before anything else, because every other answer follows " +
+      'from it. "shopfront": a site that exists to persuade a VISITOR — a cafe, a barber, a builder, a studio. ' +
+      "It sells; it leads with a hero and a call to action, and nearly every brief is one. " +
+      '"tool": a thing the business itself works IN rather than shows — a CRM, a tracker, a booking desk, a ' +
+      'stock list, a dashboard. The brief usually says so in as many words ("a working tool rather than a ' +
+      'website"). A tool is NOT a website about the tool: no hero, no marketing bands, no team section, no ' +
+      "closing pitch, and no photographs or picture slots anywhere — the front page IS the tool, opening " +
+      "straight into the work (the table, the board, the list). " +
+      'When the brief genuinely reads as both, answer "shopfront".',
+  },
+
   purpose: {
     type: "string",
     description:
@@ -802,6 +887,12 @@ export const SHAPE_FIELD = {
  * reading that as "none" would suppress photographs on the next revise of every
  * one of them. An EMPTY ARRAY is different and is honoured — that is a site
  * saying it wants none, which a CRM or a terminal-styled site legitimately does.
+ * (THAT SENTENCE WAS FALSE from 2026-08-23 to 2026-08-27: `normalizePlan`
+ * dropped an explicit `[]` on the way through and `mergeLook` read one as
+ * silence, so the single documented way to say "none" was structurally
+ * unsendable and the derived rule bought a photograph anyway — four
+ * consecutive builds against a brief saying "no photographs anywhere". Both
+ * layers are fixed, and each carries the reasoning at the line that had it.)
  *
  * IT SAYS WHAT, NOT WHERE ON THE PAGE. The page writer writes the JSX, so it
  * places the token; this decides that the picture exists and what it shows.
@@ -828,6 +919,9 @@ export const IMAGES_FIELD = {
   description:
     "THE REAL PHOTOGRAPHS THIS SITE GETS. Leave it out and the site is judged by the ordinary rule; " +
     "send an empty list to say it should have none.\n" +
+    "THE BRIEF'S OWN WORDS ABOUT PHOTOGRAPHS ARE LAW: if it says the site should have none, the answer " +
+    "is an empty list — not one tasteful exception. And a `tool` site gets no photographs whatever is " +
+    "sent here.\n" +
     "EACH ONE COSTS THE CUSTOMER REAL MONEY, so ask for a picture only where it is the argument — the " +
     "opening, the work, the room — and never for decoration. Most small sites want one or two; a gallery " +
     "or a portfolio is what wants more.\n" +

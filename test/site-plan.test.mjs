@@ -11,13 +11,14 @@ import { readFileSync } from "node:fs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
 import {
   PLAN_KEYS, PLAN_EDIT_FIELDS, PLAN_FIELDS, PLAN_REQUIRED, KIT_PALETTE, COMPONENT_MENU, SHAPE_FIELD,
-  normalizePlan, directiveFromPlan, hasPlan,
+  normalizePlan, directiveFromPlan, hasPlan, TOOL_DIRECTIVE,
   MAX_SECTIONS, MAX_PAGES, MAX_ACTION, MAX_COMPONENTS, IMAGES_FIELD, planFieldFor,
 } from "../builder/site-plan.mjs";
 import { ALWAYS_API_CORE, UI_COMPONENTS, siteComponentApi, componentApiFor, briefWithLayout, PAGE_RULES } from "../builder/page-gen.mjs";
 import { planBudget, budgetFor } from "../builder/site-images.mjs";
 
 const GOOD = {
+  kind: "shopfront",
   purpose: "the slot picker is the hero; everything else supports the appointment",
   shape: [
     { path: "/", sections: ["hero — the shop and the Book now button", "availability-grid — this week's free chairs", "price-list — what each cut costs"] },
@@ -519,6 +520,128 @@ test("the directive names every page and the verb", () => {
   // Singular reads correctly, because a one-page café is the commonest shape
   // this platform builds and "1 pages" is the sort of thing a model copies.
   assert.match(directiveFromPlan({ ...GOOD, pages: [{ path: "/", role: "everything" }] }), /This site has 1 page:/);
+});
+
+/* ── kind: shopfront or tool (2026-08-27) ───────────────────────────────── */
+
+test("KIND IS DECIDED FIRST, and it is a closed pair", () => {
+  // The espresso-machine bug (owner's report, 2026-08-27): nothing anywhere
+  // asked what KIND of thing the brief describes, so a CRM brief was squeezed
+  // through the shopfront mold — a marketing hero with a product photograph on
+  // a working tool. A tool's property order is its generation order, so `kind`
+  // must sit before `purpose`: every later field is an answer ABOUT the kind.
+  const spread = Object.keys(PLAN_FIELDS);
+  assert.equal(spread[0], "kind", "kind is no longer the first thing the designer decides");
+  // A closed enum, because the answer is read by CODE — `planBudget` answers 0
+  // photographs for a tool and `directiveFromPlan` emits the tool block — and
+  // free text is a value nothing downstream can branch on.
+  assert.deepEqual(PLAN_FIELDS.kind.enum, ["shopfront", "tool"]);
+  // The description has to carry the two sentences that do the work: the
+  // tie-break (an ambiguous brief needs a rule, or the model invents one per
+  // build) and the photograph consequence, which is what connects this field
+  // to the budget that enforces it.
+  assert.match(PLAN_FIELDS.kind.description, /answer "shopfront"/,
+    "the tie-break is gone — an ambiguous brief has no rule");
+  assert.match(PLAN_FIELDS.kind.description, /no photographs/i,
+    "the kind description no longer states the photograph consequence");
+  // And the images field carries the law sentence — the designer read "no
+  // photographs anywhere" and declared one on four consecutive builds, so the
+  // brief-is-law instruction is load-bearing, not colour.
+  assert.match(IMAGES_FIELD.description, /ARE LAW/,
+    "the brief-is-law sentence is gone from the images field");
+  assert.match(IMAGES_FIELD.description, /`tool` site gets no photographs/,
+    "the images field no longer cross-references the kind enforcement");
+});
+
+test("normalizePlan keeps a legal kind and refuses everything else", () => {
+  assert.equal(normalizePlan({ ...GOOD, kind: "tool" }).kind, "tool");
+  assert.equal(normalizePlan(GOOD).kind, "shopfront");
+  // Strict equality, never String(): `["tool"]` stringifies to "tool", the
+  // coercion this codebase has shipped as a real bug four times (a role, an
+  // access level, a mode, a build model).
+  for (const junk of [["tool"], "Tool", "TOOL", "app", "tool ", 7, {}, true, null]) {
+    assert.equal(normalizePlan({ ...GOOD, kind: junk }).kind, undefined,
+      `a junk kind survived the normaliser: ${JSON.stringify(junk)}`);
+  }
+  // ABSENT STAYS ABSENT — every plan stored before the field existed reads as
+  // a shopfront by falling through, never by having one invented into `_meta`.
+  const noKind = { ...GOOD };
+  delete noKind.kind;
+  assert.equal(normalizePlan(noKind).kind, undefined, "an absent kind was invented");
+});
+
+test("A TOOL'S DIRECTIVE LEADS WITH THE TOOL BLOCK — and a shopfront's is byte-identical to before", () => {
+  const tool = directiveFromPlan({ ...GOOD, kind: "tool" });
+  // THE CONSTANT MUST CARRY ITS LOAD BEFORE THE INCLUDES MEANS ANYTHING:
+  // `tool.includes(TOOL_DIRECTIVE)` is vacuously true of an emptied constant,
+  // so a gutted block would pass every structural check below while telling
+  // the page writer nothing. Caught before the first sweep rather than by it.
+  for (const must of [/WORKING TOOL/, /no hero/i, /no photographs/i, /front page opens straight into the work/i]) {
+    assert.match(TOOL_DIRECTIVE, must, "the tool block lost a load-bearing sentence");
+  }
+  // Through the exported constant rather than a spelling, so rewording the
+  // block cannot quietly orphan this test — and the block must sit directly
+  // under the purpose, because it is the frame every later line is read in.
+  assert.ok(tool.includes(TOOL_DIRECTIVE),
+    "the tool block never reaches the page writer — `kind` is a dead field at the one hop that draws pages");
+  assert.ok(tool.indexOf(TOOL_DIRECTIVE) < tool.indexOf("Primary action:"),
+    "the tool block lands after the action line, so the verb is framed before the frame exists");
+  // The action line must not assert a hero the block above just forbade — a
+  // prompt contradicting itself is the UI_SHORTLIST failure, which cost a
+  // whole build.
+  assert.match(tool, /the working verb; it leads the header/);
+  assert.ok(!/leads the header, the hero, and the closing band/.test(tool),
+    "a tool's verb is still told to lead a hero");
+  // A declared shopfront and an absent kind produce IDENTICAL directives — the
+  // declared value must cost nothing, or every stored plan re-renders the day
+  // its revise answers the new field.
+  const noKind = { ...GOOD };
+  delete noKind.kind;
+  assert.equal(directiveFromPlan(GOOD), directiveFromPlan(noKind),
+    "declaring shopfront changed the directive");
+  assert.ok(!directiveFromPlan(GOOD).includes("WORKING TOOL"), "the tool block leaked onto a shopfront");
+});
+
+test("A TOOL BUYS NO PHOTOGRAPHS, whatever it declares — the cap is arithmetic, not prose", () => {
+  // The enforcement half. The designer read "no photographs anywhere" and
+  // declared one on four consecutive builds (runs 43–46), so the sentence in
+  // the tool description is not the guarantee — this is.
+  assert.equal(planBudget({ ...GOOD, kind: "tool" }), 0, "a tool bought its home page a photograph");
+  assert.equal(planBudget({
+    purpose: "p", kind: "tool",
+    pages: [{ path: "/", role: "r" }, { path: "/work", role: "r" }],
+    components: ["gallery"],
+    images: [{ page: "/", describe: "an espresso machine on a bench" }],
+  }), 0, "a tool that DECLARED pictures still bought them — the espresso machine, structurally");
+  assert.equal(budgetFor({ plan: normalizePlan({ ...GOOD, kind: "tool" }) }), 0,
+    "budgetFor re-opened the budget planBudget closed");
+  // And a declared shopfront changes nothing: same answer as an absent kind.
+  const noKind = { ...GOOD };
+  delete noKind.kind;
+  assert.equal(planBudget(GOOD), planBudget(noKind), "declaring shopfront moved the budget");
+});
+
+test("AN ANSWERED-EMPTY images SURVIVES — `[]` is an answer, not silence", () => {
+  // The one documented way to say "this site has no photographs" was
+  // structurally unsendable: `if (images.length)` dropped an explicit `[]`
+  // here, `planBudget` read absent, and the derived rule bought the home page
+  // a photograph anyway — four consecutive builds against a brief saying "no
+  // photographs anywhere" (runs 43–46).
+  assert.deepEqual(normalizePlan({ ...GOOD, images: [] }).images, [],
+    "an explicit [] was dropped, so the derived rule buys a photograph the brief forbade");
+  // Answered-but-wholly-refused is the same answer: buying a DIFFERENT picture
+  // nobody described is worse than buying none — the rule `planImages` already
+  // applies to an empty prompt, one step earlier.
+  assert.deepEqual(normalizePlan({ ...GOOD, images: [{ page: "/nope", describe: "x" }] }).images, [],
+    "a wholly-refused list fell back to the derived rule");
+  // ABSENT STAYS ABSENT — every stored plan from before the field, whose next
+  // revise must keep buying by the ordinary rule.
+  const noImages = { ...GOOD };
+  delete noImages.images;
+  assert.equal(normalizePlan(noImages).images, undefined, "a missing images list was invented");
+  // …and the budget honours all three, through the real chain.
+  assert.equal(planBudget(normalizePlan({ ...GOOD, images: [] })), 0);
+  assert.equal(planBudget(normalizePlan(noImages)), 1);
 });
 
 /* ── components are per site: names cached, signatures for this manifest ── */

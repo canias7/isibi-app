@@ -308,6 +308,20 @@ export function budgetFor({ revise, priorPages, slug, plan } = {}) {
  */
 export function planBudget(plan, { cap = IMAGE_CAP } = {}) {
   const p = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : null;
+  // A WORKING TOOL BUYS NOTHING, AND THIS LINE IS THE ENFORCEMENT (2026-08-27,
+  // owner's report: "he made an espresso machine on a CRM"). The design tool's
+  // `kind` field and the page directive both SAY a tool gets no photographs,
+  // and a cap a model is merely told about is not a cap — the designer read
+  // "no photographs anywhere" and declared one on four consecutive builds. So
+  // the answer is arithmetic: whatever a tool plan declares in `images`, and
+  // whatever the derived rule below would have bought its home page, the
+  // budget is zero and no image model is ever called.
+  //
+  // BEFORE THE PAGES GUARD, deliberately. The unreadable-plan `null` exists
+  // because "a site we cannot classify still has a home page" — but a plan
+  // carrying a readable `kind: "tool"` IS classified, and buying a photograph
+  // for a tool has no correct case, however broken the rest of the plan is.
+  if (p && p.kind === "tool") return 0;
   const pages = p && Array.isArray(p.pages) ? p.pages : null;
   if (!pages || !pages.length) return null;
   const lim = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(cap))) || 0);

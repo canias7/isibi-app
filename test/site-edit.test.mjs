@@ -21,7 +21,7 @@ const STORED = {
   brand: "Sharp Fade", description: "A barber shop in Leeds.",
   seeds: { name: "Warm Brick", paper: "#f7f2ea", ink: "#332a26", accent: "#b44a2e" }, family: "salon",
   fonts: { heading: "noto-serif", body: "source-sans-3" },
-  lang: "en-GB", mode: "light", langs: ["es"],
+  lang: "en-GB", mode: "light", langs: ["es"], kind: "shopfront",
   // The five other plan axes, stored per site since 2026-08-20. `family` is
   // still here beside them ON PURPOSE: nothing sets one any more, and every site
   // built before that date has one, so the merge has to keep carrying it.
@@ -275,6 +275,11 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
     // later edit has every reason to answer afresh, re-rolling the layout on a
     // request that was only ever about a colour. That is precisely the failure
     // anchoring the look was introduced to stop, arriving through five new doors.
+    // THE KIND CARRIES THIS GUARD'S OWN ARGUMENT AT ITS SHARPEST: a revise
+    // designer not told a site is a `tool` re-answers `shopfront` on a request
+    // about a column width, and that one answer un-tools the whole site — a
+    // hero, a closing pitch and a photograph budget arriving on a CRM.
+    kind: "value-of-kind",
     purpose: "value-of-purpose",
     // PER PAGE SINCE 2026-08-21. The old fixture was `["value-of-shape"]`, and
     // the field's own comment above is why that mattered: a flat array now
@@ -435,6 +440,12 @@ test("ONLY THE FIELD WHOSE TOOL DESCRIPTION PROMISES THE VERB HAS ONE", () => {
   // that filled the field in with nothing wipe the authored plan.
   for (const k of EDIT_FIELDS) {
     if (CLEARABLE_LISTS.includes(k)) continue;
+    // `images` carries its verb through `keepsValue` rather than
+    // `CLEARABLE_LISTS` (2026-08-27): IMAGES_FIELD promises "send an empty
+    // list to say it should have none", and the build that needs it most is
+    // the FIRST one — uninstructed, where `clearsField` cannot fire. Its own
+    // test below drives all four paths.
+    if (k === "images") continue;
     const out = mergeLook(STORED, { [k]: [] }, null, { instructed: true });
     assert.deepEqual(out[k], STORED[k], `an empty ${k} wiped the stored value`);
   }
@@ -491,6 +502,54 @@ test("removing a language a site has not got is not a change", () => {
     assert.equal(namesValue(proto, null), false, `${proto} is treated as a field with a rule`);
     assert.equal(keepsValue(proto, "Sharp Fade"), true, `${proto} refused an ordinary value`);
   }
+});
+
+test("AN ANSWERED-EMPTY `images` IS KEPT BY THE MERGE — the langs `[]` bug, one field over (2026-08-27)", () => {
+  // IMAGES_FIELD promises "send an empty list to say it should have none" and
+  // `images` is REQUIRED on a first build — and `hasValue([])` is false, so
+  // this merge nulled the one documented way of saying "no photographs" before
+  // it reached the store, and the derived rule then bought the home page one
+  // anyway. Four consecutive builds against a brief saying "no photographs
+  // anywhere" (runs 43–46) each bought a photograph.
+  //
+  // THE FIRST BUILD IS THE CASE THAT MATTERS and it is UNINSTRUCTED by
+  // definition — there is no stored value to clear, only a designed answer to
+  // keep — which is why this is `keepsValue` rather than `CLEARABLE_LISTS`.
+  const first = mergeLook({}, { images: [] }, {}, { instructed: false });
+  assert.deepEqual(first.images, [], "a first build's 'no photographs' was read as silence");
+  // An UNINSTRUCTED designer's `[]` must NOT strip a site's stored pictures:
+  // stored-first precedence still wins there, exactly as it does for langs.
+  assert.deepEqual(
+    mergeLook(STORED, { images: [] }, null, { instructed: false }).images, STORED.images,
+    "an uninstructed [] stripped a site's declared photographs");
+  // Instructed, the designed answer leads the chain — "remove the
+  // photographs" can actually say so.
+  assert.deepEqual(
+    mergeLook(STORED, { images: [] }, null, { instructed: true }).images, [],
+    "the instructed removal was read as silence");
+  // A non-array is still not a value, so the ordinary chain runs…
+  assert.deepEqual(
+    mergeLook(STORED, { images: "none" }, null, { instructed: true }).images, STORED.images,
+    "a bare string displaced the stored photographs");
+  // …and the look lane's `named` guard reads an answered [] as the designer
+  // having said something, so it cannot fall through to a rebuild that could
+  // not remove them either.
+  assert.equal(namesValue("images", []), true);
+});
+
+test("`kind` survives a merge like any other axis — a revise that says nothing cannot un-tool a site", () => {
+  // The stored kind is what keeps a CRM a CRM across every later edit: a
+  // designer answering afresh on a request about a column width would hand the
+  // site back a hero, a closing pitch and a photograph budget.
+  const site = { ...STORED, kind: "tool" };
+  assert.equal(mergeLook(site, {}, {}, { instructed: true }).kind, "tool",
+    "an edit that named nothing un-tooled the site");
+  assert.equal(mergeLook(site, { brand: "Northbrew" }, {}, { instructed: true }).kind, "tool");
+  // And an explicit re-answer moves it, reported as moved — changing the kind
+  // IS a page-level change, which is what the escalation filter reads.
+  const moved = mergeLook(site, { kind: "shopfront" }, {}, { instructed: true });
+  assert.equal(moved.kind, "shopfront");
+  assert.ok(movedFields(site, moved).includes("kind"), "changing the kind reported nothing moved");
 });
 
 test("THE TOOL STILL PROMISES THE VERB THIS MODULE IMPLEMENTS", () => {

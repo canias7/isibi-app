@@ -59,6 +59,30 @@ test("…and a plan whose pages are all unaddressable still means none", () => {
   assert.equal(budgetFor({ plan: null }), 1, "an unreadable plan was read as a deliberate zero");
 });
 
+test("A WORKING TOOL BUYS NOTHING, whatever its plan declares (2026-08-27)", () => {
+  // The espresso-machine bug, closed in arithmetic. The design tool's `kind`
+  // field and the page directive both SAY a tool gets no photographs — and the
+  // designer read "no photographs anywhere" and declared one on four
+  // consecutive builds (runs 43–46), so the prose is not the guarantee. This
+  // line is: a `kind: "tool"` plan buys zero whatever else it carries.
+  const pages = [{ path: "/", role: "the pipeline" }, { path: "/deals", role: "deals" }];
+  assert.equal(planBudget({ purpose: "p", kind: "tool", pages }), 0,
+    "a tool bought its home page a photograph");
+  assert.equal(planBudget({
+    purpose: "p", kind: "tool", pages, components: ["gallery"],
+    images: [{ page: "/", describe: "an espresso machine on a bench" }],
+  }), 0, "a tool that DECLARED a picture still bought it — the espresso machine, structurally");
+  assert.equal(budgetFor({ plan: { purpose: "p", kind: "tool", pages } }), 0,
+    "budgetFor re-opened the budget planBudget closed");
+  // BEFORE the pages guard, deliberately: a readable `kind: "tool"` IS a
+  // classification, so even a plan broken everywhere else buys nothing —
+  // buying a photograph for a tool has no correct case.
+  assert.equal(planBudget({ kind: "tool" }), 0, "a broken tool plan fell back to the one-image default");
+  // And the other kind is inert: a declared shopfront answers exactly what an
+  // absent kind always has, so no stored plan moves.
+  assert.equal(planBudget({ purpose: "p", kind: "shopfront", pages }), planBudget({ purpose: "p", pages }));
+});
+
 /* -------------------------------------------------------- affordability */
 
 test("a balance that cannot carry the build buys zero, and does not go negative", () => {
