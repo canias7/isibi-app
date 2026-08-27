@@ -46,7 +46,7 @@ import { runStep } from "./run-step.mjs";
 import { startSiteServer } from "./site-ssr.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
-import { readCss } from "./site-freecss.mjs";
+import { readCss, LABEL_GUARD } from "./site-freecss.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -997,7 +997,16 @@ function writeCss(css) {
   let base;
   try { base = fs.readFileSync(STYLES, "utf8"); }
   catch { return { applied: false, reason: "unreadable", notes: ["The stylesheet could not be written, so the site kept the default look."] }; }
-  fs.writeFileSync(STYLES, base + "\n" + report.css + "\n");
+  // THE LABEL GUARD GOES IN FIRST — see `site-freecss.mjs` for the four live
+  // sightings and the cascade measurement. It is unlayered, so it beats every
+  // blanket element rule on specificity wherever it lands; it goes BEFORE the
+  // model's sheet so a rule aimed at the label class itself still wins, and so
+  // the `css` field's own promise (YOUR RULES ARE WRITTEN LAST) stays true.
+  //
+  // ONLY ON THE APPLIED PATH, so a site that sent no stylesheet — every site
+  // built before free CSS, and every cheap edit that leaves the look alone —
+  // compiles to byte-identical output.
+  fs.writeFileSync(STYLES, base + "\n" + LABEL_GUARD + "\n" + report.css + "\n");
   return {
     applied: true,
     bytes: report.bytes,

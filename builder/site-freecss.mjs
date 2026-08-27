@@ -189,6 +189,66 @@ export function fontsIn(css) {
 }
 
 /**
+ * ── THE LABEL GUARD: A BUTTON'S WORDS MAY NOT BE ITS OWN FILL ──────────────
+ * (2026-08-27, after four live sightings of the same defect)
+ *
+ * THE DEFECT, MEASURED RATHER THAN REASONED. Tailwind v4 emits its utilities
+ * inside `@layer utilities`; this module's stylesheet is appended UNLAYERED; and
+ * an unlayered rule beats a layered one whatever its specificity. Every call to
+ * action in this kit is `<a class="bg-primary text-primary-foreground">`, so one
+ * ordinary model rule — `a, nav a { color: var(--muted-foreground) }`, which is
+ * a perfectly reasonable "links are quiet" opinion — repaints the label and the
+ * button reads as a solid block. Photographed on run 34, then again on runs 47
+ * and 48: `color: rgb(28,27,25)` on `background: rgb(28,27,25)`, the site's own
+ * primary colour on itself.
+ *
+ * THE FIX IS ONE PROPERTY OF THE CASCADE. Among rules that are equally
+ * unlayered, SPECIFICITY decides — and a class (0,1,0) beats a bare element
+ * (0,0,1) or a descendant pair (0,0,2). So re-emitting the kit's own label
+ * utilities unlayered puts them above every blanket element rule a model can
+ * write, and it does so WITHOUT depending on where they land in the file.
+ * Measured in a real browser across all six shapes below.
+ *
+ * WRITTEN BEFORE THE MODEL'S SHEET, NOT AFTER, and the difference is what a
+ * DELIBERATE rule can still do. Both placements fix the blanket-rule bug
+ * identically (it loses on specificity either way), and only the earlier one
+ * leaves a model that aims at `.text-primary-foreground` itself in charge of it
+ * — which is a design decision rather than an accident, and is not this guard's
+ * business. It also keeps the `css` field's own promise — YOUR RULES ARE
+ * WRITTEN LAST — literally true.
+ *
+ * EVERY DECLARATION IS `var()`, SO THE MODEL KEEPS CONTROL THROUGH THE TOKEN.
+ * A site whose stylesheet sets `--primary-foreground` gets that colour on its
+ * buttons; what it cannot do any more is silently lose the label to a rule that
+ * was never about buttons. The correct route stays open and the accident closes.
+ *
+ * SIX PAIRS AND NOT ONE MORE, and the boundary is measured off the kit rather
+ * than chosen. These are the foregrounds that sit ON A FILLED SWATCH, where the
+ * two colours are a pair and breaking one blanks the words. The other three —
+ * `muted-foreground` (7,444 uses), `card-foreground`, `popover-foreground` —
+ * are the colours of ordinary text on ordinary paper, which is exactly the
+ * freedom a model should keep: `a { color: var(--muted-foreground) }` is a
+ * legitimate thing to want everywhere it is NOT a button.
+ *
+ * WHAT IT DOES NOT COVER, STATED RATHER THAN DISCOVERED: a stylesheet whose
+ * `--primary` and `--primary-foreground` are the same colour is still an
+ * unreadable button, and no re-emission can fix a pair that is wrong in itself.
+ * That is a palette fault rather than a cascade one, the render check's contrast
+ * pass reports it, and it is not this guard's business.
+ *
+ * IT REACHES A SITE ON ITS NEXT PUBLISH AND NOT BEFORE. Nothing is rewritten in
+ * place, so no site changes the day this ships — which is the same property
+ * every publish-time fix here has, and the reason it is safe to deploy at all.
+ */
+export const ON_FILL_PAIRS = Object.freeze([
+  "primary", "secondary", "accent", "destructive", "success", "warning",
+]);
+
+export const LABEL_GUARD = ON_FILL_PAIRS
+  .map((n) => `.text-${n}-foreground{color:var(--${n}-foreground)}`)
+  .join("\n");
+
+/**
  * Read a stylesheet the model wrote and say what it is.
  *
  * NEVER THROWS AND NEVER REFUSES A BUILD. Every answer is a report: `usable`

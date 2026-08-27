@@ -64,6 +64,33 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
 const PORT = 8123;
 
+/**
+ * How deeply nested is `at`? Zero means top level — for a CSS rule, UNLAYERED.
+ *
+ * That is the difference between the label guard beating the model's stylesheet
+ * and losing to it exactly as the kit's own utility does, and no substring match
+ * can answer it.
+ *
+ * COUNTED FROM THE START OF THE FILE, AND THE FIRST DRAFT WAS NOT. It walked
+ * forward from the nearest `@layer` above the rule, which measures depth
+ * RELATIVE TO THAT LANDMARK rather than absolutely — so it reported the guard
+ * as nested in a bundle where it is not, and the assertion went red against
+ * correct code. A brace count needs a known baseline and there is exactly one.
+ * Measured against real Tailwind output: an appended rule lands at depth 0.
+ *
+ * Braces inside a string or a data URI would fool it either way. Not a real
+ * hazard on a compiled Tailwind bundle (measured: the whole file balances), and
+ * the alternative is a CSS parser for one ordering question.
+ */
+function braceDepthAt(src, at) {
+  let depth = 0;
+  for (let i = 0; i < at; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") depth--;
+  }
+  return depth;
+}
+
 let passed = 0, failed = 0;
 const ok = (name, cond, extra) => {
   if (cond) { passed++; console.log(`  ok   ${name}`); }
@@ -202,6 +229,38 @@ function Home() {
 // the placeholder. Declaring an interface for a row is the most ordinary thing
 // a TypeScript author does, so the fixture writes one; index.tsx keeps the
 // alias form, and between them both spellings are held.
+/**
+ * A CALL TO ACTION SHAPED THE WAY THE KIT SHAPES ONE, plus a control that MUST
+ * be reported.
+ *
+ * `<a class="bg-primary text-primary-foreground">` is how every CTA on every
+ * site this platform builds is put together, and it is the element four live
+ * builds blanked with a single blanket link rule. The label guard exists to keep
+ * its words legible; this page is what proves it in a browser rather than in a
+ * stylesheet.
+ *
+ * THE CONTROL IS THE HALF THAT MAKES THE ABSENCE MEAN ANYTHING. "The CTA was not
+ * reported" is equally true of a guard that works and of a contrast pass that
+ * looked at nothing — a vacuous clean, which this repo has already shipped once
+ * in this very check. A paragraph painted its own background colour is a finding
+ * the pass MUST produce, so the run says out loud that it was looking.
+ */
+const CTA_PAGE = `import { createFileRoute } from "@tanstack/react-router";
+
+export const Route = createFileRoute("/desk")({ component: Desk });
+
+function Desk() {
+  return (
+    <main className="mx-auto max-w-6xl px-6 py-16 space-y-6">
+      <h1 className="text-3xl">Pennine Machines sales desk</h1>
+      <p>Every deal in the pipeline, and the people behind them.</p>
+      <a href="#book" className="inline-block rounded px-4 py-2 bg-primary text-primary-foreground">Book a chair now</a>
+      <p style={{ background: "#0d1117", color: "#0d1117" }}>This sentence is deliberately invisible</p>
+    </main>
+  );
+}
+`;
+
 const MENU = `import { createFileRoute, Link } from "@tanstack/react-router";
 import { useRows } from "@/lib/rows";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1897,7 +1956,11 @@ function Home() {
   // different now that `tokensPage` is gone.
   console.log("\nbuilding with the model's own stylesheet…");
   const OWN_SHEET = [
-    ":root{--background:#0d1117;--foreground:#e8eef5;--font-sans:\"Lora\",Georgia,serif}",
+    // `--primary` and `--muted-foreground` are the SAME colour on purpose, and
+    // `--primary-foreground` is its opposite — see the blanket link rule at the
+    // foot of this sheet for what that pair is for.
+    ":root{--background:#0d1117;--foreground:#e8eef5;--font-sans:\"Lora\",Georgia,serif;"
+      + "--primary:#e8eef5;--primary-foreground:#0d1117;--muted-foreground:#e8eef5}",
     ".dark{--background:#05070a;--foreground:#f4f8fc}",
     "body{font-family:var(--font-sans);letter-spacing:.011em}",
     // A MARKER THAT ONLY THIS SHEET CAN PRODUCE. The first draft used
@@ -1909,9 +1972,22 @@ function Home() {
     // with anything, which is what a marker is for.
     "h1,h2,h3{--isibi-own-sheet:1;text-transform:uppercase}",
     'body[data-page="/menu"]{--background:#2b1c0f}',
+    // ── THE LIVE BUG, WRITTEN THE WAY FOUR REAL BUILDS WROTE IT ─────────────
+    //
+    // "links are quiet" is an ordinary opinion and this is an ordinary way to
+    // say it. It is also unlayered, and Tailwind's utilities are not — so it
+    // beat `.text-primary-foreground` and painted every call to action its own
+    // fill. Photographed on runs 34, 47 and 48: `rgb(28,27,25)` on itself.
+    //
+    // The three tokens above it make the collision DETERMINISTIC rather than
+    // dependent on whatever the stored theme derived: the fill and the quiet
+    // ink are the same colour, so an unguarded label is exactly 1:1, while
+    // every other muted word on the page stays light on a dark ground and
+    // produces no collateral finding.
+    "a,nav a{color:var(--muted-foreground)}",
   ].join("\n");
   const sheetBuild = await post({
-    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    files: { "index.tsx": INDEX, "menu.tsx": MENU, "desk.tsx": CTA_PAGE },
     slug: "fold-coffee", ...themeAsSeeds("broadsheet"), style: HOUSE_STYLE,
     css: OWN_SHEET, cssFonts: ["lora"],
   });
@@ -1988,6 +2064,58 @@ function Home() {
     ok("a page-scoped rule survives the compiler",
       /body\[data-page=["']?\/menu["']?\]/.test(css),
       (css.match(/body\[data-page[^{]*/g) || []).join(" | ").slice(0, 200) || "no data-page rule at all");
+
+    // 5. ── THE LABEL GUARD ────────────────────────────────────────────────
+    //
+    // A BUTTON'S WORDS MAY NOT BE ITS OWN FILL. Asserted here rather than only
+    // in a unit test because the claim is about the COMPILED bundle: Tailwind
+    // and Lightning CSS both rewrite what they are given, and this repo has
+    // shipped three look features that were correct in a module and dead in the
+    // stylesheet — including one whose selector Tailwind never emitted at all.
+    ok("the label guard reaches the compiled stylesheet",
+      /\.text-primary-foreground\s*\{\s*color:\s*var\(--primary-foreground\)\s*\}/.test(css),
+      (css.match(/\.text-primary-foreground[^}]*\}/g) || []).join(" | ").slice(0, 300)
+        || "no .text-primary-foreground rule of ours in the bundle at all");
+    // …UNLAYERED, which is the whole mechanism. Inside `@layer utilities` it
+    // would lose to the model's blanket rule exactly as the kit's own utility
+    // does, and every other assertion here would still pass.
+    const guardAt = css.search(/\.text-primary-foreground\s*\{\s*color:\s*var\(--primary-foreground\)\s*\}/);
+    // …AND THE BUNDLE REALLY IS LAYERED, or "the guard is unlayered" is a claim
+    // about a stylesheet where the word means nothing and the check is vacuous.
+    ok("…in a bundle that really does put the kit's utilities in a layer",
+      /@layer\s+utilities\s*\{/.test(css),
+      (css.match(/@layer[^{;]*[;{]/g) || []).slice(0, 4).join(" ") || "no @layer anywhere in the bundle");
+    ok("…and the guard sits outside every one of them, or it loses exactly as the kit's own utility does",
+      guardAt > 0 && braceDepthAt(css, guardAt) === 0,
+      `guard at ${guardAt}, nested ${guardAt > 0 ? braceDepthAt(css, guardAt) : "?"} deep`);
+    // …AND BEFORE THE MODEL'S OWN RULES, so a sheet that aims at the label class
+    // itself still wins — a design decision rather than the accident this
+    // guards, and the reason the `css` field's promise (YOUR RULES ARE WRITTEN
+    // LAST) is still literally true.
+    const mineAt = css.search(/--isibi-own-sheet/);
+    ok("…and before the model's own rules, which keeps a deliberate label rule in charge",
+      guardAt > 0 && mineAt > 0 && guardAt < mineAt, `guard at ${guardAt}, the model's sheet at ${mineAt}`);
+  }
+
+  // ── AND IT HOLDS IN A BROWSER, WHICH IS THE ONLY THING THAT DECIDES ───────
+  //
+  // Everything above is text in a file. What a visitor sees is the cascade
+  // resolving, and the guard rests on ONE property of it: among rules that are
+  // equally unlayered, a class (0,1,0) beats a bare element (0,0,1) whatever
+  // the source order. The render check already opens every page in a real
+  // browser and measures contrast, so the proof costs no new machinery.
+  {
+    const found = (sheetBuild.render && sheetBuild.render.findings) || [];
+    const invisible = found.filter((f) => f.kind === "contrast" && /deliberately invisible/.test(f.detail || ""));
+    // THE OBSERVER FIRST. An absence asserted over a pass that never ran is the
+    // vacuous clean this exact check has already shipped once.
+    ok("the contrast pass really looked at the page carrying the button",
+      sheetBuild.render && sheetBuild.render.ok === true && invisible.length > 0,
+      `render ok=${sheetBuild.render && sheetBuild.render.ok} findings=${JSON.stringify(found).slice(0, 300)}`);
+    const blanked = found.filter((f) => f.kind === "contrast" && /Book a chair now/.test(f.detail || ""));
+    ok("A BUTTON'S LABEL SURVIVES A BLANKET LINK RULE — the run-34 defect, closed",
+      blanked.length === 0,
+      blanked.map((f) => `${f.route}@${f.viewport} ${f.detail}`).join(" | "));
   }
 
   // AND A BUILD THAT SENDS NONE IS UNCHANGED — the half that makes this safe to

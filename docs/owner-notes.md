@@ -10,6 +10,49 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## THE BUTTON WITH THE INVISIBLE TEXT IS FIXED (2026-08-27)
+
+You have seen this one four times — *Ring the workshop*, *Book now*, *Log a
+call*. The main button sits there the right size and shape, it works if you
+click it, and its words are exactly the same colour as the button itself.
+
+**What was going on.** The model writes each site's whole stylesheet, and every
+so often it writes one perfectly sensible line meaning *"links are quiet"* or
+*"links are in the brand colour"*. Our buttons are built as links. So the rule
+catches the buttons too and repaints their words. Ordinary links in the page
+text were always fine — it was only ever the buttons, which is why the rest of
+the site looked right and this kept slipping through.
+
+**What I have done.** The six colours that specifically mean *"the words on a
+coloured button"* are now re-stated just before the model's own stylesheet. A
+rule aimed at every link on the page no longer outranks them, so the button
+keeps its label. Everything else the model writes is untouched — it can still
+make links any colour it likes, and if it wants a particular colour for button
+words it sets that colour and gets it.
+
+**Why I picked this one of your three options.** Putting the model's stylesheet
+lower in the pecking order would have changed how every site on the platform
+behaves, not just the ones with this bug. Narrowing what its rules may touch
+means picking apart the CSS it wrote, which is the one thing that step
+deliberately never does. Re-stating the button's own colour is the small one.
+
+**What it does not do**, so you know: if the model picks a button colour and a
+label colour that are the same as each other, the button is still unreadable and
+this cannot help — that is a bad pair of colours rather than a rule fighting a
+rule, and the automatic look-check reports it.
+
+**When you will see it.** On each site's next publish. Nothing is rewritten
+behind your back, so northgroup-9 through -12 keep the buttons they have until
+something republishes them — any text or colour change does it.
+
+**How I know it works.** I built a real site carrying the exact line
+northgroup-12 wrote, with a button shaped the way our kit shapes one, and had
+the browser measure it: the label stayed readable. I also put a deliberately
+invisible sentence on the same page, and the check caught that — so the button's
+clean result is the check working rather than the check looking at nothing.
+
+---
+
 ## Preference — an invented detail stays inside the brief (2026-08-27)
 
 Your words: "don't invent something the customer hasn't asked for — invent
@@ -115,7 +158,8 @@ calls; balance 102 → 79).
   both known: inner pages still missing their own tab titles (every
   subpage of runs 45-48 now — systematic, on the list), and the black
   header button still has black text (run-34 colour-layering bug,
-  fourth sighting, platform fix still pending).* the black "Log a call" button in the header
+  fourth sighting — **fixed 2026-08-27, see the top of this file; it
+  reaches this site on its next publish**).* the black "Log a call" button in the header
   has black text on it (the known colour-layering bug from run 34, third
   sighting — platform fix still on the list); the deal page came out over the
   size cap so it didn't publish and its links point home; the inner pages are
@@ -398,6 +442,8 @@ are different trades — put the model's stylesheet lower in the pecking order,
 or narrow what its rules are allowed to touch, or re-apply the button's own
 colour after it. That is a decision rather than a patch. Say which and it is
 quick.
+
+**FIXED 2026-08-27** — the third one. See the entry at the top of this file.
 
 **EVERY SCHEDULED JOB ON THE PLATFORM HAS NEVER SENT ANYTHING (2026-08-24).**
 Found while doing something else, and measured against the live records rather

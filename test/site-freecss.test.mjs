@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readCss, fontsIn, cssNote, MAX_CSS } from "../builder/site-freecss.mjs";
+import { readCss, fontsIn, cssNote, MAX_CSS, LABEL_GUARD, ON_FILL_PAIRS } from "../builder/site-freecss.mjs";
 import { CONFIG_FIELDS } from "../site-config.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -296,6 +296,66 @@ test("THE STYLESHEET REACHES THE PAGE — every link, because any one kills it s
     assert.ok(container.indexOf(before) < w,
       before + " runs after the model's stylesheet, so a stored look would overwrite it");
   }
+});
+
+test("THE LABEL GUARD COVERS THE ON-FILL PAIRS AND NOTHING ELSE", () => {
+  // A BUTTON'S WORDS MAY NOT BE ITS OWN FILL. Four live sightings of one rule:
+  // `a, nav a { color: var(--muted-foreground) }` — unlayered, so it beat the
+  // kit's own layered utility — painted every CTA label its own background.
+  //
+  // THE SIX ARE THE FOREGROUNDS THAT SIT ON A FILLED SWATCH. Measured off the
+  // kit: those are the pairs where breaking one blanks the words.
+  assert.deepEqual([...ON_FILL_PAIRS],
+    ["primary", "secondary", "accent", "destructive", "success", "warning"],
+    "the on-fill set moved — a label colour is guarded or freed that was not before");
+  for (const n of ON_FILL_PAIRS) {
+    assert.ok(LABEL_GUARD.includes(".text-" + n + "-foreground{color:var(--" + n + "-foreground)}"),
+      n + " has no label guard — a blanket element rule can blank that label again");
+  }
+  // …AND THE THREE THAT MUST STAY FREE, which is the half that decides whether
+  // this is a guard or a cage. `muted-foreground` alone is 7,444 uses in the
+  // kit: it is the colour of ordinary text on ordinary paper, and quieting
+  // links with it is exactly the freedom the css field promises.
+  for (const n of ["muted", "card", "popover"]) {
+    assert.ok(!LABEL_GUARD.includes(n + "-foreground"),
+      n + "-foreground is guarded — the model can no longer restyle ordinary text");
+  }
+  assert.ok(!/(^|\n)\s*[a-z]/.test(LABEL_GUARD),
+    "the guard carries a bare element selector — it must only ever raise a class above one");
+  // EVERY VALUE IS A `var()`, so the model keeps control THROUGH THE TOKEN. A
+  // literal here would freeze six colours on every site that writes a
+  // stylesheet — a guard that overrules the design rather than protecting it.
+  const values = [...LABEL_GUARD.matchAll(/color:([^}]+)\}/g)].map((m) => m[1]);
+  assert.equal(values.length, ON_FILL_PAIRS.length, "the guard's shape changed — the scan is reading nothing");
+  for (const v of values) {
+    assert.match(v, /^var\(--[a-z-]+\)$/, "the guard hardcodes " + v + " — the model cannot move that colour any more");
+  }
+});
+
+test("…AND IT IS WRITTEN, BEFORE THE MODEL'S SHEET AND ONLY WITH ONE", () => {
+  // The wiring, because the block can be perfectly correct and reach no site:
+  // this repo has recorded a dozen features right at every layer and dead at
+  // one. `build-server.mjs` starts an HTTP server, so it is read rather than
+  // driven.
+  assert.match(container, /import \{[^}]*\bLABEL_GUARD\b[^}]*\} from "\.\/site-freecss\.mjs"/,
+    "the container never imports the label guard — every CTA can be blanked again");
+  const write = /fs\.writeFileSync\(STYLES, base \+ "\\n" \+ LABEL_GUARD \+ "\\n" \+ report\.css \+ "\\n"\)/;
+  assert.match(container, write, "the guard is not written beside the model's stylesheet");
+  // BEFORE, NOT AFTER, and the difference is measured rather than stylistic:
+  // both placements beat a blanket element rule (a class wins on specificity
+  // whatever the order), and only this one leaves a model that aims at
+  // `.text-primary-foreground` itself in charge of it. It also keeps the css
+  // field's own promise — YOUR RULES ARE WRITTEN LAST — literally true.
+  const line = container.match(write)[0];
+  assert.ok(line.indexOf("LABEL_GUARD") < line.indexOf("report.css"),
+    "the guard is written after the model's sheet — a deliberate label rule can no longer win");
+  // …ONLY ON THE APPLIED PATH. A site that sent no stylesheet must compile to
+  // byte-identical output, or one deploy re-styles every site on the platform.
+  const at = container.indexOf("function writeCss(");
+  assert.ok(at > 0, "writeCss moved — this check is reading nothing");
+  const fn = container.slice(at, container.indexOf("\n}", at));
+  assert.ok(fn.indexOf("if (!report.usable)") < fn.indexOf("LABEL_GUARD"),
+    "the guard is written before the usable check, so a build that sent no stylesheet is no longer untouched");
 });
 
 test("A REVISE IS SHOWN THE SHEET, and told to hand it back with the change made", () => {
