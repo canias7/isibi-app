@@ -42,8 +42,9 @@ by your design, so a tool site still has no sign-in and doesn't save — that's
 the backend step, separate. Proving the fix live is one paid CRM build,
 whenever you say.
 
-4,351 tests green; the mutation sweep was still running when this was pushed —
-its result lands in the next commit. Not proven live.
+4,351 tests green, and the mutation sweep came back **12/12** — every planted
+bug (including the exact one from runs 43–46, and a gutted tool rule) was
+caught, and the do-nothing control survived as it must. Not proven live.
 
 ## ✅ SOLVED AND PROVEN — run 45 published. The fired build works, end to end (2026-08-26, midnight)
 
