@@ -86,7 +86,16 @@ calls; balance 102 → 79).
   a tool has no front door, every page keeps the same wide frame — guarded so
   it can't be quietly deleted. Your brief's "one-page front door" is still
   honoured as CONTENT; only the narrow treatment is forbidden. Run 48
-  (northgroup-12) is the proof.* the black "Log a call" button in the header
+  (northgroup-12, "Brewline") proved it the same hour: every page full
+  width — measured 1280px on all three, vs 392px on run 47's home — and
+  the model went further than asked: the PIPELINE is the front page now,
+  /deal published properly this time, zero photographs again, 17 credits
+  (balance 62). Its own reply: "Pipeline, the deal record and the
+  contacts list all sit in the same desk frame." Two blemishes left,
+  both known: inner pages still missing their own tab titles (every
+  subpage of runs 45-48 now — systematic, on the list), and the black
+  header button still has black text (run-34 colour-layering bug,
+  fourth sighting, platform fix still pending).* the black "Log a call" button in the header
   has black text on it (the known colour-layering bug from run 34, third
   sighting — platform fix still on the list); the deal page came out over the
   size cap so it didn't publish and its links point home; the inner pages are
