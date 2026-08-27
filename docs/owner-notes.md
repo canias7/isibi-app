@@ -31,6 +31,13 @@ So: the 15-minute ceiling story is over. A build can now take as long as it
 takes — the Worker doesn't wait, the container can't be silently killed, the
 call can't be cut at 5:00, and the answer survives everything in between.
 
+**And run 46 ("Now make a crm") made it two-for-two:**
+`https://northgroup-10.gofarther.app/` — "Northbrew", published 00:25, 30
+credits billed (balance 102). Same honest reply about sign-in and the
+log-a-call form waiting on a database. The designer bought a photograph
+against "no photographs anywhere" AGAIN (4th time) — that one is a real
+designer habit now, not luck, and it is on the fix list.
+
 ## THE SECOND KILLER, CAUGHT ON CAMERA — and the fix is streaming (2026-08-26, night)
 
 **Run 44 ran the fixed transport, unambiguously (fired 20 minutes after its
