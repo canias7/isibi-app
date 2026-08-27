@@ -522,13 +522,35 @@ jobs:
           # bands). The brief's own "one-page front door" should read as door
           # CONTENT on a full-width frame, not a narrow column.
           #
-          # NO HOLD, same arithmetic as runs 46-47: the change is one sentence
-          # in worker.js — Worker-side only, nothing COPY'd into the container
-          # image — so the workflow's own deploy-wait covers it.
+          # ── RUN 49: ARM A OF THE AXES COMPARISON (owner: "make a build with
+          # what we have, then i would do axes and we can compare them") ──────
           #
-          # Fresh slug: northgroup-9, -10 and -11 are the owner's LIVE sites
+          # Two builds of ONE brief, deliberately: this one on today's state
+          # (free CSS + the one-frame rule + the label guard), the next with
+          # the style axes restored, judged side by side. So NOTHING about the
+          # brief or the picker may move between the arms — the comparison is
+          # the point.
+          #
+          # WHAT ONLY THIS RUN CAN ALSO ANSWER: the label guard's first live
+          # outing. Runs 34/47/48 each shipped a primary CTA whose words were
+          # its own fill (`a{color:inherit}` beating `.text-primary-foreground`
+          # across the layer boundary); 2631b6bd re-emits the six on-fill label
+          # colours unlayered, before the model's sheet. READ: the header CTA's
+          # computed color != its background-color, measured off the live page.
+          # Also first live outing of the brand rule (an invented name must fit
+          # the business the brief DESCRIBES — a machinery dealer, not a coffee
+          # brand) and the purpose/description rewrites.
+          #
+          # NO HOLD, but for the run-44 arithmetic rather than run 46-48's:
+          # 2631b6bd DID roll the container image (build-server.mjs +
+          # site-freecss.mjs are COPY'd), and its deploy completed 10:47:25Z —
+          # ~45 minutes before this fire commit, far past the measured
+          # 10-15.5-minute rollout ambiguity. This commit is workflow-only and
+          # rolls nothing, so the workflow's own deploy-wait covers the rest.
+          #
+          # Fresh slug: northgroup-9 through -12 are the owner's LIVE sites
           # now — re-using any would revise it.
-          OWNER_SLUG: northgroup-12
+          OWNER_SLUG: northgroup-13
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
