@@ -30,7 +30,7 @@ export function SlippageNote({ was, now, className }: {
   if (days === 0) return null;
 
   return (
-    <p className={cn("text-sm", className)}>
+    <p data-slot="slippage-note" className={cn("text-sm", className)}>
       <span className="text-muted-foreground line-through">
         <DateFormat date={a} />
       </span>{" "}

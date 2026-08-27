@@ -28,7 +28,7 @@ export function PropertyRow({ label, htmlFor, mixed, children, hint, className }
   className?: string;
 }) {
   return (
-    <div className={cn("grid grid-cols-[5.5rem_1fr] items-center gap-2 py-1", className)}>
+    <div data-slot="property-row" className={cn("grid grid-cols-[5.5rem_1fr] items-center gap-2 py-1", className)}>
       <label htmlFor={htmlFor} className="truncate text-xs text-muted-foreground">{label}</label>
       <div className="min-w-0">
         {mixed ? (
@@ -50,7 +50,7 @@ export function PropertySection({ title, children, defaultOpen = true, className
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
   return (
-    <section className={cn("border-b border-border last:border-0", className)}>
+    <section data-slot="property-section" className={cn("border-b border-border last:border-0", className)}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-start text-[11px] font-semibold tracking-wide uppercase hover:bg-muted">
         {title}

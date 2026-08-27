@@ -28,7 +28,7 @@ export function FilterSummary({ filters, inline, noneNote = "No filters — ever
   className?: string;
 }) {
   if (!filters.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{noneNote}</p>;
+    return <p data-slot="filter-summary" className={cn("text-sm text-muted-foreground", className)}>{noneNote}</p>;
   }
   if (inline) {
     return (

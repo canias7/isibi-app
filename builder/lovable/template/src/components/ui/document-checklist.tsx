@@ -38,7 +38,7 @@ export function DocumentChecklist({ items, cannotSupplyRoute, className }: {
 }) {
   const left = items.filter((i) => !i.supplied).length;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="document-checklist" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         {left === 0
           ? "Everything has been supplied."

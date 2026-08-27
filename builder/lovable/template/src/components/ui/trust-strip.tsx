@@ -16,7 +16,7 @@ export function TrustStrip({ items, columns = 3, className }: {
 }) {
   const cols = { 1: "", 2: "sm:grid-cols-2", 3: "sm:grid-cols-3" }[columns];
   return (
-    <div className={cn("grid gap-6 border-y py-6", cols, className)}>
+    <div data-slot="trust-strip" className={cn("grid gap-6 border-y py-6", cols, className)}>
       {items.map((it, i) => (
         <div key={i} className="flex items-start gap-3">
           {it.icon && <span className="mt-0.5 text-muted-foreground [&_svg]:size-5">{it.icon}</span>}

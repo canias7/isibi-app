@@ -25,7 +25,7 @@ export function CropBox({ rect, className }: {
   const x = clamp(rect.x), y = clamp(rect.y);
   const w = clamp(rect.w), h = clamp(rect.h);
   return (
-    <div aria-hidden className={cn("pointer-events-none absolute inset-0", className)}>
+    <div data-slot="crop-box" aria-hidden className={cn("pointer-events-none absolute inset-0", className)}>
       <div className="absolute inset-0 bg-background/60"
         style={{ clipPath: `polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 ${y}%, ${x}% ${y}%, ${x}% ${y + h}%, ${x + w}% ${y + h}%, ${x + w}% ${y}%, 0 ${y}%)` }} />
       <div className="absolute border-2 border-background outline outline-foreground"

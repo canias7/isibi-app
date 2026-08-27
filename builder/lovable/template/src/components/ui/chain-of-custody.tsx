@@ -43,7 +43,7 @@ export function ChainOfCustody({ events, className }: { events: CustodyEvent[]; 
   const sealBroken = events.some((e) => e.sealIntact === false);
   const dangling = events.length > 0 && events[events.length - 1].action === "released";
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="chain-of-custody" className={cn("space-y-1.5", className)}>
       {/* EVERY problem is listed, not the worst one. A broken seal and an
           unpaired handover are separate failures with separate remedies, and
           showing only the first hides a gap that is exactly what a chain is

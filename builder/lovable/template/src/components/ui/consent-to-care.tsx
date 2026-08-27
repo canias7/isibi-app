@@ -36,7 +36,7 @@ export function ConsentToCare({ decision, given, givenOn, byPerson, decidedBy, b
 }) {
   if (withdrawnOn) {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="consent-to-care" className={cn("space-y-0.5 text-sm", className)}>
         <p className="font-medium">{decision}</p>
         <p className="text-sm">Consent withdrawn {withdrawnOn}. It no longer applies.</p>
       </div>

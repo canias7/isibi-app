@@ -28,7 +28,7 @@ export function RowCompare({ subjects, attributes, differencesOnly, className }:
   const rows = differencesOnly ? attributes.filter((a) => !same(a.values)) : attributes;
   const hidden = attributes.length - rows.length;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="row-compare" className={cn("flex flex-col gap-1", className)}>
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border">

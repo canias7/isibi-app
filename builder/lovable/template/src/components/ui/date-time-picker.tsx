@@ -38,7 +38,7 @@ export function DateTimePicker({
   const selected = date ? new Date(date + "T00:00:00") : undefined;
   const floor = minDate ?? new Date(new Date().setHours(0, 0, 0, 0));
   return (
-    <div className={cn("grid gap-3 sm:grid-cols-2", className)}>
+    <div data-slot="date-time-picker" className={cn("grid gap-3 sm:grid-cols-2", className)}>
       <div className="flex flex-col gap-1.5">
         <Label>{dateLabel}</Label>
         <Popover>

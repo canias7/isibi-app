@@ -27,7 +27,7 @@ export function PhaseBar({ phases, className }: { phases: Phase[]; className?: s
   const current = phases[currentIndex];
 
   return (
-    <nav aria-label="Progress" className={className}>
+    <nav data-slot="phase-bar" aria-label="Progress" className={className}>
       {/* On a phone, one legible line beats five unreadable ones. */}
       <p className="text-sm sm:hidden">
         Step <span className="tabular-nums">{currentIndex + 1}</span> of{" "}

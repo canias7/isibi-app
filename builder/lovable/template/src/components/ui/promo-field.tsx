@@ -29,7 +29,7 @@ export function PromoField({ applied, onApply, onRemove, currency = "GBP", class
 
   if (applied) {
     return (
-      <p className={cn("flex flex-wrap items-baseline gap-2 text-sm", className)}>
+      <p data-slot="promo-field" className={cn("flex flex-wrap items-baseline gap-2 text-sm", className)}>
         <span><b>{applied.code}</b> applied — <span className="tabular-nums">−{fmt(applied.offMinor)}</span></span>
         {onRemove ? (
           <button type="button" onClick={onRemove} className="cursor-pointer text-xs text-muted-foreground underline underline-offset-2">

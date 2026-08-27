@@ -43,7 +43,7 @@ export function WorkingHoursInput({ days, onChange, className }: {
   };
 
   return (
-    <ul className={cn("divide-y divide-border rounded-md border border-border", className)}>
+    <ul data-slot="working-hours-input" className={cn("divide-y divide-border rounded-md border border-border", className)}>
       {days.map((d) => (
         <li key={d.key} className="flex flex-wrap items-center gap-3 p-3">
           <span className="w-24 shrink-0 text-sm font-medium capitalize">{name(d.key)}</span>

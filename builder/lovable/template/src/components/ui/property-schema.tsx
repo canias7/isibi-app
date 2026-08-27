@@ -38,7 +38,7 @@ export function PropertySchema({ properties, className }: {
   if (!properties.length) return null;
   const personal = properties.filter((p) => p.personal);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="property-schema" className={cn("space-y-1.5", className)}>
       {personal.length > 0 && (
         <p className="text-xs">
           <span className="font-medium">{personal.length}</span>

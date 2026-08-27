@@ -18,7 +18,7 @@ export function ChipList({ items, max, onRemove, onClick, className }: {
   const shown = max != null ? items.slice(0, max) : items;
   const rest = items.length - shown.length;
   return (
-    <ul className={cn("flex flex-wrap items-center gap-1", className)}
+    <ul data-slot="chip-list" className={cn("flex flex-wrap items-center gap-1", className)}
       aria-label={items.map((i) => i.label).join(", ")}>
       {shown.map((it) => (
         <li key={it.value}>

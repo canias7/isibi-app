@@ -40,7 +40,7 @@ export function ExclusionList({ exclusions, wordingNote, className }: {
   // burying them under war and nuclear risk is how a summary becomes useless.
   const ordered = [...exclusions].sort((a, b) => Number(Boolean(b.common)) - Number(Boolean(a.common)));
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="exclusion-list" className={cn("space-y-1.5", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {ordered.map((e) => (
           <li key={e.id} className="space-y-0.5 px-3 py-2">

@@ -30,7 +30,7 @@ export function RecallRequest({ onRecall, decidedBy, busy, label = "Recall this 
 }) {
   if (decidedBy) {
     return (
-      <p className={cn("text-xs text-muted-foreground", className)}>
+      <p data-slot="recall-request" className={cn("text-xs text-muted-foreground", className)}>
         {decidedBy} has already decided, so this can no longer be recalled. Submit a new request instead.
       </p>
     );

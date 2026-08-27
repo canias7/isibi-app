@@ -26,7 +26,7 @@ export function UnitPreference({ label, options, value, onChange, note, classNam
 }) {
   const name = React.useId();
   return (
-    <fieldset className={cn("flex flex-col gap-1.5", className)}>
+    <fieldset data-slot="unit-preference" className={cn("flex flex-col gap-1.5", className)}>
       <legend className="text-sm font-medium">{label}</legend>
       <div className="flex overflow-hidden rounded-md border border-border">
         {options.map((o) => {

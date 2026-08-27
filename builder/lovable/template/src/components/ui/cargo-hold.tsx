@@ -50,7 +50,7 @@ export function CargoHold({ hold, weightKg, weightLimitKg, volumeM3, volumeLimit
     </div>
   );
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="cargo-hold" className={cn("space-y-2", className)}>
       <p className="text-sm font-medium">{hold}</p>
       {weightKg !== undefined && weightLimitKg !== undefined && (
         <div className="space-y-1">

@@ -25,7 +25,7 @@ export function PauseMotion({ paused, onChange, what = "the animation", classNam
 }) {
   const Icon = paused ? Play : Pause;
   return (
-    <button type="button" onClick={() => onChange(!paused)}
+    <button data-slot="pause-motion" type="button" onClick={() => onChange(!paused)}
       aria-pressed={paused}
       aria-label={paused ? `Start ${what}` : `Stop ${what}`}
       className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs", className)}>

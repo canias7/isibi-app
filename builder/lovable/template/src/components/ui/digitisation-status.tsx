@@ -37,7 +37,7 @@ export function DigitisationStatus({ state = "none", proportion, searchable, res
     ? new Intl.NumberFormat("en", { style: "percent", maximumFractionDigits: 0 }).format(proportion)
     : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="digitisation-status" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn(state === "none" && "font-medium")}>
         {state === "full" ? "Digitised in full" : state === "partial" ? `Partly digitised${pct ? ` — about ${pct}` : ""}` : "Not digitised"}
       </p>

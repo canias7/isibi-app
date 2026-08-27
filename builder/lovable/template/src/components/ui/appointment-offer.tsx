@@ -36,7 +36,7 @@ export function AppointmentOffer({ what, when, where, remoteOption, replyBy, ifN
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="appointment-offer" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{what}</span>
         <span className="block">{when}</span>

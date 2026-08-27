@@ -33,7 +33,7 @@ export function FunnelStepRow({ label, count, previous, first, className }: {
   const dropPct = previous && previous > 0 && dropped !== null ? (dropped / previous) * 100 : null;
   const ofFirst = first && first > 0 ? (count / first) * 100 : null;
   return (
-    <li className={cn("space-y-1 px-3 py-2 text-sm", className)}>
+    <li data-slot="funnel-step-row" className={cn("space-y-1 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">{label}</span>
         <span className="shrink-0 tabular-nums">{count.toLocaleString()}</span>

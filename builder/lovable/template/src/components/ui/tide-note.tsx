@@ -36,7 +36,7 @@ export function TideNote({ port, events, clearanceNeededM, windowNote, zoneNote,
     ? high.some((e) => e.heightM >= clearanceNeededM)
     : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="tide-note" className={cn("space-y-0.5 text-sm", className)}>
       {port && <p className="text-xs text-muted-foreground">{port}</p>}
       {windowNote ? (
         <p className="font-medium">You can get in and out {windowNote}.</p>

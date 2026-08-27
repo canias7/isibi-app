@@ -34,7 +34,7 @@ export function EligibilityCheck({ criteria, indicative = true, alternative, app
   const unknown = criteria.filter((c) => c.met === undefined);
   const eligible = unmet.length === 0 && unknown.length === 0;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="eligibility-check" className={cn("space-y-1.5", className)}>
       <p className="text-sm font-medium">
         {eligible
           ? indicative ? "You look eligible" : "You are eligible"

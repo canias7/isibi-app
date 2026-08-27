@@ -26,7 +26,7 @@ export function JobProgress({ done, total, unit = "items", label, className }: {
 }) {
   const pct = total && total > 0 ? Math.round(Math.min(done / total, 1) * 100) : null;
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="job-progress" className={cn("flex flex-col gap-1.5", className)}>
       {label && <p className="text-sm font-medium">{label}</p>}
       {pct !== null && (
         <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}

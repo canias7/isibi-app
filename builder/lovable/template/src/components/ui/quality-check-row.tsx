@@ -38,7 +38,7 @@ export function QualityCheckRow({ characteristic, nominal, lowerLimit, upperLimi
     (measured - lowerLimit < span * 0.1 || upperLimit - measured < span * 0.1);
   const u = unit ? ` ${unit}` : "";
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="quality-check-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">{characteristic}</span>
         <span className={cn("shrink-0 tabular-nums", out && "font-medium")}>

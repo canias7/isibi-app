@@ -39,7 +39,7 @@ export function SubscribeToggle({ subscribed, what, onSubscribe, onUnsubscribe, 
 
   if (permission === "unsupported") {
     return (
-      <p className={cn("text-xs text-muted-foreground", className)}>
+      <p data-slot="subscribe-toggle" className={cn("text-xs text-muted-foreground", className)}>
         This browser cannot show notifications.
       </p>
     );

@@ -32,7 +32,7 @@ export function ContactCardCompact({ name, role, phone, email, address, note, cl
 }) {
   const digits = phone?.replace(/[^\d+]/g, "");
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="contact-card-compact" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{name}</span>
         {role && <span className="block text-xs text-muted-foreground">{role}</span>}

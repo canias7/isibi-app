@@ -28,7 +28,7 @@ export function CustomCssNote({ stableHooks = [], scope, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
+    <div data-slot="custom-css-note" className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
       {scope && <p>This applies to {scope}.</p>}
       <p>
         <span className="text-foreground">Anything you style here can break when we update.</span>{" "}

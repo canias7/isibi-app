@@ -66,7 +66,7 @@ export function FrequencyPicker({
   if (!options.length) return null;
   const chosen = options.find((o) => o.label === picked) ?? options[0];
   return (
-    <div className={cn("", className)}>
+    <div data-slot="frequency-picker" className={cn("", className)}>
       <fieldset>
         <legend className="sr-only">How often</legend>
         <div className={cn("grid gap-4", COLS[columns])}>

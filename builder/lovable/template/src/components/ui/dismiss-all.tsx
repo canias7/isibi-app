@@ -37,7 +37,7 @@ export function DismissAll({ count, onDismissAll, onUndo, showFrom = 2, undoFor 
 
   if (undoable > 0 && onUndo) {
     return (
-      <span className={cn("inline-flex items-center gap-2 text-xs", className)} aria-live="polite">
+      <span data-slot="dismiss-all" className={cn("inline-flex items-center gap-2 text-xs", className)} aria-live="polite">
         <span className="text-muted-foreground tabular-nums">
           {undoable} {undoable === 1 ? "notice" : "notices"} cleared
         </span>

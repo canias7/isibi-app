@@ -43,7 +43,7 @@ export function TabOrderNote({ active, className }: { active: boolean; className
 
   if (!active) return null;
   return (
-    <div aria-hidden className={cn("pointer-events-none absolute inset-0 z-50", className)}>
+    <div data-slot="tab-order-note" aria-hidden className={cn("pointer-events-none absolute inset-0 z-50", className)}>
       {spots.map((s) => (
         <span key={s.n}
           style={{ left: s.x, top: s.y }}

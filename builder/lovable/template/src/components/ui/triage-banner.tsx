@@ -44,7 +44,7 @@ export function TriageBanner({ levels, heading = "If it is urgent", className }:
   const id = React.useId();
   if (!levels.length) return null;
   return (
-    <section
+    <section data-slot="triage-banner"
       aria-labelledby={id}
       className={cn("border-y-2 border-foreground bg-muted/60", className)}
     >

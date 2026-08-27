@@ -23,7 +23,7 @@ export function OverpaymentNote({ amount, currency = "GBP", onRefund, onHold, cl
 }) {
   if (amount <= 0) return null;
   return (
-    <p role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-sm", className)}>
+    <p data-slot="overpayment-note" role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-sm", className)}>
       <span className="font-medium tabular-nums">
         <Money amount={amount} currency={currency} /> more than the bill
       </span>

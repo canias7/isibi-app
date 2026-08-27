@@ -28,7 +28,7 @@ export function WhoCanSee({ scope, count, orgName, className }: {
     : scope === "org" ? `Anyone at ${orgName ?? "your organisation"}`
     : "Anyone with the link";
   return (
-    <p className={cn("text-sm", wide ? "font-medium" : "text-muted-foreground", className)}>
+    <p data-slot="who-can-see" className={cn("text-sm", wide ? "font-medium" : "text-muted-foreground", className)}>
       <span className="sr-only">Visible to: </span>{text}
     </p>
   );

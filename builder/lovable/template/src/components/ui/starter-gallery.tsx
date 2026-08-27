@@ -35,7 +35,7 @@ export function StarterGallery({ starters, value, onChange, className }: {
   className?: string;
 }) {
   return (
-    <ul className={cn("grid grid-cols-2 gap-3 sm:grid-cols-3", className)}>
+    <ul data-slot="starter-gallery" className={cn("grid grid-cols-2 gap-3 sm:grid-cols-3", className)}>
       {starters.map((s) => {
         const on = s.id === value;
         return (

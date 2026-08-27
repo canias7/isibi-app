@@ -38,7 +38,7 @@ export function OfferRow({ from, amount, askingPrice, conditions = [], madeOn, s
   const pct = askingPrice ? Math.round((Math.abs(gap ?? 0) / askingPrice) * 1000) / 10 : undefined;
   const gone = state === "withdrawn" || state === "declined";
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", gone && "text-muted-foreground", className)}>
+    <li data-slot="offer-row" className={cn("space-y-0.5 px-3 py-2 text-sm", gone && "text-muted-foreground", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1">{from}</span>
         <span className="shrink-0 font-medium tabular-nums">{money(amount)}</span>

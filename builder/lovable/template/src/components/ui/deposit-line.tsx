@@ -27,7 +27,7 @@ export function DepositLine({ deposit, balance, dueWhen, refundable, condition, 
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-0.5 text-sm", className)}>
+    <div data-slot="deposit-line" className={cn("flex flex-col gap-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium"><Money amount={deposit} currency={currency} /> deposit</span>
         {typeof balance === "number" && (

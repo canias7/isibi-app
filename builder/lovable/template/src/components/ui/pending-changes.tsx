@@ -21,7 +21,7 @@ export function PendingChanges({ count, items, onReview, className }: {
 }) {
   if (count <= 0) return null;
   return (
-    <div role="status"
+    <div data-slot="pending-changes" role="status"
       className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border px-3 py-2 text-sm", className)}>
       <span className="font-medium tabular-nums">
         {count} {count === 1 ? "change" : "changes"} waiting to save

@@ -36,7 +36,7 @@ export function CursorPagination({
   className?: string;
 }) {
   return (
-    <nav aria-label="Pagination" className={cn("flex items-center gap-3", className)}>
+    <nav data-slot="cursor-pagination" aria-label="Pagination" className={cn("flex items-center gap-3", className)}>
       <button type="button" onClick={onPrev} disabled={!hasPrev || loading}
         className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-40">
         <ChevronLeft aria-hidden className="size-3.5" />

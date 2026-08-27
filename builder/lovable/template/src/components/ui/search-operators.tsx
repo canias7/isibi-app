@@ -19,7 +19,7 @@ export function SearchOperators({ operators, className }: {
 }) {
   if (!operators.length) return null;
   return (
-    <dl className={cn("flex flex-col gap-1 text-sm", className)}>
+    <dl data-slot="search-operators" className={cn("flex flex-col gap-1 text-sm", className)}>
       {operators.map((o) => (
         <div key={o.syntax} className="flex flex-wrap items-baseline gap-x-2">
           <dt><code className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs">{o.syntax}</code></dt>

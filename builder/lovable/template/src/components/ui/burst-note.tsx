@@ -34,7 +34,7 @@ export function BurstNote({ sustained, per = "minute", burst, remaining, refillS
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="burst-note" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium tabular-nums">{sustained.toLocaleString()}</span> a {per}
         <span className="text-muted-foreground">

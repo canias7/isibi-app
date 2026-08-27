@@ -19,7 +19,7 @@ export function UsageMeter({ label, used, total, unit = "", warnAt = 0.8, classN
   const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
   const tone = pct >= 100 ? "text-destructive" : pct >= warnAt * 100 ? "text-warning" : "text-muted-foreground";
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="usage-meter" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-baseline justify-between gap-3 text-sm">
         <span>{label}</span>
         <span className={cn("tabular-nums", tone)}>

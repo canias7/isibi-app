@@ -35,7 +35,7 @@ export function ChangeoverNote({ machine, fromProduct, toProduct, estimateMinute
   const fmt = (m: number) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`);
   const worse = estimateMinutes !== undefined && lastActualMinutes !== undefined && lastActualMinutes > estimateMinutes;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="changeover-note" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{fromProduct} <span aria-hidden="true">→</span> {toProduct}</span>
         {machine && <span className="block text-xs text-muted-foreground">{machine}</span>}

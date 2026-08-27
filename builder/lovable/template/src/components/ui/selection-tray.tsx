@@ -33,7 +33,7 @@ export function SelectionTray({ items, onRemove, onClear, max = 8, actions, clas
   const rest = items.length - shown.length;
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-2 rounded-md border border-border p-2", className)}>
+    <div data-slot="selection-tray" className={cn("flex flex-wrap items-center gap-2 rounded-md border border-border p-2", className)}>
       <span className="text-sm font-medium tabular-nums">{items.length} selected</span>
       <ul className="flex min-w-0 flex-wrap gap-1.5">
         {shown.map((i) => (

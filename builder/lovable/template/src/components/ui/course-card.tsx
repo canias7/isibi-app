@@ -14,7 +14,7 @@ export function CourseCard({ title, teacher, lessons, duration, level, price, pr
   price?: string; progress?: number | null; image?: string | null; href?: string; className?: string;
 }) {
   return (
-    <article className={cn("overflow-hidden rounded-lg border border-border", className)}>
+    <article data-slot="course-card" className={cn("overflow-hidden rounded-lg border border-border", className)}>
       <div className="aspect-video bg-muted">
         <SafeImage src={image} alt={title} ratio="auto" className="size-full object-cover" />
       </div>

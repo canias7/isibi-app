@@ -34,7 +34,7 @@ export function GoodsInRow({ item, poLine, ordered, delivered, accepted, rejectR
   const over = delivered > ordered;
   const short = delivered < ordered;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="goods-in-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">
           {item}

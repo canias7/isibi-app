@@ -29,7 +29,7 @@ export function EventMeta({ start, end, venue, capacity, price, className }: {
     [Ticket, price ?? null],
   ];
   return (
-    <ul className={cn("flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground", className)}>
+    <ul data-slot="event-meta" className={cn("flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground", className)}>
       {bits.filter(([, v]) => v).map(([Icon, v], i) => (
         <li key={i} className="flex items-center gap-1.5"><Icon className="size-3.5" />{v}</li>
       ))}

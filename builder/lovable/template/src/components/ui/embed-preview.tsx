@@ -35,7 +35,7 @@ export function EmbedPreview({ snippet, width = 375, available, where = "Paste t
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="embed-preview" className={cn("space-y-2", className)}>
       <ClipboardBlocked value={snippet} multiline label="Select and copy this" />
       <p className="text-xs text-muted-foreground">{where}</p>
       {children && (

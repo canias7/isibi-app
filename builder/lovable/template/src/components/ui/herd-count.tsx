@@ -30,7 +30,7 @@ export function HerdCount({ categories, countedOn, className }: {
   const registered = categories.reduce((n, c) => n + (c.registered ?? c.counted), 0);
   const diff = counted - registered;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="herd-count" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         <span className="font-medium tabular-nums">{counted.toLocaleString()}</span>
         <span className="text-muted-foreground"> counted</span>

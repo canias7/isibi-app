@@ -63,7 +63,7 @@ export function AgeGate({ minAge = 18, what = "This section", storageKey = "age-
   if (verdict === true) return <>{children}</>;
   if (verdict === false) {
     return (
-      <div className={cn("rounded-xl border border-border bg-card p-6 text-center", className)}>
+      <div data-slot="age-gate" className={cn("rounded-xl border border-border bg-card p-6 text-center", className)}>
         <p className="text-sm text-muted-foreground">{what} isn’t available.</p>
       </div>
     );

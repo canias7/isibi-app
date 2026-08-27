@@ -16,5 +16,5 @@ export function Cluster({ gap = "sm", align = "center", justify = "start", child
   const g = { xs: "gap-1", sm: "gap-2", md: "gap-3", lg: "gap-4" }[gap];
   const a = { start: "items-start", center: "items-center", end: "items-end", baseline: "items-baseline" }[align];
   const j = { start: "justify-start", center: "justify-center", end: "justify-end", between: "justify-between" }[justify];
-  return <div className={cn("flex flex-wrap", g, a, j, className)}>{children}</div>;
+  return <div data-slot="cluster" className={cn("flex flex-wrap", g, a, j, className)}>{children}</div>;
 }

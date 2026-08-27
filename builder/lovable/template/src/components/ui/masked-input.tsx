@@ -84,7 +84,7 @@ export function MaskedInput({
   };
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="masked-input" className={cn("flex flex-col gap-1.5", className)}>
       {label ? <label htmlFor={fieldId} className="text-sm font-medium">{label}</label> : null}
       <input
         {...rest}

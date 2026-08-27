@@ -47,7 +47,7 @@ export function ColumnResize({ width, onResize, onReset, label, className }: {
   };
 
   return (
-    <div
+    <div data-slot="column-resize"
       role="separator"
       aria-orientation="vertical"
       aria-label={label ? `Resize ${label}` : "Resize column"}

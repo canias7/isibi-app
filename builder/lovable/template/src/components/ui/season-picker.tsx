@@ -29,7 +29,7 @@ export function SeasonPicker({ seasons, value, onChange, label = "Season", class
   const id = useId();
   const chosen = seasons.find((s) => s.id === value);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="season-picker" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">{label}</label>
       <select
         id={id}

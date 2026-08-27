@@ -30,7 +30,7 @@ export function StatusPageLink({ url, state = "ok", headline, subscribeUrl, clas
 }) {
   const wrong = state !== "ok";
   return (
-    <p className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-xs", className)}>
+    <p data-slot="status-page-link" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-xs", className)}>
       <span className={cn(wrong ? "font-medium" : "text-muted-foreground")}>
         {state === "ok" ? "All systems working" : state === "maintenance" ? "Planned maintenance" : "Something is wrong"}
         {headline && <span className="font-normal text-muted-foreground"> — {headline}</span>}

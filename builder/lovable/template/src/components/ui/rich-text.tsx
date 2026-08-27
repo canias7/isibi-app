@@ -126,7 +126,7 @@ export function RichText({ defaultValue = "", onChange, label, placeholder, minH
   };
 
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="rich-text" className={cn("space-y-2", className)}>
       <FormatToolbar active={active} onCommand={run}
         only={["bold", "italic", "underline", "strike", "heading", "quote", "bullet", "ordered", "link"]} />
       <div ref={ref} contentEditable suppressContentEditableWarning role="textbox" aria-multiline="true"

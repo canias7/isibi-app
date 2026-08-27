@@ -24,7 +24,7 @@ export function FileTypeNote({ extension, describes, opensWith, className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="file-type-note" className={cn("text-xs text-muted-foreground", className)}>
       <span className="font-medium text-foreground">{extension.replace(/^\.?/, ".")}</span>
       {" — "}{describes}
       {opensWith && <> · opens in {opensWith}</>}

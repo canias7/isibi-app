@@ -35,7 +35,7 @@ export function SitePicker({ sites, value, onChange, allowAll = true, allLabel =
   const chosen = sites.find((s) => s.id === value);
   const all = allowAll && !value;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="site-picker" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">{label}</label>
       <select
         id={id}

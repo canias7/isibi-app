@@ -33,7 +33,7 @@ export function LegList({ legs, className }: { legs: Leg[]; className?: string }
   const MODE = { road: "by road", rail: "by rail", sea: "by sea", air: "by air" };
   const unbooked = legs.filter((l) => !l.carrier && l.state !== "done");
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="leg-list" className={cn("space-y-1.5", className)}>
       {unbooked.length > 0 && (
         <p className="text-xs font-medium">
           {unbooked.length} {unbooked.length === 1 ? "leg has" : "legs have"} no carrier booked.

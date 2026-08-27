@@ -29,7 +29,7 @@ export function RtlPreview({ children, sample, className }: {
 }) {
   const [on, setOn] = React.useState(false);
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="rtl-preview" className={cn("flex flex-col gap-2", className)}>
       <label className="flex cursor-pointer items-center gap-2 text-xs">
         <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)}
           className="size-3.5 cursor-pointer accent-foreground" />

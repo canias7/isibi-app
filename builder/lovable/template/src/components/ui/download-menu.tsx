@@ -58,7 +58,7 @@ export function DownloadMenu({ formats, onDownload, label = "Download", classNam
   };
 
   return (
-    <span className={cn("inline-flex items-center rounded-md border border-border", className)}>
+    <span data-slot="download-menu" className={cn("inline-flex items-center rounded-md border border-border", className)}>
       {row({ ...first, label: `${label} ${first.label}` }, true)}
       {rest.length ? (
         <Popover open={open} onOpenChange={setOpen}>

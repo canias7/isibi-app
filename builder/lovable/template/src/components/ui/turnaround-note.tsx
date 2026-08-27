@@ -28,7 +28,7 @@ export function TurnaroundNote({ from, to, unit = "working days", busyNote, clas
   className?: string;
 }) {
   return (
-    <p className={cn("text-sm", className)}>
+    <p data-slot="turnaround-note" className={cn("text-sm", className)}>
       <span className="text-muted-foreground">Usually </span>
       <span className="font-medium tabular-nums">
         {to && to !== from ? `${from}–${to}` : from} {unit}

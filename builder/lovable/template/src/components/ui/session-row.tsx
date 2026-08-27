@@ -13,7 +13,7 @@ export function SessionRow({ device, where, lastSeen, current, onRevoke, classNa
   current?: boolean; onRevoke?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-3 border-b border-border py-3 last:border-0", className)}>
+    <div data-slot="session-row" className={cn("flex items-center gap-3 border-b border-border py-3 last:border-0", className)}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-sm font-medium">
           {device}

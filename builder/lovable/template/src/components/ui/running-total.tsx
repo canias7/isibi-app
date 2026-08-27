@@ -23,7 +23,7 @@ export function RunningTotal({ lines, unit = "", label = "Running total", classN
   const rows = lines.map((l) => { sum += l.amount; return { ...l, sum }; });
   const fmt = (n: number) => `${n < 0 ? "−" : ""}${unit}${Math.abs(n).toLocaleString()}`;
   return (
-    <table className={cn("w-full text-sm", className)}>
+    <table data-slot="running-total" className={cn("w-full text-sm", className)}>
       <thead>
         <tr className="border-b border-border text-xs text-muted-foreground">
           <th scope="col" className="py-1.5 text-start font-normal">Item</th>

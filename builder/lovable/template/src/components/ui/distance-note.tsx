@@ -43,7 +43,7 @@ export function DistanceNote({ meters, unit = "km", from, nearbyUnder = 50, clas
       : `${Math.round(meters / 1000)} km away`;
   }
   return (
-    <span className={cn("text-sm text-muted-foreground", className)}>
+    <span data-slot="distance-note" className={cn("text-sm text-muted-foreground", className)}>
       {text}
       {from && text !== "Nearby" && <span> from {from}</span>}
     </span>

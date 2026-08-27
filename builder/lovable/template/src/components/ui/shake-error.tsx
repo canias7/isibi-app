@@ -25,7 +25,7 @@ export function ShakeError({ shakeKey, error, children, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="shake-error" className={cn("flex flex-col gap-1.5", className)}>
       <div
         // Keyed on the counter, so a second failure restarts the animation.
         key={shakeKey}

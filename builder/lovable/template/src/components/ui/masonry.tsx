@@ -11,5 +11,5 @@ export function Masonry({ columns = 3, gap = 4, className, children }: {
 }) {
   const c = { 2:"sm:columns-2", 3:"sm:columns-2 lg:columns-3", 4:"sm:columns-2 lg:columns-4" }[columns];
   const g: Record<number,string> = {2:"gap-2",3:"gap-3",4:"gap-4",6:"gap-6"};
-  return <div className={cn("columns-1 [&>*]:mb-4 [&>*]:break-inside-avoid", c, g[gap], className)}>{children}</div>;
+  return <div data-slot="masonry" className={cn("columns-1 [&>*]:mb-4 [&>*]:break-inside-avoid", c, g[gap], className)}>{children}</div>;
 }

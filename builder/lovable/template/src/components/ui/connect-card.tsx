@@ -8,7 +8,7 @@ export function ConnectCard({ name, description, logo, connected, account, onCon
   account?: string | null; onConnect?: () => void; onDisconnect?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex items-start gap-3 rounded-lg border border-border p-4", className)}>
+    <div data-slot="connect-card" className={cn("flex items-start gap-3 rounded-lg border border-border p-4", className)}>
       {logo
         ? <SafeImage src={logo} alt="" className="size-9 shrink-0 rounded object-contain" />
         : <span className="flex size-9 shrink-0 items-center justify-center rounded bg-muted text-sm font-medium">{name[0]}</span>}

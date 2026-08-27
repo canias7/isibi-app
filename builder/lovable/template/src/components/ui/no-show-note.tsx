@@ -31,7 +31,7 @@ export function NoShowNote({ missed, total, lastMissed, showFrom = 2, className 
   if (missed < showFrom || total <= 0) return null;
   const pct = Math.round((missed / total) * 100);
   return (
-    <p className={cn("text-sm", className)}>
+    <p data-slot="no-show-note" className={cn("text-sm", className)}>
       <span className="tabular-nums">{missed}</span>
       <span className="text-muted-foreground"> of </span>
       <span className="tabular-nums">{total}</span>

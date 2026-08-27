@@ -21,7 +21,7 @@ export function BeforeAfter({
 }) {
   const [pos, setPos] = React.useState(50);
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="before-after" className={cn("flex flex-col gap-2", className)}>
       <div className="relative overflow-hidden rounded-lg" style={{ aspectRatio: ratio }}>
         <SafeImage src={after} alt={afterLabel} ratio={ratio} className="absolute inset-0 size-full rounded-none" />
         <div className="absolute inset-0 overflow-hidden" style={{ width: pos + "%" }}>

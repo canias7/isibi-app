@@ -30,7 +30,7 @@ export function ChatComposer({ onSend, busy, placeholder = "Write a message…",
     requestAnimationFrame(grow);
   };
   return (
-    <div className={cn("flex items-end gap-2 border-t border-border p-2", className)}>
+    <div data-slot="chat-composer" className={cn("flex items-end gap-2 border-t border-border p-2", className)}>
       <textarea ref={ref} rows={1} value={body} placeholder={placeholder} aria-label="Message"
         className="max-h-40 flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         onChange={(e) => { setBody(e.target.value); grow(); }}

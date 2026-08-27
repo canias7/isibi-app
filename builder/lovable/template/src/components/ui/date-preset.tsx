@@ -44,7 +44,7 @@ export function DatePreset({ value, onChange, className }: {
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+    <div data-slot="date-preset" className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {ranges(new Date()).map(([key, label, make]) => (
         <button key={key} type="button"
           onClick={() => { setCustom(false); onChange({ key, ...make() }); }}

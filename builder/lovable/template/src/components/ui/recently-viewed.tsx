@@ -41,7 +41,7 @@ export function RecentlyViewed<T extends { id: string }>({ items, onClear, rende
 }) {
   if (!items.length) return null;
   return (
-    <section className={cn("flex flex-col gap-2", className)}>
+    <section data-slot="recently-viewed" className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-baseline justify-between">
         <h2 className="text-sm font-semibold">Recently viewed</h2>
         {/* One press, in view - a shared tablet is the reason. */}

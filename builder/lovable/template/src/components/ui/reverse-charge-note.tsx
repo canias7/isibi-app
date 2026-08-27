@@ -29,7 +29,7 @@ export function ReverseChargeNote({ wording, supplierNumber, customerNumber, sup
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
+    <div data-slot="reverse-charge-note" className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
       <p className="text-foreground">{wording}</p>
       {(supplierNumber || customerNumber) && (
         <p>

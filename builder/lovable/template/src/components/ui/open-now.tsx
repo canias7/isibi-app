@@ -39,7 +39,7 @@ export function OpenNow({ hours, now, className }: {
     const overnight = c <= o;
     // Today's window, and yesterday's if it ran past midnight.
     if (h.day === d.getDay() && (overnight ? mins >= o : mins >= o && mins < c)) {
-      return <span className={cn("inline-flex items-center gap-1.5 text-sm", className)}>
+      return <span data-slot="open-now" className={cn("inline-flex items-center gap-1.5 text-sm", className)}>
         <StatusDot state="on" label="Open now" />
         <span className="text-muted-foreground">until {fmt(h.close)}</span>
       </span>;

@@ -36,7 +36,7 @@ export function VisitorSignIn({ visitorName, hostName, onVisitorNameChange, onHo
 }) {
   const id = useId();
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="visitor-sign-in" className={cn("space-y-1.5", className)}>
       <div className="space-y-1">
         <label htmlFor={`${id}-v`} className="block text-sm font-medium">Your name</label>
         <Input id={`${id}-v`} value={visitorName} autoComplete="name" onChange={(e) => onVisitorNameChange(e.target.value)} />

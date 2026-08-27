@@ -35,7 +35,7 @@ export function HarvestWindow({ crop, moisture, targetMoisture, readingOn, dryin
   const wet = moisture !== undefined && targetMoisture !== undefined && moisture > targetMoisture;
   const points = wet ? Math.round((moisture! - targetMoisture!) * 10) / 10 : 0;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="harvest-window" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{crop}</span>
         {moisture !== undefined && (

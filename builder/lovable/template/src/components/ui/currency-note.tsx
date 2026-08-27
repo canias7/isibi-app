@@ -23,7 +23,7 @@ export function CurrencyNote({ charged, shown, className }: {
 }) {
   if (shown && shown === charged) return null;
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="currency-note" className={cn("text-xs text-muted-foreground", className)}>
       Charged in {charged}
       {shown ? ` rather than ${shown}` : ""}. Your bank sets the exchange rate and may add a fee.
     </p>

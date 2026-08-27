@@ -36,7 +36,7 @@ export function DataDictionary({ fields, className }: { fields: FieldSpec[]; cla
   const unitless = fields.filter((f) => f.type === "number" && !f.unit);
   const uncoded = fields.filter((f) => !f.missingCode);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="data-dictionary" className={cn("space-y-1.5", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {fields.map((f) => (
           <li key={f.id} className="space-y-0.5 px-3 py-2">

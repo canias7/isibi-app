@@ -44,7 +44,7 @@ export function ScanDocument({ onScan, className }: {
   };
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="scan-document" className={cn("flex flex-col gap-2", className)}>
       {!raw ? (
         <div className="flex flex-col gap-1.5">
           <div aria-hidden className="flex h-28 w-44 items-center justify-center rounded-lg border-2 border-dashed border-border">

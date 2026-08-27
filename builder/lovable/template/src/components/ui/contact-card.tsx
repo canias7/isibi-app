@@ -20,7 +20,7 @@ export function ContactCard({
 }) {
   const map = mapUrl || (address ? "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(address) : null);
   return (
-    <Card className={className}>
+    <Card data-slot="contact-card" className={className}>
       <CardContent className="flex flex-col gap-3 pt-6 text-sm">
         {address && (
           <a className="flex items-start gap-3 hover:underline" href={map ?? undefined} target="_blank" rel="noreferrer">

@@ -41,7 +41,7 @@ export function DataSaverNote({ what = "images", onLoadAnyway, className }: {
   }, []);
   if (!on) return null;
   return (
-    <p className={cn("flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground", className)}>
+    <p data-slot="data-saver-note" className={cn("flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground", className)}>
       <span>Your browser is saving data, so we are not loading {what}.</span>
       {onLoadAnyway && (
         <button type="button" onClick={onLoadAnyway} className="underline underline-offset-2">

@@ -58,7 +58,7 @@ export function FieldArray<T>({
 }) {
   const atMin = items.length <= min;
   return (
-    <fieldset className={cn("flex w-full min-w-0 flex-col gap-2", className)}>
+    <fieldset data-slot="field-array" className={cn("flex w-full min-w-0 flex-col gap-2", className)}>
       {legend ? <legend className="mb-1 text-sm font-medium">{legend}</legend> : null}
       {items.map((item, i) => (
         <div key={item.id} className="flex items-start gap-2">

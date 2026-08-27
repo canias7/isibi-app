@@ -24,7 +24,7 @@ export function AspectPicker({ value, onChange, options = RATIOS, className }: {
 }) {
   const area = 900;
   return (
-    <div className={cn("flex flex-wrap gap-2", className)} role="group" aria-label="Aspect ratio">
+    <div data-slot="aspect-picker" className={cn("flex flex-wrap gap-2", className)} role="group" aria-label="Aspect ratio">
       {options.map((o) => {
         const scale = Math.sqrt(divide(area, o.w * o.h));
         return (

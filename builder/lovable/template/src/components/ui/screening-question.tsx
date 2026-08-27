@@ -35,7 +35,7 @@ export function ScreeningQuestion({ question, kind = "preference", options, valu
 }) {
   const id = useId();
   return (
-    <fieldset className={cn("space-y-1", className)}>
+    <fieldset data-slot="screening-question" className={cn("space-y-1", className)}>
       <legend className="text-sm font-medium">{question}</legend>
       {kind === "knockout" && (
         <p className="text-xs font-medium">

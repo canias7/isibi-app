@@ -17,7 +17,7 @@ export function ListToolbar({ total, showing, selected = 0, onClearSelection, ac
 }) {
   if (selected > 0) {
     return (
-      <div className={cn("flex flex-wrap items-center gap-3 rounded-md bg-muted px-3 py-2", className)}>
+      <div data-slot="list-toolbar" className={cn("flex flex-wrap items-center gap-3 rounded-md bg-muted px-3 py-2", className)}>
         <p className="text-sm">
           <strong className="tabular-nums">{selected}</strong> selected
         </p>

@@ -28,7 +28,7 @@ export function MilestoneDot({ label, at, iso, state = "upcoming", detail, class
 }) {
   const word = { met: "met", missed: "missed", today: "due today", upcoming: "upcoming" }[state];
   return (
-    <li className={cn("flex items-start gap-3", className)}>
+    <li data-slot="milestone-dot" className={cn("flex items-start gap-3", className)}>
       <span aria-hidden className={cn("mt-1 grid size-3 shrink-0 place-items-center rounded-full",
         state === "met" ? "bg-foreground"
           : state === "today" ? "bg-foreground ring-2 ring-foreground ring-offset-2"

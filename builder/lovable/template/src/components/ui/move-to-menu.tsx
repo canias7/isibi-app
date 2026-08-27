@@ -37,7 +37,7 @@ export function MoveToMenu({ what, destinations, currentKey, onMove, busy, class
   if (!destinations.length) return null;
 
   return (
-    <div className={cn("flex flex-wrap items-end gap-2", className)}>
+    <div data-slot="move-to-menu" className={cn("flex flex-wrap items-end gap-2", className)}>
       <div className="flex min-w-40 flex-col gap-1">
         <label htmlFor={id} className="text-xs text-muted-foreground">Move {what} to</label>
         <NativeSelect id={id} value={to} onChange={(e) => setTo(e.target.value)} className="h-8 text-sm">

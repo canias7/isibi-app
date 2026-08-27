@@ -33,7 +33,7 @@ export function BulkEditPanel({
   const plural = count === 1 ? noun : `${noun}s`;
 
   return (
-    <form
+    <form data-slot="bulk-edit-panel"
       onSubmit={(e) => { e.preventDefault(); if (on.length && !busy) onApply(on); }}
       className={cn("flex flex-col gap-3 rounded-lg border border-border p-4", className)}
     >

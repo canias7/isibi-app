@@ -27,7 +27,7 @@ export function StepSkipped({ title, because, onChangeAnswer, changeLabel = "Cha
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-md border border-dashed border-border px-3 py-2", className)}>
+    <div data-slot="step-skipped" className={cn("rounded-md border border-dashed border-border px-3 py-2", className)}>
       <p className="text-sm text-muted-foreground">
         <span className="font-medium text-foreground">{title}</span> was skipped because {because}.
       </p>

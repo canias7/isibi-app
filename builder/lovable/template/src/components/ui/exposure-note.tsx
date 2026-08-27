@@ -26,7 +26,7 @@ export function ExposureNote({ verdict, onAccept, className }: {
     "low-contrast": "This photo is quite flat",
   } as const;
   return (
-    <p role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
+    <p data-slot="exposure-note" role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
       <span className="font-medium">{WORD[verdict]}</span>
       <span className="text-muted-foreground">Another shot may look better on the site.</span>
       {onAccept && (

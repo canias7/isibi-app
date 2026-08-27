@@ -37,7 +37,7 @@ export function ConsultationResponse({ question, published = true, attribution =
 }) {
   const id = useId();
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="consultation-response" className={cn("space-y-1.5", className)}>
       <p className="text-sm font-medium">{question}</p>
       <p className="text-xs text-muted-foreground">
         {published

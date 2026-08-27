@@ -42,7 +42,7 @@ export function IdCheckStatus({ state, needed, reason, canRetry, updatedAt, acti
     : state === "failed" ? [reason, canRetry ? "You can try again." : "Please contact us."].filter(Boolean).join(" ")
     : s.who;
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border px-3 py-2 text-sm",
+    <div data-slot="id-check-status" className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border px-3 py-2 text-sm",
       (state === "action" || state === "failed") && "border-foreground/40 bg-muted/40", className)}>
       <span className="min-w-0 flex-1">
         <span className={cn("block", state !== "pending" && "font-medium")}>{s.word}</span>

@@ -52,7 +52,7 @@ export function useKeySequence(sequence: string, onFire: () => void, timeoutMs =
 export function KeySequence({ sequence, className }: { sequence: string; className?: string }) {
   const keys = sequence.split(/\s+/).filter(Boolean);
   return (
-    <span className={cn("inline-flex items-center gap-1", className)} aria-hidden>
+    <span data-slot="key-sequence" className={cn("inline-flex items-center gap-1", className)} aria-hidden>
       {keys.map((k, i) => (
         <React.Fragment key={i}>
           {i > 0 ? <span className="text-[10px] text-muted-foreground">then</span> : null}

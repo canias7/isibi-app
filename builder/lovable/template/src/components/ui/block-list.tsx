@@ -23,7 +23,7 @@ export function BlockList({ blocked, effects, onUnblock, empty = "You haven't bl
   className?: string;
 }) {
   if (!blocked.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
+    return <p data-slot="block-list" className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
   }
   return (
     <div className={cn("flex flex-col gap-2", className)}>

@@ -25,7 +25,7 @@ export function EmptyCta({ what, why, action, learn, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center gap-3 rounded-xl border border-border bg-card p-8 text-center", className)}>
+    <div data-slot="empty-cta" className={cn("flex flex-col items-center gap-3 rounded-xl border border-border bg-card p-8 text-center", className)}>
       <div>
         <p className="text-sm font-semibold">{what}</p>
         {why ? <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">{why}</p> : null}

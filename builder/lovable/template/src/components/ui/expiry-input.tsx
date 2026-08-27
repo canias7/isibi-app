@@ -45,7 +45,7 @@ export function ExpiryInput({ value, onChange, label = "Expiry", id, className }
   const shown = value.length > 2 ? `${value.slice(0, 2)} / ${value.slice(2)}` : value;
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="expiry-input" className={cn("flex flex-col gap-1.5", className)}>
       <label htmlFor={fieldId} className="text-sm font-medium">{label}</label>
       <input
         id={fieldId}

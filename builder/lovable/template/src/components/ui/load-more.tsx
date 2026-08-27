@@ -44,7 +44,7 @@ export function LoadMore({
   }, [loaded, total, focusRef]);
 
   if (remaining === 0) {
-    return <p className={cn("py-3 text-center text-xs text-muted-foreground", className)}>That&rsquo;s everything.</p>;
+    return <p data-slot="load-more" className={cn("py-3 text-center text-xs text-muted-foreground", className)}>That&rsquo;s everything.</p>;
   }
   return (
     <div className={cn("flex flex-col items-center gap-2 py-3", className)}>

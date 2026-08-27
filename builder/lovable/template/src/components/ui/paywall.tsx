@@ -42,7 +42,7 @@ export function Paywall({
 }) {
   if (unlocked) return <>{children}</>;
   return (
-    <div className={cn("flex flex-col", className)}>
+    <div data-slot="paywall" className={cn("flex flex-col", className)}>
       {preview ? (
         <div className="relative">
           {preview}

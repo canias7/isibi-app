@@ -32,7 +32,7 @@ export function LegacyNote({ writable, newPlaceUrl, newPlaceLabel = "the new sys
   className?: string;
 }) {
   return (
-    <div role="note"
+    <div data-slot="legacy-note" role="note"
       className={cn("space-y-0.5 rounded-md border px-3 py-2 text-sm",
         writable ? "border-foreground/40 bg-muted/40" : "border-border", className)}>
       <p className={cn(writable && "font-medium")}>

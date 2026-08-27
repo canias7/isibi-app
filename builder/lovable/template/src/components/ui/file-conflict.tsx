@@ -27,7 +27,7 @@ export function FileConflict({ name, existing, incoming, onKeepBoth, onReplace, 
   className?: string;
 }) {
   return (
-    <section role="alertdialog" aria-label={`${name} already exists`}
+    <section data-slot="file-conflict" role="alertdialog" aria-label={`${name} already exists`}
       className={cn("flex flex-col gap-3 rounded-md border border-border p-4", className)}>
       <div>
         <p className="text-sm font-medium">{name} is already here</p>

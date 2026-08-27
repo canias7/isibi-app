@@ -34,7 +34,7 @@ export function ToolboxTalk({ topic, date, by, attended = [], absent = [], langu
   const d = date ? toDate(date) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
-    <article className={cn("space-y-1 rounded-md border border-border p-3 text-sm", className)}>
+    <article data-slot="toolbox-talk" className={cn("space-y-1 rounded-md border border-border p-3 text-sm", className)}>
       <p className="font-medium">{topic}</p>
       <p className="text-xs text-muted-foreground">
         {by ? `Given by ${by}` : "Presenter not recorded"}

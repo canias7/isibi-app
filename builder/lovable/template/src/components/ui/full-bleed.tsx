@@ -20,7 +20,7 @@ export function FullBleed({ inner = true, children, className }: {
   className?: string;
 }) {
   return (
-    <div style={{ marginInline: "calc(50% - 50vw)" }} className={cn("overflow-x-clip", className)}>
+    <div data-slot="full-bleed" style={{ marginInline: "calc(50% - 50vw)" }} className={cn("overflow-x-clip", className)}>
       {inner ? <div className="px-4 sm:px-6 lg:px-8">{children}</div> : children}
     </div>
   );

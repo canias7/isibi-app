@@ -30,7 +30,7 @@ export function DidYouMean({ original, corrected, suggestion, onUse, onKeepOrigi
 }) {
   if (!corrected && !suggestion) return null;
   return (
-    <p aria-live="polite" className={cn("text-sm", className)}>
+    <p data-slot="did-you-mean" aria-live="polite" className={cn("text-sm", className)}>
       {corrected ? (
         <>
           Showing results for <strong className="font-medium">{corrected}</strong>.{" "}

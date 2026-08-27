@@ -29,7 +29,7 @@ export function AvailabilityToggle({ on, until, options, onChange, className }: 
     { label: "Until I turn it back on", until: null },
   ];
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="availability-toggle" className={cn("flex flex-col gap-2", className)}>
       <label className="flex cursor-pointer items-center gap-2.5">
         <Switch checked={on} onCheckedChange={(v) => {
           if (v) { setAsking(false); onChange({ on: true }); }

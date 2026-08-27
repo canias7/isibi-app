@@ -30,7 +30,7 @@ export function LikertRow({ statement, value, onChange, points = 5, pointLabels,
 }) {
   const labels = pointLabels ?? (points === 5 ? AGREEMENT_5 : Array.from({ length: points }, (_, i) => String(i + 1)));
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="likert-row" className={cn("flex flex-col gap-2", className)}>
       <p className="text-sm font-medium">{statement}</p>
       <RadioGroup value={value ?? ""} onValueChange={onChange}
         className="grid gap-1" style={{ gridTemplateColumns: `repeat(${points}, minmax(0,1fr))` }}>

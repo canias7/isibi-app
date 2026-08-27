@@ -16,7 +16,7 @@ export function RsvpButtons({ value, onChange, counts, className }: {
     { key: "yes", label: "Going" }, { key: "maybe", label: "Maybe" }, { key: "no", label: "Can't" },
   ];
   return (
-    <div className={cn("flex flex-wrap gap-2", className)}>
+    <div data-slot="rsvp-buttons" className={cn("flex flex-wrap gap-2", className)}>
       {opts.map((o) => (
         <Button key={o.key} size="sm" variant={value === o.key ? "default" : "outline"}
           aria-pressed={value === o.key} onClick={() => onChange(o.key)}>

@@ -43,7 +43,7 @@ export function InboxPreview({ fromName, subject, preheader, phoneChars = 35, de
     </div>
   );
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="inbox-preview" className={cn("space-y-2", className)}>
       {row("On a phone", phoneChars)}
       {row("On a desktop", desktopChars)}
       <p className="text-xs text-muted-foreground">

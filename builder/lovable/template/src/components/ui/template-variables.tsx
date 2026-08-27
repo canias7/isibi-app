@@ -37,7 +37,7 @@ export function TemplateVariables({ variables, values, onChange, tokenFormat = (
 }) {
   const sorted = [...variables].sort((a, b) => Number(Boolean(b.required)) - Number(Boolean(a.required)));
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="template-variables" className={cn("space-y-3", className)}>
       {sorted.map((v) => (
         <div key={v.key} className="space-y-1">
           <label htmlFor={`tv-${v.key}`} className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium">

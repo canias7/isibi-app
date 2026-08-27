@@ -25,7 +25,7 @@ export function QrHandoff({ url, image, does, expiresIn, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center gap-4", className)}>
+    <div data-slot="qr-handoff" className={cn("flex flex-wrap items-center gap-4", className)}>
       {image
         ? <img src={image} alt="" aria-hidden className="size-32 rounded border border-border bg-background" />
         : <div aria-hidden className="grid size-32 place-items-center rounded border border-dashed border-border text-xs text-muted-foreground">QR</div>}

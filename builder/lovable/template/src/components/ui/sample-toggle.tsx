@@ -32,7 +32,7 @@ export function SampleToggle({ sample, onChange, count, className }: {
   className?: string;
 }) {
   return (
-    <label className={cn("flex cursor-pointer items-center gap-2 text-xs", className)}>
+    <label data-slot="sample-toggle" className={cn("flex cursor-pointer items-center gap-2 text-xs", className)}>
       <input type="checkbox" checked={sample} onChange={(e) => onChange(e.target.checked)}
         className="size-3.5 cursor-pointer accent-foreground" />
       Show sample data{count ? ` (${count} rows)` : ""}
@@ -43,7 +43,7 @@ export function SampleToggle({ sample, onChange, count, className }: {
 
 export function SampleTag({ className }: { className?: string }) {
   return (
-    <span className={cn(
+    <span data-slot="sample-tag" className={cn(
       "inline-flex items-center rounded-sm border border-dashed border-foreground/60 px-1 py-px text-[10px] uppercase tracking-wide text-muted-foreground",
       className)}>
       Sample

@@ -47,7 +47,7 @@ export function HouseRules({
   const hasTimes = !!(arrive || leave);
   if (!hasTimes && !rules.length) return null;
   return (
-    <div className={cn("", className)}>
+    <div data-slot="house-rules" className={cn("", className)}>
       {hasTimes && (
         /* OUT OF THE LIST ON PURPOSE. Sixteenth in a list of rules is where
            this lives on every other site, and it is the one that strands

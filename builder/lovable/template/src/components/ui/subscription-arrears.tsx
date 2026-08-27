@@ -43,7 +43,7 @@ export function SubscriptionArrears({ members, suspendAfterMonths, concessionNot
   const total = members.reduce((n, m) => n + m.amount, 0);
   const hardship = members.filter((m) => m.hardship);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="subscription-arrears" className={cn("space-y-1.5", className)}>
       <p className="text-sm tabular-nums">
         <span className="font-medium">{money(total)} outstanding</span>
         <span className="text-muted-foreground"> · {members.length} {members.length === 1 ? "member" : "members"}</span>

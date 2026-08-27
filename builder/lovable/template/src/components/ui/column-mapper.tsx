@@ -21,7 +21,7 @@ export function ColumnMapper({ fields, headers, mapping, onChange, sample, class
 }) {
   const missing = fields.filter((f) => f.required && !mapping[f.key]);
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="column-mapper" className={cn("space-y-3", className)}>
       {missing.length > 0 && (
         <p role="alert" className="text-sm text-destructive">
           Still to match: {missing.map((f) => f.label).join(", ")}

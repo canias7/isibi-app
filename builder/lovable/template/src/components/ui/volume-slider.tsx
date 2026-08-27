@@ -38,7 +38,7 @@ export function VolumeSlider({ value, muted, onChange, onMutedChange, className 
   };
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div data-slot="volume-slider" className={cn("flex items-center gap-2", className)}>
       <button type="button" onClick={toggle} aria-label={muted || effective === 0 ? "Unmute" : "Mute"}
         aria-pressed={!!muted}
         className="cursor-pointer rounded p-1 hover:bg-muted">

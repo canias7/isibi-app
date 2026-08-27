@@ -34,7 +34,7 @@ export function ServiceTimes({ meetings, heading = "This week", className }: {
   // already said it. Kept the moment two real days appear.
   const manyDays = meetings.some((m) => m.day !== meetings[0].day);
   return (
-    <div className={cn("", className)}>
+    <div data-slot="service-times" className={cn("", className)}>
       <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</p>
       <ul className="mt-3 divide-y divide-border border-y border-border">
         {meetings.map((m, i) => (

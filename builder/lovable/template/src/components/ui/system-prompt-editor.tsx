@@ -43,7 +43,7 @@ export function SystemPromptEditor({
   const over = value.length > max;
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="system-prompt-editor" className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-baseline justify-between gap-2">
         <label htmlFor={id} className="text-sm font-medium">Instructions</label>
         {dirty ? <span className="text-xs font-medium">Unsaved</span> : null}

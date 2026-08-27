@@ -27,7 +27,7 @@ export function ListEnd({ total, noun = "items", note, className }: {
 }) {
   if (total !== undefined && total <= 0) return null;
   return (
-    <p role="status" className={cn("py-4 text-center text-xs text-muted-foreground", className)}>
+    <p data-slot="list-end" role="status" className={cn("py-4 text-center text-xs text-muted-foreground", className)}>
       {total === undefined
         ? "That is everything"
         : <>That is all <span className="tabular-nums">{total.toLocaleString()}</span> {total === 1 ? noun.replace(/s$/, "") : noun}</>}

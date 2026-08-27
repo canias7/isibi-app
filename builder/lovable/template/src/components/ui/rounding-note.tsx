@@ -37,7 +37,7 @@ export function RoundingNote({ parts, places = 0, unit = "", className }: {
   const f = 10 ** places;
   const roundedSum = parts.reduce((n, p) => n + Math.round(p * f) / f, 0);
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="rounding-note" className={cn("text-xs text-muted-foreground", className)}>
       Because of rounding, the parts add to{" "}
       <span className="tabular-nums">{Number(roundedSum.toFixed(places))}{unit}</span> rather than the total —
       a difference of <span className="tabular-nums">{Math.abs(gap)}{unit}</span>. Each figure is

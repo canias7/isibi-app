@@ -49,7 +49,7 @@ export function BundleRow({ name, parts = [], monthlyPrice, offerMonths, priceAf
   }
   const optional = parts.filter((p) => p.optional);
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="bundle-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 font-medium">{name}</span>
         <span className="shrink-0 tabular-nums">{money(monthlyPrice)}/mo</span>

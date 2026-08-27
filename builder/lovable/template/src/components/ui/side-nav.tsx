@@ -6,7 +6,7 @@ export function SideNav({ sections, active, className }: {
   sections: NavSection[]; active?: string; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-6", className)}>
+    <div data-slot="side-nav" className={cn("flex flex-col gap-6", className)}>
       {sections.map((s, i) => (
         <div key={i}>
           {s.title && <div className="mb-1.5 px-3 text-xs uppercase tracking-widest text-muted-foreground">{s.title}</div>}

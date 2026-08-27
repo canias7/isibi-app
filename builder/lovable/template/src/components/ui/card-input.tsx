@@ -76,7 +76,7 @@ export function CardInput({ value, onChange, label = "Card number", id, classNam
   const bad = touched && complete && !luhn(value);
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="card-input" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-baseline justify-between gap-2">
         <label htmlFor={fieldId} className="text-sm font-medium">{label}</label>
         {brand.name ? <span className="text-xs text-muted-foreground">{brand.name}</span> : null}

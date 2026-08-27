@@ -10,7 +10,7 @@ export function FormErrorSummary({ errors, title = "Please fix the following", c
 }) {
   if (errors.length === 0) return null;
   return (
-    <div role="alert" tabIndex={-1}
+    <div data-slot="form-error-summary" role="alert" tabIndex={-1}
       className={cn("rounded-lg border border-destructive/40 px-4 py-3", className)}>
       <p className="text-sm font-medium text-destructive">{title}</p>
       <ul className="mt-2 flex flex-col gap-1 text-sm">

@@ -11,13 +11,13 @@ import * as React from "react";
  * except by reading through the navigation.
  */
 export function PageMain({ children, className }: { children?: React.ReactNode; className?: string }) {
-  return <main id="main" tabIndex={-1} className={className ? `outline-none ${className}` : "outline-none"}>{children}</main>;
+  return <main data-slot="page-main" id="main" tabIndex={-1} className={className ? `outline-none ${className}` : "outline-none"}>{children}</main>;
 }
 /** Named so two navs on one page are told apart — "Main" and "Footer", not "navigation" twice. */
 export function PageNav({ label, children, className }: {
   label: string; children?: React.ReactNode; className?: string;
 }) {
-  return <nav aria-label={label} className={className}>{children}</nav>;
+  return <nav data-slot="page-nav" aria-label={label} className={className}>{children}</nav>;
 }
 /** A complementary region — a sidebar of related links, an aside of extra detail. */
 export function PageAside({ label, children, className }: {

@@ -36,7 +36,7 @@ export function HandoverPack({ items, blocksPayment, className }: {
   const unchecked = items.filter((i) => i.state === "received");
   const WORD = { missing: "Missing", received: "Not checked", checked: "Done" } as const;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="handover-pack" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         {missing.length === 0 && unchecked.length === 0
           ? <span className="text-muted-foreground">Everything is in and checked</span>

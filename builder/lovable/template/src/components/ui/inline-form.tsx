@@ -46,7 +46,7 @@ export function InlineForm({
 
   if (!open) {
     return (
-      <button ref={trigger} type="button" onClick={onOpen}
+      <button data-slot="inline-form" ref={trigger} type="button" onClick={onOpen}
         aria-label={label ? `Edit ${label}` : undefined}
         className={cn("w-full cursor-text rounded-sm px-2 py-1 text-start text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring", className)}>
         {value}

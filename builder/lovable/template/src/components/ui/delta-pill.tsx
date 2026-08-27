@@ -27,7 +27,7 @@ export function DeltaPill({ value, baseline, goodWhenUp = true, isNew, format, c
 }) {
   if (isNew) {
     return (
-      <span className={cn("inline-flex items-center rounded-full border border-foreground px-1.5 py-0.5 text-[10px] font-medium", className)}>
+      <span data-slot="delta-pill" className={cn("inline-flex items-center rounded-full border border-foreground px-1.5 py-0.5 text-[10px] font-medium", className)}>
         New
         {baseline ? <span className="sr-only"> — nothing in {baseline}</span> : null}
       </span>

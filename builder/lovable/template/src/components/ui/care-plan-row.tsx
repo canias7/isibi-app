@@ -35,7 +35,7 @@ export function CarePlanRow({ need, whatMatters, inTheirWords, support, doneBy, 
   className?: string;
 }) {
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="care-plan-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="font-medium">{need}</p>
       {whatMatters && (
         <p className={cn("text-sm", inTheirWords && "italic")}>

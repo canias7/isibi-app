@@ -35,7 +35,7 @@ export function ApprovalRequest({ title, requestedBy, requestedAt, amount, detai
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-lg border border-border p-4", className)}>
+    <div data-slot="approval-request" className={cn("rounded-lg border border-border p-4", className)}>
       <p className="font-medium">{title}</p>
       <p className="mt-0.5 text-sm text-muted-foreground">
         {requestedBy}

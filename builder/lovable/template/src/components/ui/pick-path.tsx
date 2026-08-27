@@ -36,7 +36,7 @@ export type PickLine = {
 export function PickPath({ lines, className }: { lines: PickLine[]; className?: string }) {
   const done = lines.filter((l) => l.pickedQuantity !== undefined).length;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="pick-path" className={cn("space-y-1.5", className)}>
       <p className="text-xs tabular-nums text-muted-foreground">
         {done} of {lines.length} {lines.length === 1 ? "line" : "lines"} picked
       </p>

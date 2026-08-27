@@ -63,7 +63,7 @@ export function ChunkedUploadBar({ state, onPause, onResume, className }: {
   if (state.status === "idle") return null;
   const pct = state.total ? Math.round((state.acked / state.total) * 100) : 0;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="chunked-upload-bar" className={cn("flex flex-col gap-1", className)}>
       <div className="flex items-baseline justify-between gap-3 text-xs">
         <span className="min-w-0 truncate">{state.file?.name}</span>
         <span className="shrink-0 tabular-nums text-muted-foreground">

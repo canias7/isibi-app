@@ -39,7 +39,7 @@ export function PreviewFrame({ width = 375, available, children, label, classNam
 }) {
   const scale = available && available < width ? available / width : 1;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="preview-frame" className={cn("space-y-1", className)}>
       <p className="text-xs text-muted-foreground">
         {label ? `${label} · ` : ""}
         <span className="tabular-nums">{width}px</span> wide

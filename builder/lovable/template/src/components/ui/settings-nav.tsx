@@ -11,7 +11,7 @@ export function SettingsNav({ groups, current, onSelect, className }: {
   current: string; onSelect?: (key: string) => void; className?: string;
 }) {
   return (
-    <nav className={cn("space-y-5", className)} aria-label="Settings">
+    <nav data-slot="settings-nav" className={cn("space-y-5", className)} aria-label="Settings">
       {groups.map((g, gi) => (
         <div key={g.label ?? gi} className="space-y-1">
           {g.label && <p className="px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{g.label}</p>}

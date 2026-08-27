@@ -32,7 +32,7 @@ export function ThankYouNote({ to, forWhat, from, fromRole, sentOn, publicNaming
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="thank-you-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         Thank you, {to}
         {forWhat ? `, for ${forWhat}.` : "."}

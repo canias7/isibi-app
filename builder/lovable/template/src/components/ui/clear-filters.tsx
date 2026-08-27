@@ -30,7 +30,7 @@ export function ClearFilters({ activeCount, onClear, query, onClearQuery, label 
 }) {
   if (activeCount <= 0 && !query) return null;
   return (
-    <span className={cn("inline-flex flex-wrap items-center gap-x-3 gap-y-1 text-sm", className)}>
+    <span data-slot="clear-filters" className={cn("inline-flex flex-wrap items-center gap-x-3 gap-y-1 text-sm", className)}>
       {activeCount > 0 && (
         <button type="button" onClick={onClear} className="underline underline-offset-2">
           {label}

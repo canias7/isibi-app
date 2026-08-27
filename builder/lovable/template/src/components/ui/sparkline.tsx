@@ -15,7 +15,7 @@ export function Sparkline({ values, width = 96, height = 24, label, className }:
   const pts = values.map((v, i) => `${(i * step).toFixed(2)},${(height - ((v - lo) / span) * (height - 2) - 1).toFixed(2)}`);
   const last = values[values.length - 1];
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} className={cn("overflow-visible", className)}
+    <svg data-slot="sparkline" viewBox={`0 0 ${width} ${height}`} width={width} height={height} className={cn("overflow-visible", className)}
       role="img" aria-label={label ?? `Trend, ${values.length} points, latest ${last}`}>
       <polyline points={pts.join(" ")} fill="none" stroke="currentColor" strokeWidth="1.5"
         strokeLinecap="round" strokeLinejoin="round" />

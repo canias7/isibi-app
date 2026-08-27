@@ -29,7 +29,7 @@ export function ConversationBranch({ index, count, onChange, className }: {
   if (count <= 1) return null;
   const go = (d: number) => onChange((index + d + count) % count);
   return (
-    <nav aria-label="Alternative answers"
+    <nav data-slot="conversation-branch" aria-label="Alternative answers"
       className={cn("inline-flex items-center gap-0.5 text-xs text-muted-foreground", className)}>
       <button type="button" onClick={() => go(-1)} aria-label="Previous answer"
         className="cursor-pointer rounded p-0.5 hover:bg-muted hover:text-foreground">

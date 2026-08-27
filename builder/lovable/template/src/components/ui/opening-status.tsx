@@ -33,7 +33,7 @@ export function OpeningStatus({ state, until, note, className }: {
     ? state === "closed" ? `Opens ${until}` : `Closes at ${until}`
     : null;
   return (
-    <p className={cn("text-sm", className)}>
+    <p data-slot="opening-status" className={cn("text-sm", className)}>
       <span className={cn(state !== "open" && "font-medium")}>{word}</span>
       {tail && <span className="text-muted-foreground"> · {tail}</span>}
       {note && <span className="block text-xs text-muted-foreground">{note}</span>}

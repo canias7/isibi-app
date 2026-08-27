@@ -29,7 +29,7 @@ export function SearchScope({ scopes, value, onChange, className }: {
     onChange(scopes[(i + d + scopes.length) % scopes.length].key);
   };
   return (
-    <div role="radiogroup" aria-label="Search in"
+    <div data-slot="search-scope" role="radiogroup" aria-label="Search in"
       onKeyDown={(e) => {
         if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); move(1); }
         if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); move(-1); }

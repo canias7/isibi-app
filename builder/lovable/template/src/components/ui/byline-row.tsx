@@ -39,7 +39,7 @@ export function BylineRow({ contributors, anonymous, anonymousReason, publishedO
     return acc;
   }, {});
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="byline-row" className={cn("space-y-0.5 text-sm", className)}>
       {anonymous ? (
         <p>
           No byline.

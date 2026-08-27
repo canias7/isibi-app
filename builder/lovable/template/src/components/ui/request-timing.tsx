@@ -30,7 +30,7 @@ export function RequestTiming({ phases, total, className }: {
   const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(2)}s` : `${Math.round(n)}ms`);
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="request-timing" className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-xs font-medium">Timing</span>
         <span className="text-xs tabular-nums">{ms(whole)} total</span>

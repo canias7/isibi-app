@@ -17,5 +17,5 @@ export function TimeAgo({ date, className }: { date: string | number | Date; cla
   for (const [unit, size] of units) {
     if (Math.abs(secs) >= size) { text = rtf.format(Math.round(secs / size), unit); break; }
   }
-  return <time dateTime={isoAttr(d)} title={d.toLocaleString()} className={className}>{text}</time>;
+  return <time data-slot="time-ago" dateTime={isoAttr(d)} title={d.toLocaleString()} className={className}>{text}</time>;
 }

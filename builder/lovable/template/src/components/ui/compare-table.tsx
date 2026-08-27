@@ -58,7 +58,7 @@ export function CompareTable({
   const blank = <span className="text-muted-foreground italic">not set</span>;
 
   return (
-    <div className={cn("rounded-md border border-border", className)}>
+    <div data-slot="compare-table" className={cn("rounded-md border border-border", className)}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground">

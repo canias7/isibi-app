@@ -17,7 +17,7 @@ export function CascadingSelect({ levels, value, onChange, id = "cascade", class
   value: string[]; onChange: (v: string[]) => void; id?: string; className?: string;
 }) {
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="cascading-select" className={cn("space-y-3", className)}>
       {levels.map((lv, i) => {
         const above = value.slice(0, i);
         const ready = i === 0 || !!value[i - 1];

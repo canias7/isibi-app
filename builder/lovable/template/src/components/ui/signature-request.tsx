@@ -25,7 +25,7 @@ export function SignatureRequest({ signatories, onRemind, className }: {
   if (!signatories.length) return null;
   const outstanding = signatories.filter((s) => !s.signedAt).length;
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="signature-request" className={cn("flex flex-col gap-2", className)}>
       <p className="text-sm font-medium tabular-nums">
         {outstanding === 0 ? "Everyone has signed" : `Waiting on ${outstanding} of ${signatories.length}`}
       </p>

@@ -75,7 +75,7 @@ export function TreeTable({ nodes, columns, format, aggregate, defaultOpen = [],
   walk(nodes, 0);
 
   return (
-    <table className={cn("w-full text-xs", className)}>
+    <table data-slot="tree-table" className={cn("w-full text-xs", className)}>
       <thead>
         <tr className="border-b border-border">
           <th className="pb-1 text-start font-medium">Name</th>

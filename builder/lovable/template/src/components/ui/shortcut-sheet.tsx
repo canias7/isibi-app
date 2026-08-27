@@ -27,7 +27,7 @@ export function ShortcutSheet({ groups, className }: {
   const shown = groups.filter((g) => g.items.length);
   if (!shown.length) return null;
   return (
-    <div className={cn("flex flex-col gap-5", className)}>
+    <div data-slot="shortcut-sheet" className={cn("flex flex-col gap-5", className)}>
       {shown.map((g) => (
         <section key={g.title}>
           <h3 className="mb-2 text-sm font-medium">{g.title}</h3>

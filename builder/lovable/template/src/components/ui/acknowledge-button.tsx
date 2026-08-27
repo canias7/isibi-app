@@ -26,7 +26,7 @@ export function AcknowledgeButton({ acknowledgedAt, onAcknowledge, label = "I've
   const [busy, setBusy] = React.useState(false);
   if (acknowledgedAt) {
     return (
-      <p className={cn("flex items-center gap-1.5 text-sm text-muted-foreground", className)}>
+      <p data-slot="acknowledge-button" className={cn("flex items-center gap-1.5 text-sm text-muted-foreground", className)}>
         <Check aria-hidden className="size-4 shrink-0" />
         Read <DateFormat date={acknowledgedAt} withTime />
       </p>

@@ -20,7 +20,7 @@ export function SidebarRight({ children, rail, railWidth = "280px", className }:
   className?: string;
 }) {
   return (
-    <div style={{ ["--rail" as string]: railWidth }}
+    <div data-slot="sidebar-right" style={{ ["--rail" as string]: railWidth }}
       className={cn("grid items-start gap-6 lg:[grid-template-columns:minmax(0,1fr)_var(--rail)]", className)}>
       <div className="min-w-0">{children}</div>
       <div>{rail}</div>

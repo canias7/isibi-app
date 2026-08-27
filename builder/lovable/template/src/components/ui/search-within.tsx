@@ -30,7 +30,7 @@ export function SearchWithin({ value, onChange, scope, count, id, className }: {
   const auto = React.useId();
   const inputId = id ?? auto;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="search-within" className={cn("flex flex-col gap-1", className)}>
       <label htmlFor={inputId} className="sr-only">Search in {scope}</label>
       <div className="relative">
         <Search aria-hidden className="absolute top-1/2 start-2.5 size-4 -translate-y-1/2 text-muted-foreground" />

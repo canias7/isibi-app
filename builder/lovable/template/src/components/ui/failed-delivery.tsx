@@ -38,7 +38,7 @@ export function FailedDelivery({ reason, carrierNote, heldUntil, onRedeliver, on
     collect: onCollect && reason !== "damaged",
   };
   return (
-    <div className={cn("flex flex-col gap-2 rounded-lg border-2 border-foreground p-3", className)}>
+    <div data-slot="failed-delivery" className={cn("flex flex-col gap-2 rounded-lg border-2 border-foreground p-3", className)}>
       <div>
         <p className="text-sm font-semibold">{c.title}</p>
         <p className="text-xs text-muted-foreground">{c.body}</p>

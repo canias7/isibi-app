@@ -28,7 +28,7 @@ export function FontPreview({ family, name, sizes = [12, 14, 16, 24], sample = "
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)} style={{ fontFamily: family }}>
+    <div data-slot="font-preview" className={cn("space-y-2", className)} style={{ fontFamily: family }}>
       {name && <p className="text-xs text-muted-foreground" style={{ fontFamily: "inherit" }}>{name}</p>}
       <div className="space-y-1">
         {sizes.map((s) => (

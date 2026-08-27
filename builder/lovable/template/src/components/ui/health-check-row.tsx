@@ -33,7 +33,7 @@ export function HealthCheckRow({ name, state, breaks, optional, checkedAt, detai
   const WORD = { ok: "Working", degraded: "Slow", down: "Down", unknown: "No answer" } as const;
   const bad = state === "down" || state === "degraded" || state === "unknown";
   return (
-    <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
+    <li data-slot="health-check-row" className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
       <span className="min-w-0 flex-1">
         <span className={cn("block", bad && !optional && "font-medium")}>
           {name}

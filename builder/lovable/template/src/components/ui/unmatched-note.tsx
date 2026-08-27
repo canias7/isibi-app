@@ -39,7 +39,7 @@ export function UnmatchedNote({ items, currency = "GBP", locale = "en-GB", class
   const net = items.reduce((n, i) => n + (i.side === "statement" ? i.amount : -i.amount), 0);
   const old = items.filter((i) => (i.ageDays ?? 0) >= 60);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="unmatched-note" className={cn("space-y-1.5", className)}>
       <p className="text-sm tabular-nums">
         <span className="font-medium">{money(Math.abs(net))} apart</span>
         <span className="text-muted-foreground"> · {items.length} {items.length === 1 ? "item" : "items"} unmatched</span>

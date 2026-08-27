@@ -24,7 +24,7 @@ export function TryItPanel({ title = "Try it", safeNote = "Nothing is sent and n
   className?: string;
 }) {
   return (
-    <section aria-label={title}
+    <section data-slot="try-it-panel" aria-label={title}
       className={cn("flex flex-col gap-3 rounded-md border border-dashed border-border p-4", className)}>
       <div>
         <h2 className="text-sm font-medium">{title}</h2>

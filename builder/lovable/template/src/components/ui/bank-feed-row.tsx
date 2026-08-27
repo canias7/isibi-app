@@ -36,7 +36,7 @@ export function BankFeedRow({ date, rawNarrative, amount, suggestedAccount, sugg
 }) {
   const money = new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(amount));
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="bank-feed-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         {date && <span className="w-20 shrink-0 text-xs tabular-nums text-muted-foreground">{date}</span>}
         <span className="min-w-0 flex-1 font-mono text-xs">{rawNarrative}</span>

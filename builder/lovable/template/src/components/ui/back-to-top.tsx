@@ -33,7 +33,7 @@ export function BackToTop({ showAfter = 600, targetId, label = "Back to top", cl
   }, [showAfter]);
   if (!show) return null;
   return (
-    <button type="button"
+    <button data-slot="back-to-top" type="button"
       onClick={() => {
         const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
         window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });

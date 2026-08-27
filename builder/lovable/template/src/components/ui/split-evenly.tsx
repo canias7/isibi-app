@@ -25,7 +25,7 @@ export function SplitEvenly({ total, people, currency = "GBP", className }: {
   const base = Math.floor(minor / people);
   const extra = minor - base * people;
   return (
-    <div className={cn("flex flex-col gap-0.5 text-sm", className)}>
+    <div data-slot="split-evenly" className={cn("flex flex-col gap-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium"><Money amount={base / 100} currency={currency} /> each</span>
         <span className="text-muted-foreground"> between {people}</span>

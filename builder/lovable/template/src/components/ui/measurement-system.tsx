@@ -34,7 +34,7 @@ export function MeasurementSystem({ value, onChange, options = DEFAULTS, name = 
   className?: string;
 }) {
   return (
-    <fieldset className={cn("space-y-1.5", className)}>
+    <fieldset data-slot="measurement-system" className={cn("space-y-1.5", className)}>
       <legend className="mb-1 text-sm font-medium">{legend}</legend>
       {options.map((o) => (
         <label key={o.id} className="flex cursor-pointer items-start gap-2.5 text-sm">

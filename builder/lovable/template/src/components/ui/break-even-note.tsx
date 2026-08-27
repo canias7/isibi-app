@@ -26,7 +26,7 @@ export function BreakEvenNote({ units, unitNoun = "sales", revenue, unitLabel = 
   className?: string;
 }) {
   if (passed) {
-    return <p className={cn("text-sm font-medium", className)}>Past break-even.</p>;
+    return <p data-slot="break-even-note" className={cn("text-sm font-medium", className)}>Past break-even.</p>;
   }
   return (
     <p className={cn("text-sm", className)}>

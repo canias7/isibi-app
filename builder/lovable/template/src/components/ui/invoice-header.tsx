@@ -17,7 +17,7 @@ export function InvoiceHeader({ number, issuedAt, dueAt, from, to, logo, referen
   logo?: string | null; reference?: string; className?: string;
 }) {
   return (
-    <header className={cn("space-y-6", className)}>
+    <header data-slot="invoice-header" className={cn("space-y-6", className)}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           {logo && <SafeImage src={logo} alt="" className="mb-3 h-10 w-auto object-contain" />}

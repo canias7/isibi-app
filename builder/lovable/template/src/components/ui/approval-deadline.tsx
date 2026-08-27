@@ -38,7 +38,7 @@ export function ApprovalDeadline({ due, daysLeft, onExpiry = "nothing", classNam
     escalate: "It will be passed up if nobody acts.",
   }[onExpiry];
   return (
-    <p className={cn("text-sm", className)}>
+    <p data-slot="approval-deadline" className={cn("text-sm", className)}>
       <span className={cn((over || soon) && "font-medium")}>
         {over ? "Overdue since " : "Due "}
         {ok ? (

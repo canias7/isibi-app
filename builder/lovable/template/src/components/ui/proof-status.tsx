@@ -33,7 +33,7 @@ export function ProofStatus({ page, round, approvers, changedSinceSignOff, kind 
 }) {
   const outstanding = approvers.filter((a) => !a.signedOff);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="proof-status" className={cn("space-y-1", className)}>
       <p className="text-sm">
         {page && <span className="font-medium">{page}</span>}
         {round !== undefined && (

@@ -38,7 +38,7 @@ export function AvailabilityOverlap({ slots, yourZone, theirZone, theirName, cla
 }) {
   const awkward = slots.filter((s) => s.outsideHoursFor);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="availability-overlap" className={cn("space-y-1.5", className)}>
       {(yourZone || theirZone) && (
         <p className="text-xs text-muted-foreground">
           Your time{yourZone ? ` (${yourZone})` : ""} first, then {theirName ?? "theirs"}

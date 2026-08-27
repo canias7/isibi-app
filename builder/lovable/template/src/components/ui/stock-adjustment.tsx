@@ -52,7 +52,7 @@ export function StockAdjustment({ item, from, to, reason, note, by, approvedBy, 
     : undefined;
   const selfApproved = Boolean(by && approvedBy && by === approvedBy);
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="stock-adjustment" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">{item}</span>
         <span className="shrink-0 tabular-nums">

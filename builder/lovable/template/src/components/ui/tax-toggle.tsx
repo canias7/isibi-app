@@ -33,7 +33,7 @@ export function TaxToggle({ minor, rate, storedIncludes = true, currency = "GBP"
   const { inc, ex } = taxDerive(minor, rate, storedIncludes);
   const fmt = (m: number) => formatMinor(m, currency);
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="tax-toggle" className={cn("flex flex-col gap-1", className)}>
       <label className="flex cursor-pointer items-center gap-2 text-sm">
         <input type="checkbox" checked={showIncluding} onChange={(e) => onChange(e.target.checked)}
           className="size-3.5 cursor-pointer accent-foreground" />

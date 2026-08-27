@@ -32,7 +32,7 @@ export function JobFailed({
   className?: string;
 }) {
   return (
-    <section role="alert" aria-label={`${name} failed`}
+    <section data-slot="job-failed" role="alert" aria-label={`${name} failed`}
       className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-medium">{name} didn&apos;t finish</p>

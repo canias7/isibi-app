@@ -36,5 +36,5 @@ export function Money({ amount, currency = "GBP", className }: {
       maximumFractionDigits: 2,
     });
   }
-  return <span className={className ? className + " tabular-nums" : "tabular-nums"}>{text}</span>;
+  return <span data-slot="money" className={className ? className + " tabular-nums" : "tabular-nums"}>{text}</span>;
 }

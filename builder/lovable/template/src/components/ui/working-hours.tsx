@@ -67,7 +67,7 @@ export function WorkingHours({ week, now, className }: {
 
   const state = openState(week, now ?? new Date());
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-sm", className)}>
+    <span data-slot="working-hours" className={cn("inline-flex items-center gap-1.5 text-sm", className)}>
       <span aria-hidden className={cn("size-2 rounded-full border border-foreground",
         state.open ? "bg-foreground" : "bg-transparent")} />
       {state.open

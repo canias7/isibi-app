@@ -37,7 +37,7 @@ export function PutawayTask({ item, quantity, movedQuantity, from, to, reason, c
   const done = movedQuantity ?? 0;
   const left = quantity - done;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="putaway-task" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p>
         <span className="font-medium">{item}</span>
         <span className="text-muted-foreground tabular-nums"> · {left} of {quantity} left to move</span>

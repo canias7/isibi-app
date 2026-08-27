@@ -24,7 +24,7 @@ export function WhoOwes({ balances, currency = "GBP", className }: {
   if (!balances.length) return null;
   const sorted = [...balances].sort((a, b) => a.amount - b.amount);
   return (
-    <ul className={cn("divide-y divide-border text-sm", className)}>
+    <ul data-slot="who-owes" className={cn("divide-y divide-border text-sm", className)}>
       {sorted.map((b) => (
         <li key={b.name} className="flex items-baseline justify-between gap-3 py-1.5">
           <span className="min-w-0 truncate">{b.name}</span>

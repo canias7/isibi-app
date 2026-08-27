@@ -31,7 +31,7 @@ export function SeatMap({ seats, selected, onSelect, legend, className }: {
 }) {
   const chosen = new Set(selected ?? []);
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="seat-map" className={cn("flex flex-col gap-2", className)}>
       <div className="relative w-full rounded-lg border border-border bg-muted/30" style={{ aspectRatio: "3/2" }}>
         {seats.map((s) => {
           const isChosen = chosen.has(s.id);

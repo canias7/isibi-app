@@ -36,7 +36,7 @@ export function GenerationMix({ sources, period, certificateBacked, className }:
   const total = sources.reduce((n, s) => n + s.percent, 0);
   const off = Math.abs(total - 100) > 0.5;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="generation-mix" className={cn("space-y-1.5", className)}>
       {period && <p className="text-xs text-muted-foreground">{period}</p>}
       <ul className="space-y-2.5">
         {sources.map((s) => (

@@ -37,7 +37,7 @@ export function ReconciliationRow({ bankDescription, bankAmount, bookDescription
   const diff = bookAmount !== undefined ? Number((bankAmount - bookAmount).toFixed(2)) : undefined;
   const weak = matchedOn !== undefined && !/reference/i.test(matchedOn) && state === "matched";
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="reconciliation-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         <span className="min-w-0 flex-1">
           {bankDescription}

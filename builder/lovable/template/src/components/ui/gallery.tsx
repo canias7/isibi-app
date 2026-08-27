@@ -27,7 +27,7 @@ export function Gallery({ items, columns = 3, className }: {
 }) {
   const cols = { 2: "sm:grid-cols-2", 3: "sm:grid-cols-3", 4: "sm:grid-cols-4" }[columns];
   return (
-    <div className={cn("grid gap-3", cols, className)}>
+    <div data-slot="gallery" className={cn("grid gap-3", cols, className)}>
       {items.map((s, i) => (
         <Dialog key={i}>
           <DialogTrigger className="cursor-pointer text-start">

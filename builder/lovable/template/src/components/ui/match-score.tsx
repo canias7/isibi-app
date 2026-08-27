@@ -34,7 +34,7 @@ export function MatchScore({ score, bands = ["a weak fit", "a reasonable fit", "
   const band = bands[Math.floor(clamped * bands.length)] ?? bands[bands.length - 1];
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="match-score" className={cn("space-y-0.5 text-sm", className)}>
       <p className="font-medium">Looks like {band}.</p>
       {basedOn && <p className="text-xs text-muted-foreground">Based on {basedOn}.</p>}
       {cannotSee.length > 0 && (

@@ -25,7 +25,7 @@ export function ChannelPreference({ rows, channels, onToggle, className }: {
 }) {
   if (!rows.length || !channels.length) return null;
   return (
-    <table className={cn("w-full text-sm", className)}>
+    <table data-slot="channel-preference" className={cn("w-full text-sm", className)}>
       <thead>
         <tr className="border-b border-border">
           <th scope="col" className="py-2 text-start text-xs font-normal text-muted-foreground">Tell me about</th>

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  */
 export function StickyTable({ children, className }: { children?: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("relative overflow-x-auto", className)}>
+    <div data-slot="sticky-table" className={cn("relative overflow-x-auto", className)}>
       <table className="w-full caption-bottom border-collapse text-sm [&_[data-pin]]:sticky [&_[data-pin]]:start-0 [&_[data-pin]]:z-10 [&_[data-pin]]:bg-background [&_[data-pin]]:after:absolute [&_[data-pin]]:after:inset-y-0 [&_[data-pin]]:after:end-0 [&_[data-pin]]:after:w-px [&_[data-pin]]:after:bg-border">
         {children}
       </table>

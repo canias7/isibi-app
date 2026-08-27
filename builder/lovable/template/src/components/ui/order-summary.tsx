@@ -14,7 +14,7 @@ export function OrderSummary({ lines, total, currency = "£", note, className }:
 }) {
   const money = (v: number | string) => (typeof v === "number" ? currency + v.toFixed(2) : v);
   return (
-    <div className={cn("flex flex-col gap-2 text-sm", className)}>
+    <div data-slot="order-summary" className={cn("flex flex-col gap-2 text-sm", className)}>
       {lines.map((l) => (
         <div key={l.label} className="flex items-baseline justify-between gap-4">
           <span className="text-muted-foreground">{l.label}{l.note && <span className="ms-1 text-xs">({l.note})</span>}</span>

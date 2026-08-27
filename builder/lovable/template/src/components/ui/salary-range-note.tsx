@@ -35,7 +35,7 @@ export function SalaryRangeNote({ from, to, period = "a year", realisticAt, what
     new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 }).format(v);
   const wide = from > 0 && to / from >= 1.4;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="salary-range-note" className={cn("space-y-0.5 text-sm", className)}>
       <p className="tabular-nums">{money(from)}–{money(to)} {period}</p>
       {realisticAt !== undefined ? (
         <p className="text-xs tabular-nums">

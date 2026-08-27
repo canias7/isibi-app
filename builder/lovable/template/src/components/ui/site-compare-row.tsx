@@ -40,7 +40,7 @@ export function SiteCompareRow({ site, value, unit, basis, groupMedian, rank, of
   const diff = groupMedian !== undefined ? value - groupMedian : undefined;
   const u = unit ?? "";
   return (
-    <li className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
+    <li data-slot="site-compare-row" className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         <span className={cn("min-w-0 flex-1", excluded && "text-muted-foreground")}>
           {site}

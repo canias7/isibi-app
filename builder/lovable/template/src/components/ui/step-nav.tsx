@@ -7,7 +7,7 @@ export function StepNav({ onBack, onNext, backLabel = "Back", nextLabel = "Conti
   nextDisabled?: boolean; busy?: boolean; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center justify-between gap-3 border-t pt-4", className)}>
+    <div data-slot="step-nav" className={cn("flex items-center justify-between gap-3 border-t pt-4", className)}>
       {onBack ? <Button type="button" variant="ghost" onClick={onBack}>{backLabel}</Button> : <span />}
       <Button type="button" onClick={onNext} disabled={nextDisabled || busy}>{nextLabel}</Button>
     </div>

@@ -37,7 +37,7 @@ export function LiveCursor({ x, y, name, idleAfter = 15000, lastMove, className 
   }, [x, y, lastMove, idleAfter]);
 
   return (
-    <div
+    <div data-slot="live-cursor"
       aria-hidden
       // A transform is composited; top/left forces a layout on every message.
       style={{ transform: `translate3d(${x}px, ${y}px, 0)` }}

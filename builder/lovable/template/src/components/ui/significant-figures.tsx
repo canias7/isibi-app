@@ -27,7 +27,7 @@ export function SignificantFigures({ value, digits = 3, locale, className }: {
   className?: string;
 }) {
   if (!Number.isFinite(value)) return null;
-  if (value === 0) return <span className={cn("tabular-nums", className)}>0</span>;
+  if (value === 0) return <span data-slot="significant-figures" className={cn("tabular-nums", className)}>0</span>;
   const text = new Intl.NumberFormat(locale, {
     maximumSignificantDigits: Math.max(1, Math.min(21, digits)),
   }).format(value);

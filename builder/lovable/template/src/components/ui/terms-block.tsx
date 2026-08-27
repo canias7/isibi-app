@@ -12,7 +12,7 @@ export function TermsBlock({ title = "Terms", clauses, className }: {
 }) {
   if (!clauses.length) return null;
   return (
-    <section className={cn("border-t border-border pt-4 text-xs text-muted-foreground", className)}>
+    <section data-slot="terms-block" className={cn("border-t border-border pt-4 text-xs text-muted-foreground", className)}>
       <h2 className="mb-1.5 font-medium uppercase tracking-wide">{title}</h2>
       {clauses.length === 1
         ? <p className="leading-relaxed">{clauses[0]}</p>

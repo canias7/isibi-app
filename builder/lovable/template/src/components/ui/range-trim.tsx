@@ -31,7 +31,7 @@ export function RangeTrim({ duration, start, end, onChange, step = 0.1, classNam
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="range-trim" className={cn("flex flex-col gap-1.5", className)}>
       <div className="relative h-10 rounded-md border border-border bg-muted">
         <span aria-hidden className="absolute inset-y-0 bg-foreground/15"
           style={{ left: `${pct(start)}%`, width: `${Math.max(0, pct(end) - pct(start))}%` }} />

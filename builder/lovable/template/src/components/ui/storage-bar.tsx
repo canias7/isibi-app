@@ -8,7 +8,7 @@ export function StorageBar({ used, total, label = "Storage", warnAt = 0.85, clas
   const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
   const tone = pct >= 100 ? "text-destructive" : pct >= warnAt * 100 ? "text-warning" : "text-muted-foreground";
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="storage-bar" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-baseline justify-between gap-3 text-sm">
         <span>{label}</span>
         <span className={cn("tabular-nums", tone)}>

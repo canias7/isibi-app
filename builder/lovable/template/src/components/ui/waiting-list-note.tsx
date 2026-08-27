@@ -35,7 +35,7 @@ export function WaitingListNote({ forWhat, weeksWaited, serviceSaid, shortNotice
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="waiting-list-note" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{forWhat}</span>
         {weeksWaited !== undefined && (

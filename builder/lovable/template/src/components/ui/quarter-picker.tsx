@@ -21,7 +21,7 @@ export function QuarterPicker({ value, onChange, startMonth = 1, className }: {
   const [year, setYear] = React.useState(() => Number(value?.slice(0, 4)) || now.getFullYear());
   const name = (m: number) => new Date(2000, ((m - 1) % 12 + 12) % 12, 1).toLocaleString(undefined, { month: "short" });
   return (
-    <div className={cn("w-64 space-y-2 rounded-md border border-border p-2", className)}>
+    <div data-slot="quarter-picker" className={cn("w-64 space-y-2 rounded-md border border-border p-2", className)}>
       <div className="flex items-center justify-between">
         <Button type="button" size="icon-sm" variant="ghost" aria-label="Previous year" onClick={() => setYear((y) => y - 1)}>
           <ChevronLeft className="size-4" />

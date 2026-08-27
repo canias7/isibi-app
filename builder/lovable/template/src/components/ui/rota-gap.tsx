@@ -36,7 +36,7 @@ export function RotaGap({ gaps, className }: { gaps: Gap[]; className?: string }
   const ordered = [...gaps].sort((a, b) => (a.daysAway ?? 9999) - (b.daysAway ?? 9999));
   const cannotRun = ordered.filter((g) => g.minimum !== undefined && (g.filled ?? 0) < g.minimum);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="rota-gap" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         <span className="font-medium">{gaps.length} {gaps.length === 1 ? "gap" : "gaps"}</span>
         {cannotRun.length > 0 && (

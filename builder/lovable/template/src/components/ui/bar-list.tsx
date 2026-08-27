@@ -15,7 +15,7 @@ export function BarList({ items, valueLabel, className }: {
   const hi = Math.max(...items.map((i) => i.value)) || 1;
   const fmt = valueLabel ?? ((n: number) => n.toLocaleString());
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="bar-list" className={cn("space-y-1.5", className)}>
       {items.map((it) => (
         <div key={it.label} className="flex items-center gap-3">
           <div className="relative h-7 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">

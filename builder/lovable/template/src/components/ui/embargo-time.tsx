@@ -34,7 +34,7 @@ export function EmbargoTime({ until, timeZone, lifted, indefinite, covers = ["pu
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   if (lifted) {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="embargo-time" className={cn("space-y-0.5 text-sm", className)}>
         <p className="font-medium">The embargo has lifted. This can be published now.</p>
       </div>
     );

@@ -42,7 +42,7 @@ export function BrokerNote({ name, paidBy = [], feeAmount, feeWhen, lendersCover
     }).format(v);
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="broker-note" className={cn("space-y-0.5 text-sm", className)}>
       <p className="font-medium">
         {paidBy.length > 0 ? `Paid by ${AND.format(paidBy)}.` : "Nobody has said how this broker is paid."}
       </p>

@@ -21,7 +21,7 @@ export function FootnoteRef({ n, prefix = "fn", className }: {
   className?: string;
 }) {
   return (
-    <sup id={`${prefix}-ref-${n}`} className={cn("ms-0.5", className)}>
+    <sup data-slot="footnote-ref" id={`${prefix}-ref-${n}`} className={cn("ms-0.5", className)}>
       <a href={`#${prefix}-${n}`} className="cursor-pointer text-xs underline underline-offset-2 tabular-nums">
         <span className="sr-only">footnote </span>{n}
       </a>

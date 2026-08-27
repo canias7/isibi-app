@@ -24,7 +24,7 @@ export function CompareSlider({ beforeSrc, beforeAlt, afterSrc, afterAlt, classN
   const [pos, setPos] = React.useState(50);
   const id = React.useId();
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="compare-slider" className={cn("flex flex-col gap-2", className)}>
       <div className="relative overflow-hidden rounded-md border border-border">
         <img src={afterSrc} alt={afterAlt} className="block w-full" />
         <div className="absolute inset-0 overflow-hidden" style={{ width: `${pos}%` }}>

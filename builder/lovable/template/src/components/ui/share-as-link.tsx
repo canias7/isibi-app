@@ -25,7 +25,7 @@ export function ShareAsLink({ url, includes, needsAccess, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="share-as-link" className={cn("flex flex-col gap-1", className)}>
       <div className="flex flex-wrap items-center gap-2">
         <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs select-all">
           {url}

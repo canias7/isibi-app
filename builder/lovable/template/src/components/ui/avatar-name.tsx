@@ -16,7 +16,7 @@ export function AvatarName({ name, subtitle, src, size = "md", avatarOnly, class
   const s = { sm: "size-7", md: "size-9", lg: "size-11" }[size];
   const initials = name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
   return (
-    <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
+    <div data-slot="avatar-name" className={cn("flex min-w-0 items-center gap-2.5", className)}>
       <Avatar className={s}>
         {src && <AvatarImage src={src} alt={name} />}
         <AvatarFallback className="text-xs">{initials}</AvatarFallback>

@@ -45,7 +45,7 @@ export function ServiceAvailability({ address, items, className }: {
 }) {
   if (!items.length) return null;
   return (
-    <div className={cn("rounded-xl border border-border", className)}>
+    <div data-slot="service-availability" className={cn("rounded-xl border border-border", className)}>
       <div className="border-b border-border px-5 py-3">
         <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Results for</p>
         <p className="mt-0.5 font-medium">{address}</p>

@@ -38,7 +38,7 @@ export function LocationRelease({ location, signedBy, signatoryRole, canGrant, p
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="location-release" className={cn("space-y-0.5 text-sm", className)}>
       <p className="font-medium">{location}</p>
       <p className="text-xs text-muted-foreground">
         {signedBy ? `Signed by ${signedBy}` : "Unsigned"}

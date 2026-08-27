@@ -7,7 +7,7 @@ export function AvatarGroup({ people, max = 4, className }: {
   const shown = people.slice(0, max);
   const rest = people.length - shown.length;
   return (
-    <div className={cn("flex items-center", className)} aria-label={`${people.length} people`}>
+    <div data-slot="avatar-group" className={cn("flex items-center", className)} aria-label={`${people.length} people`}>
       {shown.map((p, i) => (
         <Avatar key={p.name + i} className="size-8 ring-2 ring-background -ml-2 first:ms-0">
           <AvatarFallback className="text-xs">

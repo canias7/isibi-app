@@ -30,7 +30,7 @@ export function PreferredContact({ prefers, avoid = [], window: hours, note, cla
 }) {
   if (!prefers.length && !avoid.length && !hours && !note) return null;
   return (
-    <dl className={cn("grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm", className)}>
+    <dl data-slot="preferred-contact" className={cn("grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm", className)}>
       {prefers.length > 0 && (
         <div className="contents">
           <dt className="text-muted-foreground">Prefers</dt>

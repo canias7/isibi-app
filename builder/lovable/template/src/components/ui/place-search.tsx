@@ -37,7 +37,7 @@ export function PlaceSearch({ search, onPick, placeholder = "Search places", cla
   }, 250);
 
   return (
-    <div className={cn("flex max-w-xs flex-col gap-1.5", className)}>
+    <div data-slot="place-search" className={cn("flex max-w-xs flex-col gap-1.5", className)}>
       {picked ? (
         <div className="flex items-start justify-between gap-2 rounded-md border border-border px-2.5 py-1.5">
           <span className="min-w-0">

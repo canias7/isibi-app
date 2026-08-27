@@ -40,7 +40,7 @@ export function ReleaseSchedule({ releaseOn, tasks, className }: {
 }) {
   const blockingOverdue = tasks.filter((t) => t.blocking && t.overdue && !t.done);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="release-schedule" className={cn("space-y-1.5", className)}>
       {releaseOn && <p className="text-sm">Out on <span className="font-medium">{releaseOn}</span></p>}
       {blockingOverdue.length > 0 && (
         <p className="text-sm font-medium">

@@ -41,7 +41,7 @@ export function MultiDatePicker({ value, onChange, max, month, onMonthChange, cl
   };
 
   return (
-    <div className={cn("flex w-64 flex-col gap-2", className)}>
+    <div data-slot="multi-date-picker" className={cn("flex w-64 flex-col gap-2", className)}>
       <div className="flex items-center justify-between">
         <button type="button" onClick={() => shift(-1)} aria-label="Previous month"
           className="cursor-pointer rounded px-1.5 py-0.5 text-sm hover:bg-muted">‹</button>

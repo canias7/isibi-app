@@ -41,7 +41,7 @@ export function MatchContext({ text, query, where, className }: {
     parts.push(<span key="all">{text}</span>);
   }
   return (
-    <p className={cn("text-sm text-muted-foreground", className)}>
+    <p data-slot="match-context" className={cn("text-sm text-muted-foreground", className)}>
       {where && <span className="text-xs">{where} — </span>}
       …{parts}…
     </p>

@@ -30,7 +30,7 @@ export function ScanOverlay({ looking = "the barcode", state = "scanning", onMan
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="scan-overlay" className={cn("space-y-2", className)}>
       <div className="relative overflow-hidden rounded-md border border-border bg-muted">
         {children}
         {state !== "no-camera" && (

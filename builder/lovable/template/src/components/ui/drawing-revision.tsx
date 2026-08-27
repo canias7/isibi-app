@@ -35,7 +35,7 @@ export function DrawingRevision({ number, revision, status, issuedFor, changed, 
 }) {
   const old = status === "superseded";
   return (
-    <div {...(old ? { role: "alert" as const } : {})}
+    <div data-slot="drawing-revision" {...(old ? { role: "alert" as const } : {})}
       className={cn("space-y-0.5 rounded-md border px-3 py-2 text-sm",
         old ? "border-foreground/40 bg-muted/40" : "border-border", className)}>
       <p>

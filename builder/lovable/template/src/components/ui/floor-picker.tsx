@@ -38,7 +38,7 @@ export function FloorPicker({ floors, value, onChange, name = "floor", className
   className?: string;
 }) {
   return (
-    <fieldset className={cn("space-y-1.5", className)}>
+    <fieldset data-slot="floor-picker" className={cn("space-y-1.5", className)}>
       <legend className="mb-1 text-sm font-medium">Which floor</legend>
       <div className="divide-y divide-border rounded-md border border-border">
         {floors.map((f) => {

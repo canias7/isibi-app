@@ -38,7 +38,7 @@ export function RolloutProgress({ version, percent, affected, total, state, next
   } as const;
   const stuck = state === "paused" || state === "rolled-back";
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="rollout-progress" className={cn("space-y-1", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
         <span className="font-medium">v{version}</span>
         <span className={cn(stuck ? "font-medium" : "text-muted-foreground")}>{WORD[state]}</span>

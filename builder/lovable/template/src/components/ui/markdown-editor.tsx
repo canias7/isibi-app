@@ -49,7 +49,7 @@ export function MarkdownEditor({ value, onChange, rows = 10, max, placeholder, c
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(caret, caret); });
   };
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="markdown-editor" className={cn("space-y-2", className)}>
       <FormatToolbar onCommand={apply}
         only={["bold", "italic", "strike", "heading", "quote", "code", "bullet", "ordered", "link"]} />
       <Textarea ref={ref} value={value} rows={rows} placeholder={placeholder}

@@ -30,7 +30,7 @@ export function DataResidency({ storedIn, accessedFrom = [], backupsIn, subProce
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="data-residency" className={cn("space-y-1", className)}>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
         <dt className="text-muted-foreground">Stored in</dt>
         <dd>{storedIn}</dd>

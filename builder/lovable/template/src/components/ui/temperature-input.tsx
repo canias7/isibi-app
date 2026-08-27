@@ -27,7 +27,7 @@ export function TemperatureInput({ value, unit, onChange, id, className }: {
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-stretch gap-1.5", className)}>
+    <span data-slot="temperature-input" className={cn("inline-flex items-stretch gap-1.5", className)}>
       <input id={id} type="number" inputMode="decimal" step="any"
         value={value ?? ""}
         onChange={(e) => onChange({ value: e.target.value === "" ? null : Number(e.target.value), unit })}

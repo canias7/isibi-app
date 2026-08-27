@@ -29,7 +29,7 @@ export function FieldError({ id, children, className }: {
 }) {
   if (!children) return null;
   return (
-    <p id={id} role="alert" className={cn("flex items-start gap-1.5 text-xs font-medium", className)}>
+    <p data-slot="field-error" id={id} role="alert" className={cn("flex items-start gap-1.5 text-xs font-medium", className)}>
       <AlertCircle aria-hidden className="mt-px size-3.5 shrink-0" />
       <span>{children}</span>
     </p>

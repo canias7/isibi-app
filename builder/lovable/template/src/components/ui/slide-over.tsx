@@ -60,7 +60,7 @@ export function SlideOver({ open, onClose, title, description, children, footer,
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div data-slot="slide-over" className="fixed inset-0 z-50">
       <button type="button" onClick={onClose} aria-label="Close"
         className="absolute inset-0 cursor-default bg-foreground/50" />
       <div

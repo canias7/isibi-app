@@ -26,7 +26,7 @@ export function TargetVsActual({ actual, target, label, unit, goodDirection = "u
   const width = Math.min(pct, 100);
   const markerAt = actual > target ? (target / actual) * 100 : 100;
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="target-vs-actual" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         {label && <span className="text-sm text-muted-foreground">{label}</span>}
         <span className="text-sm tabular-nums">

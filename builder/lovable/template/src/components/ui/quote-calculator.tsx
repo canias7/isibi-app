@@ -93,7 +93,7 @@ export function QuoteCalculator({
     cn("rounded-md border px-3 py-1.5 text-sm", on ? "border-foreground bg-foreground font-medium text-background" : "border-border");
 
   return (
-    <div className={cn("rounded-xl border border-border bg-background p-6 sm:p-8", className)}>
+    <div data-slot="quote-calculator" className={cn("rounded-xl border border-border bg-background p-6 sm:p-8", className)}>
       <div className="grid gap-8 lg:grid-cols-[1fr_auto]">
         <div className="space-y-6">
           <fieldset>

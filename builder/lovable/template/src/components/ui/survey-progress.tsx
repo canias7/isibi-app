@@ -29,7 +29,7 @@ export function SurveyProgress({ answered, total, secondsPerQuestion = 15, label
   const left = Math.max(0, total - answered);
   const mins = Math.ceil((left * secondsPerQuestion) / 60);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="survey-progress" className={cn("space-y-1", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
         <span>
           <span className="tabular-nums text-foreground">{Math.min(answered, total)}</span> of{" "}

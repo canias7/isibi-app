@@ -33,7 +33,7 @@ export function TravelTimeNote({ minutes, mode = "walk", hedge = "About", note, 
     : m < 60 ? `${m} ${m === 1 ? "minute" : "minutes"}`
     : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}` : ""}`;
   return (
-    <span className={cn("text-sm text-muted-foreground", className)}>
+    <span data-slot="travel-time-note" className={cn("text-sm text-muted-foreground", className)}>
       {m < 1 ? text : `${hedge} ${text}`} {MODES[mode]}
       {note && <span className="block text-xs">{note}</span>}
     </span>

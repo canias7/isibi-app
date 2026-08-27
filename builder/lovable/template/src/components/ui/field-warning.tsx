@@ -24,7 +24,7 @@ export function FieldWarning({ id, children, className }: {
   className?: string;
 }) {
   return (
-    <p id={id} className={cn("flex items-start gap-1.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="field-warning" id={id} className={cn("flex items-start gap-1.5 text-xs text-muted-foreground", className)}>
       <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
       <span>{children}</span>
     </p>

@@ -41,7 +41,7 @@ export function TriggerPicker({ triggers, value, onChange, name = "trigger", cla
     { kind: "schedule", title: "On a schedule" },
   ];
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="trigger-picker" className={cn("space-y-3", className)}>
       {groups.map((g) => {
         const items = triggers.filter((t) => (t.kind ?? "event") === g.kind);
         if (!items.length) return null;

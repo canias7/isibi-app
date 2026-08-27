@@ -26,7 +26,7 @@ export function CaptureHint({ rules, commonRejection, className }: {
 }) {
   if (!rules.length && !commonRejection) return null;
   return (
-    <div className={cn("space-y-1 rounded-md border border-border bg-muted/30 p-3", className)}>
+    <div data-slot="capture-hint" className={cn("space-y-1 rounded-md border border-border bg-muted/30 p-3", className)}>
       {rules.length > 0 && (
         <ul className="space-y-0.5 text-xs">
           {rules.map((r) => (

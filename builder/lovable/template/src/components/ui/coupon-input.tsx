@@ -10,7 +10,7 @@ export function CouponInput({ onApply, applied, error, busy, className }: {
 }) {
   const [code, setCode] = React.useState("");
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="coupon-input" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex gap-2">
         <Input value={code} placeholder="Discount code" aria-label="Discount code"
           className="uppercase" autoCapitalize="characters" spellCheck={false}

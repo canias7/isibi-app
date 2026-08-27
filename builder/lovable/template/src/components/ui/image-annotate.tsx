@@ -31,7 +31,7 @@ export function ImageAnnotate({ src, alt = "", marks, onAdd, onRemove, className
 }) {
   const [adding, setAdding] = React.useState(false);
   return (
-    <div className={cn("flex flex-col gap-2 sm:flex-row", className)}>
+    <div data-slot="image-annotate" className={cn("flex flex-col gap-2 sm:flex-row", className)}>
       <div className="relative min-w-0 flex-1">
         <button type="button" disabled={!adding}
           onClick={(e) => {

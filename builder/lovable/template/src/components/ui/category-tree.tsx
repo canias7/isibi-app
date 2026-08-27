@@ -28,7 +28,7 @@ function Branch({ nodes, level, open, onToggle, value, onSelect }: {
   onToggle: (id: string) => void; value?: string; onSelect: (id: string) => void;
 }) {
   return (
-    <ul role={level === 1 ? undefined : "group"}>
+    <ul data-slot="branch" role={level === 1 ? undefined : "group"}>
       {nodes.map((n) => {
         const kids = n.children ?? [];
         const isOpen = open.includes(n.id);
@@ -78,7 +78,7 @@ export function CategoryTree({ categories, open, onToggle, value, onSelect, labe
   className?: string;
 }) {
   return (
-    <div role="tree" aria-label={label} className={cn("text-sm", className)}>
+    <div data-slot="category-tree" role="tree" aria-label={label} className={cn("text-sm", className)}>
       <Branch nodes={categories} level={1} open={open} onToggle={onToggle} value={value} onSelect={onSelect} />
     </div>
   );

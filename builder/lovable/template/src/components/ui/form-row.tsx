@@ -29,7 +29,7 @@ export function FormRow({ label, htmlFor, hint, error, required, className, chil
   const id = htmlFor ?? childId ?? (child ? auto : undefined);
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="form-row" className={cn("flex flex-col gap-1.5", className)}>
       <Label htmlFor={id}>
         {label}
         {required && <span className="text-muted-foreground" aria-hidden="true"> *</span>}

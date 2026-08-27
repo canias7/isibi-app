@@ -59,7 +59,7 @@ export function MorphHeight({ children, duration = 240, className }: {
   }, [duration]);
 
   return (
-    <div ref={box} className={cn("overflow-hidden", className)}>
+    <div data-slot="morph-height" ref={box} className={cn("overflow-hidden", className)}>
       <div ref={inner}>{children}</div>
     </div>
   );

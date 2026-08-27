@@ -27,7 +27,7 @@ export function ConflictDiff({ field, mine, theirs, base, by, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-md border border-border", className)}>
+    <div data-slot="conflict-diff" className={cn("rounded-md border border-border", className)}>
       <p className="border-b border-border px-3 py-2 text-sm font-medium">{field}</p>
       <dl className="grid gap-px bg-border sm:grid-cols-2">
         <div className="bg-background p-3">

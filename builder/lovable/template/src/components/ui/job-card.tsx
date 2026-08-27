@@ -14,7 +14,7 @@ export function JobCard({ title, team, location, type, salary, postedAt, href, t
   postedAt?: string | number | Date; href?: string; tags?: string[]; className?: string;
 }) {
   return (
-    <article className={cn("rounded-lg border border-border p-4", className)}>
+    <article data-slot="job-card" className={cn("rounded-lg border border-border p-4", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-sm font-medium">{href ? <a href={href} className="hover:underline">{title}</a> : title}</h3>
         {postedAt && <span className="text-xs text-muted-foreground"><TimeAgo date={postedAt} /></span>}

@@ -34,7 +34,7 @@ export function ImmunisationRow({ vaccine, dosesGiven, dosesNeeded, lastOn, next
 }) {
   const incomplete = dosesNeeded !== undefined && dosesGiven < dosesNeeded;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="immunisation-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 font-medium">{vaccine}</span>
         <span className={cn("shrink-0 text-xs tabular-nums", incomplete ? "font-medium" : "text-muted-foreground")}>

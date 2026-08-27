@@ -31,7 +31,7 @@ export function FilterGroup({ label, activeCount = 0, onClear, defaultOpen, chil
 }) {
   const [open, setOpen] = useState(defaultOpen ?? activeCount > 0);
   return (
-    <div className={cn("border-b border-border py-2 last:border-b-0", className)}>
+    <div data-slot="filter-group" className={cn("border-b border-border py-2 last:border-b-0", className)}>
       <h3 className="flex items-center gap-2">
         <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
           className="flex min-w-0 flex-1 items-center gap-2 py-1 text-start text-sm font-medium">

@@ -21,7 +21,7 @@ export function AltTextWarning({ alt, decorative, onMarkDecorative, onWrite, cla
   className?: string;
 }) {
   if (decorative) {
-    return <p className={cn("text-xs text-muted-foreground", className)}>Marked decorative — screen readers skip it.</p>;
+    return <p data-slot="alt-text-warning" className={cn("text-xs text-muted-foreground", className)}>Marked decorative — screen readers skip it.</p>;
   }
   const text = (alt ?? "").trim();
   const looksLikeFilename = /\.(jpe?g|png|gif|webp|heic)$/i.test(text) || /^(dsc|img)[-_ ]?\d+/i.test(text);

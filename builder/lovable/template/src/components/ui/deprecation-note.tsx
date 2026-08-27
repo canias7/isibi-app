@@ -33,7 +33,7 @@ export function DeprecationNote({ what, removedOn, removed, replacement, migrati
   className?: string;
 }) {
   return (
-    <div {...(removed ? { role: "alert" as const } : {})}
+    <div data-slot="deprecation-note" {...(removed ? { role: "alert" as const } : {})}
       className={cn("space-y-0.5 text-xs", className)}>
       <p className={cn(removed && "font-medium")}>
         {removed

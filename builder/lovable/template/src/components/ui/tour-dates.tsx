@@ -51,7 +51,7 @@ export function TourDates({
     .filter((d) => showPast || d.at >= now)
     .sort((a, b) => a.at - b.at);
 
-  if (!rows.length) return <p className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
+  if (!rows.length) return <p data-slot="tour-dates" className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
 
   return (
     <ul className={cn("flex flex-col divide-y divide-border", className)}>

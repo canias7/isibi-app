@@ -37,7 +37,7 @@ export function SocialPreview({ url, title, description, image, className }: {
   const descLong = (description?.length ?? 0) > DESC_MAX;
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="social-preview" className={cn("flex flex-col gap-2", className)}>
       <div className="max-w-sm overflow-hidden rounded-lg border border-border">
         {image ? (
           <img src={image} alt="" className="aspect-[1.91/1] w-full object-cover" />

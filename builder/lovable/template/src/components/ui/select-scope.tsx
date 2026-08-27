@@ -42,7 +42,7 @@ export function SelectScope({ value, onChange, pageCount, filteredCount, allCoun
   ];
 
   return (
-    <fieldset className={cn("flex flex-col gap-1.5", className)}>
+    <fieldset data-slot="select-scope" className={cn("flex flex-col gap-1.5", className)}>
       <legend className="text-sm font-medium">Apply to</legend>
       <div role="radiogroup" aria-label="Apply to" className="flex flex-wrap gap-2">
         {options.map((o) => (

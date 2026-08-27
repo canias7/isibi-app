@@ -36,7 +36,7 @@ export function StemList({ stems, className }: { stems: Stem[]; className?: stri
   const depths = [...new Set(stems.map((s) => s.bitDepth).filter(Boolean))];
   const trimmed = stems.filter((s) => s.fromSessionStart === false);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="stem-list" className={cn("space-y-1.5", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {stems.map((s) => (
           <li key={s.id} className="flex items-baseline gap-3 px-3 py-1.5">

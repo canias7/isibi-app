@@ -11,7 +11,7 @@ export function ReviewStars({ value, count, max = 5, className }: {
 }) {
   const v = Math.max(0, Math.min(max, value));
   return (
-    <div className={cn("flex items-center gap-2", className)}
+    <div data-slot="review-stars" className={cn("flex items-center gap-2", className)}
       role="img" aria-label={`${v} out of ${max}${count != null ? `, ${count} reviews` : ""}`}>
       {/* Partial fill by CLIPPING a filled row over an empty one.
           It used to round: `i < Math.round(v)`, so 4.5 drew five solid stars —

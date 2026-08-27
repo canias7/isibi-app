@@ -16,7 +16,7 @@ export function TimelineVertical({ items, className }: {
   className?: string;
 }) {
   return (
-    <ol className={cn("relative", className)}>
+    <ol data-slot="timeline-vertical" className={cn("relative", className)}>
       {items.map((it, i) => (
         <li key={it.id} className="relative flex gap-4 pb-6 last:pb-0">
           {i < items.length - 1 && (

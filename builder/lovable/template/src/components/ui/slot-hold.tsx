@@ -29,7 +29,7 @@ export function SlotHold({ until, onExpire, label, className }: {
   if (!valid) return null;
   const text = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
   return (
-    <p className={cn("text-sm", left <= 60 ? "text-destructive" : "text-muted-foreground", className)}
+    <p data-slot="slot-hold" className={cn("text-sm", left <= 60 ? "text-destructive" : "text-muted-foreground", className)}
       aria-live={left <= 60 ? "polite" : "off"}>
       {left > 0
         ? <>{label ?? "We're holding this slot"} for another <strong className="font-medium tabular-nums">{text}</strong></>

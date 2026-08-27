@@ -99,7 +99,7 @@ export function DateEnquiry({
     return `${weekday} ${rest}`;
   };
   return (
-    <div className={cn("rounded-xl border border-border bg-background p-6", className)}>
+    <div data-slot="date-enquiry" className={cn("rounded-xl border border-border bg-background p-6", className)}>
       <h2 className="text-lg font-semibold tracking-tight">{heading}</h2>
       {/* Flex-wrap, not a grid with an `1fr` first column. In a wide container
           that `1fr` stretched the date input to eight hundred pixels, which is

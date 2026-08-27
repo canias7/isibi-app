@@ -10,7 +10,7 @@ import { Spinner } from "@/components/ui/spinner";
 export function BusyButton({ busy, busyLabel, children, disabled, ...props }:
   React.ComponentProps<typeof Button> & { busy?: boolean; busyLabel?: string }) {
   return (
-    <Button {...props} disabled={busy || disabled} aria-busy={busy || undefined}>
+    <Button {...props} data-slot="busy-button" disabled={busy || disabled} aria-busy={busy || undefined}>
       {busy && <Spinner />}
       {busy ? (busyLabel ?? children) : children}
     </Button>

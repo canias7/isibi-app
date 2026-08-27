@@ -58,7 +58,7 @@ export function TransferList({ options, selected, onChange, availableLabel = "Av
   );
 
   return (
-    <div className={cn("flex flex-col items-stretch gap-3 sm:flex-row", className)}>
+    <div data-slot="transfer-list" className={cn("flex flex-col items-stretch gap-3 sm:flex-row", className)}>
       <Pane label={availableLabel} rows={left} q={ql} setQ={setQl} marks={markL} setMarks={setMarkL} />
       <div className="flex flex-row justify-center gap-1 sm:flex-col sm:justify-center">
         <Button type="button" size="icon-sm" variant="outline" aria-label="Add all"

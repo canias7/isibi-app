@@ -43,7 +43,7 @@ export function FieldMask({ value, onChange, groups, separator = " ", numeric = 
   };
   const max = groups.reduce((a, b) => a + b, 0);
   return (
-    <input
+    <input data-slot="field-mask"
       {...rest}
       id={id}
       value={format(value)}

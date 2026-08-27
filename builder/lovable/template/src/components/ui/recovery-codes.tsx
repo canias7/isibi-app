@@ -55,7 +55,7 @@ export function RecoveryCodes({
   };
 
   return (
-    <div className={cn("flex flex-col gap-3 rounded-lg border border-border p-4", className)}>
+    <div data-slot="recovery-codes" className={cn("flex flex-col gap-3 rounded-lg border border-border p-4", className)}>
       <div>
         <p className="text-sm font-semibold">{title ?? "Your recovery codes"}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">

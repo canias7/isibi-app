@@ -45,7 +45,7 @@ export function ConservationNote({ condition, stable, damage, treatments = [], e
 }) {
   const irreversible = treatments.filter((t) => t.reversible === false);
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="conservation-note" className={cn("space-y-1 text-sm", className)}>
       <p>
         {condition ?? "Condition not assessed"}
         {stable !== undefined && (

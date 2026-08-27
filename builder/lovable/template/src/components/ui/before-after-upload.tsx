@@ -32,7 +32,7 @@ export function BeforeAfterUpload({ before, after, onPick, beforeLabel = "Before
     const d = data?.at ? toDate(data.at) : null;
     const ok = d && !Number.isNaN(d.getTime());
     return (
-      <div className="min-w-0">
+      <div data-slot="before-after-upload" className="min-w-0">
         <p className="mb-1 text-xs font-medium">{label}</p>
         {data?.url ? (
           <SafeImage src={data.url} alt="" className="aspect-4/3 w-full rounded-md object-cover" />

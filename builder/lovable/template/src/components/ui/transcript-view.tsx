@@ -49,7 +49,7 @@ export function TranscriptView({ children, deps = [], className }: {
   }, deps);
 
   return (
-    <div className={cn("relative", className)}>
+    <div data-slot="transcript-view" className={cn("relative", className)}>
       <div
         ref={ref}
         onScroll={() => {

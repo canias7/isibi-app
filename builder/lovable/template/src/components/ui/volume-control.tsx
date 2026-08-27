@@ -28,7 +28,7 @@ export function VolumeControl({ volume, muted, onVolumeChange, onMutedChange, id
   const pct = Math.round(Math.min(Math.max(volume, 0), 1) * 100);
   const Icon = muted || pct === 0 ? VolumeX : Volume2;
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span data-slot="volume-control" className={cn("inline-flex items-center gap-2", className)}>
       <button type="button" onClick={() => onMutedChange(!muted)}
         aria-pressed={muted} aria-label={muted ? "Unmute" : "Mute"}
         className="grid size-8 cursor-pointer place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground">

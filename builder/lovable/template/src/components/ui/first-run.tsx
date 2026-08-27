@@ -13,7 +13,7 @@ export function FirstRun({ title, body, action, onAction, secondary, onSecondary
   secondary?: string; onSecondary?: () => void; icon?: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center rounded-lg border border-dashed border-border px-6 py-12 text-center", className)}>
+    <div data-slot="first-run" className={cn("flex flex-col items-center rounded-lg border border-dashed border-border px-6 py-12 text-center", className)}>
       {icon && <span className="mb-3 text-muted-foreground">{icon}</span>}
       <h3 className="text-base font-medium">{title}</h3>
       {body && <p className="mt-1 max-w-sm text-sm text-muted-foreground">{body}</p>}

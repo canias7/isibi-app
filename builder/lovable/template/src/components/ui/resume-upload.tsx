@@ -39,7 +39,7 @@ export function ResumeUpload({
   const pct = total > 0 ? Math.round(Math.min(uploaded / total, 1) * 100) : 0;
   const WORD = { paused: "Paused", uploading: "Uploading", failed: "Stopped" };
   return (
-    <div className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
+    <div data-slot="resume-upload" className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="min-w-0 truncate font-medium">{name}</p>
         <p role="status" className="text-sm text-muted-foreground">{WORD[state]}</p>

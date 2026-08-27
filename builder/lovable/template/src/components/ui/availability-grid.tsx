@@ -16,7 +16,7 @@ export function AvailabilityGrid({ slots, taken = [], value, onSelect, className
 }) {
   const gone = new Set(taken);
   return (
-    <div className={cn("grid grid-cols-3 gap-2 sm:grid-cols-4", className)} role="group" aria-label="Available times">
+    <div data-slot="availability-grid" className={cn("grid grid-cols-3 gap-2 sm:grid-cols-4", className)} role="group" aria-label="Available times">
       {slots.map((s) => {
         const isGone = gone.has(s);
         return (

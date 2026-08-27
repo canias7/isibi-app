@@ -41,7 +41,7 @@ export function InductionStatus({ volunteer, steps, canDoMeanwhile = [], classNa
   const onUs = outstanding.filter((s) => s.onUs);
   const onThem = outstanding.filter((s) => !s.onUs);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="induction-status" className={cn("space-y-1.5", className)}>
       {volunteer && <p className="text-sm">{volunteer}</p>}
       <p className="text-sm">
         {outstanding.length === 0 ? (

@@ -38,7 +38,7 @@ export function AgmNotice({ when, where, noticeGivenOn, noticeRequiredDays, quor
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="agm-notice" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">Annual general meeting</span>
         <span className="block">{when}</span>

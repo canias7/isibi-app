@@ -11,7 +11,7 @@ export function QueueDepth({ label, depth, history, oldest, className }: {
   label: string; depth: number; history?: number[]; oldest?: string; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-4 border-b border-border py-3 last:border-0", className)}>
+    <div data-slot="queue-depth" className={cn("flex items-center gap-4 border-b border-border py-3 last:border-0", className)}>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{label}</p>
         {oldest && <p className="text-xs text-muted-foreground">Oldest waiting {oldest}</p>}

@@ -58,7 +58,7 @@ export function CurlExample({ method = "GET", url, headers = {}, body, secrets =
   }, [real, secrets]);
 
   return (
-    <div className={cn("overflow-hidden rounded-md border border-border", className)}>
+    <div data-slot="curl-example" className={cn("overflow-hidden rounded-md border border-border", className)}>
       <div className="flex items-center gap-2 border-b border-border bg-muted px-3 py-1.5">
         <span className="font-mono text-xs font-semibold">{method}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{url}</span>

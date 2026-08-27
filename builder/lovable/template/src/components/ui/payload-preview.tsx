@@ -44,7 +44,7 @@ export function PayloadPreview({ payload, secretKeys = [], label = "What we will
   const keys = [...DEFAULT_SECRETS, ...secretKeys.map((k) => k.toLowerCase())];
   const safe = redact(payload, keys);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="payload-preview" className={cn("space-y-1", className)}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <div className="overflow-x-auto rounded-md border border-border bg-muted/30 p-2.5">
         <pre className="font-mono text-xs">{JSON.stringify(safe, null, 2)}</pre>

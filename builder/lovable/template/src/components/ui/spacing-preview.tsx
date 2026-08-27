@@ -25,7 +25,7 @@ export function SpacingPreview({ steps, touchMinimum = 44, className }: {
 }) {
   const max = Math.max(...steps.map((s) => s.px), 1);
   return (
-    <ul className={cn("space-y-1", className)}>
+    <ul data-slot="spacing-preview" className={cn("space-y-1", className)}>
       {steps.map((s) => (
         <li key={s.name} className="flex items-center gap-3 text-sm">
           <span className="w-12 shrink-0 text-xs text-muted-foreground">{s.name}</span>

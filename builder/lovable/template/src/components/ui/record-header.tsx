@@ -5,7 +5,7 @@ export function RecordHeader({ title, subtitle, status, actions, className }: {
   actions?: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-start justify-between gap-4 border-b pb-4", className)}>
+    <div data-slot="record-header" className={cn("flex flex-wrap items-start justify-between gap-4 border-b pb-4", className)}>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold tracking-tight">{title}</h2>

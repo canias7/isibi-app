@@ -32,7 +32,7 @@ export function TaxBreakdown({ lines, net, total, taxLabel = "Tax", note, classN
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="tax-breakdown" className={cn("space-y-1", className)}>
       <dl className="space-y-0.5 text-sm">
         <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Before {taxLabel.toLowerCase()}</dt>

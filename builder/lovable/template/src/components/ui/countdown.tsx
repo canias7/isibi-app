@@ -71,7 +71,7 @@ export function Countdown({ to, onDone, className }: {
     { v: s === null ? null : s % 60, l: "sec" },
   ];
   return (
-    <div className={cn("flex gap-4", className)}>
+    <div data-slot="countdown" className={cn("flex gap-4", className)}>
       {parts.map((p) => (
         <div key={p.l} className="flex flex-col items-center">
           <span className="text-2xl font-semibold tabular-nums">

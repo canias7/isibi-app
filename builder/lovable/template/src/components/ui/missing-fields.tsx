@@ -23,7 +23,7 @@ export function MissingFields({ fields, onFix, className }: {
 }) {
   if (!fields.length) return null;
   return (
-    <ul className={cn("flex flex-col gap-1", className)}>
+    <ul data-slot="missing-fields" className={cn("flex flex-col gap-1", className)}>
       {fields.map((f) => (
         <li key={f.key} className="flex items-baseline gap-2 text-sm">
           <button type="button" onClick={() => onFix(f.key)}

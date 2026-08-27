@@ -38,7 +38,7 @@ export function DropCap({ children, className }: { children: string; className?:
   const cap = text.slice(0, capLen);
   const rest = text.slice(capLen);
   return (
-    <p className={cn("text-sm leading-relaxed", className)}>
+    <p data-slot="drop-cap" className={cn("text-sm leading-relaxed", className)}>
       <span aria-hidden className="float-left me-1.5 mt-1 select-none font-serif text-[3.05em] font-bold leading-[0.8]">
         {cap}
       </span>

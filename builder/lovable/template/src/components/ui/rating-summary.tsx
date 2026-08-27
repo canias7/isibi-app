@@ -13,7 +13,7 @@ export function RatingSummary({ average, total, distribution, className }: {
 }) {
   const max = Math.max(1, ...distribution);
   return (
-    <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-8", className)}>
+    <div data-slot="rating-summary" className={cn("flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-8", className)}>
       <div className="flex flex-col gap-1">
         <span className="text-4xl font-semibold tabular-nums">{average.toFixed(1)}</span>
         <ReviewStars value={average} />

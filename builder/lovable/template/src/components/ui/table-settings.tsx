@@ -59,7 +59,7 @@ export function TableSettings({ columns, onChange, label = "Columns", className 
           {columns.map((c, i) => {
             const last = !c.hidden && visible === 1;
             return (
-              <li key={c.key} className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted">
+              <li data-slot="table-settings" key={c.key} className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted">
                 <button type="button"
                   disabled={c.locked || last}
                   onClick={() => onChange(columns.map((x) => (x.key === c.key ? { ...x, hidden: !x.hidden } : x)))}

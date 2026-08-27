@@ -26,7 +26,7 @@ export function OrderReview({ sections, lines, totalMinor, currency = "GBP", cla
   const mismatch = sum !== totalMinor;
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="order-review" className={cn("flex flex-col gap-3", className)}>
       {sections.map((s) => (
         <section key={s.key} className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
           <div className="min-w-0">

@@ -40,7 +40,7 @@ export function DurationInput({ minutes, onChange, maxHours = 99, id, className 
   };
 
   return (
-    <span className={cn("inline-flex items-end gap-2", className)}>
+    <span data-slot="duration-input" className={cn("inline-flex items-end gap-2", className)}>
       <span className="flex flex-col gap-1">
         <label htmlFor={`${base}-h`} className="text-xs text-muted-foreground">Hours</label>
         <input id={`${base}-h`} type="number" inputMode="numeric" min={0} max={maxHours}

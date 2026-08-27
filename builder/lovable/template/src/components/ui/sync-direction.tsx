@@ -37,7 +37,7 @@ export function SyncDirection({ here, there, value, onChange, winner, onWinnerCh
     { id: "both" as const, label: `${here} ⇄ ${there}`, note: "Changes flow both ways." },
   ];
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="sync-direction" className={cn("space-y-2", className)}>
       <fieldset className="space-y-1.5">
         <legend className="mb-1 text-sm font-medium">Which way does data flow?</legend>
         {options.map((o) => (

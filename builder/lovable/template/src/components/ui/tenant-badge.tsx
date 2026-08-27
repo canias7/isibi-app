@@ -31,7 +31,7 @@ export function TenantBadge({ name, environment, actingAs, onLeave, className }:
 }) {
   if (!actingAs) {
     return (
-      <span className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
+      <span data-slot="tenant-badge" className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
         <span className="font-medium text-foreground">{name}</span>
         {environment && <span>{environment}</span>}
       </span>

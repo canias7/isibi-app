@@ -26,7 +26,7 @@ export function DropIndicator({ orientation = "horizontal", active = true, class
   if (!active) return null;
   const horizontal = orientation === "horizontal";
   return (
-    <div aria-hidden
+    <div data-slot="drop-indicator" aria-hidden
       className={cn("pointer-events-none relative", horizontal ? "h-0.5 w-full" : "h-full w-0.5", className)}>
       <div className={cn("absolute inset-0 bg-foreground")} />
       <div className={cn("absolute size-2 rounded-full border-2 border-foreground bg-background",

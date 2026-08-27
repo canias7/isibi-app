@@ -37,7 +37,7 @@ export function UsageNudge({ used, limit, what, period = "this month", threshold
   const show = full || (used / limit >= threshold && !dismissed);
   if (!show) return null;
   return (
-    <div role="status" className={cn(
+    <div data-slot="usage-nudge" role="status" className={cn(
       "motion-enter flex items-center justify-between gap-3 rounded-lg border border-border bg-muted px-3 py-2 text-sm",
       full && "border-foreground", className)}>
       <span>

@@ -63,7 +63,7 @@ export function ReadAloud({ text, className }: { text: string; className?: strin
   if (!supported) return null;
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="read-aloud" className={cn("flex flex-col gap-2", className)}>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button"
           onClick={() => {

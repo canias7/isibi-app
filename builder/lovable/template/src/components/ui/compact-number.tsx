@@ -29,7 +29,7 @@ export function CompactNumber({ value, from = 1000, locale, className }: {
   if (!Number.isFinite(value)) return null;
   const full = new Intl.NumberFormat(locale).format(value);
   if (Math.abs(value) < from) {
-    return <span className={cn("tabular-nums", className)}>{full}</span>;
+    return <span data-slot="compact-number" className={cn("tabular-nums", className)}>{full}</span>;
   }
   const short = new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(value);
   return (

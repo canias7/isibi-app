@@ -31,7 +31,7 @@ export function RankingList({ items, onChange, topLabel = "Most important first"
   };
   const btn = "cursor-pointer rounded p-0.5 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30";
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="ranking-list" className={cn("flex flex-col gap-1.5", className)}>
       <p className="text-xs text-muted-foreground">{topLabel}</p>
       <ol className="divide-y divide-border rounded-lg border border-border">
         {items.map((it, i) => (

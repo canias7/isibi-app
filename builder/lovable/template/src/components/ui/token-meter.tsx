@@ -35,7 +35,7 @@ export function TokenMeter({
 
   if (!loud) {
     return (
-      <p className={cn("text-xs text-muted-foreground tabular-nums", className)}>
+      <p data-slot="token-meter" className={cn("text-xs text-muted-foreground tabular-nums", className)}>
         {used.toLocaleString()} of {limit.toLocaleString()} {unit}
         {resets ? <span> · resets {resets}</span> : null}
       </p>

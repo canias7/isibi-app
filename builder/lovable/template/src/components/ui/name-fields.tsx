@@ -23,7 +23,7 @@ export function NameFields({ single = true, value, onChange, className }: {
     );
   }
   return (
-    <div className={cn("grid gap-4 sm:grid-cols-2", className)}>
+    <div data-slot="name-fields" className={cn("grid gap-4 sm:grid-cols-2", className)}>
       <FormRow label="First name">
         <Input autoComplete="given-name" value={value.first ?? ""}
           onChange={(e) => onChange({ ...value, first: e.target.value })} />

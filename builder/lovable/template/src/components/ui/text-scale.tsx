@@ -37,7 +37,7 @@ export function TextScale({ className }: { className?: string }) {
   }, [key]);
 
   return (
-    <div role="radiogroup" aria-label="Text size" className={cn("inline-flex gap-1 rounded-md border border-border p-1", className)}>
+    <div data-slot="text-scale" role="radiogroup" aria-label="Text size" className={cn("inline-flex gap-1 rounded-md border border-border p-1", className)}>
       {STEPS.map((s) => (
         <button key={s.key} type="button" role="radio" aria-checked={s.key === key}
           onClick={() => setKey(s.key)}

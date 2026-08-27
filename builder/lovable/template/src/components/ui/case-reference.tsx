@@ -41,7 +41,7 @@ export function CaseReference({ reference, label = "Your reference", group = 4, 
     ? [prefix, ...(rest.match(new RegExp(`.{1,${group}}`, "g")) ?? [rest])].filter(Boolean)
     : [reference];
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="case-reference" className={cn("space-y-0.5 text-sm", className)}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="flex flex-wrap gap-x-2 font-mono text-base tabular-nums">
         {grouped.map((g, i) => <span key={i}>{g}</span>)}

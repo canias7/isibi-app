@@ -30,7 +30,7 @@ export function TraceabilityCode({ code, steps = [], className }: {
 }) {
   const broken = steps.filter((s) => s.missing);
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="traceability-code" className={cn("space-y-2", className)}>
       <ClipboardBlocked value={code} label="Batch code" />
       {broken.length > 0 && (
         <p className="text-xs font-medium">

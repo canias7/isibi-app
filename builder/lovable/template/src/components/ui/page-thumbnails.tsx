@@ -24,7 +24,7 @@ export function PageThumbnails({ pages, current, onGo, className }: {
 }) {
   if (!pages.length) return null;
   return (
-    <ol className={cn("flex gap-2 overflow-x-auto pb-1", className)}>
+    <ol data-slot="page-thumbnails" className={cn("flex gap-2 overflow-x-auto pb-1", className)}>
       {pages.map((p, i) => {
         const n = i + 1;
         const active = n === current;

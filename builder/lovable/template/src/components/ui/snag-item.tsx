@@ -36,7 +36,7 @@ export function SnagItem({ number, description, location, trade, state, raisedBy
   const WORD = { open: "Open", fixed: "Says fixed", checked: "Checked and closed", disputed: "Disputed" } as const;
   const outstanding = state !== "checked";
   return (
-    <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
+    <li data-slot="snag-item" className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
       {photo !== undefined && (
         <SafeImage src={photo} alt="" className="size-12 shrink-0 rounded object-cover" />
       )}

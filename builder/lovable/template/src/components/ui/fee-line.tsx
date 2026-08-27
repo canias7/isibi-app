@@ -28,7 +28,7 @@ export function FeeLine({ label, amount, why, avoidableBy, perUnit, quantity, cu
   className?: string;
 }) {
   return (
-    <div className={cn("flex justify-between gap-4 text-sm", className)}>
+    <div data-slot="fee-line" className={cn("flex justify-between gap-4 text-sm", className)}>
       <span className="min-w-0">
         <span>{label}</span>
         {typeof perUnit === "number" && typeof quantity === "number" && (

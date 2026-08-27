@@ -24,7 +24,7 @@ export function CooldownNote({ action, readyIn, why, className }: {
   className?: string;
 }) {
   return (
-    <p role="status" className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="cooldown-note" role="status" className={cn("text-xs text-muted-foreground", className)}>
       You can {action} again{readyIn ? ` in ${readyIn}` : " shortly"}
       {why ? ` — ${why}` : ""}.
     </p>

@@ -22,7 +22,7 @@ export function GroupByPicker({ options, value = "", onChange, className }: {
 }) {
   const all = [{ key: "", label: "None" }, ...options];
   return (
-    <div role="group" aria-label="Group by" className={cn("flex flex-wrap items-center gap-1.5", className)}>
+    <div data-slot="group-by-picker" role="group" aria-label="Group by" className={cn("flex flex-wrap items-center gap-1.5", className)}>
       <span className="text-xs text-muted-foreground">Group by</span>
       {all.map((o) => (
         <button key={o.key} type="button" onClick={() => onChange(o.key)}

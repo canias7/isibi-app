@@ -15,7 +15,7 @@ export function Receipt({ number, paidAt, total, currency = "GBP", method, last4
   business?: string; className?: string;
 }) {
   return (
-    <div className={cn("mx-auto max-w-sm space-y-4 rounded-lg border border-border p-5 text-sm", className)}>
+    <div data-slot="receipt" className={cn("mx-auto max-w-sm space-y-4 rounded-lg border border-border p-5 text-sm", className)}>
       <div className="text-center">
         {business && <p className="font-medium">{business}</p>}
         <p className="text-muted-foreground">Receipt</p>

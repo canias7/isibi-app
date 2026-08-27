@@ -12,7 +12,7 @@ export function SearchHeader({ query, count, loading, children, className }: {
   children?: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-baseline justify-between gap-3 border-b border-border pb-3", className)}>
+    <div data-slot="search-header" className={cn("flex flex-wrap items-baseline justify-between gap-3 border-b border-border pb-3", className)}>
       <p className="text-sm text-muted-foreground" aria-live="polite">
         {loading ? "Searching…"
           : count == null ? null

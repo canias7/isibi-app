@@ -42,7 +42,7 @@ export function ReturnReason({ reasons = RETURN_REASONS, value, detail, onChange
 }) {
   const chosen = reasons.find((r) => r.key === value);
   return (
-    <fieldset className={cn("flex flex-col gap-1.5", className)}>
+    <fieldset data-slot="return-reason" className={cn("flex flex-col gap-1.5", className)}>
       <legend className="text-sm font-medium">Why are you sending it back?</legend>
       {reasons.map((r) => (
         <label key={r.key} className="flex cursor-pointer items-start gap-2 text-sm">

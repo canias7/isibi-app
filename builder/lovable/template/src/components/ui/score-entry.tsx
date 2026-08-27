@@ -36,7 +36,7 @@ export function ScoreEntry({ home, away, homeScore, awayScore, onHomeScore, onAw
 }) {
   const id = useId();
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="score-entry" className={cn("space-y-1.5", className)}>
       {walkover ? (
         <p className="text-sm">
           <span className="font-medium">Walkover</span>

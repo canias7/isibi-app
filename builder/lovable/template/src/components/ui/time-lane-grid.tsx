@@ -67,7 +67,7 @@ export function TimeLaneGrid({ lanes, blocks, from = 8, to = 20, laneHeight = 48
   const pct = (h: number) => ((h - from) / span) * 100;
 
   return (
-    <div className={cn("flex flex-col text-xs", className)}>
+    <div data-slot="time-lane-grid" className={cn("flex flex-col text-xs", className)}>
       <div className="flex">
         <span className="w-24 shrink-0" />
         <div className="relative flex-1">

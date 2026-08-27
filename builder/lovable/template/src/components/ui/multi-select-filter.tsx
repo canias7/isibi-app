@@ -42,7 +42,7 @@ export function MultiSelectFilter({ options, selected, onChange, searchAfter = 8
   const toggle = (id: string) =>
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="multi-select-filter" className={cn("space-y-1.5", className)}>
       {label && <p className="text-sm font-medium">{label}</p>}
       {options.length > searchAfter && (
         <input value={q} onChange={(e) => setQ(e.target.value)} type="search"

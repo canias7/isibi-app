@@ -30,7 +30,7 @@ export function SortableGrid({ items, onMove, min = 160, announce, className }: 
 }) {
   if (!items.length) return null;
   return (
-    <div className={className}>
+    <div data-slot="sortable-grid" className={className}>
       <p role="status" aria-live="polite" className="sr-only">{announce ?? ""}</p>
       <ol className="grid gap-3"
         style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, 1fr))` }}>

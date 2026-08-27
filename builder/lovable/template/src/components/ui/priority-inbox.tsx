@@ -26,7 +26,7 @@ export function PriorityInbox({ needsYou, everythingElse, emptyMessage, classNam
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-4", className)}>
+    <div data-slot="priority-inbox" className={cn("flex flex-col gap-4", className)}>
       <section aria-labelledby="needs-you">
         <h2 id="needs-you" className="mb-1.5 flex items-baseline gap-2 text-[11px] font-semibold tracking-wide uppercase">
           Needs you

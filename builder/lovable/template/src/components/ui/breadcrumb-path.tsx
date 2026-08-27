@@ -27,7 +27,7 @@ export function BreadcrumbPath({ segments, max = 4, className }: {
     ? [segments[0], { label: "…" }, ...segments.slice(-(max - 2))]
     : segments;
   return (
-    <nav aria-label="Path" className={cn("min-w-0", className)}>
+    <nav data-slot="breadcrumb-path" aria-label="Path" className={cn("min-w-0", className)}>
       <ol className="flex flex-wrap items-center gap-1 text-sm">
         {shown.map((s, i) => {
           const last = i === shown.length - 1;

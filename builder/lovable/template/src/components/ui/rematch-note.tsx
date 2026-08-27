@@ -31,7 +31,7 @@ export function RematchNote({ name, previouslyPassedOn, whatChanged, changedSide
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="rematch-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         You passed on {name ?? "this one"}
         {previouslyPassedOn ? ` ${previouslyPassedOn}` : " before"}.

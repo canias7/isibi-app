@@ -39,7 +39,7 @@ export function RadiusInput({ value, unit = "km", onChange, units = ["km", "mi"]
   const base = id ?? "radius";
   const steps = STEPS[unit] ?? STEPS.km;
   return (
-    <span className={cn("inline-flex flex-wrap items-center gap-1.5 text-sm", className)}>
+    <span data-slot="radius-input" className={cn("inline-flex flex-wrap items-center gap-1.5 text-sm", className)}>
       <label htmlFor={`${base}-d`} className="text-muted-foreground">{label}</label>
       <NativeSelect id={`${base}-d`} className="h-9 w-auto text-sm" value={value === null ? "" : String(value)}
         onChange={(e) => onChange({ value: e.target.value === "" ? null : Number(e.target.value), unit })}>

@@ -32,7 +32,7 @@ export function RatingChanged({ from, to, at, note, className }: {
   const d = at ? toDate(at) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="rating-changed" className={cn("text-xs text-muted-foreground", className)}>
       <span aria-hidden="true">{up ? "↑" : "↓"} </span>
       {up ? "Raised" : "Lowered"} from <span className="tabular-nums">{from}</span> to{" "}
       <span className="tabular-nums text-foreground">{to}</span>

@@ -52,7 +52,7 @@ export function RelativeDate({ date, thresholdDays = 7, className }: {
   const iso = isNaN(d.getTime()) ? undefined : d.toISOString();
   const absolute = isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
   return (
-    <time dateTime={iso} title={isNaN(d.getTime()) ? undefined : d.toLocaleString()}
+    <time data-slot="relative-date" dateTime={iso} title={isNaN(d.getTime()) ? undefined : d.toLocaleString()}
       className={cn("tabular-nums", className)}>
       {label ?? absolute}
     </time>

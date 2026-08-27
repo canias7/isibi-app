@@ -13,7 +13,7 @@ export function DeliverySlot({ day, window: win, price, currency, full, selected
   full?: boolean; selected?: boolean; onSelect?: () => void; className?: string;
 }) {
   return (
-    <button type="button" disabled={full} onClick={onSelect} aria-pressed={selected}
+    <button data-slot="delivery-slot" type="button" disabled={full} onClick={onSelect} aria-pressed={selected}
       className={cn("flex w-full cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2.5 text-start text-sm",
         full && "cursor-not-allowed border-border opacity-60",
         !full && selected && "border-foreground bg-muted",

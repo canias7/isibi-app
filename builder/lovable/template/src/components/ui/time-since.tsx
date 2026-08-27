@@ -49,7 +49,7 @@ export function TimeSince({ at, className }: {
   const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
   return (
-    <time dateTime={isoAttr(target)} title={toDate(target).toLocaleString()}
+    <time data-slot="time-since" dateTime={isoAttr(target)} title={toDate(target).toLocaleString()}
       className={cn(className)}>
       {rtf.format(value, unit)}
     </time>

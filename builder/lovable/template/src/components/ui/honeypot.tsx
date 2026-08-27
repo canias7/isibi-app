@@ -23,7 +23,7 @@ export function Honeypot({ name = "_gotcha" }: { name?: string }) {
   // and a newsletter sign-up.
   const uid = useId();
   return (
-    <div aria-hidden="true"
+    <div data-slot="honeypot" aria-hidden="true"
       style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }}>
       <label htmlFor={uid}>Leave this field empty</label>
       <input id={uid} name={name} type="text" tabIndex={-1} autoComplete="off" defaultValue="" />

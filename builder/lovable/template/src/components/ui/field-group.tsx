@@ -30,7 +30,7 @@ export function FieldGroup({
   className?: string;
 }) {
   return (
-    <fieldset className={cn("w-full min-w-0 border-0 p-0", className)}>
+    <fieldset data-slot="field-group" className={cn("w-full min-w-0 border-0 p-0", className)}>
       {legend ? (
         <legend className="mb-1 flex items-baseline gap-2 p-0 text-sm font-semibold">
           {legend}

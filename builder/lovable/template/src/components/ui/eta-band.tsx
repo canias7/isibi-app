@@ -25,7 +25,7 @@ export function EtaBand({ from, to, confidence, late, className }: {
   className?: string;
 }) {
   return (
-    <p role="status" className={cn("text-sm", className)}>
+    <p data-slot="eta-band" role="status" className={cn("text-sm", className)}>
       <span className={cn("tabular-nums", late ? "text-muted-foreground line-through" : "font-medium")}>
         Between {from} and {to}
       </span>

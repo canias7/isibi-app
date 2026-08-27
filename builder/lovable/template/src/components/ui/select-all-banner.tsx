@@ -13,7 +13,7 @@ export function SelectAllBanner({ pageCount, totalCount, allSelected, onSelectAl
 }) {
   if (totalCount <= pageCount) return null;
   return (
-    <div className={cn("flex flex-wrap items-center justify-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-sm", className)}>
+    <div data-slot="select-all-banner" className={cn("flex flex-wrap items-center justify-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-sm", className)}>
       {allSelected ? (
         <>
           <span>All <strong className="tabular-nums">{totalCount.toLocaleString()}</strong> selected.</span>

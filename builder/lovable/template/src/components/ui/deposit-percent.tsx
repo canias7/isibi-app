@@ -37,7 +37,7 @@ export function DepositPercent({ deposit, price, bands = [5, 10, 15, 20, 25, 40]
   const needed = next !== undefined ? Math.ceil((next / 100) * price - deposit) : undefined;
   const reached = [...bands].sort((a, b) => b - a).find((b) => raw >= b);
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="deposit-percent" className={cn("space-y-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="text-lg font-medium">{pct}%</span>
         <span className="text-muted-foreground">

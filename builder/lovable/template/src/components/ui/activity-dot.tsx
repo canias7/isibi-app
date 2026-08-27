@@ -26,7 +26,7 @@ export function ActivityDot({ unseen, by, what, className }: {
 }) {
   if (!unseen) return null;
   return (
-    <span className={cn("inline-flex items-center gap-1.5", className)}>
+    <span data-slot="activity-dot" className={cn("inline-flex items-center gap-1.5", className)}>
       <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-foreground" />
       {by || what ? (
         <span className="text-xs text-muted-foreground">

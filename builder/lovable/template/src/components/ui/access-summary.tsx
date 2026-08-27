@@ -24,7 +24,7 @@ export function AccessSummary({ groups, className }: {
   const shown = groups.filter((g) => g.people.length);
   if (!shown.length) return null;
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="access-summary" className={cn("flex flex-col gap-3", className)}>
       {shown.map((g) => (
         <section key={g.level}>
           <h3 className="mb-1 text-sm font-medium tabular-nums">{g.level} · {g.people.length}</h3>

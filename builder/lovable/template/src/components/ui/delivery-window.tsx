@@ -23,7 +23,7 @@ export function DeliveryWindow({ days, value, onChange, currency = "GBP", classN
 }) {
   const fmt = (m: number) => formatMinor(m, currency);
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="delivery-window" className={cn("flex flex-col gap-3", className)}>
       {days.map((d) => (
         <div key={d.day} className="flex flex-col gap-1.5">
           <p className="text-xs font-semibold">{d.day}</p>

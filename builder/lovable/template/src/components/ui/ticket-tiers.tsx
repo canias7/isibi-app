@@ -59,7 +59,7 @@ export function TicketTiers({
   const count = tiers.reduce((n, t) => n + (quantities[t.key] ?? 0), 0);
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="ticket-tiers" className={cn("flex flex-col gap-3", className)}>
       <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
         {tiers.map((t) => {
           const gone = t.soldOut || t.remaining === 0;

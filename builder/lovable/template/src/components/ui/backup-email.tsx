@@ -45,7 +45,7 @@ export function BackupEmail({
 
   if (address && !editing) {
     return (
-      <div className={cn("flex flex-col gap-2 rounded-lg border border-border p-4", className)}>
+      <div data-slot="backup-email" className={cn("flex flex-col gap-2 rounded-lg border border-border p-4", className)}>
         <div className="flex items-start gap-3">
           <Mail aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">

@@ -19,7 +19,7 @@ export function NewInBadge({ arrivedOn, days = 30, className }: {
   const age = Date.now() - new Date(arrivedOn).getTime();
   if (!(age >= 0) || age > days * 864e5) return null;
   return (
-    <span className={cn("inline-flex items-center rounded-full border border-foreground bg-foreground px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-background", className)}>
+    <span data-slot="new-in-badge" className={cn("inline-flex items-center rounded-full border border-foreground bg-foreground px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-background", className)}>
       New in
     </span>
   );

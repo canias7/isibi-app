@@ -51,7 +51,7 @@ export function UnitCard({
   const money = (n: number) =>
     new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
   return (
-    <article className={cn("flex flex-col rounded-xl border border-border p-6", className)}>
+    <article data-slot="unit-card" className={cn("flex flex-col rounded-xl border border-border p-6", className)}>
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-2xl font-semibold tracking-tight">{size}</h3>
         <p className="shrink-0 text-end">

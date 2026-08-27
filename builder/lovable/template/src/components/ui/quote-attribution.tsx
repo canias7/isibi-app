@@ -24,7 +24,7 @@ export function QuoteAttribution({ name, role, href, className }: {
     </>
   );
   return (
-    <figcaption className={cn("text-sm", className)}>
+    <figcaption data-slot="quote-attribution" className={cn("text-sm", className)}>
       <span aria-hidden className="text-muted-foreground">— </span>
       {href
         ? <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-4">{body}</a>

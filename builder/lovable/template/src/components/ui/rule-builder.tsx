@@ -53,7 +53,7 @@ export function RuleBuilder({ rule, onChange, triggers, fields, ops, actions, cl
   ].filter(Boolean).join(" ");
 
   return (
-    <div className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
+    <div data-slot="rule-builder" className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <span className="font-medium">When</span>
         <select value={rule.trigger} aria-label="When" onChange={(e) => onChange({ ...rule, trigger: e.target.value })} className={sel}>

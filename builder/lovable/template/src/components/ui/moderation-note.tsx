@@ -11,7 +11,7 @@ export function ModerationNote({ reason = "This comment was removed.", className
   reason?: string; className?: string;
 }) {
   return (
-    <p className={cn("flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground", className)}>
+    <p data-slot="moderation-note" className={cn("flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground", className)}>
       <EyeOff className="size-4 shrink-0" />{reason}
     </p>
   );

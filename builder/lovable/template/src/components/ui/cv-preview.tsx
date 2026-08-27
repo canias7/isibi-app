@@ -31,7 +31,7 @@ export function CvPreview({ fileName, fields, originalSeenByHuman, correctable =
 }) {
   const failed = fields.filter((f) => f.failed || !f.value);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="cv-preview" className={cn("space-y-1.5", className)}>
       {fileName && <p className="font-mono text-xs text-muted-foreground">{fileName}</p>}
       <p className="text-sm">
         This is what we read from your CV. It is what gets searched and screened.

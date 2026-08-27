@@ -38,7 +38,7 @@ export function DataFreshness({ updatedAt, cadenceMs, cadenceLabel, className }:
   };
 
   return (
-    <p className={cn("text-xs tabular-nums", late ? "font-medium" : "text-muted-foreground", className)}>
+    <p data-slot="data-freshness" className={cn("text-xs tabular-nums", late ? "font-medium" : "text-muted-foreground", className)}>
       {late
         ? <>Expected an update {ago(age - cadenceMs)} ago — last one <time dateTime={isoAttr(at)}>{ago(age)} back</time>.</>
         : <>Updated <time dateTime={isoAttr(at)}>{ago(age)} ago</time> · {cadenceLabel}</>}

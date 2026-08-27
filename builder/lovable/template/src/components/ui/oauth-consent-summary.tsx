@@ -42,7 +42,7 @@ export function OauthConsentSummary({ provider, writes = [], reads = [], never =
       </div>
     );
   return (
-    <div className={cn("space-y-2.5", className)}>
+    <div data-slot="oauth-consent-summary" className={cn("space-y-2.5", className)}>
       <p className="text-sm">Connecting {provider} will let us:</p>
       {list("Make changes", writes, true)}
       {list("See", reads)}

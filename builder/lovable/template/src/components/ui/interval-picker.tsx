@@ -37,7 +37,7 @@ export function IntervalPicker({ every, unit, onChange, units = UNITS, id, class
   };
 
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span data-slot="interval-picker" className={cn("inline-flex items-center gap-2", className)}>
       <span className="text-sm text-muted-foreground">Every</span>
       <input id={id} type="number" inputMode="numeric" min={1} value={every}
         aria-label="How often"

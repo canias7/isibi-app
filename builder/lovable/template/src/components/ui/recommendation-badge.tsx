@@ -27,7 +27,7 @@ export function RecommendationBadge({ reason, forWhom, label = "Recommended", cl
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex flex-wrap items-baseline gap-1.5", className)}>
+    <span data-slot="recommendation-badge" className={cn("inline-flex flex-wrap items-baseline gap-1.5", className)}>
       <span className="inline-flex items-center gap-1 rounded-full bg-foreground px-2 py-0.5 text-[10px] font-medium text-background">
         <Sparkles aria-hidden className="size-2.5" />
         {label}

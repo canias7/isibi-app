@@ -35,7 +35,7 @@ export function BatchYield({ batch, input, output, unit = "kg", expectedPercent,
   const lost = input - output;
   const explained = losses.reduce((n, l) => n + l.amount, 0);
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="batch-yield" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className={cn("tabular-nums", below && "font-medium")}>{pct.format(rate)} yield</span>
         {batch && <span className="text-muted-foreground"> · {batch}</span>}

@@ -28,7 +28,7 @@ export function AppealStatus({ state, submittedAt, decidedAt, reason, expectedWi
 }) {
   const WORD = { pending: "Being reviewed", upheld: "Appeal upheld", refused: "Appeal refused" } as const;
   return (
-    <div className={cn("flex flex-col gap-1 text-sm", className)}>
+    <div data-slot="appeal-status" className={cn("flex flex-col gap-1 text-sm", className)}>
       <p className="font-medium">{WORD[state]}</p>
       <p className="text-xs text-muted-foreground">
         {submittedAt && (

@@ -46,7 +46,7 @@ export function PermissionMatrix({
 
     if (readOnly || locked || !onToggle) {
       return (
-        <span className="inline-flex items-center justify-center gap-0.5"
+        <span data-slot="permission-matrix" className="inline-flex items-center justify-center gap-0.5"
           title={locked ? (on ? "Always allowed — cannot be changed" : "Never allowed — cannot be changed") : undefined}>
           {on ? <Check aria-hidden className="size-4" /> : <Minus aria-hidden className="size-4 text-muted-foreground" />}
           {locked ? <Lock aria-hidden className="size-2.5 text-muted-foreground" /> : null}

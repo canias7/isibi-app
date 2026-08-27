@@ -34,7 +34,7 @@ export function InterviewSlot({ round, when, minutes, format, panel = [], where,
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="interview-slot" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{round ?? "Interview"}</span>
         <span className="block">{when}{minutes !== undefined ? ` · ${minutes} minutes` : ""}</span>

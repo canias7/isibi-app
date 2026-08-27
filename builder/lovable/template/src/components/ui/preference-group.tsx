@@ -25,7 +25,7 @@ export function PreferenceGroup({ title, description, children, className }: {
   className?: string;
 }) {
   return (
-    <section className={cn("flex flex-col gap-1", className)}>
+    <section data-slot="preference-group" className={cn("flex flex-col gap-1", className)}>
       <div className="pb-1">
         <h3 className="text-sm font-semibold">{title}</h3>
         {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
@@ -43,7 +43,7 @@ export function PreferenceRow({ label, hint, htmlFor, control, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-center justify-between gap-4 px-3.5 py-2.5", className)}>
+    <div data-slot="preference-row" className={cn("flex items-center justify-between gap-4 px-3.5 py-2.5", className)}>
       <div className="min-w-0">
         <label htmlFor={htmlFor} className={cn("text-sm font-medium", htmlFor && "cursor-pointer")}>{label}</label>
         {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}

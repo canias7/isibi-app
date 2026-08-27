@@ -39,7 +39,7 @@ export function TrackingPlanRow({ name, purpose, owner, state, lastSeen, volume,
   } as const;
   const bad = state === "missing" || state === "undocumented";
   return (
-    <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
+    <li data-slot="tracking-plan-row" className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
       <span className="min-w-0 flex-1">
         <code className={cn("font-mono text-xs", state === "retired" && "text-muted-foreground")}>{name}</code>
         {purpose && <span className="block text-xs">{purpose}</span>}

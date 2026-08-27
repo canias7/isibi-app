@@ -60,7 +60,7 @@ export function CopyResponse({ text, html, label = "Copy", showLabel, className 
   }, [state]);
 
   return (
-    <span className={cn("inline-flex items-center gap-1.5", className)}>
+    <span data-slot="copy-response" className={cn("inline-flex items-center gap-1.5", className)}>
       <button
         type="button"
         onClick={async () => setState((await copyText(text, html)) ? "done" : "failed")}

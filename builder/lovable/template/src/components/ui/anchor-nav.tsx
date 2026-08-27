@@ -20,7 +20,7 @@ export function AnchorNav({ items, className }: {
     return () => io.disconnect();
   }, [items]);
   return (
-    <nav className={cn("flex flex-col gap-1 border-s text-sm", className)}>
+    <nav data-slot="anchor-nav" className={cn("flex flex-col gap-1 border-s text-sm", className)}>
       {items.map((it) => (
         <a key={it.id} href={"#" + it.id}
           className={cn("-ml-px border-s-2 ps-3 py-1",

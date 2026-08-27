@@ -24,7 +24,7 @@ export function RoundingLine({ amount, reason, currency = "GBP", className }: {
 }) {
   if (!amount) return null;
   return (
-    <div className={cn("flex justify-between gap-4 text-sm text-muted-foreground", className)}>
+    <div data-slot="rounding-line" className={cn("flex justify-between gap-4 text-sm text-muted-foreground", className)}>
       <span>Rounding{reason ? ` (${reason})` : ""}</span>
       <span className="shrink-0 tabular-nums">
         {amount > 0 ? "+" : "−"}<Money amount={Math.abs(amount)} currency={currency} />

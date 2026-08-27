@@ -37,7 +37,7 @@ export function ReturnWindow({ deliveredOn, days = 14, now, faultyNote = true, c
 
   if (left <= 0) {
     return (
-      <p className={cn("text-xs", className)}>
+      <p data-slot="return-window" className={cn("text-xs", className)}>
         <span className="font-medium">The {days}-day return window closed on {fmt(deadline)}.</span>
         {faultyNote ? (
           <span className="block text-muted-foreground">

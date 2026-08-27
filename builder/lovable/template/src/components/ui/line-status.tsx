@@ -38,7 +38,7 @@ export function LineStatus({ up, knownFault, faultNote, estimatedFixAt, download
     promisedDownloadMbps !== undefined &&
     downloadMbps < promisedDownloadMbps * 0.7;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="line-status" className={cn("space-y-1 text-sm", className)}>
       <p className="font-medium">
         {knownFault
           ? "There is a fault in your area. It is not something at your end."

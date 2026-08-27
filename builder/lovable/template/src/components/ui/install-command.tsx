@@ -72,7 +72,7 @@ export function InstallCommand({
   if (!command) return null;
 
   return (
-    <div className={cn("overflow-hidden rounded-md border border-border", className)}>
+    <div data-slot="install-command" className={cn("overflow-hidden rounded-md border border-border", className)}>
       <div role="tablist" aria-label="Package manager"
         onKeyDown={(e) => {
           const i = names.indexOf(active);

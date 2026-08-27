@@ -27,7 +27,7 @@ export function ConsentGatedNote({ consentRate, covers, className }: {
   className?: string;
 }) {
   return (
-    <p role="note" className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="consent-gated-note" role="note" className={cn("text-xs text-muted-foreground", className)}>
       <span className="text-foreground">
         These {covers ?? "figures"} only count people who agreed to be measured.
       </span>

@@ -35,7 +35,7 @@ export function ConnectorCard({ name, does, connected, account, onConnect, onMan
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
+    <div data-slot="connector-card" className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
       <div>
         <p className="text-sm font-medium">{name}</p>
         <p className="text-xs text-muted-foreground">{does}</p>

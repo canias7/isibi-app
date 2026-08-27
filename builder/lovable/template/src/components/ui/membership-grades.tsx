@@ -63,7 +63,7 @@ export function MembershipGrades({
   const money = (n: number) =>
     new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
   return (
-    <div className={cn("", className)}>
+    <div data-slot="membership-grades" className={cn("", className)}>
       <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</h2>
       <ol className="mt-3 divide-y divide-border border-y border-border">
         {grades.map((g) => (

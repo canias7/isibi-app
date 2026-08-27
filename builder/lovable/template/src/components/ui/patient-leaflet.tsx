@@ -34,7 +34,7 @@ export function PatientLeaflet({ drug, howToTake, missedDose, seriousEffects = [
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2 text-sm", className)}>
+    <div data-slot="patient-leaflet" className={cn("space-y-2 text-sm", className)}>
       <p className="font-medium">{drug}</p>
       {howToTake && (
         <div>

@@ -49,7 +49,7 @@ export function TemplatePreview({ body, values, pattern = /\{\{(\w+)\}\}/g, clas
   }
   out.push(body.slice(last));
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="template-preview" className={cn("space-y-2", className)}>
       <p className="text-xs text-muted-foreground">
         {missing === 0 ? "Nothing left to fill in" : `${missing} ${missing === 1 ? "blank" : "blanks"} left`}
       </p>

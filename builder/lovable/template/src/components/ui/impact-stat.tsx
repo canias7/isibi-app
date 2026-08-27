@@ -34,7 +34,7 @@ export function ImpactStat({ value, meaning, period, source, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("", className)}>
+    <div data-slot="impact-stat" className={cn("", className)}>
       <p className="text-4xl font-semibold tracking-tight tabular-nums break-words sm:text-5xl">{value}</p>
       <p className="mt-2 max-w-sm text-base leading-relaxed">{meaning}</p>
       {(period || source) && (
@@ -66,7 +66,7 @@ export function ImpactStats({ items, columns = 3, className }: {
   if (!items.length) return null;
   const cols = { 1: "", 2: "sm:grid-cols-2", 3: "sm:grid-cols-2 lg:grid-cols-3" }[columns];
   return (
-    <div className={cn("grid gap-8", cols, className)}>
+    <div data-slot="impact-stats" className={cn("grid gap-8", cols, className)}>
       {items.map((i) => (
         <div key={i.value + i.meaning} className="min-w-0 border-t border-border pt-6">
           <ImpactStat {...i} />

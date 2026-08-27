@@ -13,7 +13,7 @@ export function BulkActions({ count, onClear, actions, className }: {
 }) {
   if (count <= 0) return null;
   return (
-    <div className={cn("flex flex-wrap items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2", className)}
+    <div data-slot="bulk-actions" className={cn("flex flex-wrap items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2", className)}
       role="status">
       <span className="text-sm font-medium tabular-nums">{count} selected</span>
       <div className="ms-auto flex flex-wrap items-center gap-2">

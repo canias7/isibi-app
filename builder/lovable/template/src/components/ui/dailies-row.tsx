@@ -36,7 +36,7 @@ export function DailiesRow({ day, date, clips, sizeGb, copies = 0, verified, sou
   const safe = copies >= 2 && verified === true;
   const wipedEarly = cardWiped && !safe;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="dailies-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">
           {day !== undefined ? `Day ${day}` : "Dailies"}

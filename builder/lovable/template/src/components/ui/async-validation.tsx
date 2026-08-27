@@ -59,7 +59,7 @@ export function AsyncValidationNote({ state, className }: {
 }) {
   if (state.status === "idle") return null;
   return (
-    <p className={cn("text-xs", state.status === "failed" ? "font-medium" : "text-muted-foreground", className)}>
+    <p data-slot="async-validation-note" className={cn("text-xs", state.status === "failed" ? "font-medium" : "text-muted-foreground", className)}>
       {state.status === "checking" ? "Checking…" : state.message ?? (state.status === "ok" ? "Looks good." : "That will not work.")}
     </p>
   );

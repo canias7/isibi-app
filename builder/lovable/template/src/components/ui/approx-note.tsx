@@ -35,7 +35,7 @@ export function ApproxNote({ value, why, asOf, word = "About", className }: {
 }) {
   const tail = [why ? WHY[why] : null, asOf ? `as of ${asOf}` : null].filter(Boolean).join(", ");
   return (
-    <span className={cn("inline-flex flex-wrap items-baseline gap-x-1.5", className)}>
+    <span data-slot="approx-note" className={cn("inline-flex flex-wrap items-baseline gap-x-1.5", className)}>
       <span className="tabular-nums">
         <span aria-hidden="true">~</span>
         <span className="sr-only">{word} </span>

@@ -37,7 +37,7 @@ export function PlanLimitRow({ label, limit, unit, atLimit = "refused", note, us
     slowed: "then slowed down",
   }[atLimit];
   return (
-    <tr className={className}>
+    <tr data-slot="plan-limit-row" className={className}>
       <th scope="row" className="px-3 py-2 text-start text-sm font-normal">
         {label}
         {note && <span className="block text-xs text-muted-foreground">{note}</span>}

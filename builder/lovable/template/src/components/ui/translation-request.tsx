@@ -35,7 +35,7 @@ export function TranslationRequest({ languages, formats = ["Large print", "Brail
 }) {
   const id = useId();
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="translation-request" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">
         Get this in another language or format
       </label>

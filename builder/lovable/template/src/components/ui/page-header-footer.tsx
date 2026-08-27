@@ -25,7 +25,7 @@ export function PageHeaderFooter({ title, subtitle, printedOn, source, className
   className?: string;
 }) {
   return (
-    <div className={cn("hidden print:block", className)}>
+    <div data-slot="page-header-footer" className={cn("hidden print:block", className)}>
       <header className="mb-4 border-b border-border pb-2">
         <p className="text-sm font-medium">{title}</p>
         {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}

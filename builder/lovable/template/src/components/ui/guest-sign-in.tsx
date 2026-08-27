@@ -36,7 +36,7 @@ export function GuestSignIn({ hostName, guestName, onGuestNameChange, guestsUsed
   const left = guestsUsed !== undefined && guestsAllowed !== undefined ? guestsAllowed - guestsUsed : undefined;
   const none = left !== undefined && left <= 0;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="guest-sign-in" className={cn("space-y-1", className)}>
       {left !== undefined && (
         <p className={cn("text-sm tabular-nums", none && "font-medium")}>
           {none

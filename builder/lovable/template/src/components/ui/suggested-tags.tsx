@@ -31,7 +31,7 @@ export function SuggestedTags({ suggestions, applied = [], onAccept, onDismiss, 
   const open = suggestions.filter((s) => !applied.includes(s.id));
   if (!open.length) return null;
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+    <div data-slot="suggested-tags" className={cn("flex flex-wrap items-center gap-1.5", className)}>
       <span className="text-xs text-muted-foreground">{label}</span>
       {open.map((s) => (
         <span key={s.id} className="inline-flex items-center rounded-full border border-dashed border-border">

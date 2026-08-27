@@ -25,7 +25,7 @@ export function DocumentOutline({ items, activeId, maxDepth = 3, label = "On thi
 }) {
   if (!items.length) return null;
   return (
-    <nav aria-label={label} className={cn("flex flex-col gap-1", className)}>
+    <nav data-slot="document-outline" aria-label={label} className={cn("flex flex-col gap-1", className)}>
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <ol className="flex flex-col gap-0.5 text-sm">
         {items.map((it) => {

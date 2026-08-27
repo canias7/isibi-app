@@ -30,7 +30,7 @@ export function ExitSurvey({ question = "What made you leave today?", reasons, o
 
   if (sent) {
     return (
-      <div className={cn("rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground", className)}>
+      <div data-slot="exit-survey" className={cn("rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground", className)}>
         Thanks — noted.
       </div>
     );

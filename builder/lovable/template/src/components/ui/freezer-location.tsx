@@ -37,7 +37,7 @@ export function FreezerLocation({ freezer, shelf, rack, box, position, temperatu
     ["Freezer", freezer], ["Shelf", shelf], ["Rack", rack], ["Box", box], ["Position", position],
   ];
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="freezer-location" className={cn("space-y-0.5 text-sm", className)}>
       <p className="flex flex-wrap gap-x-3 font-mono tabular-nums">
         {parts.filter(([, v]) => v).map(([k, v]) => (
           <span key={k}>

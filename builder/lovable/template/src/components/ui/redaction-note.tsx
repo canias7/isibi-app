@@ -24,7 +24,7 @@ export function RedactionNote({ count, reason, by, className }: {
 }) {
   if (count <= 0) return null;
   return (
-    <p className={cn("rounded-md border border-dashed border-border px-3 py-2 text-xs", className)}>
+    <p data-slot="redaction-note" className={cn("rounded-md border border-dashed border-border px-3 py-2 text-xs", className)}>
       <span className="font-medium tabular-nums">
         {count} {count === 1 ? "passage has" : "passages have"} been removed
       </span>

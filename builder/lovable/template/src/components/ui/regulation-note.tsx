@@ -30,7 +30,7 @@ export function RegulationNote({ obligation, appliesTo, citation, url, className
   className?: string;
 }) {
   return (
-    <p className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="regulation-note" className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
       <span className="block text-foreground">{obligation}</span>
       {appliesTo && <span className="block">Applies to {appliesTo}.</span>}
       {(citation || url) && (

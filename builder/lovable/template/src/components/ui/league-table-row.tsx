@@ -40,7 +40,7 @@ export function LeagueTableRow({ position, team, played, won, drawn, lost, goals
   const points = won * pointsPerWin + drawn * pointsPerDraw - pointsDeduction;
   const gd = goalsFor !== undefined && goalsAgainst !== undefined ? goalsFor - goalsAgainst : undefined;
   return (
-    <li className={cn("px-3 py-1.5 text-sm", className)}>
+    <li data-slot="league-table-row" className={cn("px-3 py-1.5 text-sm", className)}>
       <p className="flex items-baseline gap-2 tabular-nums">
         {position !== undefined && <span className="w-6 shrink-0 text-xs text-muted-foreground">{position}</span>}
         <span className={cn("min-w-0 flex-1", highlight && "font-medium")}>{team}</span>

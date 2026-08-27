@@ -21,7 +21,7 @@ export function SeenBy({ names, total, max = 3, className }: {
   className?: string;
 }) {
   if (!names.length) {
-    return <p className={cn("text-xs text-muted-foreground", className)}>Not seen yet</p>;
+    return <p data-slot="seen-by" className={cn("text-xs text-muted-foreground", className)}>Not seen yet</p>;
   }
   const shown = names.slice(0, max);
   const rest = names.length - shown.length;

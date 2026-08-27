@@ -11,7 +11,7 @@ export function TabNav({ items, active, className }: {
   active?: string; className?: string;
 }) {
   return (
-    <nav className={cn("flex gap-1 overflow-x-auto border-b", className)}>
+    <nav data-slot="tab-nav" className={cn("flex gap-1 overflow-x-auto border-b", className)}>
       {items.map((t) => {
         const on = active === t.href;
         return (

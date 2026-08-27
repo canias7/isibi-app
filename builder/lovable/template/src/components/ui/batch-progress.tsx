@@ -20,7 +20,7 @@ export function BatchProgress({ done, total, label, failed = 0, onStop, classNam
   const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0;
   const running = done < total;
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="batch-progress" className={cn("space-y-2", className)}>
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-sm">
           {label && <span className="me-2 text-muted-foreground">{label}</span>}

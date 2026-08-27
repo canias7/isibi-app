@@ -37,7 +37,7 @@ export function TableSearch({ value, onChange, placeholder = "Search", count, to
 }) {
   const id = React.useId();
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="table-search" className={cn("flex flex-col gap-1", className)}>
       <div className="relative">
         <Search aria-hidden className="pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <input

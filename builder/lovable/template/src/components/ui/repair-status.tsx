@@ -71,7 +71,7 @@ export function RepairStatus({
   // is neither current nor already passed.
   const stages = ORDER.filter((s) => s !== "waiting_part" || (repair && at >= ORDER.indexOf("waiting_part") && repair.part));
   return (
-    <div className={cn("rounded-xl border border-border bg-background p-6 sm:p-8", className)}>
+    <div data-slot="repair-status" className={cn("rounded-xl border border-border bg-background p-6 sm:p-8", className)}>
       <h2 className="text-lg font-semibold tracking-tight">Where is my repair?</h2>
       <form
         className="mt-4 flex flex-wrap items-end gap-4"

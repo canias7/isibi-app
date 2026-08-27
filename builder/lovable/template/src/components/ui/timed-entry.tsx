@@ -33,7 +33,7 @@ export function TimedEntry({ slots, windowMinutes, stayAsLongAsYouLike = true, l
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="timed-entry" className={cn("space-y-1.5", className)}>
       <p className="text-xs text-muted-foreground">
         {windowMinutes
           ? `Arrive any time within ${windowMinutes} minutes of your slot.`

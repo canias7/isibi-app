@@ -22,7 +22,7 @@ export function SensitivityNote({ drivers, max = 3, className }: {
   const shown = drivers.slice(0, max);
   if (!shown.length) return null;
   return (
-    <div className={cn("flex flex-col gap-0.5 text-xs text-muted-foreground", className)}>
+    <div data-slot="sensitivity-note" className={cn("flex flex-col gap-0.5 text-xs text-muted-foreground", className)}>
       <p className="font-medium text-foreground">What moves this most</p>
       <ul>
         {shown.map((d) => (

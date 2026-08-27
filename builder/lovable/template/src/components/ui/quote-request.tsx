@@ -39,7 +39,7 @@ export function QuoteRequest({
   const id = React.useId();
   if (sent) {
     return (
-      <div className={cn("rounded-lg border border-border bg-muted/40 p-5", className)} role="status">
+      <div data-slot="quote-request" className={cn("rounded-lg border border-border bg-muted/40 p-5", className)} role="status">
         <p className="font-medium">That's with us.</p>
         <p className="mt-1 text-sm text-muted-foreground">
           We answer quotes in the order they arrive, and emergencies first. If it's water coming in,

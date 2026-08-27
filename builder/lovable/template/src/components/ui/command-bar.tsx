@@ -71,7 +71,7 @@ export function CommandBar({ commands, query, onQueryChange, onClose, placeholde
   const index = Math.min(at, Math.max(0, shown.length - 1));
 
   return (
-    <div className={cn("flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl", className)}>
+    <div data-slot="command-bar" className={cn("flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl", className)}>
       <div className="flex items-center gap-2 border-b border-border px-3">
         <Search aria-hidden className="size-4 shrink-0 text-muted-foreground" />
         <input

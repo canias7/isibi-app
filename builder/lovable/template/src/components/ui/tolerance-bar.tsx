@@ -39,7 +39,7 @@ export function ToleranceBar({ value, min, max, unit, label, span, className }: 
     : `${Number(off.toFixed(2)).toLocaleString()}${u} ${value < min ? "under" : "over"}`;
 
   return (
-    <figure className={cn("flex flex-col gap-1", className)}>
+    <figure data-slot="tolerance-bar" className={cn("flex flex-col gap-1", className)}>
       {label ? (
         <figcaption className="flex items-baseline justify-between gap-2 text-xs">
           <span className="font-medium">{label}</span>

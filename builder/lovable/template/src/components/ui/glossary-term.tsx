@@ -21,7 +21,7 @@ export function GlossaryTerm({ term, definition, className }: {
   const [open, setOpen] = React.useState(false);
   const id = React.useId();
   return (
-    <span className={cn("inline", className)}>
+    <span data-slot="glossary-term" className={cn("inline", className)}>
       <button type="button" aria-expanded={open} aria-controls={id}
         onClick={() => setOpen((v) => !v)}
         className="cursor-pointer underline decoration-dotted underline-offset-4">

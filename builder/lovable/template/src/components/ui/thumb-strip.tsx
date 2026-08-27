@@ -33,7 +33,7 @@ export function ThumbStrip({ images, index, onSelect, className }: {
   }, [index]);
 
   return (
-    <div role="tablist" aria-label="Choose an image"
+    <div data-slot="thumb-strip" role="tablist" aria-label="Choose an image"
       onKeyDown={(e) => {
         if (e.key === "ArrowRight") { e.preventDefault(); onSelect((index + 1) % images.length); }
         if (e.key === "ArrowLeft") { e.preventDefault(); onSelect((index - 1 + images.length) % images.length); }

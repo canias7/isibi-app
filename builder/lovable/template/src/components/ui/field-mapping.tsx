@@ -40,7 +40,7 @@ export function FieldMapping({ rows, targets, onChange, skipLabel = "Do not impo
 }) {
   const missing = rows.filter((r) => r.required && !r.target);
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="field-mapping" className={cn("space-y-2", className)}>
       <p className="text-sm">
         {missing.length === 0
           ? <span className="text-muted-foreground">Everything required is mapped.</span>

@@ -35,7 +35,7 @@ export function ApplicationStatus({ stage, waitingOn, since, typicalWait, needed
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="application-status" className={cn("space-y-0.5 text-sm", className)}>
       <p className="font-medium">
         {waitingOn === "you"
           ? "We are waiting for you"

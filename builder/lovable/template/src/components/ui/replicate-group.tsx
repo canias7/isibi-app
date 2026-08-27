@@ -40,7 +40,7 @@ export function ReplicateGroup({ label, replicates, unit, kind = "technical", cv
   const overLimit = cv !== undefined && cvLimitPercent !== undefined && cv > cvLimitPercent;
   const u = unit ? ` ${unit}` : "";
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="replicate-group" className={cn("space-y-0.5 text-sm", className)}>
       {label && <p>{label}</p>}
       <p className="tabular-nums">
         {mean !== undefined ? `Mean ${mean.toFixed(2).replace(/\.?0+$/, "")}${u}` : "No usable replicates"}

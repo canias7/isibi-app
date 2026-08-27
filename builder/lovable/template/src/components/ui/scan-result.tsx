@@ -33,7 +33,7 @@ export function ScanResult({ code, name, detail, state = "known", onConfirm, onA
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="scan-result" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <div>
         <p className="text-sm font-medium">
           {state === "known" ? (name ?? "Scanned") : state === "duplicate" ? (name ?? "Scanned") : "We do not know this code"}

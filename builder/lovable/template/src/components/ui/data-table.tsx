@@ -26,7 +26,7 @@ export function DataTable<T extends Record<string, unknown>>({
 }) {
   if (rows.length === 0) return <p className="py-8 text-center text-sm text-muted-foreground">{empty}</p>;
   return (
-    <OverflowScroller className={className}>
+    <OverflowScroller data-slot="data-table" className={className}>
       <Table>
         <TableHeader>
           <TableRow>

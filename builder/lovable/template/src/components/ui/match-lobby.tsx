@@ -52,7 +52,7 @@ export function MatchLobby({ mode, players, needed, className }: {
     notReady.length > 0 ? `Not ready: ${notReady.map((p) => p.name).join(", ")}.` : null,
   ].filter(Boolean) as string[];
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="match-lobby" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         {mode && <span className="font-medium">{mode}</span>}
         {needed !== undefined && (

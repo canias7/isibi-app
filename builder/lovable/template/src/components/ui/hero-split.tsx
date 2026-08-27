@@ -16,7 +16,7 @@ export function HeroSplit({
   className?: string;
 }) {
   return (
-    <section className={cn("mx-auto grid max-w-6xl items-center gap-10 px-6 py-16 md:grid-cols-2", className)}>
+    <section data-slot="hero-split" className={cn("mx-auto grid max-w-6xl items-center gap-10 px-6 py-16 md:grid-cols-2", className)}>
       <div className={cn("flex flex-col gap-4", reverse && "md:order-2")}>
         <h1 className="text-4xl font-semibold tracking-tight text-balance">{title}</h1>
         {subtitle && <p className="text-muted-foreground text-balance">{subtitle}</p>}

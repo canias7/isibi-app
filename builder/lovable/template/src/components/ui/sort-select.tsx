@@ -7,7 +7,7 @@ export function SortSelect({ value, onChange, options, id = "sort", className }:
   options: { value: string; label: string }[]; id?: string; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div data-slot="sort-select" className={cn("flex items-center gap-2", className)}>
       <Label htmlFor={id} className="text-xs text-muted-foreground">Sort</Label>
       <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-8 w-auto text-xs">
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

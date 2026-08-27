@@ -37,7 +37,7 @@ export function CompletionRing({ tasks, size = 64, thickness = 7, nextLabel, onD
 
   if (done === tasks.length && tasks.length > 0) {
     return (
-      <div className={cn("flex items-center gap-2 text-sm", className)}>
+      <div data-slot="completion-ring" className={cn("flex items-center gap-2 text-sm", className)}>
         <Check aria-hidden className="size-4" />
         <span>All set up.</span>
         {onDismiss ? (

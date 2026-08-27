@@ -51,7 +51,7 @@ export function SplitPane({
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-h-0 flex-col md:flex-row", className)}>
+    <div data-slot="split-pane" className={cn("flex min-h-0 flex-col md:flex-row", className)}>
       <section
         aria-label={firstLabel}
         style={{ width: collapsed ? 0 : undefined }}

@@ -67,7 +67,7 @@ export function PromptHistory({ items, onPick, title = "Recent", max = 5, classN
 }) {
   if (items.length === 0) return null;
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="prompt-history" className={cn("flex flex-col gap-1.5", className)}>
       <p className="text-xs font-medium text-muted-foreground">{title}</p>
       <ul className="flex flex-col gap-1">
         {items.slice(-max).reverse().map((t, i) => (

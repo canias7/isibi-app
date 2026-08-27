@@ -36,7 +36,7 @@ export function JurisdictionPicker({ jurisdictions, value, onChange, affects = [
   const groups = Array.from(new Set(jurisdictions.map((j) => j.group ?? "")));
   const chosen = jurisdictions.find((j) => j.id === value);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="jurisdiction-picker" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">{label}</label>
       <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Choose one</option>

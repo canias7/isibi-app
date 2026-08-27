@@ -29,7 +29,7 @@ export function PhotoRequiredNote({ have, need, of, examples = [], className }: 
   const met = have >= need;
   const left = Math.max(0, need - have);
   return (
-    <div role="status" className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="photo-required-note" role="status" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn(!met && "font-medium")}>
         {met
           ? <>Enough photos — <span className="tabular-nums font-normal">{have}</span> added</>

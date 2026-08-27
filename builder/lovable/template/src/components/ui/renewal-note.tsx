@@ -34,7 +34,7 @@ export function RenewalNote({ title, outcome, newDueOn, renewalsLeft, fromDueDat
 }) {
   const ok = outcome === "renewed";
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="renewal-note" className={cn("space-y-0.5 text-sm", className)}>
       {title && <p className="text-xs text-muted-foreground">{title}</p>}
       <p className={cn(!ok && "font-medium")}>
         {ok

@@ -71,7 +71,7 @@ export function SnapCarousel({ children, label = "Carousel", showDots = true, cl
   };
 
   return (
-    <div className={cn("flex flex-col gap-2", className)} role="group" aria-roledescription="carousel" aria-label={label}>
+    <div data-slot="snap-carousel" className={cn("flex flex-col gap-2", className)} role="group" aria-roledescription="carousel" aria-label={label}>
       <div className="relative">
         <div ref={box} onScroll={measure}
           className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

@@ -35,7 +35,7 @@ export function FileRequired({ label, id, accept, acceptWords, filename, onFile,
 }) {
   const done = Boolean(filename);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="file-required" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">
         {label}
         <span className="ms-1.5 text-xs font-normal text-muted-foreground">required</span>

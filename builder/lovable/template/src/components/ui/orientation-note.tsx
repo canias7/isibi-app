@@ -35,7 +35,7 @@ export function OrientationNote({ message = "Turn your phone sideways to see thi
   }, []);
   if (!show) return null;
   return (
-    <p className={cn("rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="orientation-note" className={cn("rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground", className)}>
       {message}
     </p>
   );

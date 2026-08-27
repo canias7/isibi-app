@@ -27,7 +27,7 @@ export function MergePreview({ result, unresolved, className }: {
 }) {
   const pending = unresolved ?? [];
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="merge-preview" className={cn("flex flex-col gap-2", className)}>
       <div className="flex flex-wrap items-baseline gap-x-2">
         <p className="text-sm font-medium">
           {pending.length ? "Preview — not final" : "Preview"}

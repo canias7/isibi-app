@@ -23,7 +23,7 @@ export function RequirementCheck({ requirements, className }: {
   const sorted = [...requirements].sort((a, b) => Number(a.met) - Number(b.met));
   const unmet = requirements.filter((r) => !r.met).length;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="requirement-check" className={cn("flex flex-col gap-1", className)}>
       <p className="text-sm font-medium tabular-nums">
         {unmet === 0 ? "Everything checks out" : `${unmet} ${unmet === 1 ? "thing" : "things"} to sort out`}
       </p>

@@ -38,7 +38,7 @@ export function LivestockRow({ tag, name, kind, location, born, dam, withdrawalU
 }) {
   const overdue = due.filter((d) => d.overdue);
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="livestock-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <code className="font-mono text-xs">{tag}</code>
         {name && <span>{name}</span>}

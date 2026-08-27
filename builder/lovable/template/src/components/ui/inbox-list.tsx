@@ -10,7 +10,7 @@ export function InboxList({ items, selected, onSelect, empty = "Nothing here", c
   items: InboxItem[]; selected?: string | null; onSelect?: (id: string) => void;
   empty?: string; className?: string;
 }) {
-  if (items.length === 0) return <p className="py-8 text-center text-sm text-muted-foreground">{empty}</p>;
+  if (items.length === 0) return <p data-slot="inbox-list" className="py-8 text-center text-sm text-muted-foreground">{empty}</p>;
   return (
     <ul className={cn("flex flex-col", className)}>
       {items.map((m) => (

@@ -22,7 +22,7 @@ export function WhatIfToggle({ label, checked, onCheckedChange, effect, note, id
   note?: string; id?: string; className?: string;
 }) {
   return (
-    <div className={cn("flex items-start justify-between gap-4 rounded-md border border-border p-3", className)}>
+    <div data-slot="what-if-toggle" className={cn("flex items-start justify-between gap-4 rounded-md border border-border p-3", className)}>
       <div className="min-w-0">
         <label htmlFor={id} className="text-sm font-medium">{label}</label>
         {note && <p className="text-xs text-muted-foreground">{note}</p>}

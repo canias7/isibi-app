@@ -36,7 +36,7 @@ export function LocalOverride({ setting, groupValue, siteValue, site, reason, ap
 }) {
   const openEnded = temporary && !until;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="local-override" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p>
         <span className="font-medium">{setting}</span>
         {site && <span className="text-muted-foreground"> · {site}</span>}

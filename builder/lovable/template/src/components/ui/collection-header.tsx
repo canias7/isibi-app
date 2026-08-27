@@ -21,7 +21,7 @@ export function CollectionHeader({ title, count, description, image, className }
 }) {
   const [open, setOpen] = React.useState(false);
   return (
-    <header className={cn("flex flex-col gap-2", className)}>
+    <header data-slot="collection-header" className={cn("flex flex-col gap-2", className)}>
       {image ? (
         <span className="block overflow-hidden rounded-lg" style={{ aspectRatio: "21/9" }}>
           <img src={image} alt="" className="h-full w-full object-cover" />

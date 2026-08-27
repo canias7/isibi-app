@@ -47,7 +47,7 @@ export function HandoffSummary({ outstanding = [], watch = [], done = [], by, at
     </div>
   );
   return (
-    <div className={cn("space-y-2.5 rounded-md border border-border p-3", className)}>
+    <div data-slot="handoff-summary" className={cn("space-y-2.5 rounded-md border border-border p-3", className)}>
       {section("Outstanding", outstanding, "Nothing outstanding", true)}
       {section("Keep an eye on", watch, "Nothing flagged")}
       {done.length > 0 && section("Done this shift", done)}

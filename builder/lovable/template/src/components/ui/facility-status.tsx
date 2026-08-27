@@ -45,7 +45,7 @@ export function FacilityStatus({ activities, updated, heading = "Right now", cla
 }) {
   if (!activities.length) return null;
   return (
-    <div className={cn("", className)}>
+    <div data-slot="facility-status" className={cn("", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</h2>
         <p className="text-xs tabular-nums text-muted-foreground">{updated}</p>

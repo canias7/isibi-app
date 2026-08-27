@@ -30,7 +30,7 @@ export function EditingLock({ name, since, onTakeOver, takeOverLabel = "Take ove
   className?: string;
 }) {
   return (
-    <div role="status"
+    <div data-slot="editing-lock" role="status"
       className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm", className)}>
       <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
       <span><span className="font-medium">{name}</span> is editing this</span>

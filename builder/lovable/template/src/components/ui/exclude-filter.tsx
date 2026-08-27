@@ -33,7 +33,7 @@ export function ExcludeFilter({ label, state, onChange, count, className }: {
   className?: string;
 }) {
   return (
-    <button type="button" onClick={() => onChange(NEXT[state])}
+    <button data-slot="exclude-filter" type="button" onClick={() => onChange(NEXT[state])}
       aria-label={`${label}, ${WORD[state]}`}
       className={cn("flex w-full items-center gap-2 rounded px-1.5 py-1 text-start text-sm hover:bg-muted", className)}>
       <span aria-hidden="true"

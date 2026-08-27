@@ -36,7 +36,7 @@ export function CatalogueRecord({ title, creator, edition, year, publisher, iden
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="catalogue-record" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{title}</span>
         {creator && <span className="block text-muted-foreground">{creator}</span>}

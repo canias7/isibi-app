@@ -32,7 +32,7 @@ export function AnnounceRegion({ message, urgency = "polite", clearAfterMs = 300
     return () => { clearTimeout(set); clearTimeout(clear); };
   }, [message, clearAfterMs]);
   return (
-    <p role="status" aria-live={urgency} aria-atomic="true" className={cn("sr-only", className)}>
+    <p data-slot="announce-region" role="status" aria-live={urgency} aria-atomic="true" className={cn("sr-only", className)}>
       {shown}
     </p>
   );

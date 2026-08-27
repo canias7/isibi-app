@@ -39,7 +39,7 @@ export function MappingConflict({ record, here, there, fields, hereAt, thereAt, 
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="mapping-conflict" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <p className="text-sm">
         <span className="font-medium">{record}</span>
         <span className="text-muted-foreground">

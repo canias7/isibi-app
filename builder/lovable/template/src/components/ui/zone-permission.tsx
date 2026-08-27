@@ -39,7 +39,7 @@ export function ZonePermission({ person, grants, className }: {
   const permanent = grants.filter((g) => !g.until);
   const unused = grants.filter((g) => g.timesUsed === 0);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="zone-permission" className={cn("space-y-1.5", className)}>
       {person && <p className="text-sm">{person}</p>}
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {grants.map((g) => (

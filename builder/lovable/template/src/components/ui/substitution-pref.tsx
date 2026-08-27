@@ -26,7 +26,7 @@ export function SubstitutionPref({ value, onChange, perItem, className }: {
     { key: "call" as const, label: "Call me", hint: "Only if we can reach you while picking." },
   ];
   return (
-    <fieldset className={cn("flex flex-col gap-1.5", className)}>
+    <fieldset data-slot="substitution-pref" className={cn("flex flex-col gap-1.5", className)}>
       <legend className="text-sm font-medium">If something is out of stock</legend>
       {opts.map((o) => (
         <label key={o.key} className="flex cursor-pointer items-start gap-2 text-sm">

@@ -30,7 +30,7 @@ export function CustomsNote({ fields, incoterm, dutyPayableBy, className }: {
 }) {
   const missing = fields.filter((f) => f.required && !f.value);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="customs-note" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         {missing.length === 0
           ? <span className="text-muted-foreground">Everything customs needs is here</span>

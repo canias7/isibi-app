@@ -8,9 +8,9 @@
  * forcing breaks.
  */
 export function PageBreak() {
-  return <div className="hidden break-before-page print:block" aria-hidden="true" />;
+  return <div data-slot="page-break" className="hidden break-before-page print:block" aria-hidden="true" />;
 }
 /** Keeps its children on one sheet. Use around a table row, a card, a signature. */
 export function KeepTogether({ children, className }: { children?: React.ReactNode; className?: string }) {
-  return <div className={className ? `break-inside-avoid ${className}` : "break-inside-avoid"}>{children}</div>;
+  return <div data-slot="keep-together" className={className ? `break-inside-avoid ${className}` : "break-inside-avoid"}>{children}</div>;
 }

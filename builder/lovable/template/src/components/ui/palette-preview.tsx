@@ -45,7 +45,7 @@ export function PalettePreview({ colours, against = "#ffffff", className }: {
   className?: string;
 }) {
   return (
-    <ul className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
+    <ul data-slot="palette-preview" className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {colours.map((c) => {
         const r = contrastRatio(c.hex, against);
         const body = r !== null && r >= 4.5;

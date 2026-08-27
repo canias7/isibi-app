@@ -20,7 +20,7 @@ export function FootnoteList({ notes, prefix = "fn", label = "Notes", className 
 }) {
   if (!notes.length) return null;
   return (
-    <section aria-label={label} className={cn("border-t border-border pt-4", className)}>
+    <section data-slot="footnote-list" aria-label={label} className={cn("border-t border-border pt-4", className)}>
       <h2 className="mb-2 text-sm font-medium">{label}</h2>
       <ol className="flex flex-col gap-1.5 text-sm text-muted-foreground">
         {notes.map((note, i) => (

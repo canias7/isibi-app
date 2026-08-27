@@ -19,7 +19,7 @@ export function BlockedBy({ blockers, className }: {
 }) {
   if (!blockers.length) return null;
   return (
-    <div role="status" className={cn("text-sm", className)}>
+    <div data-slot="blocked-by" role="status" className={cn("text-sm", className)}>
       <p className="font-medium">
         Blocked by {blockers.length === 1 ? "one thing" : `${blockers.length} things`}
       </p>

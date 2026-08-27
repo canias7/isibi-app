@@ -31,7 +31,7 @@ export function SizeChartRow({ size, cells, you, className }: {
   className?: string;
 }) {
   return (
-    <tr className={cn(you && "font-medium", className)}>
+    <tr data-slot="size-chart-row" className={cn(you && "font-medium", className)}>
       <th scope="row" className="px-3 py-2 text-start text-sm">
         {size}
         {you && <span className="ms-2 text-xs font-normal text-muted-foreground">Your size</span>}

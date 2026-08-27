@@ -6,7 +6,7 @@ export function RelatedList({ title = "Read next", items, ordered, className }: 
 }) {
   const List = ordered ? "ol" : "ul";
   return (
-    <section className={className}>
+    <section data-slot="related-list" className={className}>
       <h3 className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">{title}</h3>
       <List className={cn("flex flex-col", ordered && "list-inside list-decimal")}>
         {items.map((r) => (

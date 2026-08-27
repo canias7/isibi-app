@@ -57,7 +57,7 @@ export function ScrollSpy({ sections, active, label = "On this page", className 
   className?: string;
 }) {
   return (
-    <nav aria-label={label} className={cn("text-sm", className)}>
+    <nav data-slot="scroll-spy" aria-label={label} className={cn("text-sm", className)}>
       <p className="mb-2 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{label}</p>
       <ul className="flex flex-col">
         {sections.map((s) => (

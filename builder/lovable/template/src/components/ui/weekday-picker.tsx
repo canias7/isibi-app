@@ -21,7 +21,7 @@ export function WeekdayPicker({ value, onChange, className }: {
 }) {
   const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   return (
-    <div className={cn("flex gap-1", className)} role="group" aria-label="Days">
+    <div data-slot="weekday-picker" className={cn("flex gap-1", className)} role="group" aria-label="Days">
       {weekOrder().map((d) => {
         const on = value.includes(d);
         return (

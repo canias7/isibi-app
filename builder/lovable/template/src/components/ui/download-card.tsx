@@ -22,7 +22,7 @@ export function DownloadCard({ name, description, size, href, className }: {
   name: string; description?: string; size?: number; href?: string; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-3 rounded-lg border p-3", className)}>
+    <div data-slot="download-card" className={cn("flex items-center gap-3 rounded-lg border p-3", className)}>
       <FileTypeIcon name={name} className="size-5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{name}</div>

@@ -33,7 +33,7 @@ export function AnonymisedToggle({ on, onChange, hides = [], doesNotHide = [], r
 }) {
   const id = useId();
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="anonymised-toggle" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="flex items-center gap-2 text-sm font-medium">
         <input
           id={id}

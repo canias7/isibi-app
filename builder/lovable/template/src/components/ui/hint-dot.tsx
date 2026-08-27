@@ -41,7 +41,7 @@ export function HintDot({ name, pulse = true, className }: {
   const { seen } = useSeen(name ?? "");
   if (name && seen) return null;
   return (
-    <span aria-hidden className={cn("relative inline-flex size-2 shrink-0", className)}>
+    <span data-slot="hint-dot" aria-hidden className={cn("relative inline-flex size-2 shrink-0", className)}>
       {pulse ? (
         <span className="absolute inline-flex size-full animate-ping rounded-full bg-foreground opacity-60 motion-reduce:hidden" />
       ) : null}

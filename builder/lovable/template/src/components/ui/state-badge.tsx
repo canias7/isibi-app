@@ -30,7 +30,7 @@ export function StateBadge({ state, states, className }: {
   if (!spec) {
     // Never nothing: a blank cell is unexplainable.
     return (
-      <span className={cn("inline-flex items-center rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground", className)}
+      <span data-slot="state-badge" className={cn("inline-flex items-center rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground", className)}
         title="This state is not one the app knows about">
         {state}
       </span>

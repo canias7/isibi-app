@@ -35,7 +35,7 @@ export function PinchHint({ zoom, onZoom, min = 0.5, max = 4, step = 0.25, class
   }, []);
   const clamp = (z: number) => Math.max(min, Math.min(max, Math.round(z * 100) / 100));
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="pinch-hint" className={cn("space-y-1", className)}>
       <div className="flex items-center gap-1.5">
         <button type="button" aria-label="Zoom out" disabled={zoom <= min}
           onClick={() => onZoom(clamp(zoom - step))}

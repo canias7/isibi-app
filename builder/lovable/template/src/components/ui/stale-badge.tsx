@@ -36,7 +36,7 @@ export function StaleBadge({ asOf, staleAfter = 300, onRefresh, className }: {
   const iso = toDate(at).toISOString();
 
   return (
-    <span role="status" className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
+    <span data-slot="stale-badge" role="status" className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
       as of <time dateTime={iso} title={toDate(at).toLocaleString()}>{label}</time>
       {onRefresh ? (
         <button type="button" onClick={onRefresh}

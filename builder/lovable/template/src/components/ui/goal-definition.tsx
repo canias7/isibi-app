@@ -36,7 +36,7 @@ export function GoalDefinition({ name, counts, countingRule, excludes = [], targ
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="goal-definition" className={cn("space-y-1", className)}>
       <p className="text-sm">
         <span className="font-medium">{name}</span>
         {target !== undefined && (

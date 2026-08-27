@@ -47,7 +47,7 @@ export function RoutingStep({ number, operation, workCentre, setupMinutes, runMi
     return rest === 0 ? `${h}h` : `${h}h ${rest}m`;
   };
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="routing-step" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         {number !== undefined && <span className="text-xs tabular-nums text-muted-foreground">{number}.</span>}
         <span className={cn("min-w-0 flex-1", state === "running" && "font-medium", state === "done" && "text-muted-foreground")}>

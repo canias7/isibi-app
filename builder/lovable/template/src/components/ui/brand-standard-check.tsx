@@ -41,7 +41,7 @@ export function BrandStandardCheck({ site, visitedOn, auditor, items, score, out
   const failed = items.filter((i) => !i.passed);
   const safetyFails = failed.filter((i) => i.safety);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="brand-standard-check" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         {site && <span className="font-medium">{site}</span>}
         {(visitedOn || auditor) && (

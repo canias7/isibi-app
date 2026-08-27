@@ -34,7 +34,7 @@ export function ShelfMark({ mark, site, floor, sequence, closedAccess, requestNo
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="shelf-mark" className={cn("space-y-0.5 text-sm", className)}>
       {(site || floor) && (
         <p className="text-xs text-muted-foreground">
           {[site, floor].filter(Boolean).join(" · ")}

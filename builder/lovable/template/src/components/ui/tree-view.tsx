@@ -49,7 +49,7 @@ export function TreeView({ nodes, selected, onSelect, defaultExpanded = [], clas
   };
 
   return (
-    <div role="tree" className={cn("text-sm", className)} onKeyDown={onKey}>
+    <div data-slot="tree-view" role="tree" className={cn("text-sm", className)} onKeyDown={onKey}>
       {flat.map(({ node, depth }) => (
         <div key={node.id} tabIndex={node.id === here ? 0 : -1} onFocus={() => setFocus(node.id)}
           className="outline-none focus-visible:ring-2 focus-visible:ring-ring/40">

@@ -34,7 +34,7 @@ export function WalkInNote({ accepted, waitFrom, waitTo, reason, action, classNa
       ? `about ${waitFrom} minutes`
       : `${waitFrom} to ${waitTo} minutes`;
   return (
-    <p role="status" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-sm", className)}>
+    <p data-slot="walk-in-note" role="status" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-sm", className)}>
       {accepted === "yes" && (
         <span>
           <span className="font-medium">Walk in any time</span>

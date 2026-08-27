@@ -26,7 +26,7 @@ export function QuestionNav({ step, total, onBack, onNext, nextDisabled, finishL
 }) {
   const last = step >= total;
   return (
-    <div className={cn("flex items-center justify-between gap-3", className)}>
+    <div data-slot="question-nav" className={cn("flex items-center justify-between gap-3", className)}>
       <button type="button" onClick={onBack} disabled={step <= 1}
         className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-40">
         Back

@@ -40,7 +40,7 @@ export function SizeGuide({ sizes, caption, className }: {
   if (!sizes.length) return null;
   const biggest = Math.max(...sizes.map((s) => s.area || 0), 1);
   return (
-    <div className={cn("", className)}>
+    <div data-slot="size-guide" className={cn("", className)}>
       {caption && <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</p>}
       <ul className={cn("divide-y divide-border border-y border-border", caption && "mt-3")}>
         {sizes.map((s) => (

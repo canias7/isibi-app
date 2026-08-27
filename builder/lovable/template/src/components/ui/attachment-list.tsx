@@ -7,7 +7,7 @@ export function AttachmentList({ items, onOpen, className }: {
   onOpen?: (name: string) => void; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap gap-2", className)}>
+    <div data-slot="attachment-list" className={cn("flex flex-wrap gap-2", className)}>
       {items.map((a) => {
         const inner = (
           <>

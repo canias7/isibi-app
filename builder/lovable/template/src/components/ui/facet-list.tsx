@@ -30,7 +30,7 @@ export function FacetList({ title, options, selected, onToggle, showAll, onShowA
   const shown = showAll ? options : options.slice(0, max);
   const rest = options.length - shown.length;
   return (
-    <fieldset className={cn("flex flex-col gap-1.5", className)}>
+    <fieldset data-slot="facet-list" className={cn("flex flex-col gap-1.5", className)}>
       <legend className="mb-1 text-sm font-medium">{title}</legend>
       {shown.map((o) => {
         const none = o.count === 0;

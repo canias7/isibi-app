@@ -29,7 +29,7 @@ export function CameraCapture({ facing = "environment", onPhoto, label = "Take a
   React.useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
   return (
-    <div className={cn("flex flex-col items-start gap-2", className)}>
+    <div data-slot="camera-capture" className={cn("flex flex-col items-start gap-2", className)}>
       {preview ? (
         <div className="flex flex-col gap-1.5">
           <img src={preview} alt="The photo just taken" className="max-h-40 rounded-lg border border-border" />

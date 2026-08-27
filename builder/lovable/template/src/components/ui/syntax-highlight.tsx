@@ -88,7 +88,7 @@ export function SyntaxHighlight({ code, lang = "js", className }: {
 }) {
   const tokens = React.useMemo(() => tokenize(code, lang), [code, lang]);
   return (
-    <code className={cn("font-mono text-xs whitespace-pre-wrap", className)}>
+    <code data-slot="syntax-highlight" className={cn("font-mono text-xs whitespace-pre-wrap", className)}>
       {tokens.map((t, i) => (
         <span key={i} className={
           t.kind === "comment" ? "text-muted-foreground italic"

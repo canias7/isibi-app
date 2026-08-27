@@ -26,7 +26,7 @@ export function ScenarioTabs({ scenarios, value, onChange, children, className }
   if (!scenarios.length) return null;
   const active = scenarios.some((s) => s.key === value) ? value : scenarios[0].key;
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="scenario-tabs" className={cn("flex flex-col gap-3", className)}>
       <div role="tablist" aria-label="Scenario" className="flex gap-1 rounded-md border border-border bg-muted p-1"
         onKeyDown={(e) => {
           const i = scenarios.findIndex((s) => s.key === active);

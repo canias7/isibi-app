@@ -16,7 +16,7 @@ export function SharePreview({ title, description, image, domain, className }: {
 }) {
   const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
   return (
-    <div className={cn("max-w-sm overflow-hidden rounded-lg border border-border", className)}>
+    <div data-slot="share-preview" className={cn("max-w-sm overflow-hidden rounded-lg border border-border", className)}>
       <div className="aspect-[1.91/1] bg-muted">
         {image
           ? <SafeImage src={image} alt="" className="size-full object-cover" />

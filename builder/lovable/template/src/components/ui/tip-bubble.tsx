@@ -22,7 +22,7 @@ export function TipBubble({ children, step, of, onDismiss, onNext, className }: 
   className?: string;
 }) {
   return (
-    <div role="note" className={cn("flex max-w-xs items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm shadow-xs", className)}>
+    <div data-slot="tip-bubble" role="note" className={cn("flex max-w-xs items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm shadow-xs", className)}>
       <div className="min-w-0 flex-1">
         {step && of && (
           <p className="mb-0.5 text-xs text-muted-foreground tabular-nums">{step} of {of}</p>

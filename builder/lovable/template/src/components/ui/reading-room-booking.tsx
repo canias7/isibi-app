@@ -34,7 +34,7 @@ export function ReadingRoomBooking({ room, when, seat, orderBy, ordered = [], ne
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="reading-room-booking" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{room}</span>
         <span className="block">{when}</span>

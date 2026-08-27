@@ -36,7 +36,7 @@ export function CareSummary({ allergies = [], changesTreatment = [], background 
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   const stale = monthsOld !== undefined && monthsOld >= 12;
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="care-summary" className={cn("space-y-1.5 text-sm", className)}>
       <p className={cn(allergies.length > 0 ? "font-medium" : "text-muted-foreground")}>
         {allergies.length > 0
           ? `Allergies: ${AND.format(allergies)}.`

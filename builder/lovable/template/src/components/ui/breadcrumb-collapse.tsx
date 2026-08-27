@@ -52,7 +52,7 @@ export function BreadcrumbCollapse({ items, maxVisible = 4, className }: {
   );
 
   return (
-    <nav aria-label="Breadcrumb" className={cn("min-w-0 text-sm text-muted-foreground", className)}>
+    <nav data-slot="breadcrumb-collapse" aria-label="Breadcrumb" className={cn("min-w-0 text-sm text-muted-foreground", className)}>
       <ol className="flex min-w-0 items-center gap-1">
         {head.map((i, k) => crumb(i, !folds && k === items.length - 1, "h" + k))}
         {folds ? (

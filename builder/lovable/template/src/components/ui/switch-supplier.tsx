@@ -49,7 +49,7 @@ export function SwitchSupplier({ from, to, tariff, switchOn, coolingOffDays = 14
   }).format(v);
   const net = estimatedSaving !== undefined && exitFee !== undefined ? estimatedSaving - exitFee : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="switch-supplier" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">
           {from ? `${from} ` : ""}<span aria-hidden="true">→</span> {to}

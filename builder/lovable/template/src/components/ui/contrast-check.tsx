@@ -44,7 +44,7 @@ export function ContrastCheck({ foreground, background, className }: {
 }) {
   const ratio = contrastRatio(foreground, background);
   if (ratio == null) {
-    return <p className={cn("text-xs text-muted-foreground", className)}>Enter two six-digit hex colours.</p>;
+    return <p data-slot="contrast-check" className={cn("text-xs text-muted-foreground", className)}>Enter two six-digit hex colours.</p>;
   }
   const body = ratio >= 4.5;
   const large = ratio >= 3;

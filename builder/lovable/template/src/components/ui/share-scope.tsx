@@ -32,7 +32,7 @@ export function ShareScope({ value, onChange, orgName, className }: {
     { key: "link", label: "Anyone with the link", means: "No sign-in, and it can be forwarded." },
   ];
   return (
-    <fieldset className={cn("flex flex-col gap-2", className)}>
+    <fieldset data-slot="share-scope" className={cn("flex flex-col gap-2", className)}>
       <legend className="mb-1 text-sm font-medium">Who can open this</legend>
       <div role="radiogroup" aria-label="Who can open this" className="flex flex-col gap-2">
         {options.map((o) => (

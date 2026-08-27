@@ -24,7 +24,7 @@ export function ChecklistDot({ done, total, className }: {
   if (total <= 0 || n >= total) return null;
   const r = 5, c = 2 * Math.PI * r;
   return (
-    <span className={cn("inline-flex items-center gap-1", className)}>
+    <span data-slot="checklist-dot" className={cn("inline-flex items-center gap-1", className)}>
       <svg viewBox="0 0 14 14" className="size-3.5 -rotate-90" aria-hidden>
         <circle cx="7" cy="7" r={r} fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
         <circle cx="7" cy="7" r={r} fill="none" stroke="currentColor" strokeWidth="2"

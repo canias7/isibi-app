@@ -22,7 +22,7 @@ export function SkuField({ value, label = "SKU", group = 4, className }: {
   const [copied, setCopied] = React.useState(false);
   const shown = group > 0 ? (value.match(new RegExp(`.{1,${group}}`, "g")) ?? [value]).join(" ") : value;
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-xs", className)}>
+    <span data-slot="sku-field" className={cn("inline-flex items-center gap-1.5 text-xs", className)}>
       <span className="text-muted-foreground">{label}</span>
       <code className="font-mono tracking-wider">{shown}</code>
       <button type="button"

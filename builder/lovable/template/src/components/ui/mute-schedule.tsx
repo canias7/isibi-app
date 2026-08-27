@@ -46,7 +46,7 @@ export function MuteSchedule({ enabled, from, to, days, urgentBreaksThrough, onC
   const active = enabled && inQuietHours(new Date(), from, to, days);
 
   return (
-    <div className={cn("flex flex-col gap-3 rounded-lg border border-border p-3", className)}>
+    <div data-slot="mute-schedule" className={cn("flex flex-col gap-3 rounded-lg border border-border p-3", className)}>
       <label className="flex cursor-pointer items-center gap-2.5">
         <input type="checkbox" checked={enabled} onChange={(e) => onChange({ enabled: e.target.checked })}
           className="size-4 cursor-pointer accent-foreground" />

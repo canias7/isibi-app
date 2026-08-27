@@ -33,7 +33,7 @@ export function TableDensity({ value, onChange, className }: {
     { key: "comfortable", label: "Comfortable" },
   ];
   return (
-    <div role="radiogroup" aria-label="Row height"
+    <div data-slot="table-density" role="radiogroup" aria-label="Row height"
       className={cn("inline-flex gap-1 rounded-md border border-border p-1", className)}>
       {steps.map((s) => (
         <button key={s.key} type="button" role="radio" aria-checked={value === s.key}

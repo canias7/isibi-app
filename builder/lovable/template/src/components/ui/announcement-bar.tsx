@@ -15,7 +15,7 @@ export function AnnouncementBar({
   if (gone) return null;
   const body = <span className="text-sm">{children}</span>;
   return (
-    <div className={cn("motion-enter flex items-center justify-center gap-3 border-b bg-muted px-4 py-2 text-center", className)}>
+    <div data-slot="announcement-bar" className={cn("motion-enter flex items-center justify-center gap-3 border-b bg-muted px-4 py-2 text-center", className)}>
       {href ? <a href={href} className="underline underline-offset-4">{body}</a> : body}
       {dismissible && (
         <button type="button" aria-label="Dismiss" onClick={() => setGone(true)}

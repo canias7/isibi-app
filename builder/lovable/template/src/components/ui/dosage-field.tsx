@@ -40,7 +40,7 @@ export function DosageField({ value, unit, units = ["mg", "micrograms", "ml", "u
     Number.isFinite(n) &&
     ((usualMin !== undefined && n < usualMin) || (usualMax !== undefined && n > usualMax));
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="dosage-field" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">
         {label}
       </label>

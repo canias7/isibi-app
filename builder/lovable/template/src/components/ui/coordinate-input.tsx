@@ -52,7 +52,7 @@ export function CoordinateInput({ value, onChange, className }: {
   const field = "h-9 w-28 rounded-md border border-input bg-background px-2 text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="coordinate-input" className={cn("flex flex-col gap-1", className)}>
       <div className="flex items-end gap-2">
         <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
           Latitude

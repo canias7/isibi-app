@@ -34,7 +34,7 @@ export function HardLimitWarning({ what, limit, unit, current, raisable, workaro
 }) {
   const over = current !== undefined && current > limit;
   return (
-    <div role="status"
+    <div data-slot="hard-limit-warning" role="status"
       className={cn("space-y-1 rounded-md border px-3 py-2 text-sm",
         over ? "border-foreground/40 bg-muted/40" : "border-border", className)}>
       <p>

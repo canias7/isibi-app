@@ -22,7 +22,7 @@ export function HandoverNote({ from, to, at, note, outstanding, className }: {
   className?: string;
 }) {
   return (
-    <section aria-label="Handover" className={cn("flex flex-col gap-2 rounded-md border border-border p-3", className)}>
+    <section data-slot="handover-note" aria-label="Handover" className={cn("flex flex-col gap-2 rounded-md border border-border p-3", className)}>
       <p className="text-xs text-muted-foreground">
         Handed over by <span className="font-medium text-foreground">{from}</span>
         {to ? <> to <span className="font-medium text-foreground">{to}</span></> : null}

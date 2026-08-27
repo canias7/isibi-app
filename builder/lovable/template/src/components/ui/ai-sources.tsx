@@ -19,7 +19,7 @@ export function AiSources({ sources, noneNote = "Answered from general knowledge
   className?: string;
 }) {
   if (!sources.length) {
-    return <p className={cn("text-xs text-muted-foreground", className)}>{noneNote}</p>;
+    return <p data-slot="ai-sources" className={cn("text-xs text-muted-foreground", className)}>{noneNote}</p>;
   }
   return (
     <div className={cn("text-xs", className)}>

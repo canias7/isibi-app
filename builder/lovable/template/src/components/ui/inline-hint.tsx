@@ -21,6 +21,6 @@ export function InlineHint({ children, id, className }: {
   className?: string;
 }) {
   return (
-    <p id={id} className={cn("text-xs text-muted-foreground", className)}>{children}</p>
+    <p data-slot="inline-hint" id={id} className={cn("text-xs text-muted-foreground", className)}>{children}</p>
   );
 }

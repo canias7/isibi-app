@@ -29,7 +29,7 @@ export function StepSummary({ title, answers, onEdit, editLabel = "Change", empt
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-md border border-border px-3 py-2", className)}>
+    <div data-slot="step-summary" className={cn("rounded-md border border-border px-3 py-2", className)}>
       <div className="flex items-baseline gap-3">
         <p className="min-w-0 flex-1 text-sm font-medium">{title}</p>
         {onEdit && (

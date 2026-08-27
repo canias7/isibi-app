@@ -30,7 +30,7 @@ export function RevertPanel({ versions, currentKey, onRevert, className }: {
 }) {
   if (!versions.length) return null;
   return (
-    <ul className={cn("divide-y divide-border rounded-md border border-border", className)}>
+    <ul data-slot="revert-panel" className={cn("divide-y divide-border rounded-md border border-border", className)}>
       {versions.map((v) => {
         const current = v.key === currentKey;
         return (

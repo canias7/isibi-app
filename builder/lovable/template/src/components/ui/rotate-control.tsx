@@ -23,7 +23,7 @@ export function RotateControl({ degrees, onChange, className }: {
 }) {
   const turn = (by: number) => onChange((((degrees + by) % 360) + 360) % 360);
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span data-slot="rotate-control" className={cn("inline-flex items-center gap-2", className)}>
       <button type="button" onClick={() => turn(-90)} aria-label="Rotate left"
         className="grid size-8 cursor-pointer place-items-center rounded border border-border hover:bg-muted">
         <RotateCcw aria-hidden className="size-3.5" />

@@ -41,7 +41,7 @@ export function ScrollShadow({ children, orientation = "horizontal", className }
   }, [h]);
 
   return (
-    <div className="relative">
+    <div data-slot="scroll-shadow" className="relative">
       <div ref={ref} className={cn(h ? "overflow-x-auto" : "overflow-y-auto", className)}>{children}</div>
       {edges.start && (
         <div aria-hidden className={cn("pointer-events-none absolute from-background to-transparent",

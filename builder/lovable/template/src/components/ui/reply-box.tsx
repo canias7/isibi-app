@@ -15,7 +15,7 @@ export function ReplyBox({ onSubmit, busy, placeholder = "Write a reply…", max
   const [body, setBody] = React.useState("");
   const send = () => { if (body.trim()) { onSubmit(body.trim()); setBody(""); } };
   return (
-    <div className={cn("flex flex-col gap-2", className)}
+    <div data-slot="reply-box" className={cn("flex flex-col gap-2", className)}
       onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); send(); } }}>
       <TextareaCount value={body} onChange={setBody} max={max} rows={3} placeholder={placeholder} />
       <BusyButton size="sm" busy={busy} busyLabel="Posting…" disabled={!body.trim()}

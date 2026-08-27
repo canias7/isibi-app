@@ -37,7 +37,7 @@ export function WebhookTest({ events, value, onChange, onSend, sending, result, 
   // match. The second form's labels pointed at the first form's inputs.
   const uid = useId();
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="webhook-test" className={cn("space-y-2", className)}>
       <div className="flex flex-wrap items-end gap-2">
         <span className="space-y-1">
           <label htmlFor={uid + "-wt-event"} className="block text-sm font-medium">Send a test</label>

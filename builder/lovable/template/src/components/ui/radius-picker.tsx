@@ -17,7 +17,7 @@ export function RadiusPicker({ value, onChange, options, label, className }: {
     { value: "9999px", label: "Pill" },
   ];
   return (
-    <div className={cn("space-y-1.5", className)} role="group" aria-label={label ?? "Corner radius"}>
+    <div data-slot="radius-picker" className={cn("space-y-1.5", className)} role="group" aria-label={label ?? "Corner radius"}>
       <div className="flex flex-wrap gap-2">
         {opts.map((o) => (
           <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}

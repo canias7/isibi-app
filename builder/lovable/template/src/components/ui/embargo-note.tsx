@@ -25,7 +25,7 @@ export function EmbargoNote({ until, timezone, lifted, whoCanSee, className }: {
   className?: string;
 }) {
   return (
-    <p role="status" className={cn("text-sm", className)}>
+    <p data-slot="embargo-note" role="status" className={cn("text-sm", className)}>
       {lifted ? (
         <><span className="font-medium">Embargo lifted</span>
           <span className="text-muted-foreground"> — this can be shared.</span></>

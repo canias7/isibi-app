@@ -35,7 +35,7 @@ export function VoiceTranscript({ words, partial, onEdit, editing, className }: 
   const unsure = words.filter((w) => w.uncertain).length;
   if (editing && onEdit) {
     return (
-      <div className={cn("space-y-1", className)}>
+      <div data-slot="voice-transcript" className={cn("space-y-1", className)}>
         <textarea rows={4} defaultValue={full} aria-label="Transcript"
           onChange={(e) => onEdit(e.target.value)}
           className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm" />

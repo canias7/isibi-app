@@ -23,7 +23,7 @@ export function ErrorDetailToggle({ detail, label = "Technical detail", classNam
   const id = React.useId();
   if (!detail) return null;
   return (
-    <div className={cn("flex flex-col items-start gap-1", className)}>
+    <div data-slot="error-detail-toggle" className={cn("flex flex-col items-start gap-1", className)}>
       <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen((v) => !v)}
         className="cursor-pointer text-xs underline underline-offset-4">
         {open ? `Hide ${label.toLowerCase()}` : label}

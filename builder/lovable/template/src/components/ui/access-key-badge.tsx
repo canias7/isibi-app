@@ -31,7 +31,7 @@ export function AccessKeyBadge({ label, accessKey, className }: {
   const i = label.toLowerCase().indexOf(accessKey.toLowerCase());
 
   return (
-    <span className={cn(className)}>
+    <span data-slot="access-key-badge" className={cn(className)}>
       {i >= 0 ? (
         <>
           <span aria-hidden>{label.slice(0, i)}</span>

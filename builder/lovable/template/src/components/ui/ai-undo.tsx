@@ -46,7 +46,7 @@ export function AiUndo({ message = "Applied", onUndo, seconds = 10, onExpire, cl
   }, [left, seconds]);
   const done = Boolean(seconds) && left === 0;
   return (
-    <div role="status"
+    <div data-slot="ai-undo" role="status"
       className={cn("flex items-center gap-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm", className)}>
       <span>{message}</span>
       {!done && (

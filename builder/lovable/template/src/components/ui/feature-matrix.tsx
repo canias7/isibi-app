@@ -29,7 +29,7 @@ export function FeatureMatrix({
   const cell = (v: boolean | string | undefined) => {
     if (v === true) return (<><Check aria-hidden className="mx-auto size-4" /><span className="sr-only">Included</span></>);
     if (v === false || v == null) return (<><Minus aria-hidden className="mx-auto size-4 text-muted-foreground" /><span className="sr-only">Not included</span></>);
-    return <span className="text-xs">{v}</span>;
+    return <span data-slot="feature-matrix" className="text-xs">{v}</span>;
   };
   return (
     <div className={cn("overflow-x-auto rounded-md border border-border", className)}>

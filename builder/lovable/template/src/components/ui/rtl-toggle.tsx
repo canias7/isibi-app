@@ -25,7 +25,7 @@ export function RtlToggle({ rtl, onChange, note = "For checking the layout. Real
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="rtl-toggle" className={cn("space-y-1", className)}>
       <button type="button" aria-pressed={rtl}
         onClick={() => {
           const next = !rtl;

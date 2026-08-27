@@ -24,7 +24,7 @@ export function WaitingOn({ who, needs, since, isYou, className }: {
   className?: string;
 }) {
   return (
-    <p role="status" className={cn("text-sm", className)}>
+    <p data-slot="waiting-on" role="status" className={cn("text-sm", className)}>
       <span className={cn(isYou && "font-medium")}>
         Waiting on {isYou ? "you" : who ?? "someone else"}
       </span>

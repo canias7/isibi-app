@@ -15,7 +15,7 @@ export function MaintenanceNotice({ start, end, body, className }: {
   if (Number.isNaN(s.getTime())) return null;
   const fmt = (d: Date) => d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   return (
-    <div className={cn("flex items-start gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5", className)}>
+    <div data-slot="maintenance-notice" className={cn("flex items-start gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5", className)}>
       <Wrench className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="text-sm">
         <p className="font-medium">

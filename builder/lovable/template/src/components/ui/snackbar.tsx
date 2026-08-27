@@ -41,7 +41,7 @@ export function Snackbar({ message, action, onDismiss, duration = 5000, classNam
 
   if (!message) return null;
   return (
-    <div
+    <div data-slot="snackbar"
       role="status"
       aria-live="polite"
       onMouseEnter={() => setPaused(true)}

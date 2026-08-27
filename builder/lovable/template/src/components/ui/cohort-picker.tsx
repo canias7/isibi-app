@@ -42,7 +42,7 @@ export function CohortPicker({ cohorts, value, onChange, smallBelow = 30, label 
   const chosen = cohorts.find((c) => c.id === value);
   const small = chosen?.size !== undefined && chosen.size < smallBelow;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="cohort-picker" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">{label}</label>
       <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value)}>
         {cohorts.map((c) => (

@@ -21,7 +21,7 @@ export function PartialShipment({ parcels, remaining, className }: {
 }) {
   const total = parcels.length + (remaining?.length ? 1 : 0);
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="partial-shipment" className={cn("flex flex-col gap-2", className)}>
       {parcels.map((p, i) => (
         <div key={p.key} className="rounded-lg border border-border p-2.5">
           <p className="text-xs font-semibold">

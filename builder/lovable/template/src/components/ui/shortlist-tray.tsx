@@ -25,7 +25,7 @@ export function ShortlistTray({ items, max = 4, onRemove, onCompare, onClear, cl
 }) {
   if (!items.length) return null;
   return (
-    <div className={cn("flex flex-wrap items-center gap-2 rounded-md border border-border p-2", className)}>
+    <div data-slot="shortlist-tray" className={cn("flex flex-wrap items-center gap-2 rounded-md border border-border p-2", className)}>
       <span className="text-sm font-medium tabular-nums">
         Shortlist {items.length} of {max}
       </span>

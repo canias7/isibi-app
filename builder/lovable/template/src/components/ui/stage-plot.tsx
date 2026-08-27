@@ -37,7 +37,7 @@ export function StagePlot({ band, inputs, monitors = [], powerOutlets, notes, cl
 }) {
   const phantom = inputs.filter((i) => i.phantom).length;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="stage-plot" className={cn("space-y-1.5", className)}>
       {band && <p className="text-sm font-medium">{band}</p>}
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {inputs.map((i) => (

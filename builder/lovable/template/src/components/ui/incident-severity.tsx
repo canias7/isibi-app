@@ -35,7 +35,7 @@ export function IncidentSeverity({ level, label, meansResponse, whoIsWoken, tell
 }) {
   const heavy = level <= 2;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="incident-severity" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn(heavy ? "text-lg font-medium" : "font-medium")}>
         {label ?? `Level ${level}`}
       </p>

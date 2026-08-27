@@ -37,7 +37,7 @@ export function AppealRoute({ decision, deadline, daysLeft, firstStep, thenStep,
   const urgent = daysLeft !== undefined && daysLeft <= 7;
   const gone = daysLeft !== undefined && daysLeft < 0;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="appeal-route" className={cn("space-y-1 text-sm", className)}>
       {decision && <p className="text-xs text-muted-foreground">{decision}</p>}
       <p className={cn(urgent || gone ? "font-medium" : "")}>
         {gone

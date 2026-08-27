@@ -23,7 +23,7 @@ export function ErrorRetry({ message, detail, attempts, onRetry, busy, className
   className?: string;
 }) {
   return (
-    <div role="alert" className={cn("flex flex-col items-start gap-2 rounded-md border border-border p-4", className)}>
+    <div data-slot="error-retry" role="alert" className={cn("flex flex-col items-start gap-2 rounded-md border border-border p-4", className)}>
       <p className="text-sm font-medium">{message}</p>
       {detail && <p className="text-sm text-muted-foreground">{detail}</p>}
       {typeof attempts === "number" && attempts > 1 && (

@@ -31,7 +31,7 @@ export function OffHireNote({ reference, offHiredAt, collectedAt, collectionBook
 }) {
   if (!offHiredAt) {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="off-hire-note" className={cn("space-y-0.5 text-sm", className)}>
         <p className="font-medium">
           This is still on hire and still being charged for. Charging stops when you off-hire it, not when it is
           collected.

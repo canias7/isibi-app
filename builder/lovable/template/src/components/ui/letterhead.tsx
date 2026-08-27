@@ -13,7 +13,7 @@ export function Letterhead({ name, logo, lines, contact, className }: {
   contact?: { label: string; value: string }[]; className?: string;
 }) {
   return (
-    <header className={cn("flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4", className)}>
+    <header data-slot="letterhead" className={cn("flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4", className)}>
       <div className="flex items-center gap-3">
         {logo && <SafeImage src={logo} alt="" className="h-10 w-auto object-contain" />}
         <div>

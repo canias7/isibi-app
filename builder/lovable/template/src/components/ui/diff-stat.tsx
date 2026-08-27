@@ -32,7 +32,7 @@ export function DiffStat({ added = 0, removed = 0, files, squares = 5, className
   const empty = total === 0 ? 0 : squares - filled;
 
   return (
-    <span className={cn("inline-flex items-center gap-2 text-xs", className)}>
+    <span data-slot="diff-stat" className={cn("inline-flex items-center gap-2 text-xs", className)}>
       {files != null ? (
         <span className="text-muted-foreground tabular-nums">
           {files} {files === 1 ? "file" : "files"}

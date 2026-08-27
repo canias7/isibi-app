@@ -29,7 +29,7 @@ export function TranscriptToggle({ text, children, className }: {
   const mins = Math.max(1, Math.round(words / 200));
 
   return (
-    <div className={className}>
+    <div data-slot="transcript-toggle" className={className}>
       <button type="button" onClick={() => setOpen((v) => !v)}
         aria-expanded={open} aria-controls={id}
         className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">

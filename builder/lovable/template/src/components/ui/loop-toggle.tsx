@@ -21,7 +21,7 @@ export function LoopToggle({ looping, onChange, className }: {
   className?: string;
 }) {
   return (
-    <button type="button" aria-pressed={looping} onClick={() => onChange(!looping)}
+    <button data-slot="loop-toggle" type="button" aria-pressed={looping} onClick={() => onChange(!looping)}
       aria-label={looping ? "Loop is on" : "Loop is off"}
       className={cn("grid size-8 cursor-pointer place-items-center rounded border",
         looping ? "border-foreground bg-muted" : "border-border text-muted-foreground hover:text-foreground",

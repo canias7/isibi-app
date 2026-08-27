@@ -29,7 +29,7 @@ export function WidthPreset({ width = "normal", children, className }: {
   className?: string;
 }) {
   return (
-    <div style={{ maxWidth: WIDTHS[width] }} className={cn("mx-auto w-full", className)}>
+    <div data-slot="width-preset" style={{ maxWidth: WIDTHS[width] }} className={cn("mx-auto w-full", className)}>
       {children}
     </div>
   );

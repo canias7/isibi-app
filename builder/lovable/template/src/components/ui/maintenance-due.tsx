@@ -50,7 +50,7 @@ export function MaintenanceDue({ item, dueAtHours, currentHours, dueAtCycles, cu
   const driving = limits.length > 0 ? limits.reduce((a, l) => (l.left < a.left ? l : a)) : undefined;
   const overdue = driving !== undefined && driving.left < 0;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="maintenance-due" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">{item}</span>
         {driving && (

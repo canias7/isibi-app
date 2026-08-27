@@ -37,7 +37,7 @@ export function ProofOfCollection({ signedName, at, pieces, expectedPieces, cond
 }) {
   const short = pieces !== undefined && expectedPieces !== undefined && pieces < expectedPieces;
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="proof-of-collection" className={cn("space-y-1.5 text-sm", className)}>
       <p>
         {signedName
           ? <>Signed by <span className="font-medium">{signedName}</span></>

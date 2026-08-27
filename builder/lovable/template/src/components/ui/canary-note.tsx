@@ -28,7 +28,7 @@ export function CanaryNote({ version, why, canLeave, onLeave, reportUrl, classNa
   className?: string;
 }) {
   return (
-    <p role="note" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground", className)}>
+    <p data-slot="canary-note" role="note" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground", className)}>
       <span>
         <span className="text-foreground">You are trying {version ? `v${version}` : "a new version"} early.</span>
         {why && <span> {why}.</span>}

@@ -20,7 +20,7 @@ export function ExportHistory({ exports, empty = "Nothing has been exported.", c
   className?: string;
 }) {
   if (!exports.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
+    return <p data-slot="export-history" className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
   }
   return (
     <ul className={cn("divide-y divide-border text-sm", className)}>

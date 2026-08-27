@@ -28,7 +28,7 @@ export function ThemeReset({ changedCount, affects = [], onReset, onExport, busy
   className?: string;
 }) {
   if (changedCount <= 0) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>Everything is already at the default.</p>;
+    return <p data-slot="theme-reset" className={cn("text-sm text-muted-foreground", className)}>Everything is already at the default.</p>;
   }
   const list = affects.length === 0 ? "everything you have changed"
     : affects.length === 1 ? affects[0]

@@ -27,7 +27,7 @@ export function NumberFormatPreview({ value = 1234.56, currency, locales, classN
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="number-format-preview" className={cn("space-y-1", className)}>
       <p className="text-xs text-muted-foreground">
         The same number, <span className="tabular-nums">{value}</span>, in each language:
       </p>

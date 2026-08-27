@@ -25,7 +25,7 @@ export function PriceChangedNote({ changes, currency = "GBP", onAccept, classNam
   const fmt = (m: number) => formatMinor(m, currency);
   const net = changes.reduce((s, c) => s + (c.nowMinor - c.wasMinor), 0);
   return (
-    <div role="status" className={cn("flex flex-col gap-1.5 rounded-lg border-2 border-foreground p-3", className)}>
+    <div data-slot="price-changed-note" role="status" className={cn("flex flex-col gap-1.5 rounded-lg border-2 border-foreground p-3", className)}>
       <p className="text-sm font-semibold">
         {changes.length === 1 ? "One item changed price" : `${changes.length} items changed price`} while this was in your basket
       </p>

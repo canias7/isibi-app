@@ -41,7 +41,7 @@ export function MedicationRound({ entries, round, className }: {
   // A refusal is a choice, not a failure, and is deliberately not counted here.
   const omitted = entries.filter((e) => e.outcome === "omitted");
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="medication-round" className={cn("space-y-1.5", className)}>
       <p className={cn("text-sm", outstanding.length > 0 ? "font-medium" : "text-muted-foreground")}>
         {round && <span>{round} · </span>}
         {outstanding.length === 0

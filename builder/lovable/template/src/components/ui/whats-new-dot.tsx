@@ -27,7 +27,7 @@ export function WhatsNewDot({ feature, version, note, className }: {
   const [open, setOpen] = React.useState(false);
   if (seen && !open) return null;
   return (
-    <span className={cn("motion-fade relative inline-flex", className)}>
+    <span data-slot="whats-new-dot" className={cn("motion-fade relative inline-flex", className)}>
       <button
         type="button"
         aria-label="What changed here"

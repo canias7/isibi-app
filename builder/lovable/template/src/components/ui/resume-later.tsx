@@ -33,7 +33,7 @@ export function ResumeLater({ savedAt, step, totalSteps, expiresIn, onResume, on
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="resume-later" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <p className="text-sm">
         <span className="font-medium">You started this already</span>
         {savedAt && <span className="text-muted-foreground"> — saved {savedAt}</span>}

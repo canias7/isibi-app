@@ -33,7 +33,7 @@ export function UsageForecast({ used, included, projected, runOutOn, daysObserve
   const willExceed = projected !== undefined && projected > included;
   const thin = daysObserved !== undefined && daysInPeriod !== undefined && daysObserved < daysInPeriod / 4;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="usage-forecast" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         {runOutOn ? (
           <>

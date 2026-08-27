@@ -40,7 +40,7 @@ export function ChangelogFeed({ releases, sinceVersion, className }: {
   const unseen = cut > 0 ? releases.slice(0, cut) : cut === 0 ? [] : releases;
   const breaking = unseen.flatMap((r) => r.items.filter((i) => i.breaking));
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="changelog-feed" className={cn("space-y-3", className)}>
       {sinceVersion && breaking.length > 0 && (
         <p className="rounded-md border border-foreground/40 bg-muted/40 px-3 py-2 text-sm">
           <span className="font-medium tabular-nums">{breaking.length}</span>{" "}

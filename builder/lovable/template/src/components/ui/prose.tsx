@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
  */
 export function Prose({ className, children }: { className?: string; children?: React.ReactNode }) {
   return (
-    <div className={cn(
+    <div data-slot="prose" className={cn(
       "max-w-prose text-[15px] leading-7",
       "[&_h2]:mt-8 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight",
       "[&_h3]:mt-6 [&_h3]:text-base [&_h3]:font-semibold",

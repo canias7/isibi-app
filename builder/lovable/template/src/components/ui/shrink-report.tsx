@@ -37,7 +37,7 @@ export function ShrinkReport({ period, lines, throughput, currency = "GBP", loca
   const biggest = lines.reduce<ShrinkLine | null>((a, l) => (a && a.value >= l.value ? a : l), null);
   const rate = throughput ? total / throughput : undefined;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="shrink-report" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         <span className="font-medium tabular-nums">{money.format(total)} lost</span>
         {period && <span className="text-muted-foreground"> in {period}</span>}

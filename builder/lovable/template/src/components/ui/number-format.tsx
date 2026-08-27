@@ -6,5 +6,5 @@ export function NumberFormat({ value, compact, decimals, className }: {
     notation: compact ? "compact" : "standard",
     maximumFractionDigits: decimals ?? (compact ? 1 : 0),
   }).format(value);
-  return <span className={className ? className + " tabular-nums" : "tabular-nums"}>{text}</span>;
+  return <span data-slot="number-format" className={className ? className + " tabular-nums" : "tabular-nums"}>{text}</span>;
 }

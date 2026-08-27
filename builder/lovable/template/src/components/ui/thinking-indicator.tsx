@@ -34,7 +34,7 @@ export function ThinkingIndicator({ label = "Thinking", startedAt, showTimeAfter
   const show = startedAt != null && secs >= showTimeAfter;
 
   return (
-    <p className={cn("flex items-center gap-2 text-sm text-muted-foreground", className)}>
+    <p data-slot="thinking-indicator" className={cn("flex items-center gap-2 text-sm text-muted-foreground", className)}>
       <span aria-hidden className="flex gap-1">
         {[0, 1, 2].map((i) => (
           <span key={i}

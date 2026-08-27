@@ -44,7 +44,7 @@ export function ObservationRow({ what, value, unit, low, high, previousValue, pr
       ? Math.abs(delta / previousValue) >= 0.2
       : false;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="observation-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1">{what}</span>
         <span className={cn("shrink-0 tabular-nums", out ? "font-medium" : "")}>

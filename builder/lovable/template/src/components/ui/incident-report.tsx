@@ -35,7 +35,7 @@ export function IncidentReport({ what, happenedOn, discoveredOn, where, thirdPar
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="incident-report" className={cn("space-y-0.5 text-sm", className)}>
       <p>{what}</p>
       <p className="text-xs text-muted-foreground">
         {happenedOn ? `Happened ${happenedOn}` : "Date it happened not recorded"}

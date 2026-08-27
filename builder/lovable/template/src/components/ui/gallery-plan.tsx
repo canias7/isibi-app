@@ -38,7 +38,7 @@ export function GalleryPlan({ rooms, routeNote, className }: {
   const closed = rooms.filter((r) => r.closed);
   const noStepFree = rooms.filter((r) => r.stepFree === false);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="gallery-plan" className={cn("space-y-1.5", className)}>
       {routeNote && <p className="text-xs text-muted-foreground">{routeNote}</p>}
       {closed.length > 0 && (
         <p className="text-sm font-medium">

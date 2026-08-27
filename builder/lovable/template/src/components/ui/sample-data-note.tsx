@@ -20,7 +20,7 @@ export function SampleDataNote({ onRemove, onKeep, note, className }: {
   className?: string;
 }) {
   return (
-    <div role="status" className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-dashed border-border px-3 py-2 text-sm", className)}>
+    <div data-slot="sample-data-note" role="status" className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-dashed border-border px-3 py-2 text-sm", className)}>
       <span className="font-medium">This is example data</span>
       <span className="text-muted-foreground">{note ?? "Nothing here is real — replace it before you go live."}</span>
       {onRemove && (

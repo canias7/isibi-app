@@ -71,7 +71,7 @@ export function SiteLink({
   // open can reach back through `window.opener`.
   const offsite = /^[a-z][a-z0-9+.-]*:/i.test(to) && !/^(mailto|tel):/i.test(to);
   return (
-    <a
+    <a data-slot="site-link"
       href={to}
       className={className}
       {...(offsite ? { target: "_blank", rel: "noreferrer" } : {})}
@@ -172,7 +172,7 @@ export function SiteHeader({
   // reads as a line. Measured on a real render: a step of 40 in the blue
   // channel at the header's bottom, with no border anywhere near it.
   return (
-    <header className={cn(sticky && "sticky top-0 z-40 bg-background/85 backdrop-blur", divider && "border-b", className)}>
+    <header data-slot="site-header" className={cn(sticky && "sticky top-0 z-40 bg-background/85 backdrop-blur", divider && "border-b", className)}>
       {/* CENTRING IS FLEX-WRAP, NOT A SECOND LAYOUT. The brand takes a full row
           and everything else wraps below it and centres — so the nav, the button
           and the mobile menu button are rendered ONCE and read the same on both

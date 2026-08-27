@@ -24,7 +24,7 @@ export function RecoverySteps({ steps, fallback, className }: {
 }) {
   if (!steps.length) return null;
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="recovery-steps" className={cn("flex flex-col gap-2", className)}>
       <ol className="flex flex-col gap-1.5 text-sm">
         {steps.map((s, i) => (
           <li key={i} className="flex gap-2">

@@ -31,7 +31,7 @@ export function AccessibilityStatement({ conformance, problems = [], lastReviewe
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="accessibility-statement" className={cn("space-y-1.5 text-sm", className)}>
       {conformance && <p>{conformance}</p>}
       {problems.length === 0 ? (
         <p className="text-xs text-muted-foreground">No known problems are listed.</p>

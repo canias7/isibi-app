@@ -17,7 +17,7 @@ export function SlaBadge({ dueAt, warnMinutes = 60, className }: {
     : abs >= 60 ? `${Math.floor(abs / 60)}h ${abs % 60}m` : `${abs}m`;
   const tone = mins < 0 ? "text-destructive" : mins <= warnMinutes ? "text-warning" : "text-muted-foreground";
   return (
-    <span className={cn("text-xs tabular-nums", tone, className)}>
+    <span data-slot="sla-badge" className={cn("text-xs tabular-nums", tone, className)}>
       {mins < 0 ? `${text} over` : `${text} left`}
     </span>
   );

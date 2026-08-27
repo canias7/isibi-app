@@ -49,7 +49,7 @@ export function SortableList<T>({ options, value, onChange, count, className }: 
   const id = React.useId();
   const current = options.find((o) => o.key === value);
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    <div data-slot="sortable-list" className={cn("flex flex-wrap items-center gap-2", className)}>
       <ArrowUpDown aria-hidden className="size-3.5 text-muted-foreground" />
       <label htmlFor={id} className="sr-only">Sort</label>
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)}

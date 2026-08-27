@@ -13,7 +13,7 @@ export function AppliedFilters({ filters, onRemove, onClearAll, className }: {
 }) {
   if (!filters.length) return null;
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    <div data-slot="applied-filters" className={cn("flex flex-wrap items-center gap-2", className)}>
       {filters.map((f) => (
         <span key={f.key} className="inline-flex items-center gap-1.5 rounded-full border border-border py-1 ps-2.5 pe-1 text-xs">
           <span className="text-muted-foreground">{f.label}:</span>

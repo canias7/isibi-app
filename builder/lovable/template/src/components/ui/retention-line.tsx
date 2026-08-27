@@ -44,7 +44,7 @@ export function RetentionLine({ percent, totalHeld, firstRelease, secondRelease,
       </div>
     );
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="retention-line" className={cn("space-y-1 text-sm", className)}>
       <p className="flex items-baseline justify-between gap-3">
         <span>
           Retention held

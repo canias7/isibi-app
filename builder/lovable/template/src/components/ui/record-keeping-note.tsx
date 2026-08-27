@@ -36,7 +36,7 @@ export function RecordKeepingNote({ what, howLong, from, responsible = "you", fo
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
+    <div data-slot="record-keeping-note" className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
       <p>
         <span className="text-foreground">{what}</span> must be kept for{" "}
         <span className="text-foreground">{howLong}</span>

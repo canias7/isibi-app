@@ -31,7 +31,7 @@ export function LocalePicker({ locales, value, onChange, label = "Language", id 
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="locale-picker" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">{label}</label>
       <NativeSelect id={id} value={value} className="w-auto" onChange={(e) => onChange(e.target.value)}>
         {locales.map((l) => (

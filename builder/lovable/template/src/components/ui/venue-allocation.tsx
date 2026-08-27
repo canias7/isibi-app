@@ -40,7 +40,7 @@ export function VenueAllocation({ allocations, clashes = [], className }: {
   const dark = allocations.filter((a) => a.needsFloodlights && !a.floodlit);
   const label = (id: string) => allocations.find((a) => a.id === id)?.fixture ?? id;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="venue-allocation" className={cn("space-y-1.5", className)}>
       {clashes.map(([a, b], i) => (
         <p key={i} className="text-sm font-medium">
           {label(a)} and {label(b)} are on the same pitch at the same time — one has to move.

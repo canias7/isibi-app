@@ -41,7 +41,7 @@ export function UsageCompare({ current, previous, currentDays, previousDays, uni
   const change = comparable ? (a - b) / (b || 1) : previous > 0 ? (current - previous) / previous : 0;
   const pct = Math.abs(Math.round(change * 100));
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="usage-compare" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="tabular-nums">
           {pct === 0 ? "About the same as" : `${pct}% ${change > 0 ? "more" : "less"} than`}

@@ -28,7 +28,7 @@ export function PartialListNote({ shown, total, advice = "Narrow your search to 
 }) {
   if (!(total > shown)) return null;
   return (
-    <p role="status" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground", className)}>
+    <p data-slot="partial-list-note" role="status" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground", className)}>
       <span>
         Showing the first <span className="font-medium tabular-nums text-foreground">{shown.toLocaleString()}</span>
         {" of "}

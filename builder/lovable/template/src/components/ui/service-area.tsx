@@ -20,7 +20,7 @@ export function ServiceArea({ areas, note, placeholder = "Your postcode or town"
   const asked = q.trim().length >= 2;
   const hit = asked && areas.find((a) => norm(a).startsWith(norm(q)) || norm(q).startsWith(norm(a)));
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="service-area" className={cn("space-y-3", className)}>
       <Input value={q} placeholder={placeholder} aria-label="Check your area"
         onChange={(e) => setQ(e.target.value)} />
       {asked && (

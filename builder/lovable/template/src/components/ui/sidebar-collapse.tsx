@@ -43,7 +43,7 @@ export function SidebarCollapseButton({ collapsed, onToggle, controls, className
   className?: string;
 }) {
   return (
-    <button type="button" onClick={onToggle}
+    <button data-slot="sidebar-collapse-button" type="button" onClick={onToggle}
       aria-expanded={!collapsed}
       aria-controls={controls}
       aria-label={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}

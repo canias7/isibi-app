@@ -76,7 +76,7 @@ export function MinimapScroll({ targetRef, width = 56, className }: {
   };
 
   return (
-    <div aria-hidden onMouseDown={(e) => jump(e.clientY, e.currentTarget.getBoundingClientRect())}
+    <div data-slot="minimap-scroll" aria-hidden onMouseDown={(e) => jump(e.clientY, e.currentTarget.getBoundingClientRect())}
       onMouseMove={(e) => { if (e.buttons === 1) jump(e.clientY, e.currentTarget.getBoundingClientRect()); }}
       style={{ width, height: "60vh" }}
       className={cn("relative shrink-0 cursor-pointer overflow-hidden rounded border border-border bg-muted/30", className)}>

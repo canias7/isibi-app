@@ -47,7 +47,7 @@ export function SessionExpiry({ expiresAt, warnSeconds = 120, onExtend, onSignOu
 
   const mins = Math.floor(left / 60), secs = left % 60;
   return (
-    <div role="status" aria-live="polite"
+    <div data-slot="session-expiry" role="status" aria-live="polite"
       className={cn("flex flex-col gap-3 rounded-lg border-2 border-foreground bg-background p-3 sm:flex-row sm:items-center", className)}>
       <Clock aria-hidden className="size-4 shrink-0" />
       <p className="min-w-0 flex-1 text-sm">

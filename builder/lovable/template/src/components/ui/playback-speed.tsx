@@ -42,7 +42,7 @@ export function PlaybackSpeed({ value, onChange, rates = RATES, className }: {
 }) {
   const id = React.useId();
   return (
-    <div className={cn("flex items-center gap-1.5", className)}>
+    <div data-slot="playback-speed" className={cn("flex items-center gap-1.5", className)}>
       <label htmlFor={id} className="sr-only">Playback speed</label>
       <select id={id} value={value} onChange={(e) => onChange(Number(e.target.value))}
         className="h-8 cursor-pointer rounded-md border border-border bg-background px-2 text-xs tabular-nums outline-none focus-visible:border-ring">

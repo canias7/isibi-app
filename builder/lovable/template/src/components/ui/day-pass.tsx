@@ -44,7 +44,7 @@ export function DayPass({ price, includes = [], costsExtra = [], deskGuaranteed,
   const betterOnMonthly =
     breakEven !== undefined && passesBoughtThisMonth !== undefined && passesBoughtThisMonth >= breakEven - 1;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="day-pass" className={cn("space-y-1 text-sm", className)}>
       <p className="tabular-nums">
         <span className="text-lg font-medium">{money(price)}</span>
         <span className="text-muted-foreground"> for the day</span>

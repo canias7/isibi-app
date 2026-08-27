@@ -37,7 +37,7 @@ export function ReferenceRange({ analyte, low, high, unit, appliesTo, method, ag
   const u = unit ? ` ${unit}` : "";
   const out = value !== undefined && ((low !== undefined && value < low) || (high !== undefined && value > high));
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="reference-range" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         {analyte && <span>{analyte} </span>}
         <span className={cn("tabular-nums", out && "font-medium")}>

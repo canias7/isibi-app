@@ -14,7 +14,7 @@ export function ConversationRow({ name, preview, at, unread = 0, avatar, active,
   avatar?: string | null; active?: boolean; onClick?: () => void; className?: string;
 }) {
   return (
-    <button type="button" onClick={onClick}
+    <button data-slot="conversation-row" type="button" onClick={onClick}
       className={cn("flex w-full cursor-pointer items-center gap-3 border-b border-border px-3 py-2.5 text-start last:border-0",
         active ? "bg-muted" : "hover:bg-muted/50", className)}>
       <AvatarName name={name} src={avatar} size="md" avatarOnly />

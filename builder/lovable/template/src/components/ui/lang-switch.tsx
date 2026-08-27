@@ -48,7 +48,7 @@ export function LangSwitch({ className }: { className?: string }) {
     : path;
 
   return (
-    <nav className={cn("flex items-center gap-2 text-sm", className)} aria-label="Language">
+    <nav data-slot="lang-switch" className={cn("flex items-center gap-2 text-sm", className)} aria-label="Language">
       {SITE_LANGS.map((l) => {
         const to = l.prefix ? (bare === "/" ? "/" + l.prefix : "/" + l.prefix + bare) : bare;
         const current = l.prefix === active.prefix;

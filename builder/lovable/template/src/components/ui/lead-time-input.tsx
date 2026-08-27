@@ -25,7 +25,7 @@ export function LeadTimeInput({ minutes, onChange, earliestNote, id, className }
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="lead-time-input" className={cn("flex flex-col gap-1.5", className)}>
       <DurationInput minutes={minutes} onChange={onChange} id={id} />
       <p className="text-xs text-muted-foreground">
         {minutes === null

@@ -33,7 +33,7 @@ export function MinutesEntry({ item, discussion, decision, actionBy, actionDueOn
 }) {
   const vagueAction = Boolean(decision) && !actionBy;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="minutes-entry" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="font-medium">{item}</p>
       {discussion && <p className="text-xs text-muted-foreground">{discussion}</p>}
       {decision ? (

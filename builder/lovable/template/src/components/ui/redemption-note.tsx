@@ -66,7 +66,7 @@ export function RedemptionNote({ balance, interestToDate, earlyRepaymentCharge, 
       maximumFractionDigits: Number.isInteger(v) ? 0 : 2,
     }).format(v);
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="redemption-note" className={cn("space-y-1 text-sm", className)}>
       <p className="tabular-nums">
         <span className="text-lg font-medium">{money(total)}</span>
         <span className="text-muted-foreground"> to clear it</span>

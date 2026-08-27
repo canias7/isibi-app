@@ -14,7 +14,7 @@ export function SeatUsage({ used, total, onAdd, className }: {
   const pct = total ? (used / total) * 100 : 0;
   const over = used > total;
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="seat-usage" className={cn("space-y-2", className)}>
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-sm">
           <strong className="tabular-nums">{used.toLocaleString()}</strong>

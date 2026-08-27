@@ -34,7 +34,7 @@ export function TranslationStatus({ locale, translated, total, stale = 0, unrevi
   const missing = Math.max(0, total - translated);
   const pct = Math.round((translated / total) * 100);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="translation-status" className={cn("space-y-1", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
         <span className="font-medium">{locale}</span>
         <span className="tabular-nums text-muted-foreground">{pct}%</span>

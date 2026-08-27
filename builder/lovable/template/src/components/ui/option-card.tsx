@@ -38,7 +38,7 @@ export function OptionCard({
   className?: string;
 }) {
   return (
-    <label className={cn("relative flex cursor-pointer flex-col gap-1 rounded-lg border p-3",
+    <label data-slot="option-card" className={cn("relative flex cursor-pointer flex-col gap-1 rounded-lg border p-3",
       checked ? "border-foreground bg-muted/50" : "border-border hover:bg-muted/40",
       disabled && "cursor-default opacity-60 hover:bg-transparent", className)}>
       <input

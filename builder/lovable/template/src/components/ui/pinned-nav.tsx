@@ -29,7 +29,7 @@ export function PinnedNav({ items, onPick, onUnpin, title = "Pinned", empty, cla
   className?: string;
 }) {
   return (
-    <nav aria-label={typeof title === "string" ? title : "Pinned"} className={cn("flex flex-col gap-1", className)}>
+    <nav data-slot="pinned-nav" aria-label={typeof title === "string" ? title : "Pinned"} className={cn("flex flex-col gap-1", className)}>
       <p className="flex items-center gap-1.5 px-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
         <Pin aria-hidden className="size-3" /> {title}
       </p>
@@ -66,7 +66,7 @@ export function PinButton({ pinned, label, onToggle, className }: {
   className?: string;
 }) {
   return (
-    <button type="button" onClick={onToggle} aria-pressed={pinned}
+    <button data-slot="pin-button" type="button" onClick={onToggle} aria-pressed={pinned}
       aria-label={pinned ? `Unpin ${label}` : `Pin ${label}`}
       className={cn("cursor-pointer rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground", className)}>
       {pinned ? <Pin aria-hidden className="size-3.5 fill-current" /> : <Pin aria-hidden className="size-3.5" />}

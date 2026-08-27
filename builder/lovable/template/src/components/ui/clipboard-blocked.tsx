@@ -37,7 +37,7 @@ export function ClipboardBlocked({ value, label = "Copying is not available here
     el?.select();
   };
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="clipboard-blocked" className={cn("space-y-1", className)}>
       {label ? <p className="text-xs text-muted-foreground">{label}</p> : null}
       {multiline ? (
         <textarea ref={select} readOnly value={value} rows={3} aria-label="Value to copy"

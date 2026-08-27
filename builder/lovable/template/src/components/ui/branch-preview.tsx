@@ -29,7 +29,7 @@ export function BranchPreview({ added = [], removed = [], className }: {
   const list = (xs: string[]) =>
     xs.length === 1 ? xs[0] : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
   return (
-    <p role="status" className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="branch-preview" role="status" className={cn("text-xs text-muted-foreground", className)}>
       {added.length > 0 && (
         <span>
           This adds <span className="text-foreground">{added.length}</span> more {added.length === 1 ? "step" : "steps"}

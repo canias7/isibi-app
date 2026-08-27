@@ -42,7 +42,7 @@ export function ProvenanceNote({ steps, researchNote, disputed, statementAt, cla
 }) {
   const gaps = steps.filter((s) => s.gap).length;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="provenance-note" className={cn("space-y-1", className)}>
       <ol className="space-y-1 text-sm">
         {steps.map((s) => (
           <li key={s.id} className="flex gap-3">

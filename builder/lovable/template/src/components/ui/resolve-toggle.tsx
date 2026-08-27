@@ -27,7 +27,7 @@ export function ResolveToggle({ resolved, onToggle, by, size = "sm", className }
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span data-slot="resolve-toggle" className={cn("inline-flex items-center gap-2", className)}>
       <button type="button" aria-pressed={resolved} onClick={() => onToggle(!resolved)}
         className={cn(
           "inline-flex items-center gap-1 rounded-md border px-2 font-medium",

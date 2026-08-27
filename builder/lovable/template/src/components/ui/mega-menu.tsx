@@ -52,7 +52,7 @@ export function MegaMenu({ label, columns, className }: {
   React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   return (
-    <div
+    <div data-slot="mega-menu"
       ref={wrap}
       className={cn("relative", className)}
       onPointerLeave={() => {

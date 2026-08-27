@@ -35,7 +35,7 @@ export function DeliveryEta({ from, to, now, className }: {
 
   if (late) {
     return (
-      <p className={cn("text-sm font-medium", className)}>
+      <p data-slot="delivery-eta" className={cn("text-sm font-medium", className)}>
         Expected by {day(to)} — {days < 1 ? "later than expected" : `${days} day${days === 1 ? "" : "s"} late`}.
         <span className="block text-xs font-normal text-muted-foreground">
           Carriers usually catch up within a day. If it has been longer, tell us.

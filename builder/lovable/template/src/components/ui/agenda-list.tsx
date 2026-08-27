@@ -24,7 +24,7 @@ export function AgendaList({ items, empty = "Nothing scheduled.", className }: {
     }
     g.items.push(it);
   }
-  if (!groups.length) return <p className={cn("py-8 text-center text-sm text-muted-foreground", className)}>{empty}</p>;
+  if (!groups.length) return <p data-slot="agenda-list" className={cn("py-8 text-center text-sm text-muted-foreground", className)}>{empty}</p>;
   return (
     <div className={cn("space-y-5", className)}>
       {groups.map((g) => (

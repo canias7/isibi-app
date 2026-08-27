@@ -6,7 +6,7 @@ export function DurationPicker({ options = [15, 30, 45, 60, 90], value, onChange
   options?: number[]; value?: number | null; onChange: (m: number) => void; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap gap-2", className)} role="group" aria-label="Duration">
+    <div data-slot="duration-picker" className={cn("flex flex-wrap gap-2", className)} role="group" aria-label="Duration">
       {options.map((m) => (
         <Button key={m} type="button" size="sm" variant={value === m ? "default" : "outline"}
           onClick={() => onChange(m)} className="tabular-nums"><Duration minutes={m} /></Button>

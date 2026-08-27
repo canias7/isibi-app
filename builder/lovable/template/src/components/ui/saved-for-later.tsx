@@ -22,7 +22,7 @@ export function SavedForLater({ items, onMoveToCart, onRemove, currency = "GBP",
   if (!items.length) return null;
   const fmt = (m: number) => formatMinor(m, currency);
   return (
-    <section className={cn("flex flex-col gap-2", className)}>
+    <section data-slot="saved-for-later" className={cn("flex flex-col gap-2", className)}>
       <h2 className="text-sm font-semibold">Saved for later <span className="font-normal text-muted-foreground">({items.length})</span></h2>
       <ul className="divide-y divide-border rounded-lg border border-border">
         {items.map((i) => (

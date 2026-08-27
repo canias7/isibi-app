@@ -33,7 +33,7 @@ export function PalletCount({ lines, exchangeOwed, exchangeDue, className }: {
   const total = lines.reduce((n, l) => n + l.count, 0);
   const floor = lines.reduce((n, l) => n + (l.stackable ? Math.ceil(l.count / 2) : l.count), 0);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="pallet-count" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         <span className="font-medium tabular-nums">{total}</span> pallets
         {floor !== total && (

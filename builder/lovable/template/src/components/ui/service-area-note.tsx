@@ -34,7 +34,7 @@ export function ServiceAreaNote({ area, radius, result, fee, nearest, className 
   const base = [area, radius && `up to ${radius}`].filter(Boolean).join(", ");
   if (!result) {
     if (!base) return null;
-    return <p className={cn("text-sm text-muted-foreground", className)}>We cover {base}.</p>;
+    return <p data-slot="service-area-note" className={cn("text-sm text-muted-foreground", className)}>We cover {base}.</p>;
   }
   return (
     <p role="status" className={cn("text-sm", className)}>

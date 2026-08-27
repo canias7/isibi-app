@@ -36,7 +36,7 @@ export function CredentialRotate({ createdAt, lastUsed, newSecret, oldExpiresAt,
 }) {
   if (newSecret) {
     return (
-      <div className={cn("space-y-2 rounded-md border border-foreground/40 bg-muted/40 p-3", className)}>
+      <div data-slot="credential-rotate" className={cn("space-y-2 rounded-md border border-foreground/40 bg-muted/40 p-3", className)}>
         <p className="text-sm font-medium">Your new key — copy it now</p>
         <p className="text-xs text-muted-foreground">
           This is the only time it is shown. If you lose it you will have to rotate again.

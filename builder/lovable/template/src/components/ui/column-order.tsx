@@ -23,7 +23,7 @@ export function ColumnOrder({ column, position, total, onMove, className }: {
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex", className)}>
+    <span data-slot="column-order" className={cn("inline-flex", className)}>
       <button type="button" disabled={position <= 1} onClick={() => onMove(-1)}
         aria-label={`Move ${column} left, currently ${position} of ${total}`}
         className="cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40">

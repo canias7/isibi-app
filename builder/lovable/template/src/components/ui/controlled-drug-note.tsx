@@ -40,7 +40,7 @@ export function ControlledDrugNote({ drug, opening, dispensed, counted, unit = "
   const samePerson =
     !!dispensedBy && !!witnessedBy && dispensedBy.trim().toLowerCase() === witnessedBy.trim().toLowerCase();
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="controlled-drug-note" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{drug}</span>
         {register && <span className="text-xs text-muted-foreground"> · {register}</span>}

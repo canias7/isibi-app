@@ -43,7 +43,7 @@ export function AccessRestriction({ reference, reason, opensOn, redactedAvailabl
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="access-restriction" className={cn("space-y-0.5 text-sm", className)}>
       <p className="font-medium">
         {opensOn ? `Closed until ${opensOn}` : "Closed, with no opening date set"}
       </p>

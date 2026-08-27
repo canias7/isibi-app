@@ -30,7 +30,7 @@ export function RequestAccess({ owner, requested, onRequest, className }: {
   const id = React.useId();
   if (requested || sent) {
     return (
-      <p role="status" className={cn("text-sm", className)}>
+      <p data-slot="request-access" role="status" className={cn("text-sm", className)}>
         <span className="font-medium">Request sent</span>
         <span className="text-muted-foreground">{owner ? ` to ${owner}` : ""} — you&apos;ll hear when it&apos;s granted.</span>
       </p>

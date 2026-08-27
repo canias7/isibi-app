@@ -44,7 +44,7 @@ export function ResultFlag({ kind, value, unit, previousValue, previousOn, reaso
   const critical = kind === "critical";
   const delta = typeof value === "number" && previousValue !== undefined ? value - previousValue : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="result-flag" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         {value !== undefined && (
           <span className={cn("tabular-nums", critical && "font-medium")}>

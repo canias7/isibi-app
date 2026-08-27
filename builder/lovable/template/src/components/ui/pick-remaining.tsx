@@ -32,7 +32,7 @@ export function PickRemaining({ picked, required, noun = "more", doneNote = "Tha
   if (required <= 0) return null;
   const left = required - picked;
   return (
-    <p aria-live="polite"
+    <p data-slot="pick-remaining" aria-live="polite"
       className={cn("text-sm tabular-nums", left > 0 ? "font-medium" : "text-muted-foreground", className)}>
       {left > 0 ? `Pick ${left} ${noun}` : doneNote}
     </p>

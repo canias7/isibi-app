@@ -15,7 +15,7 @@ export function QuantityInput({
 }) {
   const set = (n: number) => onChange(Math.max(min, Math.min(max, Number.isFinite(n) ? n : min)));
   return (
-    <div className={cn("flex items-center gap-1", className)}>
+    <div data-slot="quantity-input" className={cn("flex items-center gap-1", className)}>
       <Button type="button" size="icon-sm" variant="outline" aria-label="Fewer"
         disabled={value <= min} onClick={() => set(value - 1)}><Minus /></Button>
       <Input type="number" inputMode="numeric" value={value} min={min} max={max}

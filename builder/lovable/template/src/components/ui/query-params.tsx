@@ -40,7 +40,7 @@ export function QueryParams({ query, mask = [], className }: {
   }, [query]);
 
   if (rows.length === 0) {
-    return <p className={cn("text-xs text-muted-foreground", className)}>No query parameters.</p>;
+    return <p data-slot="query-params" className={cn("text-xs text-muted-foreground", className)}>No query parameters.</p>;
   }
   return (
     <table className={cn("w-full border-collapse overflow-hidden rounded-md border border-border font-mono text-xs", className)}>

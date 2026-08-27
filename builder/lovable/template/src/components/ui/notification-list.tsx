@@ -10,7 +10,7 @@ export function NotificationList({ items, onOpen, onMarkAll, empty = "Nothing ne
 }) {
   const unread = items.filter((n) => n.unread).length;
   return (
-    <div className={cn("flex flex-col", className)}>
+    <div data-slot="notification-list" className={cn("flex flex-col", className)}>
       <div className="flex items-center justify-between gap-3 border-b px-1 pb-2">
         <span className="text-sm font-medium">Notifications</span>
         {unread > 0 && onMarkAll && <Button size="sm" variant="ghost" onClick={onMarkAll}>Mark all read</Button>}

@@ -26,7 +26,7 @@ export function WhoChanged({ by, at, action = "Edited", className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="who-changed" className={cn("text-xs text-muted-foreground", className)}>
       {action} by <span className="font-medium text-foreground">{by}</span>
       {" · "}
       <DateFormat date={at} withTime />

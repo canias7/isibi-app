@@ -44,7 +44,7 @@ export function AttestationBox({ statements, consequence, signerName, onSubmit, 
   const all = statements.every((s) => agreed.includes(s.id));
   const named = norm(typed) === norm(signerName) && norm(signerName) !== "";
   return (
-    <form className={cn("space-y-3 rounded-md border border-border p-3", className)}
+    <form data-slot="attestation-box" className={cn("space-y-3 rounded-md border border-border p-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (all && named) onSubmit({ agreed, name: typed.trim() }); }}>
       <div className="space-y-2">
         {statements.map((s) => (

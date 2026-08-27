@@ -32,7 +32,7 @@ export function AiFeedback({ onRate, onComment, rated, className }: {
   const [sent, setSent] = React.useState(false);
   const state = rated ?? local;
 
-  if (sent) return <p role="status" className={cn("text-xs text-muted-foreground", className)}>Thanks — that helps.</p>;
+  if (sent) return <p data-slot="ai-feedback" role="status" className={cn("text-xs text-muted-foreground", className)}>Thanks — that helps.</p>;
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-center gap-1">

@@ -34,7 +34,7 @@ export function SearchSelect({ value, onChange, options, placeholder = "Chooseâ€
   }, [open]);
 
   return (
-    <div ref={box} className={cn("relative", className)}>
+    <div data-slot="search-select" ref={box} className={cn("relative", className)}>
       <div className="relative">
         <Input id={id} role="combobox" aria-expanded={open} aria-controls={`${id ?? "ss"}-list`}
           aria-activedescendant={open && shown[active] ? `${id ?? "ss"}-${active}` : undefined}

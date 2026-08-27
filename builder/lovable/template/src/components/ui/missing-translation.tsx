@@ -32,7 +32,7 @@ export function MissingTranslation({ children, sourceLang = "en", stringKey, mar
   className?: string;
 }) {
   return (
-    <span lang={sourceLang} title={stringKey}
+    <span data-slot="missing-translation" lang={sourceLang} title={stringKey}
       className={cn(mark && "underline decoration-dotted decoration-from-font underline-offset-4", className)}>
       {children}
       {mark && <span className="sr-only"> (not translated)</span>}

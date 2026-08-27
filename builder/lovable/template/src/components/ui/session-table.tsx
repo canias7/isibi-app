@@ -42,7 +42,7 @@ export function SessionTable({ days, fundedLabel = "Funded hours cover this", cl
 }) {
   if (!days.length) return null;
   return (
-    <div className={cn("grid gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-3", className)}>
+    <div data-slot="session-table" className={cn("grid gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-3", className)}>
       {days.map((d) => (
         <section key={d.day}>
           <h3 className="text-sm font-medium uppercase tracking-widest text-muted-foreground">{d.day}</h3>

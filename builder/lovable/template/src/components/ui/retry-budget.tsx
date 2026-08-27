@@ -24,7 +24,7 @@ export function RetryBudget({ used, total, exhaustedNote, className }: {
   if (total <= 0) return null;
   const left = Math.max(total - used, 0);
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="retry-budget" className={cn("flex flex-col gap-1", className)}>
       <div className="flex items-center gap-2">
         <span aria-hidden className="inline-flex gap-1">
           {Array.from({ length: total }, (_, i) => (

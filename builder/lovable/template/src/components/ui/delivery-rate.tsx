@@ -30,7 +30,7 @@ export function DeliveryRate({ delivered, total, firstAttempt, window: period, s
   className?: string;
 }) {
   if (total <= 0) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>No events{period ? ` in ${period}` : ""}.</p>;
+    return <p data-slot="delivery-rate" className={cn("text-sm text-muted-foreground", className)}>No events{period ? ` in ${period}` : ""}.</p>;
   }
   const pct = Math.round((delivered / total) * 100);
   const firstPct = firstAttempt !== undefined ? Math.round((firstAttempt / total) * 100) : null;

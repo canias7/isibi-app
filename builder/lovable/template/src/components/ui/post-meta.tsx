@@ -11,7 +11,7 @@ export function PostMeta({ date, category, readingTime, className }: {
     readingTime ? <span key="r">{readingTime}</span> : null,
   ].filter(Boolean);
   return (
-    <div className={cn("flex flex-wrap items-center gap-2 text-sm text-muted-foreground", className)}>
+    <div data-slot="post-meta" className={cn("flex flex-wrap items-center gap-2 text-sm text-muted-foreground", className)}>
       {bits.map((b, i) => (
         <span key={i} className="flex items-center gap-2">
           {i > 0 && <span aria-hidden="true">·</span>}{b}

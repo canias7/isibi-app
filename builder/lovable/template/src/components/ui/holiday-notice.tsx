@@ -25,7 +25,7 @@ export function HolidayNotice({ from, to, reason = "We're closed", note, showDay
   if (now > endOfDay.getTime()) return null;                                   // over
   if (start.getTime() - now > showDaysBefore * 86_400_000) return null;        // too far off
   return (
-    <div className={cn("flex items-start gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5", className)}>
+    <div data-slot="holiday-notice" className={cn("flex items-start gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5", className)}>
       <CalendarOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="text-sm">
         <p className="font-medium">

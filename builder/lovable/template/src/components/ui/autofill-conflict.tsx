@@ -21,7 +21,7 @@ export function AutofillConflict({ field, browserValue, savedValue, onUse, class
   className?: string;
 }) {
   return (
-    <div role="status" className={cn("flex flex-col gap-1.5 rounded-md border border-border p-2 text-xs", className)}>
+    <div data-slot="autofill-conflict" role="status" className={cn("flex flex-col gap-1.5 rounded-md border border-border p-2 text-xs", className)}>
       <p className="font-medium">Two versions of {field}</p>
       <div className="flex flex-col gap-1">
         <button type="button" onClick={() => onUse("browser")}

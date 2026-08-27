@@ -34,7 +34,7 @@ export function LadderRow({ rank, player, rating, played, minimumForRanking, pla
 }) {
   const provisional = played !== undefined && minimumForRanking !== undefined && played < minimumForRanking;
   return (
-    <li className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
+    <li data-slot="ladder-row" className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         <span className="w-8 shrink-0 text-xs tabular-nums text-muted-foreground">{rank}</span>
         <span className={cn("min-w-0 flex-1", provisional && "text-muted-foreground")}>{player}</span>

@@ -46,7 +46,7 @@ export function MultiSortPicker({ columns, rules, onChange, className }: {
   };
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="multi-sort-picker" className={cn("flex flex-col gap-2", className)}>
       {rules.map((r, i) => {
         const col = columns.find((c) => c.key === r.key);
         return (

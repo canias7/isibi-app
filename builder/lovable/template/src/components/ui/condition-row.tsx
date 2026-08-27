@@ -49,7 +49,7 @@ export function ConditionRow({ fields, field, operator, value, onChange, onRemov
   const ops = f?.operators ?? [];
   const op = ops.find((o) => o.id === operator) ?? ops[0];
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+    <div data-slot="condition-row" className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {prefix && <span className="text-sm text-muted-foreground">{prefix}</span>}
       <NativeSelect aria-label="Field" value={field} className="h-9 w-auto text-sm"
         onChange={(e) => {

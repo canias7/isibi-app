@@ -23,7 +23,7 @@ export function MinOrderNote({ quantity, min = 1, multipleOf, className }: {
     : 0;
 
   if (!shortBy && !offMultiple) {
-    return <p className={cn("text-[11px] text-muted-foreground", className)}>Order quantity is fine.</p>;
+    return <p data-slot="min-order-note" className={cn("text-[11px] text-muted-foreground", className)}>Order quantity is fine.</p>;
   }
   return (
     <p className={cn("text-xs font-medium", className)}>

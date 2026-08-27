@@ -38,7 +38,7 @@ export function ConflictChoice({
   ];
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="conflict-choice" className={cn("flex flex-col gap-3", className)}>
       <div role="radiogroup" aria-label={field ? `Resolve ${field}` : "Resolve conflict"}
         className="flex flex-col gap-2">
         {options.map((o) => (

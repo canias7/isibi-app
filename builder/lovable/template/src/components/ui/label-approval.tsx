@@ -32,7 +32,7 @@ export function LabelApproval({ product, currentVersion, approvals, printedQuant
   const stale = approvals.filter((a) => a.approved && a.version && a.version !== currentVersion);
   const outstanding = approvals.filter((a) => !a.approved);
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="label-approval" className={cn("space-y-1.5 text-sm", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 font-medium">{product}</span>
         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{currentVersion}</span>

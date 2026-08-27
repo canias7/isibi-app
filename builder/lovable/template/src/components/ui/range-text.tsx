@@ -36,5 +36,5 @@ export function RangeText({ from, to, fromWord = "from", toWord = "up to", empty
   else if (b) text = `${toWord} ${b}`;
   else text = emptyNote ?? null;
   if (!text) return null;
-  return <span className={cn("tabular-nums", className)}>{text}</span>;
+  return <span data-slot="range-text" className={cn("tabular-nums", className)}>{text}</span>;
 }

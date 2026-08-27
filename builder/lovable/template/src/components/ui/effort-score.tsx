@@ -24,7 +24,7 @@ export function EffortScore({ statement = "It was easy to get what I needed", va
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="effort-score" className={cn("flex flex-col gap-2", className)}>
       <p className="text-sm font-medium">{statement}</p>
       <RadioGroup value={value ?? ""} onValueChange={onChange} className="flex gap-1">
         {Array.from({ length: 7 }, (_, i) => {

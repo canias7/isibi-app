@@ -37,7 +37,7 @@ export function FocusReturn({ message, visible, clearAfterMs = 4000, className }
   }, [message, clearAfterMs]);
 
   return (
-    <p role="status" aria-live="polite"
+    <p data-slot="focus-return" role="status" aria-live="polite"
       className={cn(visible ? "text-sm text-muted-foreground" : "sr-only", className)}>
       {shown}
     </p>

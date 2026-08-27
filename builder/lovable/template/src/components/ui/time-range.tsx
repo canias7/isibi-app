@@ -24,7 +24,7 @@ export function TimeRange({ from, to, onFromChange, onToChange, id = "tr", label
   const overnight = a != null && b != null && b <= a;
   const span = a != null && b != null ? (overnight ? b + 1440 - a : b - a) : null;
   return (
-    <div className={cn("space-y-1.5", className)} role="group" aria-label={label}>
+    <div data-slot="time-range" className={cn("space-y-1.5", className)} role="group" aria-label={label}>
       <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1">
           <Label htmlFor={`${id}-from`} className="text-xs text-muted-foreground">From</Label>

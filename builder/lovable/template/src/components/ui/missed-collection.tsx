@@ -37,7 +37,7 @@ export function MissedCollection({ bin, dueOn, reportWithinDays, windowClosed, w
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="missed-collection" className={cn("space-y-0.5 text-sm", className)}>
       {wholeStreet ? (
         <p className="font-medium">
           We already know — the whole round was missed. There is no need to report it.

@@ -38,7 +38,7 @@ export function StatusCodeBadge({ code, showName = true, className }: {
 }) {
   const cls = Math.floor(code / 100);
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs whitespace-nowrap",
+    <span data-slot="status-code-badge" className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs whitespace-nowrap",
       cls === 2 && "bg-muted text-foreground",
       cls === 3 && "border border-border text-muted-foreground",
       cls === 4 && "border-2 border-foreground font-medium text-foreground",

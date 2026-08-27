@@ -43,7 +43,7 @@ export function CustomDomain({ domain, state, expected, seen, className }: {
     live: "",
   } as const;
   return (
-    <div role="status" className={cn("space-y-1 rounded-md border border-border p-3 text-sm", className)}>
+    <div data-slot="custom-domain" role="status" className={cn("space-y-1 rounded-md border border-border p-3 text-sm", className)}>
       <p>
         <code className="font-mono text-xs">{domain}</code>
         <span className={cn("block", state !== "live" && "font-medium")}>{WORD[state]}</span>

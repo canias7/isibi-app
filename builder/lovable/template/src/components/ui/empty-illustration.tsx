@@ -12,7 +12,7 @@ export function EmptyIllustration({ title, description, action, icon, className 
   icon?: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-12 text-center", className)}>
+    <div data-slot="empty-illustration" className={cn("flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-12 text-center", className)}>
       <span className="grid size-12 place-items-center rounded-full bg-muted text-muted-foreground [&_svg]:size-5">
         {icon ?? <span className="text-lg" aria-hidden="true">·</span>}
       </span>

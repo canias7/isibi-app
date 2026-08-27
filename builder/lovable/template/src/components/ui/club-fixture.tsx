@@ -38,7 +38,7 @@ export function ClubFixture({ title, when, where, memberYes = 0, guestYes = 0, n
   const going = memberYes + guestYes;
   const short = minimum !== undefined ? minimum - going : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="club-fixture" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className={cn("font-medium", cancelled && "line-through")}>{title}</span>
         {when && <span className="block text-xs text-muted-foreground">{when}</span>}

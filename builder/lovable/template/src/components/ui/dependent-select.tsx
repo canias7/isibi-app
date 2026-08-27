@@ -29,7 +29,7 @@ export function DependentSelect({ parentLabel, childLabel, parentOptions, childO
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parent]);
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="dependent-select" className={cn("space-y-3", className)}>
       <div className="space-y-1.5">
         <Label htmlFor={`${id}-p`} className="text-sm">{parentLabel}</Label>
         <NativeSelect id={`${id}-p`} value={parent} onChange={(e) => onChange({ parent: e.target.value, child })}>

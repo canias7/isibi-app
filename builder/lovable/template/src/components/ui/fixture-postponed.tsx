@@ -35,7 +35,7 @@ export function FixturePostponed({ fixture, reason, decidedBy, decidedAt, rearra
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="fixture-postponed" className={cn("space-y-0.5 text-sm", className)}>
       <p className="font-medium">
         {decisionPending ? `${fixture} — decision not yet made` : `${fixture} is off`}
       </p>

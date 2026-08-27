@@ -18,7 +18,7 @@ export function TravelTime({ modes, className }: {
     cycle: { icon: Bike, label: "cycle" },
   };
   return (
-    <ul className={cn("flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground", className)}>
+    <ul data-slot="travel-time" className={cn("flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground", className)}>
       {modes.map((m) => {
         const { icon: Icon, label } = map[m.mode];
         return (

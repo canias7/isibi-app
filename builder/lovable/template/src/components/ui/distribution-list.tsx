@@ -39,7 +39,7 @@ export function DistributionList({ destinations, printed, className }: {
   const sor = total - firm;
   const unaccounted = printed !== undefined ? printed - total : undefined;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="distribution-list" className={cn("space-y-1.5", className)}>
       <p className="text-sm tabular-nums">
         <span className="font-medium">{firm.toLocaleString()} sold firm</span>
         {sor > 0 && <span className="text-muted-foreground"> · {sor.toLocaleString()} on sale or return</span>}

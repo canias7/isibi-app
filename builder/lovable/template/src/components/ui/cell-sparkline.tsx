@@ -24,7 +24,7 @@ export function CellSparkline({
   className?: string;
 }) {
   const clean = values.filter((v) => Number.isFinite(v));
-  if (clean.length < 2) return <span className={cn("text-xs text-muted-foreground", className)}>&mdash;</span>;
+  if (clean.length < 2) return <span data-slot="cell-sparkline" className={cn("text-xs text-muted-foreground", className)}>&mdash;</span>;
 
   const min = Math.min(...clean), max = Math.max(...clean);
   const span = max - min || 1;

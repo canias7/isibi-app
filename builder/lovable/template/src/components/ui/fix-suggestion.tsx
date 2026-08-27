@@ -22,7 +22,7 @@ export function FixSuggestion({ was, suggestion, why, onAccept, onDismiss, class
   className?: string;
 }) {
   return (
-    <p role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
+    <p data-slot="fix-suggestion" role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
       <span>
         <span className="text-muted-foreground line-through">{was}</span>
         {" → "}

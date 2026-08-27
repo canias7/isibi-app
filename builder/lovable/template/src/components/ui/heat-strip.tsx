@@ -14,7 +14,7 @@ export function HeatStrip({ values, labels, label, className }: {
   const step = (v: number) => (v <= 0 ? 0 : Math.min(4, Math.floor((v / hi) * 4.999) + 1));
   const tone = ["bg-muted", "bg-foreground/15", "bg-foreground/30", "bg-foreground/50", "bg-foreground/75"];
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="heat-strip" className={cn("space-y-1", className)}>
       <div className="flex gap-0.5" role="img" aria-label={label ?? `Activity across ${values.length} periods`}>
         {values.map((v, i) => (
           <span key={i} title={labels?.[i] ? `${labels[i]}: ${v}` : String(v)}

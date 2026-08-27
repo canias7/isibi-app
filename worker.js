@@ -4028,6 +4028,48 @@ const SITE_SCHEMA_TOOL = {
           "SCROLL — scroll behaviour · snap · overscroll and its chain · scroll-padding · safe-area.\n" +
           "SCALE — the one size relationship text, spacing and components all share.\n" +
           "The sheet itself IS the theme.\n" +
+          // ── THE COMPONENTS' OWN CSS (2026-08-27, run 48's dead selectors) ───
+          //
+          // Run 48 ("Brewline") already KNEW component css was the lever — its
+          // sheet carried ~20 rules aimed at the kit's parts — and every one
+          // matched NOTHING: it guessed hooks (`side-nav`, `stat-card`,
+          // `data-table`, `filter-bar`…) that only 26 of 2,112 kit files
+          // carried. The `publicView` class again: a capability the model
+          // reaches for, conditioned on a fact nobody gave it. Two halves fix
+          // it and neither works alone: the kit now stamps `data-slot` on
+          // every plain-HTML root (1,971 of 2,112, codemod + hand-stamped
+          // composites, each pass-through PROVEN in a real render), and this
+          // block tells the model the hooks are real and names the states.
+          //
+          // The axis list is the owner's own 70 (2026-08-27, four screenshots),
+          // grouped, under the same law as the block above: decisions, not
+          // options. Three are RULES rather than taste, stated inline where
+          // they bind: focus-visible stays visible, touch targets work on a
+          // phone, pointer-events never comes off a control — each is the
+          // difference between styling a control and breaking it.
+          "EVERY COMPONENT CAN BE RESTYLED, and the hooks are real: each kit component carries " +
+          "data-slot=\"<its-name>\" (the kebab-case file name) on its root — [data-slot=\"button\"], " +
+          "[data-slot=\"card\"], [data-slot=\"input\"], [data-slot=\"data-table\"], [data-slot=\"stat-card\"], " +
+          "[data-slot=\"side-nav\"], [data-slot=\"filter-bar\"], [data-slot=\"status-badge\"], " +
+          "[data-slot=\"page-header\"], [data-slot=\"section-header\"], [data-slot=\"price-list\"], " +
+          "[data-slot=\"faq\"] and so on. A selector you invent matches nothing — use these. States are real " +
+          "attributes: [data-state=\"open\"] / \"closed\" / \"checked\", [aria-invalid=\"true\"], " +
+          "[aria-current=\"page\"], :disabled, :hover, :focus-visible, :active.\n" +
+          "DECIDE THE COMPONENTS' OWN CSS on the same terms — every axis, no options:\n" +
+          "COMPONENT SIZE & SPACING — control height · padding · internal gap · icon size · touch target " +
+          "(comfortable under a thumb; most visitors are on a phone).\n" +
+          "INTERNAL LAYOUT — align · justify · wrap · icon position · overflow (long labels truncate, wide " +
+          "tables scroll in their own box).\n" +
+          "COMPONENT COLOR & SURFACE — fill · text · border · shadow · divider · the tint each state adds.\n" +
+          "TYPE IN COMPONENTS — size · weight · tracking · case · tabular numerals wherever digits line up.\n" +
+          "PIECES — icons · badges · avatars · kbd · spinners · separators, each styled to match the whole, " +
+          "never left at defaults beside a styled parent.\n" +
+          "STATES — hover · pressed · focus-visible (always visible — restyle the ring, never remove it) · " +
+          "disabled · checked and selected · invalid · the current page in the nav.\n" +
+          "MOTION IN COMPONENTS — what transitions, how fast, what easing · press feedback · panels entering " +
+          "and leaving, inside the same reduced-motion guard.\n" +
+          "INTERACTION — cursor per control · user-select off labels · pointer-events stays ON every " +
+          "control.\n" +
           // ── ONE PAGE'S OWN LOOK, WHICH USED TO BE ITS OWN FIELD ─────────────
           //
           // `tokensPage` scoped a colour or a typeface to one route and went with

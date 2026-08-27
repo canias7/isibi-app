@@ -26,7 +26,7 @@ export function TypingDots({ names, className }: { names: string[]; className?: 
   const verb = names.length === 1 ? "is" : "are";
 
   return (
-    <p aria-live="off" className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="typing-dots" aria-live="off" className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
       <span aria-hidden className="flex gap-0.5">
         {[0, 1, 2].map((i) => (
           <span key={i} style={{ animationDelay: `${i * 160}ms` }}

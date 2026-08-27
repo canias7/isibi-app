@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
  * region whose content does not change announces nothing the second time.
  */
 export function SrNote({ children }: { children: React.ReactNode }) {
-  return <span className="sr-only">{children}</span>;
+  return <span data-slot="sr-note" className="sr-only">{children}</span>;
 }
 
 export function Announce({ message, clearAfter = 3000, assertive, className }: {
@@ -40,7 +40,7 @@ export function Announce({ message, clearAfter = 3000, assertive, className }: {
   }, [message, clearAfter]);
 
   return (
-    <span aria-live={assertive ? "assertive" : "polite"} aria-atomic="true"
+    <span data-slot="announce" aria-live={assertive ? "assertive" : "polite"} aria-atomic="true"
       className={cn("sr-only", className)}>
       {shown}
     </span>

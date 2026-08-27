@@ -26,7 +26,7 @@ export function FieldHistory({ entries, max = 5, className }: {
   const shown = entries.slice(0, max);
   const rest = entries.length - shown.length;
   return (
-    <ol className={cn("flex flex-col gap-0.5 text-xs", className)}>
+    <ol data-slot="field-history" className={cn("flex flex-col gap-0.5 text-xs", className)}>
       {shown.map((e, i) => (
         <li key={i} className="flex flex-wrap gap-x-2">
           <span className={cn("tabular-nums", i > 0 && "text-muted-foreground line-through")}>{e.value}</span>

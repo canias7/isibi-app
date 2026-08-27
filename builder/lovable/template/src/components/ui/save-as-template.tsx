@@ -40,7 +40,7 @@ export function SaveAsTemplate({ fields = [], onSave, onCancel, busy, className 
   const [keep, setKeep] = useState<string[]>([]);
   const ready = name.trim().length > 0;
   return (
-    <form className={cn("space-y-3", className)}
+    <form data-slot="save-as-template" className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onSave({ name: name.trim(), description: description.trim() || undefined, keep }); }}>
       <div className="space-y-1">
         <label htmlFor={uid + "-tpl-name"} className="block text-sm font-medium">Template name</label>

@@ -41,7 +41,7 @@ export function FranchiseFeeRow({ site, period, revenueBasis, revenue, lines, mi
   // one thing a franchisee will never let go of.
   const total = lines.reduce((n, l) => n + l.amount, 0);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="franchise-fee-row" className={cn("space-y-1", className)}>
       <p className="text-sm">
         {site && <span className="font-medium">{site}</span>}
         {period && <span className="text-muted-foreground"> · {period}</span>}

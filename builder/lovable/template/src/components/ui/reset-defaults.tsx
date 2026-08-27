@@ -29,7 +29,7 @@ export function ResetDefaults({ what = "these settings", keeps, onReset, classNa
   React.useEffect(() => { if (confirming) noRef.current?.focus(); }, [confirming]);
 
   if (done) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>Back to the defaults.</p>;
+    return <p data-slot="reset-defaults" className={cn("text-sm text-muted-foreground", className)}>Back to the defaults.</p>;
   }
   if (confirming) {
     return (

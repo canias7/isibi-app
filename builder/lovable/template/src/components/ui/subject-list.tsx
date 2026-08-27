@@ -59,7 +59,7 @@ export function SubjectList({
       ? new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n)
       : "—";
   return (
-    <div className={cn("space-y-10", className)}>
+    <div data-slot="subject-list" className={cn("space-y-10", className)}>
       {subjects.map((s) => (
         <section key={s.subject}>
           <h3 className="text-2xl font-semibold tracking-tight">{s.subject}</h3>

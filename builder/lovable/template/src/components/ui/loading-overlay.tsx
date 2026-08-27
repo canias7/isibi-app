@@ -10,7 +10,7 @@ export function LoadingOverlay({ busy, label = "Loading…", className, children
   busy: boolean; label?: string; className?: string; children?: React.ReactNode;
 }) {
   return (
-    <div className={cn("relative", className)}>
+    <div data-slot="loading-overlay" className={cn("relative", className)}>
       <div className={cn(busy && "pointer-events-none opacity-50")} aria-busy={busy}>{children}</div>
       {busy && (
         <div className="absolute inset-0 grid place-items-center" role="status">

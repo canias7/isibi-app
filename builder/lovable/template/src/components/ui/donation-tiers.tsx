@@ -65,7 +65,7 @@ export function DonationTiers({
   const amount = other.trim() ? (Number.isFinite(typed) && typed > 0 ? typed : 0) : picked ?? 0;
 
   return (
-    <div className={cn("space-y-5", className)}>
+    <div data-slot="donation-tiers" className={cn("space-y-5", className)}>
       {monthly && (
         <div className="inline-flex rounded-lg border border-border p-1" role="group" aria-label="How often">
           {(["monthly", "once"] as const).map((c) => (

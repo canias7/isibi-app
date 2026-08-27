@@ -11,7 +11,7 @@ export function InvoiceRow({ number, date, amount, currency, status = "paid", hr
 }) {
   const variant = { paid: "secondary", due: "outline", failed: "destructive", refunded: "outline" } as const;
   return (
-    <div className={cn("flex items-center gap-3 border-b border-border py-3 text-sm last:border-0", className)}>
+    <div data-slot="invoice-row" className={cn("flex items-center gap-3 border-b border-border py-3 text-sm last:border-0", className)}>
       <span className="w-28 shrink-0 font-mono text-xs">{number}</span>
       <span className="w-28 shrink-0 text-muted-foreground"><DateFormat date={date} /></span>
       <span className="flex-1" />

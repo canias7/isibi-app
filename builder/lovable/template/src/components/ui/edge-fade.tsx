@@ -37,7 +37,7 @@ export function EdgeFade({ children, className }: { children: React.ReactNode; c
     return () => { el.removeEventListener("scroll", onScroll); ro?.disconnect(); if (frame) cancelAnimationFrame(frame); };
   }, []);
   return (
-    <div ref={ref} className={cn("overflow-x-auto", className)}>
+    <div data-slot="edge-fade" ref={ref} className={cn("overflow-x-auto", className)}>
       {children}
     </div>
   );

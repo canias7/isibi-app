@@ -43,7 +43,7 @@ export function CommentPin({ index, x, y, replies = 0, resolved, active, about, 
   ].filter(Boolean).join(", ");
 
   return (
-    <button
+    <button data-slot="comment-pin"
       type="button"
       onClick={onOpen}
       aria-label={name}
@@ -64,7 +64,7 @@ export function CommentPin({ index, x, y, replies = 0, resolved, active, about, 
 export function CommentPinBadge({ count, className }: { count: number; className?: string }) {
   if (!count) return null;
   return (
-    <span className={cn("inline-flex items-center gap-1 text-xs text-muted-foreground", className)}>
+    <span data-slot="comment-pin-badge" className={cn("inline-flex items-center gap-1 text-xs text-muted-foreground", className)}>
       <MessageSquare aria-hidden className="size-3" />
       <span className="tabular-nums">{count}</span>
       <span className="sr-only">{count === 1 ? "comment" : "comments"}</span>

@@ -23,7 +23,7 @@ export function LandmarkNav({ targets, className }: {
 }) {
   if (!targets.length) return null;
   return (
-    <nav aria-label="Skip to" className={cn(className)}>
+    <nav data-slot="landmark-nav" aria-label="Skip to" className={cn(className)}>
       <ul className="flex gap-2">
         {targets.map((t) => (
           <li key={t.id}>

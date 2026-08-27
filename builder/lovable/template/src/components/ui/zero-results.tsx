@@ -27,7 +27,7 @@ export function ZeroResults({ query, activeFilters, onClearFilters, suggestions,
 }) {
   if (emptyIndex) {
     return (
-      <p className={cn("text-sm text-muted-foreground", className)}>
+      <p data-slot="zero-results" className={cn("text-sm text-muted-foreground", className)}>
         There&apos;s nothing here yet — once you add something, it&apos;ll be searchable.
       </p>
     );

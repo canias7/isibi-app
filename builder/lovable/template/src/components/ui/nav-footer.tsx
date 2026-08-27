@@ -3,7 +3,7 @@ export type FooterColumn = { title: string; links: { label: string; href: string
 /** Columns of links, for a footer with more than a handful. */
 export function NavFooter({ columns, className }: { columns: FooterColumn[]; className?: string }) {
   return (
-    <div className={cn("grid gap-8 sm:grid-cols-2 lg:grid-cols-4", className)}>
+    <div data-slot="nav-footer" className={cn("grid gap-8 sm:grid-cols-2 lg:grid-cols-4", className)}>
       {columns.map((c) => (
         <nav key={c.title}>
           <div className="text-xs uppercase tracking-widest text-muted-foreground">{c.title}</div>

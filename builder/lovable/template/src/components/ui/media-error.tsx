@@ -23,7 +23,7 @@ export function MediaError({ reason, onRetry, downloadHref, transcriptHref, clas
   className?: string;
 }) {
   return (
-    <div role="alert" className={cn("flex flex-col items-start gap-2 rounded-md border border-border p-4", className)}>
+    <div data-slot="media-error" role="alert" className={cn("flex flex-col items-start gap-2 rounded-md border border-border p-4", className)}>
       <p className="text-sm font-medium">This wouldn&apos;t play</p>
       {reason && <p className="text-sm text-muted-foreground">{reason}</p>}
       <div className="flex flex-wrap items-center gap-3">

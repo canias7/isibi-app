@@ -40,7 +40,7 @@ export function FocalPoint({ src, alt = "", value, onChange, previews = ["1/1", 
     onChange({ x: Math.min(100, Math.max(0, value.x + dx)), y: Math.min(100, Math.max(0, value.y + dy)) });
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="focal-point" className={cn("flex flex-col gap-2", className)}>
       <button ref={box} type="button"
         onClick={(e) => set(e.clientX, e.clientY)}
         onKeyDown={(e) => {

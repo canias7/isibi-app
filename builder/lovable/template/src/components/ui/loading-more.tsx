@@ -32,7 +32,7 @@ export function LoadingMore({ rows = 3, remaining, height = 44, className }: {
   const n = Math.max(0, Math.min(rows, remaining ?? rows));
   if (n === 0) return null;
   return (
-    <div className={cn("space-y-2 py-2", className)}>
+    <div data-slot="loading-more" className={cn("space-y-2 py-2", className)}>
       <span role="status" className="sr-only">Loading more</span>
       {Array.from({ length: n }, (_, i) => (
         <div key={i} aria-hidden="true" style={{ height }}

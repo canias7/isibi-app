@@ -26,7 +26,7 @@ export function FileVersion({ label, by, at, size, current, onRestore, onDownloa
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center justify-between gap-3 py-2", className)}>
+    <div data-slot="file-version" className={cn("flex flex-wrap items-center justify-between gap-3 py-2", className)}>
       <div className="min-w-0">
         <p className="text-sm font-medium">
           {label}

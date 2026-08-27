@@ -46,7 +46,7 @@ export function SearchShortcut({ onOpen, placeholder = "Search", className }: {
 }) {
   const mac = typeof navigator !== "undefined" && /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
   return (
-    <button type="button" onClick={onOpen} aria-label={placeholder}
+    <button data-slot="search-shortcut" type="button" onClick={onOpen} aria-label={placeholder}
       className={cn("inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted",
         "sm:w-56", className)}>
       <Search aria-hidden className="size-4 shrink-0" />

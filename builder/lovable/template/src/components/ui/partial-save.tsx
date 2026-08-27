@@ -29,7 +29,7 @@ export function PartialSave({ saved, failed, errors, onRetryFailed, className }:
   if (failed <= 0) return null;
   const shown = errors?.slice(0, 10) ?? [];
   return (
-    <section role="alert" aria-label="Partly saved"
+    <section data-slot="partial-save" role="alert" aria-label="Partly saved"
       className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
       <p className="text-sm font-medium tabular-nums">
         {saved.toLocaleString()} saved · {failed.toLocaleString()} didn&apos;t

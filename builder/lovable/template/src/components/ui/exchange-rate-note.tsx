@@ -23,7 +23,7 @@ export function ExchangeRateNote({ from, to, rate, at, locked, className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("text-xs text-muted-foreground tabular-nums", className)}>
+    <p data-slot="exchange-rate-note" className={cn("text-xs text-muted-foreground tabular-nums", className)}>
       1 {from} = {rate} {to}
       {at && (
         <> · <DateFormat date={at} withTime /></>

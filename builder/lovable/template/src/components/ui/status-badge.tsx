@@ -21,7 +21,7 @@ export function StatusBadge({ state = "neutral", className, children }: {
     quiet: "border-border text-muted-foreground",
   }[state];
   return (
-    <span className={cn("inline-flex w-fit shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium", v, className)}>
+    <span data-slot="status-badge" className={cn("inline-flex w-fit shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium", v, className)}>
       {children}
     </span>
   );

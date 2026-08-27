@@ -23,7 +23,7 @@ export function DragHandle({ label, listeners, attributes, className }: {
   className?: string;
 }) {
   return (
-    <button type="button" aria-label={`Reorder ${label}`} {...attributes} {...listeners}
+    <button data-slot="drag-handle" type="button" aria-label={`Reorder ${label}`} {...attributes} {...listeners}
       className={cn("cursor-grab touch-none rounded p-1 text-muted-foreground hover:bg-muted active:cursor-grabbing", className)}>
       <GripVertical className="size-4" />
     </button>

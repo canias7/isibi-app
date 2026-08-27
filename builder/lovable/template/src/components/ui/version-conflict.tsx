@@ -27,7 +27,7 @@ export function VersionConflict({ by, at, onCompare, onReload, onOverwrite, clas
   className?: string;
 }) {
   return (
-    <section role="alert" aria-label="Version conflict"
+    <section data-slot="version-conflict" role="alert" aria-label="Version conflict"
       className={cn("flex flex-col gap-3 rounded-md border border-border p-4", className)}>
       <div>
         <p className="text-sm font-medium">This was changed somewhere else</p>

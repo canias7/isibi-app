@@ -22,7 +22,7 @@ export function CollectionCode({ code, expiresOn, needsId = true, className }: {
 }) {
   const grouped = (code.match(/.{1,3}/g) ?? [code]).join(" ");
   return (
-    <div className={cn("flex flex-col items-center gap-1 rounded-lg border-2 border-foreground p-4 text-center", className)}>
+    <div data-slot="collection-code" className={cn("flex flex-col items-center gap-1 rounded-lg border-2 border-foreground p-4 text-center", className)}>
       <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Collection code</p>
       <p className="font-mono text-3xl font-bold tracking-widest tabular-nums">{grouped}</p>
       {needsId ? <p className="text-xs">Bring photo ID in the same name.</p> : null}

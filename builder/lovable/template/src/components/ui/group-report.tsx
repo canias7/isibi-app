@@ -39,7 +39,7 @@ export function GroupReport({ metric, total, unit, best, median, worst, bestSite
   const pct = (v: number) =>
     new Intl.NumberFormat("en", { style: "percent", maximumFractionDigits: 1, signDisplay: "never" }).format(Math.abs(v));
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="group-report" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{metric}</span>
         {period && <span className="text-muted-foreground"> · {period}</span>}

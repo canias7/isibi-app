@@ -42,7 +42,7 @@ export function ImageCompare({
   };
 
   return (
-    <div ref={ref}
+    <div data-slot="image-compare" ref={ref}
       onPointerDown={(e) => { dragging.current = true; e.currentTarget.setPointerCapture(e.pointerId); track(e.clientX); }}
       onPointerMove={(e) => { if (dragging.current) track(e.clientX); }}
       onPointerUp={() => { dragging.current = false; }}

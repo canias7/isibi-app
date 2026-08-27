@@ -30,7 +30,7 @@ export function PeriodLock({ lockedUpTo, reason, unlockableBy, filedReturn, corr
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="period-lock" className={cn("space-y-0.5 text-sm", className)}>
       <p className="font-medium">Locked up to and including {lockedUpTo}</p>
       {reason && <p className="text-xs">{reason}</p>}
       <p className="text-xs">

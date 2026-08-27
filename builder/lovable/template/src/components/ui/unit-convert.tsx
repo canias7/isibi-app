@@ -59,7 +59,7 @@ export function UnitConvert({ value, unit, show, className }: {
   const rule = target ? RULES[unit]?.[target] : null;
 
   if (converted == null || !rule) {
-    return <span className={cn("tabular-nums", className)}>{value.toLocaleString()} {SYMBOL[unit] ?? unit}</span>;
+    return <span data-slot="unit-convert" className={cn("tabular-nums", className)}>{value.toLocaleString()} {SYMBOL[unit] ?? unit}</span>;
   }
   return (
     <span

@@ -202,6 +202,106 @@ test("a tool keeps one frame on every page — the css field says so (2026-08-27
     "the one-frame rule does not follow the per-page scope it bounds");
 });
 
+// ── THE COMPONENT CSS BLOCK AND THE HOOKS IT NAMES (2026-08-27, arm C) ──────
+//
+// Run 48 ("Brewline") wrote ~20 component rules and every one matched nothing:
+// it guessed hooks (`side-nav`, `stat-card`, `data-table`…) that only 26 of
+// 2,112 kit files carried. Two halves fix it and each alone is the other's
+// dead half — a stamped kit the prompt never mentions is unreachable, and a
+// prompt naming hooks the kit does not carry is the dead-selector bug
+// REINTRODUCED BY US. So the guard is derived across the seam: every slot the
+// css field names must be stamped in the kit, and the kit's census must hold.
+
+function cssFieldText() {
+  const src = bare(WORKER);
+  const at = src.indexOf("THE SITE'S ENTIRE STYLESHEET");
+  assert.ok(at > 0, "the css field moved — this guard is reading nothing");
+  const end = src.indexOf("\n      },", at);
+  assert.ok(end > at, "the css field's close moved");
+  // Seam-join the concatenated literals, then UNESCAPE the quotes: the source
+  // spells `[data-slot=\"button\"]` and the floors below assert what the MODEL
+  // reads, which is the unescaped form.
+  return src.slice(at, end).replace(/" \+\s*"/g, "").replace(/\\"/g, '"');
+}
+
+test("the css field teaches the component hooks, the states, and the three rules", () => {
+  const field = cssFieldText();
+  // The framing sentence and the convention — without these the stamped kit
+  // is invisible: a model that is not told the hooks are real goes back to
+  // guessing, which is run 48 exactly.
+  assert.match(field, /EVERY COMPONENT CAN BE RESTYLED/,
+    "the component-css framing sentence is gone — the stamped kit is untold, i.e. unreachable");
+  assert.ok(field.includes('data-slot="<its-name>"'),
+    "the hook convention (kebab-case file name) is gone");
+  assert.match(field, /A selector you invent matches nothing/,
+    "the warning that stops hook-guessing is gone — run 48's failure mode reopens");
+  // The state attributes, each a real DOM fact a model cannot guess:
+  for (const state of ['[data-state="open"]', '[aria-invalid="true"]', '[aria-current="page"]', ":disabled", ":focus-visible"]) {
+    assert.ok(field.includes(state), "the " + state + " state is no longer named");
+  }
+  // The component axis groups — the owner's 70, grouped. Deleting a header
+  // silently drops a whole dimension of the list.
+  for (const group of ["COMPONENT SIZE & SPACING —", "INTERNAL LAYOUT —", "COMPONENT COLOR & SURFACE —",
+                       "TYPE IN COMPONENTS —", "PIECES —", "STATES —", "MOTION IN COMPONENTS —", "INTERACTION —"]) {
+    assert.ok(field.includes(group), "the " + group.slice(0, -2) + " component group is gone");
+  }
+  // The three RULES inside the list — each is the difference between styling
+  // a control and breaking it, and each deletion is silent:
+  assert.match(field, /restyle the ring, never remove it/,
+    "the focus-visible rule is gone — keyboard users lose the ring on the next styled build");
+  assert.match(field, /comfortable under a thumb/,
+    "the touch-target rule is gone — most visitors are on a phone");
+  assert.match(field, /pointer-events stays ON every control/,
+    "the pointer-events rule is gone — one decorative rule away from an unclickable button");
+});
+
+test("every hook the css field names is really stamped in the kit — and the census holds", () => {
+  const field = cssFieldText();
+  const block = field.slice(field.indexOf("EVERY COMPONENT CAN BE RESTYLED"),
+                            field.indexOf("DECIDE THE COMPONENTS' OWN CSS"));
+  assert.ok(block.length > 200, "the hook block collapsed — the slot scan below is reading nothing");
+  // DERIVED, not listed: the slots are read out of the prompt itself, so a
+  // name added there tomorrow is checked against the kit with nobody
+  // remembering this file. Floor of 8 so a scan that stops matching cannot
+  // report a clean seam over nothing.
+  const named = [...block.matchAll(/\[data-slot=\\?"([a-z0-9-]+)\\?"\]/g)].map((m) => m[1]);
+  assert.ok(named.length >= 8, "the prompt names fewer than 8 hooks — the scan or the list broke");
+  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
+  for (const slot of named) {
+    const file = new URL(slot + ".tsx", dir);
+    assert.ok(fs.existsSync(file), `the prompt names [data-slot="${slot}"] and the kit has no ${slot}.tsx`);
+    const src = fs.readFileSync(file, "utf8");
+    assert.ok(src.includes(`data-slot="${slot}"`),
+      `the prompt names [data-slot="${slot}"] and ${slot}.tsx does not stamp it — a dead selector WE published`);
+  }
+  // The census: the codemod stamped the kit wholesale, and a regression here
+  // (a revert, a kit refresh from upstream) silently un-stamps components the
+  // prompt promises are addressable. Floors, not exact counts, so ordinary
+  // kit growth cannot go red.
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".tsx"));
+  assert.ok(files.length >= 2100, "the kit shrank below the census floor — recalibrate deliberately");
+  let stamped = 0;
+  for (const f of files) if (fs.readFileSync(new URL(f, dir), "utf8").includes("data-slot=")) stamped++;
+  assert.ok(stamped >= 1900,
+    `only ${stamped} of ${files.length} kit files carry data-slot — the stamping regressed`);
+  // THE PASS-THROUGH PREMISES, each one edit from false. Three of the named
+  // hooks reach the DOM only because a primitive forwards them: Card and
+  // Button spread {...props} AFTER their own data-slot (so a passed slot
+  // wins), and OverflowScroller forwards {...rest}. Proven in a real render
+  // when they landed; held here as source facts so the render stays true.
+  for (const [prim, own] of [["card", "card"], ["button", "button"]]) {
+    const src = fs.readFileSync(new URL(prim + ".tsx", dir), "utf8");
+    const at = src.indexOf(`data-slot="${own}"`);
+    const spread = src.indexOf("{...props}", at);
+    assert.ok(at > 0 && spread > at,
+      `${prim}.tsx no longer spreads {...props} after its own data-slot — every composite stamped through it goes dead`);
+  }
+  const scroller = fs.readFileSync(new URL("overflow-scroller.tsx", dir), "utf8");
+  assert.ok(scroller.indexOf("{...rest}") > scroller.indexOf('data-slot="overflow-scroller"') &&
+            scroller.includes("...rest"),
+    "OverflowScroller stopped forwarding — data-table, comparison-table and category-nav go dead");
+});
+
 test("an invented brand stays inside the brief (2026-08-27, owner's call)", () => {
   // Four runs of one nameless CRM brief invented four names and two named the
   // WRONG business — a machinery dealer branded like a coffee shop. The rule,

@@ -32,7 +32,7 @@ export function AiExplain({ summary, factors, label = "Why this?", className }: 
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className={cn("text-sm", className)}>
+    <div data-slot="ai-explain" className={cn("text-sm", className)}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="inline-flex items-center gap-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
         {label}

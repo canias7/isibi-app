@@ -6,7 +6,7 @@ export type Activity = { who: string; what: string; at: string | number | Date; 
 export function ActivityFeed({ items, empty = "Nothing yet", className }: {
   items: Activity[]; empty?: string; className?: string;
 }) {
-  if (items.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p>;
+  if (items.length === 0) return <p data-slot="activity-feed" className="py-6 text-center text-sm text-muted-foreground">{empty}</p>;
   return (
     <ol className={cn("flex flex-col", className)}>
       {items.map((a, i) => (

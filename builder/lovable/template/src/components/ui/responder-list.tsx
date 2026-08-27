@@ -31,7 +31,7 @@ export function ResponderList({ responders, className }: { responders: Responder
   const silent = responders.filter((r) => (r.state ?? "paged") === "paged");
   const lead = responders.find((r) => r.lead);
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="responder-list" className={cn("space-y-1.5 text-sm", className)}>
       <p className={cn(silent.length > 0 ? "font-medium" : "text-muted-foreground")}>
         {silent.length === 0
           ? "Everybody paged has answered."

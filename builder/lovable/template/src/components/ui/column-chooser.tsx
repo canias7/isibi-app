@@ -24,7 +24,7 @@ export function ColumnChooser({ columns, onToggle, className }: {
   const visible = columns.filter((c) => c.visible).length;
   const hidden = columns.length - visible;
   return (
-    <fieldset className={cn("flex flex-col gap-1.5", className)}>
+    <fieldset data-slot="column-chooser" className={cn("flex flex-col gap-1.5", className)}>
       <legend className="mb-1 text-sm font-medium">
         Columns{hidden > 0 && <span className="font-normal text-muted-foreground tabular-nums"> · {hidden} hidden</span>}
       </legend>

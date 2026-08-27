@@ -29,7 +29,7 @@ export function EmailPreview({ fromName, fromAddress, subject, preheader, childr
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="email-preview" className={cn("space-y-2", className)}>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded-md border border-border p-3 text-sm">
         <dt className="text-muted-foreground">From</dt>
         <dd className="min-w-0">

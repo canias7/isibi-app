@@ -37,7 +37,7 @@ export function ComplianceChecklist({ items, className }: { items: ComplianceIte
   const relevant = items.length - na.length;
   const WORD = { done: "Done", todo: "Outstanding", "not-applicable": "Does not apply" } as const;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="compliance-checklist" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         {todo.length === 0
           ? <span className="text-muted-foreground">All {relevant} that apply are done</span>

@@ -2,7 +2,7 @@
 export function Ordinal({ value, className }: { value: number; className?: string }) {
   const suffixes: Record<string, string> = { one: "st", two: "nd", few: "rd", other: "th" };
   const rule = new Intl.PluralRules(undefined, { type: "ordinal" }).select(value);
-  return <span className={className ? className + " tabular-nums" : "tabular-nums"}>
+  return <span data-slot="ordinal" className={className ? className + " tabular-nums" : "tabular-nums"}>
     {value}{suffixes[rule] ?? "th"}
   </span>;
 }

@@ -26,7 +26,7 @@ export function NestedList({ nodes, ordered, maxDepth = 8, className }: {
           if (seen.has(n.id)) return null;
           seen.add(n.id);
           return (
-            <li key={n.id}>
+            <li data-slot="nested-list" key={n.id}>
               {n.label}
               {n.children?.length ? render(n.children, depth + 1) : null}
             </li>

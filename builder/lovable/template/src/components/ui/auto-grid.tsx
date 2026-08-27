@@ -9,6 +9,6 @@ export function AutoGrid({ min = 240, gap = 4, className, children }: {
   min?: number; gap?: 2 | 3 | 4 | 6 | 8; className?: string; children?: React.ReactNode;
 }) {
   const g: Record<number,string> = {2:"gap-2",3:"gap-3",4:"gap-4",6:"gap-6",8:"gap-8"};
-  return <div className={cn("grid", g[gap], className)}
+  return <div data-slot="auto-grid" className={cn("grid", g[gap], className)}
     style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${min}px, 100%), 1fr))` }}>{children}</div>;
 }

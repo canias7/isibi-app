@@ -14,7 +14,7 @@ export function SkillTags({ skills, max = 5, className }: {
   if (!skills.length) return null;
   const shown = skills.slice(0, max), rest = skills.length - shown.length;
   return (
-    <ul className={cn("flex flex-wrap gap-1", className)} aria-label={skills.join(", ")}>
+    <ul data-slot="skill-tags" className={cn("flex flex-wrap gap-1", className)} aria-label={skills.join(", ")}>
       {shown.map((s) => (
         <li key={s} className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{s}</li>
       ))}

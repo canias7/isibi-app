@@ -30,7 +30,7 @@ export function MigrationGuideLink({ url, effort, incremental, automated, label 
   className?: string;
 }) {
   return (
-    <p className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="migration-guide-link" className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
       <a href={url} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-2">
         {label}
       </a>

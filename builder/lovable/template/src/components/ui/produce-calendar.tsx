@@ -46,7 +46,7 @@ export function ProduceCalendar({ items, now, caption, className }: {
   if (!items.length) return null;
   const thisMonth = (now ?? new Date()).getMonth() + 1;
   return (
-    <div className={cn("", className)}>
+    <div data-slot="produce-calendar" className={cn("", className)}>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[44rem] border-collapse text-sm">
           {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}

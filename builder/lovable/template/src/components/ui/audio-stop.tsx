@@ -35,7 +35,7 @@ export function AudioStop({ number, title, seconds, transcript, hasSignLanguage,
     ? seconds < 60 ? `${seconds} sec` : `${Math.floor(seconds / 60)} min ${seconds % 60 ? `${seconds % 60} sec` : ""}`.trim()
     : undefined;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="audio-stop" className={cn("space-y-1 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         <span className="font-mono text-lg tabular-nums">{number}</span>
         <span className="min-w-0 flex-1">{title}</span>

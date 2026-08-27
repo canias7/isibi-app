@@ -24,7 +24,7 @@ export function MaintenancePanel({ until, what = "Scheduled maintenance", stillW
   className?: string;
 }) {
   return (
-    <section role="status" aria-label="Maintenance"
+    <section data-slot="maintenance-panel" role="status" aria-label="Maintenance"
       className={cn("flex flex-col gap-2 rounded-md border border-border bg-muted/40 p-6 text-center", className)}>
       <h2 className="text-lg font-semibold tracking-tight">{what}</h2>
       <p className="text-sm text-muted-foreground">

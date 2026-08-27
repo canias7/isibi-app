@@ -40,7 +40,7 @@ export function DeleteMyData({ confirmWord = "DELETE", retained = [], graceDays,
   const [typed, setTyped] = useState("");
   const matches = typed.trim().toLowerCase() === confirmWord.trim().toLowerCase();
   return (
-    <form className={cn("space-y-3 rounded-md border border-border p-3", className)}
+    <form data-slot="delete-my-data" className={cn("space-y-3 rounded-md border border-border p-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (matches) onDelete(); }}>
       <p className="text-sm font-medium">Delete your account and data</p>
       {retained.length > 0 && (

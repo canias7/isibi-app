@@ -13,7 +13,7 @@ export function AuditRow({ action, who, at, ok = true, detail, className }: {
   ok?: boolean; detail?: string | null; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-3 border-b border-border py-2.5 text-sm last:border-0", className)}>
+    <div data-slot="audit-row" className={cn("flex items-center gap-3 border-b border-border py-2.5 text-sm last:border-0", className)}>
       <StatusDot state={ok ? "on" : "error"} showLabel={false} label={ok ? "Succeeded" : "Failed"} />
       <span className="w-40 shrink-0 truncate font-medium">{action}</span>
       <span className="min-w-0 flex-1 truncate text-muted-foreground">{who}{detail ? ` · ${detail}` : ""}</span>

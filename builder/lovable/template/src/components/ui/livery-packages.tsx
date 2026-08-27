@@ -54,7 +54,7 @@ export function LiveryPackages({
     new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
   const free = packages.reduce((s, p) => s + Math.max(0, p.spaces), 0);
   return (
-    <div className={cn("", className)}>
+    <div data-slot="livery-packages" className={cn("", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</h2>
         {/* THE HEADLINE ANSWER. It is the only reason most people opened the

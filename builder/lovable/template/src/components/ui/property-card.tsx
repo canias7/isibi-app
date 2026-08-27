@@ -14,7 +14,7 @@ export function PropertyCard({ price, address, beds, baths, area, image, status,
   image?: string | null; status?: string; href?: string; className?: string;
 }) {
   return (
-    <article className={cn("overflow-hidden rounded-lg border border-border", className)}>
+    <article data-slot="property-card" className={cn("overflow-hidden rounded-lg border border-border", className)}>
       <div className="relative aspect-[4/3] bg-muted">
         <SafeImage src={image} alt={address} ratio="auto" className="size-full object-cover" />
         {status && <Badge className="absolute start-2 top-2" variant="secondary">{status}</Badge>}

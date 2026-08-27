@@ -46,7 +46,7 @@ export function IconPicker({ value, onChange, className }: {
     .filter(exists)
     .filter((n) => !q || n.toLowerCase().includes(q.toLowerCase().replace(/\s+/g, "")));
   return (
-    <div className={cn("w-64 space-y-2 rounded-md border border-border bg-popover p-2 shadow-md", className)}>
+    <div data-slot="icon-picker" className={cn("w-64 space-y-2 rounded-md border border-border bg-popover p-2 shadow-md", className)}>
       <Input value={q} placeholder="Search icons" aria-label="Search icons" className="h-8"
         onChange={(e) => setQ(e.target.value)} />
       <div className="grid max-h-56 grid-cols-7 gap-0.5 overflow-y-auto">

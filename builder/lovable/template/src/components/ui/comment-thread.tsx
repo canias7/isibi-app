@@ -9,7 +9,7 @@ export function CommentThread({ root, replies, className }: {
   root: React.ReactNode; replies?: React.ReactNode[]; className?: string;
 }) {
   return (
-    <div className={cn("border-b border-border py-2 last:border-0", className)}>
+    <div data-slot="comment-thread" className={cn("border-b border-border py-2 last:border-0", className)}>
       {root}
       {replies && replies.length > 0 && (
         <div className="ms-4 flex flex-col border-s ps-4 sm:ms-6 sm:ps-6">{replies}</div>

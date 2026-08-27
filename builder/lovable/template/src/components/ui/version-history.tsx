@@ -18,7 +18,7 @@ export function VersionHistory({ versions, currentId, onView, onRestore, classNa
   onRestore?: (id: string | number) => void; className?: string;
 }) {
   return (
-    <ul className={cn("divide-y divide-border", className)}>
+    <ul data-slot="version-history" className={cn("divide-y divide-border", className)}>
       {versions.map((v) => {
         const current = v.id === currentId;
         return (

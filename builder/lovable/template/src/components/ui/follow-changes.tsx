@@ -28,7 +28,7 @@ export function FollowChanges({ following, auto, followers, onToggle, what = "ch
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    <div data-slot="follow-changes" className={cn("flex flex-wrap items-center gap-2", className)}>
       <button type="button" onClick={onToggle} aria-pressed={following}
         className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium",
           following ? "border-foreground bg-foreground text-background" : "border-border hover:bg-muted")}>

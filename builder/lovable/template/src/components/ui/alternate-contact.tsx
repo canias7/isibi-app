@@ -31,7 +31,7 @@ export function AlternateContact({ name, relationship, phone, email, mayDiscuss,
   className?: string;
 }) {
   return (
-    <dl className={cn("grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm", className)}>
+    <dl data-slot="alternate-contact" className={cn("grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm", className)}>
       <dt className="text-muted-foreground">Name</dt>
       <dd>
         {name}

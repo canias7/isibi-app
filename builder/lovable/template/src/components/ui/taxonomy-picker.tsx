@@ -40,7 +40,7 @@ export function TaxonomyPicker({ tree, path, onChange, placeholder = "Nothing ch
     else break;
   }
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="taxonomy-picker" className={cn("space-y-2", className)}>
       <p className="text-sm">
         {labels.length
           ? labels.map((l, i) => (

@@ -28,7 +28,7 @@ export function PersonalisationField({ value, onChange, maxLength = 20, forceCas
   const [rejected, setRejected] = React.useState(false);
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="personalisation-field" className={cn("flex flex-col gap-1", className)}>
       <label htmlFor={id} className="text-sm font-medium">Personalisation</label>
       <input id={id} value={shown} maxLength={maxLength}
         onChange={(e) => {

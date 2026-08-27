@@ -34,7 +34,7 @@ export function MigrationProgress({ done, total, failed = 0, perSecond, remainin
 }) {
   const WORD = { running: "Running", paused: "Paused", done: "Finished", failed: "Stopped with errors" } as const;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="migration-progress" className={cn("space-y-1", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
         <span className={cn(state !== "running" && "font-medium")}>{WORD[state]}</span>
         <span className="tabular-nums text-muted-foreground">

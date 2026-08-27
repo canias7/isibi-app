@@ -29,7 +29,7 @@ export function LocaleFallbackChain({ steps, className }: {
   if (!steps.length) return null;
   const stopAt = steps.findIndex((s) => !s.missing);
   return (
-    <ol className={cn("space-y-0.5 text-sm", className)}>
+    <ol data-slot="locale-fallback-chain" className={cn("space-y-0.5 text-sm", className)}>
       {steps.map((s, i) => {
         const used = !s.missing;
         const after = stopAt >= 0 && i > stopAt;

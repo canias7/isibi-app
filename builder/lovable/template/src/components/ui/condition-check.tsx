@@ -32,7 +32,7 @@ export function ConditionCheck({ stage, marks, checkedBy, hirerSigned, className
   const existing = marks.filter((m) => m.preExisting);
   const fresh = marks.filter((m) => !m.preExisting);
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="condition-check" className={cn("space-y-1.5 text-sm", className)}>
       <p className="text-xs font-medium text-muted-foreground">
         {stage === "collection" ? "Checked at collection" : "Checked on return"}
       </p>

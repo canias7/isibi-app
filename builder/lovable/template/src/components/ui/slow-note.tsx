@@ -20,7 +20,7 @@ export function SlowNote({ loading, afterMs = 4000, message, className }: {
   }, [loading, afterMs]);
   if (!show) return null;
   return (
-    <p className={cn("motion-enter text-xs text-muted-foreground", className)} aria-live="polite">
+    <p data-slot="slow-note" className={cn("motion-enter text-xs text-muted-foreground", className)} aria-live="polite">
       {message ?? "This is taking longer than usual — still working."}
     </p>
   );

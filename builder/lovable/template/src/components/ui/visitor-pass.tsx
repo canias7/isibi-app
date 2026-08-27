@@ -33,7 +33,7 @@ export function VisitorPass({ visitor, host, hostNotified, hostCollecting, expir
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="visitor-pass" className={cn("space-y-0.5 text-sm", className)}>
       <p className="font-medium">{visitor}</p>
       <p className={cn("text-xs", hostCollecting ? "text-muted-foreground" : "font-medium")}>
         {hostCollecting

@@ -30,7 +30,7 @@ export function QuickFilters({ filters, active, onChange, multi, label = "Quick 
   className?: string;
 }) {
   return (
-    <div role="group" aria-label={label} className={cn("flex flex-wrap gap-1.5", className)}>
+    <div data-slot="quick-filters" role="group" aria-label={label} className={cn("flex flex-wrap gap-1.5", className)}>
       {filters.map((f) => {
         const on = active.includes(f.id);
         return (

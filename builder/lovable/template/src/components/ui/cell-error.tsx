@@ -24,7 +24,7 @@ export function CellError({ value, attempted, message, onRetry, className }: {
   className?: string;
 }) {
   return (
-    <span className={cn("flex flex-col gap-0.5", className)}>
+    <span data-slot="cell-error" className={cn("flex flex-col gap-0.5", className)}>
       <span className="font-medium underline decoration-wavy underline-offset-4">{value}</span>
       <span role="alert" className="text-xs text-muted-foreground">
         {attempted ? <>“{attempted}” didn&apos;t save — {message}</> : message}

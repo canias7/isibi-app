@@ -15,7 +15,7 @@ export function SignupForm({ onSubmit, busy, error, terms, loginHref, className 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   return (
-    <form className={className} onSubmit={(e) => { e.preventDefault(); onSubmit({ name, email, password }); }}>
+    <form data-slot="signup-form" className={className} onSubmit={(e) => { e.preventDefault(); onSubmit({ name, email, password }); }}>
       <div className="flex flex-col gap-4">
         {error && <InlineAlert tone="error">{error}</InlineAlert>}
         <FormRow label="Your name">

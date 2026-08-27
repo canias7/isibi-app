@@ -13,7 +13,7 @@ export function RatingInput({ name = "rating", value, onChange, max = 5, classNa
   const [hover, setHover] = React.useState<number | null>(null);
   const shown = hover ?? value ?? 0;
   return (
-    <fieldset className={cn("flex items-center gap-0.5", className)} onMouseLeave={() => setHover(null)}>
+    <fieldset data-slot="rating-input" className={cn("flex items-center gap-0.5", className)} onMouseLeave={() => setHover(null)}>
       <legend className="sr-only">Rating out of {max}</legend>
       {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
         <label key={n} className="cursor-pointer p-0.5" onMouseEnter={() => setHover(n)}>

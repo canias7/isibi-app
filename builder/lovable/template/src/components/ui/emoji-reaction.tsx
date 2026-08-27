@@ -5,7 +5,7 @@ export function EmojiReaction({ reactions, mine = [], onToggle, className }: {
   mine?: string[]; onToggle: (emoji: string) => void; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap gap-1.5", className)}>
+    <div data-slot="emoji-reaction" className={cn("flex flex-wrap gap-1.5", className)}>
       {reactions.map((r) => {
         const on = mine.includes(r.emoji);
         return (

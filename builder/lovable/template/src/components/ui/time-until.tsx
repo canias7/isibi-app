@@ -28,7 +28,7 @@ export function TimeUntil({ date, past = "now", className }: {
     return () => clearInterval(t);
   }, [valid, left < 60_000, left <= 0]);
   if (!valid) return null;
-  if (left <= 0) return <span className={className}>{past}</span>;
+  if (left <= 0) return <span data-slot="time-until" className={className}>{past}</span>;
   const s = Math.floor(left / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
   const text = d > 0 ? `${d}d ${h % 24}h` : h > 0 ? `${h}h ${m % 60}m` : m > 0 ? `${m}m` : `${s}s`;
   return (

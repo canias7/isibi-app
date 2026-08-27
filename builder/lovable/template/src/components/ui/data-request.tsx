@@ -37,7 +37,7 @@ export function DataRequest({ kind, state, requestedAt, dueBy, downloadUrl, onRe
   const title = kind === "copy" ? "A copy of your data" : "Delete your data";
   const cta = kind === "copy" ? "Request a copy" : "Request deletion";
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="data-request" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <p className="text-sm font-medium">{title}</p>
       {state === "pending" && (
         <p className="text-sm">

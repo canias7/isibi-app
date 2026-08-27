@@ -5,7 +5,7 @@ export function CenterBox({ width = "sm", className, children }: {
 }) {
   const w = { xs:"max-w-xs", sm:"max-w-sm", md:"max-w-md" }[width];
   return (
-    <div className="grid min-h-[60vh] place-items-center px-6">
+    <div data-slot="center-box" className="grid min-h-[60vh] place-items-center px-6">
       <div className={cn("w-full", w, className)}>{children}</div>
     </div>
   );

@@ -34,7 +34,7 @@ export function EscortNote({ visitor, escort, escortPresent = true, since, areas
 }) {
   const stranded = !escort || !escortPresent;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="escort-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{visitor}</span>
         <span className="text-muted-foreground"> · must be accompanied</span>

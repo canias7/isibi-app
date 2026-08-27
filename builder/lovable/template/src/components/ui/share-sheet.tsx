@@ -48,7 +48,7 @@ export function ShareSheet({ url, title, text, children, label = "Share", classN
   };
 
   return (
-    <div className={cn("relative inline-block", className)}>
+    <div data-slot="share-sheet" className={cn("relative inline-block", className)}>
       <button type="button" onClick={share}
         className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted">
         <Share2 aria-hidden className="size-3.5" />
@@ -76,7 +76,7 @@ export function ShareTargets({ url, title, className }: { url: string; title?: s
     { key: "linkedin", label: "LinkedIn", href: `https://www.linkedin.com/sharing/share-offsite/?url=${u}` },
   ];
   return (
-    <ul className={cn("flex flex-col", className)}>
+    <ul data-slot="share-targets" className={cn("flex flex-col", className)}>
       {targets.map((s) => (
         <li key={s.key}>
           <a href={s.href} target="_blank" rel="noreferrer"

@@ -41,7 +41,7 @@ export function TagRename({ name, usageCount, existingNames = [], onRename, onCa
   const changed = trimmed.length > 0 && trimmed !== name;
   const collides = changed && existingNames.some((n) => n.trim().toLowerCase() === trimmed.toLowerCase());
   return (
-    <form className={cn("space-y-2", className)}
+    <form data-slot="tag-rename" className={cn("space-y-2", className)}
       onSubmit={(e) => { e.preventDefault(); if (changed) onRename(trimmed); }}>
       <div className="space-y-1">
         <label htmlFor={uid + "-tag-rename"} className="block text-sm font-medium">Rename “{name}”</label>

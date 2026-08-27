@@ -28,7 +28,7 @@ export function HotkeyBadge({ keys, className }: { keys: string[]; className?: s
   }, []);
   if (touchOnly) return null;
   return (
-    <span aria-hidden className={cn("inline-flex", className)}>
+    <span data-slot="hotkey-badge" aria-hidden className={cn("inline-flex", className)}>
       <ShortcutKeys keys={keys} />
     </span>
   );

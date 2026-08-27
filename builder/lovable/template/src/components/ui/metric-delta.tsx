@@ -14,7 +14,7 @@ export function MetricDelta({ value, direction, good, className }: {
   const isGood = good ?? direction === "up";
   const tone = direction === "flat" ? "text-muted-foreground" : isGood ? "text-success" : "text-destructive";
   return (
-    <span className={cn("inline-flex items-center gap-1 text-xs font-medium tabular-nums", tone, className)}>
+    <span data-slot="metric-delta" className={cn("inline-flex items-center gap-1 text-xs font-medium tabular-nums", tone, className)}>
       <span aria-hidden="true">{arrow}</span>
       <span>{value}</span>
       <span className="sr-only">{direction === "flat" ? "no change" : direction}</span>

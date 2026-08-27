@@ -35,7 +35,7 @@ export function SmartMeterNote({ sending = true, frequency = "daily", lastReadin
     monthly: "shows a monthly total and nothing about your day",
   }[frequency];
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="smart-meter-note" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn(!sending && "font-medium")}>
         {sending ? `Sending readings ${frequency}` : "Not sending readings"}
       </p>

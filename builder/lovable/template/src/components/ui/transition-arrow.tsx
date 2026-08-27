@@ -33,7 +33,7 @@ export function TransitionArrow({ from, to, action, allowed = true, reason, need
 }) {
   const name = `Move from ${typeof from === "string" ? from : "here"} to ${typeof to === "string" ? to : "there"}`;
   return (
-    <div className={cn("flex flex-wrap items-center gap-2 text-sm", className)}>
+    <div data-slot="transition-arrow" className={cn("flex flex-wrap items-center gap-2 text-sm", className)}>
       <span className={cn(!allowed && "text-muted-foreground")}>{from}</span>
       {allowed
         ? <ArrowRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />

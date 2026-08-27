@@ -15,7 +15,7 @@ export function LockIndicator({ by, since, className }: {
 }) {
   if (!by) return null;
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded bg-muted px-2 py-1 text-xs", className)}>
+    <span data-slot="lock-indicator" className={cn("inline-flex items-center gap-1.5 rounded bg-muted px-2 py-1 text-xs", className)}>
       <Lock className="size-3.5 shrink-0 text-muted-foreground" />
       <strong className="font-medium">{by}</strong>
       <span className="text-muted-foreground">is editing{since ? ` · ${since}` : ""}</span>

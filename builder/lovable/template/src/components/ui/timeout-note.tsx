@@ -40,7 +40,7 @@ export function TimeoutNote({
   if (!waiting || stage === 0) return null;
 
   return (
-    <p role="status" aria-live="polite" className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="timeout-note" role="status" aria-live="polite" className={cn("text-xs text-muted-foreground", className)}>
       {stage === 1
         ? (slowMessage ?? "This is taking longer than usual — still going.")
         : (stuckMessage ?? "Still working. Nothing has been lost; you can wait or try again.")}

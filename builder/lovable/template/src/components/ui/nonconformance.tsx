@@ -49,7 +49,7 @@ export function Nonconformance({ reference, item, problem, inspected, affected, 
   const unchecked = batchSize !== undefined && inspected !== undefined ? batchSize - inspected : undefined;
   const needsApproval = disposition === "use-as-is" && !approvedBy;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="nonconformance" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{item}</span>
         {reference && <span className="block font-mono text-xs text-muted-foreground">{reference}</span>}

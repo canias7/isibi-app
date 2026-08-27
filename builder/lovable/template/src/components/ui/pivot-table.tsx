@@ -74,7 +74,7 @@ export function PivotTable<T>({
       : n.toLocaleString();
 
   return (
-    <div className={cn("overflow-x-auto rounded-md border border-border", className)}>
+    <div data-slot="pivot-table" className={cn("overflow-x-auto rounded-md border border-border", className)}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/50">

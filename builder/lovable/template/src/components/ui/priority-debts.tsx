@@ -34,7 +34,7 @@ export type Debt = {
 function Group({ title, note, items }: { title: string; note: string; items: Debt[] }) {
   if (!items.length) return null;
   return (
-    <section>
+    <section data-slot="group">
       <h3 className="text-sm font-semibold">{title}</h3>
       <p className="mt-1 max-w-prose text-sm text-muted-foreground">{note}</p>
       <ul className="mt-3 divide-y divide-border border-t border-border">
@@ -56,7 +56,7 @@ export function PriorityDebts({ debts, className }: {
 }) {
   if (!debts.length) return null;
   return (
-    <div className={cn("space-y-8", className)}>
+    <div data-slot="priority-debts" className={cn("space-y-8", className)}>
       <Group
         title="Deal with these first"
         note="Not because they are the largest — because of what these creditors can do if nothing is agreed. Anyone here should be contacted before anyone below."

@@ -28,6 +28,6 @@ export function ErrorAnchor({ message, id, scrollIntoView = true, className }: {
   }, [message, scrollIntoView]);
   if (!message) return null;
   return (
-    <p ref={ref} id={id} role="alert" className={cn("text-sm font-medium", className)}>{message}</p>
+    <p data-slot="error-anchor" ref={ref} id={id} role="alert" className={cn("text-sm font-medium", className)}>{message}</p>
   );
 }

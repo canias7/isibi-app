@@ -63,7 +63,7 @@ export function ToastQueueItem({ toast, onDismiss, className }: {
   className?: string;
 }) {
   return (
-    <li className={cn("flex items-start gap-3 rounded-lg border border-border bg-background p-3 shadow-lg", className)}>
+    <li data-slot="toast-queue-item" className={cn("flex items-start gap-3 rounded-lg border border-border bg-background p-3 shadow-lg", className)}>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">
           {toast.title}

@@ -35,7 +35,7 @@ export function ShiftOutput({ shift, target, made, elapsedMinutes, shiftMinutes,
   const behind = expectedNow !== undefined ? expectedNow - made : target - made;
   const projected = through && through > 0 ? Math.round(made / through) : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="shift-output" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="tabular-nums">
           <span className={cn(behind > 0 && "font-medium")}>{made}</span> of {target}

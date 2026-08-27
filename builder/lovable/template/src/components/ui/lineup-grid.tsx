@@ -44,7 +44,7 @@ export function LineupGrid({ days, className }: {
   const clashes = clashing(acts);
   const stages = [...new Set(acts.map((a) => a.stage))];
   return (
-    <div className={cn("", className)}>
+    <div data-slot="lineup-grid" className={cn("", className)}>
       {days.length > 1 && (
         <nav aria-label="Which day" className="flex flex-wrap gap-2">
           {days.map((d, i) => (

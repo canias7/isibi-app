@@ -24,7 +24,7 @@ export function BalanceDue({ amount, due, currency = "GBP", className }: {
 }) {
   const overdue = amount > 0 && due != null && new Date(due).getTime() < Date.now();
   if (amount === 0) {
-    return <p className={cn("text-sm font-medium", className)}>Settled — nothing outstanding.</p>;
+    return <p data-slot="balance-due" className={cn("text-sm font-medium", className)}>Settled — nothing outstanding.</p>;
   }
   if (amount < 0) {
     return (

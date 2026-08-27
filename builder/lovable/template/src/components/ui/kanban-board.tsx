@@ -41,7 +41,7 @@ export function KanbanBoard<T extends BoardCard>({
     cards.filter((c) => c.column === col.key && (lanes ? c.lane === lane : true)).length >= col.limit;
 
   return (
-    <div className={cn("overflow-x-auto", className)}>
+    <div data-slot="kanban-board" className={cn("overflow-x-auto", className)}>
       <div className="flex min-w-max gap-3">
         {columns.map((col) => (
           <div key={col.key} className="flex w-64 shrink-0 flex-col gap-2">

@@ -32,7 +32,7 @@ export function VendorNote({ mustCompleteBy, cannotMoveUntil, willNotConsider = 
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="vendor-note" className={cn("space-y-1 text-sm", className)}>
       {(mustCompleteBy || cannotMoveUntil) && (
         <p className="font-medium">
           {[mustCompleteBy && `Must be finished by ${mustCompleteBy}`, cannotMoveUntil && `Cannot move ${cannotMoveUntil}`]

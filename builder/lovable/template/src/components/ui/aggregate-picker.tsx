@@ -30,7 +30,7 @@ export function AggregatePicker({ columns, fn, column, onChange, className }: {
 }) {
   const needsColumn = AGGREGATES.find((a) => a.key === fn)?.needsColumn ?? true;
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+    <div data-slot="aggregate-picker" className={cn("flex flex-wrap items-center gap-1.5", className)}>
       <select value={fn} aria-label="Calculation"
         onChange={(e) => {
           const nf = e.target.value;

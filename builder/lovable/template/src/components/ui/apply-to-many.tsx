@@ -36,7 +36,7 @@ export function ApplyToMany({ total, customised, onApply, onCancel, busy, noun =
   const [skip, setSkip] = useState(customised > 0);
   const affected = skip ? total - customised : total;
   return (
-    <div className={cn("space-y-3 rounded-lg border border-border p-4", className)}>
+    <div data-slot="apply-to-many" className={cn("space-y-3 rounded-lg border border-border p-4", className)}>
       <p className="text-sm">
         <span className="font-medium tabular-nums">{total.toLocaleString()}</span> {noun} selected.
         {customised > 0 && (

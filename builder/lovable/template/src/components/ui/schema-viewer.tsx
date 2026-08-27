@@ -36,7 +36,7 @@ export function SchemaViewer({ fields, title, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("overflow-hidden rounded-md border border-border", className)}>
+    <div data-slot="schema-viewer" className={cn("overflow-hidden rounded-md border border-border", className)}>
       {title ? <p className="border-b border-border bg-muted px-3 py-1.5 text-xs font-semibold">{title}</p> : null}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-xs">

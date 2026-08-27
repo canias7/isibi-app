@@ -39,7 +39,7 @@ export function CommsLog({ entries, decisionsOnly, className }: {
   const shown = decisionsOnly ? entries.filter((e) => e.decision) : entries;
   const decisions = entries.filter((e) => e.decision).length;
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="comms-log" className={cn("space-y-1.5 text-sm", className)}>
       <p className="text-xs tabular-nums text-muted-foreground">
         {entries.length} {entries.length === 1 ? "entry" : "entries"}, {decisions}{" "}
         {decisions === 1 ? "decision" : "decisions"}.

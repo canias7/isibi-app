@@ -61,7 +61,7 @@ export function ImageCrop({ src, alt = "", aspect = 1, value, onChange, classNam
   };
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="image-crop" className={cn("flex flex-col gap-2", className)}>
       <div
         ref={box}
         tabIndex={0}

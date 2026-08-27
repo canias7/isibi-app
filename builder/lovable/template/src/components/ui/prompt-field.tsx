@@ -29,7 +29,7 @@ export function PromptField({ value, onChange, onSend, placeholder = "What would
   const fieldId = id ?? auto;
   const empty = !value.trim();
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="prompt-field" className={cn("flex flex-col gap-2", className)}>
       {examples?.length ? (
         <div className="flex flex-wrap gap-1">
           {examples.map((e) => (

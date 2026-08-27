@@ -19,7 +19,7 @@ export function BackorderNote({ lead, onChoose, splitShip, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-1 rounded-md border border-dashed border-border p-2.5", className)}>
+    <div data-slot="backorder-note" className={cn("flex flex-col gap-1 rounded-md border border-dashed border-border p-2.5", className)}>
       <p className="text-xs">
         On backorder — usually <b>{lead}</b>. <span className="text-muted-foreground">An estimate, not a promised date.</span>
       </p>

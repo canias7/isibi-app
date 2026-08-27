@@ -38,7 +38,7 @@ export function TemperatureLog({ readings, min, max, breachMinutes = 15, breache
   const gaps = readings.filter((r) => r.missing).length;
   const real = breaches.filter((b) => b.minutes >= breachMinutes);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="temperature-log" className={cn("space-y-1", className)}>
       <p className="text-sm">
         {real.length === 0 && gaps === 0
           ? <span className="text-muted-foreground">Stayed in range the whole way</span>

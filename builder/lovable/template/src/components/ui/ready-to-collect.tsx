@@ -34,7 +34,7 @@ export function ReadyToCollect({ patient, readyCount, totalCount, waitingFor = [
   const partial = readyCount > 0 && readyCount < totalCount;
   const none = readyCount === 0;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="ready-to-collect" className={cn("space-y-1 text-sm", className)}>
       <p className="font-medium tabular-nums">
         {none
           ? "Nothing is ready yet."

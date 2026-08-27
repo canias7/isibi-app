@@ -45,7 +45,7 @@ export function ModerationQueue({ items, onKeep, onRemove, onSkip, className }: 
 
   if (!items.length) {
     return (
-      <div className={cn("rounded-xl border border-border bg-card p-6 text-center", className)}>
+      <div data-slot="moderation-queue" className={cn("rounded-xl border border-border bg-card p-6 text-center", className)}>
         <p className="text-sm font-medium">Nothing waiting</p>
         <p className="mt-0.5 text-xs text-muted-foreground">Every report has been looked at.</p>
       </div>

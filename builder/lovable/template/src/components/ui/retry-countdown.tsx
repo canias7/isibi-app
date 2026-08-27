@@ -46,7 +46,7 @@ export function RetryCountdown({ seconds, onElapsed, onRetryNow, what, className
   }, [left]);
 
   return (
-    <span className={cn("inline-flex items-center gap-2 text-sm text-muted-foreground", className)}>
+    <span data-slot="retry-countdown" className={cn("inline-flex items-center gap-2 text-sm text-muted-foreground", className)}>
       <span role="status" className="tabular-nums">
         {left > 0 ? `Trying again in ${left}s` : "Trying again…"}
       </span>

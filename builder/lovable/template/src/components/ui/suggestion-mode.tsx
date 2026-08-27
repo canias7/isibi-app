@@ -17,7 +17,7 @@ export function SuggestionMode({ before, after, by, onAccept, onReject, classNam
   onAccept?: () => void; onReject?: () => void; className?: string;
 }) {
   return (
-    <span className={cn("inline-flex flex-wrap items-baseline gap-1", className)}>
+    <span data-slot="suggestion-mode" className={cn("inline-flex flex-wrap items-baseline gap-1", className)}>
       {before && <del className="bg-destructive/10 text-destructive no-underline line-through">{before}</del>}
       {after && <ins className="bg-success/10 text-success underline decoration-dotted">{after}</ins>}
       <span className="inline-flex items-center gap-0.5 align-middle">

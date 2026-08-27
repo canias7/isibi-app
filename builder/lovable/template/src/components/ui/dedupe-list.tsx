@@ -24,7 +24,7 @@ export function DedupeList({ pairs, onMerge, onKeepBoth, className }: {
 }) {
   if (!pairs.length) return null;
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="dedupe-list" className={cn("space-y-3", className)}>
       {pairs.map((p) => {
         const differs = (label: string) =>
           p.left.fields.find((f) => f.label === label)?.value !== p.right.fields.find((f) => f.label === label)?.value;

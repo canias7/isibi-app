@@ -28,7 +28,7 @@ export function AutosaveHistory({ entries, onOpen, retentionNote, empty = "No au
   className?: string;
 }) {
   if (!entries.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
+    return <p data-slot="autosave-history" className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
   }
   let lastDay = "";
   return (

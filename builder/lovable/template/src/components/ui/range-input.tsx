@@ -15,7 +15,7 @@ export function RangeInput({ from, to, onFromChange, onToChange, id = "range", u
 }) {
   const crossed = from !== "" && to !== "" && Number(from) > Number(to);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="range-input" className={cn("space-y-1.5", className)}>
       <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1">
           <Label htmlFor={`${id}-from`} className="text-xs text-muted-foreground">From</Label>

@@ -34,7 +34,7 @@ export function TriageRow({ reference, category, assessedMinutesAgo, deteriorate
   const urgent = category === "immediate" || category === "urgent";
   const stale = assessedMinutesAgo !== undefined && assessedMinutesAgo >= 20;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="triage-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 tabular-nums">{reference}</span>
         <span className={cn("shrink-0", urgent ? "font-medium" : "text-muted-foreground")}>

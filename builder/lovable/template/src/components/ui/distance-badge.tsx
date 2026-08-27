@@ -21,5 +21,5 @@ export function DistanceBadge({ metres, className }: { metres: number; className
   } else {
     text = metres < 950 ? `${Math.round(metres / 10) * 10} m` : `${(metres / 1000).toFixed(1)} km`;
   }
-  return <span className={cn("text-xs tabular-nums text-muted-foreground", className)}>{text} away</span>;
+  return <span data-slot="distance-badge" className={cn("text-xs tabular-nums text-muted-foreground", className)}>{text} away</span>;
 }

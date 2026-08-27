@@ -7,7 +7,7 @@ export function MediaGrid({ items, columns = 3, ratio = "1/1", className }: {
 }) {
   const c = { 2: "sm:grid-cols-2", 3: "sm:grid-cols-3", 4: "sm:grid-cols-4" }[columns];
   return (
-    <div className={cn("grid gap-3", c, className)}>
+    <div data-slot="media-grid" className={cn("grid gap-3", c, className)}>
       {items.map((m, i) => (
         <figure key={i} className="flex flex-col gap-1.5">
           <SafeImage src={m.src} alt={m.alt} ratio={ratio} />

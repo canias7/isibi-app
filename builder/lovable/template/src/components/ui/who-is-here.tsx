@@ -30,7 +30,7 @@ export function WhoIsHere({ people, max = 5, label = "Here now", className }: {
   const shown = people.slice(0, max);
   const rest = people.length - shown.length;
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div data-slot="who-is-here" className={cn("flex items-center gap-2", className)}>
       <span className="sr-only">{label}: {people.map((p) => p.name).join(", ")}</span>
       <ul aria-hidden="true" className="flex -space-x-1.5">
         {shown.map((p) => (

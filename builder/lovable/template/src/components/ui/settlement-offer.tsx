@@ -40,7 +40,7 @@ export function SettlementOffer({ claimed, deductions = [], offered, kind = "cas
     new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 }).format(v);
   const KIND = { cash: "as a cash settlement", replacement: "as a replacement we arrange", repair: "as a repair we arrange" }[kind];
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="settlement-offer" className={cn("space-y-1 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">{money(offered)}</span>
         <span className="text-muted-foreground"> {KIND}</span>

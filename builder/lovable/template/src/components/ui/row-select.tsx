@@ -11,7 +11,7 @@ export function RowSelect({ checked, onCheckedChange, label, className }: {
   checked: boolean; onCheckedChange: (v: boolean) => void; label: string; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center", className)}>
+    <div data-slot="row-select" className={cn("flex items-center", className)}>
       <Checkbox checked={checked} onCheckedChange={(v) => onCheckedChange(v === true)}
         aria-label={`Select ${label}`} />
     </div>

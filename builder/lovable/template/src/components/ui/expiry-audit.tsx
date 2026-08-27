@@ -39,7 +39,7 @@ export function ExpiryAudit({ items, warnWithin = 60, className }: {
   const shown = sorted.filter((i) => i.daysLeft <= warnWithin);
   const expired = shown.filter((i) => i.daysLeft < 0);
   if (!shown.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>Nothing expires in the next {warnWithin} days.</p>;
+    return <p data-slot="expiry-audit" className={cn("text-sm text-muted-foreground", className)}>Nothing expires in the next {warnWithin} days.</p>;
   }
   return (
     <div className={cn("space-y-1.5", className)}>

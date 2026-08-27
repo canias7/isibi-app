@@ -25,7 +25,7 @@ export function OptimisticNote({ state, what, onRetry, className }: {
   if (state === "saved") return null;
   if (state === "pending") {
     return (
-      <span role="status" className={cn("text-xs text-muted-foreground italic", className)}>
+      <span data-slot="optimistic-note" role="status" className={cn("text-xs text-muted-foreground italic", className)}>
         Saving…
       </span>
     );

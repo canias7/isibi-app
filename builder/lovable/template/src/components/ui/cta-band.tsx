@@ -11,7 +11,7 @@ export function CtaBand({
   className?: string;
 }) {
   return (
-    <section className={cn("rounded-xl border bg-card px-6 py-12 text-center", className)}>
+    <section data-slot="cta-band" className={cn("rounded-xl border bg-card px-6 py-12 text-center", className)}>
       <h2 className="text-2xl font-semibold tracking-tight text-balance">{title}</h2>
       {description && <p className="mx-auto mt-2 max-w-xl text-muted-foreground text-balance">{description}</p>}
       {action && (

@@ -20,7 +20,7 @@ export function ResetForm({ onSubmit, busy, sent, backHref, className }: {
       action={backHref ? { label: "Back to sign in", href: backHref } : undefined} />;
   }
   return (
-    <form className={className} onSubmit={(e) => { e.preventDefault(); onSubmit(email); }}>
+    <form data-slot="reset-form" className={className} onSubmit={(e) => { e.preventDefault(); onSubmit(email); }}>
       <div className="flex flex-col gap-4">
         <FormRow label="Email" hint="We'll send a link to set a new password.">
           <EmailInput id="rs-email" value={email} onChange={setEmail} />

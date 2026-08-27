@@ -23,7 +23,7 @@ export function QuantityBreak({ quantity, nextAt, nextPriceMinor, currency = "GB
   const need = nextAt - quantity;
   const fmt = (m: number) => formatMinor(m, currency);
   return (
-    <p className={cn("text-xs", className)}>
+    <p data-slot="quantity-break" className={cn("text-xs", className)}>
       Add <b className="tabular-nums">{need}</b> more for <b className="tabular-nums">{fmt(nextPriceMinor)}</b> each
       {onAdd ? (
         <>

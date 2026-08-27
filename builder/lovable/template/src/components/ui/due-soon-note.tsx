@@ -30,7 +30,7 @@ export function DueSoonNote({ hoursLeft, warnWithin = 4, unitWord = "working hou
   const n = Math.abs(Math.round(hoursLeft * 10) / 10);
   const shown = n < 1 ? "less than an hour" : `${n % 1 === 0 ? n : n.toFixed(1)} ${unitWord}`;
   return (
-    <span role="status" className={cn("text-sm font-medium", className)}>
+    <span data-slot="due-soon-note" role="status" className={cn("text-sm font-medium", className)}>
       {late ? `${shown} late` : n < 1 ? "Due within the hour" : `${shown} left`}
     </span>
   );

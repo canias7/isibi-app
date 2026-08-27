@@ -29,7 +29,7 @@ export function HistoryScrub({ points, activeKey, onPick, className }: {
   const span = max - min;
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="history-scrub" className={cn("flex flex-col gap-1", className)}>
       <div className="relative h-8">
         <div aria-hidden className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border" />
         {points.map((p, i) => {

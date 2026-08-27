@@ -40,7 +40,7 @@ export function NotificationGroup({
     : `${actors[0]}, ${actors[1]} and ${actors.length - 2} ${actors.length - 2 === 1 ? "other" : "others"}`;
 
   return (
-    <li className={cn("flex flex-col border-b border-border last:border-0", className)}>
+    <li data-slot="notification-group" className={cn("flex flex-col border-b border-border last:border-0", className)}>
       <div className="flex items-start gap-2 p-3">
         {unread ? <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground" /> : <span aria-hidden className="mt-1.5 size-1.5 shrink-0" />}
         <div className="min-w-0 flex-1">

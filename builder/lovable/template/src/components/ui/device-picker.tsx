@@ -44,7 +44,7 @@ export function DevicePicker({
     cn("rounded-md border px-3.5 py-2 text-sm", on ? "border-foreground bg-foreground font-medium text-background" : "border-border");
   if (!makes.length) return null;
   return (
-    <div className={cn("space-y-6", className)}>
+    <div data-slot="device-picker" className={cn("space-y-6", className)}>
       <fieldset>
         <legend className="text-sm font-medium">What is it?</legend>
         <div className="mt-2 flex flex-wrap gap-2">

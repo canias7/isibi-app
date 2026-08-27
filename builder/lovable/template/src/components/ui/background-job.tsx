@@ -34,7 +34,7 @@ export function BackgroundJob({
   const live = state === "running" || state === "queued";
 
   return (
-    <div className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
+    <div data-slot="background-job" className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-medium">{name}</p>
         <p role="status" className="text-sm text-muted-foreground">{WORD[state]}</p>

@@ -39,7 +39,7 @@ export function ReferenceRequest({ referees, asksFor, className }: {
 }) {
   const blocked = referees.filter((r) => r.contactAfterOffer && !r.received);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="reference-request" className={cn("space-y-1.5", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {referees.map((r) => (
           <li key={r.id} className="space-y-0.5 px-3 py-2">

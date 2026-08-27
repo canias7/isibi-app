@@ -23,7 +23,7 @@ export function Kicker({ href, children, className }: {
 }) {
   const base = "block max-w-full truncate text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground";
   if (href) {
-    return <a href={href} className={cn(base, "cursor-pointer hover:text-foreground hover:underline", className)}>{children}</a>;
+    return <a data-slot="kicker" href={href} className={cn(base, "cursor-pointer hover:text-foreground hover:underline", className)}>{children}</a>;
   }
   return <span className={cn(base, className)}>{children}</span>;
 }

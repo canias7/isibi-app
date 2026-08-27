@@ -24,7 +24,7 @@ export function SitemapList({ groups, current, className }: {
   className?: string;
 }) {
   return (
-    <nav aria-label="Sitemap" className={cn("grid gap-6 sm:grid-cols-2 lg:grid-cols-4", className)}>
+    <nav data-slot="sitemap-list" aria-label="Sitemap" className={cn("grid gap-6 sm:grid-cols-2 lg:grid-cols-4", className)}>
       {groups.map((g) => (
         <section key={g.key}>
           <h2 className="mb-1.5 text-[11px] font-semibold tracking-wide uppercase">{g.title}</h2>

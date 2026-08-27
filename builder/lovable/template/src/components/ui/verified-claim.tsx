@@ -26,7 +26,7 @@ export function VerifiedClaim({ claim, by, at, expired, howHref, className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("text-xs", className)}>
+    <p data-slot="verified-claim" className={cn("text-xs", className)}>
       <span className={cn(expired ? "text-muted-foreground line-through" : "font-medium")}>{claim}</span>
       <span className="text-muted-foreground">
         {" — "}{expired ? "was checked" : "checked"} by {by}{at ? `, ${at}` : ""}

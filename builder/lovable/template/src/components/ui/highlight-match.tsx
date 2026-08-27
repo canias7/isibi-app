@@ -9,7 +9,7 @@ export function HighlightMatch({ text, query, className }: {
   text: string; query: string; className?: string;
 }) {
   const q = query.trim();
-  if (!q) return <span className={className}>{text}</span>;
+  if (!q) return <span data-slot="highlight-match" className={className}>{text}</span>;
   const safe = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const parts = text.split(new RegExp(`(${safe})`, "ig"));
   return (

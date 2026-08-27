@@ -15,7 +15,7 @@ export function FileRow({ name, size, meta, href, onRemove, className }: {
   href?: string; onRemove?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-3 border-b border-border py-2.5 last:border-0", className)}>
+    <div data-slot="file-row" className={cn("flex items-center gap-3 border-b border-border py-2.5 last:border-0", className)}>
       <FileTypeIcon name={name} className="size-4 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 text-sm"><TruncateMiddle text={name} max={36} /></span>
       {size != null && <span className="shrink-0 text-xs text-muted-foreground"><FileSize bytes={size} /></span>}

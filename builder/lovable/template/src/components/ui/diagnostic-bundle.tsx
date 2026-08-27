@@ -33,7 +33,7 @@ export function DiagnosticBundle({ parts, selected, onChange, excluded = [], onG
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="diagnostic-bundle" className={cn("space-y-2", className)}>
       <p className="text-sm font-medium">What goes in the bundle</p>
       <ul className="space-y-1 text-sm">
         {parts.map((p) => (

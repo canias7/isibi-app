@@ -37,7 +37,7 @@ export function TableEditor({ rows, onChange, className }: {
       onChange={(e) => set(r, c, e.target.value)} onKeyDown={(e) => move(e, r, c)} />
   );
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="table-editor" className={cn("space-y-2", className)}>
       <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full border-collapse">
           <thead>

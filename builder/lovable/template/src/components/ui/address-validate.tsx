@@ -31,7 +31,7 @@ export function AddressValidate({ state, entered, suggested, onAccept, onKeep, c
   className?: string;
 }) {
   if (state === "match") {
-    return <p role="status" className={cn("text-xs text-muted-foreground", className)}>Address found.</p>;
+    return <p data-slot="address-validate" role="status" className={cn("text-xs text-muted-foreground", className)}>Address found.</p>;
   }
   if (state === "not-found") {
     return (

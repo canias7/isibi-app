@@ -23,7 +23,7 @@ export function StockLevel({ count, lowAt = 5, backInStock, onNotify, className 
 }) {
   if (count <= 0) {
     return (
-      <p className={cn("flex flex-wrap items-baseline gap-1.5 text-xs", className)}>
+      <p data-slot="stock-level" className={cn("flex flex-wrap items-baseline gap-1.5 text-xs", className)}>
         <span className="font-medium">Out of stock</span>
         {backInStock ? <span className="text-muted-foreground">· back {backInStock}</span> : null}
         {onNotify ? (

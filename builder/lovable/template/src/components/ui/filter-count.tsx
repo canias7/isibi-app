@@ -28,7 +28,7 @@ export function FilterCount({ shown, total, noun = "results", className }: {
 }) {
   const filtered = total !== undefined && total !== shown;
   return (
-    <p role="status" aria-live="polite" className={cn("text-sm", className)}>
+    <p data-slot="filter-count" role="status" aria-live="polite" className={cn("text-sm", className)}>
       {shown === 0 ? (
         <>
           <span className="font-medium">Nothing matches</span>

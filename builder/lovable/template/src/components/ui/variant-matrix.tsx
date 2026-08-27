@@ -29,7 +29,7 @@ export function VariantMatrix({ rows, cols, cells, selected, onSelect, className
   className?: string;
 }) {
   return (
-    <table className={cn("border-collapse text-xs", className)}>
+    <table data-slot="variant-matrix" className={cn("border-collapse text-xs", className)}>
       <thead>
         <tr>
           <td />

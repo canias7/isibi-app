@@ -46,7 +46,7 @@ export function Celebration({ show, message, onDone, pieces = 14, duration = 140
   if (!show) return null;
 
   return (
-    <div className={cn("pointer-events-none absolute inset-0 overflow-hidden", className)}>
+    <div data-slot="celebration" className={cn("pointer-events-none absolute inset-0 overflow-hidden", className)}>
       {alive ? (
         <div aria-hidden className="motion-reduce:hidden">
           {Array.from({ length: pieces }, (_, i) => {

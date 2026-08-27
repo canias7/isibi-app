@@ -39,7 +39,7 @@ export function TouchHint({ message = "Swipe to see more", onUsed, className }: 
   }, []);
   if (!show) return null;
   return (
-    <p aria-hidden="true" className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="touch-hint" aria-hidden="true" className={cn("text-xs text-muted-foreground", className)}>
       {message}
     </p>
   );

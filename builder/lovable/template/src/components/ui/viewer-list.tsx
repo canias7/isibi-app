@@ -37,7 +37,7 @@ export function ViewerList({ here = [], seen = [], notSeen = [], className }: {
     );
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="viewer-list" className={cn("flex flex-col gap-3", className)}>
       {group(<><Eye aria-hidden className="me-1 inline size-3" />Here now</>,
         here.map((p) => <li key={p.id} className="text-sm">{p.name}</li>), here.length)}
       {group("Has seen it",

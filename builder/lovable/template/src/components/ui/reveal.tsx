@@ -23,7 +23,7 @@ export function Reveal({ delay = 0, className, children }: {
     return () => io.disconnect();
   }, []);
   return (
-    <div ref={ref} style={{ transitionDelay: delay + "ms" }}
+    <div data-slot="reveal" ref={ref} style={{ transitionDelay: delay + "ms" }}
       className={cn("transition-all duration-(--dur-4)", shown ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2", className)}>
       {children}
     </div>

@@ -33,7 +33,7 @@ export function StaffLoad({ people, unit = "jobs", className }: {
 }) {
   if (!people.length) return null;
   return (
-    <ul className={cn("divide-y divide-border rounded-md border border-border", className)}>
+    <ul data-slot="staff-load" className={cn("divide-y divide-border rounded-md border border-border", className)}>
       {people.map((p) => {
         const over = p.booked > p.capacity;
         const full = !over && p.booked === p.capacity && p.capacity > 0;

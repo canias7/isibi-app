@@ -30,7 +30,7 @@ export function MatchExpiry({ daysLeft, expiresOn, whyExpires, canExtend, onExte
 }) {
   const soon = !lapsed && daysLeft !== undefined && daysLeft <= 2;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="match-expiry" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn(soon && "font-medium")}>
         {lapsed
           ? "This one has lapsed."

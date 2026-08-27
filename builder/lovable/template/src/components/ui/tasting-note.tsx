@@ -38,7 +38,7 @@ export function TastingNote({ sample, blind, servedAt, vessel, descriptors = [],
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="tasting-note" className={cn("space-y-0.5 text-sm", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 font-medium">{sample}</span>
         {rankInFlight !== undefined && (

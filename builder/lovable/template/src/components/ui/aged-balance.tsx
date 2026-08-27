@@ -36,7 +36,7 @@ export function AgedBalance({ buckets, customer, ageFrom = "the due date", curre
   const oldest = buckets[buckets.length - 1];
   const credits = buckets.filter((b) => b.amount < 0);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="aged-balance" className={cn("space-y-1.5", className)}>
       <p className="text-sm tabular-nums">
         <span className="font-medium">{money(total)}</span>
         {customer && <span className="text-muted-foreground"> · {customer}</span>}

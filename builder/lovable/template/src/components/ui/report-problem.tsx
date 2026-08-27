@@ -30,7 +30,7 @@ export function ReportProblem({ context, onSubmit, done: doneProp, className }: 
   const done = doneProp ?? ownDone;
 
   if (done) {
-    return <p role="status" className={cn("text-sm font-medium", className)}>Thanks — we&apos;ve got it.</p>;
+    return <p data-slot="report-problem" role="status" className={cn("text-sm font-medium", className)}>Thanks — we&apos;ve got it.</p>;
   }
   return (
     <form className={cn("flex flex-col gap-2", className)}

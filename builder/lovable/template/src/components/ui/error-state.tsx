@@ -11,7 +11,7 @@ export function ErrorState({ title = "That didn't load", description, onRetry, c
   title?: string; description?: string; onRetry?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center gap-3 py-10 text-center", className)} role="alert">
+    <div data-slot="error-state" className={cn("flex flex-col items-center gap-3 py-10 text-center", className)} role="alert">
       <AlertTriangle className="size-5 text-muted-foreground" />
       <div>
         <div className="font-medium">{title}</div>

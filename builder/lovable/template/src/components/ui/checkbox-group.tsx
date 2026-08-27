@@ -8,7 +8,7 @@ export function CheckboxGroup({ legend, options, value, onChange, columns = 1, c
 }) {
   const toggle = (v: string) => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
   return (
-    <fieldset className={className}>
+    <fieldset data-slot="checkbox-group" className={className}>
       {legend && <legend className="mb-2 text-sm font-medium">{legend}</legend>}
       <div className={cn("grid gap-2", columns === 2 && "sm:grid-cols-2")}>
         {options.map((o) => (

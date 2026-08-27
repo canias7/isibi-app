@@ -27,7 +27,7 @@ export function CoverageGap({ gaps, allCoveredNote = "Everything is covered", cl
   className?: string;
 }) {
   if (!gaps.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{allCoveredNote}</p>;
+    return <p data-slot="coverage-gap" className={cn("text-sm text-muted-foreground", className)}>{allCoveredNote}</p>;
   }
   const empty = gaps.filter((g) => g.have === 0);
   const hours = gaps.reduce((n, g) => n + (g.hours ?? 0), 0);

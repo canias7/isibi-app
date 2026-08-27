@@ -43,7 +43,7 @@ export function LotCard({ lotNumber, title, maker, estimateLow, estimateHigh, cu
       ? base * (1 + (premiumPercent / 100) * (1 + (taxOnPremiumPercent ?? 0) / 100))
       : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="lot-card" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="text-xs tabular-nums text-muted-foreground">Lot {lotNumber}</span>
         <span className="block font-medium">{title}</span>

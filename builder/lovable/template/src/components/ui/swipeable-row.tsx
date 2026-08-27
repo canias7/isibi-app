@@ -21,7 +21,7 @@ export function SwipeableRow({ children, actions, actionWidth = 88, className }:
   const start = React.useRef<{ x: number; base: number } | null>(null);
   const width = actions.length * actionWidth;
   return (
-    <div className={cn("relative overflow-hidden border-b border-border last:border-0", className)}>
+    <div data-slot="swipeable-row" className={cn("relative overflow-hidden border-b border-border last:border-0", className)}>
       <div className="absolute inset-y-0 end-0 flex">
         {actions.map((a) => (
           <button key={a.label} type="button" onClick={() => { a.onAction(); setDx(0); }}

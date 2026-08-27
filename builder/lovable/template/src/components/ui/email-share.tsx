@@ -50,7 +50,7 @@ export function EmailShare({ to, subject, body, label = "Email this", className 
   const href = mailtoUrl({ to, subject, body });
   const long = (body?.length ?? 0) > 1800;
   return (
-    <span className={cn("inline-flex flex-col gap-1", className)}>
+    <span data-slot="email-share" className={cn("inline-flex flex-col gap-1", className)}>
       <a href={href}
         className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted">
         <Mail aria-hidden className="size-3.5" />

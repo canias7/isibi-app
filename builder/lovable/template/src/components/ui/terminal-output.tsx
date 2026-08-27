@@ -47,7 +47,7 @@ export function TerminalOutput({ command, output, exitCode, running, className }
   const [copied, setCopied] = React.useState(false);
 
   return (
-    <div className={cn("overflow-hidden rounded-md border border-border bg-muted/40", className)}>
+    <div data-slot="terminal-output" className={cn("overflow-hidden rounded-md border border-border bg-muted/40", className)}>
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
         <code className="min-w-0 flex-1 truncate font-mono text-xs">
           {command ? (

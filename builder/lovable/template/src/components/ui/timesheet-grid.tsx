@@ -36,7 +36,7 @@ export function TimesheetGrid({ rows, days, values, onChange, expectedPerDay = 8
   const grand = rows.reduce((s, r) => s + rowTotal(r.key), 0);
 
   return (
-    <table className={cn("text-xs", className)}>
+    <table data-slot="timesheet-grid" className={cn("text-xs", className)}>
       <thead>
         <tr className="border-b border-border">
           <th className="pb-1 text-start font-medium">Project</th>

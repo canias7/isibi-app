@@ -25,7 +25,7 @@ export function SyncConflictList({ items, onResolve, empty = "Nothing to resolve
   className?: string;
 }) {
   if (!items.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
+    return <p data-slot="sync-conflict-list" className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
   }
   return (
     <section aria-label={`${items.length} to resolve`} className={cn("flex flex-col gap-2", className)}>

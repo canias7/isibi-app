@@ -25,7 +25,7 @@ export function PlaceholderGrid({ count = 6, aspect = "4/3", gridClassName, with
   className?: string;
 }) {
   return (
-    <div aria-busy="true" className={className}>
+    <div data-slot="placeholder-grid" aria-busy="true" className={className}>
       <p className="sr-only">Loading</p>
       <Shimmer delay={delay} className="bg-transparent">
         <div className={cn(gridClassName ?? "grid grid-cols-2 gap-3 sm:grid-cols-3")}>

@@ -25,7 +25,7 @@ export function BenchmarkBar({ you, benchmark, max, label, group, sampleSize, un
   if (top <= 0) return null;
   const pos = (n: number) => `${Math.min((n / top) * 100, 100)}%`;
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="benchmark-bar" className={cn("flex flex-col gap-1.5", className)}>
       {label && <p className="text-sm text-muted-foreground">{label}</p>}
       <div aria-hidden className="relative h-6 rounded bg-muted">
         <div className="h-full rounded bg-foreground" style={{ width: pos(you) }} />

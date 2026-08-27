@@ -26,7 +26,7 @@ export function AutofillNote({ source, onUndo, id, children, className }: {
   className?: string;
 }) {
   return (
-    <p id={id} className={cn("flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="autofill-note" id={id} className={cn("flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground", className)}>
       <span>{children ?? <>Filled in from {source}.</>}</span>
       {onUndo ? (
         <button type="button" onClick={onUndo}

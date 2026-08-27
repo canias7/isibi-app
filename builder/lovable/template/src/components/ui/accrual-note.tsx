@@ -37,7 +37,7 @@ export function AccrualNote({ kind = "accrual", description, amount, basis, post
   const money = new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
   const doubleCount = Boolean(invoiceReceived);
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="accrual-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium tabular-nums">{money}</span>
         <span className="text-muted-foreground"> · {kind === "accrual" ? "accrued" : "prepaid"}</span>

@@ -44,7 +44,7 @@ export function ReportReasonForm({ what = "this", reasons = DEFAULT_REPORT_REASO
   const blocked = !picked || (chosen?.needsDetail && !detail.trim());
 
   return (
-    <form
+    <form data-slot="report-reason-form"
       className={cn("flex flex-col gap-3 rounded-xl border border-border bg-card p-4", className)}
       onSubmit={(e) => { e.preventDefault(); if (!blocked) onSubmit(picked, detail.trim()); }}
     >

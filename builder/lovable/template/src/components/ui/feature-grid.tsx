@@ -11,7 +11,7 @@ export function FeatureGrid({ items, columns = 3, className }: {
 }) {
   const cols = { 2: "sm:grid-cols-2", 3: "sm:grid-cols-2 lg:grid-cols-3", 4: "sm:grid-cols-2 lg:grid-cols-4" }[columns];
   return (
-    <div className={cn("grid gap-4", cols, className)}>
+    <div data-slot="feature-grid" className={cn("grid gap-4", cols, className)}>
       {items.map((f, i) => (
         <Card key={f.title || i}>
           <CardHeader className="gap-2">

@@ -34,7 +34,7 @@ export function LinkEditor({ href, text, onSave, onRemove, className }: {
   const normalised = !cleaned || unsafe ? cleaned
     : /^(https?:|mailto:|tel:|\/|#)/i.test(cleaned) ? cleaned : "https://" + cleaned;
   return (
-    <div className={cn("w-72 space-y-3 rounded-md border border-border bg-popover p-3 shadow-md", className)}>
+    <div data-slot="link-editor" className={cn("w-72 space-y-3 rounded-md border border-border bg-popover p-3 shadow-md", className)}>
       <div className="space-y-1.5">
         <Label htmlFor={uid + "-le-url"} className="text-xs">Link to</Label>
         <Input id={uid + "-le-url"} value={url} placeholder="example.com" aria-invalid={unsafe} className="h-8"

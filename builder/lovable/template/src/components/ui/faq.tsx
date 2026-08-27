@@ -6,7 +6,7 @@ export type QA = { question: string; answer: string };
 /** Questions and answers, on the accordion. */
 export function Faq({ items, className }: { items: QA[]; className?: string }) {
   return (
-    <Accordion type="single" collapsible className={cn("w-full", className)}>
+    <Accordion data-slot="faq" type="single" collapsible className={cn("w-full", className)}>
       {items.map((qa, i) => (
         <AccordionItem key={qa.question || i} value={"q" + i}>
           <AccordionTrigger className="text-start">{qa.question}</AccordionTrigger>

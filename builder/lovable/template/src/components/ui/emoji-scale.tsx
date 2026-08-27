@@ -38,7 +38,7 @@ export function EmojiScale({ value, onChange, points = DEFAULT_POINTS, question,
   className?: string;
 }) {
   return (
-    <fieldset className={cn("space-y-1.5", className)}>
+    <fieldset data-slot="emoji-scale" className={cn("space-y-1.5", className)}>
       {question && <legend className="mb-1 text-sm font-medium">{question}</legend>}
       <div className="flex flex-wrap gap-1.5">
         {points.map((p) => (

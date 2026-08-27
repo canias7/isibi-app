@@ -35,7 +35,7 @@ export function RehearsalSlot({ room, when, minutes, loadMinutes = 0, backline =
   const silent = attendance.filter((a) => !a.reply || a.reply === "none");
   const playing = minutes !== undefined ? Math.max(0, minutes - loadMinutes) : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="rehearsal-slot" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{room}</span>
         <span className="block">{when}</span>

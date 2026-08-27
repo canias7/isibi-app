@@ -39,7 +39,7 @@ export function ValuationNote({ amount, basis = "sale", valuedOn, monthsOld, val
     new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 }).format(v);
   const stale = monthsOld !== undefined && monthsOld >= 6;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="valuation-note" className={cn("space-y-1 text-sm", className)}>
       <p className={cn("tabular-nums", stale ? "text-muted-foreground" : "")}>
         <span className="text-lg font-medium">{money(amount)}</span>
         <span className="text-muted-foreground"> · for {basis}</span>

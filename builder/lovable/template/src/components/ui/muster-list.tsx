@@ -36,7 +36,7 @@ export function MusterList({ people, point, className }: {
 }) {
   const missing = people.filter((p) => !p.accountedFor);
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="muster-list" className={cn("space-y-1.5 text-sm", className)}>
       {missing.length === 0 ? (
         <p className="text-lg font-medium">Everybody is accounted for.</p>
       ) : (

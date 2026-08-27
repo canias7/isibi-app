@@ -35,7 +35,7 @@ export function CentralMessage({ subject, body, from, fromRole, sentOn, requires
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="central-message" className={cn("space-y-0.5 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1 font-medium">{subject}</span>
         <span className={cn("shrink-0 text-xs", requiresAction ? "font-medium" : "text-muted-foreground")}>

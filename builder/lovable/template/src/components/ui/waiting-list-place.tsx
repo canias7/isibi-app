@@ -67,7 +67,7 @@ export function WaitingListPlace({
   const asYears =
     months != null && months >= 24 ? `${(months / 12).toFixed(months % 12 === 0 ? 0 : 1)} years` : null;
   return (
-    <div className={cn("", className)}>
+    <div data-slot="waiting-list-place" className={cn("", className)}>
       <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{forWhat}</p>
       {/* THE TWO NUMBERS TOGETHER. Either one alone is close to meaningless. */}
       <div className="mt-3 flex flex-wrap items-baseline gap-x-10 gap-y-3 border-y border-border py-4">

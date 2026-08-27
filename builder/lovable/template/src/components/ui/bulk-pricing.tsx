@@ -26,7 +26,7 @@ export function BulkPricing({ tiers, quantity, currency = "GBP", className }: {
   const next = sorted[activeIdx + 1];
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="bulk-pricing" className={cn("flex flex-col gap-1", className)}>
       <table className="text-xs">
         <tbody>
           {sorted.map((t, i) => (

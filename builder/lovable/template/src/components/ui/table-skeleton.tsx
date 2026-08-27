@@ -12,7 +12,7 @@ export function TableSkeleton({ rows = 5, columns = 4, className }: {
   rows?: number; columns?: number; className?: string;
 }) {
   return (
-    <div className={cn("divide-y divide-border", className)} aria-hidden="true">
+    <div data-slot="table-skeleton" className={cn("divide-y divide-border", className)} aria-hidden="true">
       {Array.from({ length: rows }).map((_, r) => (
         <div key={r} className="flex items-center gap-4 py-3">
           {Array.from({ length: columns }).map((_, c) => (

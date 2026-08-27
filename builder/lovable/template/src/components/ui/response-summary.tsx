@@ -23,7 +23,7 @@ export function ResponseSummary({ answers, next, onEdit, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-3 rounded-xl border border-border bg-card p-4", className)}>
+    <div data-slot="response-summary" className={cn("flex flex-col gap-3 rounded-xl border border-border bg-card p-4", className)}>
       <p className="text-sm font-medium">Recorded — thank you</p>
       <dl className="flex flex-col gap-1.5">
         {answers.map((a, i) => (

@@ -5,7 +5,7 @@ export function PageHeader({ title, description, actions, breadcrumb, className 
   actions?: React.ReactNode; breadcrumb?: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-3 border-b pb-6", className)}>
+    <div data-slot="page-header" className={cn("flex flex-col gap-3 border-b pb-6", className)}>
       {breadcrumb}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">

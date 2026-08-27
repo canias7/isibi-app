@@ -84,5 +84,5 @@ export function MarkdownPreview({ source, className }: { source: string; classNa
     while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|>|\s*[-*+]\s|\s*\d+[.)]\s|```)/.test(lines[i])) para.push(lines[i++]);
     blocks.push(<p key={k++}>{inline(para.join(" "), `p${k}`)}</p>);
   }
-  return <div className={cn("space-y-3 text-sm leading-relaxed", className)}>{blocks}</div>;
+  return <div data-slot="markdown-preview" className={cn("space-y-3 text-sm leading-relaxed", className)}>{blocks}</div>;
 }

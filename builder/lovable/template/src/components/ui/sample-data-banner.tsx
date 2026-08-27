@@ -9,7 +9,7 @@ export function SampleDataBanner({ label = "This is sample data, added so the pa
   label?: string; actionLabel?: string; onAction?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2", className)}>
+    <div data-slot="sample-data-banner" className={cn("flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2", className)}>
       <p className="text-sm text-muted-foreground">{label}</p>
       {onAction && <Button size="sm" variant="outline" onClick={onAction}>{actionLabel}</Button>}
     </div>

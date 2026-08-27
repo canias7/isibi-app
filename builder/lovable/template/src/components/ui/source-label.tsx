@@ -31,7 +31,7 @@ export function SourceLabel({ source, className }: {
   const ai = typeof source === "string" && source === "ai";
   if (!s) return null;
   return (
-    <span title={s.meaning}
+    <span data-slot="source-label" title={s.meaning}
       className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] leading-4 text-muted-foreground",
         ai ? "border-dashed border-foreground/60" : "border-border", className)}>
       {s.label}

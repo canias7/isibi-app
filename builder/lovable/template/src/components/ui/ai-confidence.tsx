@@ -23,7 +23,7 @@ export function AiConfidence({ level, because, askHuman, className }: {
 }) {
   const WORD = { high: "Fairly confident", medium: "Less sure", low: "Not confident" } as const;
   return (
-    <p className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
+    <p data-slot="ai-confidence" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
       <span className={cn(level === "high" ? "text-muted-foreground" : "font-medium")}>{WORD[level]}</span>
       {because && <span className="text-muted-foreground">— {because}</span>}
       {level !== "high" && askHuman && (

@@ -26,7 +26,7 @@ export function PermissionDenied({ what = "this", needed, owner, onRequest, clas
   className?: string;
 }) {
   return (
-    <section role="alert" aria-label="No access"
+    <section data-slot="permission-denied" role="alert" aria-label="No access"
       className={cn("flex flex-col items-start gap-2 rounded-md border border-border p-6", className)}>
       <Lock aria-hidden className="size-5 text-muted-foreground" />
       <p className="text-sm font-medium">You don&apos;t have access to {what}</p>

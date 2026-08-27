@@ -48,7 +48,7 @@ export function CareHours({ commissioned, delivered, period = "this week", rate,
   const fill = (delivered / scale) * 100;
   const mark = (commissioned / scale) * 100;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="care-hours" className={cn("space-y-1 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">{hrs(delivered)}</span>
         <span className="text-muted-foreground"> of {hrs(commissioned)} {period}</span>

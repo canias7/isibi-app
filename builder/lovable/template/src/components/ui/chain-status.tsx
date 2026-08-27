@@ -39,7 +39,7 @@ export function ChainStatus({ above = [], below = [], you = "You", className }: 
   const broken = all.find((l) => l.broken);
   const slowest = all.find((l) => !l.ready && !l.broken);
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="chain-status" className={cn("space-y-1.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">
           {above.length} above, {below.length} below

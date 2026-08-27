@@ -45,7 +45,7 @@ export function ProxyBid({ value, onChange, increment, premiumPercent, taxOnPrem
       ? basis * (1 + (premiumPercent / 100) * (1 + (taxOnPremiumPercent ?? 0) / 100))
       : undefined;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="proxy-bid" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">Your maximum</label>
       <Input id={id} value={value} inputMode="decimal" onChange={(e) => onChange(e.target.value)} aria-describedby={`${id}-help`} />
       <p id={`${id}-help`} className="text-xs text-muted-foreground">

@@ -32,7 +32,7 @@ export type CoverLine = {
 export function CoverLevel({ lines, className }: { lines: CoverLine[]; className?: string }) {
   const notCovered = lines.filter((l) => !l.covered);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="cover-level" className={cn("space-y-1.5", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {lines.map((l) => (
           <li key={l.id} className="space-y-0.5 px-3 py-1.5">

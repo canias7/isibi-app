@@ -12,7 +12,7 @@ export function MembershipCard({ name, tier, number, since, expires, expired, cl
   since?: string | number | Date; expires?: string | number | Date; expired?: boolean; className?: string;
 }) {
   return (
-    <div className={cn("rounded-lg border border-border p-4", expired && "opacity-70", className)}>
+    <div data-slot="membership-card" className={cn("rounded-lg border border-border p-4", expired && "opacity-70", className)}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium">{name}</p>

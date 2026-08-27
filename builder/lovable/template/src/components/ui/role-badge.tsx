@@ -15,7 +15,7 @@ export function RoleBadge({ role, pending, className }: {
 }) {
   const owner = /^owner$/i.test(role);
   return (
-    <span className={cn("inline-flex items-center gap-1.5", className)}>
+    <span data-slot="role-badge" className={cn("inline-flex items-center gap-1.5", className)}>
       <span className={cn("rounded border px-1.5 py-0.5 text-[11px] font-medium capitalize",
         owner ? "border-foreground" : "border-border text-muted-foreground")}>
         {role}

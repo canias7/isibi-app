@@ -20,7 +20,7 @@ export function RateLimited({ seconds, onRetry, message, className }: {
   }, [left > 0]);
   const text = left >= 60 ? `${Math.floor(left / 60)} min ${left % 60}s` : `${left}s`;
   return (
-    <div role="alert" className={cn("space-y-3 rounded-lg border border-border px-6 py-8 text-center", className)}>
+    <div data-slot="rate-limited" role="alert" className={cn("space-y-3 rounded-lg border border-border px-6 py-8 text-center", className)}>
       <p className="text-sm font-medium">{message ?? "Too many attempts"}</p>
       <p className="text-sm tabular-nums text-muted-foreground" aria-live="polite">
         {left > 0 ? <>You can try again in {text}.</> : "You can try again now."}

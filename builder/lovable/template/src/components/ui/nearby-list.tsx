@@ -38,7 +38,7 @@ export function NearbyList({ places, onSelect, origin, unit = "km", emptyNote = 
   emptyNote?: string;
   className?: string;
 }) {
-  if (!places.length) return <p className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
+  if (!places.length) return <p data-slot="nearby-list" className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
   return (
     <div className={cn("space-y-1.5", className)}>
       {origin && <p className="text-xs text-muted-foreground">Distances from {origin}</p>}

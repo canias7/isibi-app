@@ -32,7 +32,7 @@ export function ShortlistBoth({ entries, limit, waitingOn, onRemove, className }
   const mutual = entries.filter((e) => e.mutual);
   const room = limit !== undefined ? limit - entries.length : undefined;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="shortlist-both" className={cn("space-y-1.5", className)}>
       <p className="text-sm tabular-nums">
         <span className="font-medium">{entries.length} shortlisted</span>
         {limit !== undefined && <span className="text-muted-foreground"> of {limit}</span>}

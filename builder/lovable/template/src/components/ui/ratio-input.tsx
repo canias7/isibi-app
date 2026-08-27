@@ -36,7 +36,7 @@ export function RatioInput({ a, b, onChange, labels, id, className }: {
   const reduced = whole && d > 1 ? `${a / d} : ${b / d}` : null;
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="ratio-input" className={cn("flex flex-col gap-1", className)}>
       <span className="inline-flex items-end gap-2">
         <span className="flex flex-col gap-1">
           <label htmlFor={`${base}-a`} className="text-xs text-muted-foreground">{labels?.[0] ?? "Part"}</label>

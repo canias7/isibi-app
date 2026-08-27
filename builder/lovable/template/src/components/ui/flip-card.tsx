@@ -39,7 +39,7 @@ export function FlipCard({ front, back, flipped, onFlipChange, label = "Flip the
   const face = "absolute inset-0 flex flex-col overflow-hidden rounded-xl border border-border bg-background p-4 [backface-visibility:hidden]";
 
   return (
-    <button
+    <button data-slot="flip-card"
       type="button"
       aria-pressed={on}
       aria-label={label}

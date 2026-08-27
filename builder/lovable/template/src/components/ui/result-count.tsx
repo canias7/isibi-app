@@ -9,7 +9,7 @@ export function ResultCount({ from, to, total, noun = "result", filtered, classN
   const word = total === 1 ? noun : noun + "s";
   const range = from != null && to != null && total > 0 ? `${from}–${to} of ` : "";
   return (
-    <p className={cn("text-sm text-muted-foreground tabular-nums", className)} role="status">
+    <p data-slot="result-count" className={cn("text-sm text-muted-foreground tabular-nums", className)} role="status">
       {total === 0 ? `No ${word}` : `Showing ${range}${total} ${word}`}{filtered ? " (filtered)" : ""}
     </p>
   );

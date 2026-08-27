@@ -37,7 +37,7 @@ export function AttributionNote({ model, window: period, unattributed, className
 }) {
   const m = MODELS[model];
   return (
-    <p className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="attribution-note" className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
       <span className="block">
         Credit given by <span className="text-foreground">{m.label}</span>
         {period && <span> over {period}</span>}.

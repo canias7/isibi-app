@@ -21,7 +21,7 @@ export function SearchTips({ tips, max = 4, title = "Try", className }: {
   const shown = tips.slice(0, max);
   if (!shown.length) return null;
   return (
-    <div className={cn("text-sm", className)}>
+    <div data-slot="search-tips" className={cn("text-sm", className)}>
       <p className="mb-1 font-medium">{title}</p>
       <ul className="flex list-disc flex-col gap-0.5 ps-5 text-muted-foreground">
         {shown.map((t, i) => <li key={i}>{t}</li>)}

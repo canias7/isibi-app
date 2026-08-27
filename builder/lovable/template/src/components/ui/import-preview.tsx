@@ -15,7 +15,7 @@ export function ImportPreview({ columns, rows, total, className }: {
 }) {
   const hidden = total != null ? Math.max(0, total - rows.length) : 0;
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="import-preview" className={cn("space-y-2", className)}>
       <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead>

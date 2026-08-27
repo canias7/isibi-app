@@ -39,7 +39,7 @@ export function AppealForm({ what, rule, decidedAt, reviewDays = 7, appealedAt, 
   const MAX = 1000;
 
   return (
-    <div className={cn("flex flex-col gap-3 rounded-xl border border-border bg-card p-4", className)}>
+    <div data-slot="appeal-form" className={cn("flex flex-col gap-3 rounded-xl border border-border bg-card p-4", className)}>
       <div>
         <p className="text-sm font-medium">Appeal a removal</p>
         {/* The decision being appealed, stated so the appeal can argue with the right thing. */}

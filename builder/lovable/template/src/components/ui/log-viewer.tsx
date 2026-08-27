@@ -45,7 +45,7 @@ export function LogViewer({ lines, className }: {
   }, [shown.length]);
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="log-viewer" className={cn("flex flex-col gap-2", className)}>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-40 flex-1">
           <Search aria-hidden className="pointer-events-none absolute top-1/2 start-2 size-3.5 -translate-y-1/2 text-muted-foreground" />

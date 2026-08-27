@@ -34,7 +34,7 @@ export function ProofUpload({ accepted = [], onFile, files = [], retention, busy
 }) {
   const WORD = { pending: "Being checked", accepted: "Accepted", rejected: "Rejected" } as const;
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="proof-upload" className={cn("space-y-2", className)}>
       {accepted.length > 0 && (
         <div className="text-sm">
           <p className="font-medium">Any one of these:</p>

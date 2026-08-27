@@ -13,7 +13,7 @@ export function TypingIndicator({ who, className }: { who?: string | string[]; c
     : names.length === 2 ? `${names[0]} and ${names[1]} are typing`
     : `${names[0]} and ${names.length - 1} others are typing`;
   return (
-    <p className={cn("flex items-center gap-2 px-1 text-xs text-muted-foreground", className)} aria-live="polite">
+    <p data-slot="typing-indicator" className={cn("flex items-center gap-2 px-1 text-xs text-muted-foreground", className)} aria-live="polite">
       <span className="flex gap-0.5" aria-hidden="true">
         {[0, 1, 2].map((i) => (
           <span key={i} className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60"

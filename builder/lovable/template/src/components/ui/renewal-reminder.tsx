@@ -40,7 +40,7 @@ export function RenewalReminder({ tier, dueOn, daysLeft, price, graceDays, loses
   const soon = daysLeft !== undefined && daysLeft <= 14;
   if (alreadyPaid) {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="renewal-reminder" className={cn("space-y-0.5 text-sm", className)}>
         <p>Your subscription is paid{tier ? ` — ${tier}` : ""}. Nothing to do.</p>
         {dueOn && <p className="text-xs text-muted-foreground">Next due {dueOn}.</p>}
       </div>

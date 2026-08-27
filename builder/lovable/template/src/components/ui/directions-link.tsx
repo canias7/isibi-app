@@ -39,7 +39,7 @@ export function DirectionsLink({ lat, lng, address, label = "Get directions", sh
     ? window.matchMedia("(pointer: coarse)").matches
     : false;
   return (
-    <span className={cn("inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm", className)}>
+    <span data-slot="directions-link" className={cn("inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm", className)}>
       {showAddress && address && <span>{address}</span>}
       <a href={coarse ? geo : web} target={coarse ? undefined : "_blank"} rel="noreferrer"
         className="underline underline-offset-2">

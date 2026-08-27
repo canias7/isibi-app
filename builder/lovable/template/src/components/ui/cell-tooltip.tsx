@@ -22,7 +22,7 @@ export function CellTooltip({ text, clipAt = 40, className }: {
 }) {
   const long = text.length > clipAt;
   return (
-    <span title={long ? text : undefined}
+    <span data-slot="cell-tooltip" title={long ? text : undefined}
       className={cn("block max-w-full truncate", className)}>
       {text}
     </span>

@@ -26,7 +26,7 @@ export function VirtualList<T>({ items, renderRow, estimateSize = 44, overscan =
     overscan,
   });
   return (
-    <div ref={ref} className={cn("overflow-y-auto", className)} style={{ height }}>
+    <div data-slot="virtual-list" ref={ref} className={cn("overflow-y-auto", className)} style={{ height }}>
       <div style={{ height: rows.getTotalSize(), position: "relative" }}>
         {rows.getVirtualItems().map((v) => (
           <div key={v.key} ref={rows.measureElement} data-index={v.index}

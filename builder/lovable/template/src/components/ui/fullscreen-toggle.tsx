@@ -40,7 +40,7 @@ export function FullscreenToggle({ targetRef, enterLabel = "Fullscreen", exitLab
   if (!ok) return null;
   const Icon = on ? Minimize2 : Maximize2;
   return (
-    <button type="button" aria-label={on ? exitLabel : enterLabel}
+    <button data-slot="fullscreen-toggle" type="button" aria-label={on ? exitLabel : enterLabel}
       onClick={() => {
         const el = targetRef?.current ?? document.documentElement;
         if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});

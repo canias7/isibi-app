@@ -33,7 +33,7 @@ export function ContaminationNote({ bin, item, severity = "minor", whatNow, will
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="contamination-note" className={cn("space-y-0.5 text-sm", className)}>
       <p className="font-medium">
         {bin ? `Your ${bin} was not emptied` : "This bin was not emptied"}
       </p>

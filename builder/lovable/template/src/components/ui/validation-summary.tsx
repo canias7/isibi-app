@@ -25,7 +25,7 @@ export function ValidationSummary({ errors, title, className }: {
   React.useEffect(() => { if (errors.length) ref.current?.focus(); }, [errors.length]);
   if (!errors.length) return null;
   return (
-    <div ref={ref} tabIndex={-1} role="alert"
+    <div data-slot="validation-summary" ref={ref} tabIndex={-1} role="alert"
       className={cn("rounded-md border border-border p-4 outline-none", className)}>
       <p className="text-sm font-medium">
         {title ?? `${errors.length} ${errors.length === 1 ? "thing needs" : "things need"} fixing`}

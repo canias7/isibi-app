@@ -7,7 +7,7 @@ export function ComparisonTable({ columns, rows, className }: {
   columns: string[]; rows: CompareRow[]; className?: string;
 }) {
   return (
-    <OverflowScroller className={className}>
+    <OverflowScroller data-slot="comparison-table" className={className}>
       <table className="w-full min-w-[32rem] text-sm">
         <thead>
           <tr className="border-b">

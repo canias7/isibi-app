@@ -15,7 +15,7 @@ export function MaintenancePage({ backAt, body, contact, className }: {
   const d = backAt != null ? toDate(backAt) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
-    <div className={cn("mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-20 text-center", className)}>
+    <div data-slot="maintenance-page" className={cn("mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-20 text-center", className)}>
       <Wrench className="size-8 text-muted-foreground" />
       <h1 className="text-2xl font-semibold">We're down for maintenance</h1>
       <p className="text-sm text-muted-foreground">

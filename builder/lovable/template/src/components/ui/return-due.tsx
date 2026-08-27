@@ -40,7 +40,7 @@ export function ReturnDue({ dueOn, closesAt, periodsLate, latePerPeriod, periodN
     }).format(v);
   const late = periodsLate !== undefined && periodsLate > 0;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="return-due" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn(late ? "font-medium" : "")}>
         {late
           ? `Overdue by ${periodsLate} ${periodsLate === 1 ? periodName : `${periodName}s`}.`

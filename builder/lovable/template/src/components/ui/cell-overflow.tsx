@@ -27,7 +27,7 @@ export function CellOverflow({ items, show = 2, className }: {
   const shown = open ? items : items.slice(0, show);
   const rest = items.length - shown.length;
   return (
-    <span className={cn("flex flex-wrap items-center gap-1", className)}>
+    <span data-slot="cell-overflow" className={cn("flex flex-wrap items-center gap-1", className)}>
       <span id={id} className="flex flex-wrap gap-1">
         {shown.map((it, i) => <span key={i}>{it}</span>)}
       </span>

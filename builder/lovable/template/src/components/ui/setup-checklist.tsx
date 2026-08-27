@@ -14,7 +14,7 @@ export function SetupChecklist({ steps, title = "Get set up", className }: {
 }) {
   const done = steps.filter((s) => s.done).length;
   return (
-    <div className={cn("rounded-lg border border-border p-4", className)}>
+    <div data-slot="setup-checklist" className={cn("rounded-lg border border-border p-4", className)}>
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-sm font-medium">{title}</h3>
         <span className="text-xs tabular-nums text-muted-foreground">{done} of {steps.length}</span>

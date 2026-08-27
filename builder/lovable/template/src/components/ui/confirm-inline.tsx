@@ -44,7 +44,7 @@ export function ConfirmInline({
 
   if (!armed) {
     return (
-      <button type="button" onClick={() => setArmed(true)} disabled={busy}
+      <button data-slot="confirm-inline" type="button" onClick={() => setArmed(true)} disabled={busy}
         className={cn("cursor-pointer rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-50", className)}>
         {label}
       </button>

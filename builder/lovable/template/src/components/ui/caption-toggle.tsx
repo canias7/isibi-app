@@ -32,7 +32,7 @@ export function CaptionToggle({ hasTrack = true, defaultLang = "en", className }
   if (on) last.current = pref;
 
   return (
-    <button
+    <button data-slot="caption-toggle"
       type="button"
       disabled={!hasTrack}
       aria-pressed={on}

@@ -32,7 +32,7 @@ export function CountSheetRow({ name, expected, counted, onChange, unit, reveale
   const show = revealed || counted !== null;
   const diff = counted === null ? null : counted - expected;
   return (
-    <tr className={className}>
+    <tr data-slot="count-sheet-row" className={className}>
       <th scope="row" className="px-3 py-2 text-start text-sm font-normal">
         {name}
         {unit && <span className="ms-1.5 text-xs text-muted-foreground">{unit}</span>}

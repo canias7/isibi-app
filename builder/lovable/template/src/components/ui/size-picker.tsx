@@ -15,7 +15,7 @@ export function SizePicker({ options, value, onChange, label, className }: {
   value?: string | null; onChange: (v: string) => void; label?: string; className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5", className)} role="group" aria-label={label}>
+    <div data-slot="size-picker" className={cn("space-y-1.5", className)} role="group" aria-label={label}>
       <div className="flex flex-wrap gap-1.5">
         {options.map((o) => (
           <button key={o.value} type="button" disabled={o.disabled} aria-pressed={o.value === value}

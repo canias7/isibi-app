@@ -40,7 +40,7 @@ export function RangeSummary({ values, format, label, className }: {
   // Two prices are a list, not a spread.
   if (stats.count < 3) {
     return (
-      <p className={cn("text-sm", className)}>
+      <p data-slot="range-summary" className={cn("text-sm", className)}>
         {label ? <span className="text-muted-foreground">{label}: </span> : null}
         <span className="tabular-nums">{values.map(fmt).join(" and ")}</span>
       </p>

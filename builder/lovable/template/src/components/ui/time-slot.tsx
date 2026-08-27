@@ -11,7 +11,7 @@ export function TimeSlot({ time, taken, selected, onSelect, note, className }: {
   onSelect?: () => void; note?: string; className?: string;
 }) {
   return (
-    <button type="button" disabled={taken} onClick={onSelect} aria-pressed={selected}
+    <button data-slot="time-slot" type="button" disabled={taken} onClick={onSelect} aria-pressed={selected}
       className={cn("flex min-w-20 cursor-pointer flex-col items-center rounded-md border px-3 py-2 text-sm tabular-nums transition-colors",
         taken && "cursor-not-allowed border-border text-muted-foreground line-through opacity-60",
         !taken && selected && "border-foreground bg-foreground text-background",

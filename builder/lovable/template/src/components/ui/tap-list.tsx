@@ -32,7 +32,7 @@ export function TapList({ pours, heading, className }: {
 }) {
   if (!pours.length) return null;
   return (
-    <div className={cn("", className)}>
+    <div data-slot="tap-list" className={cn("", className)}>
       {heading && <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</p>}
       <ul className={cn("divide-y divide-border border-y border-border", heading && "mt-3")}>
         {pours.map((p, i) => (

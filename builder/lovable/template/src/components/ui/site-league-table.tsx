@@ -36,7 +36,7 @@ export function SiteLeagueTable({ metric, basis, entries, unit, className }: {
   const spread = top !== undefined && bottom !== undefined && bottom !== 0 ? (top - bottom) / Math.abs(bottom) : undefined;
   const u = unit ?? "";
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="site-league-table" className={cn("space-y-1.5", className)}>
       {(metric || basis) && (
         <p className="text-sm">
           {metric}

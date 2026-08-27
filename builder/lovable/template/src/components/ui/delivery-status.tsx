@@ -42,7 +42,7 @@ export function DeliveryStatus({ state, at, detail, permanent, onRetry, classNam
   const bad = state === "bounced" || state === "failed";
 
   return (
-    <span className={cn("inline-flex flex-wrap items-center gap-1.5 text-xs", className)}>
+    <span data-slot="delivery-status" className={cn("inline-flex flex-wrap items-center gap-1.5 text-xs", className)}>
       <Icon aria-hidden className={cn("size-3.5 shrink-0", !bad && "text-muted-foreground")} />
       <span className={cn(bad && "font-medium")}>{word}</span>
       {at ? <span className="text-muted-foreground">{at}</span> : null}

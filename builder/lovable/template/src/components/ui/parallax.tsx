@@ -38,7 +38,7 @@ export function Parallax({ speed = 0.2, children, className }: {
   const shift = (rate * 50).toFixed(2) + "%";
 
   return (
-    <div
+    <div data-slot="parallax"
       className={cn("parallax relative overflow-hidden", className)}
       style={{ "--parallax-shift": shift } as React.CSSProperties}
     >

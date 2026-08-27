@@ -41,7 +41,7 @@ export function AnnotationUpload({ src, pins, onAdd, onSelect, selectedId, readO
     });
   };
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="annotation-upload" className={cn("space-y-1.5", className)}>
       <div className="relative">
         {readOnly || !onAdd ? (
           <SafeImage src={src} alt="" className="w-full rounded-md object-cover" />

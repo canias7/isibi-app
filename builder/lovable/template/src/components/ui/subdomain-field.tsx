@@ -37,7 +37,7 @@ export function SubdomainField({ value, onChange, base, state = "ok", id = "subd
     "too-short": "A little longer, please.",
   } as const;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="subdomain-field" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">Your address</label>
       <div className="flex items-center gap-1">
         <input id={id} value={value} autoCapitalize="none" autoCorrect="off" spellCheck={false}

@@ -30,7 +30,7 @@ export function DryRunResult({ wouldChange, wouldSkip, problems = [], sampleLimi
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="dry-run-result" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         {wouldChange === 0 ? (
           <>

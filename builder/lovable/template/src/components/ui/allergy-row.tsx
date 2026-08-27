@@ -35,7 +35,7 @@ export function AllergyRow({ substance, reaction, kind = "allergy", reportedBy, 
   className?: string;
 }) {
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", disputed && "text-muted-foreground", className)}>
+    <li data-slot="allergy-row" className={cn("space-y-0.5 px-3 py-2 text-sm", disputed && "text-muted-foreground", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 font-medium">{substance}</span>
         <span className="shrink-0 text-xs text-muted-foreground">

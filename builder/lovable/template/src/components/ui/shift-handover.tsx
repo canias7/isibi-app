@@ -44,7 +44,7 @@ export function ShiftHandover({ onSubmit, to, busy, className }: {
     </div>
   );
   return (
-    <form className={cn("space-y-3", className)}
+    <form data-slot="shift-handover" className={cn("space-y-3", className)}
       onSubmit={(e) => {
         e.preventDefault();
         if (!ready) return;

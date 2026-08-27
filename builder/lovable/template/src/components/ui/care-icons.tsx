@@ -23,7 +23,7 @@ const SYMBOLS: Record<string, { draw: React.ReactNode; label: string }> = {
 
 export function CareIcons({ codes, className }: { codes: (keyof typeof SYMBOLS | string)[]; className?: string }) {
   return (
-    <ul className={cn("flex flex-wrap gap-x-4 gap-y-1.5", className)}>
+    <ul data-slot="care-icons" className={cn("flex flex-wrap gap-x-4 gap-y-1.5", className)}>
       {codes.map((c) => {
         const s = SYMBOLS[c];
         if (!s) return null;

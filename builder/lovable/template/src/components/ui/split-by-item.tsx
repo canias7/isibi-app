@@ -47,7 +47,7 @@ export function SplitByItem({ lines, people, assignment, onAssign, currency = "G
   const assignedSum = Object.values(totals).reduce((s, x) => s + x, 0);
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="split-by-item" className={cn("flex flex-col gap-2", className)}>
       <ul className="flex flex-col gap-1">
         {lines.map((l) => {
           const who = assignment[l.id] ?? [];

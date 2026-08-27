@@ -27,7 +27,7 @@ export function ScaleInput({ name, value, onChange, points = 5, lowLabel, highLa
           const v = i + 1;
           const id = `${name}-${v}`;
           return (
-            <label key={v} htmlFor={id}
+            <label data-slot="scale-input" key={v} htmlFor={id}
               className={cn("flex flex-1 cursor-pointer flex-col items-center gap-1 rounded-md border py-2 text-xs tabular-nums transition-colors",
                 value === v ? "border-foreground bg-foreground text-background" : "border-border hover:bg-muted")}>
               <input id={id} type="radio" name={name} value={v} checked={value === v}

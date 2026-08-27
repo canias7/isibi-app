@@ -36,7 +36,7 @@ export function ReadingGuide({ height = 44, children, className }: {
   }, [on]);
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="reading-guide" className={cn("flex flex-col gap-2", className)}>
       <button type="button" onClick={() => setOn((v) => !v)} aria-pressed={on}
         className="cursor-pointer self-start rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">
         {on ? "Hide the reading guide (Esc)" : "Reading guide"}

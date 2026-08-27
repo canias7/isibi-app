@@ -85,7 +85,7 @@ export function TimezonePicker({ value, onChange, zones, id, className }: {
       onChange={(e) => onChange(e.target.value)}>
       {list.map((tz) => {
         const off = offsetOf(tz);
-        return <option key={tz} value={tz}>{tz.replace(/_/g, " ")}{off ? ` (${off})` : ""}</option>;
+        return <option data-slot="timezone-picker" key={tz} value={tz}>{tz.replace(/_/g, " ")}{off ? ` (${off})` : ""}</option>;
       })}
     </NativeSelect>
   );

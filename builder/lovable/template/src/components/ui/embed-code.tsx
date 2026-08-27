@@ -54,7 +54,7 @@ export function EmbedCode({ src, title, defaultWidth = 560, defaultHeight = 315,
   const code = buildEmbed({ src, title, width: w, height: h, allowFullscreen: full, responsive });
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="embed-code" className={cn("flex flex-col gap-2", className)}>
       <div className="flex flex-wrap items-center gap-3 text-xs">
         <label className="flex items-center gap-1.5">
           Width

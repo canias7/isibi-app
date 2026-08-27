@@ -50,7 +50,7 @@ export function DeadlineBar({ due, from, label, now, className }: {
   const closing = !late && gone > 0.75;
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="deadline-bar" className={cn("flex flex-col gap-1", className)}>
       <div className="flex items-baseline justify-between gap-3 text-sm">
         {label ? <span className="min-w-0 truncate">{label}</span> : <span />}
         <span className={cn("shrink-0 text-xs tabular-nums", late ? "font-semibold" : "text-muted-foreground")}>

@@ -27,7 +27,7 @@ export function ConfidenceBar({ level, basis, className }: {
   const n = level === "high" ? 3 : level === "medium" ? 2 : 1;
   const word = level === "high" ? "Fairly sure" : level === "medium" ? "Reasonably sure" : "Not very sure";
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="confidence-bar" className={cn("space-y-1", className)}>
       <p className="text-sm">
         <span className="font-medium">{word}</span>
         {basis && <span className="text-muted-foreground"> · based on {basis}</span>}

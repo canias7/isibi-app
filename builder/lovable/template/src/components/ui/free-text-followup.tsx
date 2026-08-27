@@ -43,7 +43,7 @@ export function FreeTextFollowup({ score, askFor, prompts, onSubmit, onSkip, pla
   if (score === null || !askFor.includes(score)) return null;
   const question = prompts?.[score] ?? "Would you tell us a bit more?";
   return (
-    <form className={cn("space-y-2", className)}
+    <form data-slot="free-text-followup" className={cn("space-y-2", className)}
       onSubmit={(e) => { e.preventDefault(); if (text.trim()) onSubmit(text.trim()); }}>
       <label htmlFor={uid + "-ftf"} className="block text-sm font-medium">{question}</label>
       <textarea id={uid + "-ftf"} rows={3} value={text} placeholder={placeholder}

@@ -23,7 +23,7 @@ export function KeyPoints({ points, title = "In short", max = 5, className }: {
   const shown = points.slice(0, max);
   const dropped = points.length - shown.length;
   return (
-    <section aria-label={title} className={cn("rounded-md border border-border p-4", className)}>
+    <section data-slot="key-points" aria-label={title} className={cn("rounded-md border border-border p-4", className)}>
       <h2 className="mb-2 text-sm font-medium">{title}</h2>
       <ul className="flex list-disc flex-col gap-1 ps-5 text-sm text-muted-foreground">
         {shown.map((p, i) => <li key={i}>{p}</li>)}

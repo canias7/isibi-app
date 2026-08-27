@@ -29,7 +29,7 @@ export function StringContext({ before = [], current, after = [], sourceLang = "
 }) {
   if (!before.length && !after.length) return null;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="string-context" className={cn("space-y-1", className)}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <ul lang={sourceLang} className="space-y-0.5 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-sm">
         {before.map((s, i) => <li key={`b${i}`} className="text-muted-foreground">{s}</li>)}

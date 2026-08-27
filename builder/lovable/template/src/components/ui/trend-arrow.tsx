@@ -14,7 +14,7 @@ export function TrendArrow({ direction, good, label, className }: {
   const isGood = good ?? direction === "up";
   const tone = direction === "flat" ? "text-muted-foreground" : isGood ? "text-success" : "text-destructive";
   return (
-    <span className={cn("inline-flex items-center", tone, className)}>
+    <span data-slot="trend-arrow" className={cn("inline-flex items-center", tone, className)}>
       <span aria-hidden="true">{glyph}</span>
       <span className="sr-only">{label ?? { up: "Up", down: "Down", flat: "No change" }[direction]}</span>
     </span>

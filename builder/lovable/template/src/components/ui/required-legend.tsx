@@ -20,7 +20,7 @@ export function RequiredLegend({ mode = "required", className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="required-legend" className={cn("text-xs text-muted-foreground", className)}>
       {mode === "required"
         ? <><span aria-hidden>*</span> means required</>
         : <>Everything is required unless marked optional</>}

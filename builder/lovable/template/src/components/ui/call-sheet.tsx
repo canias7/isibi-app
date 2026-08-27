@@ -38,7 +38,7 @@ export function CallSheet({ production, dayNumber, totalDays, date, location, ca
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="call-sheet" className={cn("space-y-1.5 text-sm", className)}>
       <p>
         <span className="font-medium">{production ?? "Call sheet"}</span>
         {dayNumber !== undefined && (

@@ -36,7 +36,7 @@ export function PublicNotice({ reference, title, proposal, publishedOn, closesOn
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="public-notice" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{title}</span>
         {reference && <span className="block font-mono text-xs text-muted-foreground">{reference}</span>}

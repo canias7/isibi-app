@@ -46,7 +46,7 @@ export function FilterDrawer({ open, onClose, onApply, onClear, resultCount, act
   }, [open]);
   if (!open) return null;
   return (
-    <div className={cn("fixed inset-0 z-50 flex", className)}>
+    <div data-slot="filter-drawer" className={cn("fixed inset-0 z-50 flex", className)}>
       <div className="absolute inset-0 bg-foreground/40" onClick={onClose} aria-hidden="true" />
       <div role="dialog" aria-modal="true" aria-label={title}
         className="relative ms-auto flex h-full w-full max-w-sm flex-col bg-popover shadow-lg">

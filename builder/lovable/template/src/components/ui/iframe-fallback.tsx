@@ -52,7 +52,7 @@ export function IframeFallback({ src, title, height = 400, readyMessage, timeout
   }, [readyMessage, timeoutMs]);
   if (failed) {
     return (
-      <div style={{ minHeight: height }}
+      <div data-slot="iframe-fallback" style={{ minHeight: height }}
         className={cn("flex flex-col items-start justify-center gap-1 rounded-md border border-border p-4", className)}>
         <p className="text-sm font-medium">{title} could not load here</p>
         <p className="text-xs text-muted-foreground">

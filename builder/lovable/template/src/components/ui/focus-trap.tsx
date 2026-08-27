@@ -39,5 +39,5 @@ export function FocusTrap({ active = true, children, className }: {
       previous?.focus?.();
     };
   }, [active]);
-  return <div ref={ref} className={className}>{children}</div>;
+  return <div data-slot="focus-trap" ref={ref} className={className}>{children}</div>;
 }

@@ -54,7 +54,7 @@ export function PosterPicker({ frames, value, onChange, onUpload, error, classNa
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="poster-picker" className={cn("flex flex-col gap-2", className)}>
       <p className="text-sm font-medium">Cover image</p>
       {frames.length === 0 ? (
         <p className="text-xs text-muted-foreground">No frames yet.</p>

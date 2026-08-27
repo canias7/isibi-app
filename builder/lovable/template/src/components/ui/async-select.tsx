@@ -55,7 +55,7 @@ export function AsyncSelect({ value, onChange, search, minChars = 1, debounceMs 
   }, [q, minChars, debounceMs, search]);
 
   return (
-    <div className={cn("relative", className)}>
+    <div data-slot="async-select" className={cn("relative", className)}>
       <div className="relative">
         <Input id={id} role="combobox" aria-expanded={open} value={open ? q : (value?.label ?? "")}
           aria-controls={listId}

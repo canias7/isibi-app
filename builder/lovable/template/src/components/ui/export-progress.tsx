@@ -39,7 +39,7 @@ export function ExportProgress({
   const pct = rows && done != null && rows > 0 ? Math.min(100, (done / rows) * 100) : null;
 
   return (
-    <div role="status" aria-live="polite"
+    <div data-slot="export-progress" role="status" aria-live="polite"
       className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
       <div className="flex items-start gap-2.5">
         {state === "ready" ? <Check aria-hidden className="mt-0.5 size-4 shrink-0" />

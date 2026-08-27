@@ -33,7 +33,7 @@ export function IntroRequest({ toName, viaName, reason, onReasonChange, maxLengt
   const id = useId();
   const left = maxLength - reason.length;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="intro-request" className={cn("space-y-1", className)}>
       <p className="text-sm">
         Ask <span className="font-medium">{viaName}</span> to introduce you to{" "}
         <span className="font-medium">{toName}</span>.

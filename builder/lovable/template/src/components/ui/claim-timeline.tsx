@@ -36,7 +36,7 @@ export function ClaimTimeline({ events, openItem, openSince, className }: {
 }) {
   const WHO = { you: "you", us: "us", "third-party": "a third party" };
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="claim-timeline" className={cn("space-y-1", className)}>
       <ol className="space-y-1 text-sm">
         {events.map((e) => (
           <li key={e.id} className="space-y-0.5">

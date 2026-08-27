@@ -28,7 +28,7 @@ export function ReactionSummary({ reactions, onToggle, className }: {
   const shown = reactions.filter((r) => r.by.length > 0);
   if (!shown.length) return null;
   return (
-    <div className={cn("flex flex-wrap gap-1", className)}>
+    <div data-slot="reaction-summary" className={cn("flex flex-wrap gap-1", className)}>
       {shown.map((r) => {
         const names = r.by.length <= 3
           ? r.by.join(", ")

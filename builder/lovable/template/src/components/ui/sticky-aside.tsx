@@ -4,7 +4,7 @@ export function StickyAside({ top = "1.5rem", className, children }: {
   top?: string; className?: string; children?: React.ReactNode;
 }) {
   return (
-    <div className={cn("md:sticky md:h-fit", className)} style={{ top }}>
+    <div data-slot="sticky-aside" className={cn("md:sticky md:h-fit", className)} style={{ top }}>
       {children}
     </div>
   );

@@ -43,7 +43,7 @@ export function BillOfMaterials({ lines, buildQuantity, className }: {
   const buildable = known.length ? Math.min(...known) : undefined;
   const limiting = buildable === undefined ? null : lines.find((l) => supports(l) === buildable) ?? null;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="bill-of-materials" className={cn("space-y-1.5", className)}>
       {buildable !== undefined && (
         <p className="text-sm">
           <span className="font-medium tabular-nums">{buildable} buildable</span>

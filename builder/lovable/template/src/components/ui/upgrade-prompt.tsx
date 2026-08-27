@@ -37,7 +37,7 @@ export function UpgradePrompt({ version, headline, breaking, downtime, duration,
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="upgrade-prompt" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <p className="text-sm">
         <span className="font-medium">Version {version} is ready</span>
         {headline && <span className="block text-xs text-muted-foreground">{headline}</span>}

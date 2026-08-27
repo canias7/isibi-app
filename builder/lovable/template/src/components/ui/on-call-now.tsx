@@ -32,7 +32,7 @@ export function OnCallNow({ name, role, phone, until, backup, className }: {
   const digits = phone?.replace(/[^\d+]/g, "");
   if (!name) {
     return (
-      <div role="alert" className={cn("space-y-1 rounded-md border border-foreground/40 bg-muted/40 px-3 py-2 text-sm", className)}>
+      <div data-slot="on-call-now" role="alert" className={cn("space-y-1 rounded-md border border-foreground/40 bg-muted/40 px-3 py-2 text-sm", className)}>
         <p className="font-medium">Nobody is on call right now</p>
         {backup ?? <p className="text-xs text-muted-foreground">There is no fallback set for this period.</p>}
       </div>

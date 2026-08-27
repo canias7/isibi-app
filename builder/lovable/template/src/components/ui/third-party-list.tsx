@@ -35,7 +35,7 @@ export function ThirdPartyList({ parties, noneNote = "Your data is not shared wi
   noneNote?: string;
   className?: string;
 }) {
-  if (!parties.length) return <p className={cn("text-sm", className)}>{noneNote}</p>;
+  if (!parties.length) return <p data-slot="third-party-list" className={cn("text-sm", className)}>{noneNote}</p>;
   return (
     <ul className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {parties.map((p) => (

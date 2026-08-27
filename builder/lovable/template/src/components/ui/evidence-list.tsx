@@ -38,7 +38,7 @@ export function EvidenceList({ items, emptyNote = "Nothing attached", className 
   emptyNote?: string;
   className?: string;
 }) {
-  if (!items.length) return <p className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
+  if (!items.length) return <p data-slot="evidence-list" className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
   const fmt = (s?: string) => {
     if (!s) return null;
     const d = toDate(s);

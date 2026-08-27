@@ -31,7 +31,7 @@ export function NextOccurrence({ at, rule, paused, pausedNote = "Paused — noth
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-0.5", className)}>
+    <div data-slot="next-occurrence" className={cn("flex flex-col gap-0.5", className)}>
       {paused || !at ? (
         <p className="text-sm font-medium">{paused ? pausedNote : "No next run"}</p>
       ) : (

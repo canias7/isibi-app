@@ -32,7 +32,7 @@ export function LocationConsent({ state, reason, onAllow, onManual, manualLabel 
 }) {
   if (state === "granted") return null;
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="location-consent" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <p className="text-sm">{reason}</p>
       {state === "denied" ? (
         <p className="text-xs text-muted-foreground">

@@ -23,7 +23,7 @@ export function OverflowFade({ children, height = 120, fade = 40, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("relative overflow-hidden", className)} style={{ maxHeight: height }}>
+    <div data-slot="overflow-fade" className={cn("relative overflow-hidden", className)} style={{ maxHeight: height }}>
       {children}
       <div aria-hidden style={{ height: fade }}
         className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-b from-transparent to-background" />

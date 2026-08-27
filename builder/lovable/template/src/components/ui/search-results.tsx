@@ -6,7 +6,7 @@ export function SearchResults({ results, query, className }: {
   query?: string; className?: string;
 }) {
   return (
-    <ul className={cn("divide-y divide-border", className)}>
+    <ul data-slot="search-results" className={cn("divide-y divide-border", className)}>
       {results.map((r, i) => (
         <li key={r.href ?? `${r.title}-${i}`} className="py-3">
           <div className="flex items-baseline gap-2">

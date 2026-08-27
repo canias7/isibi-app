@@ -32,7 +32,7 @@ export function ChangeSummary({ added = 0, removed = 0, changed = 0, unchangedNo
   ].filter((p) => p.n > 0);
 
   if (!parts.length) {
-    return <span className={cn("text-sm text-muted-foreground", className)}>{unchangedNote}</span>;
+    return <span data-slot="change-summary" className={cn("text-sm text-muted-foreground", className)}>{unchangedNote}</span>;
   }
   return (
     <span className={cn("inline-flex flex-wrap items-center gap-x-3 text-sm tabular-nums", className)}>

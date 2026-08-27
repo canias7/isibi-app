@@ -576,7 +576,13 @@ test("A TOOL'S DIRECTIVE LEADS WITH THE TOOL BLOCK — and a shopfront's is byte
   // `tool.includes(TOOL_DIRECTIVE)` is vacuously true of an emptied constant,
   // so a gutted block would pass every structural check below while telling
   // the page writer nothing. Caught before the first sweep rather than by it.
-  for (const must of [/WORKING TOOL/, /no hero/i, /no photographs/i, /front page opens straight into the work/i]) {
+  // The last three are the FOOTER rule (2026-08-27): runs 47 and 49 both
+  // closed every tool page on a strapline plus an invented contact card —
+  // phone, email, address, hours, none of them in the brief. Each floor is a
+  // sentence whose deletion is silent: the next tool build just grows the
+  // brochure footer back and reports success.
+  for (const must of [/WORKING TOOL/, /no hero/i, /no photographs/i, /front page opens straight into the work/i,
+                      /FOOTER is workplace chrome/, /no contact card/, /ONLY if the brief/]) {
     assert.match(TOOL_DIRECTIVE, must, "the tool block lost a load-bearing sentence");
   }
   // Through the exported constant rather than a spelling, so rewording the

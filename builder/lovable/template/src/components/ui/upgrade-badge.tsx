@@ -23,7 +23,7 @@ export function UpgradeBadge({ tier, onUpgrade, className }: {
   className?: string;
 }) {
   const chip = "inline-flex items-center rounded-full border border-foreground px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide";
-  if (!onUpgrade) return <span className={cn(chip, className)}>{tier}</span>;
+  if (!onUpgrade) return <span data-slot="upgrade-badge" className={cn(chip, className)}>{tier}</span>;
   return (
     <button type="button" onClick={onUpgrade}
       title={`Included in ${tier}`}

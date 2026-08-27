@@ -26,7 +26,7 @@ export function FormLock({ locked, children, message, className }: {
   className?: string;
 }) {
   return (
-    <fieldset disabled={locked} aria-busy={locked || undefined}
+    <fieldset data-slot="form-lock" disabled={locked} aria-busy={locked || undefined}
       className={cn("min-w-0 border-0 p-0 transition-opacity", locked && "opacity-60", className)}>
       {children}
       {locked && message ? (

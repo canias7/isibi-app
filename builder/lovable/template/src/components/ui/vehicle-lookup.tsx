@@ -37,7 +37,7 @@ export function VehicleLookup({
   const id = React.useId();
   if (state === "found" && vehicle) {
     return (
-      <div className={cn("rounded-lg border border-border p-4", className)} role="status">
+      <div data-slot="vehicle-lookup" className={cn("rounded-lg border border-border p-4", className)} role="status">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="font-medium">{vehicle.make} {vehicle.model}</p>

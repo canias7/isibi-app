@@ -35,7 +35,7 @@ export function InteractionWarning({ between, consequence, severity = "moderate"
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   const heavy = severity === "serious";
   return (
-    <div
+    <div data-slot="interaction-warning"
       className={cn(
         "space-y-1 rounded-md border p-3 text-sm",
         heavy ? "border-foreground" : "border-border",

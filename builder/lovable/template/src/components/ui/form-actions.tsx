@@ -6,7 +6,7 @@ export function FormActions({ align = "end", sticky, className, children }: {
 }) {
   const a = { start: "justify-start", end: "justify-end", between: "justify-between" }[align];
   return (
-    <div className={cn("flex flex-wrap items-center gap-2 pt-2", a,
+    <div data-slot="form-actions" className={cn("flex flex-wrap items-center gap-2 pt-2", a,
       sticky && "sticky bottom-0 border-t bg-background/90 py-3 backdrop-blur", className)}>
       {children}
     </div>

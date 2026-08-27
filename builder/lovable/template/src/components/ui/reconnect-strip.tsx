@@ -28,7 +28,7 @@ export function ReconnectStrip({ online, retryInSeconds, safeMessage, onRetryNow
 }) {
   if (online) return null;
   return (
-    <div role="status"
+    <div data-slot="reconnect-strip" role="status"
       className={cn("flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-border bg-muted px-4 py-2 text-sm", className)}>
       <span className="font-medium">You&apos;re offline</span>
       {safeMessage && <span className="text-muted-foreground">{safeMessage}</span>}

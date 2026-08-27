@@ -36,7 +36,7 @@ export function StockMove({ kind, quantity, unit, reason, by, at, from, to, clas
   const sign = kind === "in" ? "+" : kind === "out" ? "−" : "";
   const word = kind === "in" ? "In" : kind === "out" ? "Out" : "Moved";
   return (
-    <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
+    <li data-slot="stock-move" className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
       <span className="min-w-0 flex-1">
         <span className="block">
           {word}

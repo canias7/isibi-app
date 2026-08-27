@@ -30,7 +30,7 @@ export function VersionBadge({ version, commit, environment, builtAt, className 
 }) {
   const nonProd = environment && environment !== "production";
   return (
-    <span className={cn("inline-flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
+    <span data-slot="version-badge" className={cn("inline-flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
       <code className="select-all font-mono text-foreground">
         {version}{commit ? `+${commit}` : ""}
       </code>

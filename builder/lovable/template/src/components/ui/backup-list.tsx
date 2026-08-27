@@ -41,7 +41,7 @@ export function BackupList({ backups, coversBackTo, emptyNote = "No backups yet"
   emptyNote?: string;
   className?: string;
 }) {
-  if (!backups.length) return <p className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
+  if (!backups.length) return <p data-slot="backup-list" className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
   const unverified = backups.filter((b) => b.state === "ok" && !b.verifiedAt).length;
   return (
     <div className={cn("space-y-1.5", className)}>

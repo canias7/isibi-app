@@ -37,7 +37,7 @@ export function CurrencySwitch({ amount, currency, show, rate, rateDate, classNa
   const converting = show && show !== currency && rate != null;
 
   if (!converting) {
-    return <span className={cn("tabular-nums", className)}>{charged}</span>;
+    return <span data-slot="currency-switch" className={cn("tabular-nums", className)}>{charged}</span>;
   }
   return (
     <span className={cn("inline-flex flex-wrap items-baseline gap-1.5 tabular-nums", className)}>

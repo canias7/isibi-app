@@ -35,7 +35,7 @@ export function PlayerStatRow({ player, position, starts = 0, substituteAppearan
   const enough = minutes >= per90Threshold;
   const per90 = enough && minutes > 0 ? (goals / minutes) * 90 : undefined;
   return (
-    <li className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
+    <li data-slot="player-stat-row" className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         <span className="min-w-0 flex-1">
           {player}

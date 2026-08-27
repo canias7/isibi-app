@@ -48,7 +48,7 @@ export function PractitionerCard({
   className?: string;
 }) {
   return (
-    <article className={cn("flex gap-5", className)}>
+    <article data-slot="practitioner-card" className={cn("flex gap-5", className)}>
       <SafeImage src={photo} alt={name} ratio="1/1" className="w-24 shrink-0 rounded-xl sm:w-28" />
       <div className="min-w-0 flex-1">
         <h3 className="text-lg font-semibold tracking-tight">{name}</h3>

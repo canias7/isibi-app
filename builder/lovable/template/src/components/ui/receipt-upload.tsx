@@ -42,7 +42,7 @@ export function ReceiptUpload({ onSubmit, suggested, today, currencySymbol = "£
   const ready = file !== null && amount !== null && date !== "";
   const hasSuggestion = suggested && (suggested.amount !== undefined || suggested.date !== undefined);
   return (
-    <form className={cn("space-y-3", className)}
+    <form data-slot="receipt-upload" className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onSubmit({ file, amount, date }); }}>
       <div className="space-y-1">
         <label htmlFor={uid + "-receipt-file"} className="block text-sm font-medium">Photo of the receipt</label>

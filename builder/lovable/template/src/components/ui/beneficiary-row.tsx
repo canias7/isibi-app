@@ -41,7 +41,7 @@ export function BeneficiaryRow({ beneficiaries, binding, lastReviewed, className
   const off = Math.abs(total - 100) > 0.01;
   const untraceable = beneficiaries.filter((b) => !b.contact && !b.dateOfBirth);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="beneficiary-row" className={cn("space-y-1.5", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {beneficiaries.map((b) => (
           <li key={b.id} className="flex items-baseline gap-3 px-3 py-2">

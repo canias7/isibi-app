@@ -35,7 +35,7 @@ export function MinMaxField({ min, max, onChange, unit, label = "Range", id, ste
   };
 
   return (
-    <fieldset className={cn("flex flex-wrap items-end gap-2", className)}>
+    <fieldset data-slot="min-max-field" className={cn("flex flex-wrap items-end gap-2", className)}>
       <legend className="sr-only">{label}</legend>
       <span className="flex flex-col gap-1">
         <label htmlFor={`${base}-min`} className="text-xs text-muted-foreground">From</label>

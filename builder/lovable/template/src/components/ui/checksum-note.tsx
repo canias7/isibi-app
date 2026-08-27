@@ -23,7 +23,7 @@ export function ChecksumNote({ algorithm = "SHA-256", hash, howTo, className }: 
 }) {
   if (!hash) return null;
   return (
-    <div className={cn("flex flex-col gap-1 text-xs", className)}>
+    <div data-slot="checksum-note" className={cn("flex flex-col gap-1 text-xs", className)}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{algorithm}</span>
         <code className="max-w-full truncate rounded border border-border bg-muted px-1.5 py-0.5 font-mono select-all">

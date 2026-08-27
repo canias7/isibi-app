@@ -34,7 +34,7 @@ export function OccupancyNote({ present, capacity, typicalNow, atTime, quietestT
   const busierThanUsual = typicalNow !== undefined && present > typicalNow * 1.2;
   const quieterThanUsual = typicalNow !== undefined && present < typicalNow * 0.8;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="occupancy-note" className={cn("space-y-1 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">
           {present} of {capacity} in

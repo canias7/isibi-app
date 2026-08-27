@@ -37,7 +37,7 @@ export function RoleDescription({ title, purpose, commitment, essential = [], us
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="role-description" className={cn("space-y-1 text-sm", className)}>
       <p className="font-medium">{title}</p>
       {purpose && <p className="text-xs">{purpose}</p>}
       <p className={cn("text-xs", commitment ? "" : "font-medium")}>

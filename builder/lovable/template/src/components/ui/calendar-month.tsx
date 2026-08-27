@@ -19,7 +19,7 @@ export function CalendarMonth({ month, events = {}, onSelect, selected, classNam
   const iso = (d: number) =>
     `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   return (
-    <div className={className}>
+    <div data-slot="calendar-month" className={className}>
       <div className="mb-2 text-sm font-medium">
         {first.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
       </div>

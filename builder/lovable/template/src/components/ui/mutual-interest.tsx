@@ -32,7 +32,7 @@ export function MutualInterest({ theirName, youSaid, mutual, nextStep, expiresIn
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="mutual-interest" className={cn("space-y-0.5 text-sm", className)}>
       {mutual ? (
         <>
           <p className="font-medium">

@@ -78,7 +78,7 @@ export function FilePreview({ file, url, className }: {
   }
 
   return (
-    <figure className={cn("flex max-w-xs flex-col gap-1.5", className)}>
+    <figure data-slot="file-preview" className={cn("flex max-w-xs flex-col gap-1.5", className)}>
       {body}
       <figcaption>{meta}</figcaption>
     </figure>

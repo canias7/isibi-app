@@ -28,7 +28,7 @@ export function SsoButton({ provider, onClick, last, busy, disabled, className }
   className?: string;
 }) {
   return (
-    <button type="button" onClick={onClick} disabled={busy || disabled}
+    <button data-slot="sso-button" type="button" onClick={onClick} disabled={busy || disabled}
       className={cn("relative flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium",
         last ? "border-foreground" : "border-border",
         "hover:bg-muted disabled:pointer-events-none disabled:opacity-60", className)}>
@@ -51,7 +51,7 @@ export function SsoButtons({ providers, onChoose, lastUsed, busy, className }: {
     ? [lastUsed, ...providers.filter((p) => p !== lastUsed)]
     : providers;
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="sso-buttons" className={cn("flex flex-col gap-2", className)}>
       {ordered.map((p) => (
         <SsoButton key={p} provider={p} last={p === lastUsed} busy={busy === p}
           disabled={!!busy && busy !== p} onClick={() => onChoose(p)} />

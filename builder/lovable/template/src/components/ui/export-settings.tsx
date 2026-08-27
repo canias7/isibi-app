@@ -34,7 +34,7 @@ export function ExportSettings({ values, excluded = [], filename, className }: {
   };
   const count = Object.keys(values).length;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="export-settings" className={cn("flex flex-col gap-1", className)}>
       <button type="button" onClick={save}
         className="cursor-pointer self-start rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted">
         Download settings ({count})

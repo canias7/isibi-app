@@ -50,7 +50,7 @@ function Item({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   }, [ms, paused]);
 
   return (
-    <li
+    <li data-slot="item"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
@@ -86,7 +86,7 @@ export function ToastStack({ toasts, onDismiss, onClear, max = 3, className }: {
   const shown = toasts.slice(-max);
   const extra = toasts.length - shown.length;
   return (
-    <ol role="status" aria-live="polite"
+    <ol data-slot="toast-stack" role="status" aria-live="polite"
       className={cn("pointer-events-none fixed end-4 bottom-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2", className)}>
       {extra > 0 ? (
         <li className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-1.5 text-xs">

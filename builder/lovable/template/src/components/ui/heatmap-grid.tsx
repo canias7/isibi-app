@@ -38,7 +38,7 @@ export function HeatmapGrid({ rows, rowLabels, colLabels, max, legendUnit = "", 
   const width = Math.max(...rows.map((r) => r.length), 0);
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="heatmap-grid" className={cn("flex flex-col gap-1.5", className)}>
       <div className="overflow-x-auto">
         <table className="border-separate" style={{ borderSpacing: "2px" }}>
           {colLabels ? (

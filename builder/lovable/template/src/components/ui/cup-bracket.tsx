@@ -34,7 +34,7 @@ export type BracketRound = { id: string; name: string; ties: Tie[] };
 
 export function CupBracket({ rounds, className }: { rounds: BracketRound[]; className?: string }) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="cup-bracket" className={cn("space-y-2", className)}>
       {rounds.map((r) => (
         <div key={r.id} className="space-y-0.5">
           <p className="text-xs font-medium">{r.name}</p>

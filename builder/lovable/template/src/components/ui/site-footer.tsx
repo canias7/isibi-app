@@ -77,7 +77,7 @@ export function SiteFooter({
   });
 
   return (
-    <footer className={cn(divider && "border-t", className)}>
+    <footer data-slot="site-footer" className={cn(divider && "border-t", className)}>
       <div className={cn("mx-auto flex flex-col gap-8 px-6 py-10 sm:flex-row sm:items-start sm:justify-between", wide ? "max-w-none" : "max-w-6xl")}>
         <div className="max-w-sm">
           <div className="font-semibold tracking-tight">{brand}</div>

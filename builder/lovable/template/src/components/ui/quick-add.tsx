@@ -58,7 +58,7 @@ export function QuickAdd({
   };
 
   return (
-    <form onSubmit={submit} className={cn("flex flex-col gap-1.5", className)}>
+    <form data-slot="quick-add" onSubmit={submit} className={cn("flex flex-col gap-1.5", className)}>
       {label ? <label htmlFor={id} className="text-sm font-medium">{label}</label> : null}
       <div className="flex gap-2">
         <input

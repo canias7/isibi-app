@@ -26,7 +26,7 @@ export function NavBadge({ count, dot, noun = "new", max = 99, className }: {
 }) {
   if (dot) {
     return (
-      <span className={cn("inline-flex items-center", className)}>
+      <span data-slot="nav-badge" className={cn("inline-flex items-center", className)}>
         <span aria-hidden className="size-1.5 rounded-full bg-foreground" />
         <span className="sr-only">Something {noun}</span>
       </span>

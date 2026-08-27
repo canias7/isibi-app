@@ -30,7 +30,7 @@ export function CommentPermalink({ anchor, label = "Link to this comment", class
   const [url, setUrl] = useState("");
   const href = `#${anchor}`;
   return (
-    <span className={cn("inline-flex flex-wrap items-center gap-2", className)}>
+    <span data-slot="comment-permalink" className={cn("inline-flex flex-wrap items-center gap-2", className)}>
       <a href={href} aria-label={label}
         onClick={(e) => {
           const full = `${window.location.origin}${window.location.pathname}${window.location.search}#${anchor}`;

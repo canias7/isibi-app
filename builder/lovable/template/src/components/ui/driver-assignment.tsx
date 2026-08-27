@@ -36,7 +36,7 @@ export function DriverAssignment({ driver, vehicle, hoursLeft, licenceCategories
   const short = hoursLeft !== undefined && hoursLeft < 2;
   const blocked = !licensed || Boolean(vehicleDefect) || Boolean(inspectionOverdue);
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="driver-assignment" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">
           {driver}

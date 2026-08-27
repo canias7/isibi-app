@@ -43,7 +43,7 @@ export function CurriculumPath({ modules, onOpen, className }: {
 }) {
   if (!modules.length) return null;
   return (
-    <ol className={cn("flex flex-col", className)}>
+    <ol data-slot="curriculum-path" className={cn("flex flex-col", className)}>
       {modules.map((m, i) => {
         const locked = m.state === "locked";
         const openable = !locked && (m.href || onOpen);

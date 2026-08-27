@@ -6,7 +6,7 @@ export function DaySchedule({ date, items, empty = "Nothing booked", onSelect, c
   onSelect?: (a: Appointment) => void; className?: string;
 }) {
   return (
-    <div className={className}>
+    <div data-slot="day-schedule" className={className}>
       {date && <div className="mb-2 text-sm font-medium">{date}</div>}
       {items.length === 0
         ? <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p>

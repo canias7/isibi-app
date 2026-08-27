@@ -26,7 +26,7 @@ function summary(v: unknown): string {
 }
 
 function Leaf({ value }: { value: unknown }) {
-  if (value === null) return <span className="text-muted-foreground italic">null</span>;
+  if (value === null) return <span data-slot="leaf" className="text-muted-foreground italic">null</span>;
   if (value === undefined) return <span className="text-muted-foreground italic">undefined</span>;
   if (typeof value === "string") return <span className="italic">&quot;{value}&quot;</span>;
   if (typeof value === "boolean") return <span className="font-semibold">{String(value)}</span>;
@@ -102,7 +102,7 @@ export function JsonTree({ data, maxDepth = 8, chunk = 50, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("overflow-auto rounded-md border border-border p-2", className)}>
+    <div data-slot="json-tree" className={cn("overflow-auto rounded-md border border-border p-2", className)}>
       <Node value={data} depth={0} maxDepth={maxDepth} seen={new Set()} chunk={chunk} />
     </div>
   );

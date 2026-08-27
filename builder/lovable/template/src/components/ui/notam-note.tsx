@@ -34,7 +34,7 @@ export function NotamNote({ identifier, location, plainEnglish, rawText, fromUtc
   className?: string;
 }) {
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="notam-note" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className={cn("min-w-0 flex-1", activeAtPlannedTime && "font-medium")}>{plainEnglish}</span>
         {location && <span className="shrink-0 font-mono text-xs text-muted-foreground">{location}</span>}

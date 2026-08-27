@@ -37,7 +37,7 @@ export function DraftVsLive({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="draft-vs-live" className={cn("flex flex-col gap-3", className)}>
       <dl className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2">
         <div className="bg-background p-3">
           <dt className="text-xs font-medium text-muted-foreground">

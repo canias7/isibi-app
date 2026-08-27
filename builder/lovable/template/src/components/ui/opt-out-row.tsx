@@ -33,7 +33,7 @@ export function OptOutRow({ label, effect, checked, onChange, pending, locked, l
 }) {
   const id = `optout-${label.replace(/\W+/g, "-").toLowerCase()}`;
   return (
-    <div className={cn("flex items-start gap-3 py-2", className)}>
+    <div data-slot="opt-out-row" className={cn("flex items-start gap-3 py-2", className)}>
       <span className="min-w-0 flex-1">
         <label htmlFor={id} className="text-sm">{label}</label>
         {effect && <span className="block text-xs text-muted-foreground">Off: {effect}</span>}

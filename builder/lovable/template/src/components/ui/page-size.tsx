@@ -30,7 +30,7 @@ export function PageSize({ value, onChange, options = [10, 20, 50, 100], label =
 }) {
   const selectId = id ?? "page-size";
   return (
-    <span className={cn("inline-flex items-center gap-2 text-sm", className)}>
+    <span data-slot="page-size" className={cn("inline-flex items-center gap-2 text-sm", className)}>
       <label htmlFor={selectId} className="text-muted-foreground">{label}</label>
       <NativeSelect id={selectId} value={String(value)} className="h-8 w-auto text-sm"
         onChange={(e) => onChange(Number(e.target.value))}>

@@ -11,7 +11,7 @@ export function CodeBlock({ code, language, className }: {
   code: string; language?: string; className?: string;
 }) {
   return (
-    <div className={cn("relative rounded-lg border bg-muted/50", className)}>
+    <div data-slot="code-block" className={cn("relative rounded-lg border bg-muted/50", className)}>
       <div className="flex items-center justify-between border-b px-3 py-1.5">
         <span className="text-xs text-muted-foreground">{language ?? "code"}</span>
         <CopyButton value={code} label="Copy" className="h-6 px-2 text-xs" />

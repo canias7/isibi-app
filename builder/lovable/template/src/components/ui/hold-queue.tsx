@@ -34,7 +34,7 @@ export function HoldQueue({ title, position, aheadOf, copies, estimateNote, hold
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="hold-queue" className={cn("space-y-0.5 text-sm", className)}>
       {title && <p>{title}</p>}
       <p>
         <span className="tabular-nums font-medium">

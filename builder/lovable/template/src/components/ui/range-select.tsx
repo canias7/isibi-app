@@ -41,7 +41,7 @@ export function RangeSelect({ total, onSelect, className }: {
   const count = valid ? hi - lo + 1 : 0;
 
   return (
-    <div className={cn("flex flex-wrap items-end gap-2", className)}>
+    <div data-slot="range-select" className={cn("flex flex-wrap items-end gap-2", className)}>
       <div className="flex flex-col gap-1">
         <Label htmlFor={`${id}-a`} className="text-xs">From</Label>
         <input id={`${id}-a`} value={from} onChange={(e) => setFrom(e.target.value)}

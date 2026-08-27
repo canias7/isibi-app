@@ -26,7 +26,7 @@ export function DragDisabledNote({ what, reason, className }: {
   className?: string;
 }) {
   return (
-    <span className={cn("text-xs text-muted-foreground", className)}>
+    <span data-slot="drag-disabled-note" className={cn("text-xs text-muted-foreground", className)}>
       {what && <span className="sr-only">{what} cannot be moved: </span>}
       {reason}
     </span>

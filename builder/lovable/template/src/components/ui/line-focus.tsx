@@ -25,7 +25,7 @@ export function LineFocus({ lines, className }: {
   const [at, setAt] = React.useState(0);
   if (!lines.length) return null;
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="line-focus" className={cn("flex flex-col gap-2", className)}>
       <button type="button" onClick={() => setOn((v) => !v)} aria-pressed={on}
         className="w-fit cursor-pointer text-sm underline underline-offset-4">
         {on ? "Turn off reading ruler" : "Turn on reading ruler"}

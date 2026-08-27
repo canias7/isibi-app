@@ -40,7 +40,7 @@ export function DelegateApproval({ people, onDelegate, onCancel, today, busy, cl
   const min = today ?? new Date().toISOString().slice(0, 10);
   const ready = Boolean(to && until);
   return (
-    <form className={cn("space-y-3", className)}
+    <form data-slot="delegate-approval" className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onDelegate({ to, until, note: note.trim() || undefined }); }}>
       <div className="space-y-1">
         <label htmlFor={uid + "-del-to"} className="block text-sm font-medium">Send my approvals to</label>

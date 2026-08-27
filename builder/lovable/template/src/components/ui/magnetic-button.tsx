@@ -43,7 +43,7 @@ export function MagneticButton({ strength = 6, children, className }: {
   };
 
   return (
-    <span
+    <span data-slot="magnetic-button"
       ref={ref}
       onPointerMove={(e) => {
         if (e.pointerType !== "mouse" || reduced.current) return;

@@ -12,7 +12,7 @@ export function DirtyIndicator({ dirty, label = "Unsaved changes", className }: 
 }) {
   if (!dirty) return null;
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", className)}
+    <span data-slot="dirty-indicator" className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", className)}
       aria-live="polite">
       <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
       {label}

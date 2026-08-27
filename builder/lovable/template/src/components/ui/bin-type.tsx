@@ -36,7 +36,7 @@ export function BinType({ name, colour, accepted = [], notAccepted = [], commonM
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="bin-type" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{name}</span>
         {colour && <span className="text-muted-foreground"> · the {colour} one</span>}

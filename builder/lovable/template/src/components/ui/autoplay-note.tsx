@@ -20,7 +20,7 @@ export function AutoplayNote({ muted, onUnmute, className }: {
 }) {
   if (!muted) return null;
   return (
-    <button type="button" onClick={onUnmute}
+    <button data-slot="autoplay-note" type="button" onClick={onUnmute}
       className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background/90 px-2.5 py-1 text-xs shadow-xs", className)}>
       <span className="font-medium">Sound is off</span>
       <span className="text-muted-foreground">— press to hear it</span>

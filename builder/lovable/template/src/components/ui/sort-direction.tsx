@@ -34,7 +34,7 @@ export function SortDirection({ direction, ascLabel = "A to Z", descLabel = "Z t
     </>
   );
   if (!onToggle) {
-    return <span className={cn("inline-flex items-center gap-1 text-xs text-muted-foreground", className)}>{body}</span>;
+    return <span data-slot="sort-direction" className={cn("inline-flex items-center gap-1 text-xs text-muted-foreground", className)}>{body}</span>;
   }
   return (
     <button type="button" onClick={onToggle}

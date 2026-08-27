@@ -30,7 +30,7 @@ export function RulePreview({ matched, window: period, examples = [], onRun, run
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="rule-preview" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       {matched === null ? (
         <p className="text-sm text-muted-foreground">
           {running ? "Checking…" : "Check this rule against records you already have."}

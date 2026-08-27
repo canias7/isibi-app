@@ -40,7 +40,7 @@ export function RepeatRequest({ items, selected = [], onToggle, onSubmit, workin
   const early = chosen.filter((i) => i.daysLeft !== undefined && i.daysLeft > 14);
   const reviews = chosen.filter((i) => i.reviewDue);
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="repeat-request" className={cn("space-y-2", className)}>
       <p className="text-sm">
         This takes about{" "}
         <span className="font-medium tabular-nums">

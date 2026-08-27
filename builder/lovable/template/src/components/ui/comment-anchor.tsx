@@ -17,7 +17,7 @@ export function CommentAnchor({ id, resolved, active, count = 1, onSelect, child
 }) {
   if (resolved) return <>{children}</>;
   return (
-    <mark
+    <mark data-slot="comment-anchor"
       className={cn("rounded-sm bg-warning/25 px-0.5 text-inherit",
         active && "bg-warning/50 ring-1 ring-warning", className)}>
       {/* The click was on the `<mark>` itself, which is not focusable and had no

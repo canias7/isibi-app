@@ -24,7 +24,7 @@ export function DiffInline({ parts, className }: {
 }) {
   if (!parts.length) return null;
   return (
-    <p className={cn("text-sm whitespace-pre-wrap", className)}>
+    <p data-slot="diff-inline" className={cn("text-sm whitespace-pre-wrap", className)}>
       {parts.map((p, i) => {
         if (p.kind === "added") {
           return (

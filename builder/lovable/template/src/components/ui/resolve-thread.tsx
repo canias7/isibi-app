@@ -33,7 +33,7 @@ export function ResolveThread({ resolved, by, at, onResolve, onReopen, replies, 
 
   if (resolved) {
     return (
-      <div className={cn("rounded-lg border border-border bg-muted/40 p-2.5", className)}>
+      <div data-slot="resolve-thread" className={cn("rounded-lg border border-border bg-muted/40 p-2.5", className)}>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Check aria-hidden className="size-3.5 shrink-0" />
           <span className="min-w-0 flex-1">

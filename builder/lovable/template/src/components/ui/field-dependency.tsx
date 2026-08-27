@@ -24,7 +24,7 @@ export function FieldDependency({ needs, needsFieldId, id, className }: {
   className?: string;
 }) {
   return (
-    <p id={id} className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="field-dependency" id={id} className={cn("text-xs text-muted-foreground", className)}>
       {needsFieldId
         ? <>Fill in <a href={`#${needsFieldId}`} className="underline underline-offset-2">{needs}</a> first.</>
         : <>Fill in {needs} first.</>}

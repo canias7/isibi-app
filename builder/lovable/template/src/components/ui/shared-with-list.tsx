@@ -26,7 +26,7 @@ export function SharedWithList({ people, levels, onLevelChange, onRemove, classN
 }) {
   if (!people.length) return null;
   return (
-    <ul className={cn("divide-y divide-border", className)}>
+    <ul data-slot="shared-with-list" className={cn("divide-y divide-border", className)}>
       {people.map((p) => (
         <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
           <div className="min-w-0">

@@ -35,7 +35,7 @@ export function LawfulBasisNote({ basis, note, className }: {
 }) {
   const b = BASES[basis];
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="lawful-basis-note" className={cn("text-xs text-muted-foreground", className)}>
       <span className="text-foreground">{b.means}</span>
       <span> Held on the basis of {b.word}.</span>
       {note && <span> {note}</span>}

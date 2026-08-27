@@ -23,7 +23,7 @@ export function DegradedNote({ what, expect, since, className }: {
   className?: string;
 }) {
   return (
-    <p role="status" className={cn("rounded-md border border-border px-3 py-2 text-sm", className)}>
+    <p data-slot="degraded-note" role="status" className={cn("rounded-md border border-border px-3 py-2 text-sm", className)}>
       <span className="font-medium">{what} is running slowly</span>
       <span className="text-muted-foreground"> — {expect}{since ? ` · since ${since}` : ""}</span>
     </p>

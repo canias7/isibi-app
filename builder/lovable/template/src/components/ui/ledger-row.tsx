@@ -37,7 +37,7 @@ export function LedgerRow({ date, description, reference, debit, credit, balance
   const money = (v: number) =>
     new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
   return (
-    <li className={cn("px-3 py-1.5 text-sm", className)}>
+    <li data-slot="ledger-row" className={cn("px-3 py-1.5 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         {date && <span className="w-20 shrink-0 text-xs tabular-nums text-muted-foreground">{date}</span>}
         <span className="min-w-0 flex-1">

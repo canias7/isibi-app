@@ -61,7 +61,7 @@ export function ProsCons({ pros, cons, forLabel = "For", againstLabel = "Against
   );
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="pros-cons" className={cn("flex flex-col gap-3", className)}>
       <div className="grid gap-4 sm:grid-cols-2">
         {column(forLabel, pros, Plus, "For:", "Nothing in favour.")}
         {column(againstLabel, cons, Minus, "Against:", "Nothing against.")}

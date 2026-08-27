@@ -23,7 +23,7 @@ export function ReminderSet({ at, channel, onCancel, className }: {
 }) {
   if (!at) return null;
   return (
-    <p role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
+    <p data-slot="reminder-set" role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
       <span>
         Reminder <DateFormat date={at} withTime />
         {channel ? ` ${channel}` : ""}

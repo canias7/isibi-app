@@ -33,7 +33,7 @@ export function QuarantineNote({ item, quantity, reason, placedBy, placedOn, rel
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="quarantine-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">Held: {item}</span>
         {quantity !== undefined && <span className="tabular-nums text-muted-foreground"> · {quantity} {quantity === 1 ? "unit" : "units"}</span>}

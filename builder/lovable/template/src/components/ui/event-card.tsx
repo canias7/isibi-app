@@ -17,7 +17,7 @@ export function EventCard({ title, start, venue, image, price, soldOut, href, on
   const d = toDate(start);
   const valid = !Number.isNaN(d.getTime());
   return (
-    <article className={cn("flex gap-4 rounded-lg border border-border p-3", className)}>
+    <article data-slot="event-card" className={cn("flex gap-4 rounded-lg border border-border p-3", className)}>
       {image
         ? <SafeImage src={image} alt="" className="size-24 shrink-0 rounded object-cover" />
         : valid && (

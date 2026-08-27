@@ -28,7 +28,7 @@ export function TreeSelect({ nodes, value, onChange, className }: {
     const state = on === 0 ? false : on === own.length ? true : "indeterminate";
     const expanded = open.includes(node.value);
     return (
-      <li>
+      <li data-slot="tree-select">
         <div className="flex items-center gap-1.5 py-1" style={{ paddingInlineStart: depth * 18 }}>
           {node.children?.length ? (
             <button type="button" aria-expanded={expanded} aria-label={expanded ? `Collapse ${node.label}` : `Expand ${node.label}`}

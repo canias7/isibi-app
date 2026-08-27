@@ -39,7 +39,7 @@ export function ShiftSignup({ role, when, where, filled = 0, needed, requirement
   const short = needed !== undefined ? needed - filled : undefined;
   const full = short !== undefined && short <= 0;
   return (
-    <li className={cn("space-y-1 px-3 py-2 text-sm", className)}>
+    <li data-slot="shift-signup" className={cn("space-y-1 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">
           {role}

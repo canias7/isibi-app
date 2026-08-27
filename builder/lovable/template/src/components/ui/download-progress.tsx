@@ -33,7 +33,7 @@ export function DownloadProgress({ received, total, name, remaining, onCancel, c
 }) {
   const pct = total && total > 0 ? Math.round(Math.min(received / total, 1) * 100) : null;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="download-progress" className={cn("flex flex-col gap-1", className)}>
       {name && <p className="truncate text-sm font-medium">{name}</p>}
       {pct !== null && (
         <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}

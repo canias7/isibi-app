@@ -74,7 +74,7 @@ export function BidBox({
   }
 
   return (
-    <section className={cn("flex flex-col gap-3 rounded-md border border-border p-5", className)}>
+    <section data-slot="bid-box" className={cn("flex flex-col gap-3 rounded-md border border-border p-5", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <p className="text-sm text-muted-foreground">{bids ? "Current bid" : "Starting bid"}</p>

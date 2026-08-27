@@ -29,7 +29,7 @@ export function KbdChord({ chord, className }: {
     .join(", then ");
 
   return (
-    <span className={cn("inline-flex items-center gap-1", className)}>
+    <span data-slot="kbd-chord" className={cn("inline-flex items-center gap-1", className)}>
       <span className="sr-only">{say}</span>
       {steps.map((keys, i) => (
         <span key={i} aria-hidden className="inline-flex items-center gap-0.5">

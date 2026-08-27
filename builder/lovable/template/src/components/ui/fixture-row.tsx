@@ -36,7 +36,7 @@ export function FixtureRow({ home, away, competition, venue, kickOff, meetAt, ho
 }) {
   const hasScore = homeScore !== undefined && awayScore !== undefined;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="fixture-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">
           {home} <span className="text-muted-foreground">v</span> {away}

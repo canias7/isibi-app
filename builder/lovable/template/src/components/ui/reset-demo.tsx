@@ -30,7 +30,7 @@ export function ResetDemo({ keys, clears, onReset, className }: {
   const noRef = React.useRef<HTMLButtonElement>(null);
   React.useEffect(() => { if (confirming) noRef.current?.focus(); }, [confirming]);
 
-  if (done) return <p className={cn("text-sm text-muted-foreground", className)}>Fresh start — the demo is back to the beginning.</p>;
+  if (done) return <p data-slot="reset-demo" className={cn("text-sm text-muted-foreground", className)}>Fresh start — the demo is back to the beginning.</p>;
   if (confirming) {
     return (
       <div className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>

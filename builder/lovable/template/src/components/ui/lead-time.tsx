@@ -20,7 +20,7 @@ export function LeadTime({ cutoffHour, cutoffMinute = 0, before, after, now, cla
   const time = new Date(2000, 0, 1, cutoffHour, cutoffMinute)
     .toLocaleTimeString(undefined, { hour: "numeric", minute: cutoffMinute ? "2-digit" : undefined });
   return (
-    <p className={cn("flex items-center gap-1.5 text-sm", past ? "text-muted-foreground" : "text-foreground", className)}>
+    <p data-slot="lead-time" className={cn("flex items-center gap-1.5 text-sm", past ? "text-muted-foreground" : "text-foreground", className)}>
       <Clock className="size-3.5 shrink-0" />
       {past ? after : <>Order by <strong className="font-medium">{time}</strong> {before}</>}
     </p>

@@ -49,7 +49,7 @@ export function CellEditor({
 
   if (editing) {
     return (
-      <input
+      <input data-slot="cell-editor"
         ref={ref}
         type={type}
         value={draft}

@@ -37,7 +37,7 @@ export function FixtureList({ fixtures, heading, teamName = "us", className }: {
 }) {
   if (!fixtures.length) return null;
   return (
-    <div className={cn("", className)}>
+    <div data-slot="fixture-list" className={cn("", className)}>
       {heading && <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</p>}
       <ul className={cn("divide-y divide-border border-y border-border", heading && "mt-3")}>
         {fixtures.map((f, i) => (

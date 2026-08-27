@@ -31,7 +31,7 @@ export function ShortlistBar({ items, max = 3, onRemove, onClear, onCompare, cla
   const room = max - items.length;
 
   return (
-    <div
+    <div data-slot="shortlist-bar"
       role="region"
       aria-label="Shortlist"
       style={{ bottom: "max(0.75rem, env(safe-area-inset-bottom))" }}

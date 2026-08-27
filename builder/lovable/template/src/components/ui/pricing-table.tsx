@@ -29,7 +29,7 @@ export function PricingTable({ tiers, columns, className }: {
     ? { 1: "", 2: "sm:grid-cols-2", 3: "lg:grid-cols-3" }[columns]
     : (tiers.length > 2 ? "lg:grid-cols-3" : "sm:grid-cols-2");
   return (
-    <div className={cn("grid gap-4", cols, className)}>
+    <div data-slot="pricing-table" className={cn("grid gap-4", cols, className)}>
       {tiers.map((t) => (
         <Card key={t.name} className={cn("flex flex-col", t.featured && "border-foreground shadow-sm")}>
           <CardHeader>

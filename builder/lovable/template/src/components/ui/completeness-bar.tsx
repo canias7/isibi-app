@@ -23,7 +23,7 @@ export function CompletenessBar({ fields, className }: {
   const done = fields.filter((f) => f.filled).length;
   const missing = fields.filter((f) => !f.filled).map((f) => f.label);
   if (!missing.length) {
-    return <p className={cn("text-xs text-muted-foreground", className)}>Complete — all {fields.length} fields filled.</p>;
+    return <p data-slot="completeness-bar" className={cn("text-xs text-muted-foreground", className)}>Complete — all {fields.length} fields filled.</p>;
   }
   return (
     <div className={cn("flex flex-col gap-1", className)}>

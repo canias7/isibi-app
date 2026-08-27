@@ -33,7 +33,7 @@ export function DonorCredit({ line, anonymous, fundedBy, givenBy, until, lapsed,
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="donor-credit" className={cn("space-y-0.5 text-sm", className)}>
       {line ? (
         <p>{line}</p>
       ) : anonymous ? (

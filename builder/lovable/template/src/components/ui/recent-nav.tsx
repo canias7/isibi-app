@@ -66,7 +66,7 @@ export function RecentNav({ items, current, onPick, onRemove, title = "Recent", 
   const shown = items.filter((i) => i.key !== current);
   if (shown.length === 0) return null;
   return (
-    <nav aria-label={typeof title === "string" ? title : "Recent"} className={cn("flex flex-col gap-1", className)}>
+    <nav data-slot="recent-nav" aria-label={typeof title === "string" ? title : "Recent"} className={cn("flex flex-col gap-1", className)}>
       <p className="flex items-center gap-1.5 px-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
         <Clock aria-hidden className="size-3" /> {title}
       </p>

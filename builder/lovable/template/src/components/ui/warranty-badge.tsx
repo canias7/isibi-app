@@ -20,7 +20,7 @@ export function WarrantyBadge({ period, covers, from = "delivery", excludes, cla
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex flex-col gap-0.5", className)}>
+    <span data-slot="warranty-badge" className={cn("inline-flex flex-col gap-0.5", className)}>
       <span className="inline-flex w-fit items-center rounded-full border border-foreground px-2 py-0.5 text-[11px] font-medium">
         {period} warranty
       </span>

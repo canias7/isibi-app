@@ -35,7 +35,7 @@ export function LockerRow({ number, fits, holder, paidUntil, daysUntilEnd, unuse
   const ending = daysUntilEnd !== undefined && daysUntilEnd > 0 && daysUntilEnd <= 14;
   const idle = unusedDays !== undefined && unusedDays >= 60;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="locker-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1">
           <span className="font-medium">Locker {number}</span>

@@ -41,7 +41,7 @@ export function DamageCharge({ what, amount, kind = "repair", fairWearAndTear, n
     }).format(v);
   if (fairWearAndTear) {
     return (
-      <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+      <li data-slot="damage-charge" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
         <p>
           <span className="font-medium">{what}</span>
           <span className="text-muted-foreground"> · fair wear and tear</span>

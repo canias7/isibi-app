@@ -12,7 +12,7 @@ export function SettingItem({ label, description, htmlFor, children, className }
   children?: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-start justify-between gap-4 border-b border-border py-4 last:border-0", className)}>
+    <div data-slot="setting-item" className={cn("flex flex-wrap items-start justify-between gap-4 border-b border-border py-4 last:border-0", className)}>
       <div className="min-w-0 flex-1">
         {htmlFor
           ? <label htmlFor={htmlFor} className="text-sm font-medium">{label}</label>

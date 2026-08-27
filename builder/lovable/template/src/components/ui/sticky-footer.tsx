@@ -18,7 +18,7 @@ export function StickyFooter({ children, footer, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-h-svh flex-col", className)}>
+    <div data-slot="sticky-footer" className={cn("flex min-h-svh flex-col", className)}>
       <div className="flex-1">{children}</div>
       <footer className="mt-auto">{footer}</footer>
     </div>

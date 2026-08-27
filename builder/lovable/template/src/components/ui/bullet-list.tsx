@@ -6,7 +6,7 @@ export function BulletList({ items, marker = "dot", columns = 1, className }: {
   className?: string;
 }) {
   return (
-    <ul className={cn("grid gap-2 text-sm", columns === 2 && "sm:grid-cols-2", className)}>
+    <ul data-slot="bullet-list" className={cn("grid gap-2 text-sm", columns === 2 && "sm:grid-cols-2", className)}>
       {items.map((it, i) => (
         <li key={i} className="flex items-start gap-2">
           {marker === "check"

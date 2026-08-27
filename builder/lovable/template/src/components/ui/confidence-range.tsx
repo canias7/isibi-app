@@ -24,7 +24,7 @@ export function ConfidenceRange({ value, low, high, unit = "", basis, label, cla
 }) {
   const fmt = (n: number) => `${unit}${n.toLocaleString()}`;
   return (
-    <div className={cn("flex flex-col gap-0.5", className)}>
+    <div data-slot="confidence-range" className={cn("flex flex-col gap-0.5", className)}>
       {label && <span className="text-sm text-muted-foreground">{label}</span>}
       <span className="text-2xl font-semibold tracking-tight tabular-nums">{fmt(value)}</span>
       <span className="text-sm tabular-nums">{fmt(low)} to {fmt(high)}</span>

@@ -22,7 +22,7 @@ export function SafetyTips({ tips, title = "Before you do that", max = 3, classN
   const shown = tips.slice(0, max);
   if (!shown.length) return null;
   return (
-    <section aria-label={title} className={cn("rounded-md border border-border p-3", className)}>
+    <section data-slot="safety-tips" aria-label={title} className={cn("rounded-md border border-border p-3", className)}>
       <p className="text-sm font-medium">{title}</p>
       <ul className="mt-1 flex list-disc flex-col gap-0.5 ps-5 text-sm text-muted-foreground">
         {shown.map((t, i) => <li key={i}>{t}</li>)}

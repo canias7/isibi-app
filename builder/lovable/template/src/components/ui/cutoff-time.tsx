@@ -32,7 +32,7 @@ export function CutoffTime({ by, promise, remaining, passed, nextPromise, classN
 }) {
   if (passed) {
     return (
-      <p role="status" className={cn("text-sm", className)}>
+      <p data-slot="cutoff-time" role="status" className={cn("text-sm", className)}>
         <span className="font-medium">Too late for {promise} today.</span>
         {nextPromise ? <span className="text-muted-foreground"> Order now for {nextPromise}.</span> : null}
       </p>

@@ -35,7 +35,7 @@ export function WeatherDelay({ date, condition, measured, stopped = [], hoursLos
   const d = toDate(date);
   const ok = !Number.isNaN(d.getTime());
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="weather-delay" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="font-medium">
           {ok ? <time dateTime={date}>{d.toLocaleDateString(undefined, { day: "numeric", month: "short" })}</time> : date}

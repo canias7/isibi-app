@@ -23,7 +23,7 @@ export function Abbreviation({ short, long, first, className }: {
 }) {
   if (first) {
     return (
-      <span className={className}>
+      <span data-slot="abbreviation" className={className}>
         {long} (<abbr title={long}>{short}</abbr>)
       </span>
     );

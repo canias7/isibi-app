@@ -29,7 +29,7 @@ export function OpenQuestion({ question, hint, value, onChange, onSkip, maxLengt
   const id = React.useId();
   const left = maxLength - value.length;
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="open-question" className={cn("flex flex-col gap-1.5", className)}>
       <label htmlFor={id} className="text-sm font-medium">{question}</label>
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
       <textarea id={id} value={value} onChange={(e) => onChange(e.target.value.slice(0, maxLength))}

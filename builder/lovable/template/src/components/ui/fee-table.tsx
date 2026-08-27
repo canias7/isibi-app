@@ -69,7 +69,7 @@ export function FeeTable({
     return { eligible: true as const, total, paidHours };
   };
   return (
-    <div className={cn("overflow-x-auto", className)}>
+    <div data-slot="fee-table" className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
         {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
         <thead>

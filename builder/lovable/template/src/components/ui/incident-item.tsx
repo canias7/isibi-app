@@ -15,7 +15,7 @@ export function IncidentItem({ title, status = "investigating", updates, started
 }) {
   const variant = status === "resolved" ? "secondary" : "outline";
   return (
-    <article className={cn("border-b border-border py-4 last:border-0", className)}>
+    <article data-slot="incident-item" className={cn("border-b border-border py-4 last:border-0", className)}>
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-medium">{title}</h3>
         <Badge variant={variant} className="capitalize">{status}</Badge>

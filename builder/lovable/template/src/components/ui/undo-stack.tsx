@@ -26,7 +26,7 @@ export function UndoStack({ entries, onUndo, empty = "Nothing to undo.", classNa
   className?: string;
 }) {
   if (!entries.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
+    return <p data-slot="undo-stack" className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
   }
   const [top, ...rest] = entries;
   return (

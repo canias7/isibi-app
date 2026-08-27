@@ -18,7 +18,7 @@ export function MaterialBadge({ parts, className }: {
   const sorted = [...parts].sort((a, b) => b.percent - a.percent);
   const sum = sorted.reduce((s, p) => s + p.percent, 0);
   return (
-    <p className={cn("text-xs", className)}>
+    <p data-slot="material-badge" className={cn("text-xs", className)}>
       {sorted.map((p, i) => (
         <span key={p.material}>
           {i > 0 ? ", " : ""}

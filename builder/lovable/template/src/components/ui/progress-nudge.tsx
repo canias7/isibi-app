@@ -23,7 +23,7 @@ export function ProgressNudge({ remaining, outcome, next, doneNote = "All set.",
   className?: string;
 }) {
   if (remaining <= 0) {
-    return <p role="status" className={cn("text-sm font-medium", className)}>{doneNote}</p>;
+    return <p data-slot="progress-nudge" role="status" className={cn("text-sm font-medium", className)}>{doneNote}</p>;
   }
   return (
     <p role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-sm", className)}>

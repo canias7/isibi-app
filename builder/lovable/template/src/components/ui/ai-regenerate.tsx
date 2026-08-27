@@ -26,7 +26,7 @@ export function AiRegenerate({ attempt, onRegenerate, hints, busy, className }: 
 }) {
   const [open, setOpen] = React.useState(false);
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    <div data-slot="ai-regenerate" className={cn("flex flex-wrap items-center gap-2", className)}>
       <button type="button" disabled={busy} onClick={() => onRegenerate()}
         className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50">
         <RefreshCw aria-hidden className={cn("size-3.5", busy && "animate-spin")} />

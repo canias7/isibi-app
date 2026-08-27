@@ -55,7 +55,7 @@ export function FareQuote({
     new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
   const field = "h-10 w-full rounded-md border border-border bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring";
   return (
-    <div className={cn("rounded-xl border border-border bg-background p-6 sm:p-8", className)}>
+    <div data-slot="fare-quote" className={cn("rounded-xl border border-border bg-background p-6 sm:p-8", className)}>
       <h2 className="text-lg font-semibold tracking-tight">{heading}</h2>
       <form
         className="mt-4 space-y-4"

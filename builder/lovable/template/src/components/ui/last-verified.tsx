@@ -23,7 +23,7 @@ export function LastVerified({ at, staleAfterDays = 365, onVerify, className }: 
   const t = at ? new Date(at).getTime() : null;
   const stale = t !== null && Date.now() - t > staleAfterDays * 86_400_000;
   return (
-    <p className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
+    <p data-slot="last-verified" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
       <span className={cn(stale || t === null ? "font-medium" : "text-muted-foreground")}>
         {t === null
           ? "Never checked"

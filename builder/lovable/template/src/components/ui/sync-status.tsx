@@ -14,7 +14,7 @@ export function SyncStatus({ state, at, onRetry, className }: {
 }) {
   if (state === "idle") return null;
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-xs", className)} aria-live="polite">
+    <span data-slot="sync-status" className={cn("inline-flex items-center gap-1.5 text-xs", className)} aria-live="polite">
       {state === "syncing" && <><RefreshCw className="size-3.5 animate-spin text-muted-foreground" /><span className="text-muted-foreground">Saving…</span></>}
       {state === "saved" && <><Check className="size-3.5 text-success" /><span className="text-muted-foreground">
         Saved{at ? <> <TimeAgo date={at} /></> : null}</span></>}

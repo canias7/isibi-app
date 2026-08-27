@@ -45,7 +45,7 @@ export function HirePeriod({ days, dayRate, weekRate, weekendRate, out, back, cu
   const roundsUpToWeek = weekRate !== undefined && spare > 0 && spare * dayRate >= weekRate;
   const freeDays = roundsUpToWeek ? 7 - spare : 0;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="hire-period" className={cn("space-y-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="text-lg font-medium">{money(total)}</span>
         <span className="text-muted-foreground">

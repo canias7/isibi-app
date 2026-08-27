@@ -31,7 +31,7 @@ export function PresenceBar({ people, me, max = 4, onShowAll, className }: {
   const extra = others.length - shown.length;
 
   if (others.length === 0) {
-    return <p className={cn("text-xs text-muted-foreground", className)}>Only you are here.</p>;
+    return <p data-slot="presence-bar" className={cn("text-xs text-muted-foreground", className)}>Only you are here.</p>;
   }
   return (
     <div className={cn("flex items-center", className)}>

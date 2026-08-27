@@ -11,7 +11,7 @@ export function FormProgress({ steps, current, onGoTo, className }: {
   steps: string[]; current: number; onGoTo?: (i: number) => void; className?: string;
 }) {
   return (
-    <ol className={cn("space-y-1", className)}>
+    <ol data-slot="form-progress" className={cn("space-y-1", className)}>
       {steps.map((s, i) => {
         const done = i < current, here = i === current;
         const inner = (

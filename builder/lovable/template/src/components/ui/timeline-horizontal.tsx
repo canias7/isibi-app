@@ -16,7 +16,7 @@ export function TimelineHorizontal({ steps, current = 0, className }: {
 }) {
   const pct = steps.length > 1 ? (Math.min(current, steps.length - 1) / (steps.length - 1)) * 100 : 0;
   return (
-    <div className={cn("overflow-x-auto pb-2", className)}>
+    <div data-slot="timeline-horizontal" className={cn("overflow-x-auto pb-2", className)}>
       <ol className="relative flex min-w-max gap-12 px-3 pt-4">
         <span className="absolute start-3 end-3 top-[1.4375rem] h-px bg-border" aria-hidden="true" />
         <span className="absolute start-3 top-[1.4375rem] h-px bg-foreground" aria-hidden="true"

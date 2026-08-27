@@ -24,7 +24,7 @@ export function ErrorSummaryLink({ errors, className }: {
   React.useEffect(() => { if (errors.length) ref.current?.focus(); }, [errors.length]);
   if (!errors.length) return null;
   return (
-    <div ref={ref} role="alert" tabIndex={-1}
+    <div data-slot="error-summary-link" ref={ref} role="alert" tabIndex={-1}
       className={cn("rounded-lg border-2 border-foreground p-3 outline-none", className)}>
       <p className="text-sm font-semibold">
         {errors.length === 1 ? "One thing needs fixing" : `${errors.length} things need fixing`}

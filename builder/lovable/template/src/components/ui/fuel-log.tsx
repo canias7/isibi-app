@@ -39,7 +39,7 @@ export function FuelLog({ onBoard, unit = "kg", reserveRequired = 0, uplifted, u
     expectedOnBoard !== undefined ? Number((onBoard - expectedOnBoard).toFixed(2)) : undefined;
   const intoReserve = plannedBurn !== undefined && plannedBurn > usable;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="fuel-log" className={cn("space-y-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">{usable.toLocaleString()} {unit} usable</span>
         <span className="block text-xs text-muted-foreground">

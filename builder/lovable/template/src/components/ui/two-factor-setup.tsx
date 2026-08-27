@@ -14,7 +14,7 @@ export function TwoFactorSetup({ secret, qrSrc, code, onCodeChange, onVerify, er
   onVerify: () => void; error?: string | null; busy?: boolean; className?: string;
 }) {
   return (
-    <div className={cn("space-y-4", className)}>
+    <div data-slot="two-factor-setup" className={cn("space-y-4", className)}>
       <ol className="space-y-4 text-sm">
         <li>
           <p className="font-medium">1. Scan this with your authenticator app</p>

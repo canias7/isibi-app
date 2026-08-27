@@ -30,7 +30,7 @@ export function SideBySide({ items, rows, onRemove, onAdd, max = 3, className }:
 }) {
   const shown = items.slice(0, max);
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="side-by-side" className={cn("flex flex-col gap-2", className)}>
       <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full border-collapse text-sm">
           <thead>

@@ -39,7 +39,7 @@ export function TestimonialGrid({ items, columns = 3, className }: {
 }) {
   const cols = { 1: "", 2: "sm:grid-cols-2", 3: "sm:grid-cols-2 lg:grid-cols-3" }[columns];
   return (
-    <div className={cn("grid gap-4", cols, className)}>
+    <div data-slot="testimonial-grid" className={cn("grid gap-4", cols, className)}>
       {items.map((q, i) => <Testimonial key={q.name + i} item={q} />)}
     </div>
   );

@@ -75,7 +75,7 @@ export function Confetti({ fire, pieces = 90, duration = 1200, className }: {
   }, [fire, pieces, duration]);
 
   return (
-    <canvas ref={ref} aria-hidden
+    <canvas data-slot="confetti" ref={ref} aria-hidden
       className={cn("pointer-events-none absolute inset-0 size-full text-foreground motion-reduce:hidden", className)} />
   );
 }

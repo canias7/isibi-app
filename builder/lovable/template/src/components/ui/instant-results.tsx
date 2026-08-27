@@ -58,7 +58,7 @@ export function InstantResults({ results, loading, query, activeIndex, onActiveC
   const id = React.useId();
   if (!query.trim()) return null;
   return (
-    <ul
+    <ul data-slot="instant-results"
       id={id}
       role="listbox"
       aria-label="Results"

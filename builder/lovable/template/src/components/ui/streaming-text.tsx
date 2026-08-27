@@ -27,7 +27,7 @@ export function StreamingText({ text, done, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("text-sm leading-relaxed", className)}>
+    <div data-slot="streaming-text" className={cn("text-sm leading-relaxed", className)}>
       <p aria-busy={!done} className="whitespace-pre-wrap">
         {text}
         {!done ? (

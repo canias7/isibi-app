@@ -25,7 +25,7 @@ export function ColumnPin({ column, pinned, onToggle, className }: {
 }) {
   const Icon = pinned ? PinOff : Pin;
   return (
-    <button type="button" onClick={onToggle}
+    <button data-slot="column-pin" type="button" onClick={onToggle}
       aria-pressed={pinned}
       aria-label={pinned ? `Unpin ${column}` : `Pin ${column} so it stays in view`}
       className={cn("cursor-pointer rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground", className)}>

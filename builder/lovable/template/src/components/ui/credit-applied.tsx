@@ -26,7 +26,7 @@ export function CreditApplied({ applied, remaining, source, currency = "GBP", cl
 }) {
   if (applied <= 0) return null;
   return (
-    <p className={cn("text-sm", className)}>
+    <p data-slot="credit-applied" className={cn("text-sm", className)}>
       <span className="tabular-nums">
         <Money amount={applied} currency={currency} /> off
       </span>

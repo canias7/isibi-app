@@ -43,7 +43,7 @@ export function CsvImport({ onRows, maxBytes = 5 * 1024 * 1024, className }: {
   const ref = React.useRef<HTMLInputElement>(null);
   const [error, setError] = React.useState<string | null>(null);
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="csv-import" className={cn("space-y-2", className)}>
       <input ref={ref} type="file" accept=".csv,text/csv" className="sr-only"
         onChange={async (e) => {
           const f = e.target.files?.[0];

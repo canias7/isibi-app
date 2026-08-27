@@ -30,7 +30,7 @@ export function ZipContents({ files, count, packed, unpacked, max = 5, className
   const total = count ?? files.length;
   const rest = total - shown.length;
   return (
-    <div className={cn("flex flex-col gap-1 text-sm", className)}>
+    <div data-slot="zip-contents" className={cn("flex flex-col gap-1 text-sm", className)}>
       <p className="text-xs text-muted-foreground tabular-nums">
         {total} {total === 1 ? "file" : "files"}
         {packed ? ` · ${packed} to download` : ""}

@@ -40,7 +40,7 @@ export function BackupSchedule({ frequencies, frequency, onFrequencyChange, rete
   const f = frequencies.find((x) => x.id === frequency);
   const r = retentions.find((x) => x.id === retention);
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="backup-schedule" className={cn("space-y-3", className)}>
       <div className="space-y-1">
         <label htmlFor={uid + "-bs-freq"} className="block text-sm font-medium">How often</label>
         <NativeSelect id={uid + "-bs-freq"} value={frequency} className="w-auto"

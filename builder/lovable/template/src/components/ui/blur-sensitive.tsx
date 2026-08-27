@@ -27,7 +27,7 @@ export function BlurSensitive({ label = "Sensitive image", children, className }
 }) {
   const [shown, setShown] = React.useState(false);
   return (
-    <div className={cn("relative overflow-hidden rounded-lg", className)}>
+    <div data-slot="blur-sensitive" className={cn("relative overflow-hidden rounded-lg", className)}>
       <div aria-hidden={!shown}
         className={cn("transition-[filter,transform]", !shown && "scale-[1.08] blur-2xl")}>
         {children}

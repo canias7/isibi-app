@@ -34,7 +34,7 @@ export function PermissionPrompt({ title, reason, state, onAsk, fallback, askLab
 }) {
   if (state === "granted") return null;
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="permission-prompt" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <p className="text-sm font-medium">{title}</p>
       <p className="text-sm">{reason}</p>
       {state === "denied" && (

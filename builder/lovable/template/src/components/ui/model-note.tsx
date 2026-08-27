@@ -40,7 +40,7 @@ export function ModelNote({ model, version, knowledgeTo, generatedAt, className 
   }
   if (!parts.length) return null;
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="model-note" className={cn("text-xs text-muted-foreground", className)}>
       {parts.map((p, i) => (
         <span key={i}>
           {i > 0 && <span aria-hidden="true"> · </span>}

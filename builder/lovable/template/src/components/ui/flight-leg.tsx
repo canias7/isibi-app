@@ -45,7 +45,7 @@ export function FlightLeg({ flightNumber, carrier, from, to, departs, arrives, t
     minimumConnectionMinutes !== undefined &&
     connectionMinutes < minimumConnectionMinutes;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="flight-leg" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">
           {from} <span aria-hidden="true">→</span> {to}

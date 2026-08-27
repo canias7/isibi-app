@@ -31,7 +31,7 @@ export function VacancyClosing({ closesOn, daysLeft, closed, closedEarly, rollin
 }) {
   const soon = !closed && daysLeft !== undefined && daysLeft <= 3;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="vacancy-closing" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn(soon && "font-medium")}>
         {closed
           ? closedEarly

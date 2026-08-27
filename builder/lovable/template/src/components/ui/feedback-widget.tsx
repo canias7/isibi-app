@@ -17,7 +17,7 @@ export function FeedbackWidget({ question = "Was this helpful?", onSubmit, busy,
   const [helpful, setHelpful] = React.useState<boolean | null>(null);
   const [comment, setComment] = React.useState("");
   const [done, setDone] = React.useState(false);
-  if (done) return <p className={cn("text-sm text-muted-foreground", className)}>Thanks — that helps.</p>;
+  if (done) return <p data-slot="feedback-widget" className={cn("text-sm text-muted-foreground", className)}>Thanks — that helps.</p>;
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       <div className="flex items-center gap-3">

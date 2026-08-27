@@ -19,7 +19,7 @@ export function RepeatableField({ label, count, min = 1, max = 10, addLabel, onA
   children: (index: number) => React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="repeatable-field" className={cn("space-y-3", className)}>
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="flex items-start gap-2">
           <div className="min-w-0 flex-1">{children(i)}</div>

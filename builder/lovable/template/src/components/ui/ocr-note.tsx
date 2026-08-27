@@ -28,7 +28,7 @@ export function OcrNote({ confidence, unclearCount, originalHref, className }: {
     : confidence >= 0.8 ? "mostly clear"
     : "hard to read";
   return (
-    <p className={cn("flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
+    <p data-slot="ocr-note" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
       <span><span className="font-medium text-foreground">Read from a scan</span> — check anything important.</span>
       {band && <span>{band}.</span>}
       {typeof unclearCount === "number" && unclearCount > 0 && (

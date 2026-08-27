@@ -23,7 +23,7 @@ export function DifferenceOnly({ on, onChange, hiddenCount, id, className }: {
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span data-slot="difference-only" className={cn("inline-flex items-center gap-2", className)}>
       <Switch id={id} checked={on} onCheckedChange={onChange} aria-label="Show only what differs" />
       <label htmlFor={id} className="text-sm">Only what differs</label>
       <span role="status" className="text-xs text-muted-foreground tabular-nums">

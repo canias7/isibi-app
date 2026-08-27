@@ -23,7 +23,7 @@ export function RecommendedFlag({ label = "Our suggestion", because, disclosure,
   className?: string;
 }) {
   return (
-    <p className={cn("text-xs", className)}>
+    <p data-slot="recommended-flag" className={cn("text-xs", className)}>
       <span className="font-medium">{label}</span>
       {because && <span className="text-muted-foreground"> — {because}</span>}
       {disclosure && <span className="block text-muted-foreground">{disclosure}</span>}

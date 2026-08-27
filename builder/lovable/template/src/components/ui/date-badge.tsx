@@ -22,7 +22,7 @@ export function DateBadge({ date, size = "md", className }: {
   const num = { sm: "text-base", md: "text-2xl", lg: "text-3xl" }[size];
   const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return (
-    <time dateTime={iso}
+    <time data-slot="date-badge" dateTime={iso}
       className={cn("flex flex-col items-center justify-center rounded-md bg-muted leading-none", box, className)}>
       <span className={cn("font-semibold tabular-nums", num)}>{d.getDate()}</span>
       <span className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">

@@ -33,7 +33,7 @@ export function StampCard({ earned, total, reward, onRedeem, className }: {
   const left = total - n;
 
   return (
-    <div className={cn("inline-flex flex-col gap-2 rounded-xl border border-border bg-card p-3", className)}>
+    <div data-slot="stamp-card" className={cn("inline-flex flex-col gap-2 rounded-xl border border-border bg-card p-3", className)}>
       <p className="text-sm font-medium">{reward}</p>
       <ul className="grid grid-cols-5 gap-1.5">
         {Array.from({ length: total }, (_, i) => {

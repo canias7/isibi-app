@@ -17,7 +17,7 @@ export function UnitToggle({ value, unit, units, onChange, convert, className }:
   className?: string;
 }) {
   return (
-    <div className={cn("inline-flex rounded-md border border-border p-0.5", className)} role="group">
+    <div data-slot="unit-toggle" className={cn("inline-flex rounded-md border border-border p-0.5", className)} role="group">
       {units.map((u) => (
         <button key={u.value} type="button" aria-pressed={u.value === unit}
           onClick={() => u.value !== unit && onChange({

@@ -35,7 +35,7 @@ export function CutoverNote({ from, to, at, freezeFrom, freezeUntil, duringInstr
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 rounded-md border border-border p-3 text-sm", className)}>
+    <div data-slot="cutover-note" className={cn("space-y-1 rounded-md border border-border p-3 text-sm", className)}>
       <p>
         <span className="font-medium">{from} is replaced by {to}</span>
         <span className="block text-xs text-muted-foreground">at {at}</span>

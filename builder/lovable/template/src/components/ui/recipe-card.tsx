@@ -14,7 +14,7 @@ export function RecipeCard({ title, image, totalTime, serves, rating, tags, href
   rating?: number; tags?: string[]; href?: string; className?: string;
 }) {
   return (
-    <article className={cn("overflow-hidden rounded-lg border border-border", className)}>
+    <article data-slot="recipe-card" className={cn("overflow-hidden rounded-lg border border-border", className)}>
       <div className="aspect-[4/3] bg-muted">
         <SafeImage src={image} alt={title} ratio="auto" className="size-full object-cover" />
       </div>

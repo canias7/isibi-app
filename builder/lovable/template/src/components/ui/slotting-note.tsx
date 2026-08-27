@@ -32,7 +32,7 @@ export function SlottingNote({ item, currentLocation, suggestedLocation, picksPe
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="slotting-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{item}</span>
         <span className="block text-xs">

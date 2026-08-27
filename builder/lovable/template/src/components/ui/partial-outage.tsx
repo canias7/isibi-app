@@ -22,7 +22,7 @@ export function PartialOutage({ affected, working, since, className }: {
 }) {
   if (!affected.length) return null;
   return (
-    <section role="status" aria-label="Service status"
+    <section data-slot="partial-outage" role="status" aria-label="Service status"
       className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
       <p className="text-sm font-medium">
         Some things aren&apos;t working{since ? <span className="font-normal text-muted-foreground"> · since {since}</span> : null}

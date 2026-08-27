@@ -33,7 +33,7 @@ export function StoreBadges({ stores, label, className }: {
 }) {
   if (!stores.length) return null;
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="store-badges" className={cn("flex flex-col gap-2", className)}>
       {label && <p className="text-sm text-muted-foreground">{label}</p>}
       <ul className="flex flex-wrap gap-2">
         {stores.map((s) => (

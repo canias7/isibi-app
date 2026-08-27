@@ -561,7 +561,18 @@ export const TOOL_DIRECTIVE =
   "THIS SITE IS A WORKING TOOL, NOT A SHOPFRONT. No hero, no marketing bands, no team section, " +
   "no testimonials, no closing pitch — and no photographs or picture slots anywhere. " +
   "The front page opens straight into the work itself: the table, the board, the list — dense, " +
-  "figure-first, columns that line up. Every page is a working screen of the tool.";
+  "figure-first, columns that line up. Every page is a working screen of the tool. " +
+  // THE FOOTER RULE (2026-08-27, runs 47 and 49 — owner's report, twice).
+  // Both tool builds closed every page on a shopfront footer: a marketing
+  // strapline plus a contact card — phone, email, address, hours — of which
+  // the brief supplied NONE (grepped: zero of the four appear in it; the
+  // 0161 496 number is the Ofcom drama range). The brochure mold surviving
+  // in the one band the kind directive never named. A fact the brief does
+  // not state is a fact the site must not state — inventing contact details
+  // is worse than a bare footer, because somebody rings the number.
+  "The FOOTER is workplace chrome: the name and the nav, nothing more — no strapline, no pitch, " +
+  "and no contact card. A phone number, email, address or opening hours appears ONLY if the brief " +
+  "states it; when the brief is silent, that slot stays empty.";
 
 /**
  * The directive, composed from authored fields instead of a table row.

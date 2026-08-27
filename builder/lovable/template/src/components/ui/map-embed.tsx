@@ -18,7 +18,7 @@ export function MapEmbed({ address, embedSrc, label = "Open in Maps", className 
 }) {
   const href = `https://www.openstreetmap.org/search?query=${encodeURIComponent(address)}`;
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="map-embed" className={cn("space-y-2", className)}>
       {embedSrc ? (
         <iframe src={embedSrc} title={`Map of ${address}`} loading="lazy"
           referrerPolicy="no-referrer-when-downgrade"

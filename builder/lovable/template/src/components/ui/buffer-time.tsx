@@ -32,7 +32,7 @@ export function BufferTime({ before, after, onChange, appointmentMinutes, classN
   };
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="buffer-time" className={cn("flex flex-col gap-3", className)}>
       <div className="flex flex-wrap gap-4">
         <div className="flex flex-col gap-1">
           <span className="text-sm font-medium">Before</span>

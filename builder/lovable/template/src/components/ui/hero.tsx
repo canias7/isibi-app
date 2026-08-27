@@ -24,7 +24,7 @@ export function Hero({
   className?: string;
 }) {
   return (
-    <section className={cn("relative overflow-hidden", className)}>
+    <section data-slot="hero" className={cn("relative overflow-hidden", className)}>
       {image ? (
         <div className="absolute inset-0">
           <SafeImage src={image} ratio="auto" className="size-full rounded-none" />

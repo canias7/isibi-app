@@ -34,7 +34,7 @@ export function BylineCompact({ author, date, iso, text, words, className }: {
 }) {
   const mins = text != null ? readingMinutes(text) : words != null ? readingMinutes(words) : null;
   return (
-    <p className={cn("flex flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="byline-compact" className={cn("flex flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground", className)}>
       <span className="font-medium text-foreground">{author}</span>
       {date ? (<>
         <span aria-hidden>·</span>

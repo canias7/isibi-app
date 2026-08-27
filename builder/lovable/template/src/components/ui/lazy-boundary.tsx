@@ -42,7 +42,7 @@ export function LazyBoundary({ estimatedHeight, rootMargin = "100% 0px", childre
   }, [mounted, rootMargin]);
 
   return (
-    <div ref={ref} className={className}
+    <div data-slot="lazy-boundary" ref={ref} className={className}
       style={mounted ? undefined : { minHeight: estimatedHeight }}>
       {mounted ? children : null}
     </div>

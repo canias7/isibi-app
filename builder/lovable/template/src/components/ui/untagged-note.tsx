@@ -30,7 +30,7 @@ export function UntaggedNote({ count, total, action, warnAt = 1, className }: {
   if (count < warnAt || count <= 0) return null;
   const share = total && total > 0 ? Math.round((count / total) * 100) : null;
   return (
-    <p className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-sm", className)}>
+    <p data-slot="untagged-note" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-sm", className)}>
       <span>
         <span className="font-medium tabular-nums">{count.toLocaleString()}</span>
         {" "}

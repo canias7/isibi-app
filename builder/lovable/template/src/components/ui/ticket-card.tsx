@@ -13,7 +13,7 @@ export function TicketCard({ event, reference, at, seat, holder, used, className
   seat?: string; holder?: string; used?: boolean; className?: string;
 }) {
   return (
-    <article className={cn("rounded-lg border border-border", used && "opacity-60", className)}>
+    <article data-slot="ticket-card" className={cn("rounded-lg border border-border", used && "opacity-60", className)}>
       <div className="border-b border-dashed border-border p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <h3 className="text-sm font-medium">{event}</h3>

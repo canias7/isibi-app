@@ -52,7 +52,7 @@ export function PanelGroup({ panels, sizes, onResize, min = 10, className }: {
   const wrap = React.useRef<HTMLDivElement>(null);
 
   return (
-    <div ref={wrap} className={cn("flex min-h-0 flex-col md:flex-row", className)}>
+    <div data-slot="panel-group" ref={wrap} className={cn("flex min-h-0 flex-col md:flex-row", className)}>
       {panels.map((p, i) => (
         <React.Fragment key={p.key}>
           <section

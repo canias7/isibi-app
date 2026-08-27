@@ -6,7 +6,7 @@ export function CoverImage({ src, alt, title, subtitle, ratio = "21/9", classNam
   ratio?: string; className?: string;
 }) {
   return (
-    <div className={cn("relative overflow-hidden rounded-xl", className)}>
+    <div data-slot="cover-image" className={cn("relative overflow-hidden rounded-xl", className)}>
       <SafeImage src={src} alt={alt} ratio={ratio} className="rounded-none" />
       {(title || subtitle) && (
         <>

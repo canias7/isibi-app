@@ -29,7 +29,7 @@ export function EmojiPicker({ onPick, className }: { onPick: (emoji: string) => 
     .map((g) => ({ ...g, items: query ? g.items.filter(([, name]) => name.includes(query)) : g.items }))
     .filter((g) => g.items.length);
   return (
-    <div className={cn("w-72 space-y-2 rounded-md border border-border bg-popover p-2 shadow-md", className)}>
+    <div data-slot="emoji-picker" className={cn("w-72 space-y-2 rounded-md border border-border bg-popover p-2 shadow-md", className)}>
       <Input value={q} placeholder="Search" aria-label="Search emoji" className="h-8"
         onChange={(e) => setQ(e.target.value)} />
       <div className="max-h-56 space-y-2 overflow-y-auto">

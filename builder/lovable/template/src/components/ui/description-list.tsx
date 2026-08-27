@@ -9,7 +9,7 @@ export function DescriptionList({ items, layout = "rows", className }: {
   items: Pair[]; layout?: "rows" | "grid"; className?: string;
 }) {
   return (
-    <dl className={cn(layout === "grid" ? "grid gap-4 sm:grid-cols-2" : "flex flex-col", className)}>
+    <dl data-slot="description-list" className={cn(layout === "grid" ? "grid gap-4 sm:grid-cols-2" : "flex flex-col", className)}>
       {items.map((p, i) => (
         <div key={i} className={cn(layout === "rows" && "flex items-baseline justify-between gap-4 border-b border-border py-2.5 last:border-0")}>
           <dt className="text-sm text-muted-foreground">{p.label}</dt>

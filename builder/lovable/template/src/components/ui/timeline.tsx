@@ -5,7 +5,7 @@ export type Moment = { title: string; when?: string; description?: string };
 /** Things in order, down the page. */
 export function Timeline({ items, className }: { items: Moment[]; className?: string }) {
   return (
-    <ol className={cn("relative flex flex-col gap-6 border-s border-border ps-6", className)}>
+    <ol data-slot="timeline" className={cn("relative flex flex-col gap-6 border-s border-border ps-6", className)}>
       {items.map((m, i) => (
         <li key={m.title + i} className="relative">
           <span className="absolute -start-[1.6875rem] top-1.5 size-2.5 rounded-full bg-foreground" aria-hidden="true" />

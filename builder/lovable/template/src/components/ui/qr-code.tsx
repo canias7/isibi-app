@@ -45,7 +45,7 @@ export function QrCode({ matrix, value, size = 160, quiet = 4, showValue = true,
 }) {
   const n = matrix.length;
   if (!n || matrix.some((r) => r.length !== n)) {
-    return <p className={cn("text-xs text-muted-foreground", className)}>That is not a square QR matrix.</p>;
+    return <p data-slot="qr-code" className={cn("text-xs text-muted-foreground", className)}>That is not a square QR matrix.</p>;
   }
   const total = n + quiet * 2;
   return (

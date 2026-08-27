@@ -43,7 +43,7 @@ export function DoorEvent({ door, at, outcome, person, badge, reason, className 
 }) {
   const urgent = outcome === "forced" || outcome === "held-open";
   return (
-    <li className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
+    <li data-slot="door-event" className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         {at && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{at}</span>}
         <span className="min-w-0 flex-1">

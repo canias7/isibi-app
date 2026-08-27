@@ -44,7 +44,7 @@ export function EscalateAction({ targets, reasons = [], onEscalate, onCancel, bu
   const away = target && target.available === false;
   const ready = Boolean(to && reason.trim());
   return (
-    <form className={cn("space-y-3", className)}
+    <form data-slot="escalate-action" className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onEscalate({ to, reason: reason.trim() }); }}>
       <div className="space-y-1">
         <label htmlFor={uid + "-esc-to"} className="block text-sm font-medium">Pass this to</label>

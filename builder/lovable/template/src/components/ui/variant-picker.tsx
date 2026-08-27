@@ -12,7 +12,7 @@ export function VariantPicker({ name, label, options, value, onChange, className
   value?: string; onChange: (v: string) => void; className?: string;
 }) {
   return (
-    <fieldset className={className}>
+    <fieldset data-slot="variant-picker" className={className}>
       <legend className="mb-2 text-sm font-medium">{label}</legend>
       <div className="flex flex-wrap gap-2">
         {options.map((o) => (

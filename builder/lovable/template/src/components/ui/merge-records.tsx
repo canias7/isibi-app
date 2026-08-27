@@ -33,7 +33,7 @@ export function MergeRecords({ fields, choices, onChoose, onMerge, aLabel = "Exi
   const differ = fields.filter((f) => String(f.a ?? "") !== String(f.b ?? ""));
   const undecided = differ.filter((f) => !choices[f.key]).length;
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="merge-records" className={cn("flex flex-col gap-3", className)}>
       {same.length > 0 && (
         <p className="text-xs text-muted-foreground tabular-nums">{same.length} fields already match</p>
       )}

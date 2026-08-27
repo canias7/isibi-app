@@ -32,7 +32,7 @@ export function InstallPrompt({ ready, benefit, onInstall, onDismiss, platform =
 }) {
   if (!ready) return null;
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="install-prompt" className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border p-3", className)}>
       <p className="min-w-0 flex-1 text-sm">
         Add this to your home screen
         {benefit && <span className="block text-xs text-muted-foreground">{benefit}</span>}

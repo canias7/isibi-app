@@ -11,7 +11,7 @@ export function AllDayRow({ items, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-h-8 items-center gap-2 border-b border-border px-2 py-1", className)}>
+    <div data-slot="all-day-row" className={cn("flex min-h-8 items-center gap-2 border-b border-border px-2 py-1", className)}>
       <span className="w-14 shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">All day</span>
       <div className="flex min-w-0 flex-1 flex-wrap gap-1">
         {items.map((it) => (

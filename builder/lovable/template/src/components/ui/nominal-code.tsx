@@ -40,7 +40,7 @@ export function NominalCode({ label = "Post to", options, value, onChange, class
   const id = useId();
   const chosen = options.find((o) => o.code === value);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="nominal-code" className={cn("space-y-1", className)}>
       <label className="block text-sm font-medium" htmlFor={id}>{label}</label>
       <select
         id={id}

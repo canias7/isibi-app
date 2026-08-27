@@ -50,7 +50,7 @@ export function Waveform({
   };
 
   return (
-    <div
+    <div data-slot="waveform"
       role="slider"
       aria-label={label}
       aria-valuemin={0}

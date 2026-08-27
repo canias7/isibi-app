@@ -44,7 +44,7 @@ export function OverpaymentAllowance({ allowance, usedSoFar, periodEnds, chargeP
   const years = monthsSaved !== undefined ? Math.floor(monthsSaved / 12) : undefined;
   const months = monthsSaved !== undefined ? monthsSaved % 12 : undefined;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="overpayment-allowance" className={cn("space-y-1 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">{money(left)} left to overpay</span>
         <span className="text-muted-foreground">

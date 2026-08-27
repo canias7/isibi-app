@@ -41,7 +41,7 @@ export function ThemeExport({ formats, format, onFormatChange, onExport, exclude
   const uid = useId();
   const chosen = formats.find((f) => f.id === format);
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="theme-export" className={cn("space-y-2", className)}>
       <div className="space-y-1">
         <label htmlFor={uid + "-te-format"} className="block text-sm font-medium">Format</label>
         <NativeSelect id={uid + "-te-format"} value={format} className="w-auto"

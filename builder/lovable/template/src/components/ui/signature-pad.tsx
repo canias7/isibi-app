@@ -53,7 +53,7 @@ export function SignaturePad({ onChange, height = 160, className }: {
   };
 
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="signature-pad" className={cn("space-y-2", className)}>
       <canvas ref={ref} style={{ height, touchAction: "none" }}
         className="w-full cursor-crosshair rounded-md border border-input text-foreground"
         onPointerDown={(e) => {

@@ -52,7 +52,7 @@ export function SnoozeMenu({ snoozedUntil, onSnooze, onUnsnooze, options, classN
 
   if (snoozedUntil) {
     return (
-      <p className={cn("flex items-center gap-2 text-xs text-muted-foreground", className)}>
+      <p data-slot="snooze-menu" className={cn("flex items-center gap-2 text-xs text-muted-foreground", className)}>
         <Clock aria-hidden className="size-3" />
         Back {snoozedUntil}.
         {onUnsnooze ? (

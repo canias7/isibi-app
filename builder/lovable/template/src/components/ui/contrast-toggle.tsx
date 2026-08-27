@@ -33,7 +33,7 @@ export function ContrastToggle({ className }: { className?: string }) {
     try { localStorage.setItem(KEY, on ? "1" : "0"); } catch { /* as above */ }
   }, [on]);
   return (
-    <button type="button" aria-pressed={on} onClick={() => setOn((v) => !v)}
+    <button data-slot="contrast-toggle" type="button" aria-pressed={on} onClick={() => setOn((v) => !v)}
       className={cn("cursor-pointer rounded-md border border-border px-3 py-1 text-sm", on && "font-medium", className)}>
       High contrast{on ? " on" : " off"}
     </button>

@@ -49,7 +49,7 @@ export function isMac() {
 export function ShortcutKeys({ keys, className }: { keys: string[]; className?: string }) {
   const map = isMac() ? MAC_GLYPH : PC_GLYPH;
   return (
-    <span className={cn("inline-flex items-center gap-1", className)}>
+    <span data-slot="shortcut-keys" className={cn("inline-flex items-center gap-1", className)}>
       <span aria-hidden className="inline-flex items-center gap-1">
         {keys.map((k) => (
           <kbd key={k} className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -79,7 +79,7 @@ export function ShortcutOverlay({ open, onClose, groups, className }: {
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4">
+    <div data-slot="shortcut-overlay" className="fixed inset-0 z-50 grid place-items-center p-4">
       <button type="button" onClick={onClose} aria-label="Close"
         className="absolute inset-0 cursor-default bg-foreground/50" />
       <div role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"

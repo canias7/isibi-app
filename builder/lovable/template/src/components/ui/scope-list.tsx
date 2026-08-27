@@ -29,7 +29,7 @@ export function ScopeList({ scopes, granted, onToggle, className }: {
   const Icon = (k?: string) => (k === "delete" ? Trash2 : k === "write" ? Pencil : Eye);
 
   return (
-    <ul className={cn("flex flex-col divide-y divide-border rounded-md border border-border", className)}>
+    <ul data-slot="scope-list" className={cn("flex flex-col divide-y divide-border rounded-md border border-border", className)}>
       {ordered.map((s) => {
         const I = Icon(s.kind);
         const on = !granted || granted.includes(s.key);

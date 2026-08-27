@@ -52,7 +52,7 @@ export function MeterReading({ label = "Meter reading", digits = 5, previous, pr
     : false;
   const query = touched && (lower || jump || hadDecimal);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="meter-reading" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">{label}</label>
       <Input
         id={id}

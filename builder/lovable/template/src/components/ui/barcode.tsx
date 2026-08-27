@@ -47,7 +47,7 @@ export function Barcode({ widths, value, height = 56, showValue = true, classNam
   if (!widths.length) return null;
 
   return (
-    <figure className={cn("inline-flex flex-col items-center gap-1 bg-white p-2", className)}>
+    <figure data-slot="barcode" className={cn("inline-flex flex-col items-center gap-1 bg-white p-2", className)}>
       <svg viewBox={`0 0 ${total} ${height}`} width="100%" style={{ maxWidth: total * 2 }}
         shapeRendering="crispEdges" role="img" aria-label={`Barcode: ${value}`}>
         <rect x="0" y="0" width={total} height={height} fill="#fff" />

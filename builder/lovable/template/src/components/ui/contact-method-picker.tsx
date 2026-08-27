@@ -37,7 +37,7 @@ export function ContactMethodPicker({ methods, value, onChange, multi, legend = 
   className?: string;
 }) {
   return (
-    <fieldset className={cn("space-y-1.5", className)}>
+    <fieldset data-slot="contact-method-picker" className={cn("space-y-1.5", className)}>
       <legend className="mb-1 text-sm font-medium">{legend}</legend>
       {methods.map((m) => (
         <label key={m.id}

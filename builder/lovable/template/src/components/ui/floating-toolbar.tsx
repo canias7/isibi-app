@@ -44,7 +44,7 @@ export function FloatingToolbar({ anchor, open, children, gap = 8, className }: 
 
   if (!open || !pos) return null;
   return (
-    <div
+    <div data-slot="floating-toolbar"
       ref={ref}
       role="toolbar"
       style={{ top: pos.top, left: pos.left }}

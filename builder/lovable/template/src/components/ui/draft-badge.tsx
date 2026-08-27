@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
  */
 export function DraftBadge({ label = "Draft", className }: { label?: string; className?: string }) {
   return (
-    <span className={cn("inline-flex items-center rounded border border-warning/60 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-warning", className)}>
+    <span data-slot="draft-badge" className={cn("inline-flex items-center rounded border border-warning/60 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-warning", className)}>
       {label}
     </span>
   );

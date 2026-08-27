@@ -30,7 +30,7 @@ export function SwipeActions({ actions, children, className }: {
   const width = actions.length * 72;
 
   return (
-    <div className={cn("group relative overflow-hidden", className)}>
+    <div data-slot="swipe-actions" className={cn("group relative overflow-hidden", className)}>
       <div className="absolute inset-y-0 end-0 flex">
         {actions.map((a) => (
           <button key={a.key} type="button" onClick={() => { a.onAction(); setOffset(0); }}

@@ -24,7 +24,7 @@ export function ColumnReader({ children, measure = 65, columns = 1, className }:
   className?: string;
 }) {
   return (
-    <div
+    <div data-slot="column-reader"
       style={{ maxWidth: columns === 2 ? undefined : `${measure}ch`, columnWidth: columns === 2 ? `${measure / 2}ch` : undefined }}
       className={cn("text-sm leading-relaxed", columns === 2 && "md:columns-2 md:gap-8", className)}>
       {children}

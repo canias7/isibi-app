@@ -32,7 +32,7 @@ export function TaktNote({ demand, availableMinutes, cycleSeconds, className }: 
   const willMake = cycleSeconds && cycleSeconds > 0 ? Math.floor((availableMinutes * 60) / cycleSeconds) : undefined;
   const fmt = (s: number) => (s < 90 ? `${s.toFixed(0)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`);
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="takt-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="tabular-nums">One unit every {fmt(taktSeconds)}</span>
         <span className="block text-xs tabular-nums text-muted-foreground">

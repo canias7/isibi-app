@@ -73,7 +73,7 @@ export function EmailCapture({
   }
 
   return (
-    <section className={cn("flex flex-col gap-3 rounded-md border border-border p-6", className)}>
+    <section data-slot="email-capture" className={cn("flex flex-col gap-3 rounded-md border border-border p-6", className)}>
       {title && <h2 className="text-lg font-semibold tracking-tight">{title}</h2>}
       {blurb && <p className="max-w-prose text-sm text-muted-foreground">{blurb}</p>}
       {done ? (

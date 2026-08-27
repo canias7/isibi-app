@@ -39,7 +39,7 @@ export function TrackingInput({ value, carrier, onChange, className }: {
   const guessed = !carrier && !!guess;
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="tracking-input" className={cn("flex flex-col gap-1", className)}>
       <label className="flex flex-col gap-1 text-sm">
         Tracking number
         <input value={value}

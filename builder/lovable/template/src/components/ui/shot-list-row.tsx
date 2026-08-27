@@ -32,7 +32,7 @@ export function ShotListRow({ shot, size, lens, move, setup, description, state 
   className?: string;
 }) {
   return (
-    <li className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
+    <li data-slot="shot-list-row" className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         <span className="w-14 shrink-0 font-mono text-xs text-muted-foreground">{shot}</span>
         <span className={cn("min-w-0 flex-1", state === "dropped" && "text-muted-foreground line-through")}>

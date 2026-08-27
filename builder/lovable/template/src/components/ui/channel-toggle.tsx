@@ -27,7 +27,7 @@ export function ChannelToggle({ channels, kinds, value, onChange, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("overflow-x-auto", className)}>
+    <div data-slot="channel-toggle" className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">

@@ -36,7 +36,7 @@ export function RuleConflict({ kind, a, b, outcome, onOpen, className }: {
 }) {
   const k = KINDS[kind];
   return (
-    <div role={kind === "loop" ? "alert" : "status"}
+    <div data-slot="rule-conflict" role={kind === "loop" ? "alert" : "status"}
       className={cn("rounded-md border px-3 py-2 text-sm",
         kind === "loop" ? "border-foreground/40 bg-muted/40" : "border-border", className)}>
       <p className="font-medium">{k.word}</p>

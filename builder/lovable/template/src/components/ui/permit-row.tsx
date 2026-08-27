@@ -33,7 +33,7 @@ export function PermitRow({ kind, reference, from, to, expired, people = [], iss
   className?: string;
 }) {
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="permit-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className={cn("font-medium", expired && "line-through decoration-from-font")}>{kind}</span>
         {reference && <code className="font-mono text-xs text-muted-foreground">{reference}</code>}

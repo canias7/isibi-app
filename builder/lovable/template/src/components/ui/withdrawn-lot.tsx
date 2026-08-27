@@ -30,7 +30,7 @@ export function WithdrawnLot({ lotNumber, title, reason, withdrawnOn, bidsCancel
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="withdrawn-lot" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="text-xs tabular-nums text-muted-foreground">Lot {lotNumber}</span>
         {title && <span className="block text-muted-foreground line-through">{title}</span>}

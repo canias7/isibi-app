@@ -39,7 +39,7 @@ export function ServiceStandard({ standard, target, achieved, measure = "within 
     : undefined;
   const short = achieved !== undefined && achieved < 0.9;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="service-standard" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         {standard}
         {target && <span className="text-muted-foreground"> — {target}</span>}

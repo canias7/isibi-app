@@ -63,7 +63,7 @@ export function SubtitleTrack({ tracks, value, onChange, className }: {
   const id = React.useId();
   const on = value !== "off";
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div data-slot="subtitle-track" className={cn("flex items-center gap-2", className)}>
       {on ? <Captions aria-hidden className="size-4" /> : <CaptionsOff aria-hidden className="size-4 text-muted-foreground" />}
       <label htmlFor={id} className="sr-only">Captions</label>
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)}

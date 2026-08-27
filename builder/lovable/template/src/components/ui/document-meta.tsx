@@ -12,7 +12,7 @@ export function DocumentMeta({ items, className }: {
   className?: string;
 }) {
   return (
-    <dl className={cn("flex flex-wrap gap-x-6 gap-y-1 text-xs", className)}>
+    <dl data-slot="document-meta" className={cn("flex flex-wrap gap-x-6 gap-y-1 text-xs", className)}>
       {items.map((it) => (
         <div key={it.label} className="flex gap-1.5">
           <dt className="text-muted-foreground">{it.label}</dt>

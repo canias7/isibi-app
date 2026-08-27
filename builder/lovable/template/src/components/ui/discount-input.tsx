@@ -34,7 +34,7 @@ export function DiscountInput({ totalMinor, kind, value, onChange, currency = "G
   const fmt = (m: number) => formatMinor(m, currency);
   const { off, after } = discountResult(totalMinor, kind, value || 0);
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="discount-input" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-center gap-1.5">
         <div className="inline-flex overflow-hidden rounded-md border border-border">
           {(["percent", "fixed"] as const).map((k) => (

@@ -40,7 +40,7 @@ export function RepresentativeNote({ representative, represents, scope, basis, s
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="representative-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{representative}</span>
         {represents && <span className="text-muted-foreground"> acting for {represents}</span>}

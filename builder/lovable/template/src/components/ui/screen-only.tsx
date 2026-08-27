@@ -8,5 +8,5 @@ import { cn } from "@/lib/utils";
  * nothing said not to.
  */
 export function ScreenOnly({ children, className }: { children?: React.ReactNode; className?: string }) {
-  return <div className={cn("print:hidden", className)}>{children}</div>;
+  return <div data-slot="screen-only" className={cn("print:hidden", className)}>{children}</div>;
 }

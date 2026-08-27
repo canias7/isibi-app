@@ -36,7 +36,7 @@ export function FormDiff({ changes, labels, unchangedCount, className }: {
   const blank = <span className="text-muted-foreground italic">not set</span>;
   if (changes.length === 0) {
     return (
-      <p className={cn("text-xs text-muted-foreground", className)}>
+      <p data-slot="form-diff" className={cn("text-xs text-muted-foreground", className)}>
         Nothing has changed.
       </p>
     );

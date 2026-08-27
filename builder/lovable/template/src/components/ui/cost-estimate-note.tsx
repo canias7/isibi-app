@@ -32,7 +32,7 @@ export function CostEstimateNote({ from, to, dependsOn = [], firmWhen, note, cla
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="cost-estimate-note" className={cn("space-y-1", className)}>
       <p className="text-sm">
         <span className="font-medium tabular-nums">
           {to && to !== from ? `${from}–${to}` : `${from} or so`}

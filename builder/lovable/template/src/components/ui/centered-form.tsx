@@ -5,7 +5,7 @@ export function CenteredForm({ brand, title, description, footer, className, chi
   footer?: React.ReactNode; className?: string; children?: React.ReactNode;
 }) {
   return (
-    <div className={cn("grid min-h-svh place-items-center px-6 py-12", className)}>
+    <div data-slot="centered-form" className={cn("grid min-h-svh place-items-center px-6 py-12", className)}>
       <div className="w-full max-w-sm">
         {brand && <div className="mb-6 flex justify-center">{brand}</div>}
         <div className="mb-6 text-center">

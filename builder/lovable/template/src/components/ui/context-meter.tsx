@@ -30,7 +30,7 @@ export function ContextMeter({ segments, limit, showAbove = 0.5, onNewChat, clas
   const full = frac >= 0.95;
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="context-meter" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-baseline justify-between gap-2 text-xs">
         <span className="font-medium">Conversation length</span>
         <span className="text-muted-foreground tabular-nums">{Math.round(Math.min(1, frac) * 100)}% full</span>

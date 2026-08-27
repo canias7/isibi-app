@@ -25,7 +25,7 @@ export function PollResult({ options, mine, className }: {
   const total = options.reduce((s, o) => s + o.votes, 0);
   const top = Math.max(...options.map((o) => o.votes));
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="poll-result" className={cn("flex flex-col gap-2", className)}>
       {options.map((o) => {
         const pct = total ? Math.round((o.votes / total) * 100) : 0;
         const lead = total > 0 && o.votes === top;

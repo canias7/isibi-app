@@ -62,7 +62,7 @@ export function VideoHero({
   const moving = !!src && !still && !failed;
 
   return (
-    <section className={cn("relative isolate overflow-hidden", className)}>
+    <section data-slot="video-hero" className={cn("relative isolate overflow-hidden", className)}>
       <div className="absolute inset-0 -z-10 bg-muted">
         {poster ? (
           <img src={poster} alt="" aria-hidden className="size-full object-cover" />

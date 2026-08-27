@@ -21,7 +21,7 @@ export function PasteParse({ fields, onUndo, className }: {
 }) {
   if (!fields.length) return null;
   return (
-    <div role="status" className={cn("flex flex-col gap-1 rounded-md border border-border p-2 text-xs", className)}>
+    <div data-slot="paste-parse" role="status" className={cn("flex flex-col gap-1 rounded-md border border-border p-2 text-xs", className)}>
       <p className="font-medium">We split that into {fields.length} fields</p>
       <ul className="text-muted-foreground">
         {fields.map((f) => <li key={f.label}>{f.label}: {f.value}</li>)}

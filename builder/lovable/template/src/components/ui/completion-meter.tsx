@@ -25,7 +25,7 @@ export function CompletionMeter({ done, total, missing, label = "Complete", max 
   const shown = missing?.slice(0, max) ?? [];
   const rest = (missing?.length ?? 0) - shown.length;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="completion-meter" className={cn("flex flex-col gap-1", className)}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm text-muted-foreground">{label}</span>
         <span className="text-sm font-medium tabular-nums">{done} of {total}</span>

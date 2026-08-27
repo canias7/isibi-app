@@ -29,7 +29,7 @@ export function DataList<T>({
 }) {
   if (query.isPending) {
     return (
-      <div className={className}>
+      <div data-slot="data-list" className={className}>
         {Array.from({ length: skeleton }, (_, i) => (
           <Skeleton key={i} className={cn("h-20 rounded-xl", skeletonClassName)} />
         ))}

@@ -23,7 +23,7 @@ export function StartupPage({ pages, value, onChange, className }: {
   const row = "flex cursor-pointer items-center gap-2 text-sm";
   const radio = "size-3.5 cursor-pointer accent-foreground";
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="startup-page" className={cn("flex flex-col gap-1.5", className)}>
       <label className={row}>
         <input type="radio" name={name} className={radio}
           checked={value.mode === "resume"} onChange={() => onChange({ mode: "resume" })} />

@@ -34,7 +34,7 @@ export function PresetMenu({ presets, activeId, dirty, onApply, onSave, onSaveAs
 }) {
   const active = presets.find((p) => p.id === activeId);
   return (
-    <div className={cn("min-w-56 rounded-md border border-border p-1", className)}>
+    <div data-slot="preset-menu" className={cn("min-w-56 rounded-md border border-border p-1", className)}>
       {active && (
         <p className="px-2 py-1.5 text-xs text-muted-foreground">
           {active.name}

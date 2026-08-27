@@ -41,7 +41,7 @@ export function InstrumentBooking({ instrument, when, runMinutes, setupMinutes =
     return r === 0 ? `${h}h` : `${h}h ${r}m`;
   };
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="instrument-booking" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{instrument}</span>
         <span className="block">{when}</span>

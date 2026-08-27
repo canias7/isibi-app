@@ -23,7 +23,7 @@ export function NotFoundPanel({ what = "page", searched, suggestions, action, cl
   className?: string;
 }) {
   return (
-    <section aria-label="Not found" className={cn("flex flex-col items-start gap-3 rounded-md border border-border p-6", className)}>
+    <section data-slot="not-found-panel" aria-label="Not found" className={cn("flex flex-col items-start gap-3 rounded-md border border-border p-6", className)}>
       <div>
         <h2 className="text-lg font-semibold tracking-tight">That {what} isn&apos;t here</h2>
         <p className="text-sm text-muted-foreground">

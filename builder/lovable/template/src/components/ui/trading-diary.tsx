@@ -43,7 +43,7 @@ export function TradingDiary({ pitches, todayIndex, className }: {
 }) {
   if (!pitches.length) return null;
   return (
-    <ul className={cn("divide-y divide-border border-y border-border", className)}>
+    <ul data-slot="trading-diary" className={cn("divide-y divide-border border-y border-border", className)}>
       {pitches.map((p, i) => {
         const today = i === todayIndex;
         return (

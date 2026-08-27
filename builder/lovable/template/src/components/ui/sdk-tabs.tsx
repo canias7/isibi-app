@@ -52,7 +52,7 @@ export function SdkTabs({ samples, value, onChange, className }: {
 
   if (!current) return null;
   return (
-    <div className={cn("overflow-hidden rounded-md border border-border", className)}>
+    <div data-slot="sdk-tabs" className={cn("overflow-hidden rounded-md border border-border", className)}>
       <div role="tablist" aria-label="Language"
         onKeyDown={(e) => {
           const i = samples.findIndex((s) => s.key === active);

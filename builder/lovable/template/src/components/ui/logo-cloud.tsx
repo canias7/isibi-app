@@ -7,7 +7,7 @@ export function LogoCloud({ items, label, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center gap-5", className)}>
+    <div data-slot="logo-cloud" className={cn("flex flex-col items-center gap-5", className)}>
       {label && <span className="text-xs uppercase tracking-widest text-muted-foreground">{label}</span>}
       <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
         {items.map((l, i) =>

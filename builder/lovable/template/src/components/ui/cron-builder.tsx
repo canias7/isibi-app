@@ -43,7 +43,7 @@ export function CronBuilder({ value, onChange, className }: {
   React.useEffect(() => { onChange(cron, words); }, [cron, words, onChange]);
 
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="cron-builder" className={cn("space-y-3", className)}>
       <NativeSelect value={freq} aria-label="How often" onChange={(e) => setFreq(e.target.value as Freq)}>
         <option value="hourly">Every hour</option>
         <option value="daily">Every day</option>

@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
  */
 export function PullQuote({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <figure aria-hidden
+    <figure data-slot="pull-quote" aria-hidden
       className={cn("my-6 border-y-2 border-foreground py-4 text-center text-xl font-medium leading-snug tracking-tight text-balance", className)}>
       {children}
     </figure>

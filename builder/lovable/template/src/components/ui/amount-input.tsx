@@ -38,7 +38,7 @@ export function AmountInput({ minor, onChange, symbol = "£", id, className }: {
   };
 
   return (
-    <div className={className} onBlur={() => { if (minor != null) setText((minor / 100).toFixed(2)); }}>
+    <div data-slot="amount-input" className={className} onBlur={() => { if (minor != null) setText((minor / 100).toFixed(2)); }}>
       <CurrencyInput id={id} symbol={symbol} value={text}
         onChange={(v) => { setText(v); onChange(parse(v)); }} />
     </div>

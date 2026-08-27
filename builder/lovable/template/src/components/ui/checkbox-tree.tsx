@@ -14,7 +14,7 @@ export function CheckboxTree({ nodes, value, onChange, label, className }: {
   label?: string; className?: string;
 }) {
   return (
-    <div className={cn("rounded-md border border-border", className)}>
+    <div data-slot="checkbox-tree" className={cn("rounded-md border border-border", className)}>
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <p className="text-xs font-medium">
           {label ?? "Filter"}

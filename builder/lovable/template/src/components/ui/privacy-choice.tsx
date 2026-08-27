@@ -33,7 +33,7 @@ export function PrivacyChoice({ title, levels, value, onChange, name, note, clas
 }) {
   const group = name ?? `pc-${title.replace(/\W+/g, "-").toLowerCase()}`;
   return (
-    <fieldset className={cn("space-y-1.5", className)}>
+    <fieldset data-slot="privacy-choice" className={cn("space-y-1.5", className)}>
       <legend className="mb-1 text-sm font-medium">{title}</legend>
       {levels.map((l) => (
         <label key={l.id} className="flex cursor-pointer items-start gap-2.5 text-sm">

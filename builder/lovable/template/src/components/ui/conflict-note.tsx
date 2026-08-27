@@ -14,7 +14,7 @@ export function ConflictNote({ who, at, onKeepMine, onTakeTheirs, onCompare, cla
   onKeepMine?: () => void; onTakeTheirs?: () => void; onCompare?: () => void; className?: string;
 }) {
   return (
-    <div role="alert" className={cn("space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3", className)}>
+    <div data-slot="conflict-note" role="alert" className={cn("space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3", className)}>
       <p className="text-sm">
         <strong className="font-medium">{who ?? "Someone else"}</strong> changed this
         {at ? <> <TimeAgo date={at} /></> : null} while you were editing.

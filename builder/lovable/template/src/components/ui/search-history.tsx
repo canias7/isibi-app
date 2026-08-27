@@ -29,7 +29,7 @@ export function SearchHistory({ items, onPick, onRemove, onClear, title = "Recen
 }) {
   if (items.length === 0) return null;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="search-history" className={cn("flex flex-col gap-1", className)}>
       <div className="flex items-baseline justify-between gap-2 px-1">
         <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
           <Clock aria-hidden className="size-3" /> {title}

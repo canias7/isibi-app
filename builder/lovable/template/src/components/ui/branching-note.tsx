@@ -23,7 +23,7 @@ export function BranchingNote({ affects, discards, className }: {
 }) {
   if (!affects && !discards) return null;
   return (
-    <p role="status" className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="branching-note" role="status" className={cn("text-xs text-muted-foreground", className)}>
       {affects && <>This decides {affects}. </>}
       {typeof discards === "number" && discards > 0 && (
         <span className="font-medium text-foreground">

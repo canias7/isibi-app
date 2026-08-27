@@ -29,7 +29,7 @@ export function ExpiryBatch({ buckets, unit = "units", className }: {
   const expired = buckets.filter((b) => b.expired).reduce((n, b) => n + b.quantity, 0);
   const good = buckets.filter((b) => !b.expired).reduce((n, b) => n + b.quantity, 0);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="expiry-batch" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         <span className="font-medium tabular-nums">{good.toLocaleString()}</span>
         <span className="text-muted-foreground"> {unit} usable</span>

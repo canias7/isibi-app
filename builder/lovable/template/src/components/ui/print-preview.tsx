@@ -28,7 +28,7 @@ export function PrintButton({ onBeforePrint, label = "Print", className }: {
 }) {
   const [busy, setBusy] = React.useState(false);
   return (
-    <button type="button" disabled={busy}
+    <button data-slot="print-button" type="button" disabled={busy}
       onClick={async () => {
         setBusy(true);
         try {
@@ -46,7 +46,7 @@ export function PrintButton({ onBeforePrint, label = "Print", className }: {
 
 /** Hidden on screen, printed on paper — for the URL, a footer, a signature line. */
 export function PrintOnly({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("hidden print:block", className)}>{children}</div>;
+  return <div data-slot="print-only" className={cn("hidden print:block", className)}>{children}</div>;
 }
 
 /** On screen only — navigation, banners, buttons. */

@@ -14,7 +14,7 @@ export function WebhookRow({ url, events, state = "on", lastDeliveryAt, lastErro
   onEdit?: () => void; onDelete?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-start gap-3 border-b border-border py-3 last:border-0", className)}>
+    <div data-slot="webhook-row" className={cn("flex flex-wrap items-start gap-3 border-b border-border py-3 last:border-0", className)}>
       <div className="min-w-0 flex-1">
         <p className="truncate font-mono text-sm">{url}</p>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">

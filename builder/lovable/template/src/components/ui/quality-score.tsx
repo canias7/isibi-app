@@ -21,7 +21,7 @@ export function QualityScore({ checks, className }: {
 }) {
   const failing = checks.filter((c) => !c.pass);
   if (!failing.length) {
-    return <p className={cn("text-xs text-muted-foreground", className)}>All {checks.length} data checks passing.</p>;
+    return <p data-slot="quality-score" className={cn("text-xs text-muted-foreground", className)}>All {checks.length} data checks passing.</p>;
   }
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>

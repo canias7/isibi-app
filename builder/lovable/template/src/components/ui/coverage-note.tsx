@@ -34,7 +34,7 @@ export function CoverageNote({ address, outdoors, indoors, measured, wifiCalling
     v === "good" ? "good" : v === "patchy" ? "patchy" : v === "none" ? "nothing usable" : "not known";
   const poorIndoors = indoors === "patchy" || indoors === "none";
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="coverage-note" className={cn("space-y-0.5 text-sm", className)}>
       {address && <p className="font-medium">{address}</p>}
       <p>
         Outdoors: {say(outdoors)}. Indoors: <span className={cn(poorIndoors && "font-medium")}>{say(indoors)}</span>.

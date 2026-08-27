@@ -43,7 +43,7 @@ export function ContractEnd({ endsOn, daysLeft, currentPrice, rollingPrice, exit
   const rise =
     currentPrice !== undefined && rollingPrice !== undefined ? rollingPrice - currentPrice : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="contract-end" className={cn("space-y-0.5 text-sm", className)}>
       {out ? (
         <p className="font-medium">
           You are out of contract. You can leave, switch or renegotiate at any time with nothing to pay.

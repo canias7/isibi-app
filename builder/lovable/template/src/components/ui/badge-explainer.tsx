@@ -32,7 +32,7 @@ export function BadgeExplainer({ label, meaning, issuer, since, className }: {
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <span className={cn("inline-block", className)}>
+    <span data-slot="badge-explainer" className={cn("inline-block", className)}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs">
         {label}

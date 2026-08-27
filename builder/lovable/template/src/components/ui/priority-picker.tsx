@@ -37,7 +37,7 @@ export function PriorityPicker({ levels, value, onChange, name = "priority", leg
   className?: string;
 }) {
   return (
-    <fieldset className={cn("space-y-1.5", className)}>
+    <fieldset data-slot="priority-picker" className={cn("space-y-1.5", className)}>
       <legend className="mb-1 text-sm font-medium">{legend}</legend>
       {levels.map((l) => (
         <label key={l.id}

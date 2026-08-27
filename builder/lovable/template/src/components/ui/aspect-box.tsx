@@ -18,7 +18,7 @@ export function AspectBox({ ratio = "16/9", children, className }: {
   className?: string;
 }) {
   return (
-    <div style={{ aspectRatio: ratio }} className={cn("relative overflow-hidden [&>img]:h-full [&>img]:w-full [&>img]:object-cover [&>video]:h-full [&>video]:w-full [&>video]:object-cover", className)}>
+    <div data-slot="aspect-box" style={{ aspectRatio: ratio }} className={cn("relative overflow-hidden [&>img]:h-full [&>img]:w-full [&>img]:object-cover [&>video]:h-full [&>video]:w-full [&>video]:object-cover", className)}>
       {children}
     </div>
   );

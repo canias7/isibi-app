@@ -24,7 +24,7 @@ export function ConditionalSection({ when, because, children, className }: {
 }) {
   if (!when) return null;
   return (
-    <section className={cn("flex flex-col gap-2 border-s-2 border-border ps-4", className)}>
+    <section data-slot="conditional-section" className={cn("flex flex-col gap-2 border-s-2 border-border ps-4", className)}>
       {because && (
         <p role="status" className="text-xs text-muted-foreground">Because {because}</p>
       )}

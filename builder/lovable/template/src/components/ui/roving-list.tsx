@@ -38,7 +38,7 @@ export function RovingList({ items, activeIndex, onActiveIndexChange, onActivate
   };
 
   return (
-    <ul role="listbox" aria-label={label}
+    <ul data-slot="roving-list" role="listbox" aria-label={label}
       className={cn("divide-y divide-border rounded-md border border-border", className)}
       onKeyDown={(e) => {
         if (e.key === "ArrowDown") { e.preventDefault(); move(active === last ? 0 : active + 1); }

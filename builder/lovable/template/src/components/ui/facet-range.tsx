@@ -38,7 +38,7 @@ export function FacetRange({
   const at = (n: number) => ((n - min) / span) * 100;
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="facet-range" className={cn("flex flex-col gap-2", className)}>
       {label ? <p className="text-xs font-medium">{label}</p> : null}
       {buckets.length ? (
         <div aria-hidden className="flex h-10 items-end gap-px">

@@ -39,7 +39,7 @@ export function AbsenteeBid({ kind = "commission", lotNumber, maximum, submitted
     ? new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 }).format(maximum)
     : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="absentee-bid" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">
           {kind === "commission" ? "Bid left with the auctioneer" : "Telephone bid"}

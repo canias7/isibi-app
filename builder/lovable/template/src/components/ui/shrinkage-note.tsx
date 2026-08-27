@@ -30,7 +30,7 @@ export function ShrinkageNote({ expected, counted, unit = "units", value, classN
   const pct = expected > 0 ? Math.abs(diff / expected) * 100 : null;
   if (diff === 0) {
     return (
-      <p className={cn("text-sm", className)}>
+      <p data-slot="shrinkage-note" className={cn("text-sm", className)}>
         <span className="font-medium">No difference</span>
         <span className="text-muted-foreground"> · counted {counted.toLocaleString()} {unit}, as expected</span>
       </p>

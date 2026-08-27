@@ -25,7 +25,7 @@ export function VisibilityToggle({ visible, onChange, whenOn, whenOff, label = "
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-start justify-between gap-4", className)}>
+    <div data-slot="visibility-toggle" className={cn("flex items-start justify-between gap-4", className)}>
       <div className="min-w-0">
         <label htmlFor={id} className="text-sm font-medium">{label}</label>
         <p role="status" className="text-xs text-muted-foreground">

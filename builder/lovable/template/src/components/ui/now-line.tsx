@@ -20,7 +20,7 @@ export function NowLine({ dayStart = 8, dayEnd = 20, date, className }: {
   if (hours < dayStart || hours > dayEnd) return null;
   const pct = ((hours - dayStart) / (dayEnd - dayStart)) * 100;
   return (
-    <div className={cn("pointer-events-none absolute inset-x-0 z-10 flex items-center", className)}
+    <div data-slot="now-line" className={cn("pointer-events-none absolute inset-x-0 z-10 flex items-center", className)}
       style={{ top: `${pct}%` }} aria-hidden="true">
       <span className="size-2 shrink-0 rounded-full bg-destructive" />
       <span className="h-px flex-1 bg-destructive" />

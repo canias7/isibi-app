@@ -7,7 +7,7 @@ export function WhatsNew({ items, title = "What's new", className }: {
   title?: string; className?: string;
 }) {
   return (
-    <section className={cn("space-y-3", className)}>
+    <section data-slot="whats-new" className={cn("space-y-3", className)}>
       <h3 className="text-sm font-medium">{title}</h3>
       <ul className="space-y-3">
         {items.map((it) => (

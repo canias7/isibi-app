@@ -8,7 +8,7 @@ export function SwitchRow({ label, description, checked, onChange, id, className
 }) {
   const rid = id ?? "sw-" + label.replace(/\W+/g, "-").toLowerCase();
   return (
-    <div className={cn("flex items-start justify-between gap-4 py-3", className)}>
+    <div data-slot="switch-row" className={cn("flex items-start justify-between gap-4 py-3", className)}>
       <div className="grid gap-0.5">
         <Label htmlFor={rid}>{label}</Label>
         {description && <span className="text-sm text-muted-foreground">{description}</span>}

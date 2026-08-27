@@ -34,7 +34,7 @@ export function SiteInduction({ name, site, state, inductedOn, expiresOn, missin
 }) {
   const ok = state === "valid";
   return (
-    <div className={cn("space-y-1 rounded-md border px-3 py-2 text-sm",
+    <div data-slot="site-induction" className={cn("space-y-1 rounded-md border px-3 py-2 text-sm",
       ok ? "border-border" : "border-foreground/40 bg-muted/40", className)}>
       <p>
         <span className="font-medium">{name}</span>

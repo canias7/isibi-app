@@ -21,7 +21,7 @@ export function ErrorReference({ code, note = "Quote this if you get in touch.",
 }) {
   if (!code) return null;
   return (
-    <div className={cn("flex flex-wrap items-center gap-2 text-xs text-muted-foreground", className)}>
+    <div data-slot="error-reference" className={cn("flex flex-wrap items-center gap-2 text-xs text-muted-foreground", className)}>
       <span>{note}</span>
       <code className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-foreground select-all">{code}</code>
       <CopyButton value={code} label="Copy error reference" iconOnly />

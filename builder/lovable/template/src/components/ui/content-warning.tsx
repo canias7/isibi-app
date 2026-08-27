@@ -27,7 +27,7 @@ export function ContentWarning({ category, why, children, className }: {
 }) {
   const [shown, setShown] = React.useState(false);
   return (
-    <div className={cn("relative", className)}>
+    <div data-slot="content-warning" className={cn("relative", className)}>
       <div className={shown ? "" : "invisible"} aria-hidden={!shown}>{children}</div>
       {shown ? (
         <button type="button" onClick={() => setShown(false)}

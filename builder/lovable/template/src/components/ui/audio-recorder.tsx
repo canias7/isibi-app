@@ -82,7 +82,7 @@ export function AudioRecorder({ onRecorded, maxSeconds = 120, className }: {
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="audio-recorder" className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-center gap-3">
         {state === "recording" ? (
           <button type="button" onClick={() => { try { rec.current?.stop(); } catch { /* already stopped */ } }}

@@ -27,7 +27,7 @@ export function RadiusSlider({ value, onChange, ladder = RADIUS_LADDER, unit = "
 }) {
   const idx = Math.max(0, ladder.findIndex((v) => v >= value));
   return (
-    <label className={cn("flex max-w-xs flex-col gap-1", className)}>
+    <label data-slot="radius-slider" className={cn("flex max-w-xs flex-col gap-1", className)}>
       <span className="text-sm">Within <b className="tabular-nums">{ladder[idx]} {unit}</b></span>
       <input
         type="range" min={0} max={ladder.length - 1} step={1} value={idx}

@@ -11,7 +11,7 @@ export function EmailVerifyBanner({ email, sent, onResend, busy, className }: {
   email?: string; sent?: boolean; onResend?: () => void; busy?: boolean; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2", className)}>
+    <div data-slot="email-verify-banner" className={cn("flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2", className)}>
       <p className="text-sm">
         {sent
           ? <>Confirmation sent{email ? <> to <strong className="font-medium">{email}</strong></> : null}. Check your inbox.</>

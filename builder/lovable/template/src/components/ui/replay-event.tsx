@@ -32,7 +32,7 @@ export function ReplayEvent({ eventId, delivered, capturedAt, onReplay, busy, cl
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="replay-event" className={cn("space-y-1.5", className)}>
       <p className="text-xs text-muted-foreground">
         Sends the original payload again
         {capturedAt && <span>, as captured {capturedAt}</span>} — not a fresh copy of the record.

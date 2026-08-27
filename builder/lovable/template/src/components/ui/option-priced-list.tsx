@@ -39,7 +39,7 @@ export function OptionPricedList({ options, selected, onChange, basePrice = 0, b
     : basePrice + options.filter((o) => chosen.has(o.key)).reduce((s, o) => s + o.delta, 0);
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="option-priced-list" className={cn("flex flex-col gap-2", className)}>
       <ul className="flex flex-col gap-1">
         {options.map((o) => {
           const on = chosen.has(o.key);

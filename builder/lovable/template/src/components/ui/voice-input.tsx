@@ -86,7 +86,7 @@ export function VoiceInput({ onTranscript, lang = "en-GB", className }: {
   if (!supported) return null;
 
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span data-slot="voice-input" className={cn("inline-flex items-center gap-2", className)}>
       <button
         type="button"
         onClick={() => (on ? rec.current?.stop() : start())}

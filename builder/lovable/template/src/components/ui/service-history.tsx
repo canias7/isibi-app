@@ -40,7 +40,7 @@ export function ServiceHistory({ entries, hoursNow, dueAtHours, dueOn, className
   const hoursLeft = hoursNow !== undefined && dueAtHours !== undefined ? dueAtHours - hoursNow : undefined;
   const lateCount = entries.filter((e) => e.late).length;
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="service-history" className={cn("space-y-1.5 text-sm", className)}>
       {(dueAtHours !== undefined || dueOn) && (
         <p className={cn("tabular-nums", hoursLeft !== undefined && hoursLeft <= 0 ? "font-medium" : "")}>
           {hoursLeft !== undefined && hoursLeft <= 0

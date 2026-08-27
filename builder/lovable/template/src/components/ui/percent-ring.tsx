@@ -35,7 +35,7 @@ export function PercentRing({ value, label, size = 64, thickness = 7, decimals, 
   const c = 2 * Math.PI * r;
 
   return (
-    <figure className={cn("flex flex-col items-center gap-1", className)}>
+    <figure data-slot="percent-ring" className={cn("flex flex-col items-center gap-1", className)}>
       <div role="img"
         aria-label={`${shown}${label && typeof label === "string" ? ` ${label}` : ""}${out ? ` — the raw value was ${value}, outside 0 to 100` : ""}`}
         className="relative" style={{ width: size, height: size }}>

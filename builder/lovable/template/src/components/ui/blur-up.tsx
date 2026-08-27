@@ -38,7 +38,7 @@ export function BlurUp({
   React.useEffect(() => { if (ref.current?.complete) setDone(true); }, []);
 
   return (
-    <div style={{ aspectRatio: `${width} / ${height}` }}
+    <div data-slot="blur-up" style={{ aspectRatio: `${width} / ${height}` }}
       className={cn("relative overflow-hidden bg-muted", className)}>
       {!done ? (
         <img src={placeholder} alt="" aria-hidden

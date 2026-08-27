@@ -28,7 +28,7 @@ export function SelectionLimit({ selected, max, atLimitNote = "Remove one to cho
   if (typeof max !== "number" || max <= 0) return null;
   const full = selected >= max;
   return (
-    <p role="status" className={cn("text-sm tabular-nums", full ? "font-medium" : "text-muted-foreground", className)}>
+    <p data-slot="selection-limit" role="status" className={cn("text-sm tabular-nums", full ? "font-medium" : "text-muted-foreground", className)}>
       {selected} of {max} chosen
       {full ? ` · ${atLimitNote}` : ""}
     </p>

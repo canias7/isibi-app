@@ -29,7 +29,7 @@ export function FilePreviewPane({ name, kind, size, thumbnail, href, className }
 }) {
   const visual = kind === "image" || kind === "pdf";
   return (
-    <figure className={cn("flex flex-col gap-2 rounded-md border border-border p-3", className)}>
+    <figure data-slot="file-preview-pane" className={cn("flex flex-col gap-2 rounded-md border border-border p-3", className)}>
       {visual && thumbnail ? (
         <SafeImage src={thumbnail} alt="" ratio="4/3" />
       ) : (

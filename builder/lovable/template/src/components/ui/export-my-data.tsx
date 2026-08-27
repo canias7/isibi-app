@@ -41,7 +41,7 @@ export function ExportMyData({ parts, formats = ["json", "csv"], onExport, busy,
   const [picked, setPicked] = useState<string[]>(available.map((p) => p.key));
   const [format, setFormat] = useState(formats[0] ?? "json");
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="export-my-data" className={cn("space-y-3", className)}>
       <fieldset className="space-y-1">
         <legend className="text-sm font-medium">What to include</legend>
         {parts.map((p) => (

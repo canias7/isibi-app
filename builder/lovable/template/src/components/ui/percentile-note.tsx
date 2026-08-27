@@ -26,7 +26,7 @@ export function PercentileNote({ percentile, comparison, sampleSize, minSample =
   const p = Math.round(Math.min(Math.max(percentile, 0), 100));
   const thin = typeof sampleSize === "number" && sampleSize < minSample;
   return (
-    <p className={cn("text-sm", className)}>
+    <p data-slot="percentile-note" className={cn("text-sm", className)}>
       <span className="font-medium tabular-nums">{comparison} {p}%</span>
       {typeof sampleSize === "number" && (
         <span className="text-muted-foreground">

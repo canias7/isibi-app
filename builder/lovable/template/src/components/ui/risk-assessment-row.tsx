@@ -35,7 +35,7 @@ export function RiskAssessmentRow({ risk, ifNothingDone, controls = [], personsV
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="risk-assessment-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="font-medium">{risk}</p>
       {ifNothingDone ? (
         <p className="text-xs">If it is prevented: {ifNothingDone}</p>

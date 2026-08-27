@@ -29,7 +29,7 @@ export function ResponseRate({ answered, asked, lowBelow = 20, className }: {
   if (!asked || asked <= 0) return null;
   const pct = Math.round((answered / asked) * 100);
   return (
-    <p className={cn("text-sm", className)}>
+    <p data-slot="response-rate" className={cn("text-sm", className)}>
       <span className="tabular-nums font-medium">{answered.toLocaleString()}</span>
       <span className="text-muted-foreground"> of </span>
       <span className="tabular-nums">{asked.toLocaleString()}</span>

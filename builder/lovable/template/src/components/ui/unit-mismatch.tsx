@@ -29,7 +29,7 @@ export function UnitMismatch({ entered, expected, suggestion, onUse, className }
   className?: string;
 }) {
   return (
-    <p role="status" className={cn("flex flex-wrap items-center gap-x-2 text-sm", className)}>
+    <p data-slot="unit-mismatch" role="status" className={cn("flex flex-wrap items-center gap-x-2 text-sm", className)}>
       <span>
         <span className="font-medium">{entered}</span>
         <span className="text-muted-foreground"> — everything else here is in {expected}.</span>

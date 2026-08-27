@@ -35,7 +35,7 @@ export function PreferenceWeights({ preferences, onMoveUp, onMoveDown, onToggleM
     null,
   );
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="preference-weights" className={cn("space-y-1.5", className)}>
       <p className="text-xs text-muted-foreground">
         Most important at the top. We ask you to order them rather than set sliders, because everybody sets every slider to maximum.
       </p>

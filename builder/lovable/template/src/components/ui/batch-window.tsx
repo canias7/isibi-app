@@ -30,7 +30,7 @@ export function BatchWindow({ at, inWords, count, noun = "messages", sent, onCan
   className?: string;
 }) {
   return (
-    <p className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-sm", className)}>
+    <p data-slot="batch-window" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-sm", className)}>
       <span>
         {sent ? (
           <><span className="font-medium">Sent at {at}</span></>

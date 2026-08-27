@@ -33,7 +33,7 @@ export function ReorderPoint({ onHand, perDay, leadDays, minimum, unit = "units"
   const belowMin = minimum !== undefined && onHand <= minimum;
   const act = late || belowMin;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="reorder-point" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium tabular-nums">{onHand.toLocaleString()}</span>
         <span className="text-muted-foreground"> {unit} on hand</span>

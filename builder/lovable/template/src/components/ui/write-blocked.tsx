@@ -26,7 +26,7 @@ export function WriteBlocked({ reason, until, onRetry, className }: {
   className?: string;
 }) {
   return (
-    <div role="alert"
+    <div data-slot="write-blocked" role="alert"
       className={cn("flex flex-col gap-2 rounded-md border border-border bg-muted/40 p-4", className)}>
       <p className="text-sm font-medium">Changes can&apos;t be saved right now</p>
       <p className="text-sm text-muted-foreground">

@@ -35,7 +35,7 @@ export function CurrencyAmount({ minor, currency = "GBP", zeroAs, parentheses, c
   className?: string;
 }) {
   if (minor === 0 && zeroAs === "free") {
-    return <span className={cn("font-medium", className)}>Free</span>;
+    return <span data-slot="currency-amount" className={cn("font-medium", className)}>Free</span>;
   }
   // Shared with the eighteen other components that display minor units, so the
   // exponent is worked out in ONE place rather than nineteen.

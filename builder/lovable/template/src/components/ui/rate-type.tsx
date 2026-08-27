@@ -45,7 +45,7 @@ export function RateType({ kind, ratePercent, fixedUntil, revertRatePercent, rev
     revertPayment !== undefined && currentPayment !== undefined ? revertPayment - currentPayment : undefined;
   const certain = kind === "fixed" || kind === "capped";
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="rate-type" className={cn("space-y-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="text-lg font-medium">{ratePercent}%</span>
         <span className="text-muted-foreground"> · {kind}</span>

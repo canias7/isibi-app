@@ -24,7 +24,7 @@ export function SettleUp({ payments, currency = "GBP", onMark, settledNote = "Ev
   className?: string;
 }) {
   if (!payments.length) {
-    return <p className={cn("text-sm font-medium", className)}>{settledNote}</p>;
+    return <p data-slot="settle-up" className={cn("text-sm font-medium", className)}>{settledNote}</p>;
   }
   return (
     <ul className={cn("flex flex-col gap-1 text-sm", className)}>

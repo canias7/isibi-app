@@ -27,7 +27,7 @@ export type OrderStep = {
 export function OrderTimeline({ steps, className }: { steps: OrderStep[]; className?: string }) {
   const latest = [...steps].reverse().find((s) => s.state === "done" || s.state === "current" || s.state === "failed");
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="order-timeline" className={cn("flex flex-col gap-2", className)}>
       {latest ? (
         <p className="text-sm font-semibold">
           {latest.label}

@@ -14,7 +14,7 @@ export function IdBadge({ id, head = 6, tail = 0, label = "Copy id", className }
     ? id
     : tail > 0 ? `${id.slice(0, head)}…${id.slice(-tail)}` : `${id.slice(0, head)}…`;
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 font-mono text-xs", className)}>
+    <span data-slot="id-badge" className={cn("inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 font-mono text-xs", className)}>
       <span title={id}>{short}</span>
       <CopyButton value={id} label={label} iconOnly />
     </span>

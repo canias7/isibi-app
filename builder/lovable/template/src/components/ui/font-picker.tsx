@@ -75,7 +75,7 @@ export function FontPicker({ value, onChange, families = BUNDLED_FONTS, sample =
   const move = (i: number) => { setActive(i); refs.current[i]?.focus(); };
 
   return (
-    <ul className={cn("max-h-72 overflow-y-auto rounded-md border border-border", className)}
+    <ul data-slot="font-picker" className={cn("max-h-72 overflow-y-auto rounded-md border border-border", className)}
       role="listbox" aria-label="Typeface"
       onKeyDown={(e) => {
         if (e.key === "ArrowDown") { e.preventDefault(); move(at === last ? 0 : at + 1); }

@@ -42,7 +42,7 @@ export function FilterPreset<T>({ storageKey, current, countOf, onApply, classNa
 
   const exists = presets.some((p) => p.name === name.trim());
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+    <div data-slot="filter-preset" className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {presets.map((p) => (
         <span key={p.name} className="inline-flex items-center overflow-hidden rounded-full border border-border text-xs">
           <button type="button" onClick={() => onApply(p.filters)}

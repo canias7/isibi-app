@@ -42,7 +42,7 @@ export function LazySection({ children, minHeight = 200, rootMargin = "300px", c
     return () => io.disconnect();
   }, [shown, rootMargin]);
   return (
-    <div ref={ref} className={className} style={shown ? undefined : { minHeight }}>
+    <div data-slot="lazy-section" ref={ref} className={className} style={shown ? undefined : { minHeight }}>
       {shown ? children() : null}
     </div>
   );

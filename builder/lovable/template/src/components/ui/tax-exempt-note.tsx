@@ -32,7 +32,7 @@ export function TaxExemptNote({ reason, reference, expiresAt, expired, taxLabel 
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-xs", className)}>
+    <div data-slot="tax-exempt-note" className={cn("space-y-0.5 text-xs", className)}>
       <p>
         <span className="text-foreground">No {taxLabel} charged</span>
         <span className="text-muted-foreground"> — {reason}</span>

@@ -29,7 +29,7 @@ export function GiftMessage({ message, from, onChange, maxLines = 6, perLine = 3
   const longOnes = lines.map((l, i) => ({ i, over: l.length > perLine })).filter((x) => x.over);
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="gift-message" className={cn("flex flex-col gap-2", className)}>
       <label className="flex flex-col gap-1 text-sm">
         Message
         <textarea value={message} rows={4}

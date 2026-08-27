@@ -16,7 +16,7 @@ export function StatsBand({ items, columns, className }: {
 }) {
   const across = Math.min(columns ?? items.length, 4);
   return (
-    <div className={cn("grid gap-px overflow-hidden rounded-xl border bg-border", className)}
+    <div data-slot="stats-band" className={cn("grid gap-px overflow-hidden rounded-xl border bg-border", className)}
       style={{ gridTemplateColumns: `repeat(${across}, minmax(0, 1fr))` }}>
       {items.map((s, i) => (
         <div key={i} className="flex min-w-0 flex-col gap-1 bg-card p-6">

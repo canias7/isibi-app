@@ -40,7 +40,7 @@ export function AlarmState({ mode, area, blockingZones = [], faultNote, lastSetB
 }) {
   const urgent = mode === "alarm";
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="alarm-state" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn(urgent && "font-medium")}>
         {WORDS[mode]}
         {area && <span className="text-muted-foreground"> · {area}</span>}

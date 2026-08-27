@@ -27,7 +27,7 @@ export function PictureInPicture({ videoRef, className }: {
   }, []);
   if (!supported) return null;
   return (
-    <button type="button" aria-label="Pop out into a floating window"
+    <button data-slot="picture-in-picture" type="button" aria-label="Pop out into a floating window"
       onClick={async () => {
         const el = videoRef.current;
         if (!el) return;

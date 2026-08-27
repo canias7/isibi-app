@@ -18,7 +18,7 @@ export function BlockMenu({ onMoveUp, onMoveDown, onDuplicate, onDelete, dragPro
   dragProps?: React.HTMLAttributes<HTMLButtonElement>; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100", className)}>
+    <div data-slot="block-menu" className={cn("flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100", className)}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button type="button" size="icon-sm" variant="ghost" aria-label="Block options" {...dragProps}>

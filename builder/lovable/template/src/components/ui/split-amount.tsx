@@ -40,7 +40,7 @@ export function SplitAmount({ totalMinor, people, currency = "GBP", className }:
   const parts = splitMinor(totalMinor, people.length);
   const uneven = new Set(parts).size > 1;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="split-amount" className={cn("flex flex-col gap-1", className)}>
       <ul className="divide-y divide-border rounded-md border border-border">
         {people.map((p, i) => (
           <li key={p} className="flex items-baseline justify-between gap-3 px-2.5 py-1.5 text-sm">

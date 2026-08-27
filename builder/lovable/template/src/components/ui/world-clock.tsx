@@ -37,7 +37,7 @@ export function WorldClock({ zones, className }: {
   const here = fmt();
 
   return (
-    <ul className={cn("divide-y divide-border rounded-lg border border-border", className)}>
+    <ul data-slot="world-clock" className={cn("divide-y divide-border rounded-lg border border-border", className)}>
       <li className="flex items-baseline justify-between gap-3 px-3 py-1.5">
         <span className="text-sm font-medium">Here <span className="text-xs text-muted-foreground">· you</span></span>
         <span className="text-sm font-medium tabular-nums">{here?.time}</span>

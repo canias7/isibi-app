@@ -23,7 +23,7 @@ export function CartBadge({ count, href = "#", cap = 99, className }: {
   className?: string;
 }) {
   return (
-    <a href={href} aria-label={`Basket, ${count} item${count === 1 ? "" : "s"}`}
+    <a data-slot="cart-badge" href={href} aria-label={`Basket, ${count} item${count === 1 ? "" : "s"}`}
       className={cn("relative inline-flex cursor-pointer items-center p-1.5", className)}>
       <ShoppingBag className="size-5" aria-hidden />
       {count > 0 ? (

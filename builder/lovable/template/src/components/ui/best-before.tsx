@@ -33,7 +33,7 @@ export function BestBefore({ kind, date, daysLeft, openedOn, daysAfterOpening, c
   const past = daysLeft !== undefined && daysLeft < 0;
   const safety = kind === "use by";
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="best-before" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn("tabular-nums", past && safety ? "font-medium" : "")}>
         <span className="font-medium">
           {kind === "use by" ? "Use by" : "Best before"} {date}

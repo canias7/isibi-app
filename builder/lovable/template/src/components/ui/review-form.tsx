@@ -10,7 +10,7 @@ export function ReviewForm({ onSubmit, busy, className }: {
   const [rating, setRating] = React.useState(0);
   const [body, setBody] = React.useState("");
   return (
-    <form className={className} onSubmit={(e) => { e.preventDefault(); if (rating) onSubmit({ rating, body }); }}>
+    <form data-slot="review-form" className={className} onSubmit={(e) => { e.preventDefault(); if (rating) onSubmit({ rating, body }); }}>
       <div className="flex flex-col gap-4">
         <FormRow label="Your rating" required><RatingInput value={rating} onChange={setRating} /></FormRow>
         <FormRow label="Anything to add?">

@@ -21,7 +21,7 @@ export function SourceAttribution({ source, at, href, className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="source-attribution" className={cn("text-xs text-muted-foreground", className)}>
       {href ? <a href={href} className="underline underline-offset-2">{source}</a> : source}
       {at ? ` · ${at}` : ""}
     </p>

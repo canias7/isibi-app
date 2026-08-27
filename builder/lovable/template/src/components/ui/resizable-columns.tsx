@@ -49,7 +49,7 @@ export function ResizableColumns({ columns, widths, onWidths, min = 0.2, classNa
   };
 
   return (
-    <div
+    <div data-slot="resizable-columns"
       ref={wrap}
       // A runtime width has to go through a custom property; a class name built
       // at runtime is never emitted by the scanner.

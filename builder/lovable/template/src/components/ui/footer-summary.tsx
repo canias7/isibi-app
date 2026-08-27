@@ -19,7 +19,7 @@ export function FooterSummary({ cells, scope, sticky, className }: {
   className?: string;
 }) {
   return (
-    <tfoot className={cn("border-t-2 border-border bg-muted/50 text-sm font-semibold",
+    <tfoot data-slot="footer-summary" className={cn("border-t-2 border-border bg-muted/50 text-sm font-semibold",
       sticky && "sticky bottom-0", className)}>
       <tr>
         {cells.map((c) => (

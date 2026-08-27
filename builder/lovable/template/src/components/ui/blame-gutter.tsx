@@ -24,7 +24,7 @@ export function BlameGutter({ lines, startLine = 1, className }: {
 }) {
   if (!lines.length) return null;
   return (
-    <ol className={cn("overflow-x-auto rounded-md border border-border font-mono text-xs", className)}>
+    <ol data-slot="blame-gutter" className={cn("overflow-x-auto rounded-md border border-border font-mono text-xs", className)}>
       {lines.map((l, i) => {
         const same = i > 0 && lines[i - 1].by === l.by;
         return (

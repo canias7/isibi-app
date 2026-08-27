@@ -35,7 +35,7 @@ export function SafeguardingNote({ observed, whenSeen, theirWords, concern, rais
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="safeguarding-note" className={cn("space-y-1 text-sm", className)}>
       {!notified && (
         <p className="font-medium">Nobody has been told about this yet.</p>
       )}

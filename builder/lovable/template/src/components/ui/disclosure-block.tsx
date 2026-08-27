@@ -27,7 +27,7 @@ export function DisclosureBlock({ kind, children, source, className }: {
   className?: string;
 }) {
   return (
-    <aside className={cn("border-s-2 border-foreground ps-3 text-sm", className)}>
+    <aside data-slot="disclosure-block" className={cn("border-s-2 border-foreground ps-3 text-sm", className)}>
       <p className="text-xs font-medium uppercase tracking-wide">{kind}</p>
       <div className="mt-0.5">{children}</div>
       {source && <p className="mt-0.5 text-xs text-muted-foreground">Required by {source}.</p>}

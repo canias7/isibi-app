@@ -43,7 +43,7 @@ export function CollapsiblePanel({ title, children, defaultOpen = true, storageK
     });
   };
   return (
-    <section className={cn("rounded-md border border-border", className)}>
+    <section data-slot="collapsible-panel" className={cn("rounded-md border border-border", className)}>
       <Tag className="m-0">
         <button type="button" aria-expanded={open} aria-controls={id} onClick={toggle}
           className="flex w-full cursor-pointer items-center gap-2 p-3 text-start text-sm font-medium">

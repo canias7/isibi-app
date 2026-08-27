@@ -34,7 +34,7 @@ export function VehicleCheck({ vehicle, by, at, defects = [], openFromBefore = [
 }) {
   const stoppers = [...defects, ...openFromBefore].filter((d) => d.stops);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="vehicle-check" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         <span className="font-medium">{vehicle}</span>
         <span className="block text-xs text-muted-foreground">

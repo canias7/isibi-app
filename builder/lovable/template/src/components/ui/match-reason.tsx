@@ -25,7 +25,7 @@ export function MatchReason({ reasons, className }: { reasons: Reason[]; classNa
   const mismatches = reasons.filter((r) => r.kind === "mismatch");
   const brokenRequirements = mismatches.filter((r) => r.requirement);
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="match-reason" className={cn("space-y-1", className)}>
       {matches.length > 0 && (
         <div className="space-y-0.5">
           <p className="text-xs font-medium">What lines up</p>

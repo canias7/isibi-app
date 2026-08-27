@@ -36,7 +36,7 @@ export function ApplicantRow({ name, reference, stage, appliedOn, daysSinceConta
 }) {
   const stale = daysSinceContact !== undefined && daysSinceContact >= 7;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="applicant-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">
           {anonymised

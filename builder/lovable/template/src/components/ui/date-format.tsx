@@ -16,5 +16,5 @@ export function DateFormat({ date, style = "medium", withTime, className }: {
     : style === "long" ? { weekday: "long", day: "numeric", month: "long", year: "numeric" }
     : { day: "numeric", month: "short", year: "numeric" };
   if (withTime) { opts.hour = "2-digit"; opts.minute = "2-digit"; }
-  return <time dateTime={d.toISOString()} className={className}>{d.toLocaleString(undefined, opts)}</time>;
+  return <time data-slot="date-format" dateTime={d.toISOString()} className={className}>{d.toLocaleString(undefined, opts)}</time>;
 }

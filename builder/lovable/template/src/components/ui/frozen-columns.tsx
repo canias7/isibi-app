@@ -43,7 +43,7 @@ export function FrozenColumns<T>({
     i === n - 1 && scrolled && "shadow-[2px_0_4px_-1px_rgba(0,0,0,0.15)]");
 
   return (
-    <div
+    <div data-slot="frozen-columns"
       ref={ref}
       onScroll={() => setScrolled((ref.current?.scrollLeft ?? 0) > 0)}
       className={cn("overflow-x-auto rounded-md border border-border", className)}

@@ -38,7 +38,7 @@ export function SampleRow({ id, subject, type, collectedAt, volumeLeft, volumeUn
   const low = volumeLeft !== undefined && volumeLeft < 100;
   const thawed = freezeThaws !== undefined && freezeThaws >= 3;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="sample-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">
           <code className="font-mono text-xs">{id}</code>

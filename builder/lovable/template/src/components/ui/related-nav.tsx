@@ -27,7 +27,7 @@ export function RelatedNav({ items, title = "Related", max = 4, className }: {
   const id = React.useId();
   if (items.length === 0) return null;
   return (
-    <section aria-labelledby={id} className={cn("flex flex-col gap-2", className)}>
+    <section data-slot="related-nav" aria-labelledby={id} className={cn("flex flex-col gap-2", className)}>
       <h2 id={id} className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{title}</h2>
       <ul className="grid gap-2 sm:grid-cols-2">
         {items.slice(0, max).map((i) => (

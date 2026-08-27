@@ -38,7 +38,7 @@ export function ProviderStatus({ provider, state, summary, statusUrl, queueing, 
     maintenance: `${provider} is doing planned maintenance`,
   }[state];
   return (
-    <div role="status"
+    <div data-slot="provider-status" role="status"
       className={cn("space-y-0.5 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm", className)}>
       <p>
         <span className="font-medium">{WORD}</span>

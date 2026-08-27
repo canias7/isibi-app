@@ -7,7 +7,7 @@ export function AddToCart({ quantity, onQuantity, onAdd, busy, soldOut, classNam
   busy?: boolean; soldOut?: boolean; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div data-slot="add-to-cart" className={cn("flex items-center gap-2", className)}>
       <QuantityInput value={quantity} onChange={onQuantity} />
       <BusyButton busy={busy} busyLabel="Adding…" disabled={soldOut} onClick={onAdd} className="flex-1">
         {soldOut ? "Sold out" : "Add to basket"}

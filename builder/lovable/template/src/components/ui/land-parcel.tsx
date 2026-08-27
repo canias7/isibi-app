@@ -35,7 +35,7 @@ export function LandParcel({ code, name, area, eligibleArea, unit = "ha", crop, 
 }) {
   const excluded = eligibleArea !== undefined ? area - eligibleArea : null;
   return (
-    <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
+    <li data-slot="land-parcel" className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
       <span className="min-w-0 flex-1">
         <span className="block">
           {name ?? code}

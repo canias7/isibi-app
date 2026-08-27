@@ -31,7 +31,7 @@ export function EventFilter({ children, matched, sampleSize, className }: {
     ? Math.round((matched / sampleSize) * 100)
     : null;
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="event-filter" className={cn("space-y-2", className)}>
       <div className="space-y-1.5">{children}</div>
       {matched !== undefined && sampleSize !== undefined && (
         <p className="text-sm">

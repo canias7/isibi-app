@@ -31,7 +31,7 @@ export function AssessorVisit({ name, company, actingFor = "the insurer", when, 
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="assessor-visit" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{name ?? "An assessor"}{company ? `, ${company}` : ""}</span>
         {when && <span className="block">{when}</span>}

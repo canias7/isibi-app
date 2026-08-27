@@ -24,7 +24,7 @@ export function FileDrop({
   const [over, setOver] = React.useState(false);
   const take = (fl: FileList | null) => { const f = fl && fl[0]; if (f) onFile(f); };
   return (
-    <div
+    <div data-slot="file-drop"
       onDragOver={(e) => { e.preventDefault(); setOver(true); }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => { e.preventDefault(); setOver(false); take(e.dataTransfer.files); }}

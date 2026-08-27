@@ -23,7 +23,7 @@ export function WatermarkNote({ why, removeBy, action, className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
+    <p data-slot="watermark-note" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
       <span><span className="font-medium text-foreground">Marked copy</span> — {why}.</span>
       {removeBy && <span>Removed by {removeBy}.</span>}
       {action && (

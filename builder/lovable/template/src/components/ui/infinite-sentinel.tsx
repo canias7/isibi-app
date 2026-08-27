@@ -45,7 +45,7 @@ export function InfiniteSentinel({ onLoadMore, hasMore, loading, rootMargin = "2
   }, [hasMore, loading, rootMargin]);
   if (!hasMore) return null;
   return (
-    <div ref={ref} className={cn("flex justify-center py-4", className)}>
+    <div data-slot="infinite-sentinel" ref={ref} className={cn("flex justify-center py-4", className)}>
       {loading ? (
         <span role="status" className="text-sm text-muted-foreground">{loadingLabel}</span>
       ) : (

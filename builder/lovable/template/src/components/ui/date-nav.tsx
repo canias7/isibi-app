@@ -13,7 +13,7 @@ export function DateNav({ label, onPrev, onNext, onToday, unit = "day", classNam
   unit?: "day" | "week" | "month"; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div data-slot="date-nav" className={cn("flex items-center gap-2", className)}>
       <Button size="icon-sm" variant="outline" onClick={onPrev} aria-label={`Previous ${unit}`}>
         <ChevronLeft className="size-4" />
       </Button>

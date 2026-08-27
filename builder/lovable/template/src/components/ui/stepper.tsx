@@ -10,7 +10,7 @@ export function Stepper({ steps, current, className }: {
   steps: string[]; current: number; className?: string;
 }) {
   return (
-    <ol className={cn("flex items-center gap-2", className)}
+    <ol data-slot="stepper" className={cn("flex items-center gap-2", className)}
       aria-label={`Step ${current + 1} of ${steps.length}`}>
       {steps.map((s, i) => {
         const done = i < current, now = i === current;

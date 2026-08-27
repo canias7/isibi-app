@@ -50,7 +50,7 @@ export function NumericFilter({ label, op, value, value2, onChange, unit, id, cl
   const spec = OPS.find((o) => o.id === op) ?? OPS[0];
   const num = (s: string) => (s === "" ? null : Number(s));
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="numeric-filter" className={cn("space-y-1", className)}>
       <label htmlFor={`${base}-op`} className="block text-sm font-medium">{label}</label>
       <div className="flex flex-wrap items-center gap-1.5">
         <NativeSelect id={`${base}-op`} value={op} className="h-9 w-auto text-sm"

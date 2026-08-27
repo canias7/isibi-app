@@ -23,7 +23,7 @@ export function SamplePreview({ headers, rows, total, className }: {
 }) {
   if (!headers.length) return null;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="sample-preview" className={cn("flex flex-col gap-1", className)}>
       <p className="text-xs text-muted-foreground tabular-nums">
         Showing {rows.length}{typeof total === "number" ? ` of ${total.toLocaleString()}` : ""} rows
       </p>

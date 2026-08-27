@@ -19,7 +19,7 @@ export function TreeItem({ label, depth = 0, expanded, hasChildren, selected, ic
   onToggle?: () => void; onSelect?: () => void; className?: string;
 }) {
   return (
-    <div role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? !!expanded : undefined}
+    <div data-slot="tree-item" role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? !!expanded : undefined}
       aria-selected={selected}
       className={cn("flex items-center gap-1 rounded", selected ? "bg-muted" : "hover:bg-muted/60", className)}
       style={{ paddingLeft: depth * 16 }}>

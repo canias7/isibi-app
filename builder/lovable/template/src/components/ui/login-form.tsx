@@ -19,7 +19,7 @@ export function LoginForm({ onSubmit, busy, error, forgotHref, signupHref, class
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   return (
-    <form className={className} onSubmit={(e) => { e.preventDefault(); onSubmit({ email, password }); }}>
+    <form data-slot="login-form" className={className} onSubmit={(e) => { e.preventDefault(); onSubmit({ email, password }); }}>
       <div className="flex flex-col gap-4">
         {error && <InlineAlert tone="error">{error}</InlineAlert>}
         <FormRow label="Email"><EmailInput id="li-email" value={email} onChange={setEmail} /></FormRow>

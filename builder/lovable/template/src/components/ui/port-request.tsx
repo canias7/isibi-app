@@ -34,7 +34,7 @@ export function PortRequest({ number, fromProvider, code, codeExpiresOn, schedul
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   if (state === "done") {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="port-request" className={cn("space-y-0.5 text-sm", className)}>
         <p className="font-medium tabular-nums">{number} has moved across.</p>
         <p className="text-xs text-muted-foreground">You can close the old account now, and not before.</p>
       </div>

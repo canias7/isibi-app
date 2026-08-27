@@ -26,7 +26,7 @@ export function ActionHistory({ entries, empty = "Nothing has happened yet.", cl
   className?: string;
 }) {
   if (!entries.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
+    return <p data-slot="action-history" className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
   }
   return (
     <ol className={cn("flex flex-col", className)}>

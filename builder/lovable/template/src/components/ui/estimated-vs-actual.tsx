@@ -39,7 +39,7 @@ export function EstimatedVsActual({ periodLabel, estimatedUnits, actualUnits, un
     ? new Intl.NumberFormat(locale, { style: "currency", currency }).format(Math.abs(amount))
     : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="estimated-vs-actual" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn(diff !== 0 && "font-medium")}>
         {diff === 0
           ? "The estimates were right — nothing to correct."

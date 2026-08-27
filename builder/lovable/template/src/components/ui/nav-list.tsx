@@ -5,7 +5,7 @@ export function NavList({ items, active, className }: {
   active?: string; className?: string;
 }) {
   return (
-    <nav className={cn("flex flex-col gap-0.5", className)}>
+    <nav data-slot="nav-list" className={cn("flex flex-col gap-0.5", className)}>
       {items.map((l) => {
         const on = active === l.href;
         return (

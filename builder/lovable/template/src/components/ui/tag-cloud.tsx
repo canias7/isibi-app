@@ -32,7 +32,7 @@ export function TagCloud({ tags, selected = [], onToggle, className }: {
   const max = Math.max(...tags.map((t) => t.count), 1);
   const sorted = [...tags].sort((a, b) => a.label.localeCompare(b.label));
   return (
-    <ul className={cn("flex flex-wrap items-baseline gap-x-2 gap-y-1.5", className)}>
+    <ul data-slot="tag-cloud" className={cn("flex flex-wrap items-baseline gap-x-2 gap-y-1.5", className)}>
       {sorted.map((t) => {
         const step = Math.min(STEPS.length - 1, Math.floor((t.count / max) * STEPS.length));
         const on = selected.includes(t.id);

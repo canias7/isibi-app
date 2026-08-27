@@ -36,7 +36,7 @@ export function KeyRelease({ conditions, heldBy, sets, othersWithKeys = [], rele
   const outstanding = conditions.filter((c) => !c.met);
   if (releasedOn) {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="key-release" className={cn("space-y-0.5 text-sm", className)}>
         <p className="font-medium">Keys handed to {releasedTo ?? "the buyer"} on {releasedOn}.</p>
         {othersWithKeys.length > 0 && (
           <p className="text-xs">Still held by {AND.format(othersWithKeys)}.</p>

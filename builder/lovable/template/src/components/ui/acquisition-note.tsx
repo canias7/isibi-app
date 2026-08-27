@@ -44,7 +44,7 @@ export function AcquisitionNote({ object, method, from, on, paid, valuation, che
   const money = (v: number) => new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 }).format(v);
   const undone = checks.filter((c) => !c.done);
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="acquisition-note" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{method}</span>
         {from && <span className="text-muted-foreground"> from {from}</span>}

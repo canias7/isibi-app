@@ -32,7 +32,7 @@ export function IdentitySummary({ name, since, confirmed = [], unconfirmed = [],
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="identity-summary" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         <span className="font-medium">{name}</span>
         {since && <span className="block text-xs text-muted-foreground">Member since {since}</span>}

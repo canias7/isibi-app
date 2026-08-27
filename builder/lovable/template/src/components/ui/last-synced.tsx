@@ -22,7 +22,7 @@ export function LastSynced({ at, syncing, onSyncNow, className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground", className)}>
+    <p data-slot="last-synced" className={cn("flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground", className)}>
       {syncing ? (
         <span role="status">Syncing…</span>
       ) : at ? (

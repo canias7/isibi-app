@@ -57,7 +57,7 @@ export function ShortcutRow({ label, keys, defaultKeys, conflictsWith, onChange,
   const isDefault = !defaultKeys || JSON.stringify(keys) === JSON.stringify(defaultKeys);
 
   return (
-    <div className={cn("flex items-center justify-between gap-4 px-3.5 py-2.5", className)}>
+    <div data-slot="shortcut-row" className={cn("flex items-center justify-between gap-4 px-3.5 py-2.5", className)}>
       <span className="text-sm font-medium">{label}</span>
       <span className="flex items-center gap-2">
         {!isDefault ? (

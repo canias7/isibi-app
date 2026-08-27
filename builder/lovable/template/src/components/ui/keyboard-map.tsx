@@ -27,7 +27,7 @@ export function KeyboardMap({ bindings, summary = "Works with a keyboard", class
 }) {
   const [open, setOpen] = React.useState(false);
   return (
-    <div className={cn("text-xs", className)}>
+    <div data-slot="keyboard-map" className={cn("text-xs", className)}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="cursor-pointer text-muted-foreground underline underline-offset-2 hover:text-foreground">
         {summary}{open ? " —" : "…"}

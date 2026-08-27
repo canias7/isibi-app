@@ -29,7 +29,7 @@ export function CrossWorkspaceNote({ owner, can, contact, className }: {
   className?: string;
 }) {
   return (
-    <p role="note" className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="cross-workspace-note" role="note" className={cn("text-xs text-muted-foreground", className)}>
       This belongs to <span className="text-foreground">{owner}</span>.{" "}
       {can ?? "You can see it and refer to it here; changes have to be made there."}
       {contact && <span> Ask {contact} if it needs changing.</span>}

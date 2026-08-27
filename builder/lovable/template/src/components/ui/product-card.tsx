@@ -12,7 +12,7 @@ export function ProductCard({ product, currency = "£", onAdd, href, className }
 }) {
   const money = (v: number | string) => (typeof v === "number" ? currency + v.toFixed(2) : v);
   return (
-    <div className={cn("group flex flex-col gap-3", className)}>
+    <div data-slot="product-card" className={cn("group flex flex-col gap-3", className)}>
       <a href={href} className="relative block">
         <SafeImage src={product.image} alt={product.name} ratio="1/1" fallbackSeed={product.fallbackSeed ?? product.name} />
         {product.soldOut && <Badge variant="secondary" className="absolute start-2 top-2">Sold out</Badge>}

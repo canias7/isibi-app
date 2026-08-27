@@ -41,7 +41,7 @@ export function ChapterList({ chapters, at = 0, total, onSeek, className }: {
   };
 
   return (
-    <nav aria-label="Chapters" className={className}>
+    <nav data-slot="chapter-list" aria-label="Chapters" className={className}>
       <ol className="flex flex-col divide-y divide-border rounded-md border border-border">
         {sorted.map((c, i) => (
           <li key={c.start}>

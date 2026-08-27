@@ -51,7 +51,7 @@ export function CalculatorCard({
   if (!fields.length) return null;
 
   return (
-    <section className={cn("flex flex-col gap-5 rounded-md border border-border p-6", className)}>
+    <section data-slot="calculator-card" className={cn("flex flex-col gap-5 rounded-md border border-border p-6", className)}>
       {title && <h2 className="text-lg font-semibold tracking-tight">{title}</h2>}
       <div className="flex flex-col gap-4">
         {fields.map((f) => {

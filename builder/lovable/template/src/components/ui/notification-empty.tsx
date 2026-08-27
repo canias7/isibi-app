@@ -50,7 +50,7 @@ export function NotificationEmpty({ reason = "caught-up", filterLabel, onClearFi
   }[reason];
 
   return (
-    <div role="status" className={cn("flex flex-col items-center gap-2 py-10 text-center", className)}>
+    <div data-slot="notification-empty" role="status" className={cn("flex flex-col items-center gap-2 py-10 text-center", className)}>
       {content.icon}
       <p className="text-sm font-medium">{content.title}</p>
       <p className="max-w-xs text-xs text-muted-foreground">{content.body}</p>

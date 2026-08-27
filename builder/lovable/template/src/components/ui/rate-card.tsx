@@ -72,7 +72,7 @@ export function RateCard({
   const best = blocks && winners.length === 1 ? winners[0] : null;
   const cols = bands ?? [];
   return (
-    <div className={cn("overflow-x-auto", className)}>
+    <div data-slot="rate-card" className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
         {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
         <thead>

@@ -36,7 +36,7 @@ export function RuleSummary({ trigger, conditions = [], actions, join = "and", c
     xs.length === 0 ? "" :
     xs.length === 1 ? xs[0] : `${xs.slice(0, -1).join(", ")} ${word} ${xs[xs.length - 1]}`;
   return (
-    <p className={cn("text-sm", className)}>
+    <p data-slot="rule-summary" className={cn("text-sm", className)}>
       <span className="text-muted-foreground">When </span>
       <span className="font-medium">{trigger}</span>
       {conditions.length > 0 ? (

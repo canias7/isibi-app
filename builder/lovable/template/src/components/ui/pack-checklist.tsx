@@ -26,7 +26,7 @@ export function PackChecklist({ lines, packed, onPack, onComplete, className }: 
   const short = lines.filter((l) => (packed[l.key] ?? 0) < l.qty);
   const over = lines.filter((l) => (packed[l.key] ?? 0) > l.qty);
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="pack-checklist" className={cn("flex flex-col gap-2", className)}>
       <ul className="flex flex-col gap-1">
         {lines.map((l) => {
           const n = packed[l.key] ?? 0;

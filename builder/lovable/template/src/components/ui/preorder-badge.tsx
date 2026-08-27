@@ -17,7 +17,7 @@ export function PreorderBadge({ shipsOn, chargeNow = false, className }: {
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex flex-col gap-0.5", className)}>
+    <span data-slot="preorder-badge" className={cn("inline-flex flex-col gap-0.5", className)}>
       <span className="inline-flex w-fit items-center rounded-full border border-dashed border-foreground px-2 py-0.5 text-[11px] font-medium">
         Pre-order · ships {shipsOn}
       </span>

@@ -30,7 +30,7 @@ export function StepValidation({ problems, className }: {
   const blocking = problems.filter((p) => !p.warning);
   const warnings = problems.filter((p) => p.warning);
   return (
-    <div tabIndex={-1} role="alert"
+    <div data-slot="step-validation" tabIndex={-1} role="alert"
       className={cn("space-y-2 rounded-md border border-foreground/40 bg-muted/40 px-3 py-2 text-sm", className)}>
       {blocking.length > 0 && (
         <div>

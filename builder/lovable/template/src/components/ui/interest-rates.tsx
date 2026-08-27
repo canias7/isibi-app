@@ -45,7 +45,7 @@ export function InterestRates({ rates, caption, className }: {
 }) {
   if (!rates.length) return null;
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="interest-rates" className={cn("space-y-3", className)}>
       <ul className="divide-y divide-border border-y border-border">
         {rates.map((r) => (
           <li key={r.name} className="py-4">

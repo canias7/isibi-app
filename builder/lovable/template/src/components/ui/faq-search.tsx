@@ -18,7 +18,7 @@ export function FaqSearch({ items, placeholder = "Search questions…", classNam
     ? items.filter((x) => (x.question + " " + x.answer).toLowerCase().includes(needle))
     : items;
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="faq-search" className={cn("flex flex-col gap-3", className)}>
       <SearchInput value={q} onChange={setQ} placeholder={placeholder} />
       {needle && <ResultCount total={shown.length} noun="question" filtered />}
       <Faq items={shown} />

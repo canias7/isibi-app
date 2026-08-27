@@ -16,7 +16,7 @@ export function BillingSummary({ plan, amount, currency, interval = "month", ren
   onChange?: () => void; onCancel?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("rounded-lg border border-border p-4", className)}>
+    <div data-slot="billing-summary" className={cn("rounded-lg border border-border p-4", className)}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">

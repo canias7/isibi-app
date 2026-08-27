@@ -33,7 +33,7 @@ export function TradeOffBar({ steps, value, onChange, leftLabel, rightLabel, lab
   const step = steps[at];
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="trade-off-bar" className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-baseline justify-between gap-3 text-xs">
         {/* Neither end is the good end. */}
         <span className="font-medium">{leftLabel}</span>

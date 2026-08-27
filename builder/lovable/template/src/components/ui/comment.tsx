@@ -7,7 +7,7 @@ export function Comment({ author, at, body, avatar, actions, edited, className }
   avatar?: string | null; actions?: React.ReactNode; edited?: boolean; className?: string;
 }) {
   return (
-    <article className={cn("flex flex-col gap-2 py-3", className)}>
+    <article data-slot="comment" className={cn("flex flex-col gap-2 py-3", className)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <AvatarName name={author} src={avatar} size="sm" />
         <span className="text-xs text-muted-foreground">

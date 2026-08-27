@@ -28,7 +28,7 @@ export function PasteTable({ onRows, label = "Paste your rows", rows: rowsProp =
   React.useEffect(() => { onRows(parsed); }, [parsed]);
   const cols = parsed.length ? Math.max(...parsed.map((r) => r.length)) : 0;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="paste-table" className={cn("space-y-1.5", className)}>
       <Label htmlFor={uid + "-paste-table"}>{label}</Label>
       <Textarea id={uid + "-paste-table"} rows={rowsProp} value={text} spellCheck={false}
         className="font-mono text-xs" placeholder="Copy the cells in your spreadsheet and paste them here"

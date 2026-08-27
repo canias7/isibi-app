@@ -29,7 +29,7 @@ export function ReserveNote({ hasReserve = true, met, mayNegotiate, negotiationN
 }) {
   if (!hasReserve) {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="reserve-note" className={cn("space-y-0.5 text-sm", className)}>
         <p className="font-medium">No reserve.</p>
         <p className="text-xs text-muted-foreground">
           It sells to the highest bidder whatever that is.

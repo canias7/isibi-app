@@ -31,7 +31,7 @@ export function CheckpointList({ checkpoints, className }: { checkpoints: Checkp
   const failedAt = checkpoints.findIndex((c) => c.state === "failed");
 
   return (
-    <ol className={cn("flex flex-col", className)}>
+    <ol data-slot="checkpoint-list" className={cn("flex flex-col", className)}>
       {checkpoints.map((c, i) => {
         // After a failure, "not reached" — not "not done".
         const unreached = failedAt >= 0 && i > failedAt;

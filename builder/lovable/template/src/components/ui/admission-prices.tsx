@@ -64,7 +64,7 @@ export function AdmissionPrices({
   const known = !!family && family.covers.every((c) => tickets.some((t) => t.name === c.name));
 
   return (
-    <div className={cn("", className)}>
+    <div data-slot="admission-prices" className={cn("", className)}>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}

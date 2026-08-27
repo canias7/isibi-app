@@ -43,7 +43,7 @@ export function MachineStatus({ machine, state, sinceMinutes, job, operator, rea
   const fmt = (m: number) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`);
   const bad = state === "stopped";
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="machine-status" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1 font-medium">{machine}</span>
         <span className={cn("shrink-0", bad && "font-medium")}>{WORDS[state]}</span>

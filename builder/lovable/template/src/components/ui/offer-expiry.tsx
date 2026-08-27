@@ -34,7 +34,7 @@ export function OfferExpiry({ offerExpiresOn, offerDaysLeft, rateHeldUntil, rate
   const expired = offerDaysLeft !== undefined && offerDaysLeft <= 0;
   const rateGone = rateDaysLeft !== undefined && rateDaysLeft <= 0;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="offer-expiry" className={cn("space-y-0.5 text-sm", className)}>
       {expired ? (
         <p className="font-medium">
           This offer has run out{offerExpiresOn ? ` — it expired ${offerExpiresOn}` : ""}. A new one is quoted at

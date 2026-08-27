@@ -29,7 +29,7 @@ export function FilterConflict({ a, b, reason, onDrop, className }: {
   className?: string;
 }) {
   return (
-    <div role="status"
+    <div data-slot="filter-conflict" role="status"
       className={cn("rounded-md border border-foreground/40 bg-muted/40 px-3 py-2 text-sm", className)}>
       <p>
         <span className="font-medium">{a.label}</span> and <span className="font-medium">{b.label}</span> cannot both apply, so nothing will match.

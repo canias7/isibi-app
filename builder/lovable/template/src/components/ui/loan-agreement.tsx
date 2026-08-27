@@ -42,7 +42,7 @@ export function LoanAgreement({ object, borrower, venue, outOn, backOn, insuranc
     ? new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 }).format(insuranceValue)
     : undefined;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="loan-agreement" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{object}</span>
         <span className="block text-xs text-muted-foreground">

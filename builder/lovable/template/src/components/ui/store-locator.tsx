@@ -21,7 +21,7 @@ export function StoreLocator({ stores, onDirections, className }: {
   onDirections?: (id: string | number) => void; className?: string;
 }) {
   return (
-    <ul className={cn("divide-y divide-border", className)}>
+    <ul data-slot="store-locator" className={cn("divide-y divide-border", className)}>
       {stores.map((s) => (
         <li key={s.id} className="flex flex-wrap items-start gap-3 py-3">
           <div className="min-w-0 flex-1">

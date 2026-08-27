@@ -32,7 +32,7 @@ export function EnvBadge({ env, production = "production", bar, note, className 
 
   if (bar) {
     return (
-      <div role="status"
+      <div data-slot="env-badge" role="status"
         className={cn("sticky top-0 z-50 flex items-center justify-center gap-2 bg-foreground px-3 py-1 text-center text-xs font-medium text-background", className)}>
         <span className="uppercase">{env}</span>
         {note ? <span className="font-normal opacity-80">{note}</span> : null}

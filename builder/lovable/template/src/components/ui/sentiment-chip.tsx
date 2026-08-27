@@ -30,7 +30,7 @@ export function SentimentChip({ sentiment, className }: {
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] capitalize leading-4",
+    <span data-slot="sentiment-chip" className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] capitalize leading-4",
       SHAPE[sentiment], className)}>
       {sentiment}
     </span>

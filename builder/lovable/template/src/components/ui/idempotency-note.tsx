@@ -29,7 +29,7 @@ export function IdempotencyNote({ idField = "event.id", rememberFor = "7 days", 
   className?: string;
 }) {
   return (
-    <p className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="idempotency-note" className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
       <span className="block">
         You may receive the same event more than once. Store{" "}
         <code className="font-mono text-foreground">{idField}</code> and ignore ones you have already handled — keeping

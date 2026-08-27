@@ -41,7 +41,7 @@ export function WriteOffNote({ customer, invoice, amount, taxAmount, reclaimTax,
     new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
   const selfApproved = Boolean(raisedBy && approvedBy && raisedBy === approvedBy);
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="write-off-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium tabular-nums">{money(amount)} written off</span>
         {customer && <span className="text-muted-foreground"> · {customer}</span>}

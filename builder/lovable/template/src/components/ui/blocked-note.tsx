@@ -30,7 +30,7 @@ export function BlockedNote({ kind = "blocked", by, href, who, since, note, onNu
   className?: string;
 }) {
   return (
-    <div role="status" className={cn("flex flex-wrap items-start gap-2 rounded-md border border-border bg-muted/40 p-2.5 text-xs", className)}>
+    <div data-slot="blocked-note" role="status" className={cn("flex flex-wrap items-start gap-2 rounded-md border border-border bg-muted/40 p-2.5 text-xs", className)}>
       <Ban aria-hidden className="mt-0.5 size-3.5 shrink-0" />
       <div className="min-w-0 flex-1">
         <p>

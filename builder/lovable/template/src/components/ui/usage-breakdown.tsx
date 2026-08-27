@@ -43,7 +43,7 @@ export function UsageBreakdown({ lines, total, period, className }: {
 }) {
   const sorted = [...lines].sort((a, b) => (b.costValue ?? 0) - (a.costValue ?? 0));
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="usage-breakdown" className={cn("space-y-1.5", className)}>
       {period && <p className="text-xs text-muted-foreground">{period}</p>}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

@@ -35,7 +35,7 @@ export function EventNameField({ value, onChange, existing = [], convention = "o
     ? existing.find((e) => e.replace(/_/g, "").includes(value.replace(/_/g, "")) || value.replace(/_/g, "").includes(e.replace(/_/g, "")))
     : undefined;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="event-name-field" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">Event name</label>
       <input id={id} value={value} autoCapitalize="none" autoCorrect="off" spellCheck={false}
         onChange={(e) => onChange(clean(e.target.value))} placeholder={example}

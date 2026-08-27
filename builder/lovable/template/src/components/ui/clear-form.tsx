@@ -27,7 +27,7 @@ export function ClearForm({ filledCount, onClear, label = "Clear the form", clas
   if (filledCount <= 0) return null;
   if (!asking) {
     return (
-      <button type="button" onClick={() => setAsking(true)}
+      <button data-slot="clear-form" type="button" onClick={() => setAsking(true)}
         className={cn("cursor-pointer text-sm text-muted-foreground underline underline-offset-4", className)}>
         {label}
       </button>

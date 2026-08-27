@@ -24,7 +24,7 @@ export function ShopTheLook({ image, alt = "", items, currency = "GBP", classNam
   const [active, setActive] = React.useState<string | null>(null);
   const fmt = (m: number) => formatMinor(m, currency);
   return (
-    <div className={cn("flex flex-col gap-3 sm:flex-row", className)}>
+    <div data-slot="shop-the-look" className={cn("flex flex-col gap-3 sm:flex-row", className)}>
       <div className="relative min-w-0 flex-1">
         <img src={image} alt={alt} className="block w-full rounded-lg border border-border" />
         {items.map((it, i) => (

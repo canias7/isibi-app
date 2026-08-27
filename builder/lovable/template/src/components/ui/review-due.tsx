@@ -32,7 +32,7 @@ export function ReviewDue({ lastReviewedOn, dueInDays, timesReviewed, timesChang
   const overdue = dueInDays !== undefined && dueInDays < 0;
   const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="review-due" className={cn("space-y-0.5 text-sm", className)}>
       {circumstancesChanged ? (
         <p className="font-medium">
           Something has changed{changeNote ? ` — ${changeNote.replace(/\s*[.!?]\s*$/, "")}` : ""}. Look at this now

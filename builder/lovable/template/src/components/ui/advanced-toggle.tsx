@@ -36,7 +36,7 @@ export function AdvancedToggle({ label = "Advanced", storageKey = "advanced-open
     });
   };
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="advanced-toggle" className={cn("flex flex-col gap-2", className)}>
       <button type="button" onClick={toggle} aria-expanded={open}
         className="flex cursor-pointer items-center gap-1 self-start text-sm font-medium hover:underline">
         <ChevronRight className={cn("size-4 transition-transform", open && "rotate-90")} />

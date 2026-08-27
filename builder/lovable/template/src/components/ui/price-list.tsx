@@ -40,7 +40,7 @@ export function PriceList({
       maximumFractionDigits: 2,
     });
   return (
-    <ul className={cn("flex flex-col", className)}>
+    <ul data-slot="price-list" className={cn("flex flex-col", className)}>
       {items.map((r, i) => (
         <li key={r.name || i} className="flex items-baseline gap-4 border-b border-border py-4 last:border-0">
           <div className="min-w-0 flex-1">

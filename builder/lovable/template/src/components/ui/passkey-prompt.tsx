@@ -38,7 +38,7 @@ export function PasskeyPrompt({
   if (supported === null || supported === false) return null;
 
   return (
-    <div className={cn("flex flex-col gap-3 rounded-lg border border-border p-4", className)}>
+    <div data-slot="passkey-prompt" className={cn("flex flex-col gap-3 rounded-lg border border-border p-4", className)}>
       <div className="flex items-start gap-3">
         <Fingerprint aria-hidden className="mt-0.5 size-5 shrink-0" />
         <div className="min-w-0 flex-1">

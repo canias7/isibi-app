@@ -29,7 +29,7 @@ export function MagicLinkSent({ email, onChangeEmail, resend, expiresIn, classNa
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center gap-3 rounded-lg border border-border p-6 text-center", className)}>
+    <div data-slot="magic-link-sent" className={cn("flex flex-col items-center gap-3 rounded-lg border border-border p-6 text-center", className)}>
       <MailCheck aria-hidden className="size-6" />
       <div>
         <h2 className="text-base font-semibold">Check your email</h2>

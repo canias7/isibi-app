@@ -12,7 +12,7 @@ export function CannedReply({ replies, onInsert, className }: {
 }) {
   if (!replies.length) return null;
   return (
-    <div className={cn("flex flex-wrap gap-1.5", className)}>
+    <div data-slot="canned-reply" className={cn("flex flex-wrap gap-1.5", className)}>
       {replies.map((r) => (
         <button key={r.label} type="button" onClick={() => onInsert(r.body)} title={r.body}
           className="cursor-pointer rounded-full border border-border px-2.5 py-1 text-xs hover:bg-muted">

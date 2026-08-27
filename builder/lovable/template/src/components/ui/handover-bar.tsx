@@ -28,7 +28,7 @@ export function HandoverBar({ from, to, at, note, onReassign, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-1 rounded-md border border-border p-2.5", className)}>
+    <div data-slot="handover-bar" className={cn("flex flex-col gap-1 rounded-md border border-border p-2.5", className)}>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {from ? (
           <>

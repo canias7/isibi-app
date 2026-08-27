@@ -29,7 +29,7 @@ export function AiScopePicker({ scopes, value, onChange, name = "ai-scope", lege
   className?: string;
 }) {
   return (
-    <fieldset className={cn("space-y-1.5", className)}>
+    <fieldset data-slot="ai-scope-picker" className={cn("space-y-1.5", className)}>
       <legend className="mb-1 text-xs font-medium text-muted-foreground">{legend}</legend>
       {scopes.map((s) => (
         <label key={s.id}

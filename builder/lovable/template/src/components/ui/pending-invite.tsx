@@ -24,7 +24,7 @@ export function PendingInvite({ email, sentAgo, role, onResend, onRevoke, busy, 
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center justify-between gap-3 py-2", className)}>
+    <div data-slot="pending-invite" className={cn("flex flex-wrap items-center justify-between gap-3 py-2", className)}>
       <div className="min-w-0">
         <p className="truncate text-sm">{email}</p>
         <p className="text-xs text-muted-foreground">

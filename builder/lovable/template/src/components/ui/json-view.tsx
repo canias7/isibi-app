@@ -14,7 +14,7 @@ export function JsonView({ value, collapsedHeight = 320, className }: {
   try { text = JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? String(v) : v), 2) ?? "undefined"; }
   catch { text = String(value); }
   return (
-    <div className={cn("relative rounded-md border border-border bg-muted/40", className)}>
+    <div data-slot="json-view" className={cn("relative rounded-md border border-border bg-muted/40", className)}>
       <div className="absolute end-1.5 top-1.5"><CopyButton value={text} label="Copy JSON" iconOnly /></div>
       <pre className="overflow-auto p-3 pe-10 font-mono text-xs leading-relaxed"
         style={{ maxHeight: collapsedHeight }}>{text}</pre>

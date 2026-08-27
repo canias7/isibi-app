@@ -21,7 +21,7 @@ export function StickyColumns({ left, right, top = "1rem", leftWidth = "240px", 
   className?: string;
 }) {
   return (
-    <div style={{ ["--left" as string]: leftWidth }}
+    <div data-slot="sticky-columns" style={{ ["--left" as string]: leftWidth }}
       className={cn("grid items-start gap-6 lg:[grid-template-columns:var(--left)_minmax(0,1fr)]", className)}>
       <div style={{ top }} className="lg:sticky lg:self-start">{left}</div>
       <div className="min-w-0">{right}</div>

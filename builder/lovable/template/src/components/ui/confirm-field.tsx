@@ -38,7 +38,7 @@ export function ConfirmField({
   const bad = touched && filled && !matches;
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="confirm-field" className={cn("flex flex-col gap-1.5", className)}>
       <label htmlFor={fieldId} className="text-sm font-medium">{label}</label>
       <div className="relative">
         <input

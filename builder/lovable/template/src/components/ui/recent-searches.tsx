@@ -13,7 +13,7 @@ export function RecentSearches({ items, onSelect, onRemove, onClear, className }
 }) {
   if (!items.length) return null;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="recent-searches" className={cn("space-y-1", className)}>
       <div className="flex items-center justify-between px-2 py-1">
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent</span>
         {onClear && <button type="button" onClick={onClear}

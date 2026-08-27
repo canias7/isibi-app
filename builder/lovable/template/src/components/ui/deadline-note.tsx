@@ -34,7 +34,7 @@ export function DeadlineNote({ due, soonWithinHours = 24, done, className }: {
   const soon = !done && left >= 0 && left <= soonWithinHours * 3_600_000;
 
   return (
-    <p className={cn("text-sm", className)}>
+    <p data-slot="deadline-note" className={cn("text-sm", className)}>
       <span className={cn(overdue || soon ? "font-medium" : "text-muted-foreground")}>
         {done ? "Was due" : overdue ? "Overdue" : soon ? "Due soon" : "Due"}
       </span>{" "}

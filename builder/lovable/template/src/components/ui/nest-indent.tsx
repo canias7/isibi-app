@@ -28,7 +28,7 @@ export function NestIndent({ depth, unit = 16, max = 12, className }: {
   const d = Math.min(Math.max(Math.floor(depth), 0), max);
   if (d === 0) return null;
   return (
-    <span className={cn("inline-flex shrink-0 self-stretch", className)}>
+    <span data-slot="nest-indent" className={cn("inline-flex shrink-0 self-stretch", className)}>
       <span className="sr-only">Level {d + 1}. </span>
       {Array.from({ length: d }, (_, i) => (
         <span key={i} aria-hidden style={{ width: unit }} className="relative inline-block">

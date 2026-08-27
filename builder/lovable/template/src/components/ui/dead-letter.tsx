@@ -31,7 +31,7 @@ export function DeadLetter({ count, oldest, keptFor, onReplayAll, onDiscard, bus
   className?: string;
 }) {
   if (count <= 0) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>Nothing has been given up on.</p>;
+    return <p data-slot="dead-letter" className={cn("text-sm text-muted-foreground", className)}>Nothing has been given up on.</p>;
   }
   return (
     <div className={cn("space-y-2 rounded-md border border-foreground/40 bg-muted/40 p-3", className)}>

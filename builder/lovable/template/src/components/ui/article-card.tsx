@@ -7,7 +7,7 @@ export function ArticleCard({ title, excerpt, image, href, meta, className }: {
   href?: string; meta?: React.ReactNode; className?: string;
 }) {
   return (
-    <article className={cn("flex flex-col gap-3", className)}>
+    <article data-slot="article-card" className={cn("flex flex-col gap-3", className)}>
       {image !== undefined && <a href={href}><SafeImage src={image} alt={title} ratio="16/9" /></a>}
       <div className="flex flex-col gap-1.5">
         <h3 className="font-medium leading-snug text-balance">

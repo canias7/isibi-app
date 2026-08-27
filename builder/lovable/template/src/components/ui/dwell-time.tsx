@@ -38,7 +38,7 @@ export function DwellTime({ arrivedAt, startedAt, freeMinutes = 120, elapsedMinu
   const over = Math.max(0, elapsedMinutes - freeMinutes);
   const fmt = (m: number) => (m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`);
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="dwell-time" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className={cn("tabular-nums", over > 0 && "font-medium")}>{fmt(elapsedMinutes)}</span>
         <span className="text-muted-foreground tabular-nums"> on site · {fmt(freeMinutes)} free</span>

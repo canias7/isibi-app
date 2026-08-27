@@ -44,7 +44,7 @@ export function PinVersion({ versions, pinned, onChange, latest, pinnedSince, mi
   const uid = useId();
   const isPinned = pinned !== "";
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="pin-version" className={cn("space-y-1.5", className)}>
       <div className="space-y-1">
         <label htmlFor={uid + "-pin-version"} className="block text-sm font-medium">Version</label>
         <NativeSelect id={uid + "-pin-version"} value={pinned} className="w-auto" onChange={(e) => onChange(e.target.value)}>

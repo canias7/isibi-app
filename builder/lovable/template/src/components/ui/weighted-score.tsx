@@ -31,7 +31,7 @@ export function WeightedScore({ criteria, scale = 5, className }: {
     : null;
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="weighted-score" className={cn("flex flex-col gap-2", className)}>
       <ul className="flex flex-col gap-1.5">
         {criteria.map((c) => {
           const share = totalWeight > 0 ? Math.max(0, c.weight) / totalWeight : 0;

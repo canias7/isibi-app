@@ -41,7 +41,7 @@ export function SerialRow({ label = "Serial", value, onCopy, note, className }: 
     ? value.trim().replace(/\s+/g, " ")
     : [prefix, ...(rest.match(/.{1,4}/g) ?? [])].filter(Boolean).join(" ");
   return (
-    <div className={cn("space-y-0.5", className)}>
+    <div data-slot="serial-row" className={cn("space-y-0.5", className)}>
       <p className="flex items-baseline gap-2 text-sm">
         <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
         <span className="min-w-0 flex-1 break-all font-mono tabular-nums">{grouped}</span>

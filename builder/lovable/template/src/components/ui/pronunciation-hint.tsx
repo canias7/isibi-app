@@ -25,7 +25,7 @@ export function PronunciationHint({ name, respelling, ipa, audioSrc, className }
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex flex-wrap items-center gap-x-2 text-sm", className)}>
+    <span data-slot="pronunciation-hint" className={cn("inline-flex flex-wrap items-center gap-x-2 text-sm", className)}>
       <span>{name}</span>
       {respelling && (
         <span aria-hidden className="text-muted-foreground">{respelling}</span>

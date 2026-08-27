@@ -42,7 +42,7 @@ export function SnoozeUntil({ value, onChange, className }: {
   const choices = React.useMemo(() => (open ? snoozeChoices(new Date()) : []), [open]);
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="snooze-until" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-center gap-2">
         <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
           className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-sm hover:bg-muted">

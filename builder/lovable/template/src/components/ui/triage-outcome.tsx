@@ -32,7 +32,7 @@ export function TriageOutcome({ goWhere, byWhen, safetyNet, assessedBy, at, prio
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="triage-outcome" className={cn("space-y-1 text-sm", className)}>
       <p className="text-base font-medium">{goWhere}</p>
       {byWhen && <p>{byWhen}</p>}
       <p className={cn("text-sm", safetyNet ? "font-medium" : "font-medium")}>

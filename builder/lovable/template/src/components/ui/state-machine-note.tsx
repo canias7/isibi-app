@@ -24,7 +24,7 @@ export function StateMachineNote({ state, canBecome, cannot, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-0.5 text-xs", className)}>
+    <div data-slot="state-machine-note" className={cn("flex flex-col gap-0.5 text-xs", className)}>
       <p><span className="text-muted-foreground">Now:</span> <span className="font-medium">{state}</span></p>
       {canBecome?.length ? (
         <p className="text-muted-foreground">Can become: {canBecome.join(", ")}</p>

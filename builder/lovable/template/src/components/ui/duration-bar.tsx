@@ -14,7 +14,7 @@ export function DurationBar({ segments, className }: {
   if (!total) return null;
   const tone = ["bg-foreground/80", "bg-foreground/55", "bg-foreground/35", "bg-foreground/20"];
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="duration-bar" className={cn("space-y-2", className)}>
       <div className="flex h-3 gap-px overflow-hidden rounded-full">
         {segments.map((s, i) => (
           <span key={s.label} className={tone[i % tone.length]} style={{ width: `${(s.minutes / total) * 100}%` }} />

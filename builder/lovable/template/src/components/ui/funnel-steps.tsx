@@ -24,7 +24,7 @@ export function FunnelSteps({ steps, className }: {
 }) {
   const top = steps[0]?.count ?? 0;
   return (
-    <ol className={cn("flex flex-col", className)}>
+    <ol data-slot="funnel-steps" className={cn("flex flex-col", className)}>
       {steps.map((s, i) => {
         const prev = i > 0 ? steps[i - 1].count : null;
         const lost = prev == null ? 0 : prev - s.count;

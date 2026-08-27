@@ -33,7 +33,7 @@ export function StandDown({ at, by, outstanding = [], released = [], stillWorkin
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   const left = outstanding.filter((o) => !o.done);
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="stand-down" className={cn("space-y-1.5 text-sm", className)}>
       <p className="font-medium">
         Stood down{at ? ` at ${at}` : ""}
         {by ? ` by ${by}` : ""}.

@@ -26,7 +26,7 @@ export function FolderPath({ segments, onJump, maxVisible = 4, className }: {
     : segments;
 
   return (
-    <nav aria-label="Folder path" className={cn("flex min-w-0 items-center gap-1 text-sm", className)}>
+    <nav data-slot="folder-path" aria-label="Folder path" className={cn("flex min-w-0 items-center gap-1 text-sm", className)}>
       {shown.map((seg, i) => {
         if (seg === null) {
           // The separator comes BEFORE the fold and none after - the next

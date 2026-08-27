@@ -30,7 +30,7 @@ export function DeviceUnsupported({ feature, needs, insecureContext, alternative
   className?: string;
 }) {
   return (
-    <div role="note" className={cn("space-y-1.5 rounded-md border border-border bg-muted/40 p-3", className)}>
+    <div data-slot="device-unsupported" role="note" className={cn("space-y-1.5 rounded-md border border-border bg-muted/40 p-3", className)}>
       <p className="text-sm">
         <span className="font-medium">{feature} is not available here.</span>
         {needs && <span className="text-muted-foreground"> It needs {needs}.</span>}

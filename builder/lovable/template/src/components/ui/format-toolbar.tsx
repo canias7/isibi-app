@@ -36,7 +36,7 @@ export function FormatToolbar({ onCommand, active = [], only, className }: {
 }) {
   const shown = only ? BUTTONS.filter((b) => only.includes(b.cmd)) : BUTTONS;
   return (
-    <div className={cn("flex flex-wrap items-center gap-0.5 rounded-md border border-border p-1", className)}
+    <div data-slot="format-toolbar" className={cn("flex flex-wrap items-center gap-0.5 rounded-md border border-border p-1", className)}
       role="toolbar" aria-label="Formatting">
       {shown.map((b, i) => {
         const Icon = b.icon;

@@ -26,7 +26,7 @@ export function ExportFormat({ formats, value, onChange, className }: {
 }) {
   const name = React.useId();
   return (
-    <div role="radiogroup" aria-label="Export format" className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="export-format" role="radiogroup" aria-label="Export format" className={cn("flex flex-col gap-2", className)}>
       {formats.map((f) => {
         const on = f.key === value;
         return (

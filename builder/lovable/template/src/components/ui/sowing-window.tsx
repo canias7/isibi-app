@@ -33,7 +33,7 @@ export function SowingWindow({ crop, variety, optimumFrom, optimumTo, latestOn, 
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="sowing-window" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{crop}</span>
         {variety && <span className="text-muted-foreground"> · {variety}</span>}

@@ -27,7 +27,7 @@ export function StaggerList({ children, step = 50, maxDelay = 400, className }: 
   className?: string;
 }) {
   return (
-    <div className={cn("contents", className)}>
+    <div data-slot="stagger-list" className={cn("contents", className)}>
       {React.Children.map(children, (child, i) => (
         <div
           style={{ animationDelay: `${Math.min(i * step, maxDelay)}ms` }}

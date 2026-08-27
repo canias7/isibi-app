@@ -21,7 +21,7 @@ export function ThrottleNote({ retryIn, limit, className }: {
   className?: string;
 }) {
   return (
-    <p role="status" className={cn("text-sm", className)}>
+    <p data-slot="throttle-note" role="status" className={cn("text-sm", className)}>
       <span className="font-medium">
         {retryIn ? `You can try again in ${retryIn}` : "Slow down a moment"}
       </span>

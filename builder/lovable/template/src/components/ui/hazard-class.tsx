@@ -37,7 +37,7 @@ export function HazardClass({ unNumber, hazardClass, packingGroup, properName, r
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="hazard-class" className={cn("space-y-1 text-sm", className)}>
       <p>
         {properName && <span className="font-medium">{properName}</span>}
         <span className="block text-xs text-muted-foreground">

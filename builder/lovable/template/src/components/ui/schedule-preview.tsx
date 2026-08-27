@@ -26,7 +26,7 @@ export function SchedulePreview({ occurrences, total, className }: {
   className?: string;
 }) {
   if (!occurrences.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>No runs scheduled.</p>;
+    return <p data-slot="schedule-preview" className={cn("text-sm text-muted-foreground", className)}>No runs scheduled.</p>;
   }
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>

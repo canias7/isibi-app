@@ -25,7 +25,7 @@ export function SnapSections({ sections, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("h-svh snap-y snap-proximity overflow-y-auto", className)}>
+    <div data-slot="snap-sections" className={cn("h-svh snap-y snap-proximity overflow-y-auto", className)}>
       {sections.map((s) => (
         <section key={s.id} id={s.id} aria-label={s.label}
           className="flex min-h-svh snap-start flex-col justify-center">

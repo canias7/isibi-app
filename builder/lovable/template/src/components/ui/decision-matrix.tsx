@@ -41,7 +41,7 @@ export function DecisionMatrix({ options, criteria, scores, scale = 5, onScore, 
   const best = Math.max(...totals.map((t) => t.total), 0);
 
   return (
-    <div className={cn("overflow-x-auto", className)}>
+    <div data-slot="decision-matrix" className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
         <caption className="pb-2 text-start text-xs text-muted-foreground">
           Scored 1 to {scale}. Blank means not scored, which is not the same as zero.

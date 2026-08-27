@@ -35,7 +35,7 @@ export function DayOutOfDays({ cast, dayLabels = [], className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="day-out-of-days" className={cn("space-y-1", className)}>
       <div className="overflow-x-auto">
         <table className="border-collapse text-xs">
           <caption className="sr-only">

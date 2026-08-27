@@ -31,7 +31,7 @@ export function RuleEnabled({ enabled, onChange, lastRan, backlogCount, pending,
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-3", className)}>
+    <div data-slot="rule-enabled" className={cn("flex items-center gap-3", className)}>
       <Switch id={id} checked={enabled} disabled={pending}
         onCheckedChange={(v) => {
           const on = v === true;

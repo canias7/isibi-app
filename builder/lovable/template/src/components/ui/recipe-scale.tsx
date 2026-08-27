@@ -46,7 +46,7 @@ export function RecipeScale({ ingredients, baseYield, wantYield, yieldUnit = "po
   };
   const nonLinear = ingredients.filter((i) => i.scalesNonLinearly);
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="recipe-scale" className={cn("space-y-1.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">
           {wantYield} {yieldUnit}

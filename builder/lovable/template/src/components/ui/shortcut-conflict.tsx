@@ -28,7 +28,7 @@ export function ShortcutConflict({ chord, takenBy, reserved, onReplace, classNam
   className?: string;
 }) {
   return (
-    <p role="alert" className={cn("flex flex-wrap items-center gap-2 text-sm", className)}>
+    <p data-slot="shortcut-conflict" role="alert" className={cn("flex flex-wrap items-center gap-2 text-sm", className)}>
       <KbdChord chord={chord} />
       {reserved ? (
         <span className="text-muted-foreground">is reserved by your browser and can&apos;t be changed.</span>

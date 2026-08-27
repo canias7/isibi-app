@@ -56,7 +56,7 @@ export function SpreadsheetGrid({
   };
 
   return (
-    <div className={cn("overflow-x-auto rounded-md border border-border", className)}>
+    <div data-slot="spreadsheet-grid" className={cn("overflow-x-auto rounded-md border border-border", className)}>
       <table role="grid" className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/50">

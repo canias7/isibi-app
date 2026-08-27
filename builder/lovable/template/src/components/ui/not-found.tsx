@@ -14,7 +14,7 @@ export function NotFound({ title = "We can't find that page", body, homeHref = "
   title?: string; body?: string; homeHref?: string; onSearch?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-20 text-center", className)}>
+    <div data-slot="not-found" className={cn("mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-20 text-center", className)}>
       <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">404</p>
       <h1 className="text-2xl font-semibold">{title}</h1>
       <p className="text-sm text-muted-foreground">

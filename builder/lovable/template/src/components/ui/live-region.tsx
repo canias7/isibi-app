@@ -15,7 +15,7 @@ export function LiveRegion({ message, urgency = "polite" }: {
   message?: string | null; urgency?: "polite" | "assertive";
 }) {
   return (
-    <div className="sr-only" role={urgency === "assertive" ? "alert" : "status"}
+    <div data-slot="live-region" className="sr-only" role={urgency === "assertive" ? "alert" : "status"}
       aria-live={urgency} aria-atomic="true">
       {message ?? ""}
     </div>

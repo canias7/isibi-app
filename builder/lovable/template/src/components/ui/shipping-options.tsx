@@ -16,7 +16,7 @@ export function ShippingOptions({ name = "shipping", options, value, onChange, c
   value?: string; onChange: (v: string) => void; currency?: string; className?: string;
 }) {
   return (
-    <fieldset className={cn("w-full min-w-0 space-y-2", className)}>
+    <fieldset data-slot="shipping-options" className={cn("w-full min-w-0 space-y-2", className)}>
       {options.map((o) => (
         <label key={o.value}
           className={cn("flex cursor-pointer items-start gap-3 rounded-md border p-3",

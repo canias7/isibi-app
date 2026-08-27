@@ -27,7 +27,7 @@ export function EmailSafeNote({ issues, allClearNote = "Nothing here that email 
   className?: string;
 }) {
   if (!issues.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{allClearNote}</p>;
+    return <p data-slot="email-safe-note" className={cn("text-sm text-muted-foreground", className)}>{allClearNote}</p>;
   }
   const severe = issues.filter((i) => i.severe);
   return (

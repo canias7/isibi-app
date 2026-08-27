@@ -38,7 +38,7 @@ export function CarbonNote({ kgCo2e, activity, factor, factorUnit = "kWh", facto
     ? `${(kgCo2e / 1000).toFixed(2).replace(/\.?0+$/, "")} tonnes`
     : `${kgCo2e.toFixed(1).replace(/\.0$/, "")} kg`;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="carbon-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="tabular-nums">{value} CO₂e</span>
         {activity && <span className="text-muted-foreground"> · {activity}</span>}

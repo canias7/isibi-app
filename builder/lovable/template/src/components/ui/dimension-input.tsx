@@ -44,7 +44,7 @@ export function DimensionInput({ value, units = ["cm", "in", "m"], onChange, thi
   );
 
   return (
-    <span className={cn("inline-flex flex-wrap items-end gap-2", className)}>
+    <span data-slot="dimension-input" className={cn("inline-flex flex-wrap items-end gap-2", className)}>
       {field("l", "Length")}
       <span aria-hidden className="pb-2 text-muted-foreground">×</span>
       {field("w", "Width")}

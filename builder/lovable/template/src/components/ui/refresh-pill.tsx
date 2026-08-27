@@ -36,7 +36,7 @@ export function RefreshPill({ count, noun = "item", onShow, atTop, className }: 
 
   if (count === 0 || atTop) return null;
   return (
-    <div aria-live="polite" className={cn("pointer-events-none sticky top-2 z-20 flex justify-center", className)}>
+    <div data-slot="refresh-pill" aria-live="polite" className={cn("pointer-events-none sticky top-2 z-20 flex justify-center", className)}>
       <button type="button" onClick={onShow}
         className="pointer-events-auto inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-xs font-medium text-background shadow-md hover:opacity-90">
         <ArrowUp aria-hidden className="size-3" />

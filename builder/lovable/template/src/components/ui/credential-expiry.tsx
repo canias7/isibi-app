@@ -28,7 +28,7 @@ export function CredentialExpiry({ on, daysLeft, warnWithin = 60, neverExpires, 
   neverExpires?: boolean;
   className?: string;
 }) {
-  if (neverExpires) return <span className={cn("text-xs text-muted-foreground", className)}>Does not expire</span>;
+  if (neverExpires) return <span data-slot="credential-expiry" className={cn("text-xs text-muted-foreground", className)}>Does not expire</span>;
   if (!on) return null;
   const d = toDate(on);
   const ok = !Number.isNaN(d.getTime());

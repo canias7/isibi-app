@@ -61,7 +61,7 @@ export function AudienceSwitch({
 
   if (!current) return null;
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="audience-switch" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex flex-wrap items-center gap-2">
         {label && <span className="text-sm text-muted-foreground">{label}</span>}
         <div role="tablist" aria-label={label}

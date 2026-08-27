@@ -27,7 +27,7 @@ export function AiSuggestion({ suggestion, replaces, why, onAccept, onDismiss, b
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-2 rounded-md border border-dashed border-border p-3", className)}>
+    <div data-slot="ai-suggestion" className={cn("flex flex-col gap-2 rounded-md border border-dashed border-border p-3", className)}>
       <p className="text-xs text-muted-foreground">Suggested{why ? ` — ${why}` : ""}</p>
       {replaces && (
         <p className="text-sm text-muted-foreground line-through">{replaces}</p>

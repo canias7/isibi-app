@@ -33,7 +33,7 @@ export function FitToWidth({ contentWidth, children, className }: {
     return () => ro?.disconnect();
   }, [contentWidth]);
   return (
-    <div ref={ref} className={cn("overflow-hidden", className)}>
+    <div data-slot="fit-to-width" ref={ref} className={cn("overflow-hidden", className)}>
       <div style={{ width: contentWidth, transform: `scale(${scale})`, transformOrigin: "top left" }}>
         {children}
       </div>

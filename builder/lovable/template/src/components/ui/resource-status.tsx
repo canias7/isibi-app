@@ -33,7 +33,7 @@ export function ResourceStatus({ resources, className }: { resources: Resource[]
   const nearest = [...free].sort((a, b) => (a.minutesAway ?? 999) - (b.minutesAway ?? 999))[0];
   const clearing = resources.filter((r) => r.state === "clearing");
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="resource-status" className={cn("space-y-1.5 text-sm", className)}>
       <p className={cn(free.length === 0 ? "font-medium" : "")}>
         {free.length === 0
           ? "Nothing free."

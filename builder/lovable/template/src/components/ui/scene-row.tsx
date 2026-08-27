@@ -38,7 +38,7 @@ export function SceneRow({ scene, slug, interior, night, pageEighths, cast = [],
     ? `${Math.floor(pageEighths / 8) || ""}${pageEighths % 8 ? ` ${pageEighths % 8}/8` : ""}`.trim() || "0"
     : undefined;
   return (
-    <li className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
+    <li data-slot="scene-row" className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         <span className="w-10 shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{scene}</span>
         <span className="min-w-0 flex-1">

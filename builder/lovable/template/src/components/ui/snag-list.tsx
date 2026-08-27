@@ -28,7 +28,7 @@ export function SnagList({ open, fixed, checked, disputed = 0, byTrade = [], cla
 }) {
   const total = open + fixed + checked + disputed;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="snag-list" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         <span className="font-medium tabular-nums">{fixed.toLocaleString()}</span> waiting to be checked
         <span className="text-muted-foreground tabular-nums">

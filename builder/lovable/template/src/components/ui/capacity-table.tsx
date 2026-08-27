@@ -53,7 +53,7 @@ export function CapacityTable({ rooms, caption, className }: {
   const layouts: string[] = [];
   for (const r of rooms) for (const k of Object.keys(r.capacities ?? {})) if (!layouts.includes(k)) layouts.push(k);
   return (
-    <div className={cn("overflow-x-auto", className)}>
+    <div data-slot="capacity-table" className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
         {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
         <thead>

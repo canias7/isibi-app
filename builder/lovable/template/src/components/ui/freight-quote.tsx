@@ -34,7 +34,7 @@ export function FreightQuote({ rate, basis, chargeableWeight, weightUnit = "kg",
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="freight-quote" className={cn("space-y-1", className)}>
       <p className="text-sm">
         <span className="font-medium tabular-nums">{rate}</span>
         {basis && <span className="text-muted-foreground"> · on {basis}</span>}

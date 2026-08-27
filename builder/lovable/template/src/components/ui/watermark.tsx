@@ -14,7 +14,7 @@ export function Watermark({ text = "DRAFT", children, className }: {
   text?: string; children?: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("relative", className)}>
+    <div data-slot="watermark" className={cn("relative", className)}>
       {children}
       <div aria-hidden="true"
         className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden">

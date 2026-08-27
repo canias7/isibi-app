@@ -30,7 +30,7 @@ export function RetryPolicy({ delays, totalWindow, afterLast = "dead-letter", di
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
+    <div data-slot="retry-policy" className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
       <p>
         If your endpoint does not answer, we try again after{" "}
         <span className="text-foreground">{delays.join(", ")}</span>

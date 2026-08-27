@@ -15,7 +15,7 @@ export function Forbidden({ title = "You don't have access to this", body, onBac
   title?: string; body?: string; onBack?: () => void; onSwitchAccount?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-20 text-center", className)}>
+    <div data-slot="forbidden" className={cn("mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-20 text-center", className)}>
       <h1 className="text-2xl font-semibold">{title}</h1>
       <p className="text-sm text-muted-foreground">
         {body ?? "If you think you should, ask whoever manages the account to give you access."}

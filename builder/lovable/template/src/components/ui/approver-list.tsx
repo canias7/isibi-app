@@ -31,7 +31,7 @@ export function ApproverList({ approvers, mode = "parallel", className }: {
   const waiting = approvers.filter((a) => a.state === "waiting");
   const next = waiting[0];
   return (
-    <div className={cn("rounded-md border border-border", className)}>
+    <div data-slot="approver-list" className={cn("rounded-md border border-border", className)}>
       <p className="border-b border-border px-3 py-2 text-sm">
         {rejected ? (
           <span><span className="font-medium">Rejected</span> by {rejected.name}</span>

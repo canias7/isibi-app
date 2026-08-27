@@ -19,7 +19,7 @@ export function CellBadge({ children, tone = "neutral", dot, className }: {
   className?: string;
 }) {
   return (
-    <span className={cn(
+    <span data-slot="cell-badge" className={cn(
       "inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-0.5 text-xs whitespace-nowrap",
       tone === "strong" && "bg-foreground font-medium text-background",
       tone === "neutral" && "bg-muted text-foreground",

@@ -37,7 +37,7 @@ export function EthicsApproval({ committee, reference, approvedOn, expiresOn, ex
 }) {
   const drifted = approvedVersion !== undefined && currentVersion !== undefined && approvedVersion !== currentVersion;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="ethics-approval" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn(expired && "font-medium")}>
         {expired
           ? `Approval expired${expiresOn ? ` on ${expiresOn}` : ""} — work done since is unapproved.`

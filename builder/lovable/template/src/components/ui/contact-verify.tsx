@@ -38,7 +38,7 @@ export function ContactVerify({ value, state, onSend, cooldownSeconds, busy, kin
     bounced: kind === "email" ? "Email came back undelivered" : "Texts are not getting through",
   } as const;
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 text-sm", className)}>
+    <div data-slot="contact-verify" className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 text-sm", className)}>
       <span className="min-w-0 flex-1">
         <span className="block break-all">{value}</span>
         <span role="status"

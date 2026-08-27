@@ -6,11 +6,11 @@ import { cn } from "@/lib/utils";
  * scrolls sideways. Edge fades hint that there is more, which a bare
  * overflow-x-auto does not.
  */
-export function OverflowScroller({ fade = true, className, children }: {
+export function OverflowScroller({ fade = true, className, children, ...rest }: {
   fade?: boolean; className?: string; children?: React.ReactNode;
-}) {
+} & React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn("relative", fade &&
+    <div data-slot="overflow-scroller" {...rest} className={cn("relative", fade &&
       "[mask-image:linear-gradient(90deg,transparent,#000_16px,#000_calc(100%-16px),transparent)]")}>
       <div className={cn("overflow-x-auto", className)}>{children}</div>
     </div>

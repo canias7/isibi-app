@@ -24,7 +24,7 @@ export function SnoozePicker({ options, onSnooze, id, className }: {
 }) {
   if (!options.length) return null;
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span data-slot="snooze-picker" className={cn("inline-flex items-center gap-2", className)}>
       <label htmlFor={id} className="text-sm text-muted-foreground">Snooze until</label>
       <NativeSelect id={id} value="" className="h-8 w-auto text-sm"
         onChange={(e) => e.target.value && onSnooze(e.target.value)}>

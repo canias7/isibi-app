@@ -4,5 +4,5 @@ export function Section({ space = "md", muted, className, children, ...props }: 
   space?: "sm" | "md" | "lg"; muted?: boolean;
 }) {
   const p = { sm: "py-10", md: "py-16", lg: "py-24" }[space];
-  return <section className={cn(p, muted && "bg-muted/40", className)} {...props}>{children}</section>;
+  return <section data-slot="section" className={cn(p, muted && "bg-muted/40", className)} {...props}>{children}</section>;
 }

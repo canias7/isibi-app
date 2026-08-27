@@ -34,7 +34,7 @@ export function AllocationBar({ total, committed, reserved = 0, unit = "items", 
   const denom = Math.max(total, used, 1);
   const pct = (n: number) => `${(Math.max(0, n) / denom) * 100}%`;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="allocation-bar" className={cn("space-y-1", className)}>
       <p className="text-sm">
         <span className={cn("tabular-nums", over ? "font-medium" : "font-medium")}>
           {over ? `${Math.abs(free).toLocaleString()} over` : free.toLocaleString()}

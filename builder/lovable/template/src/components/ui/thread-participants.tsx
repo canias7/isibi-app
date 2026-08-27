@@ -28,7 +28,7 @@ export function ThreadParticipants({ people, label = "In this thread", className
   if (!people.length) return null;
   const watchers = people.filter((p) => p.watching);
   return (
-    <div className={cn("space-y-0.5 text-xs", className)}>
+    <div data-slot="thread-participants" className={cn("space-y-0.5 text-xs", className)}>
       <p className="text-muted-foreground">{label}</p>
       <ul className="flex flex-wrap gap-x-2 gap-y-0.5">
         {people.map((p) => (

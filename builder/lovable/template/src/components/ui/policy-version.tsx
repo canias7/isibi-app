@@ -38,7 +38,7 @@ export function PolicyVersion({ name, current, currentFrom, agreed, agreedAt, mu
 }) {
   const behind = agreed !== undefined && agreed !== current;
   return (
-    <div className={cn("space-y-0.5 text-xs", className)}>
+    <div data-slot="policy-version" className={cn("space-y-0.5 text-xs", className)}>
       <p>
         <span className="text-foreground">{name} v{current}</span>
         {currentFrom && <span className="text-muted-foreground"> · in force since {currentFrom}</span>}

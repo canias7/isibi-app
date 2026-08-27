@@ -14,7 +14,7 @@ export function SearchSuggestions({ items, query, activeIndex = -1, onSelect, cl
 }) {
   if (!items.length) return null;
   return (
-    <ul role="listbox" aria-label="Suggestions"
+    <ul data-slot="search-suggestions" role="listbox" aria-label="Suggestions"
       className={cn("overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md", className)}>
       {items.map((it, i) => (
         // THE OPTION IS THE CLICKABLE THING, not a button inside it. ARIA does

@@ -54,7 +54,7 @@ export function AmountInWords({ amount, unit = "pounds", subUnit = "pence", word
   const cents = Math.round((Math.abs(amount) - whole) * 100);
   const text = words ?? `${toWords(whole)} ${unit}${cents ? ` and ${toWords(cents)} ${subUnit}` : ""}`;
   return (
-    <span className={cn("text-sm", className)}>
+    <span data-slot="amount-in-words" className={cn("text-sm", className)}>
       <span className="capitalize">{text}</span>
     </span>
   );

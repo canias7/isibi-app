@@ -28,7 +28,7 @@ export function LotRow({ code, quantity, unit = "units", location, state = "avai
 }) {
   const WORD = { available: "", reserved: "Reserved", quarantined: "Quarantined" } as const;
   return (
-    <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
+    <li data-slot="lot-row" className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
       <span className="min-w-0 flex-1">
         <code className="block font-mono text-xs">{code}</code>
         <span className="block text-xs text-muted-foreground">

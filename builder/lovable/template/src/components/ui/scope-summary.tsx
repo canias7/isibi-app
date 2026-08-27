@@ -33,7 +33,7 @@ export function ScopeSummary({ canRead, canWrite, cannot, className }: {
     ) : null;
   if (!canRead?.length && !canWrite?.length && !cannot?.length) return null;
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="scope-summary" className={cn("flex flex-col gap-3", className)}>
       {section("Can change", canWrite)}
       {section("Can see", canRead)}
       {section("Cannot", cannot)}

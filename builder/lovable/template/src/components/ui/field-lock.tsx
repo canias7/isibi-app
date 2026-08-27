@@ -34,7 +34,7 @@ export function FieldLock({
   const auto = React.useId();
   const fieldId = id ?? auto;
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="field-lock" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-baseline justify-between gap-2">
         <label htmlFor={fieldId} className="text-sm font-medium">{label}</label>
         {locked ? (

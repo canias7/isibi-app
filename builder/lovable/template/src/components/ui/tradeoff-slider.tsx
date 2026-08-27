@@ -26,7 +26,7 @@ export function TradeoffSlider({ value, onChange, min = 0, max = 100, step = 1, 
   label: string; id?: string; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="tradeoff-slider" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <label htmlFor={id} className="text-sm font-medium">{label}</label>
         <span className="text-sm tabular-nums">{outcome}</span>

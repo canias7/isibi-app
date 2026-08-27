@@ -32,7 +32,7 @@ export function QuietHours({ enabled, from, to, onChange, exception, className }
 }) {
   const overnight = from > to;
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="quiet-hours" className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-center justify-between gap-4">
         <span className="text-sm font-medium">Quiet hours</span>
         <Switch checked={enabled} onCheckedChange={(v) => onChange({ enabled: v })} aria-label="Quiet hours" />

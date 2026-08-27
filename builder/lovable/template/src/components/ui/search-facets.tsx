@@ -21,7 +21,7 @@ export function SearchFacets({ title, options, selected, onToggle, className }: 
         const id = `${title}-${o.value}`;
         const empty = o.count === 0 && !selected.includes(o.value);
         return (
-          <div key={o.value} className="flex items-center gap-2">
+          <div data-slot="search-facets" key={o.value} className="flex items-center gap-2">
             <Checkbox id={id} disabled={empty} checked={selected.includes(o.value)}
               onCheckedChange={() => onToggle(o.value)} />
             <Label htmlFor={id} className={cn("flex flex-1 justify-between gap-2 text-sm font-normal",

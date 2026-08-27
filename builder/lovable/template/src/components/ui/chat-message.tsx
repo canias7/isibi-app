@@ -16,7 +16,7 @@ export function ChatMessage({ body, own, author, at, avatar, status, className }
   const time = at != null && !Number.isNaN(toDate(at).getTime())
     ? toDate(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : null;
   return (
-    <div className={cn("flex gap-2", own ? "flex-row-reverse" : "flex-row", className)}>
+    <div data-slot="chat-message" className={cn("flex gap-2", own ? "flex-row-reverse" : "flex-row", className)}>
       {!own && author && <AvatarName name={author} src={avatar} size="sm" avatarOnly />}
       <div className={cn("flex max-w-[75%] flex-col gap-0.5", own && "items-end")}>
         {!own && author && <span className="px-1 text-xs text-muted-foreground">{author}</span>}

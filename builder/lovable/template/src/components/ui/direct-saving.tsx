@@ -52,7 +52,7 @@ export function DirectSaving({
     new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
   const saving = platformPrice - ourPrice;
   return (
-    <div className={cn("rounded-lg border border-border p-6", className)}>
+    <div data-slot="direct-saving" className={cn("rounded-lg border border-border p-6", className)}>
       <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</h2>
       <dl className="mt-4 flex flex-wrap gap-x-10 gap-y-4">
         <div>

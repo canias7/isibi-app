@@ -25,7 +25,7 @@ export function PasteImage({ onImage, label = "Click, then paste a screenshot (C
   React.useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
   return (
-    <div
+    <div data-slot="paste-image"
       tabIndex={0}
       role="button"
       aria-label="Paste an image here"

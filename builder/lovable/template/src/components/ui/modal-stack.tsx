@@ -159,7 +159,7 @@ export function StackedModal({ id, open, onClose, title, children, footer, class
   if (!open) return null;
 
   return (
-    <div
+    <div data-slot="stacked-modal"
       role="dialog"
       aria-modal={isTop}
       aria-label={typeof title === "string" ? title : undefined}

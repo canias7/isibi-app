@@ -17,7 +17,7 @@ export function SeoJsonLd({ data }: { data: Record<string, unknown> | Record<str
   let json: string;
   try { json = JSON.stringify(data); } catch { return null; }
   return (
-    <script type="application/ld+json"
+    <script data-slot="seo-json-ld" type="application/ld+json"
       dangerouslySetInnerHTML={{ __html: json.replace(/</g, "\\u003c") }} />
   );
 }

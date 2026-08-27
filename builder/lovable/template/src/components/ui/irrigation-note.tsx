@@ -36,7 +36,7 @@ export function IrrigationNote({ appliedThisYear, licensed, unit = "m³", defici
   const over = licensed !== undefined && appliedThisYear > licensed;
   const near = !over && share >= warnAt;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="irrigation-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="tabular-nums">{appliedThisYear.toLocaleString()}</span>
         <span className="text-muted-foreground"> {unit} this year</span>

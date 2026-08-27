@@ -25,7 +25,7 @@ export function LeaveConfirm({ what, keepsWork, canRejoin, lastOwner, onLeave, o
   className?: string;
 }) {
   return (
-    <section role="alertdialog" aria-label={`Leave ${what}`}
+    <section data-slot="leave-confirm" role="alertdialog" aria-label={`Leave ${what}`}
       className={cn("flex flex-col gap-3 rounded-md border border-border p-4", className)}>
       <p className="text-sm font-medium">Leave {what}?</p>
       {lastOwner ? (

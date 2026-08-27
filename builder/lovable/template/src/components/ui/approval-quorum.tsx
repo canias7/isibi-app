@@ -34,7 +34,7 @@ export function ApprovalQuorum({ approved, rejected = 0, total, required, classN
   const dead = !met && possible < need;
   const state = met ? "Approved" : dead ? "Cannot pass" : `${approved} of ${need} needed`;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="approval-quorum" className={cn("space-y-1", className)}>
       <p className="text-sm">
         <span className={cn((met || dead) && "font-medium")}>{state}</span>
         {!met && !dead && rejected > 0 && (

@@ -33,7 +33,7 @@ export function TemplatePicker({ templates, value, onChange, blankLabel = "Start
 }) {
   const options: TemplateOption[] = [{ id: "", name: blankLabel, purpose: blankPurpose }, ...templates];
   return (
-    <fieldset className={cn("space-y-1.5", className)}>
+    <fieldset data-slot="template-picker" className={cn("space-y-1.5", className)}>
       <legend className="sr-only">Start from</legend>
       {options.map((t) => (
         <label key={t.id || "blank"}

@@ -37,7 +37,7 @@ export function ExcessNote({ compulsory = 0, voluntary = 0, forThisClaimType, cl
   const applies = forThisClaimType ?? compulsory + voluntary;
   const marginal = estimatedLoss !== undefined && estimatedLoss <= applies * 1.5;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="excess-note" className={cn("space-y-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">{money(applies)}</span>
         <span className="text-muted-foreground"> comes off any settlement</span>

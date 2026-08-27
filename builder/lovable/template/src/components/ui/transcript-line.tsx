@@ -42,7 +42,7 @@ export function TranscriptLine({
   const spoken = `Jump to ${m ? `${m} minute${m === 1 ? "" : "s"} ` : ""}${s} second${s === 1 ? "" : "s"}`;
 
   return (
-    <div ref={ref}
+    <div data-slot="transcript-line" ref={ref}
       className={cn("flex gap-3 border-s-2 py-1.5 ps-3",
         active ? "border-foreground" : "border-transparent", className)}>
       <button type="button" onClick={() => onSeek?.(at)} aria-label={spoken}

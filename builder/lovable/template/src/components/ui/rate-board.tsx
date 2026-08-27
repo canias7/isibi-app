@@ -78,7 +78,7 @@ export function RateBoard({
     return ((r.buy - r.sell) / mid) * 100;
   };
   return (
-    <div className={cn("font-mono", className)}>
+    <div data-slot="rate-board" className={cn("font-mono", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b border-foreground pb-2">
         <p className="text-xs uppercase tracking-[0.16em]">
           Rates per {baseSymbol}1 {base}

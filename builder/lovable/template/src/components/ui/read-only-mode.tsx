@@ -22,7 +22,7 @@ export function ReadOnlyMode({ reason, action, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-muted/40 px-4 py-2.5 text-sm", className)}>
+    <div data-slot="read-only-mode" className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-muted/40 px-4 py-2.5 text-sm", className)}>
       <Eye className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       <span className="font-medium">Read only</span>
       {reason && <span className="min-w-0 text-muted-foreground">{reason}</span>}

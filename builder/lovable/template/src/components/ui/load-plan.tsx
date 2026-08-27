@@ -43,7 +43,7 @@ export function LoadPlan({ weight, weightLimit, weightUnit = "kg", spaces, space
     </div>
   );
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="load-plan" className={cn("space-y-2", className)}>
       <div className="space-y-1">
         <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
           <span className="text-muted-foreground">Weight</span>

@@ -43,7 +43,7 @@ export function TenantDelete({ name, memberCount, recordCounts = [], graceDays, 
   const [typed, setTyped] = useState("");
   const ready = typed.trim().toLowerCase() === name.trim().toLowerCase();
   return (
-    <form className={cn("space-y-3 rounded-md border border-foreground/40 bg-muted/40 p-3", className)}
+    <form data-slot="tenant-delete" className={cn("space-y-3 rounded-md border border-foreground/40 bg-muted/40 p-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onDelete(); }}>
       <p className="text-sm font-medium">Delete the whole {name} workspace</p>
       {memberCount !== undefined && memberCount > 0 && (

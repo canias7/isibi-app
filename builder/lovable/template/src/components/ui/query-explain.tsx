@@ -27,7 +27,7 @@ export function QueryExplain({ typed, interpreted, expansions, onUseExact, class
   const corrected = interpreted && interpreted !== typed;
   if (!corrected && !expansions?.length) return null;
   return (
-    <p role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-sm text-muted-foreground", className)}>
+    <p data-slot="query-explain" role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-sm text-muted-foreground", className)}>
       {corrected && (
         <span>
           Showing results for <span className="font-medium text-foreground">{interpreted}</span>

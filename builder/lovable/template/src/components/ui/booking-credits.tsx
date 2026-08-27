@@ -30,7 +30,7 @@ export function BookingCredits({ balance, expiring, expiresOn, rollsOver, unit =
 }) {
   const plural = (n: number) => `${n} ${n === 1 ? unit : `${unit}s`}`;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="booking-credits" className={cn("space-y-1 text-sm", className)}>
       {expiring !== undefined && expiring > 0 && (
         <p className="font-medium">
           {plural(expiring)} {expiring === 1 ? "goes" : "go"}

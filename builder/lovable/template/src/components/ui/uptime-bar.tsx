@@ -14,7 +14,7 @@ export function UptimeBar({ days, label, className }: {
   const up = days.filter((d) => d.state === "up").length;
   const pct = days.length ? (up / days.length) * 100 : 0;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="uptime-bar" className={cn("space-y-1.5", className)}>
       <div className="flex h-8 items-stretch gap-px" role="img"
         aria-label={label ?? `${pct.toFixed(1)}% up over ${days.length} days`}>
         {days.map((d) => (

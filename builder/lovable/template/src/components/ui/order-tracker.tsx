@@ -5,7 +5,7 @@ export function OrderTracker({ stages, current, className }: {
   stages: { label: string; at?: string }[]; current: number; className?: string;
 }) {
   return (
-    <ol className={cn("flex flex-col gap-4 sm:flex-row sm:gap-2", className)}
+    <ol data-slot="order-tracker" className={cn("flex flex-col gap-4 sm:flex-row sm:gap-2", className)}
       aria-label={`Stage ${current + 1} of ${stages.length}`}>
       {stages.map((s, i) => {
         const done = i < current, now = i === current;

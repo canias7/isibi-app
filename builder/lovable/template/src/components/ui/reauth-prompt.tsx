@@ -38,7 +38,7 @@ export function ReauthPrompt({ provider, kind = "expired", stopped, since, queue
     permissions: `${provider} no longer gives us the permissions we need.`,
   } as const;
   return (
-    <div role="alert"
+    <div data-slot="reauth-prompt" role="alert"
       className={cn("space-y-2 rounded-md border border-foreground/40 bg-muted/40 p-3", className)}>
       <p className="text-sm font-medium">{WHY[kind]}</p>
       {stopped && (

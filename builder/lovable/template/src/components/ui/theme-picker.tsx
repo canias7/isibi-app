@@ -20,7 +20,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 function Mini({ mode }: { mode: "light" | "dark" | "system" }) {
   return (
-    <svg viewBox="0 0 48 32" aria-hidden className="h-8 w-12 rounded border border-border">
+    <svg data-slot="mini" viewBox="0 0 48 32" aria-hidden className="h-8 w-12 rounded border border-border">
       {mode !== "dark" ? <rect width="48" height="32" fill="#ffffff" /> : null}
       {mode !== "light" ? (
         mode === "dark"

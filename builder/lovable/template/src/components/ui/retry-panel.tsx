@@ -6,7 +6,7 @@ export function RetryPanel({ message = "Couldn't load this.", onRetry, className
   message?: string; onRetry: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3", className)}>
+    <div data-slot="retry-panel" className={cn("flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3", className)}>
       <span className="text-sm text-muted-foreground">{message}</span>
       <Button size="sm" variant="ghost" onClick={onRetry}><RefreshCw className="size-4" /> Retry</Button>
     </div>

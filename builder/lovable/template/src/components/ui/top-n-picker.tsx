@@ -21,7 +21,7 @@ export function TopNPicker({ choices = [5, 10, 20], n, other, onChange, classNam
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    <div data-slot="top-n-picker" className={cn("flex flex-wrap items-center gap-2", className)}>
       <div className="inline-flex overflow-hidden rounded-md border border-border">
         {[...choices.map((c) => ({ label: `Top ${c}`, val: c as number | null })), { label: "All", val: null }].map((o) => (
           <button key={o.label} type="button" aria-pressed={n === o.val}

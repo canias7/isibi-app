@@ -31,7 +31,7 @@ export function UnsubscribeFooter({ why, unsubscribeUrl, preferencesUrl, postalA
   className?: string;
 }) {
   return (
-    <footer className={cn("space-y-1 border-t border-border pt-2 text-sm", className)}>
+    <footer data-slot="unsubscribe-footer" className={cn("space-y-1 border-t border-border pt-2 text-sm", className)}>
       <p className="text-muted-foreground">{why}</p>
       <p>
         <a href={unsubscribeUrl} className="underline underline-offset-2">Unsubscribe</a>

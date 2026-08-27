@@ -49,7 +49,7 @@ export function NavGroup({ title, count, children, containsActive, name, default
   const shown = open || containsActive;
 
   return (
-    <div className={cn("flex flex-col", className)}>
+    <div data-slot="nav-group" className={cn("flex flex-col", className)}>
       <button type="button" onClick={toggle} aria-expanded={shown}
         className="flex cursor-pointer items-center gap-1 rounded px-1 py-1 text-start text-[11px] font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground">
         <ChevronRight aria-hidden className={cn("size-3 shrink-0 transition-transform", shown && "rotate-90")} />

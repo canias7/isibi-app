@@ -17,7 +17,7 @@ export function ChatThread({ children, className }: { children?: React.ReactNode
     if (stick.current) el.scrollTop = el.scrollHeight;
   });
   return (
-    <div ref={ref} className={cn("flex flex-col gap-3 overflow-y-auto p-3", className)}
+    <div data-slot="chat-thread" ref={ref} className={cn("flex flex-col gap-3 overflow-y-auto p-3", className)}
       onScroll={(e) => {
         const el = e.currentTarget;
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;

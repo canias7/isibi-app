@@ -30,7 +30,7 @@ export function TranslatorNote({ context, maxLength, placeholders = [], where, c
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-xs", className)}>
+    <div data-slot="translator-note" className={cn("space-y-0.5 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-xs", className)}>
       <p><span className="text-muted-foreground">Means:</span> {context}</p>
       {where && <p><span className="text-muted-foreground">Appears in:</span> {where}</p>}
       {maxLength !== undefined && (

@@ -66,7 +66,7 @@ export function CountUp({ value, from: start0 = 0, duration = 900, format, class
   }, [value, duration]);
 
   return (
-    <span className={cn("tabular-nums", className)}>
+    <span data-slot="count-up" className={cn("tabular-nums", className)}>
       <span aria-hidden>{fmt(shown)}</span>
       <span className="sr-only">{fmt(value)}</span>
     </span>

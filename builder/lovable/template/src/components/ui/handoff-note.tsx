@@ -16,7 +16,7 @@ export function HandoffNote({ author, at, body, open, avatar, className }: {
   open?: string[]; avatar?: string | null; className?: string;
 }) {
   return (
-    <article className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <article data-slot="handoff-note" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <AvatarName name={author} src={avatar} size="sm" avatarOnly />
         <span className="font-medium text-foreground">{author}</span>

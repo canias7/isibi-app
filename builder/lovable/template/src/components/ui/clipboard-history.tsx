@@ -40,7 +40,7 @@ export function ClipboardHistory({ history, onCopy, onClear, className }: {
 }) {
   if (!history.length) return null;
   return (
-    <div className={cn("rounded-lg border border-border", className)}>
+    <div data-slot="clipboard-history" className={cn("rounded-lg border border-border", className)}>
       <div className="flex items-center justify-between border-b border-border px-2.5 py-1.5">
         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Copied this session</p>
         {onClear ? (

@@ -33,7 +33,7 @@ export function RoyaltySplit({ writing = [], publishing = [], className }: {
     const off = Math.abs(total - 100) > 0.001;
     const unsigned = shares.filter((s) => s.agreed === false || s.agreed === undefined);
     return (
-      <div key={title} className="space-y-0.5">
+      <div data-slot="royalty-split" key={title} className="space-y-0.5">
         <p className="text-xs font-medium">{title}</p>
         <ul className="divide-y divide-border rounded-md border border-border text-sm">
           {shares.map((s) => (

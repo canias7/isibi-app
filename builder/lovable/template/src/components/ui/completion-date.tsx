@@ -33,7 +33,7 @@ export function CompletionDate({ date, agreed, agreedBy = [], waitingOn = [], pr
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="completion-date" className={cn("space-y-0.5 text-sm", className)}>
       <p className="text-xs font-medium text-muted-foreground">
         {agreed ? "Agreed date" : "Target date — not agreed by everyone yet"}
       </p>

@@ -13,7 +13,7 @@ export function RatioBar({ parts, className }: {
   const total = parts.reduce((s, p) => s + p.value, 0);
   if (!total) return null;
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="ratio-bar" className={cn("space-y-2", className)}>
       <div className="flex h-2.5 overflow-hidden rounded-full">
         {parts.map((p, i) => (
           <span key={p.label} className={cn(TONE[i % TONE.length])}

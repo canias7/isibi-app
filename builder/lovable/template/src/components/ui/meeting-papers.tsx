@@ -62,7 +62,7 @@ export function MeetingPapers({
     .filter((m) => !Number.isNaN(toDate(m.date).getTime()))
     .sort((a, b) => +toDate(b.date) - +toDate(a.date));
   return (
-    <div className={cn("", className)}>
+    <div data-slot="meeting-papers" className={cn("", className)}>
       <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</h2>
       <ul className="mt-3 divide-y divide-border border-y border-border">
         {sorted.map((m) => {

@@ -22,7 +22,7 @@ export function ThumbnailPicker({ frames, value, onChange, className }: {
 }) {
   if (!frames.length) return null;
   return (
-    <div role="radiogroup" aria-label="Choose a thumbnail" className={cn("flex gap-2 overflow-x-auto pb-1", className)}>
+    <div data-slot="thumbnail-picker" role="radiogroup" aria-label="Choose a thumbnail" className={cn("flex gap-2 overflow-x-auto pb-1", className)}>
       {frames.map((f) => {
         const active = f.key === value;
         return (

@@ -17,7 +17,7 @@ export function DotPlot({ items, min, max, format, className }: {
   const span = hi - lo || 1;
   const fmt = format ?? ((n: number) => n.toLocaleString());
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="dot-plot" className={cn("space-y-2", className)}>
       {items.map((it) => (
         <div key={it.label} className="flex items-center gap-3 text-sm">
           <span className="w-24 shrink-0 truncate text-muted-foreground">{it.label}</span>

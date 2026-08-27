@@ -40,7 +40,7 @@ export function ArrearsNote({ amount, missedPayments, arrangement, arrangementKe
       maximumFractionDigits: Number.isInteger(v) ? 0 : 2,
     }).format(v);
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="arrears-note" className={cn("space-y-1 text-sm", className)}>
       {/* Never muted. Somebody keeping to an arrangement is in a completely
           different position from somebody who is not, and greying out the line
           that says so buries the one piece of good news on the screen. */}

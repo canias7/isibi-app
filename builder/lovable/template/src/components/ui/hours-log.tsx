@@ -34,7 +34,7 @@ export function HoursLog({ entries, purposeNote, countsTravel, milestoneHours, c
   const total = entries.reduce((n, e) => n + e.hours + (countsTravel ? e.travelHours ?? 0 : 0), 0);
   const toGo = milestoneHours !== undefined ? milestoneHours - total : undefined;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="hours-log" className={cn("space-y-1.5", className)}>
       <p className="text-sm tabular-nums">
         <span className="font-medium">{Number(total.toFixed(1))} hours</span>
         {toGo !== undefined && toGo > 0 && (

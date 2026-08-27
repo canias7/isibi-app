@@ -24,7 +24,7 @@ export function ZoomPan({ src, alt, max = 4, className }: {
   const [zoom, setZoom] = React.useState(1);
   const step = (by: number) => setZoom((z) => Math.min(Math.max(Number((z + by).toFixed(2)), 1), max));
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="zoom-pan" className={cn("flex flex-col gap-2", className)}>
       <div className="overflow-auto rounded-md border border-border">
         <div style={{ transform: `scale(${zoom})`, transformOrigin: "center center" }}>
           <img src={src} alt={alt} className="block w-full" />

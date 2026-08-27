@@ -38,7 +38,7 @@ export function AskingPriceChange({ history, proposed, currency = "GBP", locale 
   const step = proposed !== undefined && current !== undefined ? current - proposed : undefined;
   const stepPct = current && step !== undefined ? (step / current) * 100 : undefined;
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="asking-price-change" className={cn("space-y-1.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="text-lg font-medium">{current !== undefined ? money(current) : "No price set"}</span>
         {fall !== undefined && fall > 0 && (

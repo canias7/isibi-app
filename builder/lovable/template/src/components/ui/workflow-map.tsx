@@ -34,7 +34,7 @@ export function WorkflowMap({ states, moves, current, className }: {
     : states;
 
   return (
-    <ul className={cn("flex flex-col divide-y divide-border rounded-md border border-border", className)}>
+    <ul data-slot="workflow-map" className={cn("flex flex-col divide-y divide-border rounded-md border border-border", className)}>
       {ordered.map((s) => {
         const out = moves.filter((m) => m.from === s.key);
         // Nothing points here and it is not the start: almost always a mistake.

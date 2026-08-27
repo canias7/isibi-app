@@ -7,7 +7,7 @@ export function VoteButtons({ score = 0, vote, onVote, className }: {
 }) {
   const press = (v: 1 | -1) => onVote(vote === v ? null : v);
   return (
-    <div className={cn("inline-flex items-center gap-0.5", className)}>
+    <div data-slot="vote-buttons" className={cn("inline-flex items-center gap-0.5", className)}>
       <Button type="button" size="icon-sm" variant="ghost" aria-label="Upvote" aria-pressed={vote === 1}
         onClick={() => press(1)}><ChevronUp className={cn("size-4", vote === 1 && "text-success")} /></Button>
       <span className="min-w-6 text-center text-sm font-medium tabular-nums" aria-label={`Score ${score}`}>{score}</span>

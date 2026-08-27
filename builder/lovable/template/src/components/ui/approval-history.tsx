@@ -35,7 +35,7 @@ export function ApprovalHistory({ events, className }: {
 }) {
   if (!events.length) return null;
   return (
-    <ol className={cn("space-y-0", className)}>
+    <ol data-slot="approval-history" className={cn("space-y-0", className)}>
       {events.map((e, i) => {
         const d = e.at ? toDate(e.at) : null;
         const ok = d && !Number.isNaN(d.getTime());

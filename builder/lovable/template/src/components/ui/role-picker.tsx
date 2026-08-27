@@ -36,7 +36,7 @@ export function RolePicker({
     if (next) onChange(next.key);
   };
   return (
-    <div role="radiogroup" aria-label="Role"
+    <div data-slot="role-picker" role="radiogroup" aria-label="Role"
       onKeyDown={(e) => {
         if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); move(1); }
         if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); move(-1); }

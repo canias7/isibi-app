@@ -40,7 +40,7 @@ export function ConsumptionBar({ periods, unit = "kWh", className }: {
   const max = Math.max(1, ...periods.map((p) => p.value));
   const anyEstimated = periods.some((p) => p.estimated);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="consumption-bar" className={cn("space-y-1.5", className)}>
       <ul className="space-y-2.5">
         {periods.map((p) => (
           <li key={p.id} className="space-y-0.5">

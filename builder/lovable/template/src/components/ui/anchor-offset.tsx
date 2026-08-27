@@ -22,7 +22,7 @@ export function AnchorOffset({ id, offset = 80, children, className }: {
   className?: string;
 }) {
   return (
-    <div id={id} style={{ scrollMarginTop: offset }} className={cn(className)}>
+    <div data-slot="anchor-offset" id={id} style={{ scrollMarginTop: offset }} className={cn(className)}>
       {children}
     </div>
   );

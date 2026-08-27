@@ -34,7 +34,7 @@ export function FindingAid({ path, extent, describedTo, childCount, childrenList
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="finding-aid" className={cn("space-y-1 text-sm", className)}>
       <ol className="space-y-0.5">
         {path.map((l, i) => (
           <li key={l.id} style={{ paddingInlineStart: `${i * 12}px` }} className="text-xs">

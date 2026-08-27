@@ -34,7 +34,7 @@ export function RegionPicker({ regions, value, onChange, label = "Area", placeho
   const groups = regions.some((r) => r.group);
   const names = groups ? Array.from(new Set(regions.map((r) => r.group ?? ""))) : [];
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="region-picker" className={cn("space-y-1", className)}>
       <label htmlFor={selectId} className="block text-sm font-medium">{label}</label>
       <NativeSelect id={selectId} value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">{placeholder}</option>

@@ -30,7 +30,7 @@ export function CursorLabel({ name, left, top, muted, className }: {
   className?: string;
 }) {
   return (
-    <div aria-hidden="true"
+    <div data-slot="cursor-label" aria-hidden="true"
       style={{ left, top }}
       className={cn("pointer-events-none absolute z-50 select-none", muted && "opacity-50", className)}>
       <svg viewBox="0 0 12 12" className="size-3 fill-foreground">

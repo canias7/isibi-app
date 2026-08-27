@@ -44,7 +44,7 @@ export function ResizeHandle({
   }, [dragging]);
 
   return (
-    <div
+    <div data-slot="resize-handle"
       role="separator"
       aria-orientation={orientation}
       aria-label={label}

@@ -13,7 +13,7 @@ export function CapacityBar({ used, capacity, unit = "hrs", label, className }: 
   const pct = capacity > 0 ? (used / capacity) * 100 : 0;
   const over = used > capacity;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="capacity-bar" className={cn("space-y-1", className)}>
       <div className="flex items-baseline justify-between gap-3 text-xs">
         {label && <span className="truncate">{label}</span>}
         <span className={cn("tabular-nums", over ? "text-destructive" : "text-muted-foreground")}>

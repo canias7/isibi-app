@@ -81,7 +81,7 @@ export function AvailabilityCalendar({
   const title = new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" }).format(first);
 
   return (
-    <div className={cn("", className)}>
+    <div data-slot="availability-calendar" className={cn("", className)}>
       <div className="flex items-center justify-between gap-4">
         <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
         <div className="flex gap-2">

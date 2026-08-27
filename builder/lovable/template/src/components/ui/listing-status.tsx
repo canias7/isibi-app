@@ -34,7 +34,7 @@ export function ListingStatus({ stage, label, stillTakingOffers, daysListed, rel
 }) {
   const open = stage === "available" || stillTakingOffers;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="listing-status" className={cn("space-y-0.5 text-sm", className)}>
       <p className="font-medium">{label ?? stage.charAt(0).toUpperCase() + stage.slice(1)}</p>
       <p className={cn("text-xs", open ? "font-medium" : "text-muted-foreground")}>
         {stage === "completed"

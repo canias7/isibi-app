@@ -27,7 +27,7 @@ export function ReadMore({ children, lines = 3, moreLabel = "Read more", lessLab
   const id = React.useId();
   const clamp = { 2: "line-clamp-2", 3: "line-clamp-3", 4: "line-clamp-4", 5: "line-clamp-5", 6: "line-clamp-6" }[lines];
   return (
-    <div className={cn("flex flex-col items-start gap-1", className)}>
+    <div data-slot="read-more" className={cn("flex flex-col items-start gap-1", className)}>
       <div id={id} ref={ref} className={cn("text-sm", !open && clamp)}>{children}</div>
       <button type="button" aria-expanded={open} aria-controls={id}
         onClick={() => {

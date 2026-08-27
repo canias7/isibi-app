@@ -39,7 +39,7 @@ export function CertificationRow({ standard, scope, body, reference, state = "va
   } as const;
   const weak = state !== "valid";
   return (
-    <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
+    <li data-slot="certification-row" className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
       <span className="min-w-0 flex-1">
         <span className={cn("block", state === "expired" && "text-muted-foreground")}>{standard}</span>
         {scope && <span className="block text-xs">Covers {scope}</span>}

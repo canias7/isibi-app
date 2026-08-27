@@ -9,7 +9,7 @@ export function TagList({ items, active, onSelect, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap gap-2", className)}>
+    <div data-slot="tag-list" className={cn("flex flex-wrap gap-2", className)}>
       {items.map((t) => {
         const on = active === t;
         return onSelect ? (

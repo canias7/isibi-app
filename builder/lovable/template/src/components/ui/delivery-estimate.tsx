@@ -7,7 +7,7 @@ export function DeliveryEstimate({ from, to, method = "Standard delivery", class
   const fmt = (d: string | number | Date) =>
     toDate(d).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
   return (
-    <p className={cn("flex items-center gap-2 text-sm", className)}>
+    <p data-slot="delivery-estimate" className={cn("flex items-center gap-2 text-sm", className)}>
       <Truck className="size-4 shrink-0 text-muted-foreground" />
       <span>{method}: <strong className="font-medium">{fmt(from)}{to ? ` – ${fmt(to)}` : ""}</strong></span>
     </p>

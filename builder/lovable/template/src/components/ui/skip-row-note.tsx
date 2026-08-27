@@ -23,7 +23,7 @@ export function SkipRowNote({ skipped, reasons, className }: {
 }) {
   if (skipped <= 0) return null;
   return (
-    <div className={cn("text-xs text-muted-foreground", className)}>
+    <div data-slot="skip-row-note" className={cn("text-xs text-muted-foreground", className)}>
       <p className="tabular-nums">
         <span className="font-medium text-foreground">{skipped.toLocaleString()} skipped</span> — not errors, just left out
       </p>

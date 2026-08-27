@@ -24,7 +24,7 @@ export function ShortcutHint({ chord, announce, className }: {
   className?: string;
 }) {
   return (
-    <span aria-hidden={!announce}
+    <span data-slot="shortcut-hint" aria-hidden={!announce}
       className={cn("inline-flex text-muted-foreground", className)}>
       <KbdChord chord={chord} />
     </span>

@@ -28,7 +28,7 @@ export function PlaceOrderBar({ totalMinor, onPlace, disabled, note, currency = 
   const [busy, setBusy] = React.useState(false);
   const fmt = (m: number) => formatMinor(m, currency);
   return (
-    <div style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+    <div data-slot="place-order-bar" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
       className={cn("sticky bottom-0 flex flex-col gap-1 border-t border-border bg-background px-4 pt-3", className)}>
       <button type="button" disabled={busy || disabled}
         onClick={async () => {

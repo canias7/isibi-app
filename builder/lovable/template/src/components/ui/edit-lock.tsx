@@ -40,7 +40,7 @@ export function EditLock({ by, since, expiresAt, onOverride, onRequest, classNam
   if (expired) return null;
 
   return (
-    <div role="status" className={cn("flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-xs", className)}>
+    <div data-slot="edit-lock" role="status" className={cn("flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-xs", className)}>
       <Lock aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1">
         <strong className="font-medium">{by}</strong> is editing this

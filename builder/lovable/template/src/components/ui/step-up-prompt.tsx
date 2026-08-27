@@ -39,7 +39,7 @@ export function StepUpPrompt({
   React.useEffect(() => { ref.current?.focus(); }, []);
 
   return (
-    <form
+    <form data-slot="step-up-prompt"
       onSubmit={(e) => { e.preventDefault(); if (password && !busy) onConfirm(password); }}
       className={cn("flex flex-col gap-3 rounded-lg border border-border p-4", className)}
     >

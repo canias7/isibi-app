@@ -29,7 +29,7 @@ export function SpamNote({ items, onNotSpam, className }: {
   const [open, setOpen] = React.useState(false);
   if (!items.length) return null;
   return (
-    <div className={cn("motion-enter rounded-lg border border-dashed border-border", className)}>
+    <div data-slot="spam-note" className={cn("motion-enter rounded-lg border border-dashed border-border", className)}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2 text-start text-xs text-muted-foreground hover:bg-muted/50">
         <span>

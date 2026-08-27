@@ -57,7 +57,7 @@ export function EpisodeRow({
   const part = typeof progress === "number" && progress > 0 && progress < 1;
 
   return (
-    <div className={cn("flex items-start gap-3 py-4", className)}>
+    <div data-slot="episode-row" className={cn("flex items-start gap-3 py-4", className)}>
       {onPlay && (
         <button type="button" onClick={onPlay}
           aria-label={`${playing ? "Pause" : "Play"} ${label}`}

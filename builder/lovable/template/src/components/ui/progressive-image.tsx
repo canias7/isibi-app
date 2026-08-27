@@ -37,7 +37,7 @@ export function ProgressiveImage({
 
   if (!src || failed) {
     return (
-      <div style={{ aspectRatio: `${width} / ${height}` }}
+      <div data-slot="progressive-image" style={{ aspectRatio: `${width} / ${height}` }}
         className={cn("flex w-full items-center justify-center rounded-md bg-muted text-xs text-muted-foreground", className)}>
         {fallback ?? null}
       </div>

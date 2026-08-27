@@ -35,7 +35,7 @@ export function StopGenerating({ onStop, label = "Stop", showLabel, className }:
   }, []);
 
   return (
-    <button
+    <button data-slot="stop-generating"
       type="button"
       onClick={onStop}
       aria-label={label}

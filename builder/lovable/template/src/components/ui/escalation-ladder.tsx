@@ -21,7 +21,7 @@ export function EscalationLadder({ rungs, currentIndex, className }: {
 }) {
   if (!rungs.length) return null;
   return (
-    <ol className={cn("flex flex-col gap-1 text-sm", className)}>
+    <ol data-slot="escalation-ladder" className={cn("flex flex-col gap-1 text-sm", className)}>
       {rungs.map((r, i) => {
         const past = i < currentIndex, now = i === currentIndex;
         return (

@@ -15,7 +15,7 @@ export function AddressFields({ value, onChange, className }: {
   const set = (k: keyof Address) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...value, [k]: e.target.value });
   return (
-    <div className={cn("grid gap-4 sm:grid-cols-2", className)}>
+    <div data-slot="address-fields" className={cn("grid gap-4 sm:grid-cols-2", className)}>
       <FormRow label="Address" className="sm:col-span-2">
         <Input autoComplete="address-line1" value={value.line1} onChange={set("line1")} />
       </FormRow>

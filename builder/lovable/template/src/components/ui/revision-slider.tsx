@@ -36,7 +36,7 @@ export function RevisionSlider({ versions, index, onChange, className }: {
   const text = current.label ?? toDate(current.at).toLocaleString();
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="revision-slider" className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-baseline justify-between gap-3">
         <label htmlFor={id} className="text-sm font-medium">Version</label>
         <span className="text-sm text-muted-foreground">

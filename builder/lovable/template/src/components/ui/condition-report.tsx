@@ -32,7 +32,7 @@ export function ConditionReport({ points, examinedBy, examinedOn, inHand, viewin
 }) {
   const restorations = points.filter((p) => p.restoration);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="condition-report" className={cn("space-y-1.5", className)}>
       {points.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nothing is noted, which is not the same as nothing being wrong.</p>
       ) : (

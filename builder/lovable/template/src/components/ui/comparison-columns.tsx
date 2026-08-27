@@ -33,7 +33,7 @@ export function ComparisonColumns({
   const hidden = rows.length - shown.length;
 
   return (
-    <div className={cn("overflow-x-auto rounded-md border border-border", className)}>
+    <div data-slot="comparison-columns" className={cn("overflow-x-auto rounded-md border border-border", className)}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">

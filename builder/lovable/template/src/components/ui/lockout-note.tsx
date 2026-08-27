@@ -49,7 +49,7 @@ export function LockoutNote({ until, attempts, onExpire, className }: {
   const wait = mins > 0 ? `${mins} minute${mins === 1 ? "" : "s"}${secs ? ` ${secs}s` : ""}` : `${secs} seconds`;
 
   return (
-    <div role="status" className={cn("flex items-start gap-2.5 rounded-md border border-border p-3", className)}>
+    <div data-slot="lockout-note" role="status" className={cn("flex items-start gap-2.5 rounded-md border border-border p-3", className)}>
       <Timer aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0">
         <p className="text-sm">

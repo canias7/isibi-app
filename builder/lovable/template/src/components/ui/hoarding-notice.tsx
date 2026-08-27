@@ -32,7 +32,7 @@ export function HoardingNotice({ what, from, to, hours = [], contactName, contac
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-3 rounded-md border border-border p-4", className)}>
+    <div data-slot="hoarding-notice" className={cn("space-y-3 rounded-md border border-border p-4", className)}>
       <div>
         <p className="text-lg font-medium">{what}</p>
         {(from || to) && (

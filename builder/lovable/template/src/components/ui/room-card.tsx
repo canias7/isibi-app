@@ -14,7 +14,7 @@ export function RoomCard({ name, description, price, per = "night", sleeps, size
   size?: string; image?: string | null; amenities?: string[]; onBook?: () => void; className?: string;
 }) {
   return (
-    <article className={cn("overflow-hidden rounded-lg border border-border sm:flex", className)}>
+    <article data-slot="room-card" className={cn("overflow-hidden rounded-lg border border-border sm:flex", className)}>
       <div className="aspect-[4/3] bg-muted sm:aspect-auto sm:w-48 sm:shrink-0">
         <SafeImage src={image} alt={name} ratio="auto" className="size-full object-cover" />
       </div>

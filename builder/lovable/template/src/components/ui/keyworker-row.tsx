@@ -33,7 +33,7 @@ export function KeyworkerRow({ name, since, caseload, coverName, coverUntil, vac
 }) {
   if (vacant || !name) {
     return (
-      <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+      <li data-slot="keyworker-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
         <p className="font-medium">No keyworker at the moment.</p>
         <p className="text-xs text-muted-foreground">
           Not a blank field — somebody needs naming, and until then nobody holds this.

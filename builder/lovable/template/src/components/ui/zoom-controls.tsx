@@ -48,7 +48,7 @@ export function ZoomControls({ value, onChange, onFit, min = 0.1, max = 8, class
   }, [value, min, max]);
 
   return (
-    <div className={cn("inline-flex items-center rounded-md border border-border bg-background", className)}>
+    <div data-slot="zoom-controls" className={cn("inline-flex items-center rounded-md border border-border bg-background", className)}>
       <button type="button" onClick={() => onChange(zoomStep(value, -1, min, max))}
         disabled={value <= min} aria-label="Zoom out"
         className="cursor-pointer rounded-s-md p-1.5 hover:bg-muted disabled:pointer-events-none disabled:opacity-40">

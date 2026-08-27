@@ -39,7 +39,7 @@ export function AreaInput({ value, unit, onChange, units = Object.keys(PER_SQM),
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-stretch gap-1.5", className)}>
+    <span data-slot="area-input" className={cn("inline-flex items-stretch gap-1.5", className)}>
       <input id={id} type="number" inputMode="decimal" step="any" min={0}
         value={value ?? ""}
         onChange={(e) => onChange({ value: e.target.value === "" ? null : Number(e.target.value), unit })}

@@ -18,7 +18,7 @@ export function OnCall({ name, role, phone, until, avatar, empty = "Nobody is on
   empty?: string; className?: string;
 }) {
   if (!name) {
-    return <p className={cn("rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm", className)}>{empty}</p>;
+    return <p data-slot="on-call" className={cn("rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm", className)}>{empty}</p>;
   }
   const d = until != null ? toDate(until) : null;
   const ok = d && !Number.isNaN(d.getTime());

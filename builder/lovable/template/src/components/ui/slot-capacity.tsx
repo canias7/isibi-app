@@ -27,7 +27,7 @@ export function SlotCapacity({ left, total, warnAt = 3, unit = "places", classNa
   className?: string;
 }) {
   if (left <= 0) {
-    return <span className={cn("text-sm font-medium", className)}>Full</span>;
+    return <span data-slot="slot-capacity" className={cn("text-sm font-medium", className)}>Full</span>;
   }
   if (left > warnAt) {
     return total !== undefined

@@ -6,7 +6,7 @@ export function LabeledProgress({ label, value, total, unit = "", className }: {
 }) {
   const pct = total ? Math.min(100, (value / total) * 100) : Math.min(100, value);
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="labeled-progress" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-baseline justify-between gap-3 text-sm">
         <span>{label}</span>
         <span className="tabular-nums text-muted-foreground">

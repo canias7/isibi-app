@@ -26,7 +26,7 @@ export function MediaCaption({ children, caption, credit, align = "left", classN
   className?: string;
 }) {
   return (
-    <figure className={cn("m-0 flex flex-col gap-1.5", className)}>
+    <figure data-slot="media-caption" className={cn("m-0 flex flex-col gap-1.5", className)}>
       {children}
       {caption || credit ? (
         <figcaption className={cn("text-xs text-muted-foreground", align === "center" && "text-center")}>

@@ -26,7 +26,7 @@ export function AiEditDiff({ parts, summary, onAccept, onReject, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="ai-edit-diff" className={cn("flex flex-col gap-2 rounded-md border border-border p-3", className)}>
       {summary && <p className="text-xs text-muted-foreground">{summary}</p>}
       <DiffInline parts={parts} />
       {(onAccept || onReject) && (

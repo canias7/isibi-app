@@ -37,7 +37,7 @@ export function PartyInvite({ from, mode, partySize, partyLimit, expiresIn, regi
   const blocked = regionMismatch || versionMismatch;
   const full = partySize !== undefined && partyLimit !== undefined && partySize >= partyLimit;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="party-invite" className={cn("space-y-1 text-sm", className)}>
       <p>
         <span className="font-medium">{from}</span> wants you to join
         {mode ? ` a ${mode}` : " their party"}.

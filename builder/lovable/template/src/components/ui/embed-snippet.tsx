@@ -30,7 +30,7 @@ export function EmbedSnippet({ src, width = "100%", height = 480, title, publicN
   const id = React.useId();
   const code = `<iframe src="${src}" title="${title}" width="${width}" height="${h}" style="border:0" loading="lazy"></iframe>`;
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="embed-snippet" className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-center gap-2">
         <label htmlFor={id} className="text-xs text-muted-foreground">Height</label>
         <input id={id} type="number" inputMode="numeric" min={120} step={20} value={h}

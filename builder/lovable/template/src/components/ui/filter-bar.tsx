@@ -14,7 +14,7 @@ export function FilterBar({ filters, onRemove, onClear, children, className }: {
   children?: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    <div data-slot="filter-bar" className={cn("flex flex-wrap items-center gap-2", className)}>
       {children}
       {filters.map((f) => (
         <Badge key={f.key} variant="secondary" className="gap-1">

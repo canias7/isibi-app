@@ -22,7 +22,7 @@ export function LeaveSafeConsent({ enabled, place, onChange, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="leave-safe-consent" className={cn("flex flex-col gap-1.5", className)}>
       <label className="flex cursor-pointer items-start gap-2 text-sm">
         <input type="checkbox" checked={enabled}
           onChange={(e) => onChange({ enabled: e.target.checked, place })}

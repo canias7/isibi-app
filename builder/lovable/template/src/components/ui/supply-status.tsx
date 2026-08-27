@@ -36,7 +36,7 @@ export function SupplyStatus({ kind = "electricity", meterId, supplier, networkO
 }) {
   const KIND = { electricity: "Electricity", gas: "Gas", water: "Water" }[kind];
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="supply-status" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{KIND}</span>
         {supplier && <span className="text-muted-foreground"> · supplied by {supplier}</span>}

@@ -42,7 +42,7 @@ export function OfferSummary({ role, basePay, payPeriod = "a year", bonusNote, e
     ? new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 }).format(basePay)
     : undefined;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="offer-summary" className={cn("space-y-1 text-sm", className)}>
       {role && <p className="font-medium">{role}</p>}
       <p className="tabular-nums">
         {money ? `${money} ${payPeriod}` : "No base pay stated"}

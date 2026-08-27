@@ -23,7 +23,7 @@ export function StepperInput({ value, onChange, min = 0, max, step = 1, label, i
   const clamp = (n: number) => Math.min(max ?? Infinity, Math.max(min, n));
   const shown = draft ?? String(value);
   return (
-    <div className={cn("inline-flex items-center", className)}>
+    <div data-slot="stepper-input" className={cn("inline-flex items-center", className)}>
       <Button type="button" size="icon-sm" variant="outline" className="rounded-e-none"
         disabled={value <= min} onClick={() => onChange(clamp(value - step))}
         aria-label={label ? `Decrease ${label}` : "Decrease"}>

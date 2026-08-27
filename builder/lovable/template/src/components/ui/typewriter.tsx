@@ -61,7 +61,7 @@ export function Typewriter({ text, speed = 40, startDelay = 0, cursor = true, on
   }, [chars, speed, startDelay]);
 
   return (
-    <span className={cn("relative inline-block", className)}>
+    <span data-slot="typewriter" className={cn("relative inline-block", className)}>
       {/* Holds the full height from the first frame so nothing below jumps. */}
       <span aria-hidden className="invisible">{text}</span>
       <span aria-hidden className="absolute inset-0">

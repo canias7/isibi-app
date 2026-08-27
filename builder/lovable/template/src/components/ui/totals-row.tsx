@@ -11,7 +11,7 @@ export function TotalsRow({ label = "Total", cells, className }: {
   label?: string; cells: React.ReactNode[]; className?: string;
 }) {
   return (
-    <tfoot className={cn("border-t-2 border-border font-medium", className)}>
+    <tfoot data-slot="totals-row" className={cn("border-t-2 border-border font-medium", className)}>
       <tr>
         <td className="py-2.5 ps-2 text-sm">{label}</td>
         {cells.map((c, i) => (

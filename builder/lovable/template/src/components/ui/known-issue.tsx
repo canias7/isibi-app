@@ -22,7 +22,7 @@ export function KnownIssue({ what, workaround, since, updated, href, className }
   className?: string;
 }) {
   return (
-    <div role="status" className={cn("flex flex-col gap-1 rounded-md border border-border p-3 text-sm", className)}>
+    <div data-slot="known-issue" role="status" className={cn("flex flex-col gap-1 rounded-md border border-border p-3 text-sm", className)}>
       <p><span className="font-medium">Known issue</span> — {what}</p>
       {workaround && <p>{workaround}</p>}
       <p className="text-xs text-muted-foreground">

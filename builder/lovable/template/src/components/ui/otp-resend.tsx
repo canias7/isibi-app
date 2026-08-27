@@ -36,7 +36,7 @@ export function OtpResend({ nextAt, onResend, sentTo, busy, className }: {
   const waiting = left > 0;
 
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="otp-resend" className={cn("text-xs text-muted-foreground", className)}>
       {sentTo ? <>Sent to <strong className="font-medium text-foreground">{sentTo}</strong>. </> : null}
       Didn&rsquo;t get it?{" "}
       {waiting ? (

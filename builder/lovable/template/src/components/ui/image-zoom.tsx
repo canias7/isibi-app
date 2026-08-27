@@ -37,7 +37,7 @@ export function ImageZoom({ src, zoomSrc, alt = "", scale = 2.5, className }: {
     });
   };
   return (
-    <div
+    <div data-slot="image-zoom"
       onPointerEnter={(e) => { if (e.pointerType === "mouse") setOn(true); }}
       onPointerLeave={(e) => { if (e.pointerType === "mouse") setOn(false); }}
       onPointerDown={(e) => { if (e.pointerType !== "mouse") { track(e); setOn((v) => !v); } }}

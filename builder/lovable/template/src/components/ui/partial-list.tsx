@@ -29,7 +29,7 @@ export function PartialList({ children, missing, onRetryMissing, retrying, class
   className?: string;
 }) {
   return (
-    <div className={className}>
+    <div data-slot="partial-list" className={className}>
       {children}
       <div role="status"
         className="mt-1 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-foreground px-3 py-2.5 text-xs">

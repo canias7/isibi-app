@@ -33,7 +33,7 @@ export type Amenity = {
 export function AmenityList({ amenities, className }: { amenities: Amenity[]; className?: string }) {
   const broken = amenities.filter((a) => a.outOfOrder);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="amenity-list" className={cn("space-y-1.5", className)}>
       {broken.length > 0 && (
         <p className="text-sm font-medium">
           Out of order: {broken.map((a) => a.what).join(", ")}.

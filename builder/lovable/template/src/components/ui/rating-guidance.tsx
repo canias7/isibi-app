@@ -32,7 +32,7 @@ export function RatingGuidance({ low, high, visibility, affects, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
+    <div data-slot="rating-guidance" className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
       <p>
         <span className="text-foreground">Lowest</span> means {low}.{" "}
         <span className="text-foreground">Highest</span> means {high}.

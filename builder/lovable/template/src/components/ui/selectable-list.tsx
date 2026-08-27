@@ -34,7 +34,7 @@ export function SelectableList<T>({ items, getKey, selected, onChange, renderIte
     }
   };
   return (
-    <div className={cn("divide-y divide-border", className)}>
+    <div data-slot="selectable-list" className={cn("divide-y divide-border", className)}>
       <label className="flex items-center gap-3 py-2">
         <Checkbox checked={all ? true : some ? "indeterminate" : false}
           aria-label={all ? "Clear selection" : "Select all"}

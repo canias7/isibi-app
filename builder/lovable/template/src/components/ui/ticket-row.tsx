@@ -18,7 +18,7 @@ export function TicketRow({ id, subject, requester, state = "open", lastReplyAt,
 }) {
   const tone = { open: "warning", pending: "neutral", resolved: "success", closed: "quiet" } as const;
   return (
-    <div className={cn("flex flex-wrap items-center gap-3 border-b border-border py-3 last:border-0", className)}>
+    <div data-slot="ticket-row" className={cn("flex flex-wrap items-center gap-3 border-b border-border py-3 last:border-0", className)}>
       <IdBadge id={id} head={8} />
       <button type="button" onClick={onClick} disabled={!onClick}
         className={cn("min-w-0 flex-1 text-start", onClick && "cursor-pointer hover:underline")}>

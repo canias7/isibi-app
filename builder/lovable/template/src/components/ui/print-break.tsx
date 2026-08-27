@@ -25,7 +25,7 @@ export function PrintBreak({ mode = "after", children, className }: {
     : mode === "before" ? { breakBefore: "page" as const, pageBreakBefore: "always" as const }
     : { breakAfter: "page" as const, pageBreakAfter: "always" as const };
   if (mode === "avoid") {
-    return <div style={style} className={cn(className)}>{children}</div>;
+    return <div data-slot="print-break" style={style} className={cn(className)}>{children}</div>;
   }
   return <div aria-hidden style={style} className={cn("h-0", className)} />;
 }

@@ -44,7 +44,7 @@ export function CounterServices({
 }) {
   if (!services.length) return null;
   return (
-    <div className={cn("", className)}>
+    <div data-slot="counter-services" className={cn("", className)}>
       <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</h2>
       <ul className="mt-3 divide-y divide-border border-y border-border">
         {services.map((s) => (

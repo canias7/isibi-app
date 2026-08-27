@@ -21,7 +21,7 @@ export function SlashMenu({ items, query = "", activeIndex = 0, onPick, classNam
     : items;
   if (!shown.length) {
     return (
-      <div className={cn("rounded-md border border-border bg-popover px-3 py-2 text-sm text-muted-foreground shadow-md", className)}>
+      <div data-slot="slash-menu" className={cn("rounded-md border border-border bg-popover px-3 py-2 text-sm text-muted-foreground shadow-md", className)}>
         Nothing matches “{query}”.
       </div>
     );

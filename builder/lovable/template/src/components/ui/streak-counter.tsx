@@ -20,7 +20,7 @@ export function StreakCounter({ current, best, unit = "days", rule, className }:
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-0.5", className)}>
+    <div data-slot="streak-counter" className={cn("flex flex-col gap-0.5", className)}>
       <p className="text-sm">
         <span className="text-lg font-semibold tabular-nums">{current.toLocaleString()}</span>
         <span className="text-muted-foreground"> {unit} in a row</span>

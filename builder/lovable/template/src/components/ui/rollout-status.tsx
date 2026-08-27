@@ -43,7 +43,7 @@ export function RolloutStatus({ change, sites, className }: {
   const reverted = sites.filter((s) => s.state === "reverted");
   const blocked = sites.filter((s) => s.state === "blocked");
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="rollout-status" className={cn("space-y-1.5", className)}>
       {change && <p className="text-sm">{change}</p>}
       <p className="text-sm tabular-nums">
         <span className="text-muted-foreground">{live.length} of {sites.length} live · </span>

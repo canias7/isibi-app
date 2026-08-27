@@ -35,7 +35,7 @@ export function MarqueeSelect({ rect, active, className }: {
   if (width < 2 && height < 2) return null;
 
   return (
-    <div aria-hidden
+    <div data-slot="marquee-select" aria-hidden
       style={{ left, top, width, height }}
       className={cn("pointer-events-none absolute z-10 rounded-xs border border-foreground bg-foreground/10", className)} />
   );

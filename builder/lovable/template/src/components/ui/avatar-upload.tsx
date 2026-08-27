@@ -16,7 +16,7 @@ export function AvatarUpload({ src, name = "", onFile, busy, className }: {
   React.useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
   const initials = name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
   return (
-    <div className={cn("flex items-center gap-4", className)}>
+    <div data-slot="avatar-upload" className={cn("flex items-center gap-4", className)}>
       <Avatar className="size-16">
         {(preview || src) && <AvatarImage src={preview || src || ""} alt={name} />}
         <AvatarFallback>{initials}</AvatarFallback>

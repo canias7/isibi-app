@@ -29,7 +29,7 @@ export function PeakNote({ busiest, quietest, basis, className }: {
 }) {
   if (!busiest && !quietest) return null;
   return (
-    <p className={cn("text-sm text-muted-foreground", className)}>
+    <p data-slot="peak-note" className={cn("text-sm text-muted-foreground", className)}>
       {busiest && <span>Usually busiest <span className="text-foreground">{busiest}</span>.</span>}
       {busiest && quietest && " "}
       {quietest && <span>Quietest <span className="text-foreground">{quietest}</span>.</span>}

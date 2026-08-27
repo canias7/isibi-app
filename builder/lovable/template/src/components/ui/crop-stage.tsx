@@ -33,7 +33,7 @@ export function CropStage({ crop, code, scale, means, observedOn, observedBy, cl
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="crop-stage" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{crop}</span>
         <span className="text-muted-foreground"> · </span>

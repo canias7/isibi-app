@@ -27,7 +27,7 @@ export function TipPicker({ subtotal, options = [10, 12.5, 15], value, onChange,
 }) {
   const id = React.useId();
   return (
-    <fieldset className={cn("flex flex-col gap-2", className)}>
+    <fieldset data-slot="tip-picker" className={cn("flex flex-col gap-2", className)}>
       <legend className="text-sm font-medium">Add a tip</legend>
       {/* DEDUPED, because every id and every key here is the PERCENTAGE. `0` is
           appended unconditionally, so `options={[0, 10, 15]}` — an ordinary way

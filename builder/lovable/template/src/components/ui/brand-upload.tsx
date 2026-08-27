@@ -29,7 +29,7 @@ export function BrandUpload({ src, onFile, onRemove, minWidth = 512, note, class
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="brand-upload" className={cn("space-y-2", className)}>
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-md border border-border bg-background p-3">
           <p className="mb-1.5 text-xs text-muted-foreground">On light</p>

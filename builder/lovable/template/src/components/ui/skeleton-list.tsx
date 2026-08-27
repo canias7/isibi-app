@@ -30,7 +30,7 @@ export function SkeletonList({ rows = 6, avatar, lines = 2, delay, className }: 
   className?: string;
 }) {
   return (
-    <div aria-busy="true" className={className}>
+    <div data-slot="skeleton-list" aria-busy="true" className={className}>
       <p className="sr-only">Loading the list</p>
       <Shimmer delay={delay} className="bg-transparent">
         <ul className="flex flex-col divide-y divide-border">

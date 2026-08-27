@@ -29,7 +29,7 @@ export function ReorderButtons({ label, position, total, onMove, className }: {
 }) {
   const first = position <= 1, last = position >= total;
   return (
-    <span className={cn("inline-flex gap-1", className)}>
+    <span data-slot="reorder-buttons" className={cn("inline-flex gap-1", className)}>
       <button type="button" disabled={first} onClick={() => onMove(-1)}
         aria-label={`Move ${label} up, currently ${position} of ${total}`}
         className="grid size-7 cursor-pointer place-items-center rounded border border-border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40">

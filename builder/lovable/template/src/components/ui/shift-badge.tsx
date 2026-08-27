@@ -16,7 +16,7 @@ export function ShiftBadge({ start, end, label, className }: {
   const a = toM(start), b = toM(end);
   const overnight = a != null && b != null && b <= a;
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5 text-xs tabular-nums", className)}>
+    <span data-slot="shift-badge" className={cn("inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5 text-xs tabular-nums", className)}>
       {label && <span className="font-medium">{label}</span>}
       <span>{start}–{end}</span>
       {overnight && <>

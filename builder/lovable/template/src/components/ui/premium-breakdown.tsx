@@ -41,7 +41,7 @@ export function PremiumBreakdown({ parts, tax, monthlyTotal, monthlyAprPercent, 
   const fees = parts.filter((p) => p.isFee).reduce((n, p) => n + p.amount, 0);
   const extra = monthlyTotal !== undefined ? monthlyTotal - total : undefined;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="premium-breakdown" className={cn("space-y-1.5", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {parts.map((p) => (
           <li key={p.id} className="flex items-baseline gap-3 px-3 py-1.5">

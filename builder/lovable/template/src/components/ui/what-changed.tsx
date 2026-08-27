@@ -26,7 +26,7 @@ export function WhatChanged({ items, since, allHref, max = 5, className }: {
   const shown = items.slice(0, max);
   const rest = items.length - shown.length;
   return (
-    <section aria-label="What's new" className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
+    <section data-slot="what-changed" aria-label="What's new" className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-medium">New since you were last here</h2>
         {since && (

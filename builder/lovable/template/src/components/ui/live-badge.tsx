@@ -29,7 +29,7 @@ export function LiveBadge({ live = true, behind, onGoLive, label = "Live", class
 
   if (behind) {
     return (
-      <button type="button" onClick={onGoLive}
+      <button data-slot="live-badge" type="button" onClick={onGoLive}
         className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground", className)}>
         <span aria-hidden className="size-1.5 rounded-full border border-current" />
         Go live

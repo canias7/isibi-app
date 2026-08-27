@@ -21,7 +21,7 @@ export function ContactFallback({ email, phone, note, className }: {
 }) {
   if (!email && !phone) return null;
   return (
-    <div className={cn("flex flex-col gap-0.5 text-sm", className)}>
+    <div data-slot="contact-fallback" className={cn("flex flex-col gap-0.5 text-sm", className)}>
       {note && <p className="text-muted-foreground">{note}</p>}
       {email && (
         <p>

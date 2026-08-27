@@ -13,7 +13,7 @@ export function ConnectedAccount({ provider, identity, avatar, canRemove = true,
   canRemove?: boolean; onRemove?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-3 border-b border-border py-3 last:border-0", className)}>
+    <div data-slot="connected-account" className={cn("flex items-center gap-3 border-b border-border py-3 last:border-0", className)}>
       <AvatarName name={provider} subtitle={identity} src={avatar} size="sm" />
       <span className="flex-1" />
       {onRemove && (

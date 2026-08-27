@@ -18,7 +18,7 @@ export function StaleDataNote({ at, afterMinutes = 5, onRefresh, className }: {
   if (Number.isNaN(d.getTime())) return null;
   if (Date.now() - d.getTime() < afterMinutes * 60_000) return null;
   return (
-    <p className={cn("flex flex-wrap items-center gap-2 text-xs text-muted-foreground", className)}>
+    <p data-slot="stale-data-note" className={cn("flex flex-wrap items-center gap-2 text-xs text-muted-foreground", className)}>
       <RefreshCw className="size-3.5" />
       Last updated <TimeAgo date={d} />
       {onRefresh && <button type="button" onClick={onRefresh}

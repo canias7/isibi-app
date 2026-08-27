@@ -23,7 +23,7 @@ export function SafeAreaPad({ top, bottom, sides, min = 0, children, className }
 }) {
   const px = `${min}px`;
   return (
-    <div
+    <div data-slot="safe-area-pad"
       style={{
         paddingTop: top ? `max(${px}, env(safe-area-inset-top))` : undefined,
         paddingBottom: bottom ? `max(${px}, env(safe-area-inset-bottom))` : undefined,

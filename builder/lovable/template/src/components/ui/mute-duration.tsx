@@ -26,7 +26,7 @@ export function MuteDuration({ options, current, onMute, onUnmute, id, className
 }) {
   if (current !== undefined && current !== null) {
     return (
-      <p className={cn("flex flex-wrap items-baseline gap-x-2 text-sm", className)}>
+      <p data-slot="mute-duration" className={cn("flex flex-wrap items-baseline gap-x-2 text-sm", className)}>
         <span className="text-muted-foreground">Muted until {current}</span>
         {onUnmute && (
           <button type="button" onClick={onUnmute} className="cursor-pointer underline underline-offset-4">Unmute</button>

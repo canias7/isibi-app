@@ -63,7 +63,7 @@ export function InvestmentTable({
   const ranged = high > low;
   const total = ranged ? `${money(low)} – ${money(high)}` : money(low);
   return (
-    <div className={cn("", className)}>
+    <div data-slot="investment-table" className={cn("", className)}>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</caption>

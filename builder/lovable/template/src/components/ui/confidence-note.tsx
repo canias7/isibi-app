@@ -22,7 +22,7 @@ export function ConfidenceNote({ level, what, onVerify, className }: {
 }) {
   const WORD = { high: "Confident", medium: "Fairly confident", low: "Not sure" } as const;
   return (
-    <p className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
+    <p data-slot="confidence-note" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
       <span className={cn(level === "low" ? "font-medium" : "text-muted-foreground")}>
         {WORD[level]}{what ? ` about ${what}` : ""}
       </span>

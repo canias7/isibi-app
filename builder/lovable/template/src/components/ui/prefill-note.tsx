@@ -20,7 +20,7 @@ export function PrefillNote({ source, onClear, className }: {
   className?: string;
 }) {
   return (
-    <p role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
+    <p data-slot="prefill-note" role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
       <span>Filled in from {source}</span>
       {onClear && (
         <button type="button" onClick={onClear} className="cursor-pointer underline underline-offset-2">

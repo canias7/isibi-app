@@ -55,7 +55,7 @@ export function StackTrace({ error, message, frames, defaultExpanded, className 
   );
 
   return (
-    <div className={cn("overflow-hidden rounded-md border border-border", className)}>
+    <div data-slot="stack-trace" className={cn("overflow-hidden rounded-md border border-border", className)}>
       {error || message ? (
         <div className="border-b border-border bg-muted px-3 py-2">
           {error ? <p className="font-mono text-xs font-semibold">{error}</p> : null}

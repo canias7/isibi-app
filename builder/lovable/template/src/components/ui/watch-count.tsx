@@ -20,7 +20,7 @@ export function WatchCount({ count, youAreWatching, className }: {
 }) {
   if (count <= 0) return null;
   return (
-    <span className={cn("text-xs text-muted-foreground tabular-nums", className)}>
+    <span data-slot="watch-count" className={cn("text-xs text-muted-foreground tabular-nums", className)}>
       {count} watching{youAreWatching ? ", including you" : ""}
     </span>
   );

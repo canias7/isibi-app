@@ -29,7 +29,7 @@ export function PurposeList({ purposes, title, essentialWord = "needed", classNa
   if (!purposes.length) return null;
   const sorted = [...purposes].sort((a, b) => Number(Boolean(b.essential)) - Number(Boolean(a.essential)));
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="purpose-list" className={cn("space-y-1", className)}>
       {title && <p className="text-sm font-medium">{title}</p>}
       <ul className="space-y-1 text-sm">
         {sorted.map((p) => (

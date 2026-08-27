@@ -27,7 +27,7 @@ export function NfcPrompt({ state, onScan, onManual, manualLabel = "Type the cod
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="nfc-prompt" className={cn("space-y-2", className)}>
       {state === "unsupported" ? (
         <p className="text-sm">
           <span className="font-medium">Your browser cannot read tags.</span>

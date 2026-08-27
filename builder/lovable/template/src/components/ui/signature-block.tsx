@@ -13,7 +13,7 @@ export function SignatureBlock({ name, role, signedAt, signature, label = "Signe
   signature?: string | null; label?: string; className?: string;
 }) {
   return (
-    <div className={cn("max-w-xs", className)}>
+    <div data-slot="signature-block" className={cn("max-w-xs", className)}>
       <div className="flex h-16 items-end border-b border-foreground/60">
         {signature && <SafeImage src={signature} alt={name ? `${name}'s signature` : "Signature"}
           className="max-h-14 w-auto object-contain" />}

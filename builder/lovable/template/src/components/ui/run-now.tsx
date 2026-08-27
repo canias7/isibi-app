@@ -40,7 +40,7 @@ export function RunNow({ affected, onRun, onTest, running, result, className }: 
     );
   };
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="run-now" className={cn("space-y-1.5", className)}>
       <div className="flex flex-wrap gap-2">
         {onTest && (
           <Button type="button" size="sm" variant="outline" onClick={onTest} disabled={running}>

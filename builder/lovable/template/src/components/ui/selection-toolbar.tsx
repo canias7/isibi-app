@@ -37,7 +37,7 @@ export function SelectionToolbar({ containerRef, children, className }: {
   }, [containerRef]);
   if (!box) return null;
   return (
-    <div style={{ top: box.top, left: box.left }}
+    <div data-slot="selection-toolbar" style={{ top: box.top, left: box.left }}
       onMouseDown={(e) => e.preventDefault()}
       className={cn("absolute z-40 -translate-x-1/2 rounded-md border border-border bg-popover p-1 shadow-md", className)}>
       {children}

@@ -30,7 +30,7 @@ export type ConsentItem = {
 export function ConsentSummary({ items, className }: { items: ConsentItem[]; className?: string }) {
   if (!items.length) return null;
   return (
-    <dl className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
+    <dl data-slot="consent-summary" className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {items.map((c) => {
         const d = c.at ? toDate(c.at) : null;
         const ok = d && !Number.isNaN(d.getTime());

@@ -23,7 +23,7 @@ export function FormDraft({ state, at, onRetry, className }: {
 }) {
   if (state === "failed") {
     return (
-      <p role="alert" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
+      <p data-slot="form-draft" role="alert" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
         <span className="font-medium">Couldn&apos;t save your draft</span>
         {onRetry && (
           <button type="button" onClick={onRetry} className="cursor-pointer underline underline-offset-2">Try again</button>

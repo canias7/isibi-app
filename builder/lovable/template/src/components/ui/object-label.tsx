@@ -37,7 +37,7 @@ export function ObjectLabel({ title, maker, culture, place, date, material, acce
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="object-label" className={cn("space-y-1 text-sm", className)}>
       <p className="font-medium">{title}</p>
       <p className="text-xs text-muted-foreground">
         {maker ?? "Maker unknown"}

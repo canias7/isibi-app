@@ -43,7 +43,7 @@ export function PrintRange({ value, onChange, total, id, className }: {
   const fieldId = id ?? auto;
   const pages = value.trim() ? parseRange(value, total) : [];
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="print-range" className={cn("flex flex-col gap-1", className)}>
       <label htmlFor={fieldId} className="text-sm font-medium">Pages</label>
       <input id={fieldId} value={value} onChange={(e) => onChange(e.target.value)}
         placeholder={`1-${total}`} inputMode="numeric"

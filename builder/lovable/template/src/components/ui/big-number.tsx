@@ -36,7 +36,7 @@ export function BigNumber({ value, label, period, compare, format, compactFrom =
       : value.toLocaleString();
 
   return (
-    <div className={cn("flex flex-col gap-0.5", className)}>
+    <div data-slot="big-number" className={cn("flex flex-col gap-0.5", className)}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="text-3xl font-bold tabular-nums" title={shown === exact ? undefined : exact}>
         <span aria-hidden>{shown}</span>

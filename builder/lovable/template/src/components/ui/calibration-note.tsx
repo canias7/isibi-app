@@ -37,7 +37,7 @@ export function CalibrationNote({ instrument, lastOn, dueOn, daysOverdue = 0, st
 }) {
   const over = daysOverdue > 0;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="calibration-note" className={cn("space-y-0.5 text-sm", className)}>
       {/* The instrument is on its own line: names routinely contain a dash
           ("Pipette P200 — 04471"), and joining with another produces a sentence
           with two of them. */}

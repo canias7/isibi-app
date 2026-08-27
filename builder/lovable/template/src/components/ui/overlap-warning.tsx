@@ -33,7 +33,7 @@ export function OverlapWarning({ clashes, note, max = 3, className }: {
   const rest = clashes.length - shown.length;
 
   return (
-    <div role="status" className={cn("flex flex-col gap-1 text-sm", className)}>
+    <div data-slot="overlap-warning" role="status" className={cn("flex flex-col gap-1 text-sm", className)}>
       <p className="font-medium">
         {clashes.length === 1 ? "This overlaps something" : `This overlaps ${clashes.length} things`}
       </p>

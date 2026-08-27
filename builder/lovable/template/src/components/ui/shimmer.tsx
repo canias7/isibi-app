@@ -33,7 +33,7 @@ export function Shimmer({ delay = 300, className, children }: {
 
   if (!show) return null;
   return (
-    <div aria-hidden className={cn("relative overflow-hidden rounded-md bg-muted", className)}>
+    <div data-slot="shimmer" aria-hidden className={cn("relative overflow-hidden rounded-md bg-muted", className)}>
       <div className="absolute inset-0 motion-safe:animate-[shimmer-sweep_1.6s_ease-in-out_infinite] motion-safe:bg-[linear-gradient(100deg,transparent_30%,var(--background)_50%,transparent_70%)] motion-safe:opacity-60" />
       {children}
       <style>{`@keyframes shimmer-sweep {

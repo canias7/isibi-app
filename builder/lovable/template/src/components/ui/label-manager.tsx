@@ -36,7 +36,7 @@ export function LabelManager({ labels, onAdd, onRename, onDelete, className }: {
     labels.some((l) => l.id !== exceptId && l.name.trim().toLowerCase() === name.trim().toLowerCase());
   const canAdd = next.trim().length > 0 && !taken(next);
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="label-manager" className={cn("space-y-3", className)}>
       <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (canAdd) { onAdd(next.trim()); setNext(""); } }}>
         <input value={next} onChange={(e) => setNext(e.target.value)} aria-label="New label"
           placeholder="New label"

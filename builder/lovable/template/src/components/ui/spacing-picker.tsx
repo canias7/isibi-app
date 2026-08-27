@@ -16,7 +16,7 @@ export function SpacingPicker({ value, onChange, options, label, className }: {
     { value: "1.5rem", label: "Loose" }, { value: "2.5rem", label: "Roomy" },
   ];
   return (
-    <div className={cn("flex flex-wrap gap-2", className)} role="group" aria-label={label ?? "Spacing"}>
+    <div data-slot="spacing-picker" className={cn("flex flex-wrap gap-2", className)} role="group" aria-label={label ?? "Spacing"}>
       {opts.map((o) => (
         <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}
           className={cn("flex w-16 cursor-pointer flex-col items-center gap-1.5 rounded-md border p-2",

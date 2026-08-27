@@ -24,7 +24,7 @@ export function ColourSwatch({ colours, value, onChange, className }: {
 }) {
   const picked = colours.find((c) => c.key === value);
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="colour-swatch" className={cn("flex flex-col gap-1.5", className)}>
       <p className="text-xs">
         Colour: <b>{picked?.name ?? "choose one"}</b>
         {picked?.soldOut ? <span className="text-muted-foreground"> — sold out</span> : null}

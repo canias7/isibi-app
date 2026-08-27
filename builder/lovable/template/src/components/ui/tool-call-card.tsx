@@ -38,7 +38,7 @@ export function ToolCallCard({
   const word = status === "running" ? "running" : status === "failed" ? "failed" : "finished";
 
   return (
-    <div className={cn("rounded-lg border border-border text-sm", className)}>
+    <div data-slot="tool-call-card" className={cn("rounded-lg border border-border text-sm", className)}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-start hover:bg-muted/60">
         <ChevronRight aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />

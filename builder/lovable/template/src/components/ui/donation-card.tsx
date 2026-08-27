@@ -20,7 +20,7 @@ export function DonationCard({ title, raised, goal, currency = "£", presets = [
   const pct = goal ? Math.min(100, ((raised ?? 0) / goal) * 100) : null;
   const chosen = other ? Number(other) : amount;
   return (
-    <div className={cn("space-y-4 rounded-lg border border-border p-4", className)}>
+    <div data-slot="donation-card" className={cn("space-y-4 rounded-lg border border-border p-4", className)}>
       <h3 className="text-sm font-medium">{title}</h3>
       {pct != null && (
         <div className="space-y-1.5">

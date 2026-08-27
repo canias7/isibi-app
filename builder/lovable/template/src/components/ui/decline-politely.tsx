@@ -28,7 +28,7 @@ export function DeclinePolitely({ reasons = ["Too far away", "Timing does not wo
 }) {
   const id = useId();
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="decline-politely" className={cn("space-y-1.5", className)}>
       <fieldset className="space-y-1">
         <legend className="text-sm font-medium">Why not, if you do not mind saying</legend>
         <p className="text-xs text-muted-foreground">

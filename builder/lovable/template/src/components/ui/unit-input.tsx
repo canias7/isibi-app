@@ -14,7 +14,7 @@ export function UnitInput({ value, unit, units, onValueChange, onUnitChange, id,
   id?: string; placeholder?: string; className?: string;
 }) {
   return (
-    <div className={cn("flex", className)}>
+    <div data-slot="unit-input" className={cn("flex", className)}>
       <Input id={id} inputMode="decimal" value={value} placeholder={placeholder}
         className="rounded-e-none tabular-nums"
         onChange={(e) => onValueChange(e.target.value.replace(/[^0-9.,]/g, ""))} />

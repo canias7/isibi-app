@@ -42,7 +42,7 @@ export function HeaderTable({ headers, mask = [], title, className }: {
   }, [headers]);
 
   return (
-    <div className={cn("overflow-hidden rounded-md border border-border", className)}>
+    <div data-slot="header-table" className={cn("overflow-hidden rounded-md border border-border", className)}>
       {title ? <p className="border-b border-border bg-muted px-3 py-1.5 text-xs font-semibold">{title}</p> : null}
       <table className="w-full border-collapse font-mono text-xs">
         <tbody>

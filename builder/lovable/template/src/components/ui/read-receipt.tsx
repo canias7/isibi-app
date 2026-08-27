@@ -30,7 +30,7 @@ export function ReadReceipt({ state, readBy = [], unreadBy = [], at, className }
   const ok = d && !Number.isNaN(d.getTime());
   const WORD = { sent: "Sent", delivered: "Delivered", read: "Read", unknown: "No read receipt" } as const;
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="read-receipt" className={cn("text-xs text-muted-foreground", className)}>
       <span className={cn(state === "read" && "text-foreground")}>{WORD[state]}</span>
       {ok && (
         <> · <time dateTime={isoAttr(d)}>

@@ -41,7 +41,7 @@ export function WizardExitGuard({ dirty, savedAt, onSave, message = "Your answer
       : null;
   }
   return (
-    <p className={cn("flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground", className)}>
+    <p data-slot="wizard-exit-guard" className={cn("flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground", className)}>
       <span>{message}</span>
       {onSave && (
         <button type="button" onClick={onSave} className="underline underline-offset-2">Save now</button>

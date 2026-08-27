@@ -5,7 +5,7 @@ export function PrevNext({ prev, next, className }: {
   prev?: { label: string; href: string }; next?: { label: string; href: string }; className?: string;
 }) {
   return (
-    <nav className={cn("flex items-stretch justify-between gap-4 border-t pt-6", className)}>
+    <nav data-slot="prev-next" className={cn("flex items-stretch justify-between gap-4 border-t pt-6", className)}>
       {prev ? (
         <a href={prev.href} className="group flex min-w-0 flex-col items-start gap-1">
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><ArrowLeft className="size-3.5" />Previous</span>

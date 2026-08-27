@@ -25,7 +25,7 @@ export function PipelineStage({ stages, className }: { stages: Stage[]; classNam
     null,
   );
   return (
-    <div className={cn("space-y-2.5", className)}>
+    <div data-slot="pipeline-stage" className={cn("space-y-2.5", className)}>
       <ul className="space-y-2.5">
         {stages.map((s, i) => {
           const prev = stages[i - 1];

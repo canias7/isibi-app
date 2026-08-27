@@ -38,7 +38,7 @@ export function VariationOrder({ reference, description, cost, days, state, inst
   } as const;
   const risky = state === "instructed";
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="variation-order" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         {reference && <code className="font-mono text-xs text-muted-foreground">{reference}</code>}
         <span className="min-w-0 flex-1">{description}</span>

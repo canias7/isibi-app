@@ -38,7 +38,7 @@ export function ConnectionHealth({ state, lastSuccess, error, failingSince, acti
   } as const;
   const bad = state === "failing" || state === "attention";
   return (
-    <div role="status"
+    <div data-slot="connection-health" role="status"
       className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2 text-sm",
         bad ? "border-foreground/40 bg-muted/40" : "border-border", className)}>
       <span className="min-w-0 flex-1">

@@ -37,7 +37,7 @@ export function BooleanFilter({ label, value, onChange, yesLabel = "Yes", noLabe
     { v: false, text: noLabel },
   ];
   return (
-    <fieldset className={cn("space-y-1", className)}>
+    <fieldset data-slot="boolean-filter" className={cn("space-y-1", className)}>
       <legend className="text-sm font-medium">{label}</legend>
       <div className="flex flex-wrap gap-3">
         {options.map((o) => (

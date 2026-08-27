@@ -52,7 +52,7 @@ export function WorkspaceSwitcher({ workspaces, value, onChange, onCreate, group
           const rows = workspaces.filter((w) => (w.group ?? "") === g);
           if (rows.length === 0) return null;
           return (
-            <div key={g || "_"}>
+            <div data-slot="workspace-switcher" key={g || "_"}>
               {g ? <p className="px-2 pt-1.5 pb-1 text-[11px] font-medium text-muted-foreground">{g}</p> : null}
               <ul>
                 {rows.map((w) => (

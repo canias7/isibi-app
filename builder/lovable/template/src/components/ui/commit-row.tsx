@@ -35,7 +35,7 @@ export function CommitRow({
 }) {
   const [open, setOpen] = React.useState(false);
   return (
-    <div className={cn("flex flex-col gap-1 py-2", className)}>
+    <div data-slot="commit-row" className={cn("flex flex-col gap-1 py-2", className)}>
       <div className="flex items-baseline gap-2">
         <p className="min-w-0 flex-1 text-sm">
           {href ? (

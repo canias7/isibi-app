@@ -31,7 +31,7 @@ export function StageGate({ title, conditions, onProceed, proceedLabel = "Contin
   const left = conditions.filter((c) => !c.met);
 
   return (
-    <div className={cn("flex flex-col gap-3 rounded-lg border border-border p-3", className)}>
+    <div data-slot="stage-gate" className={cn("flex flex-col gap-3 rounded-lg border border-border p-3", className)}>
       {title ? <p className="text-sm font-semibold">{title}</p> : null}
       <ul className="flex flex-col gap-1.5">
         {ordered.map((c) => (

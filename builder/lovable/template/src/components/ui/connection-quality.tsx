@@ -25,7 +25,7 @@ export function ConnectionQuality({ level, latencyMs, showLabel = true, classNam
 }) {
   const n = Math.min(Math.max(level, 0), 3);
   return (
-    <span className={cn("inline-flex items-center gap-2 text-sm", className)}>
+    <span data-slot="connection-quality" className={cn("inline-flex items-center gap-2 text-sm", className)}>
       <span aria-hidden className="inline-flex items-end gap-0.5">
         {[1, 2, 3].map((bar) => (
           <span key={bar}

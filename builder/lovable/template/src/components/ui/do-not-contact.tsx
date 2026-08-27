@@ -33,7 +33,7 @@ export function DoNotContact({ scopes, setBy, at, reason, className }: {
   const d = at ? toDate(at) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
-    <div {...(blanket ? { role: "alert" } : { role: "status" })}
+    <div data-slot="do-not-contact" {...(blanket ? { role: "alert" } : { role: "status" })}
       className={cn("rounded-md border px-3 py-2 text-sm",
         blanket ? "border-foreground/40 bg-muted/40" : "border-border", className)}>
       <p className="font-medium">

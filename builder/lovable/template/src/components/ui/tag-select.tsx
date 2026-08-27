@@ -43,7 +43,7 @@ export function TagSelect({ value, onChange, options, placeholder = "Add…", ma
   };
   const add = (v: string) => { onChange([...value, v]); setQ(""); setActive(0); };
   return (
-    <div className={cn("relative", className)}>
+    <div data-slot="tag-select" className={cn("relative", className)}>
       <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-input px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring/40">
         {value.map((v) => (
           <span key={v} className="inline-flex items-center gap-1 rounded bg-muted py-0.5 ps-2 pe-1 text-sm">

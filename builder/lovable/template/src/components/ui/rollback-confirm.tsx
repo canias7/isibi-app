@@ -42,7 +42,7 @@ export function RollbackConfirm({
   const ready = !confirmWord || typed.trim() === confirmWord;
 
   return (
-    <section role="alertdialog" aria-label={`Roll back ${what}`}
+    <section data-slot="rollback-confirm" role="alertdialog" aria-label={`Roll back ${what}`}
       className={cn("flex flex-col gap-3 rounded-md border border-border p-4", className)}>
       <div>
         <p className="text-sm font-medium">Roll back {what}?</p>

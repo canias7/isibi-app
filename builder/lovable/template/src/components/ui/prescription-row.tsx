@@ -41,7 +41,7 @@ export function PrescriptionRow({ item, dispensed, unavailable, unavailableReaso
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 border-b border-border py-2 text-sm last:border-b-0", className)}>
+    <div data-slot="prescription-row" className={cn("space-y-0.5 border-b border-border py-2 text-sm last:border-b-0", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 font-medium">
           {item.drug}

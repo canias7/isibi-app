@@ -47,7 +47,7 @@ export function MotionVote({ number, wording, proposedBy, secondedBy, forVotes, 
   const carried = share > thresholdFraction;
   const cast = forVotes + againstVotes + abstentions;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="motion-vote" className={cn("space-y-0.5 text-sm", className)}>
       {number !== undefined && <p className="text-xs text-muted-foreground">Motion {number}</p>}
       <p>{wording}</p>
       {(proposedBy || secondedBy) && (

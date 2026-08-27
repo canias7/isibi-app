@@ -33,7 +33,7 @@ export function ReleaseFreeze({ active, until, reason, stillAllowed = [], except
 }) {
   if (!active) return null;
   return (
-    <div role="status"
+    <div data-slot="release-freeze" role="status"
       className={cn("space-y-1 rounded-md border border-foreground/40 bg-muted/40 px-3 py-2 text-sm", className)}>
       <p>
         <span className="font-medium">Releases are frozen{until ? ` until ${until}` : ""}</span>

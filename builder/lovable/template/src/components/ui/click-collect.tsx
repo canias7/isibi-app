@@ -31,7 +31,7 @@ export function ClickCollect({ value, onChange, delivery, collect, currency = "G
     { key: "collect" as const, title: `Collect from ${collect.place}`, price: collect.priceMinor ?? 0, when: collect.when, sub: collect.hours },
   ];
   return (
-    <fieldset className={cn("flex flex-col gap-1.5", className)}>
+    <fieldset data-slot="click-collect" className={cn("flex flex-col gap-1.5", className)}>
       <legend className="sr-only">How to get it</legend>
       {rows.map((r) => (
         <label key={r.key}

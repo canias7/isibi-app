@@ -39,7 +39,7 @@ export function DemurrageNote({ container, kind = "demurrage", freeUntil, daysCh
   const charging = (daysCharged ?? 0) > 0;
   const WORD = kind === "demurrage" ? "sitting in the terminal" : "not yet returned";
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="demurrage-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         {container && <code className="font-mono text-xs">{container}</code>}
         <span className={cn("block", charging && "font-medium")}>

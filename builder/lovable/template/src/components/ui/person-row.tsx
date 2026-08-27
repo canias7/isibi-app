@@ -18,7 +18,7 @@ export function PersonRow({ name, role, email, phone, avatar, presence, actions,
   actions?: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center gap-3 border-b border-border py-2.5 last:border-0", className)}>
+    <div data-slot="person-row" className={cn("flex flex-wrap items-center gap-3 border-b border-border py-2.5 last:border-0", className)}>
       <div className="relative">
         <AvatarName name={name} src={avatar} size="md" avatarOnly />
         {presence && <span className="absolute -bottom-0.5 -end-0.5">

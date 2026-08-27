@@ -38,7 +38,7 @@ export function CellarRow({ what, vintage, location, bottles, readyFrom, bestBef
   const pastBest = yearsPastBest !== undefined && yearsPastBest > 0;
   const yrs = (n: number) => `${n} ${n === 1 ? "year" : "years"}`;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="cellar-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1">
           <span className="font-medium">{what}</span>

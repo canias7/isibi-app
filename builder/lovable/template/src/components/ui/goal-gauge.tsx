@@ -46,7 +46,7 @@ export function GoalGauge({ value, goal, label, unit = "", size = 120, className
   // is under the tightest case that can occur, with the rest as clearance.
   const fs = Math.min(20, 76 / (0.7 * Math.max(middle.length, 1)));
   return (
-    <div className={cn("inline-flex flex-col items-center gap-1", className)}>
+    <div data-slot="goal-gauge" className={cn("inline-flex flex-col items-center gap-1", className)}>
       <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
         <g transform="rotate(-90 50 50)">
           <circle cx="50" cy="50" r={r} fill="none" strokeWidth="8" className="stroke-muted" />

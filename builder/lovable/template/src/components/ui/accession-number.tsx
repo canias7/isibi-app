@@ -36,7 +36,7 @@ export function AccessionNumber({ number, shelfMark, year, partOf, partCount, aw
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="accession-number" className={cn("space-y-0.5 text-sm", className)}>
       <p className="text-xs text-muted-foreground">Accession number</p>
       {awaiting || !number ? (
         <p className="text-sm font-medium">Not yet accessioned.</p>

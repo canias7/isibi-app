@@ -38,7 +38,7 @@ export function DistanceInput({ value, unit, onChange, units = ["m", "km", "ft",
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-stretch gap-1.5", className)}>
+    <span data-slot="distance-input" className={cn("inline-flex items-stretch gap-1.5", className)}>
       <input id={id} type="number" inputMode="decimal" step="any" min={0} value={value ?? ""}
         onChange={(e) => onChange({ value: e.target.value === "" ? null : Number(e.target.value), unit })}
         className="h-9 w-28 rounded-md border border-input bg-transparent px-2 text-sm tabular-nums" />

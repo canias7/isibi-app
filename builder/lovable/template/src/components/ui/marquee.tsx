@@ -17,7 +17,7 @@ export function Marquee({ items, speed = 30, className }: {
 }) {
   const row = [...items, ...items];
   return (
-    <div className={cn("group relative overflow-hidden [mask-image:linear-gradient(90deg,transparent,#000_8%,#000_92%,transparent)]", className)}>
+    <div data-slot="marquee" className={cn("group relative overflow-hidden [mask-image:linear-gradient(90deg,transparent,#000_8%,#000_92%,transparent)]", className)}>
       <style>{`@keyframes isibi-marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
         @media (prefers-reduced-motion:reduce){.isibi-marquee{animation:none!important}}`}</style>
       <div className="isibi-marquee flex w-max gap-10 group-hover:[animation-play-state:paused]"

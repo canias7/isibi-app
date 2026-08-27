@@ -15,7 +15,7 @@ export function UploadProgress({ name, percent, error, onCancel, onRetry, classN
   onCancel?: () => void; onRetry?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-1.5 border-b border-border py-2.5 last:border-0", className)}>
+    <div data-slot="upload-progress" className={cn("flex flex-col gap-1.5 border-b border-border py-2.5 last:border-0", className)}>
       <div className="flex items-center gap-2">
         <FileTypeIcon name={name} className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm">{name}</span>

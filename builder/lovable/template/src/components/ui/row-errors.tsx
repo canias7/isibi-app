@@ -18,7 +18,7 @@ export function RowErrors({ errors, max = 20, className }: {
   if (!errors.length) return null;
   const shown = errors.slice(0, max);
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="row-errors" className={cn("space-y-2", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {shown.map((e, i) => (
           <li key={i} className="flex gap-3 px-3 py-2">

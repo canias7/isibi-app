@@ -39,7 +39,7 @@ export function ScrapRate({ made, scrapped, reworked = 0, unitCost, targetPercen
     : undefined;
   const overTarget = targetPercent !== undefined && rate * 100 > targetPercent;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="scrap-rate" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className={cn("tabular-nums", overTarget && "font-medium")}>{pct.format(rate)} scrapped</span>
         {money && <span className="text-muted-foreground tabular-nums"> · {money}</span>}

@@ -32,7 +32,7 @@ export function IncotermNote({ term, place, freightPaidBy, riskPassesAt, insured
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="incoterm-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{term}</span>
         {place

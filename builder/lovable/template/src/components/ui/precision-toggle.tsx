@@ -38,7 +38,7 @@ export function PrecisionToggle({ exact, onChange, nearest = 100, className }: {
   className?: string;
 }) {
   return (
-    <button type="button" onClick={() => onChange(!exact)} aria-pressed={exact}
+    <button data-slot="precision-toggle" type="button" onClick={() => onChange(!exact)} aria-pressed={exact}
       className={cn("cursor-pointer rounded-md border border-border px-2 py-1 text-xs hover:bg-muted", className)}>
       {exact ? "Showing exact figures" : `Rounded to the nearest ${nearest.toLocaleString()}`}
     </button>
@@ -54,7 +54,7 @@ export function PrecisionNumber({ value, format, className }: {
   const shown = exact ? value : Math.round(value / nearest) * nearest;
   const text = format ? format(shown) : shown.toLocaleString();
   return (
-    <span className={cn("tabular-nums", className)} title={exact ? undefined : (format ? format(value) : value.toLocaleString())}>
+    <span data-slot="precision-number" className={cn("tabular-nums", className)} title={exact ? undefined : (format ? format(value) : value.toLocaleString())}>
       {exact ? text : `~${text}`}
     </span>
   );

@@ -14,7 +14,7 @@ export function ScrollProgress({ className }: { className?: string }) {
     return () => { window.removeEventListener("scroll", on); window.removeEventListener("resize", on); };
   }, []);
   return (
-    <div className={cn("fixed inset-x-0 top-0 z-50 h-0.5 bg-transparent", className)} aria-hidden="true">
+    <div data-slot="scroll-progress" className={cn("fixed inset-x-0 top-0 z-50 h-0.5 bg-transparent", className)} aria-hidden="true">
       <div className="h-full bg-foreground transition-[width] duration-(--dur-1)" style={{ width: pct + "%" }} />
     </div>
   );

@@ -31,7 +31,7 @@ export function PushToTalk({ listening, onStart, onStop, mode = "hold", disabled
 }) {
   const hold = mode === "hold";
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="push-to-talk" className={cn("space-y-1", className)}>
       <button type="button" disabled={disabled}
         {...(hold
           ? {

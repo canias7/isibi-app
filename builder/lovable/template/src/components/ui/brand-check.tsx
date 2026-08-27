@@ -26,7 +26,7 @@ export function BrandCheck({ issues, allClearNote = "Nothing obviously wrong", c
   className?: string;
 }) {
   if (!issues.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{allClearNote}</p>;
+    return <p data-slot="brand-check" className={cn("text-sm text-muted-foreground", className)}>{allClearNote}</p>;
   }
   const problems = issues.filter((i) => !i.warning);
   const warnings = issues.filter((i) => i.warning);

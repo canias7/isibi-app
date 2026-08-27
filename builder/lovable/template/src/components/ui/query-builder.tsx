@@ -54,7 +54,7 @@ export function QueryBuilder({ fields, rules, joiner, onRules, onJoiner, classNa
     onRules(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
   return (
-    <div className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
+    <div data-slot="query-builder" className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
       <div className="flex items-center gap-2 text-xs">
         <span className="text-muted-foreground">Match</span>
         {/* One joiner for the group: mixed AND/OR without brackets is ambiguous. */}

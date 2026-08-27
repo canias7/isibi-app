@@ -10,6 +10,31 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## Arm C — component css that actually lands, and the footer stops making things up (2026-08-27)
+
+Two of your reports drove this, plus your 70-item component list ("here is the
+list, you can start preping it" → "go do arm c with this stuff plus the other
+previus axes").
+
+- **Why component css never worked before:** the Brewline build already TRIED
+  to style the components — about 20 rules aimed at the sidebar, the stat
+  cards, the table. Every one of them hit nothing, silently: the components
+  didn't carry the name tags the model was guessing at (only 26 of 2,112 did).
+  So the kit now carries a real tag on nearly every component (1,971 of
+  2,112), and the design step is told the tags are real and what they're
+  called. Your 70 axes went in as the same kind of list as the 65 — decisions
+  the model makes itself, no menus.
+- **The footer ("it did this again"):** both tool builds closed every page on
+  a marketing footer with a phone number, email, address and opening hours
+  that appear nowhere in your brief — invented, and the phone number is the
+  fake-number range TV dramas use. The rule now: a tool's footer is the name
+  and the nav, and contact details appear ONLY if the brief states them.
+- **The sidebar placement** you flagged is what arm C is judged on — no
+  special rule was added for it; the component axes are the lever.
+- Arm C is run 51, `northgroup-15`, same brief as the other two. The push
+  rebuilds the build container (the components ship inside it), so the build
+  fires ~15–20 minutes after the deploy — the same wait rule as always.
+
 ## The axes A/B — two builds, one brief, one difference (2026-08-27)
 
 Your call: *"make a build with what we have, then i would do axes and we can

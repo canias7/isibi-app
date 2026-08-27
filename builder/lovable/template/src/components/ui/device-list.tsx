@@ -36,7 +36,7 @@ export function DeviceList({ devices, onRevoke, onRevokeAll, busyId, className }
   const others = devices.filter((d) => !d.current).length;
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="device-list" className={cn("flex flex-col gap-3", className)}>
       <ul className="divide-y divide-border rounded-md border border-border">
         {devices.map((d) => {
           const Icon = icon(d.device);

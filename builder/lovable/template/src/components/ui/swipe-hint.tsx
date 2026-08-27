@@ -36,7 +36,7 @@ export function SwipeHint({ action = "more options", alternative = "the ⋯ menu
   }, []);
   if (!touch || seen) return null;
   return (
-    <p aria-hidden="true" className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="swipe-hint" aria-hidden="true" className={cn("text-xs text-muted-foreground", className)}>
       Swipe a row for {action} — or use {alternative}.
     </p>
   );

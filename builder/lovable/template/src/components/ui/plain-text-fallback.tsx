@@ -30,7 +30,7 @@ export function PlainTextFallback({ text, onChange, droppedImages = 0, droppedBu
 }) {
   const dropped = droppedImages + droppedButtons;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="plain-text-fallback" className={cn("space-y-1", className)}>
       {onChange ? (
         <textarea rows={6} value={text} aria-label="Plain text version"
           onChange={(e) => onChange(e.target.value)}

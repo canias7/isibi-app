@@ -28,7 +28,7 @@ export function ProofOfDelivery({ at, place, signedBy, photo, coords, className 
   className?: string;
 }) {
   return (
-    <figure className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
+    <figure data-slot="proof-of-delivery" className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
       <figcaption className="text-xs">
         <b>Delivered {at}</b>
         {place ? <span className="block text-muted-foreground">Left {place}</span> : null}

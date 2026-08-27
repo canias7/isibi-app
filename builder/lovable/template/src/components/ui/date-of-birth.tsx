@@ -24,7 +24,7 @@ export function DateOfBirth({ value, onChange, id = "dob", className }: {
     new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }));
   const digits = (s: string, max: number) => s.replace(/\D/g, "").slice(0, max);
   return (
-    <fieldset className={cn("w-full min-w-0 space-y-1.5", className)}>
+    <fieldset data-slot="date-of-birth" className={cn("w-full min-w-0 space-y-1.5", className)}>
       <div className="flex gap-2">
         <div className="w-20">
           <Label htmlFor={`${id}-day`} className="text-xs text-muted-foreground">Day</Label>

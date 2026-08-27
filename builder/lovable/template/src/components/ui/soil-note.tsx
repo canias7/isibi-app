@@ -37,7 +37,7 @@ export function SoilNote({ parcel, ph, phTarget, indices = [], sampledOn, ageYea
   const stale = ageYears !== undefined && ageYears >= staleAfter;
   const phLow = ph !== undefined && phTarget ? ph < Number(phTarget.split(/[^\d.]+/).filter(Boolean)[0] ?? 0) : false;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="soil-note" className={cn("space-y-1", className)}>
       <p className="text-sm">
         {parcel && <span className="font-medium">{parcel}</span>}
         {sampledOn && <span className="text-muted-foreground">{parcel ? " · " : ""}sampled {sampledOn}</span>}

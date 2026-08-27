@@ -34,7 +34,7 @@ export function ToleranceField({ target, tolerance, mode, unit, onChange, id, cl
   const round = (n: number) => Number(n.toFixed(4)).toString();
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="tolerance-field" className={cn("flex flex-col gap-1.5", className)}>
       <span className="flex flex-wrap items-end gap-2">
         <span className="flex flex-col gap-1">
           <label htmlFor={`${base}-t`} className="text-xs text-muted-foreground">Target</label>

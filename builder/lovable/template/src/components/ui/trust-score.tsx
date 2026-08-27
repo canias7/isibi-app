@@ -31,7 +31,7 @@ export function TrustScore({ tier, facts, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("inline-flex flex-col gap-2 rounded-xl border border-border bg-card p-3", className)}>
+    <div data-slot="trust-score" className={cn("inline-flex flex-col gap-2 rounded-xl border border-border bg-card p-3", className)}>
       <span className={cn("self-start rounded-full border px-2 py-0.5 text-[11px] font-medium",
         tier === "trusted" ? "border-foreground bg-foreground text-background"
           : tier === "established" ? "border-foreground" : "border-border text-muted-foreground")}>

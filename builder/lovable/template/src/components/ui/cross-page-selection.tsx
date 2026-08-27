@@ -40,7 +40,7 @@ export function CrossPageSelection({
   if (allTotal <= pageTotal && !allSelected) return null;
 
   return (
-    <div role="status"
+    <div data-slot="cross-page-selection" role="status"
       className={cn("flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm", className)}>
       {allSelected ? (
         <>

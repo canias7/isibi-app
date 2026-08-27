@@ -37,7 +37,7 @@ export function ShelfLifeNote({ testedDays, condition, storedAs, daysElapsed, co
   const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
   if (coldChainBroken) {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="shelf-life-note" className={cn("space-y-0.5 text-sm", className)}>
         <p className="font-medium">
           The cold chain was broken, so the tested shelf life no longer applies to this batch.
         </p>

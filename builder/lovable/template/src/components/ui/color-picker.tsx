@@ -27,7 +27,7 @@ export function ColorPicker({ value, onChange, swatches = SWATCHES, id = "color"
     return /^[0-9a-f]{6}$/i.test(full) ? "#" + full.toLowerCase() : null;
   };
   return (
-    <div className={cn("w-56 space-y-3", className)}>
+    <div data-slot="color-picker" className={cn("w-56 space-y-3", className)}>
       <div className="grid grid-cols-6 gap-1.5">
         {swatches.map((s) => (
           <button key={s} type="button" onClick={() => onChange(s)} aria-label={s}

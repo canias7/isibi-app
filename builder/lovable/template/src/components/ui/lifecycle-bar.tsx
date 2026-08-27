@@ -28,7 +28,7 @@ export function LifecycleBar({ stages, current, stopped, className }: {
   if (!stages.length) return null;
   const at = Math.max(stages.findIndex((s) => s.key === current), 0);
   return (
-    <ol className={cn("flex flex-wrap gap-x-1 gap-y-2", className)}>
+    <ol data-slot="lifecycle-bar" className={cn("flex flex-wrap gap-x-1 gap-y-2", className)}>
       {stages.map((s, i) => {
         const done = i < at, now = i === at;
         return (

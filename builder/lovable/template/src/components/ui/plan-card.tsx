@@ -8,7 +8,7 @@ export function PlanCard({ name, price, period, renewsOn, current, action, class
   action?: { label: string; onClick?: () => void; href?: string }; className?: string;
 }) {
   return (
-    <Card className={cn(current && "border-foreground", className)}>
+    <Card data-slot="plan-card" className={cn(current && "border-foreground", className)}>
       <CardContent className="flex flex-wrap items-center justify-between gap-4 pt-6">
         <div>
           <div className="flex items-center gap-2">

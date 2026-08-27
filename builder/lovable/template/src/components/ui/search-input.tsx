@@ -11,7 +11,7 @@ export function SearchInput({ value, onChange, placeholder = "Search…", id, cl
   value: string; onChange: (v: string) => void; placeholder?: string; id?: string; className?: string;
 }) {
   return (
-    <InputGroup className={className}>
+    <InputGroup data-slot="search-input" className={className}>
       <InputGroupAddon><Search className="size-4" /></InputGroupAddon>
       <InputGroupInput id={id} type="search" value={value} placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)} />

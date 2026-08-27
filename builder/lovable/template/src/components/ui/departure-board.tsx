@@ -51,7 +51,7 @@ export function DepartureBoard({ departures, from, updatedAt, className }: {
 }) {
   if (!departures.length) {
     return (
-      <div className={cn("rounded-xl border border-border p-6", className)}>
+      <div data-slot="departure-board" className={cn("rounded-xl border border-border p-6", className)}>
         <p className="font-medium">No more departures today</p>
         <p className="mt-1 text-sm text-muted-foreground">
           From {from}. The first tomorrow is on the timetable.

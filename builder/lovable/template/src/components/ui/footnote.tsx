@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
  */
 export function FootnoteRef({ id, n, className }: { id: string; n: number; className?: string }) {
   return (
-    <sup className={className}>
+    <sup data-slot="footnote-ref" className={className}>
       <a href={`#fn-${id}`} id={`fnref-${id}`} role="doc-noteref"
         aria-label={`Footnote ${n}`}
         className="cursor-pointer px-0.5 text-[0.75em] font-medium tabular-nums no-underline hover:underline">
@@ -34,7 +34,7 @@ export function FootnoteList({ notes, className }: {
   className?: string;
 }) {
   return (
-    <section role="doc-endnotes" aria-label="Footnotes"
+    <section data-slot="footnote-list" role="doc-endnotes" aria-label="Footnotes"
       className={cn("mt-8 border-t border-border pt-3", className)}>
       <ol className="flex flex-col gap-1.5 ps-5 text-xs text-muted-foreground [list-style:decimal]">
         {notes.map((note) => (

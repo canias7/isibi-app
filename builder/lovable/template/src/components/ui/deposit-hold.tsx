@@ -40,7 +40,7 @@ export function DepositHold({ amount, taken, releasedOn, bankDays = "3–5 worki
   const back = amount - deducted;
   const unexplained = deductions.filter((d) => !d.reason);
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="deposit-hold" className={cn("space-y-1 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">{money(amount)}</span>
         <span className="text-muted-foreground">

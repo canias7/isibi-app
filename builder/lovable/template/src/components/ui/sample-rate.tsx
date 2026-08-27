@@ -33,7 +33,7 @@ export function SampleRate({ percent, observed, perUser, trustAbove = 100, class
   if (percent >= 100) return null;
   const thin = observed !== undefined && observed < trustAbove;
   return (
-    <p className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="sample-rate" className={cn("space-y-0.5 text-xs text-muted-foreground", className)}>
       <span className="block">
         <span className="text-foreground tabular-nums">{percent}%</span> of events are kept and the numbers scaled back
         up{observed !== undefined && <> — <span className="tabular-nums text-foreground">{observed.toLocaleString()}</span> actually recorded</>}.

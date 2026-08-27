@@ -35,7 +35,7 @@ export function TagScope({ value, onChange, name = "tag-scope", className }: {
   className?: string;
 }) {
   if (!onChange) {
-    return <span className={cn("text-xs text-muted-foreground", className)}>{SCOPES[value].word}</span>;
+    return <span data-slot="tag-scope" className={cn("text-xs text-muted-foreground", className)}>{SCOPES[value].word}</span>;
   }
   return (
     <fieldset className={cn("space-y-1", className)}>

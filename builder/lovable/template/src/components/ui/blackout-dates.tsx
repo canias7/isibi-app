@@ -21,7 +21,7 @@ export function BlackoutDates({ dates, onRemove, empty = "No dates blocked.", cl
     .filter((d) => !Number.isNaN(d.getTime()))
     .map((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()))
     .sort((a, b) => +a - +b);
-  if (!days.length) return <p className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
+  if (!days.length) return <p data-slot="blackout-dates" className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
   const runs: { from: Date; to: Date }[] = [];
   for (const d of days) {
     const last = runs[runs.length - 1];

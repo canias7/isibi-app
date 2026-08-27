@@ -84,7 +84,7 @@ export function TradeTerms({
   }
   if (!items.length) return null;
   return (
-    <div className={cn("rounded-lg border border-border p-6", className)}>
+    <div data-slot="trade-terms" className={cn("rounded-lg border border-border p-6", className)}>
       <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</h2>
       <dl className={cn("mt-4 grid gap-x-8 gap-y-5", COLS[columns])}>
         {items.map((i) => (

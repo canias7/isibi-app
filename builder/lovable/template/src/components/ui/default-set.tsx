@@ -29,7 +29,7 @@ export function DefaultSet({ rows, onRevert, onRevertAll, className }: {
 }) {
   const changed = rows.filter((r) => String(r.value) !== String(r.defaultValue));
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="default-set" className={cn("space-y-2", className)}>
       <div className="flex items-baseline gap-3">
         <p className="text-sm">
           {changed.length === 0

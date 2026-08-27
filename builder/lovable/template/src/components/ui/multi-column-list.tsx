@@ -16,7 +16,7 @@ export function MultiColumnList({ items, columns = 3, className }: {
 }) {
   const cols = { 2: "sm:columns-2", 3: "sm:columns-2 lg:columns-3", 4: "sm:columns-2 lg:columns-4" }[columns];
   return (
-    <ul className={cn("gap-x-8", cols, className)}>
+    <ul data-slot="multi-column-list" className={cn("gap-x-8", cols, className)}>
       {items.map((it, i) => (
         <li key={i} className="mb-1.5 break-inside-avoid text-sm">{it}</li>
       ))}

@@ -37,7 +37,7 @@ export function CommentDraft({ value, onChange, onPost, onCancel, onDiscard, bus
   const [touched, setTouched] = useState(false);
   const has = value.trim().length > 0;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="comment-draft" className={cn("space-y-1.5", className)}>
       <textarea rows={3} value={value} placeholder={placeholder} aria-label={placeholder}
         onChange={(e) => { onChange(e.target.value); setTouched(true); }}
         className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm" />

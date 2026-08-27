@@ -27,7 +27,7 @@ export function DirectoryList({ people, renderPerson, placeholder = "Search peop
     groups.get(key)!.push(p);
   }
   return (
-    <div className={cn("space-y-4", className)}>
+    <div data-slot="directory-list" className={cn("space-y-4", className)}>
       <SearchInput value={q} onChange={setQ} placeholder={placeholder} />
       {hits.length === 0
         ? <p className="py-8 text-center text-sm text-muted-foreground">Nobody matched “{q}”.</p>

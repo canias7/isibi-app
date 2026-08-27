@@ -18,7 +18,7 @@ export function CharLimitRing({ value, max, showFrom = 0.8, size = 20, className
   const near = ratio >= showFrom;
   const r = (size - 3) / 2, c = 2 * Math.PI * r;
   return (
-    <span className={cn("inline-flex items-center gap-1.5", className)}>
+    <span data-slot="char-limit-ring" className={cn("inline-flex items-center gap-1.5", className)}>
       <svg width={size} height={size} className="-rotate-90 shrink-0" role="img"
         aria-label={over ? `${-left} characters over the limit` : `${left} characters left`}>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth="2" className="stroke-muted" />

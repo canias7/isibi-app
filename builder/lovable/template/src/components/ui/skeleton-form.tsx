@@ -24,7 +24,7 @@ export function SkeletonForm({ fields = 4, twoColumn, delay, className }: {
   className?: string;
 }) {
   return (
-    <div aria-busy="true" className={className}>
+    <div data-slot="skeleton-form" aria-busy="true" className={className}>
       <p className="sr-only">Loading the form</p>
       <Shimmer delay={delay} className="bg-transparent">
         <div className={cn("grid gap-4", twoColumn && "sm:grid-cols-2")}>

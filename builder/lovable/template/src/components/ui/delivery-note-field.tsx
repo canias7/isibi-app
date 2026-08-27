@@ -32,7 +32,7 @@ export function DeliveryNoteField({ value, onChange, suggestions = [], maxLength
 }) {
   const left = maxLength - value.length;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="delivery-note-field" className={cn("space-y-1.5", className)}>
       <label htmlFor={id} className="block text-sm font-medium">
         Anything {audience} should know?
         <span className="ms-1.5 font-normal text-muted-foreground">optional</span>

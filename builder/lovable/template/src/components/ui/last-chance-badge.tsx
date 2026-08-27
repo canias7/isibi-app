@@ -12,7 +12,7 @@ export function LastChanceBadge({ until, className }: { until: string | number |
   if (!(left > 0)) return null;
   const days = Math.ceil(left / 864e5);
   return (
-    <span className={cn("inline-flex items-center rounded-full border border-foreground px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", className)}>
+    <span data-slot="last-chance-badge" className={cn("inline-flex items-center rounded-full border border-foreground px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", className)}>
       Last chance · {days === 1 ? "today" : `${days} days`}
     </span>
   );

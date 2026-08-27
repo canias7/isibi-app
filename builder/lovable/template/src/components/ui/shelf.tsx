@@ -15,7 +15,7 @@ export function Shelf({ children, itemWidth = "16rem", className }: {
   children?: React.ReactNode; itemWidth?: string; className?: string;
 }) {
   return (
-    <div className={cn("-mx-4 overflow-x-auto scroll-ps-4 px-4 pb-2 [scroll-snap-type:x_mandatory]", className)}>
+    <div data-slot="shelf" className={cn("-mx-4 overflow-x-auto scroll-ps-4 px-4 pb-2 [scroll-snap-type:x_mandatory]", className)}>
       <div className="flex gap-3">
         {React.Children.map(children, (c) => (
           <div className="shrink-0 [scroll-snap-align:start]" style={{ width: itemWidth }}>{c}</div>

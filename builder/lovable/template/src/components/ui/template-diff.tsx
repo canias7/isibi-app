@@ -34,7 +34,7 @@ export function TemplateDiff({ templateName, rows, sameNote = "Identical to the 
   className?: string;
 }) {
   if (!rows.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{sameNote}</p>;
+    return <p data-slot="template-diff" className={cn("text-sm text-muted-foreground", className)}>{sameNote}</p>;
   }
   const sorted = [...rows].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
   return (

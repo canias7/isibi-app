@@ -24,7 +24,7 @@ export function WinnerBadge({ criterion, tied, className }: {
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background", className)}>
+    <span data-slot="winner-badge" className={cn("inline-flex items-center gap-1 rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background", className)}>
       <Trophy aria-hidden className="size-2.5" />
       {tied ? "Joint best" : "Best"}{criterion ? <> on {criterion}</> : null}
     </span>

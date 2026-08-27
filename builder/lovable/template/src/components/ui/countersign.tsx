@@ -43,7 +43,7 @@ export function Countersign({ signerName, firstSignedBy, statement, onSign, busy
   const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
   const matches = norm(typed) === norm(signerName) && norm(signerName) !== "";
   return (
-    <form className={cn("space-y-3 rounded-lg border border-border p-4", className)}
+    <form data-slot="countersign" className={cn("space-y-3 rounded-lg border border-border p-4", className)}
       onSubmit={(e) => { e.preventDefault(); if (matches && read) onSign(); }}>
       {firstSignedBy && (
         <p className="text-sm text-muted-foreground">First signed by {firstSignedBy}</p>

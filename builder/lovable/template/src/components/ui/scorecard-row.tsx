@@ -33,7 +33,7 @@ export function ScorecardRow({ criterion, score, outOf = 4, notAssessed, evidenc
 }) {
   const missing = notAssessed || score === undefined;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="scorecard-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">{criterion}</span>
         <span className={cn("shrink-0 tabular-nums", missing && "text-muted-foreground")}>

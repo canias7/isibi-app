@@ -38,7 +38,7 @@ export function BatchTrace({ batch, receivedQuantity, onHandQuantity, cameFrom =
       ? receivedQuantity - onHandQuantity - shipped
       : undefined;
   return (
-    <div className={cn("space-y-2 text-sm", className)}>
+    <div data-slot="batch-trace" className={cn("space-y-2 text-sm", className)}>
       <p>
         <span className="font-medium">Batch <span className="font-mono">{batch}</span></span>
         {receivedQuantity !== undefined && (

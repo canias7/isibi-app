@@ -12,7 +12,7 @@ export function PriceTag({ price, was, currency = "£", size = "md", className }
   const s = { sm: "text-sm", md: "text-base", lg: "text-2xl" }[size];
   const money = (v: number | string) => (typeof v === "number" ? currency + v.toFixed(2) : v);
   return (
-    <span className={cn("inline-flex items-baseline gap-2 tabular-nums", s, className)}>
+    <span data-slot="price-tag" className={cn("inline-flex items-baseline gap-2 tabular-nums", s, className)}>
       <span className="font-semibold">{money(price)}</span>
       {was != null && (
         <span className="text-sm text-muted-foreground">

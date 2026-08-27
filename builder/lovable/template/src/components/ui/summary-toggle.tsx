@@ -23,7 +23,7 @@ export function SummaryToggle({ summary, children, open, onToggle, className }: 
   className?: string;
 }) {
   return (
-    <details
+    <details data-slot="summary-toggle"
       {...(open === undefined ? {} : { open })}
       onToggle={(e) => onToggle?.((e.currentTarget as HTMLDetailsElement).open)}
       className={cn("group rounded-md border border-border", className)}>

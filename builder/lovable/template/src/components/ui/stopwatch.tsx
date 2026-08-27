@@ -58,7 +58,7 @@ export function Stopwatch({ className }: { className?: string }) {
   };
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="stopwatch" className={cn("flex flex-col gap-2", className)}>
       <p className="font-mono text-2xl tabular-nums" data-stopwatch-time>{fmt(elapsed)}</p>
       <div className="flex gap-2">
         <button type="button" onClick={toggle}

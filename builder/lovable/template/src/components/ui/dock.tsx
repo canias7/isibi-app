@@ -24,7 +24,7 @@ export function Dock({ items, className }: {
   className?: string;
 }) {
   return (
-    <nav
+    <nav data-slot="dock"
       aria-label="Main"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       className={cn("sticky bottom-0 z-30 border-t border-border bg-background md:hidden", className)}

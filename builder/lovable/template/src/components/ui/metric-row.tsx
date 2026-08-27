@@ -7,7 +7,7 @@ export function MetricRow({ items, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("grid gap-4 sm:grid-cols-2 lg:grid-cols-4", className)}>
+    <div data-slot="metric-row" className={cn("grid gap-4 sm:grid-cols-2 lg:grid-cols-4", className)}>
       {items.map((m) => <StatCard key={m.label} {...m} />)}
     </div>
   );

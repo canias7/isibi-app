@@ -3,5 +3,5 @@ export function Duration({ minutes, className }: { minutes: number; className?: 
   const m = Math.max(0, Math.round(minutes));
   const h = Math.floor(m / 60), rest = m % 60;
   const text = h === 0 ? `${rest} min` : rest === 0 ? `${h} hr` : `${h} hr ${rest} min`;
-  return <span className={className}>{text}</span>;
+  return <span data-slot="duration" className={className}>{text}</span>;
 }

@@ -38,7 +38,7 @@ export function PriceHistory({ points, currency = "GBP", windowDays = 30, classN
   const saving = lowestPrior != null && current < lowestPrior ? lowestPrior - current : 0;
 
   return (
-    <div className={cn("flex flex-col gap-0.5 text-xs", className)}>
+    <div data-slot="price-history" className={cn("flex flex-col gap-0.5 text-xs", className)}>
       <p className="tabular-nums">
         <b>{fmt(current)}</b> now
         {lowestPrior != null

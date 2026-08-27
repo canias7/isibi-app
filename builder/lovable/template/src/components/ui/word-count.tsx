@@ -12,7 +12,7 @@ export function WordCount({ text, min, className }: {
   const mins = Math.max(1, Math.round(words / 200));
   const short = min != null && words < min;
   return (
-    <p className={cn("text-xs tabular-nums", short ? "text-destructive" : "text-muted-foreground", className)}
+    <p data-slot="word-count" className={cn("text-xs tabular-nums", short ? "text-destructive" : "text-muted-foreground", className)}
       aria-live="polite">
       {words.toLocaleString()} {words === 1 ? "word" : "words"}
       {words > 0 && <> · about {mins} min read</>}

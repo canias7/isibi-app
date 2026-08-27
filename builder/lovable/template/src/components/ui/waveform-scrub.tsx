@@ -31,7 +31,7 @@ export function WaveformScrub({ peaks, position, duration, onSeek, formatTime, c
   const played = position / duration;
   const say = formatTime ?? ((s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`);
   return (
-    <div className={cn("relative", className)}>
+    <div data-slot="waveform-scrub" className={cn("relative", className)}>
       <div aria-hidden className="flex h-12 items-end gap-px">
         {peaks.map((p, i) => (
           <span key={i}

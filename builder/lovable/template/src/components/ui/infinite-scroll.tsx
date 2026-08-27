@@ -53,7 +53,7 @@ export function InfiniteScroll({
   }, [hasMore, error, rootMargin]);
 
   return (
-    <div className={className}>
+    <div data-slot="infinite-scroll" className={className}>
       {children}
       <div ref={sentinel} aria-hidden className="h-px" />
       <div className="flex flex-col items-center gap-2 py-4">

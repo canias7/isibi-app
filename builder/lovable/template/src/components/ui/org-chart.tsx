@@ -21,7 +21,7 @@ export function OrgChart({ nodes, maxDepth = 8, className }: {
   const render = (list: OrgNode[], depth: number): React.ReactNode => {
     if (depth > maxDepth) return null;
     return (
-      <ul className={cn(depth > 0 && "ms-4 border-s border-border ps-4")}>
+      <ul data-slot="org-chart" className={cn(depth > 0 && "ms-4 border-s border-border ps-4")}>
         {list.map((n) => {
           if (seen.has(n.id)) return null;      // a cycle, or the same person twice
           seen.add(n.id);

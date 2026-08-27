@@ -40,7 +40,7 @@ export function AllergenMatrix({ allergens, dishes, askFor, className }: {
   const mark = (v: "yes" | "no" | "may" | "unknown") =>
     v === "yes" ? "Yes" : v === "no" ? "No" : v === "may" ? "May" : "?";
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="allergen-matrix" className={cn("space-y-1.5", className)}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

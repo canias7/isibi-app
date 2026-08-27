@@ -23,7 +23,7 @@ export function QueuePosition({ position, of, wait, className }: {
 }) {
   if (position <= 0) return null;
   return (
-    <p role="status" className={cn("text-sm tabular-nums", className)}>
+    <p data-slot="queue-position" role="status" className={cn("text-sm tabular-nums", className)}>
       <span className="font-medium">
         {position === 1 ? "You're next" : `You're ${position}${["th", "st", "nd", "rd"][(position % 100 >> 3 ^ 1) && position % 10 < 4 ? position % 10 : 0]} in the queue`}
       </span>

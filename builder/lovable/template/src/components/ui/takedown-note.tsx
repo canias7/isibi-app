@@ -25,7 +25,7 @@ export function TakedownNote({ what = "This", rule, at, appealHref, byAuthor, cl
   className?: string;
 }) {
   return (
-    <p className={cn("rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground", className)}>
+    <p data-slot="takedown-note" className={cn("rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground", className)}>
       <span className="font-medium text-foreground">
         {what} {byAuthor ? "was removed by its author" : "was removed"}
       </span>

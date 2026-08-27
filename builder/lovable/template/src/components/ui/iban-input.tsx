@@ -45,7 +45,7 @@ export function IbanInput({ value, onChange, label = "IBAN", id, hint, className
   const shown = (value.match(/.{1,4}/g) ?? []).join(" ");
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="iban-input" className={cn("flex flex-col gap-1.5", className)}>
       <label htmlFor={fieldId} className="text-sm font-medium">{label}</label>
       <input
         id={fieldId}

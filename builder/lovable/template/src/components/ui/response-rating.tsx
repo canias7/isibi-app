@@ -40,7 +40,7 @@ export function ResponseRating({ value, onRate, onComment, reasons = REASONS, cl
   };
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="response-rating" className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-center gap-1">
         <button type="button" onClick={() => press("up")} aria-pressed={value === "up"} aria-label="Good answer"
           className={cn("cursor-pointer rounded p-1.5 hover:bg-muted", value === "up" && "bg-muted")}>

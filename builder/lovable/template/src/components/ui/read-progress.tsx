@@ -45,7 +45,7 @@ export function ReadProgress({ articleRef, className }: {
   }, [articleRef]);
 
   return (
-    <div aria-hidden className={cn("pointer-events-none fixed inset-x-0 top-0 z-40 h-0.5", className)}>
+    <div data-slot="read-progress" aria-hidden className={cn("pointer-events-none fixed inset-x-0 top-0 z-40 h-0.5", className)}>
       <div ref={bar} className="h-full w-full origin-left bg-foreground" style={{ transform: "scaleX(0)" }} />
     </div>
   );

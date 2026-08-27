@@ -27,7 +27,7 @@ export function DropRejected({ reason, what, where, className }: {
   className?: string;
 }) {
   return (
-    <p role="alert" className={cn("text-sm", className)}>
+    <p data-slot="drop-rejected" role="alert" className={cn("text-sm", className)}>
       <span className="font-medium">
         {what && where ? `${what} can't go in ${where}` : what ? `${what} can't go there` : "That can't go there"}
       </span>

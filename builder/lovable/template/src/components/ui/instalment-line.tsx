@@ -28,7 +28,7 @@ export function InstalmentLine({ per, count, period = "month", total, extra, fir
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-0.5 text-sm", className)}>
+    <div data-slot="instalment-line" className={cn("flex flex-col gap-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium"><Money amount={per} currency={currency} /> a {period}</span>
         <span className="text-muted-foreground"> for {count} {period}s</span>

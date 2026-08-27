@@ -28,7 +28,7 @@ export function ModerationQueueItem({ reason, reportCount, content, reportedAgo,
   className?: string;
 }) {
   return (
-    <article className={cn("flex flex-col gap-2 rounded-md border border-border p-3", className)}>
+    <article data-slot="moderation-queue-item" className={cn("flex flex-col gap-2 rounded-md border border-border p-3", className)}>
       <p className="text-sm">
         <span className="font-medium">{reason}</span>
         <span className="text-muted-foreground tabular-nums">

@@ -7,7 +7,7 @@ export function ProgressRing({ value, size = 64, thickness = 6, label, className
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;
   return (
-    <div className={cn("relative inline-grid place-items-center", className)} style={{ width: size, height: size }}
+    <div data-slot="progress-ring" className={cn("relative inline-grid place-items-center", className)} style={{ width: size, height: size }}
       role="img" aria-label={label ?? `${v}%`}>
       <svg width={size} height={size} className="-rotate-90">
         <circle cx={size/2} cy={size/2} r={r} fill="none" strokeWidth={thickness} className="stroke-muted" />

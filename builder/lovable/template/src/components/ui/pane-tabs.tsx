@@ -44,7 +44,7 @@ export function PaneTabs({ tabs, active, onSelect, onClose, className }: {
   };
 
   return (
-    <div role="tablist" aria-label="Open tabs"
+    <div data-slot="pane-tabs" role="tablist" aria-label="Open tabs"
       className={cn("flex overflow-x-auto border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", className)}>
       {tabs.map((t) => (
         <div key={t.key} className="group/tab relative flex shrink-0 items-center">

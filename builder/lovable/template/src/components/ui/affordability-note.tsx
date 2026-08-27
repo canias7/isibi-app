@@ -49,7 +49,7 @@ export function AffordabilityNote({ monthlyIncome, monthlyCommitments, monthlyPa
       maximumFractionDigits: anyPence ? 2 : 0,
     }).format(v);
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="affordability-note" className={cn("space-y-1 text-sm", className)}>
       <p className="tabular-nums">
         <span className="text-lg font-medium">{money(left)}</span>
         <span className="text-muted-foreground"> left each month after this</span>

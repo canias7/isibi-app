@@ -16,7 +16,7 @@ export function StatusList({ items, className }: {
     : items.some((i) => i.state === "pending") ? "pending" : "on";
   const headline = { on: "All systems operational", pending: "Degraded performance", off: "Partial outage", error: "Major outage" }[worst];
   return (
-    <div className={cn("rounded-lg border border-border", className)}>
+    <div data-slot="status-list" className={cn("rounded-lg border border-border", className)}>
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <StatusDot state={worst} showLabel={false} />
         <p className="text-sm font-medium">{headline}</p>

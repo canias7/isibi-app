@@ -31,7 +31,7 @@ export function TransferOwnership({ members, yourNewRole, onTransfer, busy, clas
   if (!members.length) return null;
   const chosen = members.find((m) => m.id === to);
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="transfer-ownership" className={cn("flex flex-col gap-2", className)}>
       <label htmlFor={id} className="text-sm font-medium">Transfer ownership to</label>
       <NativeSelect id={id} value={to} onChange={(e) => setTo(e.target.value)} className="h-9 text-sm">
         <option value="">Choose a member…</option>

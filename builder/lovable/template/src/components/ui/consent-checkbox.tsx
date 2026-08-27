@@ -16,7 +16,7 @@ export function ConsentCheckbox({ checked, onCheckedChange, id = "consent", chil
   children?: React.ReactNode; error?: string | null; className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="consent-checkbox" className={cn("space-y-1", className)}>
       <div className="flex items-start gap-2.5">
         <Checkbox id={id} checked={checked} className="mt-0.5"
           aria-invalid={!!error} aria-describedby={error ? `${id}-error` : undefined}

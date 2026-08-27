@@ -91,7 +91,7 @@ export function MatrixTable({
   const fmt = format ?? ((n: number) => n.toLocaleString());
 
   return (
-    <div className={cn("overflow-x-auto rounded-md border border-border", className)}>
+    <div data-slot="matrix-table" className={cn("overflow-x-auto rounded-md border border-border", className)}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">

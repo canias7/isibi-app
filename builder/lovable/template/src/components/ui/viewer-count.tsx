@@ -36,7 +36,7 @@ export function ViewerCount({ count, verb = "watching", icon = true, exactBelow,
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
+    <span data-slot="viewer-count" className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
       {icon ? <Eye aria-hidden className="size-3.5" /> : null}
       <span className="tabular-nums">{formatCount(count, exactBelow)}</span>
       <span>{verb}</span>

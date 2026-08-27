@@ -30,7 +30,7 @@ export function EmbedPermissions({ needs = [], cannot = [], sandbox, cookies, cl
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="embed-permissions" className={cn("space-y-1.5 text-sm", className)}>
       <div>
         <p className="text-xs font-medium text-muted-foreground">It cannot</p>
         <ul className="space-y-0.5 text-xs">

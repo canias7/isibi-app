@@ -22,7 +22,7 @@ export function BucketPicker({ options = ["day", "week", "month"], labels, value
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="bucket-picker" className={cn("flex flex-col gap-1", className)}>
       <div className="inline-flex self-start overflow-hidden rounded-md border border-border">
         {options.map((o) => (
           <button key={o} type="button" onClick={() => onChange(o)} aria-pressed={value === o}

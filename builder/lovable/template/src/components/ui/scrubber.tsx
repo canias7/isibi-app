@@ -49,7 +49,7 @@ export function Scrubber({
   const nudge = (d: number) => onSeek(Math.min(duration, Math.max(0, value + d)));
 
   return (
-    <div
+    <div data-slot="scrubber"
       ref={ref}
       role="slider"
       aria-label={label}

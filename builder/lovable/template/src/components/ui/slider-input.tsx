@@ -24,7 +24,7 @@ export function SliderInput({ value, onChange, min = 0, max = 100, step = 1, lab
   const hi = max > min ? max : min + 1;
   const clamp = (n: number) => Math.min(hi, Math.max(min, n));
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="slider-input" className={cn("space-y-2", className)}>
       {label && <Label htmlFor={`${id}-num`} className="text-sm">{label}</Label>}
       <div className="flex items-center gap-3">
         <Slider value={[value]} min={min} max={hi} step={step} aria-label={label}

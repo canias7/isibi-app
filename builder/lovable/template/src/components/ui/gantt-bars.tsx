@@ -49,7 +49,7 @@ export function GanttBars({ tasks, className }: { tasks: GanttTask[]; className?
   const index = new Map(tasks.map((t, i) => [t.id, i]));
 
   return (
-    <div className={cn("flex text-xs", className)}>
+    <div data-slot="gantt-bars" className={cn("flex text-xs", className)}>
       <div className="flex flex-col">
         {tasks.map((t) => (
           <div key={t.id} className="flex items-center pe-2" style={{ height: ROW_H }}>

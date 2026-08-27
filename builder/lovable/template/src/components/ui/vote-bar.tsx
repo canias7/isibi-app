@@ -26,7 +26,7 @@ export function VoteBar({ a, b, smallBelow = 10, className }: {
   const total = a.votes + b.votes;
   const pctA = total ? Math.round((a.votes / total) * 100) : 50;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="vote-bar" className={cn("flex flex-col gap-1", className)}>
       <div className="flex items-baseline justify-between text-sm">
         <span className="font-medium">{a.label} <span className="tabular-nums text-xs text-muted-foreground">{a.votes}</span></span>
         <span className="font-medium"><span className="tabular-nums text-xs text-muted-foreground">{b.votes}</span> {b.label}</span>

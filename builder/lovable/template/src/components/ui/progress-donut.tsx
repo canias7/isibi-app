@@ -34,7 +34,7 @@ export function ProgressDonut({ value, total, size = 72, thickness = 8, label, c
   const spoken = `${value.toLocaleString()} of ${total.toLocaleString()}${label && typeof label === "string" ? ` ${label}` : ""}, ${Math.round(frac * 100)} per cent`;
 
   return (
-    <figure className={cn("flex flex-col items-center gap-1", className)}>
+    <figure data-slot="progress-donut" className={cn("flex flex-col items-center gap-1", className)}>
       <div role="img" aria-label={spoken} className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} aria-hidden className="-rotate-90">
           {/* The track is always drawn: a vanishing ring reads as a broken render. */}

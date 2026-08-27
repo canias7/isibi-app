@@ -19,7 +19,7 @@ export function FocusVisibleNote({ children = "Press Tab to move between things 
   className?: string;
 }) {
   return (
-    <div className={cn("group/fv", className)}>
+    <div data-slot="focus-visible-note" className={cn("group/fv", className)}>
       <p className="sr-only group-focus-within/fv:not-sr-only group-focus-within/fv:block group-focus-within/fv:text-xs group-focus-within/fv:text-muted-foreground">
         {children}
       </p>

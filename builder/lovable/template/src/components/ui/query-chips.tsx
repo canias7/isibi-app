@@ -22,7 +22,7 @@ export function QueryChips({ parts, onRemove, onClearAll, className }: {
 }) {
   if (!parts.length) return null;
   return (
-    <ul className={cn("flex flex-wrap items-center gap-1.5", className)}>
+    <ul data-slot="query-chips" className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {parts.map((p) => (
         <li key={p.key}>
           <span className="inline-flex items-center gap-1 rounded border border-border py-0.5 pe-0.5 ps-2 text-xs">

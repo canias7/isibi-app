@@ -33,7 +33,7 @@ export function PullToRefresh({ onRefresh, refreshing, threshold = 70, children,
   const armed = pull >= threshold;
 
   return (
-    <div className={cn("relative", className)}>
+    <div data-slot="pull-to-refresh" className={cn("relative", className)}>
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
         <span aria-live="polite" className="text-xs text-muted-foreground">
           {refreshing ? "Refreshing…" : armed ? "Release to refresh" : pull > 0 ? "Keep pulling" : null}

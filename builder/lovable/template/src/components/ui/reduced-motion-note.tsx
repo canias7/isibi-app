@@ -32,7 +32,7 @@ export function ReducedMotionNote({ affects, className }: {
   }, []);
   if (!reduced) return null;
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="reduced-motion-note" className={cn("text-xs text-muted-foreground", className)}>
       Animations are off because your device asks for reduced motion.
       {affects ? ` ${affects}` : ""}
     </p>

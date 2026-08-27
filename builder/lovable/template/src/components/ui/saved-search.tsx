@@ -28,7 +28,7 @@ export function SavedSearch({ items, active, onRun, onSave, onRemove, onSetDefau
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="saved-search" className={cn("flex flex-col gap-1", className)}>
       <div className="flex items-baseline justify-between gap-2 px-1">
         <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
           <Bookmark aria-hidden className="size-3" /> Saved

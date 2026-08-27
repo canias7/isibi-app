@@ -45,7 +45,7 @@ export function StoryLead({
     </>
   );
   return (
-    <article className={cn("", className)}>
+    <article data-slot="story-lead" className={cn("", className)}>
       {href
         ? <a href={href} className="group block focus-visible:outline-none [&_h2]:group-hover:underline [&_h2]:underline-offset-4">{body}</a>
         : body}

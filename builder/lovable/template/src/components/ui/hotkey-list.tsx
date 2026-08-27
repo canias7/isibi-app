@@ -5,7 +5,7 @@ export function HotkeyList({ items, className }: {
   items: { keys: string[]; description: string }[]; className?: string;
 }) {
   return (
-    <dl className={cn("flex flex-col", className)}>
+    <dl data-slot="hotkey-list" className={cn("flex flex-col", className)}>
       {items.map((h, i) => (
         <div key={i} className="flex items-center justify-between gap-4 border-b border-border py-2 last:border-0">
           <dt className="text-sm text-muted-foreground">{h.description}</dt>

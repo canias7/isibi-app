@@ -21,7 +21,7 @@ export function DismissedTips({ count, onRestore, className }: {
 }) {
   if (count <= 0) return null;
   return (
-    <div className={cn("flex flex-wrap items-center gap-3", className)}>
+    <div data-slot="dismissed-tips" className={cn("flex flex-wrap items-center gap-3", className)}>
       <p className="text-sm text-muted-foreground tabular-nums">
         {count} {count === 1 ? "hint" : "hints"} hidden
       </p>

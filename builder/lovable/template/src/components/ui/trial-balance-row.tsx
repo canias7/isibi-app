@@ -38,7 +38,7 @@ export function TrialBalanceRow({ lines, asAt, currency = "GBP", locale = "en-GB
   const pence = Math.round(Math.abs(diff) * 100);
   const transposition = pence > 0 && pence % 9 === 0;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="trial-balance-row" className={cn("space-y-1", className)}>
       {asAt && <p className="text-xs text-muted-foreground">As at {asAt}</p>}
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         <li className="flex items-baseline gap-3 px-3 py-1.5 text-xs text-muted-foreground">

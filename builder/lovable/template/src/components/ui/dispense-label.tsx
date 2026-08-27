@@ -35,7 +35,7 @@ export function DispenseLabel({ patient, drug, strength, form, directions, warni
 }) {
   const vague = !directions || /^\s*(take|use)\s+as\s+directed\.?\s*$/i.test(directions);
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="dispense-label" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <p className="text-base font-medium leading-snug">
         {directions ?? "Take as directed"}
       </p>

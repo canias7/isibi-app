@@ -28,7 +28,7 @@ export function RetentionNote({ period, then = "deleted", reason, className }: {
 }) {
   const tail = { deleted: "then deleted", anonymised: "then anonymised", archived: "then archived" }[then];
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="retention-note" className={cn("text-xs text-muted-foreground", className)}>
       {period ? <>Kept for <span className="text-foreground">{period}</span>, {tail}.</> : <>Kept until you delete it.</>}
       {reason && <span> {reason}</span>}
     </p>

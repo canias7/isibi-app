@@ -37,7 +37,7 @@ export function CategoryTile({ href, name, count, image, className }: {
   );
   if (empty) {
     return (
-      <div className={cn("flex flex-col gap-1.5 opacity-50", className)} aria-disabled>
+      <div data-slot="category-tile" className={cn("flex flex-col gap-1.5 opacity-50", className)} aria-disabled>
         {inner}
         <span className="text-[11px] text-muted-foreground">Nothing in here yet</span>
       </div>

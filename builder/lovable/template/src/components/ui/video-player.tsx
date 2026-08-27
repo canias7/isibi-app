@@ -49,7 +49,7 @@ export function VideoPlayer({
   };
 
   return (
-    <div
+    <div data-slot="video-player"
       tabIndex={0}
       onKeyDown={(e) => {
         const v = ref.current;

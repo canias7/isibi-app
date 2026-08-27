@@ -11,7 +11,7 @@ export function MiniBars({ values, height = 28, label, highlight, className }: {
   if (!values.length) return null;
   const hi = Math.max(...values) || 1;
   return (
-    <div className={cn("flex items-end gap-0.5", className)} style={{ height }}
+    <div data-slot="mini-bars" className={cn("flex items-end gap-0.5", className)} style={{ height }}
       role="img" aria-label={label ?? `${values.length} bars, peak ${hi}`}>
       {values.map((v, i) => (
         <span key={i} className={cn("min-h-[2px] flex-1 rounded-[1px]",

@@ -28,7 +28,7 @@ export function CompatibilityNote({ verdict, against, why, className }: {
     unknown: "Not checked for",
   } as const;
   return (
-    <p className={cn("text-xs", className)}>
+    <p data-slot="compatibility-note" className={cn("text-xs", className)}>
       <span className={cn(verdict === "fits" ? "text-muted-foreground" : "font-medium")}>
         {WORD[verdict]} {against}
       </span>

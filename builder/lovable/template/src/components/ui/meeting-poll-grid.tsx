@@ -38,7 +38,7 @@ export function MeetingPollGrid({ people, slots, votes, onVote, className }: {
   const cycle: Record<string, PollVote> = { yes: "no", no: "maybe", maybe: "yes" };
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="meeting-poll-grid" className={cn("flex flex-col gap-2", className)}>
       <table className="text-xs">
         <thead>
           <tr>

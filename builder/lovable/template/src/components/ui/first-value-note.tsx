@@ -21,7 +21,7 @@ export function FirstValueNote({ what, next, onDismiss, className }: {
   className?: string;
 }) {
   return (
-    <div role="status" className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border p-3 text-sm", className)}>
+    <div data-slot="first-value-note" role="status" className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border p-3 text-sm", className)}>
       <span className="font-medium">{what}</span>
       {next && (
         next.href

@@ -34,7 +34,7 @@ export function YieldNote({ crop, yieldValue, unit = "t/ha", moisture, standardM
   const diff = farmAverage !== undefined ? yieldValue - farmAverage : null;
   const pct = farmAverage ? Math.round((diff! / farmAverage) * 100) : null;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="yield-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         {crop && <span className="text-muted-foreground">{crop} · </span>}
         <span className="font-medium tabular-nums">{yieldValue.toFixed(2)}</span>

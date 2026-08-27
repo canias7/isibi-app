@@ -17,7 +17,7 @@ export function MatrixQuestion({ name, rows, columns, value, onChange, className
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-4", className)}>
+    <div data-slot="matrix-question" className={cn("space-y-4", className)}>
       {/* Stacked, below md. */}
       <div className="space-y-4 md:hidden">
         {rows.map((r) => (

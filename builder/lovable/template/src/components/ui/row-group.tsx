@@ -30,7 +30,7 @@ export function RowGroup({
   className?: string;
 }) {
   return (
-    <tbody className={className}>
+    <tbody data-slot="row-group" className={className}>
       <tr className="border-b border-border bg-muted/60">
         <td colSpan={columns} className="px-2 py-1.5">
           <div className="flex items-center gap-2">

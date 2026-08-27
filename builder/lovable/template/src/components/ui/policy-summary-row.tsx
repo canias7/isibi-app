@@ -42,7 +42,7 @@ export function PolicySummaryRow({ product, insures, number, inForce = true, not
     ? new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: Number.isInteger(premium) ? 0 : 2, maximumFractionDigits: 2 }).format(premium)
     : undefined;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="policy-summary-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">
           {product}

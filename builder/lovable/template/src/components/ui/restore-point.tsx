@@ -29,7 +29,7 @@ export function RestorePoint({ label, at, willLose, onRestore, onDismiss, classN
   className?: string;
 }) {
   return (
-    <section aria-label="Restore point"
+    <section data-slot="restore-point" aria-label="Restore point"
       className={cn("flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-4", className)}>
       <div className="min-w-0">
         <p className="text-sm font-medium">{label}</p>

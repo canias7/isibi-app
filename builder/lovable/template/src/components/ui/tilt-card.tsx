@@ -51,7 +51,7 @@ export function TiltCard({ max = 8, scale = 1.01, children, className }: {
   };
 
   return (
-    <div
+    <div data-slot="tilt-card"
       ref={ref}
       onPointerMove={move}
       onPointerLeave={rest}

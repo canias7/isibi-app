@@ -27,7 +27,7 @@ export function WidgetKey({ value, domains = [], className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="widget-key" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <p className="text-sm font-medium">Embed key</p>
       <p className="text-xs text-muted-foreground">
         This is meant to be public — it goes in your page source and anyone can read it. It is not a password.

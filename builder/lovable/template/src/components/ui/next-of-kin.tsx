@@ -37,7 +37,7 @@ export type Contact = {
 export function NextOfKin({ contacts, className }: { contacts: Contact[]; className?: string }) {
   const deciders = contacts.filter((c) => c.canDecide);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="next-of-kin" className={cn("space-y-1.5", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {contacts.map((c) => (
           <li key={c.id} className="space-y-0.5 px-3 py-2">

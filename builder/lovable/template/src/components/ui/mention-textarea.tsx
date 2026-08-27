@@ -46,7 +46,7 @@ export function MentionTextarea({ value, onChange, people, rows = 4, placeholder
   };
 
   return (
-    <div className={cn("relative", className)}>
+    <div data-slot="mention-textarea" className={cn("relative", className)}>
       <Textarea ref={ref} value={value} rows={rows} placeholder={placeholder}
         onChange={(e) => { onChange(e.target.value); scan(e.target.value, e.target.selectionStart); }}
         onKeyDown={(e) => {

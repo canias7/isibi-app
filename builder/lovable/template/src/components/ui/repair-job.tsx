@@ -60,7 +60,7 @@ export function RepairJob({ job, notFound, checking, onLookup, className }: {
   onLookup?: (ticket: string) => void;
   className?: string;
 }) {
-  if (checking) return <p className={cn("text-sm text-muted-foreground", className)}>Looking that up…</p>;
+  if (checking) return <p data-slot="repair-job" className={cn("text-sm text-muted-foreground", className)}>Looking that up…</p>;
   if (notFound) {
     return (
       <div className={cn("rounded-xl border border-border p-6", className)}>

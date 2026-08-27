@@ -8,7 +8,7 @@ export function CategoryNav({ items, active, onSelect, allLabel = "All", classNa
   allLabel?: string; className?: string;
 }) {
   return (
-    <OverflowScroller className={className}>
+    <OverflowScroller data-slot="category-nav" className={className}>
       <div className="flex gap-1.5 pb-1">
         <Button size="sm" variant={!active ? "secondary" : "ghost"} onClick={() => onSelect(null)}>{allLabel}</Button>
         {items.map((c) => (

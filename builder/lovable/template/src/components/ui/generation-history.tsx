@@ -28,7 +28,7 @@ export function GenerationHistory({ items, currentId, onRestore, emptyNote = "No
   emptyNote?: string;
   className?: string;
 }) {
-  if (!items.length) return <p className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
+  if (!items.length) return <p data-slot="generation-history" className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
   return (
     <ul className={cn("divide-y divide-border rounded-md border border-border", className)}>
       {items.map((g) => {

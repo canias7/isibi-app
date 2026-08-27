@@ -30,7 +30,7 @@ export function ShortLink({ short, destination, clicks, expired, disabled, class
   const dead = expired || disabled;
 
   return (
-    <div className={cn("flex flex-col gap-0.5", className)}>
+    <div data-slot="short-link" className={cn("flex flex-col gap-0.5", className)}>
       <div className="flex flex-wrap items-baseline gap-2">
         {dead ? (
           <span className="font-mono text-sm text-muted-foreground line-through">{short}</span>

@@ -34,7 +34,7 @@ export function DomainVerify({ recordType = "TXT", host, hostShort, value, state
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="domain-verify" className={cn("space-y-2", className)}>
       <p className="text-sm">Add this record at your domain provider:</p>
       <dl className="space-y-1.5">
         <div>

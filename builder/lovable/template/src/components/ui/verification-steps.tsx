@@ -32,7 +32,7 @@ const WORD = { done: "Done", current: "Your turn", waiting: "Being checked", blo
 
 export function VerificationSteps({ steps, className }: { steps: VerificationStep[]; className?: string }) {
   return (
-    <ol className={cn("divide-y divide-border rounded-md border border-border", className)}>
+    <ol data-slot="verification-steps" className={cn("divide-y divide-border rounded-md border border-border", className)}>
       {steps.map((s, i) => (
         <li key={s.id} className="flex items-start gap-3 px-3 py-2 text-sm">
           <span aria-hidden="true"

@@ -10,5 +10,5 @@ export function Plural({ count, one, other, few, showCount = true, className }: 
 }) {
   const rule = new Intl.PluralRules(undefined).select(count);
   const word = rule === "one" ? one : rule === "few" && few ? few : other;
-  return <span className={className}>{showCount ? `${count} ${word}` : word}</span>;
+  return <span data-slot="plural" className={className}>{showCount ? `${count} ${word}` : word}</span>;
 }

@@ -24,7 +24,7 @@ export function ContactForm({ onSubmit, busy, error, sent, askPhone, className }
     setV((s) => ({ ...s, [k]: e.target.value }));
   if (sent) {
     return (
-      <div className={cn("rounded-lg border border-border p-6 text-center", className)}>
+      <div data-slot="contact-form" className={cn("rounded-lg border border-border p-6 text-center", className)}>
         <p className="text-sm font-medium">Thanks — we have your message.</p>
         <p className="mt-1 text-sm text-muted-foreground">We will get back to you shortly.</p>
       </div>

@@ -30,7 +30,7 @@ export function CoEditNote({ by, at, fields, onKeepMine, onTakeTheirs, onCompare
   className?: string;
 }) {
   return (
-    <div role="alert" className={cn("flex flex-col gap-2 rounded-lg border-2 border-foreground p-3", className)}>
+    <div data-slot="co-edit-note" role="alert" className={cn("flex flex-col gap-2 rounded-lg border-2 border-foreground p-3", className)}>
       <div className="flex items-start gap-2.5">
         <Users aria-hidden className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0">

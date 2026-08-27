@@ -34,7 +34,7 @@ export function FairUseNote({ thresholdGb, usedGb, consequence = "slowed", busyH
   const gb = (n: number) => `${Number(n.toFixed(1))} GB`;
   if (thresholdGb === undefined) {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="fair-use-note" className={cn("space-y-0.5 text-sm", className)}>
         <p className="font-medium">This plan has a fair-use policy with no number in it.</p>
         <p className="text-xs text-muted-foreground">
           Nothing here can be complied with or planned around. Worth asking what the actual threshold is.

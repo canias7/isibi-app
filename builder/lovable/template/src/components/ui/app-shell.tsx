@@ -39,7 +39,7 @@ export function AppShell({
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-h-svh flex-col bg-background", className)}>
+    <div data-slot="app-shell" className={cn("flex min-h-svh flex-col bg-background", className)}>
       <a href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:start-2 focus:z-50 focus:rounded-md focus:bg-foreground focus:px-3 focus:py-2 focus:text-sm focus:text-background">
         Skip to the main content

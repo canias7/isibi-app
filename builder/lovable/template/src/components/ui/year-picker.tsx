@@ -20,7 +20,7 @@ export function YearPicker({ value, onChange, min, max, className }: {
   const years = Array.from({ length: 12 }, (_, i) => page + i);
   const blocked = (y: number) => (min != null && y < min) || (max != null && y > max);
   return (
-    <div className={cn("w-64 space-y-2 rounded-md border border-border p-2", className)}>
+    <div data-slot="year-picker" className={cn("w-64 space-y-2 rounded-md border border-border p-2", className)}>
       <div className="flex items-center justify-between">
         <Button type="button" size="icon-sm" variant="ghost" aria-label="Earlier years" onClick={() => setPage((p) => p - 12)}>
           <ChevronLeft className="size-4" />

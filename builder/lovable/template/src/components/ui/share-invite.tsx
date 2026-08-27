@@ -56,7 +56,7 @@ export function ShareInvite({
   };
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="share-invite" className={cn("flex flex-col gap-3", className)}>
       <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border p-1.5 focus-within:border-ring">
         {emails.map((e) => (
           <span key={e} className="inline-flex items-center gap-1 rounded-full bg-muted py-0.5 pe-1 ps-2 text-xs">

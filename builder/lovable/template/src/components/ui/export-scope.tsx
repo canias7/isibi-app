@@ -33,7 +33,7 @@ export function ExportScope({ value, onChange, counts, columnNote, className }: 
     { key: "all", label: "Everything", n: counts.all },
   ];
   return (
-    <fieldset className={cn("flex flex-col gap-1.5", className)}>
+    <fieldset data-slot="export-scope" className={cn("flex flex-col gap-1.5", className)}>
       <legend className="mb-1 text-sm font-medium">Export</legend>
       <div role="radiogroup" aria-label="Export" className="flex flex-wrap gap-2">
         {options.map((o) => (

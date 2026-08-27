@@ -50,7 +50,7 @@ export function TermDates({ terms, year, note, className }: {
 }) {
   if (!terms.length) return null;
   return (
-    <div className={cn("space-y-6", className)}>
+    <div data-slot="term-dates" className={cn("space-y-6", className)}>
       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">School year {year}</p>
       <ul className="divide-y divide-border border-y border-border">
         {terms.map((t) => (

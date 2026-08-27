@@ -15,7 +15,7 @@ export function VideoEmbed({ url, title = "Video", ratio = "16/9", className }: 
             : vm ? `https://player.vimeo.com/video/${vm[1]}?dnt=1` : null;
   if (!src) {
     return (
-      <div className={cn("grid place-items-center rounded-lg bg-muted text-xs text-muted-foreground", className)}
+      <div data-slot="video-embed" className={cn("grid place-items-center rounded-lg bg-muted text-xs text-muted-foreground", className)}
         style={{ aspectRatio: ratio }}>Video unavailable</div>
     );
   }

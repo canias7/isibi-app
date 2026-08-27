@@ -30,7 +30,7 @@ export function RefundLine({ amount, of, to, arriveBy, retainedFor, currency = "
 }) {
   const partial = typeof of === "number" && of > amount;
   return (
-    <div className={cn("flex flex-col gap-0.5 text-sm", className)}>
+    <div data-slot="refund-line" className={cn("flex flex-col gap-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium"><Money amount={amount} currency={currency} /> refunded</span>
         {partial && <span className="text-muted-foreground"> of <Money amount={of} currency={currency} /></span>}

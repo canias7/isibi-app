@@ -31,7 +31,7 @@ export function AccessHours({ days, openNow, staffedNow, unavailableOutOfHours =
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="access-hours" className={cn("space-y-1.5 text-sm", className)}>
       <p className="font-medium">
         {openNow === false
           ? "The building is locked right now."

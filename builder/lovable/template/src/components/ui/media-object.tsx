@@ -5,7 +5,7 @@ export function MediaObject({ media, align = "start", reverse, className, childr
   className?: string; children?: React.ReactNode;
 }) {
   return (
-    <div className={cn("flex gap-3", align === "center" ? "items-center" : "items-start",
+    <div data-slot="media-object" className={cn("flex gap-3", align === "center" ? "items-center" : "items-start",
       reverse && "flex-row-reverse", className)}>
       <div className="shrink-0">{media}</div>
       <div className="min-w-0 flex-1">{children}</div>

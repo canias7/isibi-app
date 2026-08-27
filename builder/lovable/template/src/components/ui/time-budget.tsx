@@ -38,7 +38,7 @@ export function TimeBudget({ usedMinutes, totalMinutes, label = "Time", classNam
   const pct = Math.min(Math.round((usedMinutes / totalMinutes) * 100), 100);
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="time-budget" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-sm text-muted-foreground">{label}</span>
         <span className={cn("text-sm tabular-nums", over && "font-medium")}>

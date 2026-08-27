@@ -35,7 +35,7 @@ export type CommitteePost = {
 export function CommitteeList({ posts, className }: { posts: CommitteePost[]; className?: string }) {
   const vacant = posts.filter((p) => !p.holder);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="committee-list" className={cn("space-y-1.5", className)}>
       {vacant.length > 0 && (
         <p className="text-sm font-medium">
           {vacant.length} {vacant.length === 1 ? "post is" : "posts are"} vacant: {vacant.map((p) => p.role).join(", ")}.

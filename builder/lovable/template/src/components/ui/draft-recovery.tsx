@@ -27,7 +27,7 @@ export function DraftRecovery({ savedAt, preview, onRestore, onDiscard, classNam
   className?: string;
 }) {
   return (
-    <section aria-label="Recovered draft"
+    <section data-slot="draft-recovery" aria-label="Recovered draft"
       className={cn("flex flex-col gap-3 rounded-md border border-border p-4", className)}>
       <div>
         <p className="text-sm font-medium">You have an unsaved draft</p>

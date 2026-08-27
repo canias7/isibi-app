@@ -18,7 +18,7 @@ export function OfflineBanner({ message = "You're offline. Some things won't wor
   }, []);
   if (!off) return null;
   return (
-    <div role="status" className={cn("motion-enter flex items-center justify-center gap-2 bg-warning px-4 py-2 text-sm text-warning-foreground", className)}>
+    <div data-slot="offline-banner" role="status" className={cn("motion-enter flex items-center justify-center gap-2 bg-warning px-4 py-2 text-sm text-warning-foreground", className)}>
       <WifiOff className="size-4" /> {message}
     </div>
   );

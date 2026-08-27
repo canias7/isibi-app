@@ -51,7 +51,7 @@ export function KeyCap({ k, className }: {
   const say = entry ? entry.say : k.toUpperCase();
 
   return (
-    <kbd className={cn("inline-flex min-w-6 items-center justify-center rounded border border-border bg-muted px-1.5 py-0.5 font-sans text-xs", className)}>
+    <kbd data-slot="key-cap" className={cn("inline-flex min-w-6 items-center justify-center rounded border border-border bg-muted px-1.5 py-0.5 font-sans text-xs", className)}>
       <span aria-hidden>{shown}</span>
       <span className="sr-only">{say}</span>
     </kbd>

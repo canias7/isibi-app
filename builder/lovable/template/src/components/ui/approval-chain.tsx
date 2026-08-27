@@ -19,7 +19,7 @@ export function ApprovalChain({ steps, className }: {
 }) {
   const stopIndex = steps.findIndex((s) => s.state === "rejected");
   return (
-    <ol className={cn("space-y-3", className)}>
+    <ol data-slot="approval-chain" className={cn("space-y-3", className)}>
       {steps.map((s, i) => {
         const dead = stopIndex >= 0 && i > stopIndex;
         const map = {

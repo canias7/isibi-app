@@ -32,7 +32,7 @@ export function SeatUsageRow({ name, email, role, state = "active", lastActive, 
   const WORD = { active: "", invited: "Invite not accepted", suspended: "Suspended" } as const;
   const idle = state === "active" && !lastActive;
   return (
-    <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
+    <li data-slot="seat-usage-row" className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
       <span className="min-w-0 flex-1">
         <span className="block">
           {name}

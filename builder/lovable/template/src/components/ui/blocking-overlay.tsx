@@ -58,7 +58,7 @@ export function BlockingOverlay({ show, message, detail, onCancel, cancelAfter =
   if (!show) return null;
 
   return (
-    <div
+    <div data-slot="blocking-overlay"
       ref={ref}
       role="alertdialog"
       aria-live="assertive"

@@ -6,7 +6,7 @@ export function TourStep({ step, total, title, children, onNext, onSkip, classNa
   onNext?: () => void; onSkip?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("w-72 rounded-lg border bg-popover p-4 shadow-md", className)} role="dialog" aria-label={title}>
+    <div data-slot="tour-step" className={cn("w-72 rounded-lg border bg-popover p-4 shadow-md", className)} role="dialog" aria-label={title}>
       <div className="text-xs tabular-nums text-muted-foreground">Step {step} of {total}</div>
       <div className="mt-1 font-medium">{title}</div>
       <div className="mt-1 text-sm text-muted-foreground">{children}</div>

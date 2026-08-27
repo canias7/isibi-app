@@ -26,7 +26,7 @@ export function SupportHandoff({ routes, hours, closedNote, className }: {
 }) {
   if (!routes.length) return null;
   return (
-    <div className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
+    <div data-slot="support-handoff" className={cn("flex flex-col gap-2 rounded-md border border-border p-4", className)}>
       <p className="text-sm font-medium">Talk to someone</p>
       <ul className="flex flex-col gap-1 text-sm">
         {routes.map((r) => (

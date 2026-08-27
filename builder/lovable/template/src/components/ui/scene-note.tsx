@@ -33,7 +33,7 @@ export function SceneNote({ hazards = [], access, casualties, whatHappened, notK
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="scene-note" className={cn("space-y-1 text-sm", className)}>
       <p className={cn(hazards.length > 0 ? "font-medium" : "text-muted-foreground")}>
         {hazards.length > 0 ? `Hazards: ${AND.format(hazards)}.` : "No hazards reported — which is not the same as none."}
       </p>

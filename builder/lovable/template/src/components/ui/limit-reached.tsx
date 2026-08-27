@@ -33,7 +33,7 @@ export function LimitReached({ what, resetsAt, stillWorks, options = [], askAdmi
   className?: string;
 }) {
   return (
-    <div role="alert" className={cn("space-y-2 rounded-md border border-foreground/40 bg-muted/40 p-3", className)}>
+    <div data-slot="limit-reached" role="alert" className={cn("space-y-2 rounded-md border border-foreground/40 bg-muted/40 p-3", className)}>
       <p className="text-sm font-medium">You have reached the limit for {what}</p>
       {resetsAt && <p className="text-sm">This clears {resetsAt}.</p>}
       {stillWorks && <p className="text-xs text-muted-foreground">{stillWorks}</p>}

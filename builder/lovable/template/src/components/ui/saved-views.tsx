@@ -6,7 +6,7 @@ export function SavedViews({ views, active, onSelect, className }: {
   active?: string; onSelect: (key: string) => void; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center gap-1", className)} role="group" aria-label="Views">
+    <div data-slot="saved-views" className={cn("flex flex-wrap items-center gap-1", className)} role="group" aria-label="Views">
       {views.map((v) => (
         <Button key={v.key} size="sm" variant={active === v.key ? "secondary" : "ghost"}
           onClick={() => onSelect(v.key)}>

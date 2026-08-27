@@ -27,7 +27,7 @@ export function SlaClock({ remaining, breached, paused, pausedReason, target, cl
   className?: string;
 }) {
   return (
-    <p role="status" className={cn("text-sm", className)}>
+    <p data-slot="sla-clock" role="status" className={cn("text-sm", className)}>
       <span className={cn(breached || !remaining ? "font-medium" : undefined)}>
         {breached ? `${breached} over` : paused ? "Paused" : remaining ? `${remaining} left` : "No target"}
       </span>

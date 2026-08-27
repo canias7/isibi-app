@@ -28,7 +28,7 @@ export function MentionBadge({ name, handle, isMe, href, unknown, className }: {
   className?: string;
 }) {
   if (unknown || !name) {
-    return <span className={cn("text-muted-foreground", className)}>@{handle}</span>;
+    return <span data-slot="mention-badge" className={cn("text-muted-foreground", className)}>@{handle}</span>;
   }
   const body = (
     <>
@@ -48,7 +48,7 @@ export function MentionBadge({ name, handle, isMe, href, unknown, className }: {
 export function MentionCount({ count, className }: { count: number; className?: string }) {
   if (!count) return null;
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background", className)}>
+    <span data-slot="mention-count" className={cn("inline-flex items-center gap-1 rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background", className)}>
       <AtSign aria-hidden className="size-2.5" />
       <span className="tabular-nums">{count}</span>
       <span className="sr-only">{count === 1 ? "mention of you" : "mentions of you"}</span>

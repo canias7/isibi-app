@@ -36,7 +36,7 @@ export function TrackRow({ number, title, seconds, writers = [], performers = []
     ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
     : undefined;
   return (
-    <li className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
+    <li data-slot="track-row" className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         {number !== undefined && <span className="w-6 shrink-0 text-xs tabular-nums text-muted-foreground">{number}</span>}
         <span className="min-w-0 flex-1">

@@ -31,7 +31,7 @@ export function BreakingChangeNote({ title, affectedIf, before, after, failureMo
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="breaking-change-note" className={cn("space-y-1.5", className)}>
       <p className="text-sm font-medium">{title}</p>
       {affectedIf && (
         <p className="text-xs text-muted-foreground">This affects you if {affectedIf}.</p>

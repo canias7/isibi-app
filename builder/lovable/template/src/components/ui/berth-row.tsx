@@ -38,7 +38,7 @@ export function BerthRow({ berth, vessel, lengthLimitM, depthAtDatumM, vesselLen
   const tooLong = lengthLimitM !== undefined && vesselLengthM !== undefined && vesselLengthM > lengthLimitM;
   const tooDeep = depthAtDatumM !== undefined && vesselDraughtM !== undefined && vesselDraughtM > depthAtDatumM;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="berth-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">
           {berth}

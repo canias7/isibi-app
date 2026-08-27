@@ -77,7 +77,7 @@ export function NlDateInput({ value, onChange, placeholder = "next Tuesday 2pm",
   React.useEffect(() => { onChange(parsed); }, [parsed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={cn("flex max-w-xs flex-col gap-1", className)}>
+    <div data-slot="nl-date-input" className={cn("flex max-w-xs flex-col gap-1", className)}>
       <input value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder}
         className="h-9 rounded-md border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
       {/* The interpretation is the contract - never act on a silent guess. */}

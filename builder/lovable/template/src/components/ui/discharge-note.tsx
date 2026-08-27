@@ -35,7 +35,7 @@ export function DischargeNote({ started = [], stopped = [], changed = [], whoArr
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="discharge-note" className={cn("space-y-1.5 text-sm", className)}>
       {(started.length > 0 || stopped.length > 0 || changed.length > 0) && (
         <div className="space-y-0.5">
           <p className="text-xs font-medium text-muted-foreground">Your medicines have changed</p>

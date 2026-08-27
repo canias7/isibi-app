@@ -29,7 +29,7 @@ export function CacheStatus({ asOf, staleAfter, state = "fresh", onRefresh, clas
 }) {
   if (state === "fresh" && !onRefresh) return null;
   return (
-    <p className={cn("flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground", className)}>
+    <p data-slot="cache-status" className={cn("flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground", className)}>
       {state === "revalidating" ? (
         <span role="status">Showing older figures while newer ones load…</span>
       ) : state === "stale" ? (

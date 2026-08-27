@@ -32,7 +32,7 @@ export function SpectatorCount({ watching, peak, delaySeconds, floor = 10, class
     n >= 10000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
   const fmtDelay = (s: number) => (s < 60 ? `${s} seconds` : `${Math.round(s / 60)} minutes`);
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="spectator-count" className={cn("space-y-0.5 text-sm", className)}>
       {watching < floor ? (
         <p className="text-muted-foreground">A few people are watching.</p>
       ) : (

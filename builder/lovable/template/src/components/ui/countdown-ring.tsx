@@ -52,7 +52,7 @@ export function CountdownRing({ to, total, label, onDone, className }: {
     : `in ${Math.round(left / 864e5)}d`;
 
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span data-slot="countdown-ring" className={cn("inline-flex items-center gap-2", className)}>
       <svg viewBox="0 0 36 36" className="size-9 -rotate-90" aria-hidden>
         <circle cx="18" cy="18" r={r} fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="3" />
         <circle cx="18" cy="18" r={r} fill="none" stroke="currentColor" strokeWidth="3"

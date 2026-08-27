@@ -39,7 +39,7 @@ export function BatchCode({ code, madeOn, line, shift, quantity, recalled, recal
   // choose.
   const shown = code.trim().replace(/\s+/g, " ");
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="batch-code" className={cn("space-y-0.5 text-sm", className)}>
       {recalled && (
         <p className="font-medium">
           This batch has been recalled.{recallNote ? ` ${recallNote}` : " Do not sell or use it."}

@@ -42,7 +42,7 @@ export function AttachmentLimit({ usedCount, maxCount, usedBytes, maxBytes, perF
   const filesLeft = maxCount ? Math.max(0, maxCount - usedCount) : null;
   const bytesLeft = maxBytes && usedBytes !== undefined ? Math.max(0, maxBytes - usedBytes) : null;
   return (
-    <p className={cn("flex flex-wrap gap-x-3 gap-y-0.5 text-xs", full ? "text-foreground" : "text-muted-foreground", className)}>
+    <p data-slot="attachment-limit" className={cn("flex flex-wrap gap-x-3 gap-y-0.5 text-xs", full ? "text-foreground" : "text-muted-foreground", className)}>
       {share >= warnAt && (
         <span className={cn(full && "font-medium")}>
           {full ? "No room left"

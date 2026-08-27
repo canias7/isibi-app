@@ -22,7 +22,7 @@ export function PresenceDot({ state = "offline", label, showLabel = true, ring, 
     offline: "bg-background ring-2 ring-inset ring-muted-foreground/50",
   }[state];
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-xs", className)}>
+    <span data-slot="presence-dot" className={cn("inline-flex items-center gap-1.5 text-xs", className)}>
       <span className={cn("size-2.5 shrink-0 rounded-full", dot, ring && "ring-2 ring-background")} aria-hidden="true" />
       {showLabel ? <span className="text-muted-foreground">{text}</span> : <span className="sr-only">{text}</span>}
       {state === "busy" && <span className="sr-only"> — do not disturb</span>}

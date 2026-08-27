@@ -35,7 +35,7 @@ export function TakeRow({ number, part, performer, seconds, keeper, partial, not
     ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
     : undefined;
   return (
-    <li className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
+    <li data-slot="take-row" className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
       <p className="flex items-baseline gap-3">
         <span className="w-10 shrink-0 text-xs tabular-nums text-muted-foreground">Take {number}</span>
         <span className={cn("min-w-0 flex-1", keeper && "font-medium")}>

@@ -36,7 +36,7 @@ export function ExhibitionRow({ title, gallery, opensOn, closesOn, daysLeft, clo
 }) {
   const soon = !closed && daysLeft !== undefined && daysLeft <= 14 && daysLeft >= 0;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="exhibition-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className={cn("min-w-0 flex-1", closed && "text-muted-foreground")}>
           {title}

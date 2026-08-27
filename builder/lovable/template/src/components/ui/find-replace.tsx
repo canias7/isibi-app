@@ -31,7 +31,7 @@ export function FindReplace({ value, onChange, className }: {
   const re = find ? new RegExp(esc(find), matchCase ? "g" : "gi") : null;
   const count = re ? (value.match(re) ?? []).length : 0;
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="find-replace" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <div className="flex flex-wrap items-center gap-2">
         <Input value={find} placeholder="Find" aria-label="Find" className="h-8 flex-1"
           onChange={(e) => setFind(e.target.value)} />

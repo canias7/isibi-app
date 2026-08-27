@@ -17,7 +17,7 @@ export function InvoiceLines({ lines, currency = "GBP", className }: {
 }) {
   const showQty = lines.some((l) => l.quantity != null);
   return (
-    <table className={cn("w-full text-sm", className)}>
+    <table data-slot="invoice-lines" className={cn("w-full text-sm", className)}>
       <thead>
         <tr className="border-b border-border text-start">
           <th className="py-2 font-medium">Description</th>

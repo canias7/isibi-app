@@ -22,7 +22,7 @@ export function ColumnSummary({ summary, blanks, total, className }: {
   className?: string;
 }) {
   return (
-    <span className={cn("block text-xs font-normal text-muted-foreground tabular-nums", className)}>
+    <span data-slot="column-summary" className={cn("block text-xs font-normal text-muted-foreground tabular-nums", className)}>
       {summary}
       {typeof blanks === "number" && blanks > 0 && (
         <> · {blanks}{typeof total === "number" ? `/${total}` : ""} blank</>

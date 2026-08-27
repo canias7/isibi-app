@@ -48,7 +48,7 @@ export function ImportSettings({ known, current, onApply, className }: {
   };
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="import-settings" className={cn("flex flex-col gap-2", className)}>
       <textarea value={text} onChange={(e) => { setText(e.target.value); setReport(null); }}
         rows={3} placeholder="Paste a settings file"
         className="w-full resize-y rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" />

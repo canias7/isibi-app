@@ -33,7 +33,7 @@ export function SimRow({ number, usedBy, embedded, active, lastUsed, unusedDays,
 }) {
   const idle = unusedDays !== undefined && unusedDays >= 30;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="sim-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1">
           <span className="font-medium">{usedBy ?? "Nobody assigned"}</span>

@@ -37,7 +37,7 @@ export function TestConnection({ steps, onTest, running, className }: {
   const failed = steps.find((s) => s.state === "failed");
   const done = steps.length > 0 && steps.every((s) => s.state !== "pending" && s.state !== "running");
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="test-connection" className={cn("space-y-2", className)}>
       <Button type="button" size="sm" onClick={onTest} disabled={running}>
         {running ? "Testing…" : "Test this connection"}
       </Button>

@@ -38,7 +38,7 @@ export function LayerList({
   const shown = React.useMemo(() => layers.slice().reverse(), [layers]);
 
   return (
-    <ul className={cn("flex flex-col text-sm", className)}>
+    <ul data-slot="layer-list" className={cn("flex flex-col text-sm", className)}>
       {shown.map((l) => (
         <li key={l.id}
           className={cn("flex items-center gap-1 rounded px-1 py-1",

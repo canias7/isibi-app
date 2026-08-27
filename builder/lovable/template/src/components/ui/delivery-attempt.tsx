@@ -38,7 +38,7 @@ export function DeliveryAttempt({ number, at, outcome, status, ms, body, nextRet
   const WORD = { ok: "Delivered", error: "Rejected", timeout: "Timed out", refused: "Could not connect" } as const;
   const failed = outcome !== "ok";
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="delivery-attempt" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <div className="flex flex-wrap items-baseline gap-x-2">
         <span className="text-xs tabular-nums text-muted-foreground">#{number}</span>
         <span className={cn(failed && "font-medium")}>{WORD[outcome]}</span>

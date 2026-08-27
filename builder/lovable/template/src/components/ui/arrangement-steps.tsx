@@ -41,7 +41,7 @@ export function ArrangementSteps({ steps, nothingLabel = "Nothing you need to do
 }) {
   if (!steps.length) return null;
   return (
-    <ol className={cn("space-y-0", className)}>
+    <ol data-slot="arrangement-steps" className={cn("space-y-0", className)}>
       {steps.map((s, i) => (
         <li key={s.title} className="border-t border-border py-7 last:border-b">
           <div className="grid gap-x-10 gap-y-4 md:grid-cols-[auto_1fr_1fr]">

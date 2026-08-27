@@ -22,7 +22,7 @@ export function EliminateOption({ eliminated, onToggle, label, className }: {
   className?: string;
 }) {
   return (
-    <button type="button" onClick={onToggle}
+    <button data-slot="eliminate-option" type="button" onClick={onToggle}
       aria-pressed={eliminated}
       aria-label={eliminated ? `Bring back ${label}` : `Rule out ${label}`}
       className={cn("inline-flex cursor-pointer items-center gap-1 rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground", className)}>

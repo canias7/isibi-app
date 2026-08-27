@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
  */
 export function CitationMark({ index, id, className }: { index: number; id?: string; className?: string }) {
   return (
-    <a href={`#${id ?? "cite"}-${index}`}
+    <a data-slot="citation-mark" href={`#${id ?? "cite"}-${index}`}
       aria-label={`Source ${index}`}
       className={cn("ms-0.5 rounded-sm bg-muted px-1 align-super text-[10px] font-medium tabular-nums hover:bg-foreground hover:text-background", className)}>
       {index}
@@ -41,7 +41,7 @@ export function CitationList({ sources, id = "cite", title = "Sources", classNam
   };
   if (sources.length === 0) return null;
   return (
-    <section className={cn("flex flex-col gap-1.5", className)}>
+    <section data-slot="citation-list" className={cn("flex flex-col gap-1.5", className)}>
       <h3 className="text-xs font-semibold text-muted-foreground">{title}</h3>
       <ol className="flex flex-col gap-1.5">
         {sources.map((s, i) => (

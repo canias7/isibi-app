@@ -42,7 +42,7 @@ export function EntryRequirements({
 }) {
   if (!requirements.length) return null;
   return (
-    <div className={cn("", className)}>
+    <div data-slot="entry-requirements" className={cn("", className)}>
       <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</h2>
       {intro && <p className="mt-2 max-w-prose text-base leading-relaxed text-muted-foreground">{intro}</p>}
       <ol className={cn("divide-y divide-border border-y border-border", intro ? "mt-4" : "mt-3")}>

@@ -45,7 +45,7 @@ export function TermSlider({ years, onChange, min = 5, max = 40, principal, annu
   }
   const endsAt = ageNow !== undefined ? ageNow + years : undefined;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="term-slider" className={cn("space-y-1.5", className)}>
       <label htmlFor={id} className="block text-sm font-medium">
         Over {years} {years === 1 ? "year" : "years"}
       </label>

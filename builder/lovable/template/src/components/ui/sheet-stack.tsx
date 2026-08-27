@@ -53,7 +53,7 @@ export function SheetStack({ sheets, onBack, onCloseAll, side = "right", classNa
       {sheets.map((s, i) => {
         const back = top - i;
         return (
-          <div
+          <div data-slot="sheet-stack"
             key={s.id}
             ref={(el) => { refs.current[i] = el; }}
             role="dialog"

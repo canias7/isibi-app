@@ -38,7 +38,7 @@ export function QueueTimer({ elapsedSeconds, estimateLowSeconds, estimateHighSec
   const overEstimate =
     estimateHighSeconds !== undefined && elapsedSeconds > estimateHighSeconds;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="queue-timer" className={cn("space-y-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">{fmt(elapsedSeconds)}</span>
         <span className="text-muted-foreground"> waiting</span>

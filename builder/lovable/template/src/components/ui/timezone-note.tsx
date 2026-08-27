@@ -11,7 +11,7 @@ export function TimezoneNote({ siteZone, className }: { siteZone: string; classN
   const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (!here || here === siteZone) return null;
   return (
-    <p className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="timezone-note" className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
       <Globe className="size-3.5" /> Times shown in {siteZone.replace(/_/g, " ")}, not your local time.
     </p>
   );

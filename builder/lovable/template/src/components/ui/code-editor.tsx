@@ -25,7 +25,7 @@ export function CodeEditor({ value, onChange, rows = 12, tabSize = 2, placeholde
   const gutter = React.useRef<HTMLDivElement>(null);
   const lines = value.split("\n").length;
   return (
-    <div className={cn("flex overflow-hidden rounded-md border border-input font-mono text-xs", className)}>
+    <div data-slot="code-editor" className={cn("flex overflow-hidden rounded-md border border-input font-mono text-xs", className)}>
       <div ref={gutter} aria-hidden="true"
         className="select-none overflow-hidden bg-muted/50 py-2 text-end text-muted-foreground">
         {Array.from({ length: lines }, (_, i) => (

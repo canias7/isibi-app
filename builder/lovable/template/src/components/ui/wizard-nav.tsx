@@ -29,7 +29,7 @@ export function WizardNav({ steps, current, onGo, className }: {
   className?: string;
 }) {
   return (
-    <nav className={cn("space-y-1.5", className)} aria-label="Progress">
+    <nav data-slot="wizard-nav" className={cn("space-y-1.5", className)} aria-label="Progress">
       <p className="text-xs text-muted-foreground">
         Step <span className="tabular-nums">{Math.min(current + 1, steps.length)}</span> of{" "}
         <span className="tabular-nums">{steps.length}</span>

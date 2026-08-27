@@ -54,7 +54,7 @@ export function TenancyCosts({
   const total = Math.round((monthlyRent + deposit) * 100) / 100;
   const overCap = depositWeeks > 5 || holdingWeeks > 1;
   return (
-    <div className={cn("", className)}>
+    <div data-slot="tenancy-costs" className={cn("", className)}>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</caption>

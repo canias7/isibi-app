@@ -28,7 +28,7 @@ export function TrackingNote({ items, vendors, honoursDnt, noneNote = "Nothing a
   className?: string;
 }) {
   if (!items.length) {
-    return <p className={cn("text-xs text-muted-foreground", className)}>{noneNote}</p>;
+    return <p data-slot="tracking-note" className={cn("text-xs text-muted-foreground", className)}>{noneNote}</p>;
   }
   const list = items.length === 1
     ? items[0]

@@ -20,7 +20,7 @@ export function SetupTask({ title, why, done, optional, action, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-start gap-3 py-3", className)}>
+    <div data-slot="setup-task" className={cn("flex items-start gap-3 py-3", className)}>
       <span aria-hidden className={cn("mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border",
         done ? "border-foreground bg-foreground text-background" : "border-border")}>
         {done && <Check className="size-3" />}

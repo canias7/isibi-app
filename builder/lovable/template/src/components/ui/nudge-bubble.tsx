@@ -53,7 +53,7 @@ export function NudgeBubble({
   if (gone || !shown) return null;
 
   return (
-    <span
+    <span data-slot="nudge-bubble"
       role="status"
       className={cn("motion-enter pointer-events-none absolute start-0 z-40 w-56",
         side === "bottom" ? "top-full mt-2" : "bottom-full mb-2", className)}

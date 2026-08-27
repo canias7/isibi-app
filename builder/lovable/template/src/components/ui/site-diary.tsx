@@ -39,7 +39,7 @@ export function SiteDiary({ date, weather, temperature, trades = [], work, delay
   const ok = !Number.isNaN(d.getTime());
   const total = trades.reduce((n, t) => n + t.people, 0);
   return (
-    <article className={cn("space-y-2 rounded-md border border-border p-3 text-sm", className)}>
+    <article data-slot="site-diary" className={cn("space-y-2 rounded-md border border-border p-3 text-sm", className)}>
       <p className="font-medium">
         {ok
           ? <time dateTime={date}>{d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</time>

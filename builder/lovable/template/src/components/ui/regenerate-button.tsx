@@ -34,7 +34,7 @@ export function RegenerateButton({ onRegenerate, busy, variants = VARIANTS, clas
 }) {
   const [open, setOpen] = React.useState(false);
   return (
-    <span className={cn("inline-flex items-center rounded-md border border-border", className)}>
+    <span data-slot="regenerate-button" className={cn("inline-flex items-center rounded-md border border-border", className)}>
       <button type="button" onClick={() => onRegenerate("retry")} disabled={busy}
         className="inline-flex cursor-pointer items-center gap-1.5 rounded-s-md px-2 py-1 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-50">
         <RefreshCw aria-hidden className={cn("size-3.5", busy && "motion-safe:animate-spin")} />

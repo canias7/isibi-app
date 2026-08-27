@@ -38,7 +38,7 @@ export function CollectionDay({ nextOn, dayName, bins = [], putOutBy, changed, c
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="collection-day" className={cn("space-y-0.5 text-sm", className)}>
       {changed && (
         <p className="font-medium">
           This collection has moved{changedFrom ? ` from ${changedFrom}` : ""}

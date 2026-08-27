@@ -35,7 +35,7 @@ export function LatencyNote({ median, p95, target, what = "requests", className 
 }) {
   const over = target !== undefined && p95 !== undefined && p95 > target;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="latency-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         {median !== undefined && (
           <><span className="tabular-nums">{fmt(median)}</span><span className="text-muted-foreground"> typically</span></>

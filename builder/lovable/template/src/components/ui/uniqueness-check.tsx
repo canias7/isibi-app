@@ -33,7 +33,7 @@ export function UniquenessCheck({ value, onPick, check, className }: {
   });
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="uniqueness-check" className={cn("flex flex-col gap-1", className)}>
       {state.status === "checking" ? <p className="text-xs text-muted-foreground">Checking…</p> : null}
       {state.status === "ok" ? <p className="text-xs text-muted-foreground">Available.</p> : null}
       {state.status === "failed" ? (

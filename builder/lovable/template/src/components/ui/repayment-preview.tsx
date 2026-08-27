@@ -42,7 +42,7 @@ export function RepaymentPreview({ principal, annualRatePercent, years, interest
   const totalPaid = interestOnly ? payment * n + principal : payment * n;
   const interest = totalPaid - principal;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="repayment-preview" className={cn("space-y-1 text-sm", className)}>
       <div className="flex flex-wrap gap-x-8 gap-y-1">
         <p className="tabular-nums">
           <span className="block text-xs text-muted-foreground">Each month</span>

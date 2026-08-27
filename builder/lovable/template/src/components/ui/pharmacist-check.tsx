@@ -31,7 +31,7 @@ export function PharmacistCheck({ points, dispensedBy, checkedBy, onCheck, class
   const samePerson =
     !!dispensedBy && !!checkedBy && dispensedBy.trim().toLowerCase() === checkedBy.trim().toLowerCase();
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="pharmacist-check" className={cn("space-y-1.5", className)}>
       <p className={cn("text-sm", outstanding.length > 0 ? "font-medium" : "text-muted-foreground")}>
         {outstanding.length === 0
           ? "All checked."

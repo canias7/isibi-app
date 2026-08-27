@@ -28,7 +28,7 @@ export function JumpTo({ letters, available, onJump, active, className }: {
   const all = letters ?? "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const has = new Set(available.map((l) => l.toUpperCase()));
   return (
-    <nav aria-label="Jump to a letter" className={cn("flex flex-col items-center", className)}>
+    <nav data-slot="jump-to" aria-label="Jump to a letter" className={cn("flex flex-col items-center", className)}>
       {all.map((l) => {
         const on = has.has(l.toUpperCase());
         return (

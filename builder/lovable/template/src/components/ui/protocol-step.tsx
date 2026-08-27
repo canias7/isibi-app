@@ -34,7 +34,7 @@ export function ProtocolStep({ number, instruction, durationNote, temperatureNot
   className?: string;
 }) {
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="protocol-step" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex gap-3">
         {number !== undefined && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{number}.</span>}
         <span className={cn("min-w-0 flex-1", critical && "font-medium")}>{instruction}</span>

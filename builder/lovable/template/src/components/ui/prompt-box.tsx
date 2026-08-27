@@ -52,7 +52,7 @@ export function PromptBox({
   const send = () => { if (value.trim() && !busy) onSubmit(); };
 
   return (
-    <div className={cn("flex flex-col gap-2 rounded-2xl border border-border bg-background p-2 focus-within:border-ring", className)}>
+    <div data-slot="prompt-box" className={cn("flex flex-col gap-2 rounded-2xl border border-border bg-background p-2 focus-within:border-ring", className)}>
       {attachments}
       <div className="flex items-end gap-2">
         <textarea

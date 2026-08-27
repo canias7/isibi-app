@@ -32,7 +32,7 @@ export function AllClear({ given, givenBy, at, safeAreas = [], stillClosed = [],
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   if (!given) {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="all-clear" className={cn("space-y-0.5 text-sm", className)}>
         <p className="text-lg font-medium">No all-clear yet. Stay where you are.</p>
         <p className="text-xs text-muted-foreground">
           Nobody has said it is over. This screen not showing an alarm is not the same thing.

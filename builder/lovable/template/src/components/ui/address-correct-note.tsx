@@ -24,7 +24,7 @@ export function AddressCorrectNote({ entered, suggested, onAccept, onKeep, class
 }) {
   const changed = (i: number) => (entered[i] ?? "").trim().toLowerCase() !== (suggested[i] ?? "").trim().toLowerCase();
   return (
-    <div className={cn("flex flex-col gap-2 rounded-lg border border-foreground p-3", className)}>
+    <div data-slot="address-correct-note" className={cn("flex flex-col gap-2 rounded-lg border border-foreground p-3", className)}>
       <p className="text-sm font-medium">We think this address may need a correction</p>
       <div className="grid gap-3 text-xs sm:grid-cols-2">
         <div>

@@ -37,7 +37,7 @@ export function AiErrorNote({ kind = "failed", detail, onRetry, retryLabel = "Tr
 }) {
   const canRetry = kind !== "refused" && Boolean(onRetry);
   return (
-    <div role="alert"
+    <div data-slot="ai-error-note" role="alert"
       className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-foreground/40 bg-muted/40 px-3 py-2 text-sm", className)}>
       <span className="font-medium">{SENTENCE[kind] ?? SENTENCE.failed}</span>
       {detail && <span className="text-muted-foreground">{detail}</span>}

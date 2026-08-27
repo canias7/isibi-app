@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 function Tile({ id, children }: { id: string; children?: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
-    <div ref={setNodeRef} {...attributes} {...listeners}
+    <div data-slot="tile" ref={setNodeRef} {...attributes} {...listeners}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn("cursor-grab touch-none rounded-lg border border-border bg-card p-3 active:cursor-grabbing",
         isDragging && "opacity-50 ring-2 ring-ring")}>

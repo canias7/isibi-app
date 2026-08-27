@@ -28,7 +28,7 @@ export function SignatureSecret({ secret, revealed, onReveal, header = "X-Signat
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="signature-secret" className={cn("space-y-2 rounded-md border border-border p-3", className)}>
       <p className="text-sm font-medium">Signing secret</p>
       <p className="text-xs text-muted-foreground">
         Every request carries a <code className="font-mono">{header}</code> header, signed with {algorithm}.

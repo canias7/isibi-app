@@ -9,7 +9,7 @@ export function ReviewCard({ name, rating, body, at, verified, avatar, className
   verified?: boolean; avatar?: string | null; className?: string;
 }) {
   return (
-    <article className={cn("flex flex-col gap-2 border-b border-border py-4 last:border-0", className)}>
+    <article data-slot="review-card" className={cn("flex flex-col gap-2 border-b border-border py-4 last:border-0", className)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <AvatarName name={name} src={avatar} size="sm" />
         {at && <span className="text-xs text-muted-foreground"><TimeAgo date={at} /></span>}

@@ -43,7 +43,7 @@ export function RecyclingRate({ streams, totalTonnes, period, excludes = [], cla
     new Intl.NumberFormat("en", { style: "percent", maximumFractionDigits: 1 }).format(denom > 0 ? v / denom : 0);
   const max = Math.max(1, ...streams.map((s) => s.tonnes));
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="recycling-rate" className={cn("space-y-1.5", className)}>
       <p className="text-sm tabular-nums">
         <span className="font-medium">{pct(reallyRecycled)} recycled</span>
         {period && <span className="text-muted-foreground"> · {period}</span>}

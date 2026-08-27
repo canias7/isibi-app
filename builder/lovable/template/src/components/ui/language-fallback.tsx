@@ -34,7 +34,7 @@ export function LanguageFallback({ shownIn, wantedIn, noteInShown, noteInWanted,
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs", className)}>
+    <div data-slot="language-fallback" className={cn("space-y-0.5 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs", className)}>
       <p className="text-muted-foreground">
         {noteInShown ?? `This is only available in ${shownIn}.`}
       </p>

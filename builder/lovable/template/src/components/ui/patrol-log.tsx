@@ -37,7 +37,7 @@ export function PatrolLog({ officer, round, checkpoints, startedAt, className }:
   const missed = checkpoints.filter((c) => !c.scannedAt);
   const observations = checkpoints.filter((c) => c.observation);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="patrol-log" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         {round ?? "Patrol"}
         {officer && <span className="text-muted-foreground"> · {officer}</span>}

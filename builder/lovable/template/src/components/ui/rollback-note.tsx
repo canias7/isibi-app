@@ -29,7 +29,7 @@ export function RollbackNote({ by, at, reason, from, to, notUndone, onRedo, clas
   className?: string;
 }) {
   return (
-    <div role="status" className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
+    <div data-slot="rollback-note" role="status" className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
       <div className="flex items-start gap-2.5">
         <Undo2 aria-hidden className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">

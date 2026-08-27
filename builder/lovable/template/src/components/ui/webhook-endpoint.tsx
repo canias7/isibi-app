@@ -31,7 +31,7 @@ export function WebhookEndpoint({ url, state, eventCount, description, action, c
   const insecure = /^http:\/\//i.test(url);
   const WORD = { on: "On", off: "Switched off", "auto-disabled": "Turned off by us" } as const;
   return (
-    <div className={cn("space-y-1 rounded-md border border-border p-3", className)}>
+    <div data-slot="webhook-endpoint" className={cn("space-y-1 rounded-md border border-border p-3", className)}>
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
         <code className="min-w-0 flex-1 break-all font-mono text-xs">{url}</code>
         <span className={cn("shrink-0 text-xs", state === "on" ? "text-muted-foreground" : "font-medium")}>

@@ -34,7 +34,7 @@ export function MediaDuration({ seconds, remaining, style = "clock", className }
     : `${m}:${String(s).padStart(2, "0")}`;
   const words = h ? `${h} hr${m ? ` ${m} min` : ""}` : `${Math.max(m, 1)} min`;
   return (
-    <time dateTime={iso} className={cn("tabular-nums", className)}>
+    <time data-slot="media-duration" dateTime={iso} className={cn("tabular-nums", className)}>
       {style === "clock" ? clock : words}
       {remaining ? " left" : ""}
     </time>

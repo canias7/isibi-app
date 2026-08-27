@@ -22,7 +22,7 @@ export function SkipForNow({ onSkip, where, label = "Skip for now", className }:
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex flex-wrap items-baseline gap-x-2 text-sm", className)}>
+    <span data-slot="skip-for-now" className={cn("inline-flex flex-wrap items-baseline gap-x-2 text-sm", className)}>
       <button type="button" onClick={onSkip}
         className="cursor-pointer text-muted-foreground underline underline-offset-4">{label}</button>
       {where && <span className="text-xs text-muted-foreground">You can add it later in {where}.</span>}

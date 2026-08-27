@@ -8,7 +8,7 @@ export function PermissionRow({ name, email, avatar, role, roles = ["Member", "A
   onRole?: (r: string) => void; locked?: boolean; actions?: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-3 border-b border-border py-3 last:border-0", className)}>
+    <div data-slot="permission-row" className={cn("flex items-center gap-3 border-b border-border py-3 last:border-0", className)}>
       <div className="min-w-0 flex-1"><AvatarName name={name} subtitle={email} src={avatar} /></div>
       {locked || !onRole
         ? <span className="text-sm text-muted-foreground">{role}</span>

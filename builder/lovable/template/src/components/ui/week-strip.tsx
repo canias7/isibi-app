@@ -6,7 +6,7 @@ export function WeekStrip({ start, value, onSelect, disabled = [], className }: 
 }) {
   const off = new Set(disabled);
   return (
-    <div className={cn("grid grid-cols-7 gap-1", className)} role="group" aria-label="Pick a day">
+    <div data-slot="week-strip" className={cn("grid grid-cols-7 gap-1", className)} role="group" aria-label="Pick a day">
       {Array.from({ length: 7 }, (_, i) => {
         const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
         const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;

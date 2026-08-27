@@ -7,7 +7,7 @@
 export function TruncateMiddle({ text, max = 28, className }: {
   text: string; max?: number; className?: string;
 }) {
-  if (text.length <= max) return <span className={className}>{text}</span>;
+  if (text.length <= max) return <span data-slot="truncate-middle" className={className}>{text}</span>;
   const keep = Math.floor((max - 1) / 2);
   return (
     <span className={className} title={text}>

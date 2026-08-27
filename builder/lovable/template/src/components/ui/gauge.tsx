@@ -14,7 +14,7 @@ export function Gauge({ value, min = 0, max = 100, unit, label, size = 120, clas
   const w = size, h = size / 2 + 8, r = (size - 14) / 2, cx = w / 2, cy = size / 2;
   const arc = Math.PI * r;
   return (
-    <div className={cn("inline-flex flex-col items-center", className)}>
+    <div data-slot="gauge" className={cn("inline-flex flex-col items-center", className)}>
       <svg width={w} height={h} role="img" aria-label={label ?? `${value}${unit ?? ""} of ${max}${unit ?? ""}`}>
         <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke="currentColor"
           strokeWidth="7" strokeLinecap="round" className="text-muted" />

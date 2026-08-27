@@ -31,7 +31,7 @@ export function AssayPlate({ rows = ["A", "B", "C", "D", "E", "F", "G", "H"], co
   const at = new Map(wells.map((w) => [`${w.row}${w.column}`, w]));
   const controls = wells.filter((w) => w.kind === "control").length;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="assay-plate" className={cn("space-y-1", className)}>
       <div className="overflow-x-auto">
         <table className="border-collapse text-xs">
           <caption className="sr-only">

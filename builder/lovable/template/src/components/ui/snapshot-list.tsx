@@ -34,7 +34,7 @@ export function SnapshotList({ snapshots, onRestore, onDelete, empty = "No snaps
   className?: string;
 }) {
   if (!snapshots.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
+    return <p data-slot="snapshot-list" className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
   }
   return (
     <ul className={cn("divide-y divide-border rounded-md border border-border", className)}>

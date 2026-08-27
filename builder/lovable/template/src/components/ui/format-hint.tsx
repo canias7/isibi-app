@@ -25,7 +25,7 @@ export function FormatHint({ id, pattern, example, className }: {
 }) {
   if (!pattern && !example) return null;
   return (
-    <p id={id} className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="format-hint" id={id} className={cn("text-xs text-muted-foreground", className)}>
       {pattern ? <span className="font-mono">{pattern}</span> : null}
       {pattern && example ? " — " : null}
       {example ? <>like <span className="font-mono">{example}</span></> : null}

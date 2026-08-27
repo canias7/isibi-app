@@ -22,7 +22,7 @@ export function MonthPicker({ value, onChange, min, max, className }: {
   const key = (m: number) => `${year}-${String(m + 1).padStart(2, "0")}`;
   const blocked = (k: string) => (min && k < min) || (max && k > max);
   return (
-    <div className={cn("w-64 space-y-2 rounded-md border border-border p-2", className)}>
+    <div data-slot="month-picker" className={cn("w-64 space-y-2 rounded-md border border-border p-2", className)}>
       <div className="flex items-center justify-between">
         <Button type="button" size="icon-sm" variant="ghost" aria-label="Previous year" onClick={() => setYear((y) => y - 1)}>
           <ChevronLeft className="size-4" />

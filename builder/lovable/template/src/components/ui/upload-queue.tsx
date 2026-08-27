@@ -71,7 +71,7 @@ export function UploadQueue({ items, onRetry, className }: {
   const done = items.filter((i) => i.status === "done").length;
   const failed = items.filter((i) => i.status === "failed").length;
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="upload-queue" className={cn("flex flex-col gap-1.5", className)}>
       <p className="text-xs tabular-nums text-muted-foreground">
         {done} of {items.length} done{failed ? <> · <b className="text-foreground">{failed} failed</b></> : null}
         {failed > 1 ? (

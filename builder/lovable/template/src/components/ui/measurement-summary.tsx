@@ -27,7 +27,7 @@ export function MeasurementSummary({ items, missingNote = "not given", className
 }) {
   if (!items.length) return null;
   return (
-    <dl className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
+    <dl data-slot="measurement-summary" className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {items.map((m) => {
         const missing = m.value === null || m.value === undefined || m.value === "";
         return (

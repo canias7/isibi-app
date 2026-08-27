@@ -38,7 +38,7 @@ export function SyncSchedule({ options, value, onChange, nextRun, lastRun, runni
   // match. The second form's labels pointed at the first form's inputs.
   const uid = useId();
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="sync-schedule" className={cn("space-y-1", className)}>
       <label htmlFor={uid + "-sync-freq"} className="block text-sm font-medium">How often</label>
       <NativeSelect id={uid + "-sync-freq"} value={value} className="w-auto" onChange={(e) => onChange(e.target.value)}>
         <option value="">Only when I press the button</option>

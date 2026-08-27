@@ -31,7 +31,7 @@ export function ColumnReorder({ index, count, label, onMove, className }: {
 }) {
   const [over, setOver] = React.useState<"left" | "right" | null>(null);
   return (
-    <span
+    <span data-slot="column-reorder"
       draggable
       onDragStart={(e) => { e.dataTransfer.setData("text/plain", String(index)); e.dataTransfer.effectAllowed = "move"; }}
       onDragOver={(e) => {

@@ -26,7 +26,7 @@ export function DisputeNote({ what = "This", stage, by, className }: {
     resolved: "was disputed and has been decided",
   } as const;
   return (
-    <p role="status" className={cn("rounded-md border border-dashed border-border px-3 py-1.5 text-xs", className)}>
+    <p data-slot="dispute-note" role="status" className={cn("rounded-md border border-dashed border-border px-3 py-1.5 text-xs", className)}>
       <span className="font-medium">{what} {WORD[stage]}</span>
       {by && <span className="text-muted-foreground"> by {by}</span>}
       <span className="text-muted-foreground"> — it stays visible while that happens.</span>

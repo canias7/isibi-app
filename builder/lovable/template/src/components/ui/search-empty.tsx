@@ -35,7 +35,7 @@ export function SearchEmpty({
 }) {
   if (collectionEmpty) {
     return (
-      <div role="status" className={cn("flex flex-col items-center gap-3 py-10 text-center", className)}>
+      <div data-slot="search-empty" role="status" className={cn("flex flex-col items-center gap-3 py-10 text-center", className)}>
         <p className="text-sm font-medium">Nothing here yet</p>
         {actions}
       </div>

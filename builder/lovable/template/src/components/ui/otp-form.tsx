@@ -15,7 +15,7 @@ export function OtpForm({ length = 6, onSubmit, onResend, busy, error, sentTo, c
 }) {
   const [code, setCode] = React.useState("");
   return (
-    <form className={cn("flex flex-col items-center gap-4", className)}
+    <form data-slot="otp-form" className={cn("flex flex-col items-center gap-4", className)}
       onSubmit={(e) => { e.preventDefault(); onSubmit(code); }}>
       {sentTo && <p className="text-sm text-muted-foreground">We sent a code to {sentTo}.</p>}
       <InputOTP maxLength={length} value={code}

@@ -47,7 +47,7 @@ export function RoamingNote({ destination, included, spendCap, callOutPerMinute,
     }).format(v);
   if (included) {
     return (
-      <div className={cn("space-y-0.5 text-sm", className)}>
+      <div data-slot="roaming-note" className={cn("space-y-0.5 text-sm", className)}>
         <p className="font-medium">{destination} costs the same as at home.</p>
         <p className="text-xs text-muted-foreground">Your usual allowances apply. Nothing extra to set up.</p>
       </div>

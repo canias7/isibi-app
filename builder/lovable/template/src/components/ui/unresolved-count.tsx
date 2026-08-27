@@ -32,7 +32,7 @@ export function UnresolvedCount({ open, resolved = 0, filtering, onToggle, class
   const detail = resolved > 0 ? `${resolved.toLocaleString()} resolved` : null;
   if (!onToggle) {
     return (
-      <p className={cn("text-sm", className)}>
+      <p data-slot="unresolved-count" className={cn("text-sm", className)}>
         <span className={cn(open > 0 && "font-medium")}>{text}</span>
         {detail && <span className="text-muted-foreground"> · {detail}</span>}
       </p>

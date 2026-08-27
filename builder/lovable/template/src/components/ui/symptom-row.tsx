@@ -33,7 +33,7 @@ export function SymptomRow({ theirWords, clinicalTerm, forHowLong, direction, st
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="symptom-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="italic">"{theirWords}"</p>
       {clinicalTerm && <p className="text-xs text-muted-foreground">{clinicalTerm}</p>}
       <p className={cn("text-xs", direction === "worse" ? "font-medium" : "text-muted-foreground")}>

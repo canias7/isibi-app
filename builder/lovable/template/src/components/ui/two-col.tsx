@@ -9,7 +9,7 @@ export function TwoCol({ aside, asideFirst, ratio = "2/1", gap = 8, className, c
   const main = ratio === "1/1" ? "" : ratio === "2/1" ? "md:col-span-2" : "md:col-span-3";
   const g: Record<number,string> = {4:"gap-4",6:"gap-6",8:"gap-8",10:"gap-10"};
   return (
-    <div className={cn("grid", cols, g[gap], className)}>
+    <div data-slot="two-col" className={cn("grid", cols, g[gap], className)}>
       <div className={cn(main, asideFirst && "md:order-2")}>{children}</div>
       <aside className={cn(asideFirst && "md:order-1")}>{aside}</aside>
     </div>

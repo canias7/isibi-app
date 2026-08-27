@@ -31,7 +31,7 @@ export function ReservedNote({ minutesLeft, count, unit = "items", expired, acti
 }) {
   const what = count !== undefined ? `${count.toLocaleString()} ${count === 1 ? unit.replace(/s$/, "") : unit}` : "These";
   return (
-    <p role="status" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-sm", className)}>
+    <p data-slot="reserved-note" role="status" className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-sm", className)}>
       {expired ? (
         <>
           <span className="font-medium">Your hold has ended</span>

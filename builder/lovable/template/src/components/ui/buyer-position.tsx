@@ -37,7 +37,7 @@ export function BuyerPosition({ facts, chainFree, buying = "with a mortgage", cl
   const missing = facts.filter((f) => !f.claimed && !f.verified);
   const claimedOnly = facts.filter((f) => f.claimed && !f.verified);
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="buyer-position" className={cn("space-y-1.5 text-sm", className)}>
       <p className="font-medium">
         {chainFree ? "Nothing to sell first." : "Has a property to sell first."} Buying {buying}.
       </p>

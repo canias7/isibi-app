@@ -30,7 +30,7 @@ export function DualList({ options, value, onChange, availableLabel = "Available
     onChange(next);
   };
   return (
-    <div className={cn("grid gap-3 sm:grid-cols-2", className)}>
+    <div data-slot="dual-list" className={cn("grid gap-3 sm:grid-cols-2", className)}>
       <div className="rounded-md border border-border">
         <p className="border-b border-border px-3 py-2 text-xs font-medium">
           {availableLabel} <span className="tabular-nums text-muted-foreground">({left.length})</span>

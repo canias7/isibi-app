@@ -5,7 +5,7 @@ export function Panel({ title, actions, footer, className, children }: {
   className?: string; children?: React.ReactNode;
 }) {
   return (
-    <section className={cn("overflow-hidden rounded-lg border", className)}>
+    <section data-slot="panel" className={cn("overflow-hidden rounded-lg border", className)}>
       {(title || actions) && (
         <header className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
           {title && <h3 className="text-sm font-medium">{title}</h3>}

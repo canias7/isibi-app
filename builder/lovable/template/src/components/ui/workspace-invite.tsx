@@ -47,7 +47,7 @@ export function WorkspaceInvite({ roles, role, onRoleChange, onInvite, seatCost,
     : [];
   const chargeable = seatsLeft === undefined ? emails.length : Math.max(0, emails.length - seatsLeft);
   return (
-    <form className={cn("space-y-3", className)}
+    <form data-slot="workspace-invite" className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (emails.length) onInvite(emails); }}>
       <div className="space-y-1">
         <label htmlFor={uid + "-wi-emails"} className="block text-sm font-medium">Email addresses</label>

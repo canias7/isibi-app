@@ -23,7 +23,7 @@ export function AccessExpiry({ at, soonWithinDays = 7, onExtend, className }: {
   onExtend?: () => void;
   className?: string;
 }) {
-  if (!at) return <p className={cn("text-xs text-muted-foreground", className)}>No end date</p>;
+  if (!at) return <p data-slot="access-expiry" className={cn("text-xs text-muted-foreground", className)}>No end date</p>;
   const t = new Date(at).getTime();
   if (Number.isNaN(t)) return null;
   const left = t - Date.now();

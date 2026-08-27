@@ -23,7 +23,7 @@ export function FirstRunPanel({ title, blurb, primary, sample, onSkip, className
   className?: string;
 }) {
   return (
-    <section aria-label={title}
+    <section data-slot="first-run-panel" aria-label={title}
       className={cn("flex flex-col items-start gap-3 rounded-md border border-border p-6", className)}>
       <div>
         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>

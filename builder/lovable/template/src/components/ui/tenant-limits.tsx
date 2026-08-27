@@ -39,7 +39,7 @@ export function TenantLimits({ limits, planName, className }: {
   const sorted = [...limits].sort((a, b) =>
     Number(b.planValue !== undefined) - Number(a.planValue !== undefined));
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="tenant-limits" className={cn("space-y-1.5", className)}>
       <p className="text-xs text-muted-foreground">
         {planName && <span>{planName} · </span>}
         {overridden.length === 0

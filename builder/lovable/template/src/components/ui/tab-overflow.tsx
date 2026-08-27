@@ -63,7 +63,7 @@ export function TabOverflow({ tabs, active, onSelect, className }: {
   };
 
   return (
-    <div ref={wrap} role="tablist" aria-label="Sections"
+    <div data-slot="tab-overflow" ref={wrap} role="tablist" aria-label="Sections"
       onKeyDown={(e) => {
         if (e.key === "ArrowRight") { e.preventDefault(); move(1); }
         if (e.key === "ArrowLeft") { e.preventDefault(); move(-1); }

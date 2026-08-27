@@ -34,7 +34,7 @@ export function EventSubscription({ groups, selected, onChange, className }: {
   const toggle = (id: string, on: boolean) =>
     onChange(on ? Array.from(new Set([...selected, id])) : selected.filter((x) => x !== id));
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="event-subscription" className={cn("space-y-3", className)}>
       {groups.map((g) => {
         const ids = g.events.map((e) => e.id);
         const on = ids.filter((i) => selected.includes(i));

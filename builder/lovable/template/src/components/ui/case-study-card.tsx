@@ -6,7 +6,7 @@ export function CaseStudyCard({ client, headline, result, image, href, className
   image?: string | null; href?: string; className?: string;
 }) {
   return (
-    <a href={href} className={cn("group flex flex-col gap-3 rounded-xl border p-4 hover:bg-muted/40", className)}>
+    <a data-slot="case-study-card" href={href} className={cn("group flex flex-col gap-3 rounded-xl border p-4 hover:bg-muted/40", className)}>
       <SafeImage src={image} alt={client} ratio="16/9" />
       <div>
         <div className="text-xs uppercase tracking-widest text-muted-foreground">{client}</div>

@@ -27,7 +27,7 @@ export function RowErrorList({ errors, total, max = 10, downloadHref, className 
   const count = total ?? errors.length;
   const rest = count - shown.length;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="row-error-list" className={cn("flex flex-col gap-1", className)}>
       <p className="text-sm font-medium tabular-nums">
         {count.toLocaleString()} {count === 1 ? "row" : "rows"} couldn&apos;t be imported
       </p>

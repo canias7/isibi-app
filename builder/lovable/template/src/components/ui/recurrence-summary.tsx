@@ -30,5 +30,5 @@ export function RecurrenceSummary({ freq, interval = 1, days, until, count, clas
   const end = until && !Number.isNaN(toDate(until).getTime())
     ? `, until ${toDate(until).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`
     : count != null && count > 0 ? `, ${count} times` : "";
-  return <p className={cn("text-sm text-muted-foreground", className)}>{every}{on}{end}</p>;
+  return <p data-slot="recurrence-summary" className={cn("text-sm text-muted-foreground", className)}>{every}{on}{end}</p>;
 }

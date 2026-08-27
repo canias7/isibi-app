@@ -11,7 +11,7 @@ export function InviteForm({ roles = ["Member", "Admin"], onSubmit, busy, classN
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState(roles[0]);
   return (
-    <form className={cn("flex flex-wrap items-end gap-2", className)}
+    <form data-slot="invite-form" className={cn("flex flex-wrap items-end gap-2", className)}
       onSubmit={(e) => { e.preventDefault(); if (email) onSubmit({ email, role }); }}>
       <div className="min-w-48 flex-1"><EmailInput value={email} onChange={setEmail} placeholder="name@company.com" /></div>
       <Select value={role} onValueChange={setRole}>

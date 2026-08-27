@@ -20,7 +20,7 @@ export function AnswerReview({ answers, onEdit, className }: {
 }) {
   if (!answers.length) return null;
   return (
-    <dl className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
+    <dl data-slot="answer-review" className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {answers.map((a) => {
         const blank = a.answer === null || a.answer === undefined || a.answer === "";
         return (

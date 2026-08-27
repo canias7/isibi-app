@@ -36,7 +36,7 @@ export function IsrcField({ label = "ISRC", value, onChange, recordingYear, clas
   const wrongYear =
     shaped && recordingYear !== undefined && yearPart !== undefined && yearPart !== recordingYear % 100;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="isrc-field" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">{label}</label>
       <Input
         id={id}

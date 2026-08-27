@@ -33,7 +33,7 @@ export function CommandItem({ selected, onSelect, keys, icon, children, classNam
     if (selected) ref.current?.scrollIntoView({ block: "nearest" });
   }, [selected]);
   return (
-    <div
+    <div data-slot="command-item"
       ref={ref}
       role="option"
       aria-selected={selected ?? false}

@@ -38,7 +38,7 @@ export function ReviewStep({ steps, onEdit, onSubmit, submitLabel, busy, note, c
 }) {
   const gaps = steps.flatMap((s) => (s.missing ?? []).map((m) => ({ step: s, label: m })));
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="review-step" className={cn("space-y-3", className)}>
       {gaps.length > 0 && (
         <div role="alert" className="rounded-md border border-foreground/40 bg-muted/40 px-3 py-2 text-sm">
           <p className="font-medium">

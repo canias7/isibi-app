@@ -35,7 +35,7 @@ export function CatchmentNote({ areas, total, noun = "places", max = 3, classNam
     ? shown.join(", ")
     : `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`;
   return (
-    <p className={cn("text-sm text-muted-foreground", className)}>
+    <p data-slot="catchment-note" className={cn("text-sm text-muted-foreground", className)}>
       {total !== undefined && (
         <><span className="font-medium tabular-nums text-foreground">{total.toLocaleString()}</span> {noun} across </>
       )}

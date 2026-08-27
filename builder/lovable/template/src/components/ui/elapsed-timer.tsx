@@ -32,7 +32,7 @@ export function ElapsedTimer({ since, prefix = "Started", className }: {
   const mins = Math.max(0, Math.floor((Date.now() - start.getTime()) / 6e4));
   const words = mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
   return (
-    <span className={cn("inline-flex items-baseline gap-1.5 text-sm", className)}>
+    <span data-slot="elapsed-timer" className={cn("inline-flex items-baseline gap-1.5 text-sm", className)}>
       <span className="text-xs text-muted-foreground">
         {prefix} <time dateTime={isoAttr(start)}>{start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</time>
       </span>

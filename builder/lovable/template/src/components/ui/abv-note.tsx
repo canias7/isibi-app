@@ -32,7 +32,7 @@ export function AbvNote({ abvPercent, serveMl, serveName, alcoholFree, className
   // countries. A national "unit" is neither.
   const alcoholMl = serveMl !== undefined ? (serveMl * abvPercent) / 100 : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="abv-note" className={cn("space-y-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">{abvPercent}% alcohol</span>
         {serveName && <span className="text-muted-foreground"> · {serveName}</span>}

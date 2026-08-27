@@ -40,7 +40,7 @@ export function ProductionRun({ product, batchCode, inputQuantity, goodOutput, r
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   const q = (v: number) => `${Number(v.toFixed(2))} ${unit}`;
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="production-run" className={cn("space-y-1 text-sm", className)}>
       <p className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 font-medium">{product}</span>
         {batchCode && <span className="shrink-0 tabular-nums text-muted-foreground">{batchCode}</span>}

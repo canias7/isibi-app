@@ -48,7 +48,7 @@ export function ProgressToast({
   const Icon = status === "done" ? Check : status === "failed" ? X : Loader;
 
   return (
-    <div role="status" aria-live="polite"
+    <div data-slot="progress-toast" role="status" aria-live="polite"
       className={cn("flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-lg border border-border bg-background p-3 shadow-lg", className)}>
       <div className="flex items-start gap-2.5">
         <Icon aria-hidden className={cn("mt-0.5 size-4 shrink-0",

@@ -47,7 +47,7 @@ export function RestoreConfirm({ fromLabel, confirmText, lost, downtime, onResto
   const want = confirmText ?? fromLabel;
   const ready = typed.trim().toLowerCase() === want.trim().toLowerCase();
   return (
-    <form className={cn("space-y-3 rounded-md border border-foreground/40 bg-muted/40 p-3", className)}
+    <form data-slot="restore-confirm" className={cn("space-y-3 rounded-md border border-foreground/40 bg-muted/40 p-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onRestore({ snapshotFirst: snapshot }); }}>
       <p className="text-sm font-medium">Restore from {fromLabel}</p>
       {lost !== undefined && lost > 0 && (

@@ -51,7 +51,7 @@ export function SerialCapture({ label = "Scan serial", expected, serials, onChan
   }
 
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="serial-capture" className={cn("space-y-1.5", className)}>
       <form onSubmit={submit} className="space-y-1">
         <label htmlFor={id} className="block text-sm font-medium">{label}</label>
         <Input

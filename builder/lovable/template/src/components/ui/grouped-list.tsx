@@ -25,7 +25,7 @@ export function GroupedList<T>({ items, groupBy, renderItem, sortGroups, empty =
   }
   const keys = [...map.keys()];
   if (sortGroups) keys.sort(sortGroups);
-  if (!items.length) return <p className={cn("py-8 text-center text-sm text-muted-foreground", className)}>{empty}</p>;
+  if (!items.length) return <p data-slot="grouped-list" className={cn("py-8 text-center text-sm text-muted-foreground", className)}>{empty}</p>;
   return (
     <div className={cn("relative", className)}>
       {keys.map((k) => (

@@ -112,7 +112,7 @@ export function SafeImage({
     const angle = 100 + (s % 4) * 25;
     const stop = 38 + (s % 5) * 7;
     return (
-      <div className={box} style={{ aspectRatio: ratio }}>
+      <div data-slot="safe-image" className={box} style={{ aspectRatio: ratio }}>
         {fallback ?? (
           <div
             // An empty alt is HTML's own way of saying "decorative", so it is

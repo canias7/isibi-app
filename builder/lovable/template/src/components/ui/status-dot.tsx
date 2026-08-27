@@ -18,7 +18,7 @@ export function StatusDot({ state = "on", label, showLabel = true, className }: 
     error: "bg-destructive",
   }[state];
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span data-slot="status-dot" className={cn("inline-flex items-center gap-2", className)}>
       <span className={cn("size-2 shrink-0 rounded-full", dot)} aria-hidden="true" />
       <span className={showLabel ? "text-sm" : "sr-only"}>{text}</span>
     </span>

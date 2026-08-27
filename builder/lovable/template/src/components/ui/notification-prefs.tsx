@@ -15,7 +15,7 @@ export function NotificationPrefs({ channels, rows, value, onChange, className }
   className?: string;
 }) {
   return (
-    <table className={cn("w-full text-sm", className)}>
+    <table data-slot="notification-prefs" className={cn("w-full text-sm", className)}>
       <thead>
         <tr className="border-b border-border">
           <th className="py-2 text-start font-medium">Notify me about</th>

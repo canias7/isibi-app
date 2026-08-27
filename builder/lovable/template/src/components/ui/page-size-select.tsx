@@ -6,7 +6,7 @@ export function PageSizeSelect({ value, onChange, options = [10, 25, 50, 100], i
   value: number; onChange: (n: number) => void; options?: number[]; id?: string; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div data-slot="page-size-select" className={cn("flex items-center gap-2", className)}>
       <Label htmlFor={id} className="text-xs text-muted-foreground">Rows</Label>
       <NativeSelect id={id} value={String(value)} onChange={(e) => onChange(Number(e.target.value))}
         className="h-8 w-auto text-xs">

@@ -21,7 +21,7 @@ export function OutlierFlag({ value, usual, confirmed, onConfirm, className }: {
   onConfirm?: () => void;
   className?: string;
 }) {
-  if (confirmed) return <span className={cn("tabular-nums", className)}>{value}</span>;
+  if (confirmed) return <span data-slot="outlier-flag" className={cn("tabular-nums", className)}>{value}</span>;
   return (
     <span className={cn("inline-flex flex-wrap items-baseline gap-1.5", className)}>
       <span className="border-b-2 border-dotted border-foreground font-medium tabular-nums">{value}</span>

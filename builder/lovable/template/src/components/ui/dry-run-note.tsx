@@ -17,7 +17,7 @@ export function DryRunNote({ actionLabel, onCommit, onCancel, busy, note, classN
   busy?: boolean; note?: string; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2.5", className)}>
+    <div data-slot="dry-run-note" className={cn("flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2.5", className)}>
       <p className="text-sm">
         <strong className="font-medium">Nothing has been saved yet.</strong>
         {note && <span className="ms-1.5 text-muted-foreground">{note}</span>}

@@ -21,7 +21,7 @@ export function GuestNote({ willLose, onSignIn, signInHref, className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("flex flex-wrap items-center gap-x-2 rounded-md border border-border px-3 py-2 text-sm", className)}>
+    <p data-slot="guest-note" className={cn("flex flex-wrap items-center gap-x-2 rounded-md border border-border px-3 py-2 text-sm", className)}>
       <span className="font-medium">You&apos;re not signed in</span>
       {willLose && <span className="text-muted-foreground">{willLose}</span>}
       {signInHref

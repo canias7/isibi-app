@@ -25,7 +25,7 @@ export function SmallScreenNote({ missing, message, className }: {
   className?: string;
 }) {
   return (
-    <p role="note"
+    <p data-slot="small-screen-note" role="note"
       className={cn("rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground md:hidden", className)}>
       {message ?? (missing ? `${missing} needs a bigger screen.` : "Some things here need a bigger screen.")}
     </p>

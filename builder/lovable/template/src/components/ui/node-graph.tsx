@@ -39,7 +39,7 @@ export function NodeGraph({ nodes, edges, onPick, selected, className }: {
   const at = new Map(nodes.map((n) => [n.id, n]));
   const id = React.useId().replace(/:/g, "");
   return (
-    <div className={cn("relative w-full overflow-auto rounded-lg border border-border bg-muted/20", className)}
+    <div data-slot="node-graph" className={cn("relative w-full overflow-auto rounded-lg border border-border bg-muted/20", className)}
       style={{ aspectRatio: "16/9" }}>
       <svg aria-hidden viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
         <defs>

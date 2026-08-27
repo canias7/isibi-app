@@ -50,7 +50,7 @@ export function AttachmentTray({ items, onRemove, className }: {
 
   if (items.length === 0) return null;
   return (
-    <ul className={cn("flex flex-wrap gap-2", className)}>
+    <ul data-slot="attachment-tray" className={cn("flex flex-wrap gap-2", className)}>
       {items.map((a) => (
         <li key={a.id}
           className={cn("flex max-w-56 items-center gap-2 rounded-lg border px-2 py-1.5",

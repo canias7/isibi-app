@@ -24,7 +24,7 @@ export function DuplicateBadge({ of, evidence, onMerge, onNotSame, className }: 
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-foreground/60 px-2 py-1 text-xs", className)}>
+    <span data-slot="duplicate-badge" className={cn("inline-flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-foreground/60 px-2 py-1 text-xs", className)}>
       <span>
         Possibly the same as{" "}
         {of.href

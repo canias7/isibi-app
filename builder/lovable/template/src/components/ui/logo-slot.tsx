@@ -43,7 +43,7 @@ export function LogoSlot({ src, name, height = 32, className }: {
   const box = cn("inline-flex items-center align-middle", className);
   if (!src || failed) {
     return (
-      <span style={{ height, fontSize: Math.max(14, height * 0.5) }} className={cn(box, "font-medium")}>
+      <span data-slot="logo-slot" style={{ height, fontSize: Math.max(14, height * 0.5) }} className={cn(box, "font-medium")}>
         {name}
       </span>
     );

@@ -11,7 +11,7 @@ export function SectionHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-2", align === "center" && "items-center text-center", className)}>
+    <div data-slot="section-header" className={cn("flex flex-col gap-2", align === "center" && "items-center text-center", className)}>
       {eyebrow && (
         <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{eyebrow}</span>
       )}

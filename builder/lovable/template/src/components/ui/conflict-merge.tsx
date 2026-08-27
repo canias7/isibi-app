@@ -36,7 +36,7 @@ export function ConflictMerge({
   const left = conflicts.filter((c) => !choices[c.key]).length;
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="conflict-merge" className={cn("flex flex-col gap-3", className)}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border text-xs text-muted-foreground">

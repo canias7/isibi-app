@@ -14,7 +14,7 @@ export function LatencyBadge({ ms, ok = 300, slow = 1000, className }: {
   const word = { ok: "fast", fair: "fair", slow: "slow" }[band];
   const text = ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s` : `${Math.round(ms)}ms`;
   return (
-    <span className={cn("inline-flex items-baseline gap-1 text-xs tabular-nums", tone, className)}>
+    <span data-slot="latency-badge" className={cn("inline-flex items-baseline gap-1 text-xs tabular-nums", tone, className)}>
       {text}<span className="sr-only"> — {word}</span>
     </span>
   );

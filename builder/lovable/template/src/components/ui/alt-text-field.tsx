@@ -35,7 +35,7 @@ export function AltTextField({ value, onChange, decorative, onDecorativeChange, 
   const long = value.length > 125;
 
   return (
-    <div className={cn("flex gap-3", className)}>
+    <div data-slot="alt-text-field" className={cn("flex gap-3", className)}>
       {imageSrc ? (
         <img src={imageSrc} alt="" className="size-20 shrink-0 rounded-md border border-border object-cover" />
       ) : null}

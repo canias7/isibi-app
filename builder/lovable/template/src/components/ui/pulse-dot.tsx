@@ -26,7 +26,7 @@ export function PulseDot({ state = "live", label, children, className }: {
 }) {
   const word = label ?? (state === "live" ? "Live" : state === "idle" ? "Idle" : "Off");
   return (
-    <span className={cn("inline-flex items-center gap-1.5", className)}>
+    <span data-slot="pulse-dot" className={cn("inline-flex items-center gap-1.5", className)}>
       <span aria-hidden className="relative flex size-2 shrink-0">
         {state === "live" ? (
           <span className="absolute inline-flex size-full animate-ping rounded-full bg-current opacity-60 motion-reduce:hidden" />

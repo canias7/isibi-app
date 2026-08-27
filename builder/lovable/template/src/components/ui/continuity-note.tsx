@@ -32,7 +32,7 @@ export function ContinuityNote({ scriptDay, scene, character, state, referenceSh
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="continuity-note" className={cn("space-y-0.5 text-sm", className)}>
       <p className="text-xs text-muted-foreground">
         {scriptDay ? `Script day ${scriptDay}` : "No script day recorded"}
         {scene && ` · scene ${scene}`}

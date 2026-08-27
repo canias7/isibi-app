@@ -39,7 +39,7 @@ export function OveragePreview({ used, included, unit = "units", projected, cost
   if (!over && !willGoOver) return null;
   const excess = Math.max(0, (projected ?? used) - included);
   return (
-    <div className={cn("space-y-1 rounded-md border border-border p-3 text-sm", className)}>
+    <div data-slot="overage-preview" className={cn("space-y-1 rounded-md border border-border p-3 text-sm", className)}>
       <p>
         <span className="font-medium">
           {over ? "You are over your allowance" : "You are on course to go over"}

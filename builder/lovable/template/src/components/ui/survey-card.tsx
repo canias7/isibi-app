@@ -26,7 +26,7 @@ export function SurveyCard({ step, total, question, hint, onSkip, children, clas
   className?: string;
 }) {
   return (
-    <section className={cn("flex flex-col gap-3 rounded-xl border border-border bg-card p-4", className)}>
+    <section data-slot="survey-card" className={cn("flex flex-col gap-3 rounded-xl border border-border bg-card p-4", className)}>
       <p className="text-[11px] uppercase tracking-wide text-muted-foreground tabular-nums">
         Question {step} of {total}
       </p>

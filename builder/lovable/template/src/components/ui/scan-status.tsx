@@ -29,7 +29,7 @@ export function ScanStatus({ state, reason, className }: {
   } as const;
   const loud = state === "blocked" || state === "pending";
   return (
-    <p role="status" className={cn("text-xs", loud ? "font-medium" : "text-muted-foreground", className)}>
+    <p data-slot="scan-status" role="status" className={cn("text-xs", loud ? "font-medium" : "text-muted-foreground", className)}>
       {WORD[state]}
       {reason && <span className="font-normal text-muted-foreground"> — {reason}</span>}
     </p>

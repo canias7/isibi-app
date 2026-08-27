@@ -36,7 +36,7 @@ export function ThresholdBar({ value, threshold, consequence, goodWhenOver = tru
   const away = threshold - value;
 
   return (
-    <figure className={cn("flex flex-col gap-1", className)}>
+    <figure data-slot="threshold-bar" className={cn("flex flex-col gap-1", className)}>
       <figcaption className="flex items-baseline justify-between gap-2 text-xs">
         <span className={cn(over === goodWhenOver ? "" : over ? "font-semibold" : "")}>
           {over

@@ -19,7 +19,7 @@ export function NumberScrubber({ value, onChange, step = 1, min, max, label, suf
   const clamp = (n: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n));
   const round = (n: number) => Math.round(n / step) * step;
   return (
-    <span
+    <span data-slot="number-scrubber"
       role="slider" tabIndex={0} aria-label={label} aria-valuenow={value} aria-valuemin={min} aria-valuemax={max}
       className={cn("inline-flex cursor-ew-resize select-none items-baseline gap-0.5 rounded px-1.5 py-0.5 text-sm tabular-nums hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40", className)}
       onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); start.current = { x: e.clientX, v: value }; }}

@@ -59,7 +59,7 @@ export function QuickSwitcher({ items, current, recents = [], query, onQueryChan
   const index = Math.min(at, Math.max(0, shown.length - 1));
 
   return (
-    <div className={cn("flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl", className)}>
+    <div data-slot="quick-switcher" className={cn("flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl", className)}>
       <input
         autoFocus
         value={query}

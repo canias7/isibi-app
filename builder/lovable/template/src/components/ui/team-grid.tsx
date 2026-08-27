@@ -29,7 +29,7 @@ export function TeamGrid({ items, columns = 4, className }: {
     4: "sm:grid-cols-2 lg:grid-cols-4",
   }[columns];
   return (
-    <div className={cn("grid gap-6", cols, className)}>
+    <div data-slot="team-grid" className={cn("grid gap-6", cols, className)}>
       {items.map((m, i) => (
         <div key={m.name || i} className="flex min-w-0 flex-col gap-3">
           <SafeImage src={m.photo} alt={m.name} ratio="1/1" className="rounded-xl" fallbackSeed={m.fallbackSeed ?? m.name} />

@@ -38,7 +38,7 @@ export function VersionPicker({ versions, value, onChange, running, label = "Ver
   const chosen = versions.find((v) => v.id === value);
   const SUFFIX = { latest: " (latest)", supported: "", unsupported: " (no longer supported)", preview: " (preview)" };
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="version-picker" className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">{label}</label>
       <NativeSelect id={id} value={value} className="w-auto" onChange={(e) => onChange(e.target.value)}>
         {versions.map((v) => (

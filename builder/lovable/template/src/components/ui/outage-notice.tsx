@@ -35,7 +35,7 @@ export function OutageNotice({ area, planned, since, cause, estimatedRestore, ne
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="outage-notice" className={cn("space-y-1 text-sm", className)}>
       <p className="font-medium">
         {planned ? "Planned work" : "Supply is off"} — {area}
       </p>

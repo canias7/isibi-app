@@ -32,7 +32,7 @@ export function CsatFace({ value, onChange, question = "How was it?", className 
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="csat-face" className={cn("flex flex-col gap-2", className)}>
       <p className="text-sm font-medium">{question}</p>
       <RadioGroup value={value ?? ""} onValueChange={onChange} className="flex gap-1">
         {FACES.map((f) => {

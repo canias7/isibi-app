@@ -26,7 +26,7 @@ export function BackToList({ href, label, state, className }: {
   className?: string;
 }) {
   return (
-    <a href={href}
+    <a data-slot="back-to-list" href={href}
       className={cn("inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground", className)}>
       <ChevronLeft aria-hidden className="size-4 shrink-0" />
       <span>Back to {label}</span>

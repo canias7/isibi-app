@@ -41,7 +41,7 @@ export function RichTooltip({ content, children, openDelay = 300, closeDelay = 1
   React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   return (
-    <span
+    <span data-slot="rich-tooltip"
       className="relative inline-flex"
       onMouseEnter={() => schedule(true, openDelay)}
       onMouseLeave={() => schedule(false, closeDelay)}

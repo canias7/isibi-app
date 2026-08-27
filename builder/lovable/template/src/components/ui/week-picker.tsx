@@ -35,7 +35,7 @@ export function WeekPicker({ value, onChange, className }: {
   const weeks = Array.from({ length: isoWeek(new Date(year, 11, 28)).week }, (_, i) => i + 1);
   const fmt = (d: Date) => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
   return (
-    <div className={cn("w-72 space-y-2 rounded-md border border-border p-2", className)}>
+    <div data-slot="week-picker" className={cn("w-72 space-y-2 rounded-md border border-border p-2", className)}>
       <div className="flex items-center justify-between">
         <Button type="button" size="icon-sm" variant="ghost" aria-label="Previous year" onClick={() => setYear((y) => y - 1)}>
           <ChevronLeft className="size-4" />

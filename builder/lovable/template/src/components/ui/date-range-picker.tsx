@@ -17,7 +17,7 @@ export function DateRangePicker({ value, onChange, options, className }: {
     { value: "all", label: "All time" },
   ];
   return (
-    <div className={cn("inline-flex rounded-md border p-0.5", className)} role="group" aria-label="Date range">
+    <div data-slot="date-range-picker" className={cn("inline-flex rounded-md border p-0.5", className)} role="group" aria-label="Date range">
       {opts.map((o) => (
         <Button key={o.value} type="button" size="sm"
           variant={value === o.value ? "secondary" : "ghost"}

@@ -52,7 +52,7 @@ export function BuyersPremium({ hammerPrice, bands, taxOnPremiumPercent, otherCh
   // the one thing a buyer will never let go of.
   const total = hammerPrice + premium + tax + others;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="buyers-premium" className={cn("space-y-1", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         <li className="flex items-baseline gap-3 px-3 py-1.5">
           <span className="min-w-0 flex-1">Hammer price</span>

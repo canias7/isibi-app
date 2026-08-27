@@ -33,7 +33,7 @@ export function SignOffRow({ name, role, state, at, note, className }: {
   const d = at ? toDate(at) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
-    <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
+    <li data-slot="sign-off-row" className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
       <Icon className={cn("mt-0.5 size-4 shrink-0", state === "waiting" && "text-muted-foreground")} aria-hidden="true" />
       <span className="min-w-0 flex-1">
         <span className="block">

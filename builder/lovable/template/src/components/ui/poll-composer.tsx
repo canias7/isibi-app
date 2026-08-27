@@ -36,7 +36,7 @@ export function PollComposer({ onSubmit, maxOptions = 6, className }: {
     : null;
 
   return (
-    <form className={cn("flex max-w-sm flex-col gap-2 rounded-xl border border-border p-3", className)}
+    <form data-slot="poll-composer" className={cn("flex max-w-sm flex-col gap-2 rounded-xl border border-border p-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (!why) onSubmit({ question: question.trim(), options: filled, days }); }}>
       <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask something"
         aria-label="Question"

@@ -47,7 +47,7 @@ export function SquadList({ players, maxSquad, className }: {
   const duplicates = [...new Set(numbers.filter((n, i) => numbers.indexOf(n) !== i))];
   const overSquad = maxSquad !== undefined && named.length > maxSquad;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="squad-list" className={cn("space-y-1.5", className)}>
       <p className="text-sm tabular-nums">
         <span className={cn(overSquad && "font-medium")}>{named.length} named</span>
         {maxSquad !== undefined && <span className="text-muted-foreground"> of {maxSquad} permitted</span>}

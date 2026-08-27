@@ -23,7 +23,7 @@ export function ProgressStack({ segments, total, unit = "", className }: {
   if (!sum) return null;
   const tone = { done: "bg-foreground", active: "bg-foreground/45", rest: "bg-muted" };
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="progress-stack" className={cn("space-y-1.5", className)}>
       <div className="flex h-2 gap-px overflow-hidden rounded-full bg-muted">
         {segments.map((s) => (
           <span key={s.label} className={cn(tone[s.tone ?? "done"])}

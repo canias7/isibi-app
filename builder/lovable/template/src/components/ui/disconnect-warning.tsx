@@ -43,7 +43,7 @@ export function DisconnectWarning({ provider, stops = [], deletes = [], keeps, o
   const destructive = deletes.length > 0;
   const ready = !destructive || typed.trim().toLowerCase() === provider.trim().toLowerCase();
   return (
-    <form className={cn("space-y-3 rounded-md border border-border p-3", className)}
+    <form data-slot="disconnect-warning" className={cn("space-y-3 rounded-md border border-border p-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onDisconnect(); }}>
       <p className="text-sm font-medium">Disconnect {provider}?</p>
       {stops.length > 0 && (

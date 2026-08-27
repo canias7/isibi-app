@@ -38,7 +38,7 @@ export function LoadError({ what = "this", onRetry, retrying, detail, className 
   }, []);
 
   return (
-    <div role="alert" className={cn("flex flex-col items-center gap-2 rounded-md border border-border py-8 text-center", className)}>
+    <div data-slot="load-error" role="alert" className={cn("flex flex-col items-center gap-2 rounded-md border border-border py-8 text-center", className)}>
       <p className="text-sm font-medium">Could not load {what}</p>
       <p className="max-w-xs text-xs text-muted-foreground">
         {offline

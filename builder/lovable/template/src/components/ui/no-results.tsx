@@ -11,7 +11,7 @@ export function NoResults({ query, suggestions, onSuggestion, onClearFilters, cl
   onClearFilters?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("px-6 py-12 text-center", className)}>
+    <div data-slot="no-results" className={cn("px-6 py-12 text-center", className)}>
       <p className="text-sm font-medium">
         {query ? <>Nothing matched “{query}”.</> : "Nothing matched."}
       </p>

@@ -36,7 +36,7 @@ export function TalentPool({ entries, onRemove, className }: {
   const expiring = entries.filter((e) => e.daysLeft !== undefined && e.daysLeft <= 30);
   const unconsented = entries.filter((e) => e.consented === false);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="talent-pool" className={cn("space-y-1.5", className)}>
       {unconsented.length > 0 && (
         <p className="text-sm font-medium">
           {unconsented.length} {unconsented.length === 1 ? "person is" : "people are"} held without recorded consent — remove them.

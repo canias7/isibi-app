@@ -14,5 +14,5 @@ export function Logo({ src, name, href = "/", size = "md", className }: {
   const inner = src
     ? <img src={src} alt={name} className={cn(h, "w-auto")} />
     : <span className={cn("font-semibold tracking-tight", t)}>{name}</span>;
-  return <a href={href} className={cn("inline-flex items-center", className)} aria-label={name}>{inner}</a>;
+  return <a data-slot="logo" href={href} className={cn("inline-flex items-center", className)} aria-label={name}>{inner}</a>;
 }

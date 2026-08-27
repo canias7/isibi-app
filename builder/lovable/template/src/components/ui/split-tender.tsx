@@ -45,7 +45,7 @@ export function SplitTender({ total, tenders, methods, onAdd, onRemove, currency
   const clamped = chosen?.cash ? typed : Math.min(typed, remaining);
 
   return (
-    <div className={cn("flex max-w-sm flex-col gap-2", className)}>
+    <div data-slot="split-tender" className={cn("flex max-w-sm flex-col gap-2", className)}>
       <ul className="flex flex-col gap-1">
         {tenders.map((t) => (
           <li key={t.id} className="flex items-center justify-between gap-2 rounded-md border border-border px-2.5 py-1 text-sm">

@@ -26,7 +26,7 @@ export function SocialLinks({ links, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-3", className)}>
+    <div data-slot="social-links" className={cn("flex items-center gap-3", className)}>
       {links.map((l) => {
         const Icon = ICONS[l.network.toLowerCase()] || Link2;
         return (

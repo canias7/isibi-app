@@ -34,7 +34,7 @@ export function JumpToPage({ page, pageCount, onJump, label = "Go to page", clas
   const [draft, setDraft] = useState("");
   if (pageCount <= 1) return null;
   return (
-    <form className={cn("inline-flex items-center gap-2 text-sm", className)}
+    <form data-slot="jump-to-page" className={cn("inline-flex items-center gap-2 text-sm", className)}
       onSubmit={(e) => {
         e.preventDefault();
         const n = Number(draft);

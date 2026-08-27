@@ -53,7 +53,7 @@ export function TimezoneClock({ zone, label, className }: {
   const diffLabel = diff == null || diff === 0 ? "same time" : diffWords(diff);
 
   return (
-    <span className={cn("inline-flex items-baseline gap-1.5", className)}>
+    <span data-slot="timezone-clock" className={cn("inline-flex items-baseline gap-1.5", className)}>
       <span className="text-sm font-medium tabular-nums">{time}</span>
       <span className="text-xs text-muted-foreground">{label ?? zone.split("/").pop()?.replace(/_/g, " ")} · {diffLabel}</span>
     </span>

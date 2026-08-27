@@ -33,7 +33,7 @@ export function RejectionNote({ role, stageReached, reason, feedbackOffered, kee
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 text-sm", className)}>
+    <div data-slot="rejection-note" className={cn("space-y-1 text-sm", className)}>
       <p>
         We are not taking your application further
         {role && <span> for {role}</span>}

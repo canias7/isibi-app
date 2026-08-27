@@ -31,7 +31,7 @@ export function WriteQueue({ items, paused, onSendNow, onDrop, empty = "Nothing 
   className?: string;
 }) {
   if (!items.length) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
+    return <p data-slot="write-queue" className={cn("text-sm text-muted-foreground", className)}>{empty}</p>;
   }
   return (
     <div className={cn("flex flex-col gap-2", className)}>

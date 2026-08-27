@@ -30,7 +30,7 @@ export function AxleWeight({ axles, grossKg, grossLimitKg, className }: {
   const over = axles.filter((a) => a.kg > a.limitKg);
   const grossOver = grossKg !== undefined && grossLimitKg !== undefined && grossKg > grossLimitKg;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="axle-weight" className={cn("space-y-1.5", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {axles.map((a) => {
           const excess = a.kg - a.limitKg;

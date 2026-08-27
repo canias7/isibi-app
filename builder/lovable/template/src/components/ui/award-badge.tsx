@@ -5,7 +5,7 @@ export function AwardBadge({ title, year, issuer, className }: {
   title: string; year?: string | number; issuer?: string; className?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5", className)}>
+    <span data-slot="award-badge" className={cn("inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5", className)}>
       <Award className="size-4 shrink-0 text-muted-foreground" />
       <span className="text-xs leading-tight">
         <span className="block font-medium">{title}{year && <span className="tabular-nums"> {year}</span>}</span>

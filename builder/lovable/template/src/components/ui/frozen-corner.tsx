@@ -20,7 +20,7 @@ export function FrozenCorner({ children, className, ...rest }: {
   className?: string;
 } & React.ThHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <th {...rest} className={cn(FROZEN_CORNER, "px-3 py-2 text-start", className)}>
+    <th data-slot="frozen-corner" {...rest} className={cn(FROZEN_CORNER, "px-3 py-2 text-start", className)}>
       {children}
     </th>
   );

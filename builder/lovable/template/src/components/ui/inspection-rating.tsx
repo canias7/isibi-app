@@ -45,7 +45,7 @@ export function InspectionRating({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-lg border border-border p-5", className)}>
+    <div data-slot="inspection-rating" className={cn("rounded-lg border border-border p-5", className)}>
       <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{body}</p>
       {/* THE WORD, at size. Not a colour, not a badge — the regulator writes it
           as a word and greyscale is where a four-colour scale collapses. */}

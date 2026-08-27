@@ -6,7 +6,7 @@ export function NpsScale({ name = "nps", value, onChange,
   lowLabel?: string; highLabel?: string; className?: string;
 }) {
   return (
-    <fieldset className={cn("flex flex-col gap-2", className)}>
+    <fieldset data-slot="nps-scale" className={cn("flex flex-col gap-2", className)}>
       <div className="flex gap-1">
         {Array.from({ length: 11 }, (_, n) => (
           <label key={n}

@@ -32,7 +32,7 @@ export function SpecRow({ label, value, unit, note, highlight, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("grid grid-cols-[8rem_1fr] gap-x-3 border-b border-border py-1.5 last:border-0 sm:grid-cols-[12rem_1fr]", className)}>
+    <div data-slot="spec-row" className={cn("grid grid-cols-[8rem_1fr] gap-x-3 border-b border-border py-1.5 last:border-0 sm:grid-cols-[12rem_1fr]", className)}>
       <dt className="text-sm text-muted-foreground">{label}</dt>
       <dd className={cn("text-sm", highlight && "font-medium")}>
         {value == null || value === "" ? (
@@ -51,5 +51,5 @@ export function SpecRow({ label, value, unit, note, highlight, className }: {
 }
 
 export function SpecList({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <dl className={cn("m-0", className)}>{children}</dl>;
+  return <dl data-slot="spec-list" className={cn("m-0", className)}>{children}</dl>;
 }

@@ -18,7 +18,7 @@ export function LocationCard({ name, address, note, className }: {
 }) {
   const q = encodeURIComponent([name, address].filter(Boolean).join(", "));
   return (
-    <Card className={className}>
+    <Card data-slot="location-card" className={className}>
       <CardContent className="flex flex-col gap-4 pt-6">
         <div className="flex items-start gap-3">
           <MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" />

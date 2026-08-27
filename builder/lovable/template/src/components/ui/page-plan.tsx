@@ -41,7 +41,7 @@ export function PagePlan({ pages, className }: { pages: PlanPage[]; className?: 
     else spreads.push([p]);
   }
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="page-plan" className={cn("space-y-1.5", className)}>
       {empty.length > 0 && (
         <p className="text-sm font-medium">
           {empty.length} {empty.length === 1 ? "page has" : "pages have"} nothing on: {empty.map((p) => p.number).join(", ")}.

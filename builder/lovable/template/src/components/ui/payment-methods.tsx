@@ -9,7 +9,7 @@ export function PaymentMethods({ methods = ["Visa", "Mastercard", "Amex", "Apple
   methods?: string[]; label?: string; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center gap-2 text-xs text-muted-foreground", className)}>
+    <div data-slot="payment-methods" className={cn("flex flex-wrap items-center gap-2 text-xs text-muted-foreground", className)}>
       <span>{label}</span>
       {methods.map((m) => <span key={m} className="rounded border px-2 py-1">{m}</span>)}
     </div>

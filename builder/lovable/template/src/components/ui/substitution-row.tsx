@@ -37,7 +37,7 @@ export function SubstitutionRow({ off, on, minute, used, allowed, windowsUsed, w
   const windowsLeft = windowsUsed !== undefined && windowsAllowed !== undefined ? windowsAllowed - windowsUsed : undefined;
   const stuck = subsLeft !== undefined && subsLeft > 0 && windowsLeft === 0;
   return (
-    <li className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
+    <li data-slot="substitution-row" className={cn("space-y-0.5 px-3 py-1.5 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         {minute && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{minute}</span>}
         <span className="min-w-0 flex-1">

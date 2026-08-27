@@ -22,7 +22,7 @@ export function WhyThisNote({ forReasons, againstReasons, className }: {
 }) {
   if (!forReasons.length && !againstReasons?.length) return null;
   return (
-    <div className={cn("flex flex-col gap-1 text-xs", className)}>
+    <div data-slot="why-this-note" className={cn("flex flex-col gap-1 text-xs", className)}>
       {forReasons.length > 0 && (
         <div>
           <p className="font-medium">Why this one</p>

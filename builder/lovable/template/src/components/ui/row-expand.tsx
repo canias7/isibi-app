@@ -25,7 +25,7 @@ export function RowExpand({ open, onToggle, rowLabel, detailId, className }: {
   className?: string;
 }) {
   return (
-    <button type="button" onClick={onToggle}
+    <button data-slot="row-expand" type="button" onClick={onToggle}
       aria-expanded={open} aria-controls={detailId}
       aria-label={`${open ? "Hide" : "Show"} details for ${rowLabel}`}
       className={cn("cursor-pointer rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground", className)}>

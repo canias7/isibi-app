@@ -6,7 +6,7 @@ export function PartySize({ max = 8, value, onChange, onMore, className }: {
   onMore?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap gap-2", className)} role="group" aria-label="Party size">
+    <div data-slot="party-size" className={cn("flex flex-wrap gap-2", className)} role="group" aria-label="Party size">
       {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
         <Button key={n} type="button" size="icon-sm" variant={value === n ? "default" : "outline"}
           onClick={() => onChange(n)} className="tabular-nums"

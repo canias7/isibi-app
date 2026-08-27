@@ -19,7 +19,7 @@ export function Rail({ children, side = "left", className }: {
   children?: React.ReactNode; side?: "left" | "right"; className?: string;
 }) {
   return (
-    <nav aria-label="Sections"
+    <nav data-slot="rail" aria-label="Sections"
       className={cn(
         "flex shrink-0 gap-1 border-border bg-background",
         "fixed inset-x-0 bottom-0 z-30 justify-around border-t p-1",

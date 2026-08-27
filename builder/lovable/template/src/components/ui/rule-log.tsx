@@ -36,7 +36,7 @@ export function RuleLog({ runs, emptyNote = "This rule has not run yet", classNa
   emptyNote?: string;
   className?: string;
 }) {
-  if (!runs.length) return <p className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
+  if (!runs.length) return <p data-slot="rule-log" className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
   return (
     <ul className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {runs.map((r) => {

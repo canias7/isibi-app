@@ -41,7 +41,7 @@ export function JournalEntry({ date, narrative, lines, reversesOn, postedBy, cur
   const cr = Number(lines.reduce((n, l) => n + (l.credit ?? 0), 0).toFixed(2));
   const out = Number((dr - cr).toFixed(2));
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="journal-entry" className={cn("space-y-1", className)}>
       {date && <p className="text-xs tabular-nums text-muted-foreground">{date}</p>}
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {/* This component owns the whole block, so it owns the header. Two

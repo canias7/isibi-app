@@ -22,7 +22,7 @@ export function DiffText({ before, after, className }: {
   const removed = a.slice(head, a.length - tail).join("");
   const added = b.slice(head, b.length - tail).join("");
   return (
-    <span className={cn("text-sm", className)}>
+    <span data-slot="diff-text" className={cn("text-sm", className)}>
       {a.slice(0, head).join("")}
       {removed && <del className="bg-destructive/10 text-destructive no-underline line-through">{removed}</del>}
       {added && <ins className="bg-success/10 text-success underline decoration-dotted">{added}</ins>}

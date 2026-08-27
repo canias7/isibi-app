@@ -32,7 +32,7 @@ export function PartPayment({ owed, value, onChange, onPay, currency = "GBP", bu
   const over = paying > owed;
   const left = Math.max(owed - paying, 0);
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="part-payment" className={cn("flex flex-col gap-2", className)}>
       <label htmlFor={fieldId} className="text-sm font-medium">How much would you like to pay?</label>
       <div className="flex flex-wrap items-center gap-2">
         <input id={fieldId} type="number" inputMode="decimal" step="0.01" min={0} value={value ?? ""}

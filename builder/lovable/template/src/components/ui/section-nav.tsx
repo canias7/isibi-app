@@ -26,7 +26,7 @@ export function SectionNav({ prev, next, label = "Section", className }: {
 }) {
   const card = "flex min-w-0 flex-1 flex-col gap-0.5 rounded-lg border border-border p-3 hover:bg-muted";
   return (
-    <nav aria-label={label} className={cn("flex gap-3", className)}>
+    <nav data-slot="section-nav" aria-label={label} className={cn("flex gap-3", className)}>
       {prev ? (
         <a href={prev.href} className={card}>
           <span className="text-[11px] text-muted-foreground">&larr; Previous</span>

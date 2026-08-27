@@ -10,7 +10,7 @@ export function CartLine({ name, meta, image, price, quantity, currency = "£",
   onQuantity?: (n: number) => void; onRemove?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-3 border-b border-border py-3 last:border-0", className)}>
+    <div data-slot="cart-line" className={cn("flex items-center gap-3 border-b border-border py-3 last:border-0", className)}>
       <SafeImage src={image} alt={name} ratio="1/1" className="w-14 shrink-0 rounded-md" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{name}</div>

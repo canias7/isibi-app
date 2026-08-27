@@ -24,7 +24,7 @@ export function FollowToggle({ following, onChange, what, becauseAuto, className
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex flex-wrap items-center gap-2", className)}>
+    <span data-slot="follow-toggle" className={cn("inline-flex flex-wrap items-center gap-2", className)}>
       <button type="button" aria-pressed={following} onClick={() => onChange(!following)}
         aria-label={`${following ? "Stop following" : "Follow"}${what ? ` ${what}` : ""}`}
         className={cn("cursor-pointer rounded-md border px-3 py-1 text-sm",

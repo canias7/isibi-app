@@ -15,7 +15,7 @@ export function MenuSection({ groups, currency = "£", className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-10", className)}>
+    <div data-slot="menu-section" className={cn("flex flex-col gap-10", className)}>
       {groups.map((g, i) => (
         <section key={g.name || i}>
           <div className="mb-2 flex items-baseline justify-between gap-3">

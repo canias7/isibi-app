@@ -38,7 +38,7 @@ export function EstimateBand({ low, high, value, min, max, label, unit = "", suf
   const at = (n: number) => `${Math.min(Math.max(((n - min) / span) * 100, 0), 100)}%`;
   const fmt = (n: number) => `${unit}${n.toLocaleString()}${suffix ? ` ${suffix}` : ""}`;
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div data-slot="estimate-band" className={cn("flex flex-col gap-1", className)}>
       {label && <span className="text-sm">{label}</span>}
       <div aria-hidden className="relative h-3 rounded-full bg-muted">
         <div className="absolute inset-y-0 rounded-full bg-foreground/25"

@@ -26,7 +26,7 @@ export function PriceBreakdown({ lines, currency = "GBP", totalLabel = "Total", 
   if (!lines.length) return null;
   const total = lines.reduce((s, l) => s + l.amount, 0);
   return (
-    <dl className={cn("flex flex-col gap-1 text-sm", className)}>
+    <dl data-slot="price-breakdown" className={cn("flex flex-col gap-1 text-sm", className)}>
       {lines.map((l, i) => (
         <div key={i} className="flex justify-between gap-4">
           <dt className="min-w-0 text-muted-foreground">

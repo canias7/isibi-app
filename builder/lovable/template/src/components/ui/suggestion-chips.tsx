@@ -28,7 +28,7 @@ export function SuggestionChips({ suggestions, onPick, busy, title, className }:
 }) {
   if (suggestions.length === 0) return null;
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="suggestion-chips" className={cn("flex flex-col gap-2", className)}>
       {title ? <p className="text-xs text-muted-foreground">{title}</p> : null}
       <ul className="flex flex-wrap gap-2">
         {suggestions.map((s) => (

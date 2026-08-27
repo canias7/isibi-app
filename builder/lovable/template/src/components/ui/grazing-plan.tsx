@@ -41,7 +41,7 @@ export function GrazingPlan({ paddocks, minimumRest = 21, coverUnit = "kg DM/ha"
   const on = paddocks.find((p) => p.current);
   const ready = paddocks.filter((p) => !p.current && (p.restDays ?? 0) >= minimumRest);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="grazing-plan" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         {on ? <>Stock on <span className="font-medium">{on.name}</span></> : <span className="text-muted-foreground">Nothing grazing</span>}
         <span className="text-muted-foreground tabular-nums"> · {ready.length} rested enough to go back to</span>

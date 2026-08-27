@@ -33,7 +33,7 @@ export function GraceWindow({ remaining, action, thenWhat, expired, onAct, class
 }) {
   if (expired) {
     return (
-      <p role="status" className={cn("text-sm text-muted-foreground", className)}>
+      <p data-slot="grace-window" role="status" className={cn("text-sm text-muted-foreground", className)}>
         {thenWhat ? `Too late to ${action} — ${thenWhat}.` : `Too late to ${action}.`}
       </p>
     );

@@ -25,7 +25,7 @@ export function VarianceNote({ actual, planned, unit = "", goodDirection = "down
   const diff = actual - planned;
   const pct = (diff / Math.abs(planned)) * 100;
   if (Math.abs(pct) <= tolerancePct) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>On plan</p>;
+    return <p data-slot="variance-note" className={cn("text-sm text-muted-foreground", className)}>On plan</p>;
   }
   const over = diff > 0;
   const good = goodDirection === "up" ? over : !over;

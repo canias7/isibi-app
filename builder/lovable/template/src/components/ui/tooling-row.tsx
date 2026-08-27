@@ -34,7 +34,7 @@ export function ToolingRow({ tool, location, cyclesUsed, cyclesRated, nextRunCyc
   const left = cyclesUsed !== undefined && cyclesRated !== undefined ? Math.max(0, cyclesRated - cyclesUsed) : undefined;
   const wontLast = left !== undefined && nextRunCycles !== undefined && nextRunCycles > left;
   return (
-    <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+    <li data-slot="tooling-row" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className="min-w-0 flex-1">{tool}</span>
         {left !== undefined && (

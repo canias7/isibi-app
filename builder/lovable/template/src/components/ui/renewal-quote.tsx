@@ -41,7 +41,7 @@ export function RenewalQuote({ newPremium, previousPremium, period = "a year", r
   const diff = previousPremium !== undefined ? newPremium - previousPremium : undefined;
   const pct = diff !== undefined && previousPremium ? Math.round((diff / previousPremium) * 100) : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="renewal-quote" className={cn("space-y-0.5 text-sm", className)}>
       <p className="tabular-nums">
         <span className="font-medium">{money(newPremium)}</span>
         <span className="text-muted-foreground"> {period}</span>

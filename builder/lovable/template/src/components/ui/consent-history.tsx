@@ -34,7 +34,7 @@ export function ConsentHistory({ changes, emptyNote = "Nothing has changed yet",
   emptyNote?: string;
   className?: string;
 }) {
-  if (!changes.length) return <p className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
+  if (!changes.length) return <p data-slot="consent-history" className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
   return (
     <ul className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {changes.map((c) => {

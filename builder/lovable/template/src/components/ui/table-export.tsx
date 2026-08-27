@@ -49,7 +49,7 @@ export function TableExport({ columns, rows, filename = "export.csv", label, cla
     URL.revokeObjectURL(url);
   };
   return (
-    <button type="button" onClick={download} disabled={rows.length === 0}
+    <button data-slot="table-export" type="button" onClick={download} disabled={rows.length === 0}
       className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium",
         "hover:bg-muted disabled:pointer-events-none disabled:opacity-50", className)}>
       <Download aria-hidden className="size-3.5" />

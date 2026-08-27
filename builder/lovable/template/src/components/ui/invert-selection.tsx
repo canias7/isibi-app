@@ -26,7 +26,7 @@ export function InvertSelection({ selected, total, onInvert, className }: {
   if (selected <= 0 || selected >= total) return null;
   const other = total - selected;
   return (
-    <button type="button" onClick={onInvert}
+    <button data-slot="invert-selection" type="button" onClick={onInvert}
       className={cn("cursor-pointer text-sm underline underline-offset-4 tabular-nums", className)}>
       Select the other {other.toLocaleString()}
     </button>

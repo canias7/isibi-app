@@ -13,7 +13,7 @@ export function AvailabilityLegend({ items, className }: {
   items: { label: string; swatch: string }[]; className?: string;
 }) {
   return (
-    <ul className={cn("flex flex-wrap gap-x-4 gap-y-1 text-xs", className)}>
+    <ul data-slot="availability-legend" className={cn("flex flex-wrap gap-x-4 gap-y-1 text-xs", className)}>
       {items.map((it) => (
         <li key={it.label} className="flex items-center gap-1.5">
           <span className={cn("size-3 shrink-0 rounded-[2px] border border-border", it.swatch)} aria-hidden="true" />

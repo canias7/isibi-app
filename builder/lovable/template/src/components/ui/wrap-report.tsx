@@ -42,7 +42,7 @@ export function WrapReport({ day, scheduledEighths, shotEighths, scenesCarried =
     scheduledEighths !== undefined && shotEighths !== undefined ? scheduledEighths - shotEighths : undefined;
   const shortTurnaround = turnaroundHours !== undefined && turnaroundHours < minimumTurnaround;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="wrap-report" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         {day !== undefined ? `Day ${day}` : "Wrap"}
         {wrappedAt && <span className="text-muted-foreground"> · wrapped {wrappedAt}</span>}

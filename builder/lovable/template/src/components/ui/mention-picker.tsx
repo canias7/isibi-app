@@ -20,7 +20,7 @@ export function MentionPicker({ people, query, activeIndex = 0, onPick, classNam
 }) {
   if (!people.length) return null;
   return (
-    <ul role="listbox" aria-label="People"
+    <ul data-slot="mention-picker" role="listbox" aria-label="People"
       className={cn("max-h-56 overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-md", className)}>
       {people.map((p, i) => (
         // The option IS the clickable element — a focusable control inside a

@@ -14,7 +14,7 @@ export function StatCard({
 }) {
   const good = trend ? (trend.good ?? trend.direction === "up") : null;
   return (
-    <Card className={className}>
+    <Card data-slot="stat-card" className={className}>
       <CardContent className="flex flex-col gap-1 pt-6">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
         <span className="text-3xl font-semibold tracking-tight tabular-nums">{value}</span>

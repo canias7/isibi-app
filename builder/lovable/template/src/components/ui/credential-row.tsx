@@ -31,7 +31,7 @@ export function CredentialRow({ name, issuer, reference, state = "claimed", awar
 }) {
   const word = state === "verified" ? "Checked by us" : state === "expired" ? "Expired" : "As told to us";
   return (
-    <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
+    <li data-slot="credential-row" className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>
       <span className="min-w-0 flex-1">
         <span className={cn("block", state === "expired" && "text-muted-foreground")}>{name}</span>
         <span className="block text-xs text-muted-foreground">

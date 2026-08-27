@@ -14,7 +14,7 @@ export function DishCard({ name, description, price, image, tags, unavailable, c
   tags?: string[]; unavailable?: boolean; className?: string;
 }) {
   return (
-    <article className={cn("flex gap-3 rounded-lg border border-border p-3", unavailable && "opacity-60", className)}>
+    <article data-slot="dish-card" className={cn("flex gap-3 rounded-lg border border-border p-3", unavailable && "opacity-60", className)}>
       <SafeImage src={image} alt={name} ratio="1/1" className="size-20 shrink-0 rounded object-cover" />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">

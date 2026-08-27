@@ -20,7 +20,7 @@ export function CartEmpty({ justEmptied, onUndo, action, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center gap-2 rounded-xl border border-border p-8 text-center", className)}>
+    <div data-slot="cart-empty" className={cn("flex flex-col items-center gap-2 rounded-xl border border-border p-8 text-center", className)}>
       {justEmptied ? (
         <>
           <p className="text-sm font-medium">That's everything removed.</p>

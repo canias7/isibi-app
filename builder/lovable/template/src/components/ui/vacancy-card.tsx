@@ -50,7 +50,7 @@ export function VacancyCard({ title, employer, location, remotePolicy, salaryFro
       ? `From ${money(salaryFrom)} ${salaryPeriod}`
       : undefined;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="vacancy-card" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">{title}</span>
         {employer && <span className="block text-xs text-muted-foreground">{employer}</span>}

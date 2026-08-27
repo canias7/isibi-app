@@ -41,7 +41,7 @@ export function LeagueTable({ rows, caption, pointsFor = 3, className }: {
   if (!rows.length) return null;
   const pts = (r: Row) => r.points ?? r.won * pointsFor + r.drawn;
   return (
-    <div className={cn("overflow-x-auto", className)}>
+    <div data-slot="league-table" className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
         {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
         <thead>

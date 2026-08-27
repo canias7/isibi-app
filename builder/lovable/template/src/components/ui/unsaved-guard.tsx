@@ -35,6 +35,6 @@ export function UnsavedGuard({ dirty, note = "You have unsaved changes.", silent
 
   if (!dirty || silent) return null;
   return (
-    <p role="status" className={cn("text-sm text-muted-foreground", className)}>{note}</p>
+    <p data-slot="unsaved-guard" role="status" className={cn("text-sm text-muted-foreground", className)}>{note}</p>
   );
 }

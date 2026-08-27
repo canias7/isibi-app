@@ -31,7 +31,7 @@ export function ScoreBreakdown({ lines, className }: {
     : lines.reduce((s, l) => s + l.score, 0);
   const outOf = weighted ? lines.reduce((s, l) => s + (l.weight ?? 0), 0) : lines.reduce((s, l) => s + l.outOf, 0);
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="score-breakdown" className={cn("flex flex-col gap-2", className)}>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {lines.map((l) => (
           <li key={l.label} className="flex items-baseline justify-between gap-3 px-3 py-2">

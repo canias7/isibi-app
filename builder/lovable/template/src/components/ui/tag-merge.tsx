@@ -43,7 +43,7 @@ export function TagMerge({ tags, onMerge, onCancel, busy, className }: {
   const moving = picked.reduce((n, id) => n + (tags.find((t) => t.id === id)?.count ?? 0), 0);
   const keepName = tags.find((t) => t.id === keep)?.name ?? "";
   return (
-    <div className={cn("space-y-3", className)}>
+    <div data-slot="tag-merge" className={cn("space-y-3", className)}>
       <div className="space-y-1">
         <label htmlFor={uid + "-merge-keep"} className="block text-sm font-medium">Keep this one</label>
         <NativeSelect id={uid + "-merge-keep"} value={keep} onChange={(e) => setKeep(e.target.value)}>

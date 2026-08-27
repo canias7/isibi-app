@@ -37,7 +37,7 @@ export function PluralisationPreview({ locale, forms = {}, sample = [0, 1, 2, 3,
   }
   const cats = [...seen.keys()];
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="pluralisation-preview" className={cn("space-y-1.5", className)}>
       <p className="text-xs text-muted-foreground">
         This language needs <span className="font-medium text-foreground tabular-nums">{cats.length}</span>{" "}
         {cats.length === 1 ? "form" : "forms"}.

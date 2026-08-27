@@ -52,7 +52,7 @@ export function FilterTree({ nodes, selected, onChange, className }: {
     };
 
     return (
-      <li key={node.key} role="treeitem" aria-expanded={kids.length ? expanded : undefined}
+      <li data-slot="filter-tree" key={node.key} role="treeitem" aria-expanded={kids.length ? expanded : undefined}
         aria-selected={state === true}>
         <div className={cn("flex items-center gap-1.5 py-0.5", node.count === 0 && "opacity-50")}
           style={{ paddingInlineStart: `${depth * 1}rem` }}>

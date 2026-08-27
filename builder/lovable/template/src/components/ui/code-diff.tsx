@@ -50,7 +50,7 @@ export function CodeDiff({ lines, filename, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("overflow-hidden rounded-md border border-border", className)}>
+    <div data-slot="code-diff" className={cn("overflow-hidden rounded-md border border-border", className)}>
       {filename ? (
         <p className="border-b border-border bg-muted px-3 py-1.5 font-mono text-xs">{filename}</p>
       ) : null}

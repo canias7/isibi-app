@@ -34,7 +34,7 @@ export function RestorePreview({ fromLabel, undoes, restored, overwritten, lost,
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="restore-preview" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         Restoring from <span className="font-medium">{fromLabel}</span>
         {undoes && <span className="block text-xs text-muted-foreground">This undoes {undoes} of work.</span>}

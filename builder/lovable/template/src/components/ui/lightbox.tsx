@@ -59,7 +59,7 @@ export function Lightbox({ images, index, onClose, onIndexChange, className }: {
   const current = open ? images[index] : null;
 
   return (
-    <dialog
+    <dialog data-slot="lightbox"
       ref={ref}
       onClose={close}
       onCancel={(e) => { e.preventDefault(); close(); }}

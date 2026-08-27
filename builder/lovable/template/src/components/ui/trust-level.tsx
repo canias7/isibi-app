@@ -32,7 +32,7 @@ export function TrustLevel({ levels, current, nextBenefit, action, className }: 
   const at = Math.max(-1, Math.min(current, levels.length - 1));
   const next = at + 1 < levels.length ? levels[at + 1] : null;
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div data-slot="trust-level" className={cn("space-y-1.5", className)}>
       <p className="text-sm">
         <span className="font-medium">{at < 0 ? "Not verified" : levels[at]}</span>
         {next && <span className="text-muted-foreground"> · next: {next}</span>}

@@ -25,7 +25,7 @@ export function UnitPrice({ priceMinor, quantity, unit, currency = "GBP", classN
   const per = Math.ceil(priceMinor / quantity);
   const fmt = (m: number) => formatMinor(m, currency);
   return (
-    <p className={cn("text-xs tabular-nums text-muted-foreground", className)}>
+    <p data-slot="unit-price" className={cn("text-xs tabular-nums text-muted-foreground", className)}>
       {fmt(per)} per {unit}
       <span className="sr-only"> (from {fmt(priceMinor)} for {quantity} {unit})</span>
     </p>

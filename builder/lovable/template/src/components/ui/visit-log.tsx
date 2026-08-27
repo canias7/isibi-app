@@ -45,7 +45,7 @@ export function VisitLog({ visitor, arrivedAt, leftAt, commissionedMinutes, done
     actual !== undefined && commissionedMinutes !== undefined ? commissionedMinutes - actual : undefined;
   if (missed) {
     return (
-      <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
+      <li data-slot="visit-log" className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>
         <p className="font-medium">Visit missed.</p>
         <p className="text-xs">{missedReason ?? "No reason recorded. Somebody should check they are alright."}</p>
       </li>

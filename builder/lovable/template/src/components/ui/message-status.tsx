@@ -20,7 +20,7 @@ export function MessageStatus({ state, className }: {
   }[state];
   const Icon = map.icon;
   return (
-    <span className={cn("inline-flex items-center gap-1", map.tone, className)}>
+    <span data-slot="message-status" className={cn("inline-flex items-center gap-1", map.tone, className)}>
       <Icon className="size-3" />
       {state === "failed" ? map.label : <span className="sr-only">{map.label}</span>}
     </span>

@@ -43,7 +43,7 @@ export function AuctionTimer({ secondsLeft, closesAt, extendsBySeconds, extendIf
   const inWindow =
     extendIfBidWithinSeconds !== undefined && secondsLeft <= extendIfBidWithinSeconds && secondsLeft > 0;
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="auction-timer" className={cn("space-y-0.5 text-sm", className)}>
       <p className={cn("tabular-nums", secondsLeft < 300 && "font-medium")}>
         {secondsLeft <= 0 ? "Closed." : `${fmt(secondsLeft)} left.`}
       </p>

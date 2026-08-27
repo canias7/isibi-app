@@ -23,7 +23,7 @@ export function AiDisclosure({ reviewedBy, what = "This", model, className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("text-xs text-muted-foreground", className)}>
+    <p data-slot="ai-disclosure" className={cn("text-xs text-muted-foreground", className)}>
       <span className="font-medium text-foreground">
         {what} was written by AI{reviewedBy ? ` and checked by ${reviewedBy}` : " and has not been checked"}
       </span>

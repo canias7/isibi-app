@@ -14,7 +14,7 @@ export function SuccessPanel({ title, description, action, className }: {
   action?: { label: string; href?: string; onClick?: () => void }; className?: string;
 }) {
   return (
-    <Card className={cn("text-center", className)}>
+    <Card data-slot="success-panel" className={cn("text-center", className)}>
       <CardContent className="flex flex-col items-center gap-3 pt-6">
         <span className="grid size-10 place-items-center rounded-full bg-success/15 text-success">
           <Check className="size-5" />

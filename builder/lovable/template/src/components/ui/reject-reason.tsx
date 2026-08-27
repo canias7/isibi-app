@@ -36,7 +36,7 @@ export function RejectReason({ reasons = [], onSubmit, onCancel, busy, label = "
   const [text, setText] = useState("");
   const ready = text.trim().length > 0;
   return (
-    <form className={cn("space-y-3", className)}
+    <form data-slot="reject-reason" className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onSubmit(text.trim()); }}>
       <div className="space-y-1.5">
         <label htmlFor={uid + "-reject-reason"} className="block text-sm font-medium">{label}</label>

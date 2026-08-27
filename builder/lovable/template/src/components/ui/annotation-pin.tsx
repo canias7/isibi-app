@@ -36,7 +36,7 @@ export function AnnotationPin({ number, x, y, open, resolved, onToggle, label, c
   className?: string;
 }) {
   return (
-    <button type="button" onClick={onToggle} aria-expanded={open}
+    <button data-slot="annotation-pin" type="button" onClick={onToggle} aria-expanded={open}
       aria-label={label ?? `Comment ${number}${resolved ? ", resolved" : ""}`}
       style={{ left: `${x}%`, top: `${y}%` }}
       className={cn(

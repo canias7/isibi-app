@@ -29,7 +29,7 @@ export function ConsentToShare({ scopes, onToggle, sharedAnywayNote, className }
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5 text-sm", className)}>
+    <div data-slot="consent-to-share" className={cn("space-y-1.5 text-sm", className)}>
       <ul className="divide-y divide-border rounded-md border border-border">
         {scopes.map((s) => (
           <li key={s.id}>

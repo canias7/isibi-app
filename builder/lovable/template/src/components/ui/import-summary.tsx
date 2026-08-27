@@ -19,7 +19,7 @@ export function ImportSummary({ added = 0, updated = 0, skipped = 0, failed = 0,
     { icon: MinusCircle, label: "skipped", n: skipped, tone: "text-muted-foreground" },
     { icon: TriangleAlert, label: "failed", n: failed, tone: "text-destructive" },
   ].filter((r) => r.n > 0);
-  if (!rows.length) return <p className={cn("text-sm text-muted-foreground", className)}>Nothing was imported.</p>;
+  if (!rows.length) return <p data-slot="import-summary" className={cn("text-sm text-muted-foreground", className)}>Nothing was imported.</p>;
   return (
     <ul className={cn("flex flex-wrap gap-x-5 gap-y-1 text-sm", className)}>
       {rows.map((r) => {

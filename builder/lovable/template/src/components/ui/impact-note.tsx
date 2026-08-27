@@ -42,7 +42,7 @@ export function ImpactNote({ figure, what, kind = "output", period, method, samp
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="impact-note" className={cn("space-y-0.5 text-sm", className)}>
       <p>
         {figure && <span className="font-medium tabular-nums">{figure} </span>}
         {what}

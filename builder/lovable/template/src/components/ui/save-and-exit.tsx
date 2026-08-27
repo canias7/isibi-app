@@ -34,7 +34,7 @@ export function SaveAndExit({ onSave, scope = "account", keepFor, notSaved, busy
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="save-and-exit" className={cn("space-y-1", className)}>
       <Button type="button" variant="outline" size="sm" onClick={onSave} disabled={busy}>
         {busy ? "Saving…" : label}
       </Button>

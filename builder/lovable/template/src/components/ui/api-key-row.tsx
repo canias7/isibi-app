@@ -14,7 +14,7 @@ export function ApiKeyRow({ name, prefix, createdAt, lastUsed, onRevoke, classNa
   lastUsed?: string | number | Date | null; onRevoke?: () => void; className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-center gap-3 border-b border-border py-3 last:border-0", className)}>
+    <div data-slot="api-key-row" className={cn("flex flex-wrap items-center gap-3 border-b border-border py-3 last:border-0", className)}>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{name}</p>
         <p className="mt-0.5 flex items-center gap-1.5 font-mono text-xs text-muted-foreground">

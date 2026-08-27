@@ -38,7 +38,7 @@ export function UsageAlertRule({ metrics, metric, onMetricChange, threshold, onT
   // match. The second form's labels pointed at the first form's inputs.
   const uid = useId();
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="usage-alert-rule" className={cn("space-y-2", className)}>
       <div className="flex flex-wrap items-end gap-2">
         <span className="space-y-1">
           <label htmlFor={uid + "-uar-metric"} className="block text-sm font-medium">Tell me when</label>

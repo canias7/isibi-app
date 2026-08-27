@@ -37,7 +37,7 @@ export function OpeningHours({ days, now, className }: {
   const openNow = o != null && c != null && mins >= o && mins < c;
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="opening-hours" className={cn("flex flex-col gap-3", className)}>
       <div className="flex items-center gap-2">
         <span className="font-medium">Opening hours</span>
         <Badge variant={openNow ? "default" : "secondary"}>{openNow ? "Open now" : "Closed"}</Badge>

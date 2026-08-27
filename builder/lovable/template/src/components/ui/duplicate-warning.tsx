@@ -26,7 +26,7 @@ export function DuplicateWarning({ matches, matchedOn, onOpen, onContinue, class
 }) {
   if (!matches.length) return null;
   return (
-    <div role="status" className={cn("flex flex-col gap-2 rounded-md border border-border p-3", className)}>
+    <div data-slot="duplicate-warning" role="status" className={cn("flex flex-col gap-2 rounded-md border border-border p-3", className)}>
       <p className="text-sm font-medium">
         {matches.length === 1 ? "This looks like one you already have" : `This looks like ${matches.length} you already have`}
         {matchedOn && <span className="font-normal text-muted-foreground"> — {matchedOn}</span>}

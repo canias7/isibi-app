@@ -35,7 +35,7 @@ export function EmbedSize({ mode, onModeChange, height, onHeightChange, minHeigh
   // match. The second form's labels pointed at the first form's inputs.
   const uid = useId();
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="embed-size" className={cn("space-y-2", className)}>
       <div className="space-y-1">
         <label htmlFor={uid + "-es-mode"} className="block text-sm font-medium">Height</label>
         <NativeSelect id={uid + "-es-mode"} value={mode} className="w-auto"

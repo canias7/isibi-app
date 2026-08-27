@@ -23,7 +23,7 @@ export function FieldSuccess({ id, children, className }: {
 }) {
   if (!children) return null;
   return (
-    <p id={id} aria-live="polite" className={cn("flex items-start gap-1.5 text-xs text-muted-foreground", className)}>
+    <p data-slot="field-success" id={id} aria-live="polite" className={cn("flex items-start gap-1.5 text-xs text-muted-foreground", className)}>
       <Check aria-hidden className="mt-px size-3.5 shrink-0 text-foreground" />
       <span>{children}</span>
     </p>

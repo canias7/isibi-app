@@ -37,7 +37,7 @@ export function StockSubstitute({ prescribed, offered, differs = [], needsPrescr
 }) {
   const AND = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
   return (
-    <div className={cn("space-y-1.5 rounded-md border border-border p-3 text-sm", className)}>
+    <div data-slot="stock-substitute" className={cn("space-y-1.5 rounded-md border border-border p-3 text-sm", className)}>
       <p>
         <span className="text-muted-foreground">Prescribed </span>
         <span className="font-medium">{prescribed}</span>

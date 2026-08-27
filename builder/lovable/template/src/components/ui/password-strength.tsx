@@ -53,7 +53,7 @@ export function PasswordStrength({ value, className }: { value: string; classNam
   const { score, label, advice } = scorePassword(value);
   if (!value) return null;
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div data-slot="password-strength" className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-center gap-2">
         <div className="flex h-1 flex-1 gap-1" aria-hidden>
           {[0, 1, 2, 3].map((i) => (

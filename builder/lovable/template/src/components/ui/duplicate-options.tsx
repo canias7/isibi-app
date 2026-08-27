@@ -47,7 +47,7 @@ export function DuplicateOptions({ originalName, parts, defaultParts, onDuplicat
   );
   const ready = name.trim().length > 0;
   return (
-    <form className={cn("space-y-3", className)}
+    <form data-slot="duplicate-options" className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onDuplicate({ name: name.trim(), parts: picked }); }}>
       <div className="space-y-1">
         <label htmlFor={uid + "-dup-name"} className="block text-sm font-medium">Name of the copy</label>

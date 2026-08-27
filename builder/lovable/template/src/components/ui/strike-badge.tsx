@@ -24,7 +24,7 @@ export function StrikeBadge({ strikes = 0, max = 3, oldestExpires, className }: 
 }) {
   const n = Math.max(0, Math.min(strikes, max));
   return (
-    <div className={cn("inline-flex flex-col gap-0.5", className)}>
+    <div data-slot="strike-badge" className={cn("inline-flex flex-col gap-0.5", className)}>
       <span className="inline-flex items-center gap-2">
         <span className="inline-flex items-center gap-1" aria-hidden>
           {Array.from({ length: max }, (_, i) => (

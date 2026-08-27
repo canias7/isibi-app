@@ -28,7 +28,7 @@ function Branch({ node, depth, open, toggle, selected, onSelect }: {
   const kids = node.children ?? [];
   const isOpen = open.has(node.id);
   return (
-    <li>
+    <li data-slot="branch">
       <div
         className={cn("flex items-center gap-1 rounded px-1 py-0.5",
           selected === node.id && "bg-foreground text-background")}
@@ -75,7 +75,7 @@ export function FolderTree({ roots, selected, onSelect, defaultOpen = [], classN
     return next;
   });
   return (
-    <ul className={cn("text-sm", className)}>
+    <ul data-slot="folder-tree" className={cn("text-sm", className)}>
       {roots.map((r) => (
         <Branch key={r.id} node={r} depth={0} open={open} toggle={toggle}
           selected={selected} onSelect={onSelect} />

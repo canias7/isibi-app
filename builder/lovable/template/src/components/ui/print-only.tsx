@@ -7,5 +7,5 @@ import { cn } from "@/lib/utils";
  * address has to be spelled out. This is where that goes.
  */
 export function PrintOnly({ children, className }: { children?: React.ReactNode; className?: string }) {
-  return <div className={cn("hidden print:block", className)}>{children}</div>;
+  return <div data-slot="print-only" className={cn("hidden print:block", className)}>{children}</div>;
 }

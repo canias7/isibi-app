@@ -33,7 +33,7 @@ export function AiLimitNote({ used, limit, resetsAt, unit = "requests", warnAt =
   const near = !out && used / limit >= warnAt;
   if (!out && !near) return null;
   return (
-    <div {...(out ? { role: "status" } : {})}
+    <div data-slot="ai-limit-note" {...(out ? { role: "status" } : {})}
       className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border px-3 py-2 text-sm",
         out && "border-foreground/40 bg-muted/40", className)}>
       <span className={cn(out && "font-medium")}>

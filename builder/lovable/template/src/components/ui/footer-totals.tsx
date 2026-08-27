@@ -24,7 +24,7 @@ export function FooterTotals({ label = "Total", cells, scope, className }: {
   className?: string;
 }) {
   return (
-    <tfoot className={cn("border-t border-border font-medium", className)}>
+    <tfoot data-slot="footer-totals" className={cn("border-t border-border font-medium", className)}>
       <tr>
         <th scope="row" className="px-3 py-2 text-start text-sm">
           {label}

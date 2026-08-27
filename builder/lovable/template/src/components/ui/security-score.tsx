@@ -31,7 +31,7 @@ export function SecurityScore({ items, className }: {
   const ordered = [...items].sort((a, b) => Number(!!a.done) - Number(!!b.done));
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="security-score" className={cn("flex flex-col gap-3", className)}>
       <div className="flex items-baseline gap-2">
         <p className="text-sm">
           <strong className="tabular-nums">{done}</strong>

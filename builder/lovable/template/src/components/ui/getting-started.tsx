@@ -7,7 +7,7 @@ export function GettingStarted({ items, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("grid gap-3 sm:grid-cols-2 lg:grid-cols-3", className)}>
+    <div data-slot="getting-started" className={cn("grid gap-3 sm:grid-cols-2 lg:grid-cols-3", className)}>
       {items.map((it) => {
         const inner = (
           <>

@@ -17,5 +17,5 @@ export function ContentWidth({ wide, children, className }: {
   children?: React.ReactNode;
   className?: string;
 }) {
-  return <div className={cn(wide ? "max-w-4xl" : "max-w-prose", className)}>{children}</div>;
+  return <div data-slot="content-width" className={cn(wide ? "max-w-4xl" : "max-w-prose", className)}>{children}</div>;
 }

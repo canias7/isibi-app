@@ -33,7 +33,7 @@ export function MultiStepForm({ steps, current, onBack, onNext, onSubmit, nextLa
   const at = Math.min(Math.max(0, Math.trunc(current) || 0), steps.length - 1);
   const last = at >= steps.length - 1;
   return (
-    <div className={cn("space-y-5", className)}>
+    <div data-slot="multi-step-form" className={cn("space-y-5", className)}>
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground">Step {at + 1} of {steps.length}</p>
         <Progress value={((at + 1) / steps.length) * 100} className="h-1.5"

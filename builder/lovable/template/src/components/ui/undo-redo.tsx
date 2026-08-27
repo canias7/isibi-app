@@ -54,7 +54,7 @@ export function UndoRedo({ onUndo, onRedo, canUndo, canRedo, className }: {
   onUndo: () => void; onRedo: () => void; canUndo?: boolean; canRedo?: boolean; className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-1", className)}>
+    <div data-slot="undo-redo" className={cn("flex items-center gap-1", className)}>
       <Button type="button" size="icon-sm" variant="ghost" onClick={onUndo} disabled={!canUndo} aria-label="Undo">
         <Undo2 className="size-4" />
       </Button>

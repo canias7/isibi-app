@@ -28,7 +28,7 @@ export function DateFormatPreview({ date = "2026-04-03", locales, className }: {
   const d = new Date(`${date}T12:00:00`);
   if (Number.isNaN(d.getTime())) return null;
   return (
-    <div className={cn("space-y-1", className)}>
+    <div data-slot="date-format-preview" className={cn("space-y-1", className)}>
       <p className="text-xs text-muted-foreground">
         The same day, <time dateTime={date}>{date}</time>, in each language:
       </p>

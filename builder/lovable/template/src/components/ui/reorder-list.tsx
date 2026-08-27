@@ -35,7 +35,7 @@ export function ReorderList({ items, onMove, dropIndex, announce, className }: {
 }) {
   if (!items.length) return null;
   return (
-    <div className={cn("flex flex-col", className)}>
+    <div data-slot="reorder-list" className={cn("flex flex-col", className)}>
       <p role="status" aria-live="polite" className="sr-only">{announce ?? ""}</p>
       <ol className="divide-y divide-border rounded-md border border-border">
         {items.map((it, i) => (

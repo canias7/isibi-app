@@ -30,7 +30,7 @@ export function BinLocation({ aisle, bay, level, position, needsEquipment, alsoI
 }) {
   const parts = [aisle, bay, level, position].filter(Boolean) as string[];
   return (
-    <div className={cn("space-y-0.5 text-sm", className)}>
+    <div data-slot="bin-location" className={cn("space-y-0.5 text-sm", className)}>
       <p className="flex flex-wrap items-baseline gap-x-1.5 font-mono tabular-nums">
         {parts.map((p, i) => (
           <span key={i}>

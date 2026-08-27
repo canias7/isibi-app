@@ -46,7 +46,7 @@ export function ChartOfAccounts({ accounts, currency = "GBP", locale = "en-GB", 
   const money = (v: number) =>
     new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
   return (
-    <div className={cn("space-y-2", className)}>
+    <div data-slot="chart-of-accounts" className={cn("space-y-2", className)}>
       {ORDER.map((type) => {
         const rows = accounts.filter((a) => a.type === type);
         if (rows.length === 0) return null;

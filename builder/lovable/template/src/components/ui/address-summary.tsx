@@ -17,7 +17,7 @@ export function AddressSummary({ name, lines, postcode, country, onEdit, classNa
 }) {
   const parts = (lines ?? []).filter((l): l is string => !!l && l.trim() !== "");
   return (
-    <div className={cn("flex items-start justify-between gap-3 rounded-md border border-border p-3", className)}>
+    <div data-slot="address-summary" className={cn("flex items-start justify-between gap-3 rounded-md border border-border p-3", className)}>
       <address className="text-sm not-italic">
         {name && <span className="block font-medium">{name}</span>}
         {parts.map((l) => <span key={l} className="block text-muted-foreground">{l}</span>)}

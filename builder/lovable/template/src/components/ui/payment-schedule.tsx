@@ -27,7 +27,7 @@ export function PaymentSchedule({ instalments, currency = "GBP", className }: {
   const total = instalments.reduce((s, i) => s + i.amount, 0);
   const left = instalments.filter((i) => !i.paid).reduce((s, i) => s + i.amount, 0);
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="payment-schedule" className={cn("flex flex-col gap-2", className)}>
       <ol className="divide-y divide-border rounded-md border border-border text-sm">
         {instalments.map((i, idx) => {
           const t = new Date(i.at).getTime();

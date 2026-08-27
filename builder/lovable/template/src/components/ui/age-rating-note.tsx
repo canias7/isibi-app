@@ -25,7 +25,7 @@ export function AgeRatingNote({ rating, scheme, descriptors, className }: {
   className?: string;
 }) {
   return (
-    <p className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
+    <p data-slot="age-rating-note" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs", className)}>
       <span aria-label={`Rated ${rating}${scheme ? ` by ${scheme}` : ""}`}
         className="rounded border border-border px-1.5 py-0.5 font-medium">
         {rating}

@@ -25,7 +25,7 @@ export function CommandGroup({ title, children, className }: {
   const count = React.Children.count(children);
   if (count === 0) return null;
   return (
-    <div role="group" aria-labelledby={id} className={cn("py-1", className)}>
+    <div data-slot="command-group" role="group" aria-labelledby={id} className={cn("py-1", className)}>
       <p id={id} className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </p>

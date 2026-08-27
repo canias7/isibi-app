@@ -30,7 +30,7 @@ export function ContentPlaceholder({ what, how, forOwner, action, minHeight, cla
   // Visitor-safe by default: absence, not a nag about someone else's homework.
   if (!forOwner) return null;
   return (
-    <div style={minHeight ? { minHeight } : undefined}
+    <div data-slot="content-placeholder" style={minHeight ? { minHeight } : undefined}
       className={cn("flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-4 py-6 text-center", className)}>
       <p className="text-sm text-muted-foreground">{what}</p>
       {how ? <p className="text-xs text-muted-foreground">{how}</p> : null}

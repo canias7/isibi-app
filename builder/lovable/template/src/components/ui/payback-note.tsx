@@ -26,7 +26,7 @@ export function PaybackNote({ months, cost, savingPer, unitLabel = "", never, cl
 }) {
   if (never || months === undefined) {
     return (
-      <p className={cn("text-sm", className)}>
+      <p data-slot="payback-note" className={cn("text-sm", className)}>
         <span className="font-medium">Doesn&apos;t pay for itself</span>
         {savingPer && <span className="text-muted-foreground"> at {savingPer}</span>}
       </p>
