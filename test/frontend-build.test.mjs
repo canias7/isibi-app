@@ -188,6 +188,26 @@ test("an invented brand stays inside the brief (2026-08-27, owner's call)", () =
     "the field stopped forbidding the product-brand drift — the Brewline defect");
 });
 
+test("the description is built from the brief and carries no worked example (2026-08-27)", () => {
+  // Fourth field to lose its baked example — a barber shop ending "Book
+  // online." sat in front of every build, tools included. The replacement is
+  // the owner's law: every FACT comes from the brief, condensing allowed,
+  // adding not. The 160-char cap and the where-it-appears sentence stay —
+  // pipeline facts the model cannot know.
+  const src = bare(WORKER);
+  const at = src.indexOf("One sentence describing the business");
+  assert.ok(at > 0, "the description field is no longer where this test looks");
+  const field = src.slice(at, at + 900).replace(/" \+\s*"/g, "");
+  assert.match(field, /built FROM THE BRIEF/,
+    "the description field no longer sources its facts from the brief");
+  assert.match(field, /never facts invented/,
+    "the no-invented-facts law is gone");
+  assert.match(field, /Under 160 characters/,
+    "the length cap is gone — link previews truncate mid-word");
+  assert.ok(!/Skin fades/.test(field), "the barber-shop example is back — every site will copy its shape");
+  assert.ok(!/Book online/.test(field), "the shopfront call-to-action example is back, tools included");
+});
+
 test("only the build route asks for the frontend tool, and it does so on a first build", () => {
   const src = bare(WORKER);
   const calls = [...src.matchAll(/designSiteSchema\(/g)];

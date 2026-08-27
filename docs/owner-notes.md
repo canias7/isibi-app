@@ -25,6 +25,10 @@ applied wherever the model fills a blank.) Applied again the same day to the
 example sentences are deleted ("the slot picker is the hero" was a booking-
 site answer in front of every build), the brief is named as the source, and
 the sentence now BINDS — every later design answer must follow from it.
+And to the `description` step the same day ("ok fix description then"): its
+baked barber-shop example ("…Book online.") is deleted — fourth field cleaned
+of the copy-me class — and the field now says every fact comes from the brief,
+condensing allowed, adding not; a thin brief gets a plain short sentence.
 
 ## ✅ FIXED AND PROVEN LIVE — "he made an espresso machine on a CRM" (2026-08-27)
 

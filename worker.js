@@ -3834,11 +3834,23 @@ const SITE_SCHEMA_TOOL = {
       // a <title> and nothing else, so sharing its link on WhatsApp, iMessage or
       // Slack showed a bare URL — and for a small business that link IS the
       // marketing.
+      // ── FROM THE BRIEF, AND THE BAKED EXAMPLE IS GONE (2026-08-27, owner's
+      // call: "ok fix description then") ──────────────────────────────────────
+      //
+      // The field carried a worked example — a barber shop ending "Book
+      // online." — in front of every build, tools included: the same
+      // copy-me class deleted from shape, action and purpose this week. What
+      // replaces it is the owner's standing law (the facts come from the
+      // brief; condensing allowed, adding not), because the description
+      // CANNOT be the customer's own words verbatim — the brief is written to
+      // us, this sentence is written to Google readers — so "don't invent"
+      // has to mean "every FACT in it is the brief's".
       description: {
         type: "string",
         description:
           "One sentence describing the business, as it should appear under the name in a Google result or a shared-link preview. " +
-          "Write it for a customer, not a developer: what it is, where, and what someone can do here — 'Skin fades and hot-towel shaves in Lisbon. Book online.' " +
+          "Written for a customer, not a developer, and built FROM THE BRIEF: what it is, who it serves, where — " +
+          "the customer's own facts condensed, never facts invented. A thin brief gets a plain short sentence, not embellishment. " +
           "Under 160 characters. No quotes, no line breaks.",
       },
       // THE SHAPE — SIX AUTHORED FIELDS WHERE `family` USED TO BE (owner's call,
