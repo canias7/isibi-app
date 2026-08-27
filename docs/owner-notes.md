@@ -10,6 +10,29 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## The axes A/B — two builds, one brief, one difference (2026-08-27)
+
+Your call: *"make a build with what we have, then i would do axes and we can
+compare them"*, then the 65-axis list: *"lets do the test build with this new
+axes."*
+
+* **Arm A — run 49, northgroup-13** — today's state (free CSS + one frame +
+  the button fix). Also the button fix's first live outing, and the first
+  build under your name rule — its placeholder went up as **"Northline"**,
+  not another coffee name.
+* **Arm B — run 50, northgroup-14** — same brief, same everything, plus your
+  65 axes in the css step as a **decision list**: no options, no menus (your
+  own rule from when we deleted them), the model still writes every rule —
+  the list just makes it decide all the dimensions instead of six of them.
+* **Three edits to the list, told to you before it shipped**: `direction` is
+  out (the language system already sets it, and a style rule fighting it
+  breaks Arabic sites again); reduced-motion is a must, not a choice
+  (accessibility); `theme` became the closing line (the stylesheet IS the
+  theme).
+* **How we judge it**: the two sites side by side. Does B decide more —
+  depth, motion, scroll, fine type — and look better for it, or just write a
+  longer stylesheet.
+
 ## THE BUTTON WITH THE INVISIBLE TEXT IS FIXED (2026-08-27)
 
 You have seen this one four times — *Ring the workshop*, *Book now*, *Log a

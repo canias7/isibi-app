@@ -548,9 +548,28 @@ jobs:
           # 10-15.5-minute rollout ambiguity. This commit is workflow-only and
           # rolls nothing, so the workflow's own deploy-wait covers the rest.
           #
-          # Fresh slug: northgroup-9 through -12 are the owner's LIVE sites
+          # ── RUN 50: ARM B — THE AXES (owner: "lets do the test build with
+          # this new axes") ──────────────────────────────────────────────────
+          #
+          # Same brief, same picker, third fresh slug. The ONE variable between
+          # the arms is the css field gaining the 65-axis DECISION LIST — no
+          # options, no engine, the model still authors every rule; the list
+          # exists to stop it deciding six dimensions and defaulting sixty.
+          # Run 49 (arm A, northgroup-13) is the control.
+          #
+          # READ, SIDE BY SIDE WITH ARM A: does the sheet decide more — depth,
+          # motion, scroll, fine typography — and does the page look better for
+          # it, or does the checklist just buy a longer stylesheet. Everything
+          # already proven must stay proven: kind tool, one frame, images 0/0,
+          # a readable CTA (the label guard), no marketing bands.
+          #
+          # NO HOLD: the axes are one block in worker.js — Worker-side only,
+          # nothing COPY'd into the container image — so the workflow's own
+          # deploy-wait covers it.
+          #
+          # Fresh slug: northgroup-9 through -13 are the owner's LIVE sites
           # now — re-using any would revise it.
-          OWNER_SLUG: northgroup-13
+          OWNER_SLUG: northgroup-14
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs

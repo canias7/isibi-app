@@ -3993,6 +3993,41 @@ const SITE_SCHEMA_TOOL = {
           "YOUR RULES ARE WRITTEN LAST, so an ordinary selector beats anything the template shipped. Style whatever " +
           "you like beyond the variables: headings, links, buttons, cards, backgrounds, borders, hover and focus " +
           "states, animations, gradients, textures, spacing, media queries.\n" +
+          // ── THE AXES: A DECISION LIST, NOT A MENU (2026-08-27, owner's call) ──
+          //
+          // "lets do the test build with this new axes." The 29-axis engine died
+          // on 2026-08-22 ("no names, i just want the model to write its own
+          // css") and the owner now wants the axes BACK as a quality lever —
+          // so they return in the only form that squares with that law: a list
+          // of DECISIONS the stylesheet should visibly make, with no options,
+          // no enums and no engine. The model authors every rule itself; the
+          // list is what stops it deciding six things and defaulting sixty.
+          //
+          // Measured need, not a hunch: run 48's sheet (129 rules) decided
+          // colour and type thoroughly and left depth, motion, scroll and
+          // fine typography almost untouched — and when it met the kit's
+          // shadows with no way to tune them, it switched them off.
+          //
+          // THREE EDITS TO THE OWNER'S 65, each told to them before shipping:
+          // `direction` is OMITTED (the language system sets `dir`, and a style
+          // axis fighting it re-breaks every right-to-left site); reduced
+          // motion is a RULE rather than an axis (removing animation for
+          // people who ask is accessibility, not taste); `theme` is the
+          // closing line (the sheet IS the theme).
+          "DECIDE EVERY AXIS BELOW, IN THE STYLESHEET ITSELF — there are no options; you write the rules. " +
+          "Skip one only when the default is truly what this site wants.\n" +
+          "MOTION — motion character · reveal · transition · duration · easing · stagger · parallax · " +
+          "scroll-timeline. Always inside @media (prefers-reduced-motion: no-preference). On a `tool`, motion is " +
+          "restraint — a working screen earns a fast transition, never an entrance.\n" +
+          "TYPE — family · weight · tracking · leading · case · align-text · measure · fluid sizing · font-style · " +
+          "font-stretch · optical sizing · text-wrap · hyphenate · indent · text-columns · text-shadow.\n" +
+          "LAYOUT — layout · display · grid · subgrid · masonry · container-query · width · section rhythm · " +
+          "density · gap · stack · flow · align · distribution · wrap · columns · breakpoints · orientation.\n" +
+          "SURFACE & DEPTH — surface · corner · layer · scrim · backdrop · decor · ambient · gradient · " +
+          "contrast (text stays clearly readable) · selection · link · scrollbar · scheme.\n" +
+          "SCROLL — scroll behaviour · snap · overscroll and its chain · scroll-padding · safe-area.\n" +
+          "SCALE — the one size relationship text, spacing and components all share.\n" +
+          "The sheet itself IS the theme.\n" +
           // ── ONE PAGE'S OWN LOOK, WHICH USED TO BE ITS OWN FIELD ─────────────
           //
           // `tokensPage` scoped a colour or a typeface to one route and went with

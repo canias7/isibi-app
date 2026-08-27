@@ -137,6 +137,39 @@ test("the frontend prompt names both kinds — the mold is no longer hard-coded 
     "the first sentence hard-codes one kind again — the espresso-machine mold restored");
 });
 
+test("the css field carries the axes as a DECISION LIST — no options, no engine", () => {
+  // Owner's call, 2026-08-27: "lets do the test build with this new axes."
+  // The 65-axis list returns as decisions the model must make in its own
+  // stylesheet — squared with the 2026-08-22 law ("no names, the model writes
+  // its own css") by carrying no options and driving no engine.
+  const src = bare(WORKER);
+  const at = src.indexOf("THE SITE'S ENTIRE STYLESHEET");
+  assert.ok(at > 0, "the css field moved — this guard is reading nothing");
+  const end = src.indexOf("\n      },", at);
+  assert.ok(end > at, "the css field's close moved");
+  const field = src.slice(at, end).replace(/" \+\s*"/g, "");
+  // The load-bearing sentences, as content floors — each is an instruction
+  // whose deletion is silent.
+  assert.match(field, /DECIDE EVERY AXIS BELOW, IN THE STYLESHEET ITSELF — there are no options; you write the rules/,
+    "the axes' framing sentence is gone — the list reads as a menu or not at all");
+  for (const group of ["MOTION —", "TYPE —", "LAYOUT —", "SURFACE & DEPTH —", "SCROLL —", "SCALE —"]) {
+    assert.ok(field.includes(group), "the " + group.slice(0, -2) + " group is gone from the axes");
+  }
+  // The two reframes that must not quietly regress into choices:
+  assert.match(field, /Always inside @media \(prefers-reduced-motion: no-preference\)/,
+    "reduced motion stopped being a rule — removing animation for people who ask is accessibility, not taste");
+  assert.match(field, /On a `tool`, motion is restraint/,
+    "the tool restraint clause is gone — a work screen gets entrance animations again");
+  // …AND THE OMISSION: `direction` is the language system's, and a style axis
+  // for it re-breaks every right-to-left site. Asserted on the axes block
+  // alone, because direction-adjacent words legitimately appear elsewhere in
+  // the field.
+  const axes = field.slice(field.indexOf("DECIDE EVERY AXIS"), field.indexOf("The sheet itself IS the theme"));
+  assert.ok(axes.length > 500, "the axes block collapsed — the omission check below is reading nothing");
+  assert.doesNotMatch(axes, /direction/i,
+    "`direction` became an axis — a stylesheet fighting `dirFor` re-breaks RTL");
+});
+
 test("a tool keeps one frame on every page — the css field says so (2026-08-27, run 47)", () => {
   // RUN 47's residue. The kind fix held (zero photographs, desk-first content),
   // and the designer's own stylesheet then gave the HOME page a 28rem centred
