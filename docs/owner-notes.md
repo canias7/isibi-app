@@ -57,10 +57,14 @@ places the landing page is hardcoded:**
    this site most wants done, worded exactly as its button will say it. What
    that is — and who presses it — comes from the brief."* Guarded so the old
    wording can't creep back.
-2. **The `shape` field's worked example for "/" is a barber-shop brochure**
+2. **The `shape` field's worked example for "/" was a barber-shop brochure**
    (hero → service-list → team-grid → map-card) — and northgroup-10's home page
    is that example copied, while its pipeline page copied the field's other
-   example (filter-bar → data-table). Found, not yet changed — say the word.
+   example (filter-bar → data-table). **DONE, your call ("delete the examples
+   and just leave the purpose")**: the field now says only what it is for —
+   where everything goes, one entry per page, arranged from what was chosen,
+   with what leads each page coming "from the brief and the kind of site,
+   never from a convention". Guarded so the examples can't creep back.
 
 ## ✅ SOLVED AND PROVEN — run 45 published. The fired build works, end to end (2026-08-26, midnight)
 
