@@ -10,6 +10,27 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## ✅ SOLVED AND PROVEN — run 45 published. The fired build works, end to end (2026-08-26, midnight)
+
+**`https://northgroup-9.gofarther.app/` — the CRM, live.** The generation ran
+**8 minutes inside the container**, streamed straight through the wall that
+killed every previous fired build at 4½, and the trace finally says the words
+this whole month was about: **`resume:finish`** — the Worker fired the build,
+walked away, and a later look collected the finished answer. First time ever.
+
+- **38 credits** (balance 181 → 138). Home + Pipeline + Deal + Contacts, dense
+  rows, pounds lined up, fourteen sample deals written in. Sign-in and the
+  log-a-call form were correctly left out (frontend-only build) and the
+  builder's reply says so honestly.
+- **One small brief miss, noted**: the brief said "no photographs anywhere"
+  and the designer bought one anyway (~19 of those credits) — it is on the
+  home page. Third time this brief has produced that coin-flip; on the list.
+- The husks (northgroup-5 through -8) still stand for you to delete whenever.
+
+So: the 15-minute ceiling story is over. A build can now take as long as it
+takes — the Worker doesn't wait, the container can't be silently killed, the
+call can't be cut at 5:00, and the answer survives everything in between.
+
 ## THE SECOND KILLER, CAUGHT ON CAMERA — and the fix is streaming (2026-08-26, night)
 
 **Run 44 ran the fixed transport, unambiguously (fired 20 minutes after its
