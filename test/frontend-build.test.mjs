@@ -169,6 +169,25 @@ test("a tool keeps one frame on every page — the css field says so (2026-08-27
     "the one-frame rule does not follow the per-page scope it bounds");
 });
 
+test("an invented brand stays inside the brief (2026-08-27, owner's call)", () => {
+  // Four runs of one nameless CRM brief invented four names and two named the
+  // WRONG business — a machinery dealer branded like a coffee shop. The rule,
+  // in the owner's words: "invent something that is related to what the
+  // customer wants." Content floors on the three load-bearing clauses; no
+  // example names are asserted because none may exist — an example name is a
+  // name some site eventually wears.
+  const src = bare(WORKER);
+  const at = src.indexOf("Short display name for the site.");
+  assert.ok(at > 0, "the brand field description is no longer where this test looks");
+  const field = src.slice(at, at + 900).replace(/" \+\s*"/g, "");
+  assert.match(field, /that name, exactly as written/,
+    "the brand field no longer says a brief-given name wins verbatim");
+  assert.match(field, /FOR THE BUSINESS THE BRIEF DESCRIBES/,
+    "the brand field no longer ties an invented name to the described business");
+  assert.match(field, /never a brand for the thing it sells/,
+    "the field stopped forbidding the product-brand drift — the Brewline defect");
+});
+
 test("only the build route asks for the frontend tool, and it does so on a first build", () => {
   const src = bare(WORKER);
   const calls = [...src.matchAll(/designSiteSchema\(/g)];

@@ -10,6 +10,18 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## Preference — an invented detail stays inside the brief (2026-08-27)
+
+Your words: "don't invent something the customer hasn't asked for — invent
+something that is related to what the customer wants." Trigger: four runs of
+the nameless CRM brief invented four company names, and two of them named the
+WRONG business — a machinery dealer branded like a coffee shop ("Northbrew",
+"Brewline"). The `brand` field now says: a brief-given name is used exactly
+as written; an invented one must fit the business the brief DESCRIBES — what
+it IS to the people it serves, never a brand for the thing it sells. Guarded;
+proven on the next build. (This is the general preference, not just names —
+applied wherever the model fills a blank.)
+
 ## ✅ FIXED AND PROVEN LIVE — "he made an espresso machine on a CRM" (2026-08-27)
 
 **Your point landed: the problem was never the number of images — it's that the

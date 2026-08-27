@@ -3807,7 +3807,24 @@ const SITE_SCHEMA_TOOL = {
   input_schema: {
     type: "object",
     properties: {
-      brand: { type: "string", description: "Short display name for the site." },
+      // ── THE NAME STAYS INSIDE THE BRIEF (2026-08-27, owner's call) ────────
+      //
+      // Runs 45-48 of one nameless CRM brief produced four invented names, and
+      // two of them named the WRONG BUSINESS: a dealer selling machines TO
+      // cafes came out branded like a coffee shop ("Northbrew", "Brewline") —
+      // the model free-associating from the product words in the brief. The
+      // owner's rule, in the owner's words: "don't invent something the
+      // customer hasn't asked for — invent something that is related to what
+      // the customer wants." No worked example names, deliberately: an example
+      // name is a name some site eventually wears (the ACTION_FIELD lesson).
+      brand: {
+        type: "string",
+        description:
+          "Short display name for the site. When the brief names the business, that name, exactly as written. " +
+          "When it does not, invent one FOR THE BUSINESS THE BRIEF DESCRIBES — a name that sounds like what this " +
+          "business IS to the people it serves, never a brand for the thing it sells or for a business one step " +
+          "away from the one described.",
+      },
       slug: { type: "string", description: "url-safe-name, lowercase, hyphens only." },
       // Starter content, and not a nicety: nothing can write to a `display` table
       // after the build — not even the owner — so whatever is not seeded here is
