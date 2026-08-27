@@ -3821,9 +3821,9 @@ const SITE_SCHEMA_TOOL = {
         type: "string",
         description:
           "Short display name for the site. When the brief names the business, that name, exactly as written. " +
-          "When it does not, invent one FOR THE BUSINESS THE BRIEF DESCRIBES — a name that sounds like what this " +
-          "business IS to the people it serves, never a brand for the thing it sells or for a business one step " +
-          "away from the one described.",
+          "When it does not, invent one for the TYPE OF BUSINESS THE CUSTOMER ASKED FOR — a name that sounds " +
+          "like what this business IS, never one for the thing it sells or for a business one step away from " +
+          "the one described.",
       },
       slug: { type: "string", description: "url-safe-name, lowercase, hyphens only." },
       // Starter content, and not a nicety: nothing can write to a `display` table

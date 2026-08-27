@@ -182,9 +182,9 @@ test("an invented brand stays inside the brief (2026-08-27, owner's call)", () =
   const field = src.slice(at, at + 900).replace(/" \+\s*"/g, "");
   assert.match(field, /that name, exactly as written/,
     "the brand field no longer says a brief-given name wins verbatim");
-  assert.match(field, /FOR THE BUSINESS THE BRIEF DESCRIBES/,
-    "the brand field no longer ties an invented name to the described business");
-  assert.match(field, /never a brand for the thing it sells/,
+  assert.match(field, /TYPE OF BUSINESS THE CUSTOMER ASKED FOR/,
+    "the brand field no longer ties an invented name to what the customer asked for");
+  assert.match(field, /never one for the thing it sells/,
     "the field stopped forbidding the product-brand drift — the Brewline defect");
 });
 
