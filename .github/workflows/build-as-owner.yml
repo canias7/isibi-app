@@ -503,28 +503,29 @@ jobs:
           # `revise`, so re-using it would measure an edit of an empty shell.
           # ── RUN 46: THE FIRST BUILD BOUGHT ON A WORKING PIPELINE ────────────
           #
-          # Owner: "Now make a crm." Run 45 proved the machinery (published,
-          # `resume:finish`, 8 minutes of streamed generation); this one is the
-          # deliverable bought on it — same brief verbatim, the owner's own
-          # words, per the run-35 rule that changing a brief the owner named is
-          # not a technical call.
+          # RUN 47 — the kind field answers live (owner: "time to check now").
+          # Same brief verbatim, fourth firing of it; what changed is the
+          # DESIGN STEP: `kind: shopfront|tool` decided first, a tool's
+          # photograph budget zeroed in code, the TOOL_DIRECTIVE leading the
+          # page brief, and the action/shape fields gutted to their purposes
+          # (the brochure "/" example northgroup-10 copied is deleted).
           #
-          # NO HOLD THIS TIME, and that is arithmetic rather than optimism: the
-          # streaming image deployed 23:29:47Z and nothing since has touched
-          # `builder/` (8fe31655 workflow-only, c278f63d docs-only), so the
-          # rollout finished hours ago and a workflow-only firing commit rolls
-          # nothing. The 15-minute discipline applies to image-changing
-          # deploys, not to this.
+          # WHAT THIS RUN ANSWERS: does the designer answer `kind: "tool"` to
+          # a brief saying "a working tool rather than a website" — and does
+          # the front page then open into the work instead of a marketing hero
+          # with a product photograph ("he made an espresso machine on a CRM").
+          # `images {planned: 0, made: 0}` is the arithmetic half proving
+          # itself; the served home page is the frame half.
           #
-          # WATCH FOR run 45's two blemishes as the comparison: a photograph
-          # bought against "no photographs anywhere" (designer coin-flip,
-          # 3 samples now) and the five lint notes (three missing per-page
-          # `head`s, two String(id) misses) — reported on a site that still
-          # publishes, but a clean run here says they are variance.
+          # NO HOLD, same arithmetic as run 46: every change since the
+          # streaming image is Worker-side — none of site-plan/site-images/
+          # site-edit is COPY'd into the container image (checked against the
+          # Dockerfile), so no rollout is in flight and the workflow's own
+          # deploy-wait covers the Worker.
           #
-          # Fresh slug: northgroup-9 is run 45's LIVE site now, not a husk —
-          # re-using it would revise the owner's working CRM.
-          OWNER_SLUG: northgroup-10
+          # Fresh slug: northgroup-9 and -10 are the owner's LIVE sites now —
+          # re-using either would revise them.
+          OWNER_SLUG: northgroup-11
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
