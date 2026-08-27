@@ -10,6 +10,41 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## ✅ FIXED (not yet proven live) — "he made an espresso machine on a CRM" (2026-08-27)
+
+**Your point landed: the problem was never the number of images — it's that the
+pipeline only knew how to build one kind of thing.** The designer's own
+instructions open "You design a small business website…", so your CRM brief got
+squeezed through the shopfront mold: marketing hero with a product photo,
+"Request a quote" band, team section — a coffee company's brochure with the CRM
+bolted on behind it.
+
+What's built (your call: "Just fix, don't prove live yet tho"):
+
+- **The design step now decides the KIND first: `shopfront` or `tool`.** It's
+  the first question, before anything else, and your brief's own words ("a
+  working tool rather than a website") are exactly what it keys on.
+- **A tool buys ZERO photographs — in code, not in a polite sentence.** The
+  designer ignored "no photographs anywhere" on four straight builds, so the
+  budget is now arithmetic: `kind: "tool"` → 0, whatever else it declares. The
+  espresso machine is structurally impossible on a tool.
+- **The page writer is told what a tool is**: no hero, no marketing bands, no
+  team section, no closing pitch — the front page opens straight into the work
+  (the table, the board, the list).
+- **"No photographs" is finally sayable at all.** The documented way for the
+  designer to answer "none" (an empty list) was being silently thrown away at
+  two separate layers — even a compliant designer couldn't say it. Fixed both.
+- A later edit can't silently un-tool the site: the kind is stored and shown
+  back to the designer on every revise.
+
+**Honest boundary**: this fixes the FRAME. A first build is still frontend-only
+by your design, so a tool site still has no sign-in and doesn't save — that's
+the backend step, separate. Proving the fix live is one paid CRM build,
+whenever you say.
+
+4,351 tests green; the mutation sweep was still running when this was pushed —
+its result lands in the next commit. Not proven live.
+
 ## ✅ SOLVED AND PROVEN — run 45 published. The fired build works, end to end (2026-08-26, midnight)
 
 **`https://northgroup-9.gofarther.app/` — the CRM, live.** The generation ran
@@ -36,7 +71,8 @@ call can't be cut at 5:00, and the answer survives everything in between.
 credits billed (balance 102). Same honest reply about sign-in and the
 log-a-call form waiting on a database. The designer bought a photograph
 against "no photographs anywhere" AGAIN (4th time) — that one is a real
-designer habit now, not luck, and it is on the fix list.
+designer habit now, not luck, and it is on the fix list. *(Fixed 2026-08-27 —
+see the top entry: a tool's budget is zero in code, and "none" is sayable.)*
 
 ## THE SECOND KILLER, CAUGHT ON CAMERA — and the fix is streaming (2026-08-26, night)
 
