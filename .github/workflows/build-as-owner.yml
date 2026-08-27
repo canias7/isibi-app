@@ -543,6 +543,8 @@ jobs:
           #
           # NO HOLD, but for the run-44 arithmetic rather than run 46-48's:
           # ARMED 12:53Z — image deploy completed 12:34:47Z, hold observed.
+          # RE-FIRED 13:06Z — first firing died at sign-in (otp_expired 200ms
+          # after minting, a transient GoTrue refusal); nothing was spent.
           # ── RUN 51: ARM C — COMPONENT CSS THAT LANDS (owner: "go do arm c
           # with this stuff plus the other previus axes" → "go") ─────────────
           #
