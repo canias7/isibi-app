@@ -10,7 +10,7 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
-## ✅ FIXED (not yet proven live) — "he made an espresso machine on a CRM" (2026-08-27)
+## ✅ FIXED AND PROVEN LIVE — "he made an espresso machine on a CRM" (2026-08-27)
 
 **Your point landed: the problem was never the number of images — it's that the
 pipeline only knew how to build one kind of thing.** The designer's own
@@ -39,12 +39,12 @@ What's built (your call: "Just fix, don't prove live yet tho"):
 
 **Honest boundary**: this fixes the FRAME. A first build is still frontend-only
 by your design, so a tool site still has no sign-in and doesn't save — that's
-the backend step, separate. Proving the fix live is one paid CRM build,
-whenever you say.
+the backend step, separate.
 
 4,351 tests green, and the mutation sweep came back **12/12** — every planted
 bug (including the exact one from runs 43–46, and a gutted tool rule) was
-caught, and the do-nothing control survived as it must. Not proven live.
+caught, and the do-nothing control survived as it must. Proven live the same
+night — run 47, below.
 
 **Follow-up, same day — you went through the steps with me and found two more
 places the landing page is hardcoded:**
@@ -65,6 +65,29 @@ places the landing page is hardcoded:**
    where everything goes, one entry per page, arranged from what was chosen,
    with what leads each page coming "from the brief and the kind of site,
    never from a convention". Guarded so the examples can't creep back.
+
+**PROVEN LIVE — run 47 (`northgroup-11`, your "time to check now"):**
+`https://northgroup-11.gofarther.app/` — "Pennine Machines", the same CRM
+brief, published ~04:03. **17 credits billed** (23 spent with the design
+calls; balance 102 → 79).
+
+- **`images {planned: 0, made: 0}` — the streak is over.** Five straight runs
+  of this brief bought a photograph against "no photographs anywhere"; this
+  one bought none, and the designer itself answered `kind: "tool"` with an
+  empty picture list. The espresso machine is gone.
+- **The front page opens into the desk**: pipeline figures, the five people,
+  Log a call. No hero photo, no team panels, no "Request a quote" anywhere.
+  The pipeline page is a real working screen (stage totals, funnel, filters,
+  a sortable 18-deal table) and contacts is a searchable 22-person book.
+- **Blemishes, honestly**: the home page squeezes itself into a narrow centred
+  column (the designer's own "front door" stylesheet fighting its own sidebar
+  — one cheap look edit fixes it); the black "Log a call" button in the header
+  has black text on it (the known colour-layering bug from run 34, third
+  sighting — platform fix still on the list); the deal page came out over the
+  size cap so it didn't publish and its links point home; the inner pages are
+  missing their own titles again (every subpage of runs 45–47 — systematic,
+  on the list); and the phone-width pipeline logs a React error the repair
+  pass tried and failed to fix.
 
 ## ✅ SOLVED AND PROVEN — run 45 published. The fired build works, end to end (2026-08-26, midnight)
 
