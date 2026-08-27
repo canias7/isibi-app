@@ -21,3 +21,9 @@ src/__all_entry.ts
 # `finally`, which a killed process skips — and `Dockerfile` does
 # `COPY lovable/template/ ./`, so a leftover would ride into the build image.
 .kitrender/
+# A contact sheet of the kit's primitives rendered against the REAL stylesheet,
+# plus its screenshots and probe scripts — the only way to answer "what does our
+# CSS look like", since every other harness here reads structure rather than
+# pixels. Same reasoning as `.kitrender/` above: `Dockerfile` does
+# `COPY lovable/template/ ./`, and this is ~2MB of PNGs and throwaway `.tsx`.
+.kitsheet/
