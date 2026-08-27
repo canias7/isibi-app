@@ -2072,29 +2072,38 @@ function Home() {
     // and Lightning CSS both rewrite what they are given, and this repo has
     // shipped three look features that were correct in a module and dead in the
     // stylesheet — including one whose selector Tailwind never emitted at all.
-    ok("the label guard reaches the compiled stylesheet",
-      /\.text-primary-foreground\s*\{\s*color:\s*var\(--primary-foreground\)\s*\}/.test(css),
-      (css.match(/\.text-primary-foreground[^}]*\}/g) || []).join(" | ").slice(0, 300)
-        || "no .text-primary-foreground rule of ours in the bundle at all");
-    // …UNLAYERED, which is the whole mechanism. Inside `@layer utilities` it
-    // would lose to the model's blanket rule exactly as the kit's own utility
-    // does, and every other assertion here would still pass.
-    const guardAt = css.search(/\.text-primary-foreground\s*\{\s*color:\s*var\(--primary-foreground\)\s*\}/);
-    // …AND THE BUNDLE REALLY IS LAYERED, or "the guard is unlayered" is a claim
-    // about a stylesheet where the word means nothing and the check is vacuous.
-    ok("…in a bundle that really does put the kit's utilities in a layer",
-      /@layer\s+utilities\s*\{/.test(css),
-      (css.match(/@layer[^{;]*[;{]/g) || []).slice(0, 4).join(" ") || "no @layer anywhere in the bundle");
-    ok("…and the guard sits outside every one of them, or it loses exactly as the kit's own utility does",
-      guardAt > 0 && braceDepthAt(css, guardAt) === 0,
-      `guard at ${guardAt}, nested ${guardAt > 0 ? braceDepthAt(css, guardAt) : "?"} deep`);
+    // THE RULE HAS AN IDENTICAL TWIN, AND ANY FIRST-MATCH READ IS VACUOUS.
+    // Tailwind emits its OWN `.text-primary-foreground{color:var(--primary-foreground)}`
+    // — byte-identical to the guard — inside `@layer utilities` whenever a page
+    // uses the class, and the CTA page does. Measured under the mutant: with the
+    // guard DELETED, a bare `.test()` for the rule stayed green on the twin, and
+    // a `search()`-based depth read judged the twin's depth (1) rather than the
+    // guard's (0). So every claim below is made about the set of occurrences,
+    // keyed by the one thing that tells them apart: brace depth. Ours is the
+    // unlayered one — depth 0 — which is also the whole mechanism, since inside
+    // a layer it would lose to the model's blanket rule exactly as the kit's
+    // own utility does.
+    const hits = [...css.matchAll(/\.text-primary-foreground\s*\{\s*color:\s*var\(--primary-foreground\)\s*\}/g)]
+      .map((m) => ({ at: m.index, depth: braceDepthAt(css, m.index) }));
+    const unlayered = hits.filter((h) => h.depth === 0);
+    ok("the label guard reaches the compiled stylesheet UNLAYERED — the layered twin does not count",
+      unlayered.length >= 1,
+      hits.length ? "occurrences " + JSON.stringify(hits) : "no such rule anywhere in the bundle");
+    // …AND THE LAYERED TWIN IS REALLY THERE, or "unlayered" is a distinction
+    // about a bundle where the word means nothing and the check above proves
+    // less than it reads.
+    ok("…beside the kit's own layered copy, which is what it must outrank",
+      /@layer\s+utilities\s*\{/.test(css) && hits.some((h) => h.depth > 0),
+      "layers " + ((css.match(/@layer[^{;]*[;{]/g) || []).slice(0, 3).join(" ") || "none")
+        + " · occurrences " + JSON.stringify(hits));
     // …AND BEFORE THE MODEL'S OWN RULES, so a sheet that aims at the label class
     // itself still wins — a design decision rather than the accident this
     // guards, and the reason the `css` field's promise (YOUR RULES ARE WRITTEN
     // LAST) is still literally true.
     const mineAt = css.search(/--isibi-own-sheet/);
     ok("…and before the model's own rules, which keeps a deliberate label rule in charge",
-      guardAt > 0 && mineAt > 0 && guardAt < mineAt, `guard at ${guardAt}, the model's sheet at ${mineAt}`);
+      unlayered.length >= 1 && mineAt > 0 && unlayered[0].at < mineAt,
+      `unlayered guard at ${unlayered.length ? unlayered[0].at : "-"}, the model's sheet at ${mineAt}`);
   }
 
   // ── AND IT HOLDS IN A BROWSER, WHICH IS THE ONLY THING THAT DECIDES ───────
