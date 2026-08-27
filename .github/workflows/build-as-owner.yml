@@ -503,29 +503,32 @@ jobs:
           # `revise`, so re-using it would measure an edit of an empty shell.
           # ── RUN 46: THE FIRST BUILD BOUGHT ON A WORKING PIPELINE ────────────
           #
-          # RUN 47 — the kind field answers live (owner: "time to check now").
-          # Same brief verbatim, fourth firing of it; what changed is the
-          # DESIGN STEP: `kind: shopfront|tool` decided first, a tool's
-          # photograph budget zeroed in code, the TOOL_DIRECTIVE leading the
-          # page brief, and the action/shape fields gutted to their purposes
-          # (the brochure "/" example northgroup-10 copied is deleted).
+          # ── RUN 47: THE KIND FIELD PROVED LIVE (northgroup-11, images 0/0) ──
           #
-          # WHAT THIS RUN ANSWERS: does the designer answer `kind: "tool"` to
-          # a brief saying "a working tool rather than a website" — and does
-          # the front page then open into the work instead of a marketing hero
-          # with a product photograph ("he made an espresso machine on a CRM").
-          # `images {planned: 0, made: 0}` is the arithmetic half proving
-          # itself; the served home page is the frame half.
+          # RUN 48 — a tool keeps one frame on every page (owner: "ok do that
+          # then, and then we test again"). Run 47 proved the kind fix (zero
+          # photographs, desk-first content) and left ONE frame defect: the
+          # designer's own css gave the HOME page a 28rem centred "front door"
+          # column while the inner pages got 72rem — its own sidebar then
+          # squeezed the home text to ~100px. The fix is one kind-scoped
+          # sentence in the css FIELD: on a `tool`, one frame for every page,
+          # never a narrower centred home column.
           #
-          # NO HOLD, same arithmetic as run 46: every change since the
-          # streaming image is Worker-side — none of site-plan/site-images/
-          # site-edit is COPY'd into the container image (checked against the
-          # Dockerfile), so no rollout is in flight and the workflow's own
-          # deploy-wait covers the Worker.
+          # WHAT THIS RUN ANSWERS: with that sentence in front of it, does the
+          # home page keep the working screens' width — measured off the served
+          # stylesheet (no narrow `body[data-page="/"] main` cap) and the
+          # rendered page — while everything run 47 proved stays proven
+          # (`kind: "tool"`, `images {planned: 0, made: 0}`, no marketing
+          # bands). The brief's own "one-page front door" should read as door
+          # CONTENT on a full-width frame, not a narrow column.
           #
-          # Fresh slug: northgroup-9 and -10 are the owner's LIVE sites now —
-          # re-using either would revise them.
-          OWNER_SLUG: northgroup-11
+          # NO HOLD, same arithmetic as runs 46-47: the change is one sentence
+          # in worker.js — Worker-side only, nothing COPY'd into the container
+          # image — so the workflow's own deploy-wait covers it.
+          #
+          # Fresh slug: northgroup-9, -10 and -11 are the owner's LIVE sites
+          # now — re-using any would revise it.
+          OWNER_SLUG: northgroup-12
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
