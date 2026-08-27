@@ -245,6 +245,19 @@ test("the css field teaches the component hooks, the states, and the three rules
                        "TYPE IN COMPONENTS —", "PIECES —", "STATES —", "MOTION IN COMPONENTS —", "INTERACTION —"]) {
     assert.ok(field.includes(group), "the " + group.slice(0, -2) + " component group is gone");
   }
+  // THE SKIN/STRUCTURE LAW (run 51) — the universal line the shell collision
+  // proved was missing: the first hooked build re-gridded `site-chrome` and
+  // dealt header/page/footer into columns. The cascade guard (SHELL_GUARD)
+  // makes ignoring the law inert; the law is what makes the guard never
+  // needed. Each floor is a sentence whose deletion is silent.
+  assert.match(field, /A COMPONENT'S SKIN IS YOURS; ITS STRUCTURE IS ITS OWN/,
+    "the skin/structure law is gone — the next sheet re-arranges a component again");
+  assert.match(field, /never re-grid or re-position it/,
+    "the shell's load-bearing sentence is gone");
+  assert.match(field, /BELOW the header, never over it/,
+    "the sticky-nav rule is gone — the next side nav parks over the header again");
+  assert.match(field, /ONE navigation per site/,
+    "the one-nav rule is gone — the next tool ships two menus again");
   // The three RULES inside the list — each is the difference between styling
   // a control and breaking it, and each deletion is silent:
   assert.match(field, /restyle the ring, never remove it/,

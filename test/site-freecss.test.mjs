@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readCss, fontsIn, cssNote, MAX_CSS, LABEL_GUARD, ON_FILL_PAIRS } from "../builder/site-freecss.mjs";
+import { readCss, fontsIn, cssNote, MAX_CSS, LABEL_GUARD, SHELL_GUARD, ON_FILL_PAIRS } from "../builder/site-freecss.mjs";
 import { CONFIG_FIELDS } from "../site-config.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -339,7 +339,7 @@ test("…AND IT IS WRITTEN, BEFORE THE MODEL'S SHEET AND ONLY WITH ONE", () => {
   // driven.
   assert.match(container, /import \{[^}]*\bLABEL_GUARD\b[^}]*\} from "\.\/site-freecss\.mjs"/,
     "the container never imports the label guard — every CTA can be blanked again");
-  const write = /fs\.writeFileSync\(STYLES, base \+ "\\n" \+ LABEL_GUARD \+ "\\n" \+ report\.css \+ "\\n"\)/;
+  const write = /fs\.writeFileSync\(STYLES, base \+ "\\n" \+ LABEL_GUARD \+ "\\n" \+ SHELL_GUARD \+ "\\n" \+ report\.css \+ "\\n"\)/;
   assert.match(container, write, "the guard is not written beside the model's stylesheet");
   // BEFORE, NOT AFTER, and the difference is measured rather than stylistic:
   // both placements beat a blanket element rule (a class wins on specificity
@@ -349,6 +349,10 @@ test("…AND IT IS WRITTEN, BEFORE THE MODEL'S SHEET AND ONLY WITH ONE", () => {
   const line = container.match(write)[0];
   assert.ok(line.indexOf("LABEL_GUARD") < line.indexOf("report.css"),
     "the guard is written after the model's sheet — a deliberate label rule can no longer win");
+  assert.ok(line.indexOf("SHELL_GUARD") < line.indexOf("report.css"),
+    "the shell guard is written after the model's sheet");
+  assert.match(container, /import \{[^}]*\bSHELL_GUARD\b[^}]*\} from "\.\/site-freecss\.mjs"/,
+    "the container never imports the shell guard — the shell can be re-gridded again");
   // …ONLY ON THE APPLIED PATH. A site that sent no stylesheet must compile to
   // byte-identical output, or one deploy re-styles every site on the platform.
   const at = container.indexOf("function writeCss(");
@@ -356,6 +360,30 @@ test("…AND IT IS WRITTEN, BEFORE THE MODEL'S SHEET AND ONLY WITH ONE", () => {
   const fn = container.slice(at, container.indexOf("\n}", at));
   assert.ok(fn.indexOf("if (!report.usable)") < fn.indexOf("LABEL_GUARD"),
     "the guard is written before the usable check, so a build that sent no stylesheet is no longer untouched");
+});
+
+test("THE SHELL GUARD PINS THE STACKING AND NOTHING ELSE", () => {
+  // Run 51: the model's sheet re-gridded `site-chrome` — the shell whose
+  // children are header, page and footer STACKED — and grid auto-placement
+  // dealt them into columns (brand clipped, footer in a 216px gutter,
+  // measured live on northgroup-15). The guard closes that in the cascade:
+  // a DOUBLED attribute selector scores (0,2,0) against the (0,1,0) any
+  // plausible model rule carries, and among unlayered rules specificity
+  // decides wherever each lands.
+  assert.ok(SHELL_GUARD.startsWith("[data-slot=site-chrome][data-slot=site-chrome]{"),
+    "the selector is no longer doubled — the guard loses to any model rule on the shell");
+  assert.match(SHELL_GUARD, /display:flex/, "the stacking's display is no longer pinned");
+  assert.match(SHELL_GUARD, /flex-direction:column/, "the stacking's direction is no longer pinned");
+  // MINIMAL BY DESIGN: only the stacking. A guard that creeps into colour,
+  // spacing or size is the platform overruling skin the law says is the
+  // model's — count the declarations rather than trusting the intent.
+  const decls = SHELL_GUARD.slice(SHELL_GUARD.indexOf("{") + 1, SHELL_GUARD.indexOf("}"))
+    .split(";").filter(Boolean);
+  assert.equal(decls.length, 2, "the shell guard grew past the stacking: " + decls.join(";"));
+  // ONE rule, ONE subject — a second selector here is a second component
+  // being pinned, which is a decision, not a tidy-up.
+  assert.equal((SHELL_GUARD.match(/\{/g) || []).length, 1, "the shell guard grew a second rule");
+  assert.ok(!SHELL_GUARD.includes(","), "the shell guard grew a second subject");
 });
 
 test("A REVISE IS SHOWN THE SHEET, and told to hand it back with the change made", () => {

@@ -1985,6 +1985,15 @@ function Home() {
     // every other muted word on the page stays light on a dark ground and
     // produces no collateral finding.
     "a,nav a{color:var(--muted-foreground)}",
+    // ── RUN 51'S SHELL RULE, VERBATIM ───────────────────────────────────────
+    //
+    // The first hooked build aimed a desk grid at `site-chrome` — the shell
+    // whose children are header, page and footer STACKED — and grid
+    // auto-placement dealt them into columns: brand clipped in a 216px
+    // column, footer crushed into the same gutter, measured live on
+    // northgroup-15. SHELL_GUARD's doubled selector (0,2,0) outranks this
+    // (0,1,0) wherever each lands, so the rule ships and never wins.
+    "[data-slot=site-chrome]{display:grid;grid-template-columns:13.5rem 1fr}",
   ].join("\n");
   const sheetBuild = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU, "desk.tsx": CTA_PAGE },
@@ -2104,6 +2113,22 @@ function Home() {
     ok("…and before the model's own rules, which keeps a deliberate label rule in charge",
       unlayered.length >= 1 && mineAt > 0 && unlayered[0].at < mineAt,
       `unlayered guard at ${unlayered.length ? unlayered[0].at : "-"}, the model's sheet at ${mineAt}`);
+    // ── THE SHELL GUARD, AGAINST RUN 51'S OWN RULE ──────────────────────────
+    //
+    // Both sides must be in the file or the win is claimed over an absent
+    // opponent: the model's re-grid (in OWN_SHEET above) and our doubled
+    // selector, unlayered at depth 0. The win itself is cascade arithmetic —
+    // (0,2,0) beats (0,1,0) among unlayered rules whatever the order — and
+    // was measured as a computed `display: flex` in a real browser when the
+    // guard landed.
+    const shellHits = [...css.matchAll(/\[data-slot=site-chrome\]\[data-slot=site-chrome\]\s*\{[^}]*display:\s*flex/g)]
+      .map((m) => ({ at: m.index, depth: braceDepthAt(css, m.index) }));
+    ok("the SHELL GUARD reaches the compiled stylesheet unlayered, doubled selector intact",
+      shellHits.some((h) => h.depth === 0),
+      shellHits.length ? "occurrences " + JSON.stringify(shellHits) : "no doubled shell rule anywhere in the bundle");
+    ok("…and the model's re-grid of the shell is really in the file, losing rather than absent",
+      /\[data-slot=site-chrome\]\s*\{[^}]*display:\s*grid/.test(css),
+      "run 51's rule vanished from the fixture sheet — the guard is winning a fight nobody is having");
   }
 
   // ── AND IT HOLDS IN A BROWSER, WHICH IS THE ONLY THING THAT DECIDES ───────

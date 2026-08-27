@@ -248,6 +248,38 @@ export const LABEL_GUARD = ON_FILL_PAIRS
   .map((n) => `.text-${n}-foreground{color:var(--${n}-foreground)}`)
   .join("\n");
 
+// ── THE SHELL GUARD (2026-08-27, run 51) ────────────────────────────────────
+//
+// Run 51's sheet wrote `[data-slot=site-chrome]{display:grid;
+// grid-template-columns:13.5rem 1fr}` — the whole site shell, whose children
+// are header, page and footer STACKED, turned into a two-column grid. Grid
+// auto-placement then dealt those three into columns like cards: the brand
+// clipped inside a 216px column, the footer crushed into the same gutter, a
+// dead white column down every page. Measured live on northgroup-15.
+//
+// The intent was even right — an edge-to-edge desk — and the correct lever
+// (`sidebar-layout`, which the same sheet ALSO gridded, correctly) was one
+// component over. But re-laying-out the shell has NO correct case: its
+// stacking is what makes a site a site. So, like the label guard above, the
+// accident is closed in the CASCADE rather than asked about in prose — the
+// prompt rule beside it ("dress the shell, never re-arrange it") teaches the
+// principle; this is what makes ignoring it inert.
+//
+// THE DOUBLED ATTRIBUTE SELECTOR IS THE WHOLE MECHANISM. `[x][x]` is legal
+// CSS and counts the attribute twice, so this rule scores (0,2,0) where any
+// plausible model rule on the shell scores (0,1,0)-(0,1,1) — and among
+// equally UNLAYERED rules specificity decides, wherever each lands in the
+// file. Written BEFORE the model's sheet like the label guard, keeping "YOUR
+// RULES ARE WRITTEN LAST" literally true. The stated limit, same as the
+// label guard's: a sheet that doubles the selector itself out-ranks us — a
+// deliberate act, not the accident this closes.
+//
+// ONLY the stacking is pinned. Colours, borders, min-height, padding on the
+// shell stay the model's; `sidebar-layout`, `side-nav` and every other
+// component stay entirely free — the desk frame is theirs to shape.
+export const SHELL_GUARD =
+  "[data-slot=site-chrome][data-slot=site-chrome]{display:flex;flex-direction:column}";
+
 /**
  * Read a stylesheet the model wrote and say what it is.
  *

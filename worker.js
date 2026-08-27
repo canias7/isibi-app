@@ -4055,6 +4055,27 @@ const SITE_SCHEMA_TOOL = {
           "[data-slot=\"faq\"] and so on. A selector you invent matches nothing — use these. States are real " +
           "attributes: [data-state=\"open\"] / \"closed\" / \"checked\", [aria-invalid=\"true\"], " +
           "[aria-current=\"page\"], :disabled, :hover, :focus-visible, :active.\n" +
+          // ── THE SKIN/STRUCTURE LAW (2026-08-27, run 51) ────────────────────
+          //
+          // The first build with the hooks aimed one rule at the one component
+          // that must never be re-laid-out: `[data-slot=site-chrome]
+          // {display:grid;grid-template-columns:13.5rem 1fr}` dealt the shell's
+          // header, page and footer into columns — brand clipped, footer in a
+          // 216px gutter, measured live. The intent (an edge-to-edge desk) was
+          // right and the correct lever (`sidebar-layout`) was one component
+          // over, gridded correctly in the same sheet. Nothing had drawn the
+          // line between a component's SKIN (always the model's) and its
+          // STRUCTURE (never), so the line is drawn here — as a principle
+          // rather than a ban-list, because a list covers only tonight's case.
+          // The shell's stacking is ALSO pinned in the cascade (SHELL_GUARD,
+          // the label guard's sibling), so ignoring this sentence is inert;
+          // the sentence is what makes the guard never needed.
+          "A COMPONENT'S SKIN IS YOURS; ITS STRUCTURE IS ITS OWN. Restyle any component — colour, type, " +
+          "spacing, borders, shadows, states. Never re-arrange one: its display, its grid, what it contains " +
+          "are the component's business. THE SHELL (site-chrome) is load-bearing — header, page and footer, " +
+          "stacked; dress it, never re-grid or re-position it. A desk frame is `sidebar-layout`'s job, and " +
+          "it is yours to shape. A sticky side nav sits BELOW the header, never over it. And ONE navigation " +
+          "per site — a side nav or the header's nav, never both.\n" +
           "DECIDE THE COMPONENTS' OWN CSS on the same terms — every axis, no options:\n" +
           "COMPONENT SIZE & SPACING — control height · padding · internal gap · icon size · touch target " +
           "(comfortable under a thumb; most visitors are on a phone).\n" +

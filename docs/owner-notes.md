@@ -10,6 +10,36 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## The broken frame on northgroup-15 — bolted shut for every future build (2026-08-27)
+
+You saw it live ("wth is this"): the brand clipped to "orthline", a dead white
+column, the footer crushed into the corner, the sidebar over the header. One
+CSS rule caused all of it — the model turned the SITE SHELL (the thing that
+stacks header / page / footer) into a two-column grid. Its goal was right
+(the edge-to-edge desk you wanted); it grabbed the wrong lever.
+
+Your call: "its gotta be more universal stuff" → the fix went in two layers,
+strongest first, per "ok go do that":
+
+- **The bolt (code, not words):** the build machine now stamps "the shell
+  stays stacked" into every site's stylesheet, written so it automatically
+  outranks anything the model writes about the shell. Same mechanism as the
+  invisible-button fix from this morning, one line below it. Measured in a
+  real browser: with the bolt the shell stays stacked even with run 51's
+  exact rule in the sheet; without it, it breaks. The model keeps full
+  freedom everywhere else — the bolt pins exactly one thing.
+- **The lease line (the universal law):** the design step now reads: a
+  component's SKIN is yours, its STRUCTURE is its own; the shell is
+  load-bearing — dress it, never re-arrange it; a sticky sidebar sits BELOW
+  the header; ONE navigation per site, never two. A principle, not a
+  ban-list — ban-lists get walked around (the "no photographs" rule was
+  ignored four builds running until it became code).
+
+**northgroup-15 itself:** it heals the next time it publishes — any edit
+does it. Type one thing into its builder chat, e.g. *"unpin the sidebar so
+it sits below the header"*, and that single republish fixes both the pin
+and the shell.
+
 ## Arm C — component css that actually lands, and the footer stops making things up (2026-08-27)
 
 Two of your reports drove this, plus your 70-item component list ("here is the

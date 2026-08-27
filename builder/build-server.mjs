@@ -46,7 +46,7 @@ import { runStep } from "./run-step.mjs";
 import { startSiteServer } from "./site-ssr.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
-import { readCss, LABEL_GUARD } from "./site-freecss.mjs";
+import { readCss, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -1006,7 +1006,7 @@ function writeCss(css) {
   // ONLY ON THE APPLIED PATH, so a site that sent no stylesheet — every site
   // built before free CSS, and every cheap edit that leaves the look alone —
   // compiles to byte-identical output.
-  fs.writeFileSync(STYLES, base + "\n" + LABEL_GUARD + "\n" + report.css + "\n");
+  fs.writeFileSync(STYLES, base + "\n" + LABEL_GUARD + "\n" + SHELL_GUARD + "\n" + report.css + "\n");
   return {
     applied: true,
     bytes: report.bytes,

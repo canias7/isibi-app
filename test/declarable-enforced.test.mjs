@@ -385,8 +385,18 @@ test("no field the tool tells the model to omit is also required", () => {
   // uses, matched on the source rather than a retyped list. Checked against the
   // file so a rewording that loses every one of them fails here rather than
   // silently making this test vacuous.
+  //
+  // OVER THE TOOL'S OWN BALANCED EXTENT, never a byte count. This was
+  // `at + 42000` and went red on 2026-08-27 when the css field grew its
+  // component block — the omit-phrases had not moved an inch; the window's
+  // END had drifted past them. The recorded rule, one more instance: never
+  // size a source-read window in bytes. `balanced` runs on `struct` (strings
+  // blanked, so braces are countable) and the span indexes into `w`
+  // identically, which is what the two-views preamble above is for.
+  const schemaSpan = balanced(struct, struct.indexOf("input_schema", at), "{", "}");
+  assert.ok(schemaSpan, "could not read design_schema's input_schema block");
   const OMIT = /leave (this|it|them) out|omit it/i;
-  assert.ok(OMIT.test(w.slice(at, at + 42000)),
+  assert.ok(OMIT.test(w.slice(at, schemaSpan[1])),
     "no omit-instruction found anywhere in the tool — the pattern has drifted, and this test now passes vacuously");
 
   /** Every `name: { … }` directly inside a properties block, with its own text. */
