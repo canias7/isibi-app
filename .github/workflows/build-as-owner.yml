@@ -542,34 +542,34 @@ jobs:
           # brand) and the purpose/description rewrites.
           #
           # NO HOLD, but for the run-44 arithmetic rather than run 46-48's:
-          # 2631b6bd DID roll the container image (build-server.mjs +
-          # site-freecss.mjs are COPY'd), and its deploy completed 10:47:25Z —
-          # ~45 minutes before this fire commit, far past the measured
-          # 10-15.5-minute rollout ambiguity. This commit is workflow-only and
-          # rolls nothing, so the workflow's own deploy-wait covers the rest.
+          # ── RUN 51: ARM C — COMPONENT CSS THAT LANDS (owner: "go do arm c
+          # with this stuff plus the other previus axes" → "go") ─────────────
           #
-          # ── RUN 50: ARM B — THE AXES (owner: "lets do the test build with
-          # this new axes") ──────────────────────────────────────────────────
+          # Same brief, same picker, fourth fresh slug. Arm C = arm B's 65
+          # site axes PLUS: the kit stamped with real data-slot hooks (1,971
+          # of 2,112 — run 48's ~20 component rules all matched hooks that
+          # did not exist), the css field teaching the hooks, the states and
+          # the owner's 70 component axes, and TOOL_DIRECTIVE's footer rule
+          # (runs 47 AND 49 both closed every page on an invented contact
+          # card — phone/email/address/hours, none in the brief).
           #
-          # Same brief, same picker, third fresh slug. The ONE variable between
-          # the arms is the css field gaining the 65-axis DECISION LIST — no
-          # options, no engine, the model still authors every rule; the list
-          # exists to stop it deciding six dimensions and defaulting sixty.
-          # Run 49 (arm A, northgroup-13) is the control.
+          # READ, THREE ARMS SIDE BY SIDE: (1) do the component rules LAND
+          # now — a [data-slot="…"] rule in the sheet must be measurable on
+          # the served page; (2) the owner's two reports — the footer stays
+          # name+nav with no invented facts, and the sidebar/frame placement;
+          # (3) everything already proven stays proven: kind tool, one frame,
+          # images 0/0, readable CTA, no marketing bands.
           #
-          # READ, SIDE BY SIDE WITH ARM A: does the sheet decide more — depth,
-          # motion, scroll, fine typography — and does the page look better for
-          # it, or does the checklist just buy a longer stylesheet. Everything
-          # already proven must stay proven: kind tool, one frame, images 0/0,
-          # a readable CTA (the label guard), no marketing bands.
+          # FIRED LATE ON PURPOSE: a1d073c9 ROLLED THE CONTAINER IMAGE (the
+          # kit's 1,955 stamped files are COPY'd into it), so this fire commit
+          # lands 15-20+ minutes after that deploy completed — inside the
+          # measured rollout ambiguity a build runs the PREVIOUS image, and
+          # this run's whole question is whether the stamps are live. This
+          # commit is workflow-only and rolls nothing.
           #
-          # NO HOLD: the axes are one block in worker.js — Worker-side only,
-          # nothing COPY'd into the container image — so the workflow's own
-          # deploy-wait covers it.
-          #
-          # Fresh slug: northgroup-9 through -13 are the owner's LIVE sites
+          # Fresh slug: northgroup-9 through -14 are the owner's LIVE sites
           # now — re-using any would revise it.
-          OWNER_SLUG: northgroup-14
+          OWNER_SLUG: northgroup-15
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
