@@ -848,23 +848,26 @@ export const SHAPE_FIELD = {
     },
     required: ["path", "sections"],
   },
+  // THE WORKED EXAMPLES ARE GONE (owner's call, 2026-08-27: "delete the
+  // examples and just leave the purpose"). There were exactly two — a "/"
+  // that was a barber-shop brochure (hero → service-list → team-grid →
+  // map-card) and a "/deals" that was a filter-bar → data-table screen — and
+  // northgroup-10 is both of them copied: its home page is example one
+  // wearing a coffee company, its pipeline page is example two. The only home
+  // page the designer was ever SHOWN was a shopfront one, which is the
+  // hardcoded landing page the owner went looking for. The one thing a model
+  // reliably does with a worked example is copy it — the finding the
+  // family-exemplar and reference-page deletions already rest on, arriving
+  // here last. What each page IS comes from the brief and the kind now, not
+  // from a convention two examples happened to teach.
   description:
     "WHERE EVERYTHING GOES, ONE ENTRY PER PAGE.\n" +
     "The pages and the component manifest are already decided above, so arrange what you have " +
-    "chosen rather than describing a mood. The primary action is NOT yet named — say where the " +
-    "site's main call to action sits and let the wording come later.\n" +
-    "Examples:\n" +
-    '  {"path": "/", "sections": [' +
-    '"hero — the shop, the town, and the Book a chair button", ' +
-    '"service-list — the price list, sectioned, prices on the right", ' +
-    '"team-grid — the four barbers", ' +
-    '"map-card — the address and the opening hours"]}\n' +
-    '  {"path": "/deals", "sections": [' +
-    '"filter-bar — search, and a filter by stage", ' +
-    '"data-table — every deal, with row-actions and pagination", ' +
-    '"empty-state — when nothing matches"]}\n' +
+    "chosen rather than describing a mood. What leads each page — and what a page like this even " +
+    "is — comes from the brief and the kind of site, never from a convention. The primary action " +
+    "is NOT yet named — decide where it sits and let the wording come later.\n" +
     "A page you leave out is one the page writer arranges itself, so leave out the ones with " +
-    "nothing to say. A vague band produces a vague page.",
+    "nothing to say.",
 };
 
 /**

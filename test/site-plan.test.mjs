@@ -663,6 +663,26 @@ test("THE ACTION FIELD STATES ITS PURPOSE AND NOTHING ELSE (owner's call, 2026-0
     "a worked verb is back in the description — every site will copy it");
 });
 
+test("THE SHAPE FIELD CARRIES NO WORKED EXAMPLE (owner's call, 2026-08-27)", () => {
+  // The hardcoded landing page, found by the owner going through the steps:
+  // the field's only "/" example was a barber-shop brochure (hero →
+  // service-list → team-grid → map-card) and its only inner-page example a
+  // filter-bar → data-table screen — and northgroup-10 is BOTH copied: its
+  // home page is example one wearing a coffee company, its pipeline page is
+  // example two. Deleted to the purpose ("delete the examples and just leave
+  // the purpose"), and held as absences because an example is the single most
+  // tempting thing to add back to a field a model answers vaguely.
+  const d = planFieldFor("shape").description;
+  assert.match(d, /WHERE EVERYTHING GOES, ONE ENTRY PER PAGE/,
+    "the field no longer says what it is for");
+  assert.ok(!/Examples:/i.test(d), "a worked example is back — every site will copy it");
+  assert.ok(!d.includes('{"path"'), "an example entry skeleton is back — every site will copy it");
+  assert.ok(!/hero — /.test(d), "the brochure home page is being taught again");
+  // The one PIPELINE fact stays: an omitted page is arranged by the page
+  // writer — a model not told that answers every page out of duty.
+  assert.match(d, /leave out/, "the omission semantics are gone — the model cannot know them");
+});
+
 /* ── components are per site: names cached, signatures for this manifest ── */
 
 test("THE DESIGNER IS GIVEN A PALETTE, because a compelled field with no list is guesswork", () => {
