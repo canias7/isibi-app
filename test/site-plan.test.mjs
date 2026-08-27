@@ -683,6 +683,27 @@ test("THE SHAPE FIELD CARRIES NO WORKED EXAMPLE (owner's call, 2026-08-27)", () 
   assert.match(d, /leave out/, "the omission semantics are gone — the model cannot know them");
 });
 
+test("THE PURPOSE FIELD BINDS AND CARRIES NO WORKED EXAMPLE (owner's call, 2026-08-27)", () => {
+  // "We need to make this one stronger and more precise." Third field to lose
+  // its baked examples — "the slot picker is the hero" was a booking-shopfront
+  // answer in front of every build, tools included. What replaced them is the
+  // owner's standing law (the brief is the source) and a binding clause, so
+  // the field is a yardstick rather than a remark. Floors on the load-bearing
+  // sentences, absences on the examples, because an example is the single
+  // most tempting thing to add back to a field a model answers vaguely.
+  const d = planFieldFor("purpose").description;
+  assert.match(d, /organised AROUND/, "the field no longer says what a purpose is");
+  assert.match(d, /never a description of the trade/,
+    "the trade-is-not-a-purpose rule is gone");
+  assert.match(d, /comes from the brief, never from what sites like this usually are/,
+    "the brief-is-the-source law is gone — the model is free to reach for convention again");
+  assert.match(d, /must follow from this sentence/,
+    "the binding clause is gone — the field is a remark again, not a yardstick");
+  assert.ok(!/slot picker/.test(d), "the booking-shopfront example is back — every site will copy it");
+  assert.ok(!/countdowns/.test(d), "the live-state example is back — every site will copy it");
+  assert.ok(!/IS the page\."/.test(d), "the quoted list example is back — every site will copy it");
+});
+
 /* ── components are per site: names cached, signatures for this manifest ── */
 
 test("THE DESIGNER IS GIVEN A PALETTE, because a compelled field with no list is guesswork", () => {

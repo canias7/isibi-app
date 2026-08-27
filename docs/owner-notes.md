@@ -20,7 +20,11 @@ WRONG business — a machinery dealer branded like a coffee shop ("Northbrew",
 as written; an invented one must fit the business the brief DESCRIBES — what
 it IS to the people it serves, never a brand for the thing it sells. Guarded;
 proven on the next build. (This is the general preference, not just names —
-applied wherever the model fills a blank.)
+applied wherever the model fills a blank.) Applied again the same day to the
+`purpose` step, your call ("stronger and more precise"): its three baked
+example sentences are deleted ("the slot picker is the hero" was a booking-
+site answer in front of every build), the brief is named as the source, and
+the sentence now BINDS — every later design answer must follow from it.
 
 ## ✅ FIXED AND PROVEN LIVE — "he made an espresso machine on a CRM" (2026-08-27)
 

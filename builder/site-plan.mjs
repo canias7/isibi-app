@@ -653,14 +653,25 @@ export const PLAN_FIELDS = {
       'When the brief genuinely reads as both, answer "shopfront".',
   },
 
+  // ── STRONGER AND EXAMPLE-FREE (2026-08-27, owner's call: "we need to make
+  // this one stronger and more precise") ─────────────────────────────────────
+  //
+  // The old text carried three baked example sentences — "the slot picker is
+  // the hero" among them, a booking-shopfront answer sitting in front of every
+  // build, tools included. Third field to lose its worked examples for the
+  // same reason shape and action did: the one thing a model reliably does
+  // with a worked example is copy it. What replaces them: the brief as the
+  // source (the owner's standing law) and a binding clause, so the field is
+  // the yardstick the model checks its own later answers against rather than
+  // a remark.
   purpose: {
     type: "string",
     description:
-      "One line: what this site is organised AROUND. Not what the business does — what the PAGE is for. " +
-      "This is the sentence every other choice on this call follows from, so write it as a claim about the " +
-      'page: "the list of things IS the page." "live state is the content — countdowns, and freshness shown." ' +
-      '"the slot picker is the hero; everything else supports the appointment." ' +
-      "A description of the trade is not a purpose.",
+      "One line: what this site is organised AROUND. A claim about the PAGE, never a description of the " +
+      "trade — name the ONE thing the customer's request wants done or shown, and say that everything else " +
+      "exists to support it. It comes from the brief, never from what sites like this usually are. " +
+      "Every later answer on this call — pages, components, shape, action — must follow from this sentence; " +
+      "a choice that does not serve it is wrong.",
   },
 
   // WHAT THIS STEP IS FOR, AND ALL IT IS FOR (owner's call, 2026-08-24): the
