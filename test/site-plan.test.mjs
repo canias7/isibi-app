@@ -173,10 +173,10 @@ test("every late field is answered after the fields its own description claims",
     images: ["pages", "components", "shape"],
     // NOTHING, DELIBERATELY, AND NOT AN OVERSIGHT. `action` is now spliced like
     // the other two, so the derived check below requires an entry for it — and
-    // its description makes no claim about what is already decided. It says what
-    // the verb LEADS, which is a statement about the pages, not a dependency on
-    // them. An empty list is the honest answer and still forces the next person
-    // moving it to come here and think.
+    // since 2026-08-27 its description states only the field's PURPOSE (owner's
+    // call: "delete whats inside"), placing the verb nowhere and depending on
+    // nothing. An empty list is the honest answer and still forces the next
+    // person moving it to come here and think.
     action: [],
   };
   const { tool } = await readSchemaTool();
@@ -642,6 +642,25 @@ test("AN ANSWERED-EMPTY images SURVIVES — `[]` is an answer, not silence", () 
   // …and the budget honours all three, through the real chain.
   assert.equal(planBudget(normalizePlan({ ...GOOD, images: [] })), 0);
   assert.equal(planBudget(normalizePlan(noImages)), 1);
+});
+
+test("THE ACTION FIELD STATES ITS PURPOSE AND NOTHING ELSE (owner's call, 2026-08-27)", () => {
+  // "Lets delete whats inside, and just tell it that its purpose is to…" The
+  // old description baked three assumptions in as facts: the site HAS a hero,
+  // it ends in a closing band, and the audience is a visitor — so on a working
+  // tool the honest verbs ("Add deal") were not eligible answers and the model
+  // picked "Request a quote", the band northgroup-10's brochure closed on.
+  // Asserted as ABSENCES because each is one well-meaning tidy-up from coming
+  // back, plus a floor so gutting the field entirely cannot pass either.
+  const d = planFieldFor("action").description;
+  assert.match(d, /primary action/i, "the field no longer says what it is for");
+  for (const banned of [/hero/i, /closing band/i, /visitor/i]) {
+    assert.ok(!banned.test(d), `the action field asserts the mold again: ${banned}`);
+  }
+  // No worked examples either — the one thing a model reliably does with a
+  // worked example is copy it, and a verb example is a verb every site gets.
+  assert.ok(!/Book now|Check availability|Learn more/.test(d),
+    "a worked verb is back in the description — every site will copy it");
 });
 
 /* ── components are per site: names cached, signatures for this manifest ── */

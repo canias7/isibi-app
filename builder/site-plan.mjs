@@ -807,20 +807,29 @@ export const PLAN_FIELDS = {
  * `PLAN_REQUIRED` and `PLAN_EDIT_FIELDS` are untouched: this moves WHEN it is
  * answered, nothing about what it is.
  *
- * WHAT THAT COSTS, WRITTEN DOWN RATHER THAN GLOSSED. Its own description says
- * the verb "leads the header, the hero and the closing band" — three placements
- * that `components` (6) and `shape` (7) now choose BEFORE the verb exists. The
- * model picks the manifest and arranges every band, and only then names the
- * thing they are meant to lead with. Nothing breaks; the arrangement is simply
- * made without one input it used to have.
+ * WHAT THAT COSTS, WRITTEN DOWN RATHER THAN GLOSSED: the manifest and the
+ * bands are arranged before the verb exists, so the arrangement is made
+ * without one input it used to have. (The description used to spell that cost
+ * out by asserting WHERE the verb leads — it no longer places the verb at all;
+ * see the note on the field itself.)
  */
 export const ACTION_FIELD = {
   type: "array",
   items: { type: "string" },
+  // GUTTED TO ITS PURPOSE (owner's call, 2026-08-27: "lets delete whats inside,
+  // and just tell it that its purpose is to…"). The old description answered
+  // two questions nobody asked it: it asserted the site HAS a hero and a
+  // closing band ("It leads the header, the hero and the closing band") and
+  // that the audience is A VISITOR — so on a working tool the honest verbs
+  // ("Add deal", "Log a call") were not even eligible answers, and the model
+  // picked a visitor verb instead: "Request a quote", the exact band
+  // northgroup-10's brochure closed on. The worked examples went with it,
+  // because the one thing a model reliably does with a worked example is copy
+  // it. Where the verb GOES is the model's call, per site, like everything
+  // else in the plan.
   description:
-    'The primary verb, worded as the button says it: ["Book now", "Check availability"]. ' +
-    "It leads the header, the hero and the closing band, so it has to be the ONE thing you want a visitor " +
-    'to do. Never "Learn more".',
+    "The site's primary action: the ONE thing this site most wants done, worded exactly as its button " +
+    "will say it. What that is — and who presses it — comes from the brief.",
 };
 
 export const SHAPE_FIELD = {
