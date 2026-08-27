@@ -80,8 +80,13 @@ calls; balance 102 → 79).
   The pipeline page is a real working screen (stage totals, funnel, filters,
   a sortable 18-deal table) and contacts is a searchable 22-person book.
 - **Blemishes, honestly**: the home page squeezes itself into a narrow centred
-  column (the designer's own "front door" stylesheet fighting its own sidebar
-  — one cheap look edit fixes it); the black "Log a call" button in the header
+  column (the designer's own "front door" stylesheet fighting its own sidebar).
+  *Fixed platform-side the same morning, your call ("ok do that then, and then
+  we test again"): one tool-scoped sentence in the stylesheet instructions —
+  a tool has no front door, every page keeps the same wide frame — guarded so
+  it can't be quietly deleted. Your brief's "one-page front door" is still
+  honoured as CONTENT; only the narrow treatment is forbidden. Run 48
+  (northgroup-12) is the proof.* the black "Log a call" button in the header
   has black text on it (the known colour-layering bug from run 34, third
   sighting — platform fix still on the list); the deal page came out over the
   size cap so it didn't publish and its links point home; the inner pages are

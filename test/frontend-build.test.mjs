@@ -137,6 +137,38 @@ test("the frontend prompt names both kinds — the mold is no longer hard-coded 
     "the first sentence hard-codes one kind again — the espresso-machine mold restored");
 });
 
+test("a tool keeps one frame on every page — the css field says so (2026-08-27, run 47)", () => {
+  // RUN 47's residue. The kind fix held (zero photographs, desk-first content),
+  // and the designer's own stylesheet then gave the HOME page a 28rem centred
+  // "front door" column while the inner pages got 72rem — the per-page scope
+  // the css field documents, used exactly as documented, steered by the
+  // world's own habit that "/" is an entry card. The guardrail is one sentence
+  // beside the freedom, SCOPED TO `tool` so a shopfront's home page keeps the
+  // whole freedom. Content floors rather than includes(""), and the sentence
+  // must sit in the css FIELD — the layer that wrote the bad rule — not in a
+  // prompt the stylesheet writer never reads.
+  const src = bare(WORKER);
+  const at = src.indexOf("THE SITE'S ENTIRE STYLESHEET");
+  assert.ok(at > 0, "the css field description is no longer where this test looks");
+  const end = src.indexOf("\n      },", at);
+  assert.ok(end > at, "the css field never closes");
+  // The field is a concatenation of string literals, so a phrase can span a
+  // `" + "` seam — join them back into the wire text before asserting.
+  const field = src.slice(at, end).replace(/" \+\s*"/g, "");
+  assert.match(field, /ON A `tool`, ONE FRAME FOR EVERY PAGE/,
+    "the css field no longer scopes the one-frame rule to a tool");
+  assert.match(field, /same width and frame as the working screens/,
+    "the rule stopped saying what the home page keeps");
+  assert.match(field, /never a narrower centred column/,
+    "the rule stopped forbidding the narrow home column — run 47's exact defect");
+  // And it sits AFTER the per-page freedom it bounds, in the same field — a
+  // guardrail printed before the freedom reads as contradicted by it.
+  const scope = field.indexOf("ONE PAGE CAN HAVE ITS OWN LOOK");
+  const rule = field.indexOf("ON A `tool`, ONE FRAME FOR EVERY PAGE");
+  assert.ok(scope > 0 && rule > scope,
+    "the one-frame rule does not follow the per-page scope it bounds");
+});
+
 test("only the build route asks for the frontend tool, and it does so on a first build", () => {
   const src = bare(WORKER);
   const calls = [...src.matchAll(/designSiteSchema\(/g)];

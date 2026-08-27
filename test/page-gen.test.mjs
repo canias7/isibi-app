@@ -4069,7 +4069,12 @@ test("the designer can DECLARE the pair, or the whole grid is unreachable", () =
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const at = w.indexOf('name: "design_schema"');
   assert.ok(at > 0, "the designer's tool is gone");
-  const tool = w.slice(at, at + 36000);
+  // Bounded by the NEXT tool's declaration, never by a byte count — the old
+  // `at + 36000` went red on 2026-08-27 when a documented sentence grew the
+  // css field above it, which is this repo's most-recorded own-goal.
+  const end = w.indexOf("const FRONTEND_SCHEMA_TOOL", at);
+  assert.ok(end > at, "the frontend tool landmark moved — re-anchor this window");
+  const tool = w.slice(at, end);
   for (const [field, values] of [["read", READ_LEVELS], ["write", WRITE_LEVELS]]) {
     assert.match(tool, new RegExp("\\n\\s+" + field + ": \\{"), "the designer cannot declare " + field);
     for (const v of values) {

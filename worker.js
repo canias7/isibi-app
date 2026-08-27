@@ -3981,6 +3981,22 @@ const SITE_SCHEMA_TOOL = {
           // capability conditioned on a fact the model was never given.
           "ONE PAGE CAN HAVE ITS OWN LOOK. `<body>` carries the current route, so `body[data-page=\"/book\"] { … }` " +
           "styles the booking page and nothing else — colours, type, spacing, anything. `\"/\"` is the home page.\n" +
+          // ── A TOOL HAS NO FRONT DOOR (2026-08-27, run 47) ──────────────────
+          //
+          // The first `tool` build used the scope above exactly as documented —
+          // and gave the HOME page a narrow centred column (`max-width: 28rem`
+          // at its own `html{font-size:14px}` = 392px, pushed down 12vh) while
+          // ALSO drawing an in-page sidebar, so the desktop home was a squished
+          // ~100px text column. The instinct is training data — every app the
+          // model has read treats "/" as an entry card, a door — and nothing
+          // beside the freedom above said otherwise. Runs 45 and 46 wrote no
+          // per-page width at all, so this is a guardrail bolted to a
+          // documented freedom, not a new mold: it is SCOPED TO `kind: "tool"`,
+          // and a shopfront's home page keeps the whole freedom — a cafe's
+          // front page differing from its menu page is design, not a fault.
+          "ON A `tool`, ONE FRAME FOR EVERY PAGE: the home page keeps the same width and frame as the working " +
+          "screens — never a narrower centred column, never pushed down the viewport. A tool has no front door; " +
+          "the desk itself is the front door.\n" +
           "TYPEFACES ARE A FILE, NOT AN OPINION. Name any Google Fonts family in a `font-family` and it is downloaded " +
           "and served from the site's own domain — `--font-sans: \"Lora\", Georgia, serif`. A family that is not on " +
           "Google Fonts cannot be fetched and silently falls back, so give every stack a real fallback either way. " +
