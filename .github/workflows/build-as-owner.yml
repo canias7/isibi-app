@@ -49,12 +49,44 @@ on:
     paths:
       - '.github/workflows/build-as-owner.yml'
       - 'scripts/build-as-owner.mjs'
+  # ── ON DEMAND, FOR THE EDIT LANE ──────────────────────────────────────────
+  #
+  # A build is bought by the marker on a push, because it costs ~130 credits and
+  # a push is the deliberate act. An EDIT is ~0.3 and is the thing a customer
+  # does dozens of times after their site exists, so it is dispatched by hand
+  # with the site and the change as inputs — no commit, no marker, re-runnable.
+  # `mode: build` is allowed here too so a build can be re-fired without a push,
+  # but it still spends real credits, which the dispatcher is choosing to do.
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'build | edit'
+        type: choice
+        options: [edit, build]
+        default: edit
+      slug:
+        description: 'The site to act on (required for edit; the claimed name for a build).'
+        required: false
+        default: ''
+      instruction:
+        description: 'edit only: the change to make, in the customer''s own words.'
+        required: false
+        default: ''
+      picker:
+        description: 'Model override (e.g. grok, sonnet). Blank uses the Worker default.'
+        required: false
+        default: ''
 
 jobs:
   build:
-    # The opt-in gate. Without the marker a push here (this very fix, say)
-    # skips instantly and spends nothing.
-    if: contains(github.event.head_commit.message, '[owner build]')
+    # The opt-in gate. A PUSH must carry the marker or it skips instantly and
+    # spends nothing (this very fix, say). A workflow_dispatch is itself the
+    # deliberate act — asking for the run by hand — so it is exempt, exactly as
+    # edit-smoke's dispatch is; `head_commit` is null on a dispatch anyway, so
+    # the contains() below is false and could never carry it.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || contains(github.event.head_commit.message, '[owner build]')
     runs-on: ubuntu-latest
     # 15 WAS TOO TIGHT AND IT COST US THE DIAGNOSTICS WE PAID FOR.
     #
@@ -130,6 +162,14 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           OWNER_EMAIL: aniascristian@gmail.com
           OWNER_BASE_URL: https://gofarther.dev
+          # ── DISPATCH DRIVES THE MODE; A PUSH IS ALWAYS A BUILD ────────────────
+          #
+          # On a workflow_dispatch these carry the inputs; on a marker push the
+          # inputs are empty, so `mode` falls to `build` and the hardcoded brief
+          # below runs exactly as it always has. The edit path reads OWNER_SLUG
+          # and OWNER_INSTRUCTION and ignores the brief entirely.
+          OWNER_MODE: ${{ github.event.inputs.mode || 'build' }}
+          OWNER_INSTRUCTION: ${{ github.event.inputs.instruction || '' }}
           # A FRESH SLUG AGAIN. Runs 3 and 4 both died at the wall on THIS
           # brief and each left a claimed slug plus a live Neon project behind
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
@@ -679,8 +719,11 @@ jobs:
           #
           # Fresh slug: northgroup-9 through -16 are the owner's LIVE sites
           # now — re-using any would revise it.
-          OWNER_SLUG: shoeroom-1
-          OWNER_PICKER: grok
+          # DISPATCH OVERRIDES, PUSH KEEPS THE DEFAULTS. An edit dispatch names
+          # its own live site; a build dispatch or a marker push falls back to
+          # the fresh slug and picker below. The brief is build-only and stays.
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'shoeroom-1' }}
+          OWNER_PICKER: ${{ github.event.inputs.picker || 'grok' }}
           OWNER_BRIEF: "An online shoe shop that sells every kind of shoe - trainers, boots, formal shoes, sandals, kids' shoes and slippers. Shoppers browse what is in stock, filter by kind and by size, and see each pair with its picture, its price and which sizes are left. They open a pair to read what it is made of and pick their size. They add pairs to a basket and pay by card. There is also a page about the shop, which has been on the same street for forty years, and how returns work. It should feel like a proper shop rather than a warehouse - the shoes are the thing you see first, prices plain, and nothing in the way of buying."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4

@@ -115,6 +115,23 @@ const SLUG = String(process.env.OWNER_SLUG || "").trim().toLowerCase();
 // so a run that does not care is byte-identical to what this script always sent.
 const PICKER = String(process.env.OWNER_PICKER || "").trim();
 
+// ── BUILD OR EDIT, ONE ACCOUNT, ONE SIGN-IN ─────────────────────────────────
+//
+// The two paths differ in exactly three things — the endpoint, the body, and
+// whether the slug is known up front — and are IDENTICAL in everything that is
+// hard: the admin sign-in, the job-follow after a 202, the trace ticker, the
+// balance read and the reachability probe. So the mode is a switch over those
+// three, not a second script: a forked copy of the auth block is two lists of
+// the same thing waiting to drift, which is this repo's most-recorded trap.
+//
+// `edit` posts the same shape the chatbox posts for a revise — `{ slug,
+// instruction }` to `/api/site/react-revise` — so this exercises the real edit
+// lane a customer's later message takes, not a private door. It needs a slug
+// (there is nothing to revise without one) and it must never invent a brief.
+const MODE = String(process.env.OWNER_MODE || "build").trim().toLowerCase();
+const INSTRUCTION = process.env.OWNER_INSTRUCTION || "";
+const IS_EDIT = MODE === "edit";
+
 const LOG_FILE = "build-as-owner-log.md";
 const t0 = Date.now();
 const lines = ["# Build-as-owner run log", "", "Started " + new Date().toISOString(), ""];
@@ -132,9 +149,16 @@ const desc = (v) => (v ? `set (${String(v).length} chars)` : "MISSING");
 if (!EMAIL) fail("OWNER_EMAIL is not set");
 if (!SERVICE_KEY) fail("SUPABASE_SERVICE_KEY is not set");
 if (!ANON_KEY) fail("SUPABASE_ANON_KEY is not set");
-if (!BRIEF) fail("OWNER_BRIEF is not set");
-log(`step 0 — inputs: email=${EMAIL} base=${BASE} service_key=${desc(SERVICE_KEY)} anon_key=${desc(ANON_KEY)}`);
-log(`step 0 — brief (${BRIEF.length} chars): ${BRIEF}`);
+if (IS_EDIT) {
+  if (!SLUG) fail("OWNER_MODE=edit needs OWNER_SLUG — there is nothing to revise without a site");
+  if (!INSTRUCTION) fail("OWNER_MODE=edit needs OWNER_INSTRUCTION — the change to make");
+} else if (!BRIEF) {
+  fail("OWNER_BRIEF is not set");
+}
+log(`step 0 — inputs: mode=${MODE} email=${EMAIL} base=${BASE} service_key=${desc(SERVICE_KEY)} anon_key=${desc(ANON_KEY)}`);
+log(IS_EDIT
+  ? `step 0 — revise "${SLUG}" (${INSTRUCTION.length} chars): ${INSTRUCTION}`
+  : `step 0 — brief (${BRIEF.length} chars): ${BRIEF}`);
 
 const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };
 
@@ -172,8 +196,11 @@ log(`step 3 — balance BEFORE: ${JSON.stringify(before)}`);
 // whoever builds it first, including by a build that then died, so a retry of a
 // failed run would be read as a REVISE of the husk it left. Naming a fresh one
 // keeps a re-run a genuine first build. Left unset, the designer names the site.
-log(`step 4 — POST /api/site/react-build (${SLUG ? `slug "${SLUG}"` : "the designer names the site and the slug"}` +
-  `${PICKER ? `, picker "${PICKER}"` : ""})`);
+const ENDPOINT = IS_EDIT ? "/api/site/react-revise" : "/api/site/react-build";
+log(IS_EDIT
+  ? `step 4 — POST ${ENDPOINT} (revise slug "${SLUG}"${PICKER ? `, picker "${PICKER}"` : ""})`
+  : `step 4 — POST ${ENDPOINT} (${SLUG ? `slug "${SLUG}"` : "the designer names the site and the slug"}` +
+    `${PICKER ? `, picker "${PICKER}"` : ""})`);
 const bt = Date.now();
 // A DEAD CONNECTION IS A DIAGNOSIS, NOT A STACK TRACE. Both Arabic attempts
 // ended here — one at 301s (our own fetch ceiling, since fixed) and one at 286s
@@ -223,14 +250,22 @@ if (SLUG) {
   ticker.unref?.();
 }
 try {
-  build = await postLong(`${BASE}/api/site/react-build`, auth, JSON.stringify({
-    brief: BRIEF,
-    ...(SLUG ? { slug: SLUG } : {}),
-    // OMITTED WHEN UNSET rather than defaulted here. `modelsFor` is an
-    // allow-list with its own default, and a second copy of that default in the
-    // harness is a way for the two to disagree about what a plain run sends.
-    ...(PICKER ? { picker: PICKER } : {}),
-  }));
+  build = await postLong(`${BASE}${ENDPOINT}`, auth, JSON.stringify(
+    IS_EDIT
+      // THE REVISE BODY THE CHATBOX SENDS — `{ slug, instruction }`, the exact
+      // shape `reactSend(mode='revise')` posts. No brief, no qa: a revise is a
+      // later message on a site that exists, and the router classifies the
+      // instruction into a layer (look, text, data…) on the far side.
+      ? { slug: SLUG, instruction: INSTRUCTION, ...(PICKER ? { picker: PICKER } : {}) }
+      : {
+          brief: BRIEF,
+          ...(SLUG ? { slug: SLUG } : {}),
+          // OMITTED WHEN UNSET rather than defaulted here. `modelsFor` is an
+          // allow-list with its own default, and a second copy of that default in the
+          // harness is a way for the two to disagree about what a plain run sends.
+          ...(PICKER ? { picker: PICKER } : {}),
+        },
+  ));
 } catch (e) {
   // A DEAD CONNECTION IS NO LONGER A DEAD BUILD, AND THAT REVERSES WHAT THIS
   // BRANCH USED TO DO. It called fail() on the reasoning that Cloudflare
