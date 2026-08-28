@@ -72,6 +72,10 @@ on:
         description: 'edit only: the change to make, in the customer''s own words.'
         required: false
         default: ''
+      layer:
+        description: 'edit only: which lane — look (free CSS), text, data, nav, picture, logo, rules, page.'
+        required: false
+        default: 'look'
       picker:
         description: 'Model override (e.g. grok, sonnet). Blank uses the Worker default.'
         required: false
@@ -170,6 +174,7 @@ jobs:
           # and OWNER_INSTRUCTION and ignores the brief entirely.
           OWNER_MODE: ${{ github.event.inputs.mode || 'build' }}
           OWNER_INSTRUCTION: ${{ github.event.inputs.instruction || '' }}
+          OWNER_LAYER: ${{ github.event.inputs.layer || 'look' }}
           # A FRESH SLUG AGAIN. Runs 3 and 4 both died at the wall on THIS
           # brief and each left a claimed slug plus a live Neon project behind
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:

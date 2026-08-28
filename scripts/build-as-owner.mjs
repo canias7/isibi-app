@@ -117,19 +117,25 @@ const PICKER = String(process.env.OWNER_PICKER || "").trim();
 
 // ── BUILD OR EDIT, ONE ACCOUNT, ONE SIGN-IN ─────────────────────────────────
 //
-// The two paths differ in exactly three things — the endpoint, the body, and
-// whether the slug is known up front — and are IDENTICAL in everything that is
-// hard: the admin sign-in, the job-follow after a 202, the trace ticker, the
-// balance read and the reachability probe. So the mode is a switch over those
-// three, not a second script: a forked copy of the auth block is two lists of
-// the same thing waiting to drift, which is this repo's most-recorded trap.
+// Both paths share everything hard — the admin sign-in, the balance read, the
+// reachability probe — and a forked copy of the auth block is two lists of the
+// same thing waiting to drift, this repo's most-recorded trap. So `edit` is a
+// branch after sign-in, not a second script.
 //
-// `edit` posts the same shape the chatbox posts for a revise — `{ slug,
-// instruction }` to `/api/site/react-revise` — so this exercises the real edit
-// lane a customer's later message takes, not a private door. It needs a slug
-// (there is nothing to revise without one) and it must never invent a brief.
+// `edit` POSTs THE CHEAP LADDER, not the whole revise. The chatbox routes a
+// later message through `/api/site/route` (a Haiku classifier) and, for a look
+// or text or data change, calls `/api/site/<slug>/edit` with a LAYER — a
+// ~0.3–1 credit change that does NOT rewrite pages. `/api/site/react-revise`
+// is the ~25-credit fallback for the cases the ladder cannot express, and
+// posting straight to it (as a first cut of this script did) tests the wrong
+// thing at 20× the cost. So the edit branch hits the ladder endpoint with the
+// layer named — `look` by default, which is the free-CSS lane.
 const MODE = String(process.env.OWNER_MODE || "build").trim().toLowerCase();
 const INSTRUCTION = process.env.OWNER_INSTRUCTION || "";
+// The layer the edit lives in — `look` (free CSS), `text`, `data`, `nav`,
+// `picture`, `logo`, `rules`, `page`. Forced rather than routed so the test
+// aims at exactly the lane it means to, instead of trusting the classifier.
+const LAYER = String(process.env.OWNER_LAYER || "look").trim().toLowerCase();
 const IS_EDIT = MODE === "edit";
 
 const LOG_FILE = "build-as-owner-log.md";
@@ -155,9 +161,9 @@ if (IS_EDIT) {
 } else if (!BRIEF) {
   fail("OWNER_BRIEF is not set");
 }
-log(`step 0 — inputs: mode=${MODE} email=${EMAIL} base=${BASE} service_key=${desc(SERVICE_KEY)} anon_key=${desc(ANON_KEY)}`);
+log(`step 0 — inputs: mode=${MODE}${IS_EDIT ? ` layer=${LAYER}` : ""} email=${EMAIL} base=${BASE} service_key=${desc(SERVICE_KEY)} anon_key=${desc(ANON_KEY)}`);
 log(IS_EDIT
-  ? `step 0 — revise "${SLUG}" (${INSTRUCTION.length} chars): ${INSTRUCTION}`
+  ? `step 0 — edit "${SLUG}" [${LAYER}] (${INSTRUCTION.length} chars): ${INSTRUCTION}`
   : `step 0 — brief (${BRIEF.length} chars): ${BRIEF}`);
 
 const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };
@@ -191,16 +197,75 @@ const auth = { Authorization: `Bearer ${jwt}`, "content-type": "application/json
 const before = await fetch(`${BASE}/api/credits`, { headers: auth }).then((r) => r.json()).catch(() => null);
 log(`step 3 — balance BEFORE: ${JSON.stringify(before)}`);
 
+// ── EDIT: THE CHEAP LADDER, ITS OWN SHORT PATH ──────────────────────────────
+//
+// `/api/site/<slug>/edit` answers synchronously with a JSON verdict — the
+// client's `siteEdit` reads `r.json()` and follows no job, because a cheap
+// layer recompiles and returns rather than firing an async build. So the edit
+// path is post → read → measure, no ticker and no resume: everything the build
+// block needs those for is a property of the build, not of a layer edit.
+//
+// The body mirrors `siteEdit` exactly — the layer, and the fields the router
+// would fill for the richer layers (a page path, a removal, a rename, a tab
+// slot) sent empty, so the ONE shape covers every layer and cannot disagree
+// with the client's for the one under test.
+if (IS_EDIT) {
+  log(`step 4 — POST /api/site/${SLUG}/edit  [layer ${LAYER}]${PICKER ? ` picker "${PICKER}"` : ""}`);
+  const et = Date.now();
+  const res = await postLong(`${BASE}/api/site/${encodeURIComponent(SLUG)}/edit`, auth, JSON.stringify({
+    layer: LAYER,
+    page: "",
+    remove: false,
+    rename: "",
+    tab: false,
+    instruction: INSTRUCTION,
+    ...(PICKER ? { picker: PICKER } : {}),
+  }));
+  const secs = ((Date.now() - et) / 1000).toFixed(1);
+  let e = null;
+  try { e = JSON.parse(res.text); } catch { /* printed raw below */ }
+  log(`step 4 — answered ${res.status} in ${secs}s`);
+  if (!e) {
+    log(`step 4 — body was not JSON: ${String(res.text).slice(0, 400)}`);
+  } else {
+    // THE VERDICT, READ OFF THE RESPONSE. `escalate` means the layer could not
+    // express the change and the ladder would climb — a real answer, not a
+    // failure. `ok`, the layer it ran, whatever it moved, and the builder's own
+    // words are each printed when present rather than assumed.
+    log(`step 5 — ok=${e.ok} layer=${e.layer || LAYER}${e.escalate ? ` ESCALATE→${e.escalate}` : ""}`);
+    if (e.moved) log(`step 5 — moved: ${JSON.stringify(e.moved)}`);
+    if (e.cssMoved !== undefined) log(`step 5 — cssMoved=${e.cssMoved}`);
+    if (e.cost !== undefined || e.billed !== undefined) log(`step 5 — cost=${JSON.stringify(e.cost)} billed=${e.billed}`);
+    if (e.msg || e.notes) log(`step 5 — reply: ${e.msg || e.notes}`);
+    if (e.cssNote) log(`step 5 — css note: ${e.cssNote}`);
+    if (e.render || e.renderNote) log(`step 5 — render: ${JSON.stringify(e.render || e.renderNote)}`);
+    if (e.error) log(`step 5 — error: ${e.error}`);
+  }
+
+  const eAfter = await fetch(`${BASE}/api/credits`, { headers: auth }).then((r) => r.json()).catch(() => null);
+  log(`step 6 — balance AFTER: ${JSON.stringify(eAfter)}`);
+  if (before && eAfter) log(`step 6 — spent this edit: ${Number(before.balance) - Number(eAfter.balance)} credits`);
+
+  const eUrl = `https://${SLUG}.gofarther.app/`;
+  try {
+    const site = await fetch(eUrl, { redirect: "follow" });
+    const html = await site.text().catch(() => "");
+    const cssHash = (html.match(/\/assets\/(index-[A-Za-z0-9_-]+\.css)/) || [])[1] || "(none)";
+    log(`step 7 — GET ${eUrl} -> ${site.status} (${html.length} bytes); stylesheet ${cssHash}`);
+  } catch (err) {
+    log(`step 7 — could not probe the site (${String((err && err.message) || err).slice(0, 120)})`);
+  }
+  log(`the site: ${eUrl}`);
+  process.exit(0);
+}
+
 // ── step 4: the build ───────────────────────────────────────────────────────
 // An explicit slug is OPTIONAL and exists for one reason: a slug is claimed by
 // whoever builds it first, including by a build that then died, so a retry of a
 // failed run would be read as a REVISE of the husk it left. Naming a fresh one
 // keeps a re-run a genuine first build. Left unset, the designer names the site.
-const ENDPOINT = IS_EDIT ? "/api/site/react-revise" : "/api/site/react-build";
-log(IS_EDIT
-  ? `step 4 — POST ${ENDPOINT} (revise slug "${SLUG}"${PICKER ? `, picker "${PICKER}"` : ""})`
-  : `step 4 — POST ${ENDPOINT} (${SLUG ? `slug "${SLUG}"` : "the designer names the site and the slug"}` +
-    `${PICKER ? `, picker "${PICKER}"` : ""})`);
+log(`step 4 — POST /api/site/react-build (${SLUG ? `slug "${SLUG}"` : "the designer names the site and the slug"}` +
+  `${PICKER ? `, picker "${PICKER}"` : ""})`);
 const bt = Date.now();
 // A DEAD CONNECTION IS A DIAGNOSIS, NOT A STACK TRACE. Both Arabic attempts
 // ended here — one at 301s (our own fetch ceiling, since fixed) and one at 286s
@@ -250,22 +315,14 @@ if (SLUG) {
   ticker.unref?.();
 }
 try {
-  build = await postLong(`${BASE}${ENDPOINT}`, auth, JSON.stringify(
-    IS_EDIT
-      // THE REVISE BODY THE CHATBOX SENDS — `{ slug, instruction }`, the exact
-      // shape `reactSend(mode='revise')` posts. No brief, no qa: a revise is a
-      // later message on a site that exists, and the router classifies the
-      // instruction into a layer (look, text, data…) on the far side.
-      ? { slug: SLUG, instruction: INSTRUCTION, ...(PICKER ? { picker: PICKER } : {}) }
-      : {
-          brief: BRIEF,
-          ...(SLUG ? { slug: SLUG } : {}),
-          // OMITTED WHEN UNSET rather than defaulted here. `modelsFor` is an
-          // allow-list with its own default, and a second copy of that default in the
-          // harness is a way for the two to disagree about what a plain run sends.
-          ...(PICKER ? { picker: PICKER } : {}),
-        },
-  ));
+  build = await postLong(`${BASE}/api/site/react-build`, auth, JSON.stringify({
+    brief: BRIEF,
+    ...(SLUG ? { slug: SLUG } : {}),
+    // OMITTED WHEN UNSET rather than defaulted here. `modelsFor` is an
+    // allow-list with its own default, and a second copy of that default in the
+    // harness is a way for the two to disagree about what a plain run sends.
+    ...(PICKER ? { picker: PICKER } : {}),
+  }));
 } catch (e) {
   // A DEAD CONNECTION IS NO LONGER A DEAD BUILD, AND THAT REVERSES WHAT THIS
   // BRANCH USED TO DO. It called fail() on the reasoning that Cloudflare
