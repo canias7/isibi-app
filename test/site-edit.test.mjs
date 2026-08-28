@@ -415,6 +415,22 @@ test("the edit lane is told the sheet is free CSS, and told it BESIDE the ceilin
     "the edit lane never says the stylesheet is the model's to edit");
   assert.match(css, /never limited to what a theme offers|not limited to.*theme/i,
     "the edit lane does not lift the first-build framing that the theme is the look");
+  // THE REACH IS NAMED AS SCOPE, NEVER AS A LIST OF PROPERTIES — the difference
+  // between free CSS and a theme picker, and the owner's whole ask.
+  //
+  // A sweep found this gap: narrowing "any element, any component, any state,
+  // any one page" to "colours, corners and typefaces" left every other
+  // assertion here passing, because the surrounding sentence still promised
+  // reach while the clause that DELIVERED it had become a menu. A menu is what
+  // the theme era was, and the customer's next request is always the thing that
+  // was not on it.
+  //
+  // Asserted as the three structural axes rather than the exact words, so an
+  // honest rewording survives and a narrowing cannot.
+  assert.match(css, /any element|every element|any component|every component/i,
+    "the grant no longer reaches arbitrary elements — it has become a list of properties");
+  assert.match(css, /any state|every state/i, "the grant no longer reaches component states");
+  assert.match(css, /any (one )?page|every page|one page/i, "the grant no longer reaches a single page");
   // …and it must name the first-build framing it is overriding, or a model
   // holding both has no way to know which one governs here.
   assert.match(css, /FIRST build/i,
