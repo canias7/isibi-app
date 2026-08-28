@@ -57,8 +57,17 @@ export const TWEAK_MAX_TOKENS = 16000;
  * output tokens stop being cheap — the whole file comes back — so the rewrite
  * it would fall through to is not much dearer, and guessing wrong costs the
  * customer twice.
+ *
+ * DOUBLED WITH `MAX_PAGE_CHARS` (2026-08-28). The one-page world makes a
+ * 24-48k index.tsx the ORDINARY site, not the outlier — left at 24,000, every
+ * cheap edit on such a site would silently escalate to the ~10-credit rewrite
+ * (the cheap rung dead for exactly the sites the product now builds) and the
+ * render-repair pass could not touch a crashed one either, since
+ * `site-repair.mjs` gates on this same constant. A 48k echo is ~12k output
+ * tokens, inside TWEAK_MAX_TOKENS' 16k, and still far cheaper than a rewrite
+ * that re-sends the whole generator prompt.
  */
-export const MAX_TWEAK_CHARS = 24000;
+export const MAX_TWEAK_CHARS = 48000;
 
 /**
  * ONE FILE IN, ONE FILE OUT.

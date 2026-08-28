@@ -18883,3 +18883,34 @@ Details worth knowing:
 Suite green (4,372), sweep 5/5 with the control surviving. Same NOT-proven-live
 caveat: ~11 credits in the account. The first funded build is the real
 measurement — one page done properly versus five done thinly.
+
+### Run 52 (northgroup-16): died on our own size cap — fixed the same hour
+
+You topped the account (11 -> 111) and we fired the first build of the
+one-page world, same CRM brief, fresh slug. It failed — and the failure is
+the good kind: every piece of machinery worked, and what refused the site
+was OUR OWN per-page size limit, left over from the five-page world.
+
+What happened, plainly: the designer planned one page ("Pennine Machines"),
+the writer did exactly what the new world asks — folded the whole desk into
+index.tsx — and the file came out just over 24,000 characters. Our validator
+has refused any single file over 24,000 since the five-page days, when "split
+it across pages" was real advice. With one page there is nothing to split
+into, so the one page was refused and the whole site fell to the placeholder.
+Cost: 15 credits (111 -> 96). The stand-in is still up at
+https://northgroup-16.gofarther.app/.
+
+The fix (already in, tested, 4,373 green):
+- The per-page budget doubles to 48,000 — one page is the whole site now, so
+  it gets the old two pages' worth. The real runaway protection was never
+  this number anyway.
+- The cheap-edit and repair lanes' own 24,000 cap doubles WITH it — left
+  alone, every cheap edit on an ordinary one-page site would have silently
+  escalated to the expensive rewrite.
+- And the writer is now TOLD the budget in the tool itself ("stay under
+  48,000 characters") — it was enforced without ever being stated, which is
+  a wall the model walks into.
+
+northgroup-16's stand-in stays until we run again. A re-run on this slug
+would count as a revise, so the clean re-proof is a fresh slug
+(northgroup-17) once you say go — roughly 15-20 credits against the 96.

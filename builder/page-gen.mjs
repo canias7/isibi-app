@@ -674,7 +674,17 @@ import { acceptsVisitorUploads } from "../site-uploads.mjs";
 // because the PLAN is one page; this stays the tolerance for what already
 // exists.
 export const MAX_PAGES = 6;
-export const MAX_PAGE_CHARS = 24000;
+// 24000 UNTIL 2026-08-28, WITH NO RECORDED REASON — a bare constant from the
+// five-page world, where a page over it was a bloated page and "split it" was
+// real advice. RUN 52 IS WHY IT DOUBLED: the first one-page build folded the
+// whole CRM desk into index.tsx, came back just over 24,000 characters, and
+// the cap refused the ONE page there was — the entire site lost to a per-page
+// budget nobody had re-sized for a world where the page IS the site. 48,000 is
+// the old two pages' worth; the true runaway bound is SITE_PAGES_MAX_TOKENS,
+// which truncates the ANSWER long before any single file could reach six
+// figures. The writer is told this number in the tool's own `source` field —
+// a cap enforced here and never stated there is a wall the model walks into.
+export const MAX_PAGE_CHARS = 48000;
 
 // A byte-for-byte copy of every file in builder/lovable/template/src/routes/
 // that the generator is meant to imitate. Inlined rather than read from disk
@@ -2489,7 +2499,18 @@ export const SITE_PAGES_TOOL = {
               type: "string",
               description: 'Path under src/routes/, e.g. "index.tsx" or "menu.tsx". A directory form ("menu/index.tsx") is accepted and routes at "/menu"; prefer the flat form.',
             },
-            source: { type: "string", description: "The complete .tsx source for that route file." },
+            // THE BUDGET IS STATED WHERE THE FILE IS WRITTEN (2026-08-28, run
+            // 52's lesson): the cap is enforced in `validatePages`, and a cap
+            // the writer is never told is a wall it walks into — the first
+            // one-page build wrote the whole desk, ran just past the old
+            // 24,000, and lost the entire site to a refusal it could not have
+            // predicted.
+            source: {
+              type: "string",
+              description:
+                "The complete .tsx source for that route file. Stay under " + MAX_PAGE_CHARS +
+                " characters — a longer file is refused whole, so write tight and never repeat a block.",
+            },
           },
           required: ["path", "source"],
         },
@@ -3145,7 +3166,7 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
     const path = cleanPath(p.path);
     if (!path) { problems.push('"' + String(p && p.path).slice(0, 60) + '" is not a route file name — use something like index.tsx or menu.tsx.'); continue; }
     if (seen.has(path)) { problems.push(path + " was written twice; only the first was kept."); continue; }
-    if (source.length > MAX_PAGE_CHARS) { problems.push(path + " is over " + MAX_PAGE_CHARS + " characters — split it or cut it down."); continue; }
+    if (source.length > MAX_PAGE_CHARS) { problems.push(path + " is over " + MAX_PAGE_CHARS + " characters — cut it down."); continue; }
     if (!/createFileRoute\s*\(/.test(source)) { problems.push(path + " does not export a Route — every page needs createFileRoute(...)."); continue; }
     seen.add(path);
     pages.push({ path, source });

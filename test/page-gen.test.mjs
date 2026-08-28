@@ -13,9 +13,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, ALWAYS_API_CORE, componentApiFor, siteComponentApi, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
+  REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, ALWAYS_API_CORE, componentApiFor, siteComponentApi, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MAX_PAGE_CHARS, MANAGED_COLUMNS,
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, READ_NOTE, WRITE_NOTE, accessNote, propsOf, UI_EXPORTS,
   repairImports } from "../builder/page-gen.mjs";
+import { MAX_TWEAK_CHARS } from "../builder/site-tweak.mjs";
 import { accessNameFor } from "../site-access.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { normalizePlan } from "../builder/site-plan.mjs";
@@ -267,11 +268,34 @@ test("duplicates and overlong files are dropped with a reason", () => {
   const v = validatePages({ pages: [
     { path: "index.tsx", source: 'createFileRoute("/")' },
     { path: "index.tsx", source: 'createFileRoute("/") // again' },
-    { path: "huge.tsx", source: 'createFileRoute("/huge")' + "x".repeat(30000) },
+    // DERIVED from the cap, or raising it strands the fixture under the new
+    // number and the refusal is exercised by nothing — exactly what happened
+    // when 24000 became 48000 and this sat at a literal 30000.
+    { path: "huge.tsx", source: 'createFileRoute("/huge")' + "x".repeat(MAX_PAGE_CHARS + 100) },
   ] });
   assert.deepEqual(v.pages.map((p) => p.path), ["index.tsx"]);
   assert.match(v.problems.join(" "), /written twice/);
-  assert.match(v.problems.join(" "), /over 24000 characters/);
+  assert.match(v.problems.join(" "), new RegExp("over " + MAX_PAGE_CHARS + " characters"));
+});
+
+test("THE PAGE BUDGET FITS THE ONE-PAGE WORLD (run 52, 2026-08-28)", () => {
+  // PINNED OUTRIGHT — the derived fixture above moves with the constant, so a
+  // tidy-up back to 24000 passes it. Run 52 is the reason for the number: the
+  // first one-page build folded the whole CRM desk into index.tsx, came back
+  // just over 24,000 characters, and the cap refused the ONE page there was —
+  // the entire site lost to a per-page budget sized for a five-page world.
+  assert.equal(MAX_PAGE_CHARS, 48000, "the page budget moved off run 52's number");
+  // The cheap rungs must accept any page the platform can publish, or every
+  // edit on an ordinary one-page site silently escalates to the ~10-credit
+  // rewrite and the render-repair pass cannot touch a crashed one.
+  assert.equal(MAX_TWEAK_CHARS, MAX_PAGE_CHARS,
+    "the tweak cap no longer matches the page cap — the cheap rung is dead for big one-page sites");
+  // And the writer is TOLD the number where the file is written — a cap
+  // enforced in validatePages and never stated in the tool is a wall the
+  // model walks into, which is precisely what run 52 measured.
+  const src = SITE_PAGES_TOOL.input_schema.properties.pages.items.properties.source.description;
+  assert.ok(src.includes(String(MAX_PAGE_CHARS)),
+    "the source field no longer states the budget the validator enforces");
 });
 
 test("more pages than the cap are trimmed, and said to be", () => {
