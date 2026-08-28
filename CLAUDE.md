@@ -297,7 +297,13 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 300/300** against the real container; the unit suite is 4,426.
+- **`site build` is 301/301** against the real container; the unit suite is 4,427.
+  **Run it with nothing else of its own already running.** It binds a fixed port,
+  so a leftover `build-server.mjs` from an earlier run makes the new one's
+  `listen` throw and every streaming leg report "0 reports arrived" — six red
+  checks that look like the feature and are the port. Killing the harness by PID
+  is not enough: it orphans that child. Check `pgrep -a -f build-server.mjs`
+  first and kill what you find, by PID.
 - **Default builder model is Grok** (`DEFAULT_PICKER`), ~3.5× cheaper than Sonnet
   on a comparable site and ~3× slower on the pages call. Sonnet is one click away.
 - **A cold new account is one credit short of building**: `buildFloor(sonnet)` is
