@@ -281,8 +281,12 @@ what the work cost.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 18 credits** — under one build. The favicon, wordmark, share card,
-  share picker and head pack are all **NOT PROVEN LIVE** for want of a top-up.
+- **Balance: 18 credits** (verified against the ledger 2026-08-28) — under one
+  build. The favicon, wordmark, share card, share picker and head pack are all
+  **NOT PROVEN LIVE** for want of a top-up.
+- **The building account is `aniascristian@gmail.com`, not the session's own
+  address.** It owns every live site and holds that balance. Look at the wrong
+  row and the balance reads as zero.
 - **Analytics is collecting** and has been since the CSP fix on 2026-08-15: 451
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
