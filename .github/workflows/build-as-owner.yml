@@ -596,9 +596,28 @@ jobs:
           # NOT fired late: the last image-rolling deploy (acba0f03) settled
           # hours ago, and the commits since are Worker + prompt only.
           #
-          # Fresh slug: northgroup-9 through -15 are the owner's LIVE sites
+          # ── RUN 53: THE SAME MEASUREMENT, PAST OUR OWN CAP ──
+          #
+          # Run 52 proved the one-page world end to end and died on a constant
+          # from the five-page one: the designer planned ONE page, the writer
+          # wrote ONE file, and `validatePages` refused it at 24,000 characters
+          # with advice ("split it") that a one-page site cannot take. 48,000
+          # now, the tweak/repair lanes doubled with it, and the budget stated
+          # in the tool's own `source` field. Nothing about the one-page rule
+          # moved — `MAX_PAGES` is 1, and run 52 is the evidence it holds.
+          #
+          # SAME BRIEF, FRESH SLUG: -16 holds run 52's placeholder, so reusing
+          # it would be read as a revise of that husk rather than the first
+          # build it never got.
+          #
+          # READ: everything run 52 could not reach — one page shaped as the
+          # management workspace, `sections` carrying widths in the layout
+          # words, a theme by name off the shortlist, and the standing proofs
+          # (kind tool, images 0/0, readable CTA, honest footer).
+          #
+          # Fresh slug: northgroup-9 through -16 are the owner's LIVE sites
           # now — re-using any would revise it.
-          OWNER_SLUG: northgroup-16
+          OWNER_SLUG: northgroup-17
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
