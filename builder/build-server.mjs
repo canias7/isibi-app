@@ -40,6 +40,11 @@ import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, pageTokensCss } from "./site-tokens.mjs";
 import { applyStyle, parseStyle, MAX_STYLE_BUILD } from "./site-style.mjs";
 import { dirFor, initialsMark, normalizeLang, siteIconFrom } from "./site-identity.mjs";
+// The designer-drawn tab icon's validator (2026-08-28). Run HERE as well as at
+// the Worker's merge, on the tokensPage rule: the Worker and the container are
+// two layers, version skew and hand-written payloads reach this one directly,
+// and the mark is an SVG document served from the site's own origin.
+import { cleanFavicon } from "./site-favicon.mjs";
 import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { runStep } from "./run-step.mjs";
@@ -344,7 +349,7 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition }) {
+function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
 
@@ -364,6 +369,14 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
   // entitled to refuse an icon whose declared type does not match. Read off the
   // extension, which is ours: `uploadName` builds it from the sniffed kind.
   let iconType = iconOk ? own.type : "";
+  // THE DESIGNER'S OWN MARK SITS BETWEEN THE TWO (2026-08-28, owner's call):
+  // the owner's uploaded icon still wins — they chose a file, and a model must
+  // not outrank a person — and the drawn initials remain the floor. Validated
+  // AGAIN here though the Worker's merge already refused junk, because this
+  // route also takes hand-written payloads and survives version skew, and what
+  // it writes is an SVG document served from the site's own origin. The `why`
+  // is OUR fixed sentence and never the document, so logging it leaks nothing.
+  let faviconDrawn = false;
   if (!icon) {
     try {
       // THE SITE'S OWN PALETTE WHEN THERE IS ONE, AND SINCE 2026-08-24 THERE IS
@@ -380,12 +393,17 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
       // which post a palette straight to this container. So the path is tested
       // and only the Worker→container hop is quiet: the day anything sends a
       // palette again the mark picks it up with nothing here to rewire.
-      const svg = initialsMark(title, seeds);
+      const mark = cleanFavicon(favicon);
+      if (favicon && !mark.svg) console.error("favicon refused:", mark.why);
+      const svg = mark.svg || initialsMark(title, seeds);
       if (svg) {
         fs.mkdirSync(path.dirname(iconPath), { recursive: true });
         fs.writeFileSync(iconPath, svg);
         icon = "/icon.svg";
         iconType = "image/svg+xml";
+        // Reported only once the bytes are DOWN — set any earlier and a failed
+        // write reports a designed mark on a site serving the template's.
+        faviconDrawn = !!mark.svg;
       }
     } catch {
       // A site keeps the template's mark. Failing a build over a tab icon would
@@ -517,7 +535,7 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
   // a site drawing its initials and a site serving the owner's own artwork
   // both answered true, so a favicon that was stored and then refused by the
   // shape check reported as a working icon.
-  return { lang: langValue, dir: dirValue, langs: langsValue, transition: transitionValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
+  return { lang: langValue, dir: dirValue, langs: langsValue, transition: transitionValue, icon: !!icon, ownIcon: iconOk, favicon: faviconDrawn, logo: !!logoValue, slug: !!slugValue,
     refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
 }
 
@@ -1561,7 +1579,7 @@ const server = http.createServer((req, res) => {
       // once, passed to both, and `parseStyle` is idempotent so `applyStyle`
       // re-reading it downstream cannot change the answer.
       const styleUsed = parseStyle(payload.style, { max: MAX_STYLE_BUILD }).style;
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts, payload.cssFonts);
       // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
       // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly

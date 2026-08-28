@@ -215,7 +215,8 @@ export const ASK_TOOL = {
           "\"text\" — ONLY the words change and nothing else: a heading, a sentence, a button label, a phone number, an " +
           "address, a price written on the page. Nothing moves and nothing changes colour. This is the cheapest thing the " +
           "builder can do, so prefer it whenever it is honestly true.\n" +
-          "\"look\" — colour, theme, fonts, how round the corners are, the site's name, its one-line description, and " +
+          "\"look\" — colour, theme, fonts, how round the corners are, the TAB ICON (the favicon — \"make the tab " +
+          "icon a scissors\" is this layer; the designer redraws the mark, no page changes), the site's name, its one-line description, and " +
           "WHAT LANGUAGE ITS PAGES ARE DECLARED TO BE IN. Anything about how the site LOOKS rather than what it says " +
           "or where things sit. (The declared language is a fact about the site, not a translation — \"this site is in " +
           "Spanish, stop telling browsers it's English\" belongs here; \"translate the whole site into Spanish\" is a " +

@@ -109,6 +109,10 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, normalizePlan } from "./builder/site-plan.mjs";
+// The designer-drawn tab icon (2026-08-28, owner's call). The FIELD is the ask;
+// `cleanFavicon` itself runs at the merge (`FIELD_KEEPS.favicon`) and again in
+// the container at the write — this file only carries the answer through.
+import { FAVICON_FIELD } from "./builder/site-favicon.mjs";
 // THE 500 THEMES, BACK IN THE PRODUCT (2026-08-27, owner's call). The tool's
 // enum is `THEME_SHORTLIST` — 100 of the 500, the owner's second call the same
 // day ("do only 100 and keep the otherones there") — `themeFontPair` is where
@@ -3961,6 +3965,20 @@ const SITE_SCHEMA_TOOL = {
           "with its own dark half, typefaces, corners, borders, shadows, spacing — and for most sites it is the " +
           "right answer alone. `css` below is ONLY for what the customer specifically asked for on top of it.",
       },
+      // ── THE TAB ICON, DRAWN BY THE DESIGNER (2026-08-28, owner's call) ────
+      //
+      // "in the design step, lets add a svg step, for the favicon." Until this
+      // the mark was DERIVED — the initials on a colour hashed from the
+      // business NAME, matching nothing on the site since the palette left the
+      // tool on 2026-08-24. Directly after `theme` because a tool's property
+      // order is its generation order: the world is decided one field up, so
+      // the mark is drawn IN it, and nothing later (the bands, the pictures)
+      // is anything a tab icon depends on.
+      //
+      // The answer is judged by `cleanFavicon` — an allow-list, refuse-whole —
+      // at the merge AND at the container write; a refused mark falls back to
+      // the drawn initials, which is what every site got before this field.
+      favicon: FAVICON_FIELD,
       shape: SHAPE_FIELD,
       // AND THE PHOTOGRAPHS LAST OF ALL (owner's call, 2026-08-23 — "lets move
       // image generator to the designer").
@@ -4945,7 +4963,11 @@ const SITE_SCHEMA_TOOL = {
     // for something specific", and a compelled field is one the model must
     // answer — requiring it would force a sheet onto every build and re-create
     // the unprompted-design gamble the theme exists to end.
-    required: ["brand", "slug", "backend", "description", "theme", ...PLAN_REQUIRED],
+    // `favicon` IS COMPELLED FOR THE REASON `theme` IS: an unanswered mark is
+    // not a design choice, it is the name-hash initials wearing one. Required
+    // on a BUILD only — a revise swaps in `EDIT_REQUIRED`, so a stored mark is
+    // kept by omission the way everything else on the look is.
+    required: ["brand", "slug", "backend", "description", "theme", "favicon", ...PLAN_REQUIRED],
   },
 };
 
@@ -9054,6 +9076,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // flipping between the owner's artwork and a drawn mark depending on
           // which lane published last.
           icon: icon || "",
+          // THE DESIGNER'S MARK, ON THE SPINE — the half that is easy to miss,
+          // and the exact lane the owner's icon above was once dead on: the
+          // container writes the tab icon on EVERY build, so a text fix that
+          // does not carry the stored mark takes it off and the site falls
+          // back to initials because somebody corrected a typo.
+          favicon: (look && look.favicon) || undefined,
           // ── THE LOOK IS THE THEME PLUS THE STYLESHEET (2026-08-27) ──────────
           //
           // ON THE SPINE, which is the half that is easy to miss: every text
@@ -9281,7 +9309,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, lang, langs, langStrings, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, lang, langs, langStrings, mode, logo, icon, favicon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
   // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
   // runs the compile dep TWICE — one page swapped for a stub — and a cache that
   // lived inside the dep would pay a second Haiku call for strings answered
@@ -9613,6 +9641,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // at a few hundred pixels and a smear at 16. An empty string is a
           // real answer and the container draws the initials mark instead.
           icon: icon || "",
+          // THE DESIGNER'S OWN MARK (2026-08-28), under the owner's uploaded
+          // icon in precedence and over the drawn initials. Validated at the
+          // merge and AGAIN in the container — version skew and hand-written
+          // payloads are why the second reading exists.
+          favicon: favicon || undefined,
           // THE THEME UNDER EVERYTHING (2026-08-27, owner's call) and the pair
           // of typefaces it was designed around. `writeTheme` renders the
           // registry theme first, so the model's stylesheet below lands ON TOP
@@ -12297,6 +12330,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             // in `EDIT_FIELDS` and would be dropped by that merge if it were.
             logo: priorLogo,
             icon: priorIcon,
+            // The designer's mark, out of the MERGED look like the language
+            // above it — `favicon` is on `EDIT_FIELDS`, so a revise that does
+            // not mention the mark keeps it and a fresh answer replaces it.
+            favicon: look.favicon,
             // AND THE SEARCH-CONSOLE TAG, for the reason the icon and the logo
             // are here: the sidecar is rewritten whole on every publish, so a
             // path that does not carry the stored verification publishes none.

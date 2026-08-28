@@ -32,6 +32,7 @@
 import { PLAN_EDIT_FIELDS } from "./site-plan.mjs";
 import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
+import { cleanFavicon } from "./site-favicon.mjs";
 
 /**
  * The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths.
@@ -80,7 +81,12 @@ import { resolveTheme } from "./site-theme-registry.mjs";
 // `mergeLook` keeps only what is named here and drops everything else stored on
 // the object, so a stylesheet folded into `site_look` would be lost the first
 // time an edit moved a plan axis.
-export const EDIT_FIELDS = ["brand", "description", "theme", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs"];
+// `favicon` IS THE DESIGNER'S OWN SVG MARK (2026-08-28, owner's call — "in the
+// design step, lets add a svg step, for the favicon"). On this list so the
+// merge carries it the way it carries the theme: absent means unchanged, and a
+// revise about a phone number cannot take a drawn mark off a site. Judged by
+// `FIELD_KEEPS.favicon` below, so a junk answer can never replace a good one.
+export const EDIT_FIELDS = ["brand", "description", "theme", "favicon", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs"];
 
 /**
  * Nothing is required of an EDIT.
@@ -123,6 +129,19 @@ export function currentStateNote(current) {
   // fresh name changes every colour, both typefaces, the corners and the
   // shadows at once, on a request that was only ever about a phone number.
   add("theme", c.theme);
+  // THE MARK THE SITE IS ALREADY WEARING, whole and uncapped like the
+  // stylesheet below and for the same reason: `favicon` is REPLACED rather than
+  // merged, so the only way a revise can adjust the mark is to hand the current
+  // document back with the change made — and a `.slice()` here would have the
+  // model return the truncated document, which then REPLACES the stored one.
+  // `MAX_FAVICON` bounds what the merge can store, so the ceiling is set once,
+  // at the door. Printed raw like `theme` and `brand` — validation is the
+  // MERGE's job (`FIELD_KEEPS.favicon`), not the note's.
+  const mark = str(c.favicon);
+  if (mark) {
+    lines.push("its tab icon (an SVG you drew — to change it, return `favicon` as a whole new mark; " +
+      "to keep it, omit `favicon`):\n" + mark);
+  }
   // THE PALETTE THE SITE IS ALREADY WEARING, spelled out as the three colours
   // rather than as a name — there is no registry to name one from since
   // 2026-08-20, and a designer shown nothing here has every reason to author a
@@ -599,6 +618,14 @@ const FIELD_KEEPS = {
   // rule: `resolveTheme` is the one place a name is judged, and this asks it
   // whether an answer counts.
   theme: (v) => !!resolveTheme(v),
+  // A FAVICON THE VALIDATOR REFUSES IS NOT AN ANSWER (2026-08-28). Same
+  // invariant as `theme` one line up, same single-validator rule: `cleanFavicon`
+  // is the one place an SVG is judged, and this asks it whether an answer
+  // counts. Counted as a value, a junk document would REPLACE a good stored
+  // mark, after which the container refuses it on every publish and the site
+  // falls back to the initials for good — while the response says the look
+  // changed.
+  favicon: (v) => !!cleanFavicon(v).svg,
   // AN ANSWERED-EMPTY `images` IS A VALUE, NOT SILENCE (2026-08-27). The tool
   // field promises "send an empty list to say it should have none", `images`
   // is REQUIRED on a first build — and `hasValue([])` is false, so this merge

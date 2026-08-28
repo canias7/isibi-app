@@ -10,6 +10,27 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## The favicon is a design step now — the model draws it (2026-08-28)
+
+Your call: "in the design step, lets add a svg step, for the favicon."
+
+- **Before**: every site's tab icon was its initials on a colour hashed from the
+  business name — legible, and matching nothing on the site.
+- **Now**: the designer draws the tab icon itself, as a small SVG, right after it
+  picks the theme — so a bakery gets a bakery mark in the bakery's world. It's a
+  required step on every new build; a revise keeps the mark the site has unless
+  you ask to change it ("make the tab icon a scissors" is a cheap look edit).
+- **Safety**: a model-drawn SVG is a file served from the site's own domain, so
+  there's a strict gate on what it may contain — plain shapes only, nothing that
+  can run script or reach out to the network. Anything that breaks the rules is
+  refused WHOLE and the site falls back to the initials mark it would have had
+  anyway. Your own uploaded icon still beats the model's, always.
+- **Proven**: six sample marks rendered at real tab sizes (16/32/64px, light and
+  dark strips) — gradients, letterforms, paths all come through; and a real
+  container build ships the drawn mark as `icon.svg`.
+- **Not yet seen live** — the account is at 18 credits, under a build. The first
+  build after a top-up is the first real designer-drawn favicon.
+
 ## The broken frame on northgroup-15 — bolted shut for every future build (2026-08-27)
 
 You saw it live ("wth is this"): the brand clipped to "orthline", a dead white

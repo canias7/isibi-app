@@ -1131,6 +1131,11 @@ try {
     const icon = (built.files["icon.svg"] || {}).t || "";
     ok("the mark is a self-contained svg", /<svg[\s\S]*<\/svg>$/.test(icon), icon.slice(0, 120));
     ok("the mark carries this site's initials", />FC</.test(icon), icon.slice(0, 200));
+    // …and that build sent NO `favicon`, so the initials above are ALSO the
+    // fallback leg of the designer-drawn mark (2026-08-28): `cleanFavicon` of
+    // an absent answer refuses, the `||` falls through, and the report says so.
+    ok("a build with no designed mark reports none", (built.brand || {}).favicon === false,
+      JSON.stringify((built.brand || {}).favicon));
 
     // A LOGO ON A SITE WITH NO HEADER IS HARMLESS, and that is the only thing
     // this build can honestly say about one. These fixtures render no
@@ -1162,6 +1167,35 @@ try {
 
     const bytes = names.reduce((n, k) => n + ((built.files[k].t || "").length || (built.files[k].b || "").length), 0);
     ok("the bundle is the expected order of magnitude", bytes > 100_000 && bytes < 4_000_000, bytes + " bytes");
+  }
+
+  // ── the designer-drawn mark, through the real container (2026-08-28) ─────
+  //
+  // The unit suite proves `cleanFavicon` and the merge; what it structurally
+  // cannot prove is that the container WRITES the model's mark — the wiring
+  // layer twelve features have died in. One build, a distinctive mark: the
+  // bytes in `icon.svg` must be the CLEANED document (our root — a model that
+  // omits `xmlns` has drawn a file that renders as nothing — and the model's
+  // own shapes verbatim), and the report must say the designer drew it. The
+  // fallback leg needs no second build: the FC initials above are a build with
+  // no `favicon` at all, and a refused one takes the same `||` fallthrough.
+  console.log("\nbuilding a site whose designer drew the mark…");
+  const DRAWN = '<svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0b3d2e"/>' +
+    '<path d="M18 40 L32 16 L46 40 Z" fill="#f2e9d8"/></svg>';
+  const withMark = await post({
+    files: { "index.tsx": MENU.replace('createFileRoute("/menu")', 'createFileRoute("/")').replace("function Menu", "function Home").replace("component: Menu", "component: Home") },
+    slug: "favicon-site", title: "Poulson's", favicon: DRAWN,
+  });
+  ok("a site with a designed mark builds", withMark.ok === true, withMark.stage + ": " + withMark.error);
+  {
+    const m = ((withMark.files || {})["icon.svg"] || {}).t || "";
+    ok("the designer's mark is what the site ships", m.includes('d="M18 40 L32 16 L46 40 Z"'), m.slice(0, 200));
+    ok("…under OUR root: the namespace and size a bare model answer omits",
+      /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="64" height="64" viewBox="0 0 64 64">/.test(m),
+      m.slice(0, 120));
+    ok("…and not the initials the same title would have drawn", !/>P</.test(m), m.slice(0, 200));
+    ok("the report says the designer drew it", (withMark.brand || {}).favicon === true,
+      JSON.stringify((withMark.brand || {}).favicon));
   }
 
   console.log("\nbuilding a page with a type error…");

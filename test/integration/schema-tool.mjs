@@ -32,13 +32,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
  */
 export async function readSchemaTool() {
   const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  const [fonts, plan, tokens, style, authored, registry] = await Promise.all([
+  const [fonts, plan, tokens, style, authored, registry, favicon] = await Promise.all([
     import(path.join(ROOT, "builder", "site-fonts.mjs")),
     import(path.join(ROOT, "builder", "site-plan.mjs")),
     import(path.join(ROOT, "builder", "site-tokens.mjs")),
     import(path.join(ROOT, "builder", "site-style.mjs")),
     import(path.join(ROOT, "builder", "site-authored.mjs")),
     import(path.join(ROOT, "builder", "site-theme-registry.mjs")),
+    import(path.join(ROOT, "builder", "site-favicon.mjs")),
   ]);
   const scope = {
     SITE_FONT_IDS: fonts.SHORTLIST.map((f) => f.id),
@@ -58,6 +59,9 @@ export async function readSchemaTool() {
     SHAPE_FIELD: plan.SHAPE_FIELD,
     IMAGES_FIELD: plan.IMAGES_FIELD,
     ACTION_FIELD: plan.ACTION_FIELD,
+    // The designer-drawn tab icon (2026-08-28) — the real field, never a stub,
+    // for the reason this function's own header gives.
+    FAVICON_FIELD: favicon.FAVICON_FIELD,
     PLAN_REQUIRED: plan.PLAN_REQUIRED,
     SITE_TOKEN_NAMES: tokens.ASKABLE,
     siteTokenHint: tokens.valueHint,
