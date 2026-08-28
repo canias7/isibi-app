@@ -137,15 +137,35 @@ refunds if it refuses.
 
 ## What the design call decides
 
-`design_schema` is one tool, ~69k characters, in the cached block. Property order
-IS generation order. The fields, in order:
+`design_schema` is one tool, **84.8k characters**, in the cached block. Property
+order IS generation order. **19 properties, 14 required**; a first build sends 18
+of them (13 required).
 
-- **`kind`** — `shopfront | tool`. Decided first, because everything else is an
-  answer about the kind. **A tool's front page IS the tool**: no hero, no
+**The order, measured by evaluating the tool rather than reading it** — the list
+below drifted twice before, so re-derive it, don't trust this line:
+
+> `brand` · `slug` · `description` · `kind` · `purpose` · `pages` · `components` ·
+> `theme` · `wordmark` · `favicon` · `shape` · `images` · `css` · `backend` ·
+> `action` · `lang` · `langs` · `needsWeb` · `webQueries`
+
+Only `css`, `lang`, `langs`, `needsWeb` and `webQueries` are optional. **`seeds`
+and `share` are NOT fields** — `seeds` came off on 2026-08-23 and `share` never
+existed (the share image is chosen at publish time, not designed).
+
+- **`brand`, `slug`, `description`** — answered FIRST, before anything about the
+  look. `brand` is the site's name and therefore its `<title>` and `og:title`;
+  **the name stays inside the brief** — the brief's own name verbatim when it
+  gives one, otherwise a name for the type of business the customer asked for.
+  Four consecutive nameless-CRM runs invented names for the wrong business.
+- **`kind`** — `shopfront | tool`. Decided before the plan, because every
+  planning answer is an answer about the kind. **A tool's front page IS the
+  tool**: no hero, no
   marketing bands, no team section, no closing pitch, and `planBudget` answers
   **0 photographs** — arithmetic, not prose, because the model ignored "no
   photographs anywhere" on four consecutive builds.
-- **`purpose`, `action`, `pages`, `shape`, `components`, `images`** — the plan.
+- **`purpose`, `pages`, `components`, `shape`, `images`** — the plan (`action`
+  sits later, after `backend`, but belongs to this group by meaning: the ONE
+  thing the site most wants done, in the business's own words).
   `MAX_PAGES` in the PLAN is **1** (the front page is the site) and
   `MAX_COMPONENTS` **15**, a ceiling with **no floor** — a floor is a quota and a
   model fills a quota. **`page-gen.mjs` keeps its own `MAX_PAGES = 6`
@@ -167,9 +187,14 @@ IS generation order. The fields, in order:
   constrains by height.
 - **`css`** — the model's own stylesheet, appended LAST so it wins on source
   order. The 500 themes are the base; this is the layer a customer asks for.
-- **`langs`, `seeds`, `description`, `share`** and the backend half (tables,
-  functions, apis, jobs) — the backend fields are **omitted from a first build**
-  entirely (41% of the tool on the wire).
+- **`lang` / `langs`** — the language the pages are written in, and every other
+  language the site is also offered in. **`needsWeb` / `webQueries`** — whether
+  writing this site's copy needs facts the model may not have, and the 1–3
+  searches to run if so.
+- **`backend`** (tables, functions, apis, jobs) — the ONLY property dropped from
+  a first build. `FRONTEND_SCHEMA_TOOL` derives itself by destructuring `backend`
+  out and filtering it from `required`, so the two can never disagree. It is
+  **29.2k of the 84.8k — 34.4%** off the wire on every first build.
 
 **Every design decision is anchored on a revise.** `EDIT_FIELDS` + `mergeLook`:
 absent means unchanged, so a colour change cannot re-roll the theme.
