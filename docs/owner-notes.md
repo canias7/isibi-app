@@ -18800,3 +18800,53 @@ first hundred in the file), which costs ~288 tokens per build instead of
 shortlist only bounds what the model chooses between on its own. Two of the
 themes the render harness photographs are deliberately off-shortlist to prove
 that keeps working. Suite green (4,370), second sweep 5/5.
+
+## 2026-08-28 — the 13 universal site shapes: the shape step gets its reference book
+
+Your arc, in your own words: "I think we may need to add reference pages to the
+shape step, i dont think the model is smart enough yet to make a good page" —
+then "But i want to do it a universal way" — then you brought the list of 15
+universal site shapes from the other chat, we cut the two doubles together
+(Portfolio folded into Presentation, Creation workspace dropped as out of scope
+for now), and you approved the 13. Then the sharpening that set the whole
+shape of the work: "Im more focused on the shape tho, where goes each component
+and the width and etc etc" — geometry, not just a list of sections. Then "Ok
+start, and keep me updated with render stuff."
+
+What shipped: the `shape` field the designer answers on every build now carries
+a reference book — a five-word layout vocabulary (FRAME, BLEED, SPLIT, RAIL,
+NARROW COLUMN, each defined in one line) and the 13 shapes, each written as
+GEOMETRY: what leads, what the body runs through, how wide each band sits, and
+the rule that kind of site fails by breaking. The section lines the designer
+writes now say HOW each band SITS — width, columns, place — in those same five
+words, so the page writer downstream reads real layout instructions instead of
+a bare list of parts.
+
+The trick that makes this safe is that the 13 name NO trade and NO component.
+Remember northgroup-10 — the model copied the old field's two worked examples
+verbatim, barber-shop home page and all? That's why the examples were deleted
+on the 27th. These can't be copied the same way because there's nothing IN
+them to paste: "figures four-five across on top, the worklist as a frame-wide
+table under" has to be translated into this site's own components and words.
+The old absence guards (no worked example, no skeleton, no hero—) all still
+stand and still pass.
+
+Two of your live bugs are now laws in the book: the narrow column is "NEVER a
+working screen" (run 47's 392px front door), and a rail is "never by
+re-arranging the site frame" (northgroup-15's re-gridded shell). The cost is
+~1,414 tokens on the cached block — a cache read at a tenth of a cent after
+the first build on each prompt version.
+
+Renders: you got the four sheets mid-task — all 13 shapes mocked as front
+pages on the template's own look, so the book was LOOKED AT before it was
+wired, same rule as everything else here. Guards green (44 plan tests, 4,371
+total), mutation sweep 5/5 — deleting a shape, beheading the vocabulary,
+weakening the narrow-column law and dropping the sections-format line are each
+caught by name, and the comment-only control survived.
+
+NOT proven live, same reason as the themes: ~11 credits against a ~17+ build.
+This push does NOT roll the container image (prompt + tests + docs only), so
+when you top up, the first build fires on it immediately — no 15-20 minute
+wait for this one. What that build measures: whether the designer's `sections`
+lines come back carrying widths and columns, and whether the front page it
+plans actually reads as its shape.

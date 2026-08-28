@@ -677,16 +677,69 @@ test("THE SHAPE FIELD CARRIES NO WORKED EXAMPLE (owner's call, 2026-08-27)", () 
   // home page is example one wearing a coffee company, its pipeline page is
   // example two. Deleted to the purpose ("delete the examples and just leave
   // the purpose"), and held as absences because an example is the single most
-  // tempting thing to add back to a field a model answers vaguely.
+  // tempting thing to add back to a field a model answers vaguely. THE SHAPE
+  // LIBRARY (2026-08-28, below) IS NOT AN EXCEPTION TO THIS — it is
+  // function-first and names no kit component, which is what keeps these
+  // absences true beside it.
   const d = planFieldFor("shape").description;
   assert.match(d, /WHERE EVERYTHING GOES, ONE ENTRY PER PAGE/,
     "the field no longer says what it is for");
   assert.ok(!/Examples:/i.test(d), "a worked example is back — every site will copy it");
   assert.ok(!d.includes('{"path"'), "an example entry skeleton is back — every site will copy it");
   assert.ok(!/hero — /.test(d), "the brochure home page is being taught again");
+  // The copied components of the ORIGINAL worked examples, by name — the
+  // exact things a restorer would reach for. A library entry naming one is a
+  // literal answer again, and every site of that shape ships it.
+  for (const c of ["service-list", "team-grid", "map-card", "filter-bar", "data-table"]) {
+    assert.ok(!d.includes(c), `the library names the kit component "${c}" — a copyable answer is back`);
+  }
   // The one PIPELINE fact stays: an omitted page is arranged by the page
   // writer — a model not told that answers every page out of duty.
   assert.match(d, /leave out/, "the omission semantics are gone — the model cannot know them");
+});
+
+test("THE 13-SHAPE LIBRARY IS WHOLE (owner's call, 2026-08-28)", () => {
+  // "I think we may need to add reference pages to the shape step, i dont
+  // think the model is smart enough yet to make a good page… But i want to do
+  // it a universal way" — then a 15-shape list deduplicated to 13 with the
+  // owner's sign-off. Floors on every load-bearing part, because each one's
+  // deletion is silent: without the vocabulary the geometry in the entries
+  // means nothing; without an entry a whole class of site loses its layout;
+  // without the narrow-column law the run-47 front-door bug is invited back
+  // by the very field meant to prevent it.
+  const d = planFieldFor("shape").description;
+  const SHAPES = [
+    "PRESENTATION SITE", "SERVICE BOOKING", "CATALOG & TRANSACTION", "MARKETPLACE",
+    "SEARCH & DISCOVERY", "CONTENT PLATFORM", "COMMUNITY PLATFORM", "MANAGEMENT WORKSPACE",
+    "ANALYSIS & MONITORING", "PERSONAL PORTAL", "GUIDED JOURNEY", "LOCATION-LED",
+    "SINGLE-PURPOSE TOOL",
+  ];
+  assert.equal(SHAPES.length, 13, "the fixture list drifted");
+  for (const s of SHAPES) assert.ok(d.includes(s), `the library lost "${s}"`);
+  assert.match(d, /THE 13 SHAPES\. Every site is one of these/,
+    "the recognition instruction is gone — the library reads as prose, not a menu");
+  // The layout vocabulary — all five words, defined. The entries speak them,
+  // so a deleted definition leaves geometry the model cannot parse.
+  assert.match(d, /THE LAYOUT WORDS\./, "the vocabulary block is gone");
+  for (const w of ["FRAME", "BLEED", "SPLIT", "RAIL", "NARROW COLUMN"]) {
+    assert.ok(d.includes(w), `the layout word "${w}" is no longer defined`);
+  }
+  // The two laws with a measured bug behind each: the narrow column ban on
+  // working screens (run 47's 392px front door) and the rail never being the
+  // site frame (run 51's re-gridded shell) — both stated here as universal
+  // law, both enforced elsewhere in code, and the prose half is what stops
+  // the designer WRITING the shape that fights the enforcement.
+  assert.match(d, /NEVER a working\s+screen/, "the narrow-column law is gone — the front-door bug is invited back");
+  assert.match(d, /never by re-arranging the site frame/, "the rail law is gone — the shell re-grid is invited back");
+  // The anti-copy contract and the tool markers.
+  assert.match(d, /name no trade and no component/, "the uncopyability sentence is gone");
+  assert.ok(d.split("(a tool)").length - 1 >= 3, "the tool-side shapes lost their kind markers");
+  // And the sections line carries the geometry — the format change that makes
+  // the library reach the page writer rather than living only in reference.
+  assert.match(d, /HOW IT SITS/, "the sections-format instruction is gone from the field");
+  const sec = SHAPE_FIELD.items.properties.sections.description;
+  assert.match(sec, /HOW IT SITS/, "the per-line format no longer asks for placement");
+  assert.match(sec, /layout words/, "the per-line format no longer points at the vocabulary");
 });
 
 test("THE PURPOSE FIELD BINDS AND CARRIES NO WORKED EXAMPLE (owner's call, 2026-08-27)", () => {

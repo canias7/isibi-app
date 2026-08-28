@@ -865,29 +865,102 @@ export const SHAPE_FIELD = {
         items: { type: "string" },
         description:
           `The page TOP TO BOTTOM, one short line a band, in order — at most ${MAX_SECTIONS}. ` +
-          "The first is what LEADS. Name the component that carries the band and say what goes in it.",
+          "The first is what LEADS. Name the component that carries the band, say what goes in " +
+          "it, and say HOW IT SITS — width, columns, place — in the layout words.",
       },
     },
     required: ["path", "sections"],
   },
-  // THE WORKED EXAMPLES ARE GONE (owner's call, 2026-08-27: "delete the
-  // examples and just leave the purpose"). There were exactly two — a "/"
-  // that was a barber-shop brochure (hero → service-list → team-grid →
-  // map-card) and a "/deals" that was a filter-bar → data-table screen — and
-  // northgroup-10 is both of them copied: its home page is example one
-  // wearing a coffee company, its pipeline page is example two. The only home
-  // page the designer was ever SHOWN was a shopfront one, which is the
-  // hardcoded landing page the owner went looking for. The one thing a model
-  // reliably does with a worked example is copy it — the finding the
-  // family-exemplar and reference-page deletions already rest on, arriving
-  // here last. What each page IS comes from the brief and the kind now, not
-  // from a convention two examples happened to teach.
+  // THE WORKED EXAMPLES ARE GONE AND THE SHAPE LIBRARY IS NOT THEM (owner's
+  // calls, 2026-08-27 then 2026-08-28). First: "delete the examples and just
+  // leave the purpose" — there were exactly two, a "/" that was a barber-shop
+  // brochure (hero → service-list → team-grid → map-card) and a "/deals" that
+  // was a filter-bar → data-table screen, and northgroup-10 is both of them
+  // copied: its home page is example one wearing a coffee company, its
+  // pipeline page is example two. The one thing a model reliably does with a
+  // worked example is copy it. Then, a day later: "I think we may need to add
+  // reference pages to the shape step, i dont think the model is smart enough
+  // yet to make a good page… But i want to do it a universal way" — and a
+  // 15-shape list from another chat, deduplicated to 13 with the owner's
+  // sign-off ("If you think theres some double, yeah delete them"): the two
+  // management shapes merged (same front page whether the rows are deals or
+  // tasks) and "creation workspace" dropped as beyond what a generated site
+  // can honor (a configurator is a Guided journey, a calculator a
+  // Single-purpose tool). Both calls hold at once because the library is
+  // FUNCTION-FIRST and names no trade and no kit component — nothing in it
+  // can be pasted into `sections`, only translated into THIS site's bands,
+  // which is exactly the thinking the naked field was not getting done. The
+  // absence guards on literal examples (`Examples:`, the entry skeleton,
+  // `hero — `) therefore stay in force beside the library's own floors.
   description:
     "WHERE EVERYTHING GOES, ONE ENTRY PER PAGE.\n" +
     "The pages and the component manifest are already decided above, so arrange what you have " +
-    "chosen rather than describing a mood. What leads each page — and what a page like this even " +
-    "is — comes from the brief and the kind of site, never from a convention. The primary action " +
-    "is NOT yet named — decide where it sits and let the wording come later.\n" +
+    "chosen rather than describing a mood. Each section line reads: the component that carries " +
+    "the band — what goes in it — HOW IT SITS, in the layout words below (its width, its " +
+    "columns, its place). The primary action is NOT yet named — decide where it sits and let " +
+    "the wording come later.\n" +
+    "THE LAYOUT WORDS. The FRAME is the content column, aligned with the header, one width " +
+    "site-wide; a band sits in the frame or BLEEDS — its paint edge to edge, its content still " +
+    "in the frame. A SPLIT is two columns inside one band. A RAIL is a persistent side column " +
+    "on desktop, built as its own layout band, never by re-arranging the site frame. A NARROW " +
+    "COLUMN is about half the frame, centered — for forms, steps and reading, NEVER a working " +
+    "screen. On a phone everything becomes one column in the desktop order.\n" +
+    "THE 13 SHAPES. Every site is one of these. Recognise which, then translate its layout " +
+    "into THIS site's bands — they name no trade and no component, so nothing here can be " +
+    "copied into `sections`, only translated.\n" +
+    "1. PRESENTATION SITE — one identity, presented; the site is the pitch. Lead bleeds, " +
+    "tall; then alternating bands in the frame — a split for the story, the offer as cards " +
+    "three-across, prices one clean column or table; close with how to reach them, bleeding. " +
+    "The one shape where airy is right.\n" +
+    "2. SERVICE BOOKING — the slot is the product. Lead is a split: who and why here on one " +
+    "side, the booking control or its one button on the other, above the fold. What can be " +
+    "booked as cards three-across, a price on each. The booking page itself is a narrow " +
+    "column — picker, then details, one action at the end.\n" +
+    "3. CATALOG & TRANSACTION — the owner's items lead. Category row directly under the " +
+    "header, sticky; the grid three-across (two on tablet), every card image, name, price " +
+    "and action at equal height; ordering facts one band after the goods, never before. No " +
+    "lead taller than a row of items.\n" +
+    "4. MARKETPLACE — the members' listings lead, newest first, proof of life. Filter rail " +
+    "left, results three-across beside it (a row of chips above the grid on a phone); " +
+    "post-your-own in the header action and again after the results. The fact that matters — " +
+    "price, date — on every card.\n" +
+    "5. SEARCH & DISCOVERY — finding is the product. The search centered in a short lead, " +
+    "wide; category tiles four-across; a few real entries as frame-width rows. Results one " +
+    "per row at frame width, the narrowing controls in one row above. An empty result " +
+    "explains itself.\n" +
+    "6. CONTENT PLATFORM — a growing library. The newest or strongest piece spans the frame, " +
+    "title large; the stream as cards two- or three-across; topics one modest row, not a " +
+    "rail. A piece's own page is a narrow reading column under a frame-wide image.\n" +
+    "7. COMMUNITY PLATFORM — the conversation leads. One feed column, narrower than the " +
+    "frame, a slim rail beside it for rooms and rules; the write control at the top of the " +
+    "feed for members; outsiders see the life and the door in.\n" +
+    "8. MANAGEMENT WORKSPACE (a tool) — the team's desk, records and tasks alike. A rail for " +
+    "nav, content at full remaining width: figures four-five across on top, the worklist as " +
+    "a frame-wide table under, filters one row above it, the file-new-work control at its " +
+    "top right. Dense, the same frame on every page, no marketing anywhere.\n" +
+    "9. ANALYSIS & MONITORING (a tool) — the numbers lead. Verdict figures four across; " +
+    "charts in equal-height pairs, the biggest question's chart may take a full row; alerts " +
+    "a compact list; detail tables frame-wide, last. Controls exist only to change what is " +
+    "shown.\n" +
+    "10. PERSONAL PORTAL — sign in and see your things. Signed in: one contained column of " +
+    "the member's own records as dense rows, actions inline, most urgent first. Signed out: " +
+    "a narrow centered card — what an account gets you and the way in — and that card is the " +
+    "page. Never fake the empty state.\n" +
+    "11. GUIDED JOURNEY — a flow that ends in a result. The narrow column is the law here: " +
+    "one step per screen as a single card, the first question opening the page, progress " +
+    "along the top, back and next at the card's edge. The result page may widen to the " +
+    "frame.\n" +
+    "12. LOCATION-LED — where leads. Locations as cards two-three across, each with hours, " +
+    "address, directions and its own action; or a split — the list on one side, the chosen " +
+    "location's details on the other.\n" +
+    "13. SINGLE-PURPOSE TOOL (a tool) — the tool is the page. One centered card holding the " +
+    "inputs and the answer together, within one viewport; the answer is the loudest thing on " +
+    "the page; what it means in a narrow column below; almost nothing else.\n" +
+    "THE LAWS, WHATEVER THE SHAPE: the first band answers \"am I in the right place\"; every " +
+    "band either proves something or moves the visitor — one that does neither comes out; no " +
+    "two bands saying one thing; end near the action, not after it; a band that bleeds keeps " +
+    "its content in the frame; shopfronts breathe, tools are tight; controls stay big enough " +
+    "for thumbs.\n" +
     "A page you leave out is one the page writer arranges itself, so leave out the ones with " +
     "nothing to say.",
 };
