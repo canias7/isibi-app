@@ -18914,3 +18914,41 @@ The fix (already in, tested, 4,373 green):
 northgroup-16's stand-in stays until we run again. A re-run on this slug
 would count as a revise, so the clean re-proof is a fresh slug
 (northgroup-17) once you say go — roughly 15-20 credits against the 96.
+
+### Same night: one page means ONE PAGE (and the component floor comes off)
+
+You looked at northgroup-17 and said it: "it just turned what it used to be 5
+pages into one page, thats not my purpose... my purpose is not to try to fill
+in everything in one page, my purpose is to make one page."
+
+You were right and it was my wording that caused it. The instruction I wrote
+that morning literally said "Everything the brief needs lands on that page as
+bands" — an order to cram — and the model did exactly that: a pipeline, a deal
+record and a contact book stacked down one scroll. Three working screens
+wearing the costume of one page.
+
+Fixed:
+- The pages field now says one page means ONE PAGE, that the job is to decide
+  the page's ONE job, and that whatever doesn't serve it is LEFT OUT and said
+  so — never squeezed in underneath.
+- A new law in the shape book, because every law we already had was satisfied
+  by that site: a band that is really a second screen (another workspace,
+  another record, another list with its own controls) is not a band. Cutting
+  is the work.
+- Components: the 8 floor is gone, as you asked. Max 15, and fewer is a right
+  answer. A floor is a quota, and a model filling a quota reaches for parts
+  the page doesn't need — the same padding instinct that stacked the screens.
+- The eval's own test scenarios were making the same mistake (I'd folded four
+  screens onto the yoga page). Cut to one job each so the measurement matches
+  what we now ask for.
+
+4,375 tests green, sabotage sweep 7/7 — including one round where my own guard
+was watching the headline of the new law instead of the half that makes it
+usable; closed and re-proven.
+
+Still open from that site, not fixed tonight: the controls are fake. The stage
+filter chips, "New deal" and the deal rows are all links pointing at the band
+they already sit in — 15 of 24 in-page links are dead by construction — and
+the builder's reply claims the filters work. That's the next fix and I have a
+structural one for it (a link whose target is its own ancestor is dead, which
+a lint can catch and a prompt rule can't forget).

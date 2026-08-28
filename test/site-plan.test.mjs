@@ -231,24 +231,60 @@ test("A CAP A MODEL IS MERELY TOLD ABOUT IS NOT A CAP", () => {
   assert.equal(big.pages.length, MAX_PAGES);
 });
 
-test("ONE PAGE, 8-15 COMPONENTS (owner's call, 2026-08-28)", () => {
+test("ONE PAGE, AT MOST 15 COMPONENTS AND NO FLOOR (owner's call, 2026-08-28)", () => {
   // PINNED OUTRIGHT, NOT IN TERMS OF THE CONSTANTS — the `RESUME_MAX_REFIRES`
   // lesson: every derived assertion above moves WITH the constant, so a mutant
   // restoring MAX_PAGES = 5 or MAX_COMPONENTS = 50 passes all of them. These two
-  // numbers are the owner's own ("for the pages, max 1 instead of 5", "a
-  // components from 8-15") and changing either is a product decision, not a
+  // numbers are the owner's own ("for the pages, max 1 instead of 5", "instead
+  // of 8-15, just do max 15") and changing either is a product decision, not a
   // tuning one.
   assert.equal(MAX_PAGES, 1, "the front page stopped being the whole site");
-  assert.equal(MAX_COMPONENTS, 15, "the manifest ceiling moved off the owner's 8-15");
-  // THE FLOOR IS PROSE AND ONLY PROSE — code cannot invent components a model
-  // did not name, so the description asking for the range is the entire floor,
-  // and losing the sentence is losing the floor.
-  assert.match(PLAN_FIELDS.components.description, /Between 8 and 15 components/,
-    "the 8-15 range stopped being asked for");
-  // A small honest answer is sliced by nothing and refused by nothing — the
-  // floor must never become a refusal that kills a build over a quality nudge.
+  assert.equal(MAX_COMPONENTS, 15, "the manifest ceiling moved off the owner's 15");
+  const d = PLAN_FIELDS.components.description;
+  // A CEILING AND NO FLOOR. The 8-15 range lived for one afternoon and the
+  // owner took the floor off the same day: "it can do less than 8." Asserted as
+  // an ABSENCE as well as a presence, because a floor is the tempting thing to
+  // add back to a field that sometimes answers thin — and a quota is what makes
+  // a model reach for parts the page does not need.
+  assert.match(d, /At most 15 components/, "the ceiling stopped being stated");
+  assert.ok(!/\bat least\b|\bBetween \d|\bminimum\b|\bFewer than \d/i.test(d),
+    "a floor is back in the manifest field — a quota, and a model fills a quota");
+  // A small honest answer is sliced by nothing and refused by nothing.
   const thin = normalizePlan({ ...GOOD, components: ["price-list", "hero"] });
   assert.deepEqual(thin.components, ["price-list", "hero"]);
+});
+
+test("ONE PAGE IS ONE JOB, NOT FIVE PAGES STACKED (owner's call, 2026-08-28)", () => {
+  // THE RUN-53 CORRECTION, and my own wording caused it: the `pages` field read
+  // "Everything the brief needs lands on that page as bands", which is an
+  // instruction to CRAM. northgroup-17 obeyed it — a pipeline, a deal record
+  // and a contact book stacked down one scroll, three working screens wearing
+  // the costume of one page. Owner: "it just turned what it used to be 5 pages
+  // into one page, thats not my purpose... my purpose is to make one page."
+  //
+  // EVERY EXISTING LAW WAS SATISFIED BY THAT SITE, which is why a new one was
+  // needed rather than a stronger old one: each band proved something, none
+  // repeated another, and the page still came out as a stacked site.
+  const p = PLAN_FIELDS.pages.description;
+  assert.match(p, /one page means ONE PAGE/, "the one-page law stopped being stated");
+  assert.match(p, /LEFT OUT/, "the field no longer says what happens to what does not fit");
+  assert.ok(!/Everything the brief needs lands/.test(p),
+    "the cram sentence is back — it is what produced the stacked site");
+
+  const s = planFieldFor("shape").description;
+  assert.match(s, /it does ONE job/, "the one-job law is gone from the shape field");
+  assert.match(s, /second screen/,
+    "the shape field no longer names the failure — a second screen is not a band");
+  // THE OPERATIVE HALF, and the sweep is what proved the headline alone was not
+  // enough: gutting this clause left "a band that is really a second screen"
+  // standing with nothing saying how to RECOGNISE one, and every assertion
+  // above stayed green. Naming the three shapes is what makes the law
+  // applicable — northgroup-17 stacked exactly these (a workspace, a record,
+  // a list with its own controls).
+  assert.match(s, /another workspace, another record, another list with its own controls/,
+    "the law no longer says how to recognise a second screen — the headline alone is unusable");
+  assert.match(s, /Cutting is the work here/,
+    "the field stopped saying that leaving things out IS the job");
 });
 
 test("a value that merely STRINGIFIES is refused, not coerced", () => {

@@ -110,19 +110,23 @@ const SCENARIOS = [
       // would be sliced to one by `normalizePlan` anyway, so keeping them here
       // is measuring a directive production never sends. The bands fold onto
       // "/" instead, inside MAX_SECTIONS.
+      // ONE PAGE IS ONE JOB (2026-08-28, the run-53 correction). An earlier
+      // refold of this scenario stacked the timetable, the booking, a sign-in
+      // and a member's private notes down one scroll — four screens wearing
+      // one page, which is exactly what the prompt now forbids. The one job
+      // here is BOOKING A CLASS; the members' area is a second screen and is
+      // left out of the plan rather than squeezed under it.
       shape: [
         { path: "/", sections: [
           "hero — what the studio is, and the Book a class button",
           "week-strip — this week's timetable",
           "availability-grid — the free slots, taken ones struck through",
-          "form-row — the booking: a name and an email, busy-button the one submit",
-          "form-row — sign in, for members",
-          "data-list — a member's own notes once they are in, empty-state before they have written one",
+          "form-row — a name and an email, busy-button the one submit",
           "faq — what to bring, and whether it suits a beginner",
         ] },
       ],
       pages: [
-        { path: "/", role: "the studio, the timetable, the booking, and a member's own notes" },
+        { path: "/", role: "book a class: what the studio is, the timetable, and the booking" },
       ],
       action: ["Book a class"],
       components: ["site-chrome", "section-header", "data-list", "availability-grid", "form-row",
@@ -182,18 +186,21 @@ const SCENARIOS = [
     key: "tool",
     plan: {
       purpose: "An internal tool where a small sales team signs in and works its deals",
+      // ONE JOB: THE DEALS DESK. The accounts table and the playbook are
+      // separate working screens — stacked below the deals they are the
+      // run-53 failure exactly (northgroup-17 shipped a pipeline, a deal
+      // record and a contact book down one scroll), so they are left out of
+      // the plan rather than folded in.
       shape: [
         { path: "/", sections: [
           "form-row — sign in, because everything here is behind it",
           "filter-bar — search, and a filter by stage",
-          "data-table — every deal, with status-dot and bulk-actions, form-row to add one",
+          "data-table — every deal, with status-dot and bulk-actions",
           "empty-state — when the filter matches nothing",
-          "data-table — the shared accounts, everyone sees the same rows",
-          "data-list — the playbook, what the admins have written down",
         ] },
       ],
       pages: [
-        { path: "/", role: "sign in, then the team's whole desk: deals, accounts, and the playbook" },
+        { path: "/", role: "the team's deals desk: sign in, then every deal with its stage" },
       ],
       action: ["Add a deal"],
       components: ["site-chrome", "data-table", "data-list", "form-row", "busy-button",

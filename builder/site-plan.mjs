@@ -261,14 +261,14 @@ export const COMPONENT_MENU = (() => {
 export const MAX_PAGES = 1;
 export const MAX_ACTION = 3;
 // 24 UNTIL 2026-08-24 ("so the model chooses how many it needs, and the cap is
-// 50"), 50 UNTIL 2026-08-28, AND THE OWNER NARROWED IT TO 8-15: "a components
-// from 8-15." THE FLOOR RETURNS WITH THAT CALL — 2026-08-24 dropped it because
-// a range makes a thin site pad to the minimum, and the owner has weighed that
-// against the opposite failure: a one-page site built out of four parts. The
-// floor is PROSE (the description asks for 8-15) because code cannot invent
-// components a model did not name, and refusing a 6-component plan outright
-// would kill a build over a quality nudge. The ceiling is CODE: `normalizePlan`
-// slices here.
+// 50"), 50 UNTIL 2026-08-28, THEN 8-15 FOR ONE AFTERNOON, AND THE OWNER TOOK
+// THE FLOOR STRAIGHT BACK OFF THE SAME DAY: "instead of 8-15, just do max 15,
+// it can do less than 8." A CEILING AND A JUDGEMENT, which is what 2026-08-24
+// established and what the run-53 site argued for: a floor is a quota, and a
+// model filling a quota reaches for parts the page does not need — the same
+// padding instinct that turned one page into three screens stacked. The
+// ceiling is CODE (`normalizePlan` slices here); there is no floor anywhere,
+// and a two-component answer is a right answer.
 //
 // THE COST IS THE PER-SITE BLOCK, NOT THE CACHED ONE. This is a MANIFEST: page
 // generation is shown the exact props of every name on it, and that block is
@@ -771,9 +771,10 @@ export const PLAN_FIELDS = {
     // there, and a lone page not at "/" is renamed to the front door there, so
     // the field cannot produce a site that dies at stage "home".
     description:
-      `This site is ONE page — the front page is the whole site (at most ${MAX_PAGES}). ` +
-      'One entry: what the site is called, route "/". Everything the brief needs lands on ' +
-      "that page as bands, in the order `shape` arranges them. There are no other routes.",
+      `This site is ONE page (at most ${MAX_PAGES}), and one page means ONE PAGE — not a whole ` +
+      "site stacked into a long scroll. Decide the ONE job that page does. A brief that asks for " +
+      "three screens gets the one that matters; what does not serve that job is LEFT OUT and said " +
+      'so, never squeezed in below. One entry: what the site is called, route "/".',
   },
 
 
@@ -784,7 +785,7 @@ export const PLAN_FIELDS = {
     type: "array",
     items: { type: "string" },
     description:
-      `Between 8 and ${MAX_COMPONENTS} components from the kit — what this one page needs. ` +
+      `At most ${MAX_COMPONENTS} components from the kit — what this one page needs, and no more. ` +
       "THIS IS A MANIFEST, NOT A SHORTLIST: the step that writes the page is shown the exact props of the " +
       "components you name here, so one you leave out is one it has to guess the props of — and a wrong guess " +
       "costs the page. You have just arranged the page above; name what its bands need, the ordinary " +
@@ -792,7 +793,7 @@ export const PLAN_FIELDS = {
       "wants menu-section and price-list, a live board wants countdown and live-badge. " +
       "A records screen wants data-table with row-actions, pagination and stat-card, not a stack of cards. " +
       "Naming a component that does not exist is refused and costs nothing; leaving one out is what hurts. " +
-      `Fewer than 8 and the page is thinner than it should be; everything past ${MAX_COMPONENTS} is dropped.\n\n` +
+      `Name only what this page really uses — a short list is a right answer; everything past ${MAX_COMPONENTS} is dropped.\n\n` +
       // THE WHOLE KIT, MOST-USED FIRST — and the order is information rather than
       // formatting: the head is what a small business site nearly always needs
       // and the tail is what one site in fifty does. Named here because a
@@ -996,13 +997,23 @@ export const SHAPE_FIELD = {
     "two bands saying one thing; end near the action, not after it; a band that bleeds keeps " +
     "its content in the frame; shopfronts breathe, tools are tight; controls stay big enough " +
     "for thumbs.\n" +
+    // THE LAW THE RUN-53 SITE NEEDED AND DID NOT HAVE (owner: "it just turned
+    // what it used to be 5 pages into one page, thats not my purpose"). That
+    // build stacked a pipeline, a deal record and a contact book — three
+    // working screens — down one scroll, each with its own controls, and every
+    // law above was satisfied: each band proved something, none repeated
+    // another. What was missing is the one that says a SECOND SCREEN is not a
+    // band at all.
+    "AND THE LAW OF THIS ONE PAGE: it does ONE job. A band that is really a second screen — " +
+    "another workspace, another record, another list with its own controls — is not a band, " +
+    "and it is LEFT OUT rather than stacked below. Cutting is the work here: a short page that " +
+    "does its one job beats a long one carrying somebody else's.\n" +
     // THE CLOSING LINE FLIPPED WITH THE ONE-PAGE CALL (2026-08-28). It used to
     // bless leaving thin pages out — right with five pages, and with one it
     // invited skipping the only arrangement there is. The pipeline fact it
     // carried (an absent entry is a page the writer improvises) survives inside
     // the new sentence, because a model not told that cannot know it.
-    "ALWAYS ARRANGE THE PAGE: an entry you leave out is a layout the page writer improvises, " +
-    "and the one page is the whole site.",
+    "ALWAYS ARRANGE THE PAGE: an entry you leave out is a layout the page writer improvises.",
 };
 
 /**
