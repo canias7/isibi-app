@@ -386,6 +386,47 @@ test("the css editor is told how MANY things to change and how WIDE each one rea
   // AND THE PLAIN RULE, which is the one the owner actually said out loud.
   assert.match(css, /NOTHING THEY DID NOT ASK FOR|did not ask for/i,
     "the css editor is not told to leave unasked-for things alone");
+  // "never edit more than what the user asked for", said twice by the owner and
+  // therefore stated as a hard line rather than implied by the count.
+  assert.match(css, /NEVER\s+MORE/i, "the ceiling on an edit is implied but never stated");
+});
+
+test("the edit lane is told the sheet is free CSS, and told it BESIDE the ceiling", () => {
+  // Owner, 2026-08-28: "instead of it being a specific theme, it's free css —
+  // the model can edit anything on the page… but when they ask one thing, you
+  // only edit one thing."
+  //
+  // The tool's cached `css` description is written for a FIRST build ("ONLY
+  // WHEN ASKED", "OMIT this field entirely unless…") and is shared by both
+  // lanes, so the edit lane has to override it in the user message or the model
+  // reconciles two framings on its own.
+  const from = EDIT_RULE.indexOf("A change to the LOOK");
+  const to = EDIT_RULE.indexOf("A change to the wording");
+  assert.ok(from >= 0 && to > from, "the css section's landmarks have moved");
+  // Windowed from the SECTION's start, which is now the free-CSS line rather
+  // than "A change to the LOOK" — derived by walking back to the blank-line
+  // boundary so the window cannot miss text inserted above the old anchor.
+  const head = EDIT_RULE.slice(0, from);
+  const sectionStart = head.lastIndexOf("\n", head.length - 2) + 1;
+  const css = EDIT_RULE.slice(sectionStart, to);
+
+  // THE PERMISSION HALF: unlimited in what may be changed.
+  assert.match(css, /yours to edit|free css|nothing on the page you cannot reach/i,
+    "the edit lane never says the stylesheet is the model's to edit");
+  assert.match(css, /never limited to what a theme offers|not limited to.*theme/i,
+    "the edit lane does not lift the first-build framing that the theme is the look");
+  // …and it must name the first-build framing it is overriding, or a model
+  // holding both has no way to know which one governs here.
+  assert.match(css, /FIRST build/i,
+    "the override never says WHICH instruction it is overriding — two framings, no precedence");
+
+  // THE CEILING HALF, in the same window. Either half alone misleads: permission
+  // without a ceiling invites a redesign, a ceiling without permission reads as
+  // a warning not to touch anything. The guard is that they travel TOGETHER.
+  assert.match(css, /NEVER\s+MORE/i,
+    "the edit lane grants free CSS without the ceiling beside it — that is an invitation to redesign");
+  assert.ok(css.search(/yours to edit/i) < css.search(/NEVER\s+MORE/i),
+    "the ceiling arrives before the permission — the model reads the licence last");
 });
 
 test("…and that rule really reaches the model, on the edit lane only", () => {

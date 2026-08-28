@@ -262,13 +262,27 @@ the words is thrown away. Measured 0 false alarms over 1,640 real tweaks.
 stylesheet — `text` and `picture` edit the page SOURCE, so a wording change never
 opens the sheet. On an edit the model is handed the site's current stylesheet
 (`currentStateNote`) and `css` is **REPLACED, not merged**, which is why the
-editor's contract lives in `EDIT_RULE` rather than in the cached tool: **as many
-edits as there were asks**, each **only as wide as it was asked** — a rule on a
-control, not a new value for a token every component repaints from — and
-**nothing unasked-for moves**. The width half is the one with teeth: "make this
-button darker" reads equally as one rule or one token, and only one of them is
-the edit the customer asked for. Stated as the mechanism, never as a ban-list —
-a list covers tonight's control and the next request is always a different one.
+editor's contract lives in `EDIT_RULE` rather than in the cached tool.
+
+**The contract is two opposite halves and they must arrive together** (owner,
+2026-08-28: *"it's free css — the model can edit anything on the page… but when
+they ask one thing, you only edit one thing"*):
+
+- **Unlimited in WHAT.** The sheet is the whole look and it is the model's to
+  edit; nothing on the page is out of reach. This says so explicitly *because the
+  cached `css` description is written for a first build* ("ONLY WHEN ASKED",
+  "OMIT this field entirely unless…") and is shared by both lanes — so the edit
+  lane names the framing it overrides, or the model reconciles two of them alone.
+- **Strict in HOW MUCH.** As many edits as there were asks and **never more**;
+  each **only as wide as it was asked** — a rule on a control, not a new value
+  for a token every component repaints from; and **nothing unasked-for moves.**
+
+Either half alone misleads: permission without a ceiling invites a redesign, a
+ceiling without permission reads as "don't touch anything". The width rule is the
+one with teeth — "make this button darker" reads equally as one rule or one
+token, and only one of them is the edit the customer asked for. Stated as the
+mechanism, never as a ban-list: a list covers tonight's control and the next
+request is always a different one.
 
 Every cheap edit republishes through `recompileAndPublish` — the shared spine.
 **Anything a build bakes must be sent by that spine too**, or a typo fix silently

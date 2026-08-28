@@ -70,6 +70,11 @@ owner signals one; move an item out of Open the moment it is resolved.
   something that the user hasn't told you to change."* And each change reaches
   only as far as the ask did — restyling one button is a rule for that button,
   not a new site-wide colour that happens to repaint it.
+- **Editing the look is FREE CSS, not a theme picker.** *"Instead of it being a
+  specific theme, it's free css — the model can edit anything on the page."*
+  Nothing on the page is out of reach of a rule. The freedom and the ceiling are
+  one instruction, never separated: anything may change, only what was asked
+  does.
 - **"They gotta be smart with the questions, not all the time."**
 - **"I just want it treated normal, like an attachment — the user will say what he
   wants that for, it's part of the conversation."**

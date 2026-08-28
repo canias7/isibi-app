@@ -324,6 +324,30 @@ export const EDIT_RULE =
   // says "printed above" on a turn where nothing was printed is an instruction
   // pointing at nothing, which is the stale-clause failure this repo has paid
   // for three times (`#/` hrefs, the `fonts` field, `publicView`).
+  // ── ON AN EDIT THE SHEET IS THE LOOK, NOT THE THEME (2026-08-28, owner) ────
+  //
+  // "instead of it being a specific theme, it's free css — the model can edit
+  // anything on the page." The tool's own `css` description is CACHED and
+  // SHARED by both lanes, and it is written for a FIRST build: "CSS ON TOP OF
+  // THE THEME, ONLY WHEN ASKED… OMIT this field entirely unless…". That is
+  // right where it stands — it is what stops a build writing a second whole
+  // design beside the theme it just picked — and it is the wrong instinct on an
+  // edit, where the customer has asked for something by definition and the site
+  // already has a sheet of its own.
+  //
+  // So the edit lane says so out loud rather than leaving the model to reconcile
+  // two framings by itself. Overriding a cached instruction from the user
+  // message is the ONLY way to differ per lane without splitting the tool in
+  // two and losing the ~10,800-token cache on every build.
+  //
+  // THE TWO HALVES ARE DELIBERATELY OPPOSITE, and both are the owner's words:
+  // unlimited in WHAT may be changed, strict in HOW MUCH. Saying only the first
+  // invites a redesign; saying only the second reads as a warning not to touch
+  // anything. They have to arrive together.
+  "THE STYLESHEET IS THE WHOLE LOOK AND IT IS YOURS TO EDIT. What the tool says about leaving the look to the " +
+  "theme is for a FIRST build; this site already has a sheet and it is printed above. There is nothing on the " +
+  "page you cannot reach with a rule — any element, any component, any state, any one page — so whatever they " +
+  "ask to look different, write the rule that does it. You are never limited to what a theme offers.\n" +
   "A change to the LOOK — a colour, a corner, a typeface, spacing, anything visual — is `css` and nothing else: " +
   "return the site's current stylesheet, printed above when the site has one, with ONLY that change made to it. " +
   "Whatever you return REPLACES the whole stylesheet, so a sheet written from scratch is a different design and " +
@@ -348,8 +372,9 @@ export const EDIT_RULE =
   //
   // NO WORKED EXAMPLE, deliberately — the owner's standing rule, and the one
   // thing a model reliably copies. Stated as the purpose and left there.
-  "YOU ARE EDITING A STYLESHEET, NOT WRITING ONE. Change exactly as many things as they asked for: one ask is " +
-  "one edit to the sheet, three asks are three. Everything else comes back exactly as it is printed above.\n" +
+  "YOU ARE EDITING A STYLESHEET, NOT WRITING ONE. Change exactly as many things as they asked for and NEVER " +
+  "MORE: one ask is one edit to the sheet, three asks are three. Everything else comes back exactly as it is " +
+  "printed above.\n" +
   "AND EACH ONE ONLY AS WIDE AS THEY ASKED. A change to one control is a rule for that control. A new value for " +
   "a token is not — every component that reads that token repaints, so a request about one button becomes a " +
   "different-looking site. Reach for a token only when what they named really is the whole site.\n" +
