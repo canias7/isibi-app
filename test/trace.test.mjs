@@ -179,7 +179,11 @@ test("the build route actually uses it", () => {
   assert.ok(pub > 0, "the publish closure moved — rescope this");
   const body = w.slice(pub, w.indexOf("writeSiteDistToR2(env, slug, dist", pub));
   assert.ok(body.length > 40, "the publish window is empty — rescope this");
-  assert.match(body, /await siteOgImage\(env, slug\)/,
+  // Arity-free — the call grew a dist argument for the composed card
+  // (2026-08-28), and the old `\(env, slug\)` pin failed that correct change:
+  // the own-goal the comment above this window already records for `publish:`.
+  // WHICH arguments it must carry is site-edit.test.mjs's derived guard.
+  assert.match(body, /await siteOgImage\(env, slug\b/,
     "the link-preview image is resolved before the build again, so a build that generates photographs has none");
   // …AND THE MARK BEFORE IT IS WHAT MAKES `og` MEAN THE LOOKUP.
   //
@@ -194,7 +198,7 @@ test("the build route actually uses it", () => {
   // presence: a `container` mark that lands after the lookup fixes nothing, and
   // matching the string alone would pass on exactly that.
   const cAt = body.indexOf('mark?.("container")');
-  const ogAt = body.indexOf("await siteOgImage(env, slug)");
+  const ogAt = body.indexOf("await siteOgImage(env, slug");
   assert.ok(cAt >= 0, "nothing closes the container's turn, so `og` times the whole build again");
   assert.ok(cAt < ogAt,
     "the container mark is taken AFTER the og lookup, so `og` still swallows generate and compile");

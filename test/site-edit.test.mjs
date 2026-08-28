@@ -830,7 +830,10 @@ test("a text edit keeps the site's name, description and preview image", () => {
     "the recompile no longer titles the site with its own name");
   assert.match(block, /description: \(look && look\.description\) \|\| undefined/,
     "a text edit strips the site's description again");
-  assert.match(block, /image: await siteOgImage\(env, slug\)/,
+  // …WITH THE DIST IT IS PUBLISHING (2026-08-28): `card.png` in that map is
+  // what the composed-card fallback keys on, so a call without it silently
+  // loses the card on this path while the build path keeps it.
+  assert.match(block, /image: await siteOgImage\(env, slug, built\.files\)/,
     "a text edit strips the site's link-preview image again");
   // …and the text route has to reach it, or the spine is correct and unused.
   assert.match(worker, /recompileAndPublish\(env, \{\s*\n?\s*slug: ownerSlug, pages: ed\.pages/,
@@ -889,8 +892,17 @@ test("A FAILED LOOK READ FAILS THE EDIT — never a stripped publish reported as
 test("the preview image is derived in ONE place, for both publish paths", () => {
   // The divergence that caused it: a build derived the image inline and the text
   // edit did not. Two implementations of "publish this site" is how the second
-  // quietly lacks what the first has.
-  assert.match(worker, /async function siteOgImage\(env, slug\)/, "the derivation is inlined again");
-  assert.equal((worker.match(/await siteOgImage\(env, /g) || []).length, 2,
-    "one of the two publish paths derives its own preview image again");
+  // quietly lacks what the first has. The function's ARITY is deliberately not
+  // pinned — it grew a third parameter (the dist, for the composed card) and
+  // the old `\(env, slug\)` pin failed that correct change, which is this
+  // repo's most repeated own-goal.
+  assert.match(worker, /async function siteOgImage\(/, "the derivation is inlined again");
+  const calls = [...worker.matchAll(/await siteOgImage\(env, slug, ([^)]+)\)/g)];
+  assert.equal(calls.length, 2,
+    "one of the two publish paths derives its own preview image again — or stopped passing its dist, which silently loses the composed-card fallback on that path");
+  // Each call hands over the dist it is about to publish, and they are two
+  // DIFFERENT maps — both naming one variable would mean one path publishes a
+  // card resolved against the other's files.
+  assert.deepEqual(calls.map((m) => m[1]).sort(), ["built.files", "dist"],
+    "a publish path resolves the card against a dist it is not publishing");
 });

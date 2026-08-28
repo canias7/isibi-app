@@ -380,7 +380,10 @@ test("both widths are checked, and the phone one is there", () => {
 
 test("the container RUNS the check and puts it on its response", () => {
   const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  assert.match(src, /import \{ checkRender \}/, "build-server must import it");
+  // The import list is not pinned whole — it grew `screenshotHtml` for the
+  // share card (2026-08-28), and `\{ checkRender \}` failed that correct change.
+  assert.match(src, /import \{[^}]*\bcheckRender\b[^}]*\} from "\.\/render-check\.mjs"/,
+    "build-server must import it");
   // FED THE ROUTES THE ROUTER HAS, AND THE SERVER THAT RENDERS THEM. It used to
   // be `checkRender(DIST, pre.done)` — the routes a build-time prerender had
   // actually written. Under Start there is no prerender: the document comes from

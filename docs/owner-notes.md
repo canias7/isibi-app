@@ -10,6 +10,31 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## The share card — every site gets a picture on its link now (2026-08-28)
+
+Your call ("ok build it"), after the live example: shoeroom-1's link had a photo
+card only because that build bought photographs; northgroup-17 — a tool, which
+buys none by design — had no picture at all, so its link showed the small grey
+text-only card forever.
+
+- **Now**: every build composes the card automatically — the business name (or
+  its drawn wordmark) and the description, on the theme's own colours, rendered
+  to a real 1200×630 image by the browser already inside the build container.
+  Free: no model call, no credits. Every publish refreshes it, so a rename or a
+  new description updates the card too.
+- **Your picture still wins**: if you've uploaded an image, that stays the
+  card, same precedence as the logo. And a visitor's upload can never become
+  your card — it now falls back to our own artwork instead of a stranger's
+  file.
+- **Two limits, stated**: a site made dark through custom CSS gets a light-
+  theme card (the card reads the theme, not the custom sheet); and CJK
+  business names aren't covered by the fonts installed for it yet.
+- **Proven**: three cards rendered through the real pipeline and looked at;
+  real container builds carry `card.png` at the exact size the chat apps want,
+  and the drawn-wordmark path composes too.
+- **Not yet seen live** — same 18-credit balance; the first build after a
+  top-up shows the favicon, the wordmark and the share card at once.
+
 ## The logo is a design step too — the name in type, or a drawn wordmark (2026-08-28)
 
 Your call: "for the logo, either do the text or an svg logo, any of those 2 is

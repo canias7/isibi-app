@@ -238,6 +238,28 @@ export async function launchChromium(chromium) {
 }
 
 /**
+ * One self-contained HTML document → a PNG at exactly the given size. The
+ * share card's rasteriser (site-card.mjs composes the strings; this module
+ * drives the browser), and it lives HERE because `render-sandbox.test.mjs`
+ * bans `import(` from build-server.mjs outright — the module-registry leak
+ * and the model-bundle-in-our-process boundary — so the one playwright-core
+ * import stays in the file that has always owned it.
+ *
+ * Throws on any failure; the caller decides what a failure costs (for the
+ * card: the card, never the build).
+ */
+export async function screenshotHtml(html, { width, height }) {
+  const { chromium } = await import("playwright-core");
+  const { browser } = await launchChromium(chromium);
+  try {
+    const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1 });
+    const page = await ctx.newPage();
+    await page.setContent(String(html), { waitUntil: "load", timeout: 10000 });
+    return await page.screenshot({ type: "png", timeout: 10000 });
+  } finally { await browser.close(); }
+}
+
+/**
  * Look at every route the router has, at every width.
  *
  * `routes` is what the site's own router declares, so this checks the documents

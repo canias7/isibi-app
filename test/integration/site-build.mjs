@@ -1137,6 +1137,25 @@ try {
     ok("a build with no designed mark reports none", (built.brand || {}).favicon === false,
       JSON.stringify((built.brand || {}).favicon));
 
+    // ── the composed share card (2026-08-28) ────────────────────────────────
+    //
+    // Only a real build can prove the compose: the unit suite reads the source
+    // and cannot see whether a browser really rasterised anything. The PNG's
+    // own header is the assertion — a file of the wrong size, or one that is
+    // not a PNG at all, is a card no unfurler will show.
+    const cardB64 = ((built.files || {})["card.png"] || {}).b || "";
+    ok("every build composes a share card into its dist", !!cardB64,
+      "no card.png in the dist — the compose step did not run or did not land");
+    if (cardB64) {
+      const png = Buffer.from(cardB64, "base64");
+      ok("…and it is a real PNG", png.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+        png.subarray(0, 8).toString("hex"));
+      ok("…at the exact size every unfurler wants", png.readUInt32BE(16) === 1200 && png.readUInt32BE(20) === 630,
+        png.readUInt32BE(16) + "x" + png.readUInt32BE(20));
+      ok("…and big enough to be a rendered card rather than a blank", png.length > 5000, png.length + " bytes");
+    }
+    ok("the response says the card was made", built.card === true, JSON.stringify(built.card));
+
     // A LOGO ON A SITE WITH NO HEADER IS HARMLESS, and that is the only thing
     // this build can honestly say about one. These fixtures render no
     // `SiteChrome`, so nothing imports `site-brand.ts` and Vite tree-shakes it
@@ -1214,6 +1233,12 @@ try {
     // correctly absent from the JS — the logo comment further up records the
     // same wrong draft twice for the `logo` field. The proof that the header
     // GETS the drawn wordmark is a render, on the chrome-using build below.
+
+    // A build that DREW a wordmark takes the drawn-mark path through the card
+    // compose — presence is what a harness can honestly assert (which artwork
+    // is in the pixels is not readable from bytes).
+    ok("a wordmark build composes its card too", !!(((withMark.files || {})["card.png"] || {}).b),
+      "the drawn-wordmark path through the compose did not land a card");
   }
 
   console.log("\nbuilding a page with a type error…");

@@ -49,7 +49,8 @@ import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { runStep } from "./run-step.mjs";
 import { startSiteServer } from "./site-ssr.mjs";
-import { checkRender } from "./render-check.mjs";
+import { checkRender, screenshotHtml } from "./render-check.mjs";
+import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
 import { readCss, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
 
@@ -1714,6 +1715,51 @@ const server = http.createServer((req, res) => {
         render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, routePaths(), ssr.fetch, ssr.down));
       } finally { ssr.stop(); }
 
+      // ── THE SHARE CARD, COMPOSED FREE (2026-08-28, owner's call) ────────────
+      //
+      // The picture a chat app shows when this site's link is pasted somewhere:
+      // the name (or the drawn wordmark) and the description on the theme's own
+      // paper and ink, screenshotted at 1200×630 by the same Chromium the
+      // render check just used. Written INTO `dist/client`, so `collectDist`
+      // below publishes it like any other asset and the per-build `DIST` wipe
+      // in `resetRoutes` makes a cross-build leak impossible by construction —
+      // one site's card on another site's link preview is the leak class the
+      // per-build icon and logo rms exist for, closed here by where the file
+      // lives rather than by an rm.
+      //
+      // BEST-EFFORT LIKE THE RENDER CHECK, and for the same reason: a site
+      // whose data layer is live and whose pages compiled must not be lost
+      // over a decoration. A failed compose costs the card (the worker's
+      // og:image resolution simply finds no `card.png` and the share preview
+      // degrades to the text-only card every site had before this) — reported
+      // as `card: false` on the response, never as a failed build.
+      //
+      // THE WORDMARK IS READ OUT OF THIS BUILD'S OWN DIST, not `public/` —
+      // `dist` was wiped this build, so `logo.svg` being there means THIS
+      // build drew it, with no staleness question to reason about.
+      let cardMade = false;
+      try {
+        await timed("cardMs", null, null, async () => {
+          const wmPath = path.join(CLIENT_DIST, "logo.svg");
+          const html = cardHtml({
+            title: payload.title,
+            description: payload.description,
+            colors: cardColors(resolveTheme(payload.theme), payload.tokens),
+            wordmarkSvg: brandUsed.wordmark && fs.existsSync(wmPath) ? fs.readFileSync(wmPath, "utf8") : null,
+          });
+          // The browser drive lives in render-check.mjs — build-server may not
+          // `import(` anything at runtime (render-sandbox's boundary), and that
+          // file is the one that has always owned playwright.
+          const shot = await screenshotHtml(html, { width: CARD_W, height: CARD_H });
+          fs.writeFileSync(path.join(CLIENT_DIST, "card.png"), shot);
+          cardMade = true;
+        });
+      } catch (e) {
+        // The card is decoration; the build is not. Named in the log because a
+        // silent compose failure reads as the feature switched off.
+        console.error("share card compose failed:", e && e.message);
+      }
+
       // ONLY THE CLIENT HALF IS PUBLISHED. Start emits `dist/client/**` (what a
       // visitor downloads) and `dist/server/server.js` (the script that renders).
       // `collectDist(DIST)` would publish BOTH — so every asset would land at
@@ -1788,7 +1834,7 @@ const server = http.createServer((req, res) => {
       // because "we thought this was sandboxed" is a worse position than knowing
       // it is not, and the one thing a check like this must not do is report a
       // confinement that is not there.
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, card: cardMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

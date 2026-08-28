@@ -9090,6 +9090,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // back to initials because somebody corrected a typo.
           favicon: (look && look.favicon) || undefined,
           wordmark: (look && look.wordmark) || undefined,
+          // THE DESCRIPTION, ON THE SPINE TOO — the container re-composes the
+          // share card on EVERY publish, so a text fix that does not carry it
+          // republishes a card with the name and no sentence under it.
+          description: (look && look.description) || undefined,
           // ── THE LOOK IS THE THEME PLUS THE STYLESHEET (2026-08-27) ──────────
           //
           // ON THE SPINE, which is the half that is easy to miss: every text
@@ -9165,7 +9169,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   const wrote = await writeSiteDistToR2(env, slug, built.files, {
     brand: (look && look.brand) || slug,
     description: (look && look.description) || undefined,
-    image: await siteOgImage(env, slug),
+    image: await siteOgImage(env, slug, built.files),
     url: siteUrlFor(slug, "https://" + APP_ZONE),
     slug,
     // THE STORED VERIFICATION, carried on every publish path. The sidecar is
@@ -9298,23 +9302,30 @@ async function siteRedirectFor(env, slug, path) {
   } catch (e) { console.error("site redirect lookup failed:", slug, e && e.message); return null; }
 }
 
-async function siteOgImage(env, slug) {
+async function siteOgImage(env, slug, dist) {
+  // THE COMPOSED CARD, AS THE FLOOR (2026-08-28, owner's call). `dist` is the
+  // build being published RIGHT NOW, so `card.png` in it means the container
+  // composed a share card this publish — computed up front because two of the
+  // three exits below want it, and an upload-listing failure must degrade TO
+  // the card rather than past it.
+  const card = dist && dist["card.png"]
+    ? siteOrigin(slug, "https://" + APP_ZONE) + "/card.png"
+    : null;
   try {
-    if (!env.SITES_BUCKET) return null;
+    if (!env.SITES_BUCKET) return card;
     const objs = await siteUploadList(env, slug);
-    // OWNER UPLOADS ONLY — no `|| objs[0]` fallback. That fallback fired
-    // exactly when the library held ONLY visitor uploads, which is a common
-    // state (no photograph has ever been generated and most owners upload
-    // nothing) — so on any site whose form accepts a picture, a stranger's
-    // upload became the business's WhatsApp/Slack/Facebook preview image on
-    // the next publish (2026-08-13 audit). The `.find` shows owner-preference
-    // was the intent; the fallback silently undid it in the one case where it
-    // mattered. No image beats an uncurated stranger's image: the card
-    // degrades to `summary`, which site-meta already handles.
+    // OWNER UPLOADS FIRST — a person's own picture beats the composed card,
+    // the same precedence the logo and the icon live under. And no `|| objs[0]`
+    // fallback past the `.find`: that fallback fired exactly when the library
+    // held ONLY visitor uploads, so on any site whose form accepts a picture,
+    // a stranger's upload became the business's WhatsApp/Slack/Facebook
+    // preview image on the next publish (2026-08-13 audit). A visitor's
+    // upload must not beat the composed card either — the card degrades to
+    // OUR OWN artwork now, never to an uncurated stranger's.
     const first = objs.find((o) => o && !o.visitor);
-    if (!first) return null;
+    if (!first) return card;
     return siteOrigin(slug, "https://" + APP_ZONE) + "/u/" + slug + "/" + first.key.split("/").pop();
-  } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
+  } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
 async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
@@ -9657,6 +9668,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // And the header logo choice — `text` or a drawn SVG — under the
           // owner's uploaded logo the same way.
           wordmark: wordmark || undefined,
+          // THE CUSTOMER-FACING SENTENCE, for the share card the container
+          // composes (2026-08-28). The worker injects it into the head at
+          // publish; the container needs it too because the card is PIXELS —
+          // a description that reaches the meta and not the card is a preview
+          // whose text and picture disagree.
+          description: siteDescription || undefined,
           // THE THEME UNDER EVERYTHING (2026-08-27, owner's call) and the pair
           // of typefaces it was designed around. `writeTheme` renders the
           // registry theme first, so the model's stylesheet below lands ON TOP
@@ -9758,7 +9775,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // slow build off that trace optimises the wrong thing. `pages` below
       // carries the real breakdown in its extras.
       try { mark?.("container"); } catch { /* a trace must never break a build */ }
-      const ogImage = await siteOgImage(env, slug);
+      const ogImage = await siteOgImage(env, slug, dist);
       // THE `og` MARK MOVED WITH THE WORK IT TIMES. It used to sit before the
       // build; the lookup is the same R2 list, it just happens after the
       // photographs exist now, so leaving the mark behind would have timed
