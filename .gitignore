@@ -8,3 +8,6 @@ dist/
 dist-ssr/
 .DS_Store
 shots/
+
+# Scratch log written by scripts/build-as-owner.mjs on a local run
+build-as-owner-log.md
