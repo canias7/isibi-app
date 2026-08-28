@@ -1051,7 +1051,11 @@ try {
         // design (`loaded` in server.ts — one dispatch script serves one site),
         // so the instance above has already cached the upload-shaped meta; the
         // query string is Node's fresh-isolate equivalent.
-        const cardSide = { ...objs, "sitemeta/fold-coffee.json": JSON.stringify({ ...META, image: META.origin + "/card.png" }) };
+        // `pageUrl`, not `META.origin + "..."` — the origin ends in a slash, so
+        // gluing a path onto it builds the very double-slash address this leg
+        // was extended to catch. The card is a real published file at the site
+        // root, so its URL is composed exactly the way a page's is.
+        const cardSide = { ...objs, "sitemeta/fold-coffee.json": JSON.stringify({ ...META, image: pageUrl("/card.png") }) };
         const site2 = (await import("file://" + bundleFile + "?cardmeta")).default;
         const cardDoc = await (await site2.fetch(new Request("https://fold-coffee.gofarther.app/"), { SITES: bucketOf(cardSide) }, { waitUntil() {} })).text();
         ok("the composed card's og:image claims its pinned size",
