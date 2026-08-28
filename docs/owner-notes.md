@@ -18751,3 +18751,39 @@ still reaches the route at all.
 
 A survivor whose cause you already know costs nothing. The same survivor found
 cold costs an hour hunting through code that is fine.
+
+## 2026-08-27 — the 500 themes are back as the base, and the model's CSS waits to be asked
+
+Your call, after looking at the contact sheet: "we are gonna have the 500
+themes, and with the option if user wants a specific thing then the free css
+comes in as customer requested."
+
+That is exactly what shipped. Every build now starts from one of the 500
+hand-designed themes — the designer picks it by name from the full list, not
+the old 100-theme shortlist — and the model only writes CSS of its own when the
+customer's own words asked for something specific: a colour they named, a mood
+no theme covers, pill buttons, one page treated differently. When they do, it
+writes only the rules that answer the ask, and those rules land AFTER the theme
+in the stylesheet, so they win exactly where they speak and the theme holds
+everywhere else. The two guards from the button bug and the northgroup-15
+shell bug still sit between them and win either way.
+
+Nice surprise on the way: every theme still had its font pairing in the data —
+so the typefaces came back for free. A theme now brings its palette, its dark
+mode, its corners, shadows, spacing AND its two typefaces, and "switch it to
+noir" is a cheap look edit, no rebuild.
+
+What I did NOT wire: the favicon still uses the name-hash colour rather than
+the theme's accent (different colour formats — it's its own small job if you
+want it).
+
+Proven against the real build container three ways (the theme reaches the
+compiled stylesheet and overrides the template; four themes photograph as four
+different sites in light and dark; an unknown theme name can't break a build —
+it publishes on the default look and the note says which name failed). 4,370
+tests green, mutation sweep 8/8.
+
+NOT proven live: the balance is ~11 credits and a build needs ~17+, so no real
+build has run against it yet. Also note the container image changes with this
+push — if you top up and want a proving build, give the deploy 15–20 minutes
+before firing it.

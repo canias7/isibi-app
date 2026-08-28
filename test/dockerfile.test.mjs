@@ -190,8 +190,15 @@ test(`every path the ${svc.name} Dockerfile COPYs exists on disk`, () => {
 test(`the ${svc.name} COPY-exists check can actually fail`, () => {
   // Driven rather than asserted: a checker that returns [] for everything passes
   // the test above perfectly, on a Dockerfile naming a path that is not there.
-  const bogus = copySources("COPY build-server.mjs theme-candidates/ ./\n").filter((c) => !c.staged);
-  assert.deepEqual(missingFromContext(bogus, svc.dir), ["theme-candidates/"],
+  //
+  // `ghost-batches/`, not `theme-candidates/` — that was the fixture's missing
+  // path from the day the real directory left the build context, and on
+  // 2026-08-27 the registry came BACK and the ghost got a body: the exact path
+  // this test fed the checker as guaranteed-absent became a real COPY again,
+  // and the can-fail proof failed against correct code. The fixture path is now
+  // one nothing will ever create.
+  const bogus = copySources("COPY build-server.mjs ghost-batches/ ./\n").filter((c) => !c.staged);
+  assert.deepEqual(missingFromContext(bogus, svc.dir), ["ghost-batches/"],
     "the checker did not flag a path that is not on disk — it would pass on the exact Dockerfile that broke the deploy");
 });
 

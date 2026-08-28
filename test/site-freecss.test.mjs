@@ -167,8 +167,14 @@ test("THE FIVE LOOK FIELDS ARE GONE FROM THE TOOL, at every layer they were live
   }
   const required = worker.match(/required: \[[^\]]*\],\s*\n\s*\},\s*\n\};/);
   assert.ok(required, "could not find design_schema's required list");
-  assert.match(required[0], /"css"/,
-    "the stylesheet is not compelled, so a site whose designer omits it ships the template's plain default look");
+  // `theme`, NOT `css`, since 2026-08-27: the registry returned and the look
+  // every build must have is the theme's — compelling `css` would force a model
+  // sheet onto every build against its own on-request contract. The five old
+  // fields stay off the required list either way.
+  assert.match(required[0], /"theme"/,
+    "the theme is not compelled, so a site whose designer omits it ships the template's plain default look");
+  assert.doesNotMatch(required[0], /"css"/,
+    "`css` is compelled again — the on-request contract is broken on every build");
   for (const gone of ["seeds", "fonts", "style", "tokens", "tokensPage"]) {
     assert.doesNotMatch(required[0], new RegExp('"' + gone + '"'),
       "`" + gone + "` is required and the tool no longer offers it — every build 400s");
@@ -232,11 +238,19 @@ test("…AND THE ENGINES THEY DROVE ARE GONE TOO, which is the 2026-08-24 half",
       [/\n\s+style: /, "a payload carries the style axes again"],
       [/\n\s+pageTokens: /, "a payload carries per-page colours again"],
       [/\n\s+pageFonts: /, "a payload carries per-page typefaces again"],
-      [/\n\s+fonts: /, "a payload carries a resolved typeface pair again"],
+      // `fonts:` LEFT THIS LIST ON 2026-08-27: the pair flows again, and only
+      // as `themeFontPair(theme)` — the theme's own curated recommendation,
+      // never the model's answer and never the stored look's. The shape is
+      // pinned below rather than forbidden here.
     ]) assert.doesNotMatch(body, re, why);
-    // …AND IT STILL CARRIES THE ONE THING IT MUST, or the six absences above
-    // pass on a payload that has stopped describing a look at all.
+    // …AND IT STILL CARRIES WHAT IT MUST, or the absences above pass on a
+    // payload that has stopped describing a look at all. `theme` and the
+    // theme-derived pair joined `css` when the registry returned — a payload
+    // missing either is a themed site republishing on the plain template.
     assert.match(body, /\n\s+css: /, "a container payload no longer carries the stylesheet");
+    assert.match(body, /\n\s+theme: /, "a container payload no longer carries the theme — a themed site republishes plain");
+    assert.match(body, /\n\s+fonts: themeFontPair\(/,
+      "a payload's typeface pair no longer comes from the theme's own recommendation");
   }
   // AND THE ONE THING THAT DID SURVIVE, because the seven absences above pass
   // perfectly on a platform where no site can have a look at all: the stylesheet
@@ -570,15 +584,22 @@ test("EXACTLY ONE STORED FIELD DECIDES WHAT A SITE LOOKS LIKE", () => {
 });
 
 test("AND ITS ENGINE RUNS IN EXACTLY ONE PLACE", () => {
-  // A PALETTE IS JUDGED IN THE CONTAINER AND NOWHERE ELSE, which was already
-  // this repo's rule and is now also the reason `site-seeds.mjs` survives at
-  // all: `site-identity.mjs` derives the favicon's ground from one, and the
-  // container is still where one would become CSS if anything sent one.
+  // A LOOK IS RENDERED IN THE CONTAINER AND NOWHERE ELSE, which was already
+  // this repo's rule. Since 2026-08-27 the look's base is a REGISTRY THEME:
+  // `writeTheme` resolves the name through `resolveTheme` in the container, and
+  // the Worker never renders one — its only judging is `FIELD_KEEPS.theme`
+  // asking the same registry whether an answer counts, which is a different
+  // question at a different moment, not a second rendering.
   //
-  // WHAT CHANGED IS THAT NOTHING SENDS ONE. So the Worker importing the engine
-  // is no longer belt-and-braces, it is a second place a look could be decided.
+  // `normalizeSeeds` LEFT build-server WITH THE SEEDS ERA — the palette engine
+  // survives inside `site-identity.mjs`, where `markGround` still derives a
+  // favicon ground from any stored 2026-08-20-era seeds — and the Worker must
+  // not regain it: two places judging one palette is how the same colours get
+  // refused on one path and accepted on the other.
   assert.doesNotMatch(code, /normalizeSeeds\(/,
     "the Worker judges a palette again — two places can now refuse the same colours");
-  assert.match(container, /normalizeSeeds\(/,
-    "the container no longer judges a palette, so the favicon's ground is unchecked");
+  assert.match(container, /resolveTheme\(/,
+    "the container no longer resolves the theme — every themed site ships the default look");
+  assert.match(read("builder/site-identity.mjs"), /normalizeSeeds\(/,
+    "the favicon's ground is no longer judged by the one palette engine");
 });

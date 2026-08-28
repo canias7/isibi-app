@@ -140,11 +140,16 @@ test("every build payload an integration harness posts is read by the container"
 test("the walker really finds a dead key — it is not passing over nothing", () => {
   // Drives the extractor over the exact shape both stale harnesses had, so the
   // check above cannot go quietly vacuous the day the anchors change.
-  const src = 'const built = await post({ files: ROUTES, slug: "look", title: "Cutler Row", theme });\n';
+  // `mode`, not `theme`: this fixture's dead key was `theme` until 2026-08-27,
+  // when the registry returned and the container legitimately started reading
+  // `payload.theme` — the premise assertion below is what caught that, which is
+  // its job. `mode` went on 2026-08-23 and has no way back (site-dark.test.mjs
+  // holds the absence), so it is the stable choice of a key nothing reads.
+  const src = 'const built = await post({ files: ROUTES, slug: "look", title: "Cutler Row", mode });\n';
   const open = src.indexOf("{", src.indexOf("post("));
   const keys = topKeys(src, open, bracketEnd(src, open));
-  assert.deepEqual(keys, ["files", "slug", "title", "theme"]);
-  assert.ok(!containerReads().has("theme"), "payload.theme is read again — this guard's premise has moved");
+  assert.deepEqual(keys, ["files", "slug", "title", "mode"]);
+  assert.ok(!containerReads().has("mode"), "payload.mode is read again — this guard's premise has moved");
 });
 
 test("the walker is not fooled by a nested object or a template literal", () => {

@@ -260,6 +260,13 @@ test("A TYPEFACE IS NAMED IN THE STYLESHEET NOW — the enum is gone and cannot 
   // a `fonts` field quietly restored to the tool would not fail anything obvious
   // — it would simply give the model two ways to choose a typeface and let them
   // disagree, with whichever ran last winning.
+  //   5. STILL GONE FROM THE TOOL, AND THE PAIR FLOWS AGAIN — FROM THE THEME
+  //      (2026-08-27, owner's call). The registry returned, so position 2's
+  //      premise is back: an unasked site wears `themeFontPair(theme)`, the
+  //      curated pairing carried by the theme it is wearing. The model still
+  //      has exactly ONE way to name a face of its own — a `font-family` in
+  //      its `css` — so the two-ways-to-choose hazard this absence guards
+  //      stays closed: the theme recommends, the stylesheet overrides.
   const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
   const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   assert.doesNotMatch(code, /enum: SITE_FONT_IDS/,
@@ -269,32 +276,33 @@ test("A TYPEFACE IS NAMED IN THE STYLESHEET NOW — the enum is gone and cannot 
   const required = src.match(/required: \[[^\]]*\],\s*\n\s*\},\s*\n\};/);
   assert.ok(required, "could not find design_schema's required list");
   assert.doesNotMatch(required[0], /"fonts"/, "a deleted field cannot be required");
-  assert.match(required[0], /"css"/,
-    "the stylesheet is not compelled, so a site whose designer omits it ships the template's plain default look");
+  // `theme`, NOT `css`, is what is compelled since 2026-08-27: the look every
+  // build must have is the theme's, and compelling `css` would force a model
+  // sheet onto every build against its own "omit unless asked" contract.
+  assert.match(required[0], /"theme"/,
+    "the theme is not compelled, so a site whose designer omits it ships the template's plain default look");
+  assert.doesNotMatch(required[0], /"css"/,
+    "`css` is compelled again — the on-request contract is broken on every build");
 
-  // ── AND THE STORED PAIR NO LONGER FLOWS, WHICH IS THE 2026-08-24 HALF ──────
-  //
-  // This asserted the OPPOSITE until then, and the reasoning was right on its
-  // own premise: a site built between 2026-08-20 and 2026-08-23 has a pairing in
-  // `site_look`, so dropping the carry would have stripped its typeface on the
-  // owner's next typo fix. What changed is the measurement — all 25 sites are
-  // ours — and the owner's call that the look is the stylesheet alone.
-  //
-  // `mergeLook` STILL KEEPS A STORED PAIR, and that is deliberate rather than an
-  // oversight: `EDIT_FIELDS` is what `site-edit.mjs` rebuilds from, and a name
-  // dropped there is a value silently destroyed on the next unrelated edit. The
-  // pair is kept and simply never sent, so nothing is lost and nothing is used.
+  // `mergeLook` STILL KEEPS A STORED PAIR, deliberate rather than an oversight:
+  // `EDIT_FIELDS` is what `site-edit.mjs` rebuilds from, and a name dropped
+  // there is a value silently destroyed on the next unrelated edit. Stored
+  // pairs exist only on 2026-08-20-era sites and nothing sends them.
   assert.deepEqual(mergeLook({ fonts: { heading: "lora", body: "geist" } }, {}, null, { instructed: true }).fonts,
     { heading: "lora", body: "geist" },
     "a stored pair is now destroyed rather than merely ignored");
-  // AND NO PAYLOAD CARRIES IT. Asserted as an absence, which is the half that
-  // rots: a `fonts:` line quietly restored to either container payload gives the
-  // container a pairing to write beside the stylesheet, and the two can then
-  // name different faces with whichever the compiler reads last winning.
+  // THE PAIR ON THE WIRE IS THE THEME'S RECOMMENDATION AND NOTHING ELSE. The
+  // stored `look.fonts` (a model's answer from the 2026-08-20 era) must never
+  // flow again, and no payload may resolve a pair by hand — `themeFontPair`
+  // is the one source, on both spines, derived-at-payload so a re-tuned
+  // pairing reaches every site on its next publish.
   assert.doesNotMatch(src, /\n\s+fonts: look\.fonts,/,
     "the stored pair reaches buildAndPublishPages again — a second way to choose a typeface");
   assert.doesNotMatch(src, /fonts: \{ heading: [a-zA-Z]+\.heading\.id/,
     "a container payload carries a resolved pair again");
+  const pairSends = src.match(/fonts: themeFontPair\([^)]*\) \|\| undefined,/g) || [];
+  assert.equal(pairSends.length, 2,
+    "expected the theme's pair on exactly the two container payloads, found " + pairSends.length);
   // …AND THE ONE ROUTE A TYPEFACE HAS IS STILL OPEN, or the two absences above
   // pass perfectly on a platform where no site can have a font at all.
   assert.match(src, /fetchSiteFonts\(cssRead\.fonts \|\| \[\]\)/,

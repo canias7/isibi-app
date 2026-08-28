@@ -791,7 +791,10 @@ test("THE CONTAINER MERGES BEFORE IT RENDERS", () => {
   // keeps those in `.authored`. So handing it here drops a hand-written backdrop
   // silently: validated by the Worker, stored in `_meta`, sent over the wire, and
   // thrown away one line before the only function that could render it.
-  assert.match(server, /writeTheme\(payload\.seeds, \{[^}]*style: payload\.style\b/,
+  // `payload.theme` since 2026-08-27 (the registry returned; the base of the
+  // look is a name again) — the property this pins is unchanged: the WHOLE
+  // patch reaches writeTheme, never the parsed enum map.
+  assert.match(server, /writeTheme\(payload\.theme, \{[^}]*style: payload\.style\b/,
     "writeTheme is given the parsed enum map, so an authored backdrop can never reach applyStyle");
   // BOTH HALVES OF THE PAGE TRANSITION STILL READ ONE SOURCE, which is what this
   // assertion has always been for. They are no longer the same EXPRESSION — one

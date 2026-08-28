@@ -137,21 +137,31 @@ test("the frontend prompt names both kinds — the mold is no longer hard-coded 
     "the first sentence hard-codes one kind again — the espresso-machine mold restored");
 });
 
+// The css field's opening sentence — ONE anchor for the four guards below,
+// because four copies of a spelling is four tests that go red together on a
+// rewording (which is exactly what happened when the field's opener changed
+// from "THE SITE'S ENTIRE STYLESHEET" to the on-request contract, 2026-08-27).
+const CSS_FIELD_OPEN = "CSS ON TOP OF THE THEME, ONLY WHEN ASKED";
+
 test("the css field carries the axes as a DECISION LIST — no options, no engine", () => {
   // Owner's call, 2026-08-27: "lets do the test build with this new axes."
-  // The 65-axis list returns as decisions the model must make in its own
+  // The 65-axis list returns as decisions the model makes in its own
   // stylesheet — squared with the 2026-08-22 law ("no names, the model writes
-  // its own css") by carrying no options and driving no engine.
+  // its own css") by carrying no options and driving no engine. Since the
+  // themes returned the same day, the list is GATED — it binds when the
+  // customer asked for a whole custom look, not on every build.
   const src = bare(WORKER);
-  const at = src.indexOf("THE SITE'S ENTIRE STYLESHEET");
+  const at = src.indexOf(CSS_FIELD_OPEN);
   assert.ok(at > 0, "the css field moved — this guard is reading nothing");
   const end = src.indexOf("\n      },", at);
   assert.ok(end > at, "the css field's close moved");
   const field = src.slice(at, end).replace(/" \+\s*"/g, "");
   // The load-bearing sentences, as content floors — each is an instruction
   // whose deletion is silent.
-  assert.match(field, /DECIDE EVERY AXIS BELOW, IN THE STYLESHEET ITSELF — there are no options; you write the rules/,
-    "the axes' framing sentence is gone — the list reads as a menu or not at all");
+  assert.match(field, /WHEN THE CUSTOMER ASKS FOR A LOOK OF YOUR OWN[\s\S]{0,120}decide every axis below, in the stylesheet itself/,
+    "the axes' framing sentence is gone — the list reads as a menu, or as unconditional again");
+  assert.match(field, /For a single ask, write only the rules that answer it/,
+    "the single-ask restraint is gone — every colour request invites a whole design");
   for (const group of ["MOTION —", "TYPE —", "LAYOUT —", "SURFACE & DEPTH —", "SCROLL —", "SCALE —"]) {
     assert.ok(field.includes(group), "the " + group.slice(0, -2) + " group is gone from the axes");
   }
@@ -163,8 +173,10 @@ test("the css field carries the axes as a DECISION LIST — no options, no engin
   // …AND THE OMISSION: `direction` is the language system's, and a style axis
   // for it re-breaks every right-to-left site. Asserted on the axes block
   // alone, because direction-adjacent words legitimately appear elsewhere in
-  // the field.
-  const axes = field.slice(field.indexOf("DECIDE EVERY AXIS"), field.indexOf("The sheet itself IS the theme"));
+  // the field. The block closes on the layering sentence now — the old close
+  // was "The sheet itself IS the theme", a claim the registry's return made
+  // false.
+  const axes = field.slice(field.indexOf("WHEN THE CUSTOMER ASKS FOR A LOOK"), field.indexOf("A full sheet REPLACES the theme's answers"));
   assert.ok(axes.length > 500, "the axes block collapsed — the omission check below is reading nothing");
   assert.doesNotMatch(axes, /direction/i,
     "`direction` became an axis — a stylesheet fighting `dirFor` re-breaks RTL");
@@ -181,7 +193,7 @@ test("a tool keeps one frame on every page — the css field says so (2026-08-27
   // must sit in the css FIELD — the layer that wrote the bad rule — not in a
   // prompt the stylesheet writer never reads.
   const src = bare(WORKER);
-  const at = src.indexOf("THE SITE'S ENTIRE STYLESHEET");
+  const at = src.indexOf(CSS_FIELD_OPEN);
   assert.ok(at > 0, "the css field description is no longer where this test looks");
   const end = src.indexOf("\n      },", at);
   assert.ok(end > at, "the css field never closes");
@@ -214,7 +226,7 @@ test("a tool keeps one frame on every page — the css field says so (2026-08-27
 
 function cssFieldText() {
   const src = bare(WORKER);
-  const at = src.indexOf("THE SITE'S ENTIRE STYLESHEET");
+  const at = src.indexOf(CSS_FIELD_OPEN);
   assert.ok(at > 0, "the css field moved — this guard is reading nothing");
   const end = src.indexOf("\n      },", at);
   assert.ok(end > at, "the css field's close moved");

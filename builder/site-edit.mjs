@@ -31,6 +31,7 @@
 
 import { PLAN_EDIT_FIELDS } from "./site-plan.mjs";
 import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
+import { resolveTheme } from "./site-theme-registry.mjs";
 
 /**
  * The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths.
@@ -54,10 +55,14 @@ import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
  * alone. Drop the name and the next revise of an existing site silently discards
  * the only record of what its layout was, taking the fallback with it.
  */
-// `theme` WAS A NAME AND IS NOW `seeds`, AN AUTHORED PALETTE (2026-08-20). The
-// field moved rather than being added beside it: a site cannot wear a registry
-// name and an authored palette at once, and keeping both would leave two answers
-// to "what colour is this site" with the wrong one winning on some path.
+// `theme` IS A NAME AGAIN (2026-08-27, owner's call — the 500 themes are the
+// base of every build, the model's free `css` is the on-request layer). It was
+// a registry name until 2026-08-20, an authored `seeds` palette through the
+// free-CSS era, and it returns as the name the tool's enum compels. The old
+// rule that a site cannot wear a name and a palette at once still decides the
+// PRECEDENCE: the container renders the theme and nothing sends seeds any more,
+// so the stored seeds on 2026-08-20-era sites are inert history, kept below
+// only so the merge does not destroy the record.
 //
 // ── `seeds` AND `fonts` STAY HERE THOUGH THE TOOL NO LONGER ASKS FOR EITHER ──
 //
@@ -75,7 +80,7 @@ import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
 // `mergeLook` keeps only what is named here and drops everything else stored on
 // the object, so a stylesheet folded into `site_look` would be lost the first
 // time an edit moved a plan axis.
-export const EDIT_FIELDS = ["brand", "description", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs"];
+export const EDIT_FIELDS = ["brand", "description", "theme", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs"];
 
 /**
  * Nothing is required of an EDIT.
@@ -112,6 +117,12 @@ export function currentStateNote(current) {
   const add = (label, v) => { const s = str(v); if (s) lines.push(label + ": " + s.slice(0, 300)); };
   add("name", c.brand);
   add("one-line description", c.description);
+  // THE THEME THE SITE IS ALREADY WEARING (2026-08-27). The widest re-roll door
+  // there is: `theme` is REQUIRED on a first build, so a revise designer not
+  // shown the stored name has every reason to answer the field afresh — and a
+  // fresh name changes every colour, both typefaces, the corners and the
+  // shadows at once, on a request that was only ever about a phone number.
+  add("theme", c.theme);
   // THE PALETTE THE SITE IS ALREADY WEARING, spelled out as the three colours
   // rather than as a name — there is no registry to name one from since
   // 2026-08-20, and a designer shown nothing here has every reason to author a
@@ -579,6 +590,15 @@ export function clearsField(field, v) {
  */
 const FIELD_KEEPS = {
   seeds: (v) => !!normalizeSeeds(v).theme,
+  // A THEME NAME THE REGISTRY REFUSES IS NOT AN ANSWER (2026-08-27). The tool's
+  // enum makes an unknown name unlikely rather than impossible — enum is
+  // advisory without strict validation, which this tool cannot turn on — and a
+  // hallucinated name counted as a value would REPLACE a good stored theme,
+  // after which the container falls soft to the default look on every publish
+  // for good. Same invariant as `seeds` one line up, same single validator
+  // rule: `resolveTheme` is the one place a name is judged, and this asks it
+  // whether an answer counts.
+  theme: (v) => !!resolveTheme(v),
   // AN ANSWERED-EMPTY `images` IS A VALUE, NOT SILENCE (2026-08-27). The tool
   // field promises "send an empty list to say it should have none", `images`
   // is REQUIRED on a first build — and `hasValue([])` is false, so this merge

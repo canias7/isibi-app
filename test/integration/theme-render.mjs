@@ -51,25 +51,15 @@ const chromiumPath = findChromium();
 const CASES = (process.env.THEME_CASES || "broadsheet,editorial,zine,bauhaus")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
-// THE 500 ARE TEST DATA NOW (2026-08-20) and this harness posted `theme: <name>`
-// for a day after the registry left the product — so `writeTheme` was handed
-// `payload.seeds`, which was `undefined`, and every one of these four sites was
-// built on the TEMPLATE'S OWN palette while the screenshots were filed as the
-// theme's. It went red on `the theme applied` and nowhere else, which is the
-// point below: the other five assertions were all satisfied by an unthemed site.
-// Same conversion `theme-seam.mjs` makes, and for the same reason — the palette
-// travels as hex now, so the fixture's OKLCH is the input and not the answer.
-const { ALL_THEMES } = await import(path.join(ROOT, "test/fixtures/themes.mjs"));
-const { oklchToRgb } = await import(path.join(ROOT, "builder/site-theme.mjs"));
-const asHex = ([L, C, H]) => {
-  const [r, g, b] = oklchToRgb(L, C, H);
-  return "#" + [r, g, b].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
-};
-const seedsOf = (t) => ({
-  name: "Look",
-  paper: asHex(t.light.paper), ink: asHex(t.light.ink), accent: asHex(t.light.accent),
-  dark: { paper: asHex(t.dark.paper), ink: asHex(t.dark.ink), accent: asHex(t.dark.accent) },
-});
+// A NAME ON THE WIRE AGAIN (2026-08-27, owner's call). This harness has now
+// crossed the seam in BOTH directions: it posted `theme: <name>` for a day
+// after the registry left the product — `writeTheme` was handed
+// `payload.seeds`, which was `undefined`, and all four sites were built on the
+// TEMPLATE'S OWN palette while the screenshots were filed as the theme's — and
+// then posted `seeds` for the registry-less week. The registry is back in the
+// product, so the name is the payload again, and what these screenshots show is
+// richer than the seeds era could: the FULL theme — its axes, its world layer,
+// its typefaces — not just its three anchor colours.
 
 const SERVICES = [
   { id: 1, name: "Skin fade", description: "Clippers, blended to the skin.", price: 28, duration_minutes: 45, created_at: "2026-08-02 10:00:00" },
@@ -150,14 +140,16 @@ try {
 
   const signature = {};
   for (const theme of CASES) {
-    const seeds = seedsOf(ALL_THEMES[theme]);
     const built = await (await fetch(`http://127.0.0.1:${BUILD_PORT}/build`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ files: ROUTES, slug: "look", title: "Cutler Row", seeds }),
+      body: JSON.stringify({ files: ROUTES, slug: "look", title: "Cutler Row", theme }),
     })).json();
     ok(`${theme}: builds`, built.ok === true, built.stage + ": " + built.error);
     if (!built.ok) continue;
-    ok(`${theme}: the theme applied`, built.theme && built.theme.applied === true, JSON.stringify(built.theme));
+    // By ID — `applied: true` alone was satisfied once by a build that applied
+    // a DIFFERENT look than the one these screenshots were filed under.
+    ok(`${theme}: the theme applied`, built.theme && built.theme.applied === true && built.theme.theme === theme,
+      JSON.stringify(built.theme));
     dist = built.files;
     siteFetch = await loadSiteServer(sandbox);
 
@@ -184,11 +176,10 @@ try {
       // and is a screenshot artifact. A harness that cannot fail honestly is
       // worse than no harness; this is what a visitor actually sees.
       //
-      // THE BACKDROP IS NOT REACHABLE FROM HERE ANY MORE and the reason is kept
-      // rather than trimmed: seeds carry three colours, so these four sites have
-      // no world layer at all and nothing emits `background-attachment` today.
-      // It comes back the moment a `style` patch is posted beside them, and a
-      // stitched capture would be a lie again.
+      // AND THE BACKDROP IS REACHABLE AGAIN (2026-08-27): a theme name carries
+      // the whole theme, `bauhaus` in this very case list declares
+      // `backdrop: "wash"`, so `background-attachment: fixed` is emitted on this
+      // run and a stitched capture would be the same lie it was the first time.
       const shot = path.join(OUT, `${theme}-${mode}.png`);
       await page.screenshot({ path: shot });
       // The rest of the page still has to be looked at, so it is captured as its

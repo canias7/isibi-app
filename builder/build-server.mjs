@@ -36,7 +36,7 @@ import { BUILD_KEYS } from "./build-keys.mjs";
 import { callBuilderModel, keysFrom, BUILDER_CALL_MS } from "./build-call.mjs";
 import { resolvePair, resolvePageFonts, resolveFont, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss, transitionOn } from "./site-theme.mjs";
-import { normalizeSeeds } from "./site-seeds.mjs";
+import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, pageTokensCss } from "./site-tokens.mjs";
 import { applyStyle, parseStyle, MAX_STYLE_BUILD } from "./site-style.mjs";
 import { dirFor, initialsMark, normalizeLang, siteIconFrom } from "./site-identity.mjs";
@@ -850,21 +850,23 @@ function startSiteServerForCheck() {
 // pages compiled should not be lost over decoration: an unknown name, an
 // unreadable stylesheet or a throwing engine all leave the template's own look
 // in place and say so in the notes.
-// TAKES AN AUTHORED PALETTE, NOT A NAME (2026-08-20). `resolveTheme` looked a
-// name up in a 500-row registry; the designer writes three colours per site now
-// and `normalizeSeeds` turns them into the same theme object the engine has
-// always taken. Everything below this line is unchanged, which is the point —
-// the seam was already exactly here, because every one of those 500 declared
-// only `paper`/`ink`/`accent` and let `paletteFor` derive the other 28 tokens.
+// TAKES A NAME AGAIN (2026-08-27, owner's call: the 500 themes are the base of
+// every build, with the model's free `css` as the on-request layer on top).
+// This took three authored colours through `normalizeSeeds` for the seeds era
+// (2026-08-20 → 2026-08-27), and a NAME through `resolveTheme` before that —
+// the same seam both times, because a registry theme and an authored palette
+// are one object shape to the engine. Everything below the lookup is unchanged.
 //
-// THE REFUSAL IS NAMED. `normalizeSeeds` returns a reason precisely because four
-// different failures — nothing sent, an unreadable colour, swapped modes, an
-// illegible palette — need four different responses, and a note saying only
-// "the site kept the default look" is one nobody can act on.
-function writeTheme(seeds, { style = null } = {}) {
-  if (!seeds) return { applied: false, theme: null, notes: [] };
-  const { theme, why } = normalizeSeeds(seeds);
-  if (!theme) return { applied: false, theme: null, notes: [`The colours could not be used (${String(why).slice(0, 80)}) — the site kept the default look.`] };
+// AN UNKNOWN NAME FAILS SOFT AND SAYS WHICH NAME. The Worker validates against
+// the same registry before storing (`FIELD_KEEPS.theme`), so reaching this with
+// a name the registry refuses means version skew or a hand-written payload —
+// and a site whose data layer is live must not be lost over decoration either
+// way. The note names the name because "the site kept the default look" alone
+// is one nobody can act on.
+function writeTheme(name, { style = null } = {}) {
+  if (!name) return { applied: false, theme: null, notes: [] };
+  const theme = resolveTheme(name);
+  if (!theme) return { applied: false, theme: null, notes: [`No theme called "${String(name).slice(0, 40)}" — the site kept the default look.`] };
   let css;
   // THE SITE'S OWN LOOK DECISIONS, merged into the theme BEFORE it is rendered
   // rather than patched over it afterwards. Every axis emitter already reads its
@@ -907,8 +909,9 @@ function writeTheme(seeds, { style = null } = {}) {
   // derivations are utilities in `@layer utilities`, so an axis wins where it
   // applies and the token moves everything else.
   fs.writeFileSync(STYLES, base + "\n" + css + "\n");
-  // The palette's own NAME, not an id — there is no registry to look one up in.
-  return { applied: true, theme: theme.label, notes: refusedNotes };
+  // The registry id, which is what the Worker sent and what the reply can say
+  // out loud — the label is a designer's one-liner, not an address.
+  return { applied: true, theme: name, notes: refusedNotes };
 }
 
 // The site's OWN colours, written AFTER the theme.
@@ -1566,7 +1569,7 @@ const server = http.createServer((req, res) => {
       // because an authored value lives in `.authored` and never in `.style`.
       // `applyStyle` re-parses this WITH the site's own palette, which is the one
       // place a `var(--accent)` in a hand-written gradient can be resolved.
-      const themeUsed = writeTheme(payload.seeds, { style: payload.style });
+      const themeUsed = writeTheme(payload.theme, { style: payload.style });
       // AFTER the theme, never before — later wins, and that IS the override.
       const tokensUsed = writeTokens(payload.tokens);
       // AND AFTER THOSE, one page's own. Same mechanism, one scope down.

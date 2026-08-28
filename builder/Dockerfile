@@ -103,7 +103,15 @@ RUN mkdir -p /app/.routes-base \
 # every build's render check at runtime with MODULE_NOT_FOUND, and since the
 # check is best-effort by design the build would SUCCEED with the boundary
 # silently gone. `test/dockerfile.test.mjs` names it explicitly for that reason.
-COPY build-server.mjs build-keys.mjs build-call.mjs model-xai.mjs exit-reason.mjs run-step.mjs site-ssr.mjs render-server-child.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-seeds.mjs site-tokens.mjs site-css.mjs site-freecss.mjs site-authored.mjs site-style.mjs site-identity.mjs site-langs.mjs render-check.mjs site-render.mjs site-worker.mjs ./
+COPY build-server.mjs build-keys.mjs build-call.mjs model-xai.mjs exit-reason.mjs run-step.mjs site-ssr.mjs render-server-child.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs site-seeds.mjs site-tokens.mjs site-css.mjs site-freecss.mjs site-authored.mjs site-style.mjs site-identity.mjs site-langs.mjs render-check.mjs site-render.mjs site-worker.mjs ./
+# THE 500 THEMES ARE BACK IN THE PRODUCT (2026-08-27, owner's call) and the
+# registry imports them as a DIRECTORY, which the single-file COPY above cannot
+# carry. This is the exact line whose ghost the comment above records outliving
+# the directory in the other direction; the import walk in
+# test/dockerfile.test.mjs sees `./theme-candidates/batch-1.mjs` et al through
+# site-theme-registry.mjs, so a deleted directory fails a test before it fails
+# the deploy this time.
+COPY theme-candidates/ ./theme-candidates/
 
 # THIS IMAGE DOES EXECUTE MODEL-WRITTEN CODE, AND THIS COMMENT USED TO DENY IT.
 #

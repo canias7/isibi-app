@@ -21,26 +21,18 @@ import { validatePages } from "../../builder/page-gen.mjs";
 // The REAL stub, not a copy of it. A hand-written imitation here would prove that
 // some file compiles and say nothing about the one the salvage actually writes.
 import { stubPage } from "../../builder/publish-pages.mjs";
-import { oklchToRgb } from "../../builder/site-theme.mjs";
-import { ALL_THEMES } from "../fixtures/themes.mjs";
+import { themeCss } from "../../builder/site-theme.mjs";
+import { ALL_THEMES, resolveTheme } from "../fixtures/themes.mjs";
 
-// THE PAYLOADS BELOW USED TO NAME A THEME. The registry left the product on
-// 2026-08-20 — the designer authors three anchor colours per site — so what the
-// container takes is a palette. The 500 survive as fixtures and are still the
-// right thing to drive this with: real hand-designed colours rather than three
-// hex values invented here for the purpose.
-//
-// THE PALETTE ONLY, NEVER THE FIXTURE'S STYLE AXES, and that is the correction
-// to the first draft. A theme row carries both, but in the product they are two
-// separate authored things — the palette is `seeds` and the axes are the `style`
-// patch. Spreading both meant a check that then set `style: { width: "wide" }`
-// REPLACED the fixture's axes wholesale, so its two builds differed in more than
-// the one axis under test and the comparison measured the wrong thing. A check
-// that genuinely wants a world backdrop asks for it by name.
-const asHex = ([L, C, H]) => {
-  const [r, g, b] = oklchToRgb(L, C, H);
-  return "#" + [r, g, b].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
-};
+// THE PAYLOADS BELOW NAME A THEME AGAIN (2026-08-27). The registry left the
+// product on 2026-08-20 and the seeds era's `asHex` converter stood here,
+// turning a fixture theme's OKLCH palette into three hex seeds; the owner's
+// call brought the registry back, the payload field is `theme`, and the
+// container resolves the name itself — so these builds exercise the real
+// mechanism and get the theme's FULL design rather than a palette-only
+// approximation. The style-axes caution the old note recorded still applies
+// one field over: a `style` patch beside the theme merges INTO it via
+// `applyStyle`, which is exactly the product behaviour.
 // THE SITE'S OWN STYLE AXES, as an ordinary site would have authored them.
 //
 // Four checks below assert that an override REPLACES the site's own answer —
@@ -54,10 +46,16 @@ const asHex = ([L, C, H]) => {
 const HOUSE_STYLE = { buttons: "sharp", inputs: "underline", icon: "fine", corner: "round" };
 
 function themeAsSeeds(name) {
-  const t = ALL_THEMES[name];
-  if (!t) throw new Error("no fixture theme " + name);
-  return { seeds: { name, paper: asHex(t.light.paper), ink: asHex(t.light.ink), accent: asHex(t.light.accent),
-    dark: { paper: asHex(t.dark.paper), ink: asHex(t.dark.ink), accent: asHex(t.dark.accent) } } };
+  // A NAME ON THE WIRE AGAIN (2026-08-27). This converted a registry theme to
+  // three hex seeds for the seeds era; with the registry back in the product
+  // the payload field is `theme` and the container resolves the name itself —
+  // so the helper now exercises the REAL mechanism, and every build below gets
+  // the theme's FULL design (all 18 axes) rather than the palette-only
+  // approximation the seeds derivation produced. The name is kept so twenty
+  // call sites read unchanged; the check that the fixture theme exists is kept
+  // so a typo fails here rather than as a soft "no theme called" note.
+  if (!ALL_THEMES[name]) throw new Error("no fixture theme " + name);
+  return { theme: name };
 }
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -1998,6 +1996,8 @@ function Home() {
   const sheetBuild = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU, "desk.tsx": CTA_PAGE },
     slug: "fold-coffee", ...themeAsSeeds("broadsheet"), style: HOUSE_STYLE,
+    // The pair the Worker now derives per payload — `themeFontPair("broadsheet")`.
+    fonts: { heading: "noto-serif", body: "source-sans-3" },
     css: OWN_SHEET, cssFonts: ["lora"],
   });
   ok("a build carrying the model's own stylesheet succeeds", sheetBuild.ok === true,
@@ -2129,6 +2129,47 @@ function Home() {
     ok("…and the model's re-grid of the shell is really in the file, losing rather than absent",
       /\[data-slot=site-chrome\]\s*\{[^}]*display:\s*grid/.test(css),
       "run 51's rule vanished from the fixture sheet — the guard is winning a fight nobody is having");
+
+    // ── THE THEME IS A NAME AGAIN, AND THE FULL DESIGN LANDS (2026-08-27) ──
+    //
+    // The seeds era rendered a palette-only approximation of a theme; the
+    // registry's return means `writeTheme("broadsheet")` renders the WHOLE
+    // hand-designed object — palette plus the 18 axes. The palette half is
+    // already held by the ordering checks above (the "theirs" declarations ARE
+    // the theme's); this is the axes half, which no seeds build could produce:
+    // the theme's own `--radius` must reach the compiled bundle.
+    //
+    // TWO MINIFIER TRAPS IN ONE CHECK, both caught by this check's own first
+    // run reporting a working seam as broken. The bundle holds the TEMPLATE'S
+    // `--radius: .625rem` first and the theme's later — later wins, so the
+    // LAST declaration is the one a visitor gets, and the first draft read the
+    // FIRST (the site-dark lesson exactly). And broadsheet's radius is `0rem`,
+    // which Lightning rewrites as bare `0` — a `([\d.]+)rem` pattern cannot
+    // see it at all (the 41.17%-for-0.4117 trap, third instance). So: every
+    // declaration collected, the last compared, values parsed unit-blind, and
+    // NaN is never coalesced to 0 — an absent declaration must not equal a
+    // zero-radius theme.
+    const themed = themeCss(resolveTheme("broadsheet"));
+    const radOf = (s) => parseFloat(String(s).replace(/^--radius:\s*/, ""));
+    const wantRadius = radOf((themed.match(/--radius:\s*[^;}]+/) || [])[0]);
+    const radDecls = css.match(/--radius:\s*[^;}]+/g) || [];
+    const lastRadius = radOf(radDecls[radDecls.length - 1]);
+    ok("the theme's own axes land — its radius is the bundle's LAST word on it",
+      Number.isFinite(wantRadius) && radDecls.length >= 2 && lastRadius === wantRadius,
+      `theme says ${wantRadius}, bundle declares ${JSON.stringify(radDecls)}`);
+    // AND THE RESPONSE SAYS SO BY NAME — the id, not the label, because the id
+    // is what the Worker sent and what a reply can act on.
+    ok("the response reports the theme applied, by its registry id",
+      sheetBuild.theme && sheetBuild.theme.applied === true && sheetBuild.theme.theme === "broadsheet",
+      JSON.stringify(sheetBuild.theme));
+    // AND THE THEME'S OWN PAIR IS BUNDLED. The payload carries the pair the
+    // Worker derives (`themeFontPair("broadsheet")` = noto-serif +
+    // source-sans-3), and a pair that reaches the wire without an @font-face
+    // behind it is a site shipping the default face while reporting the
+    // theme's — the exact silent fallback `site-fonts.mjs` is written around.
+    ok("the theme's recommended heading face gets a real @font-face",
+      /@font-face[^}]*Noto Serif/i.test(css),
+      (css.match(/@font-face[^}]{0,120}/g) || []).slice(0, 3).join(" | ").slice(0, 360) || "no @font-face at all");
   }
 
   // ── AND IT HOLDS IN A BROWSER, WHICH IS THE ONLY THING THAT DECIDES ───────
@@ -2177,6 +2218,27 @@ function Home() {
       (css.match(/@font-face[^}]{0,120}/g) || []).slice(0, 2).join(" | ").slice(0, 300) || "no @font-face at all");
     ok("…and the container says so rather than claiming it applied",
       !none.css, JSON.stringify(none.css || null).slice(0, 200));
+  }
+
+  // ── AND AN UNKNOWN THEME NAME FAILS SOFT, BY NAME ─────────────────────────
+  //
+  // The Worker validates through `FIELD_KEEPS.theme` before storing, so
+  // reaching the container with a name the registry refuses means version skew
+  // or a hand-written payload — and either way the site's data layer is live
+  // and its pages compiled, so the build must succeed on the default look and
+  // SAY WHICH NAME it could not resolve, because "the site kept the default
+  // look" alone is a note nobody can act on.
+  {
+    const skew = await post({
+      files: { "index.tsx": INDEX, "menu.tsx": MENU },
+      slug: "fold-coffee", theme: "zzz-nonesuch", style: HOUSE_STYLE,
+    });
+    ok("a theme the registry refuses does not cost the build",
+      skew.ok === true, JSON.stringify(skew).slice(0, 200));
+    ok("…and the refusal names the name",
+      skew.theme && skew.theme.applied === false
+        && (skew.theme.notes || []).some((n) => /zzz-nonesuch/.test(n)),
+      JSON.stringify(skew.theme));
   }
 
   // ── THE FIVE LATE SURFACES ────────────────────────────────────────────────

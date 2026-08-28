@@ -19,6 +19,10 @@ import { readConfig, emptyConfig } from "../site-config.mjs";
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const STORED = {
   brand: "Sharp Fade", description: "A barber shop in Leeds.",
+  // A REAL REGISTRY NAME, not an invented one — `FIELD_KEEPS.theme` validates
+  // through `resolveTheme`, so a made-up name here would be nulled by the very
+  // merge under test and every "nothing moved" loop would report a phantom.
+  theme: "broadsheet",
   seeds: { name: "Warm Brick", paper: "#f7f2ea", ink: "#332a26", accent: "#b44a2e" }, family: "salon",
   fonts: { heading: "noto-serif", body: "source-sans-3" },
   lang: "en-GB", mode: "light", langs: ["es"], kind: "shopfront",
@@ -267,6 +271,10 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
   // NEW shape fails here, loudly, at the fixture.
   const SAMPLE = {
     brand: "value-of-brand", description: "value-of-description", seeds: { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" },
+    // The note prints whatever string is stored — validation is the MERGE's job
+    // (`FIELD_KEEPS.theme`), not the note's — so the marker convention works
+    // here exactly as it does for `brand`.
+    theme: "value-of-theme",
     family: "value-of-family", lang: "value-of-lang",
     fonts: { heading: "inter", body: "inter" }, langs: ["value-of-langs"],
     // THE FIVE OTHER PLAN AXES CARRY THE SHARPEST VERSION OF THIS GUARD'S OWN

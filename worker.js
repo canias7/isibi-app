@@ -109,6 +109,11 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, normalizePlan } from "./builder/site-plan.mjs";
+// THE 500 THEMES, BACK IN THE PRODUCT (2026-08-27, owner's call). `THEME_IDS`
+// is the tool's enum, `themeFontPair` is where an unasked site's typeface comes
+// from again, and `resolveTheme` never runs here — the merge validates through
+// `FIELD_KEEPS.theme` in site-edit.mjs, which is the one place a name is judged.
+import { THEME_IDS, themeFontPair } from "./builder/site-theme-registry.mjs";
 import { laneName } from "./builder/build-lane.mjs";
 // THE TWO LONG MODEL CALLS, IN A MODULE THE CONTAINER CAN IMPORT TOO. Aliased
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
@@ -3914,6 +3919,40 @@ const SITE_SCHEMA_TOOL = {
       //
       // It stays in `PLAN_KEYS`, `PLAN_REQUIRED` and `PLAN_EDIT_FIELDS` — this
       // moves WHEN it is answered, nothing about what it is. See SHAPE_FIELD.
+      // ── THE THEME — THE LOOK'S BASE, BACK AS A NAME (2026-08-27) ──────────
+      //
+      // Owner's call: "we are gonna have the 500 themes, and with the option if
+      // user wants a specific thing then the free css comes in as customer
+      // requested." The registry was deleted 2026-08-20 ("the model authors the
+      // palette") and the free-CSS era that followed produced the measurement
+      // that reversed it: given a blank page the model wrote 7 rules against a
+      // designed theme's ~30 (arm A), and every unprompted build gambled its
+      // whole look on one call. A hand-designed base under everything is the
+      // floor no build can fall through; the `css` field below is the layer the
+      // customer's own words buy on top.
+      //
+      // BEFORE `shape` AND `images`, deliberately — a tool's property order is
+      // its generation order, so the bands are arranged and the photographs are
+      // described with the site's world already decided. That is the same
+      // argument that moved `images` to the designer at all ("it could not know
+      // it was dressing a near-black recording studio").
+      //
+      // AN ENUM OF ALL 500, not the old 100-name shortlist — the owner's words,
+      // and the cost is measured: ~1,525 tokens of names in the CACHED block.
+      // An enum rather than a free string for the reason the old field was one:
+      // a name outside the registry renders as the untouched template while the
+      // response claims a theme, which is the failure shape the font write
+      // exists to end. `FIELD_KEEPS.theme` is the belt behind the enum.
+      theme: {
+        type: "string",
+        enum: THEME_IDS,
+        description:
+          "The site's visual world — every build wears one. Pick for the TRADE and its mood, not for novelty: " +
+          "the name says what it is (broadsheet, bakery, apothecary, jazz-club, noir). A barber shop and a law " +
+          "firm want different worlds; most businesses want a quiet one. The theme is the whole look — palette " +
+          "with its own dark half, typefaces, corners, borders, shadows, spacing — and for most sites it is the " +
+          "right answer alone. `css` below is ONLY for what the customer specifically asked for on top of it.",
+      },
       shape: SHAPE_FIELD,
       // AND THE PHOTOGRAPHS LAST OF ALL (owner's call, 2026-08-23 — "lets move
       // image generator to the designer").
@@ -3962,37 +4001,44 @@ const SITE_SCHEMA_TOOL = {
       // Whether that is enough is a live question, and the first build against
       // this field is what answers it.
       //
-      // ── AND IT IS THE WHOLE LOOK, NOT A LAYER OVER ONE ──────────────────
+      // ── A LAYER OVER THE THEME AGAIN (2026-08-27, owner's call) ─────────
       //
-      // This paragraph used to say the opposite, and it was true when written:
-      // the five look fields came off the tool on 2026-08-23 while both publish
-      // spines went on READING and SENDING the stored palette, typeface, token
-      // patch and axes, so a model's stylesheet landed on top of whatever the
-      // site already wore. That carry went on 2026-08-24 (owner's call: "let it
-      // just be css"), measured against the fact that all 25 sites are ours.
+      // This paragraph has now said each thing twice. It was "a layer over the
+      // stored look" (2026-08-23, the carry era), then "the whole look, not a
+      // layer over one" (2026-08-24, "let it just be css"), and it is a layer
+      // again — this time over the REGISTRY theme the field above picks, not
+      // over a stored patchwork. The owner's shape: "we are gonna have the 500
+      // themes, and with the option if user wants a specific thing then the
+      // free css comes in as customer requested."
       //
-      // So there is nothing underneath these rules but the template's own
-      // shadcn defaults. A property this stylesheet does not set keeps the
-      // default's value; there is no second opinion to fight.
+      // What the free-CSS era measured is why: an unprompted model writes 7
+      // rules where a designed theme carries ~30 (arm A), so every build
+      // gambled its look on one call. The theme is the floor; these rules land
+      // AFTER it in the compiled sheet, so wherever they speak they win, and
+      // wherever they are silent the theme holds. The write order in
+      // build-server.mjs (theme → guards → this) is the whole mechanism.
       css: {
         type: "string",
         description:
-          "THE SITE'S ENTIRE STYLESHEET, as CSS. Write it for THIS business — there is no palette field, no font " +
-          "field and no list of options: whatever the site looks like, you write here.\n" +
+          "CSS ON TOP OF THE THEME, ONLY WHEN ASKED. The theme you picked above is the whole look — palette, " +
+          "typefaces, corners, shadows, spacing — and for most sites it is the right answer alone: OMIT this " +
+          "field entirely unless the customer's own words ask for something specific the theme does not give — " +
+          "a colour they named, a mood no theme covers (\"neon arcade\"), a component styled a particular way " +
+          "(\"pill buttons\", \"no shadows\"), one page treated differently. When they do, write ONLY the rules " +
+          "that answer what they asked — never a second whole design beside the theme.\n" +
           "WHAT IT LANDS ON: a React app built from shadcn/ui with Tailwind v4. Every component paints with CSS " +
           "custom properties, so setting those is what changes the whole site at once. The ones the kit reads are:\n" +
           SITE_TOKEN_NAMES.map((t) => "--" + t).join(", ") + ", --font-sans, --font-heading.\n" +
           "Each `--x` has a matching `--x-foreground` for the text on it; `--radius` is a length every corner in the " +
           "kit derives from.\n" +
-          "`:root` IS WHAT THE SITE LOOKS LIKE — there is no separate light/dark switch. A dark site is dark values " +
-          "on `:root`: near-black `--background`, pale `--foreground`, and every other pair solved against them. " +
-          "Choose it from the brief the way you choose anything else — a night club, a recording studio, a tattoo " +
-          "parlour or a cinema reads dark; most trades read light.\n" +
-          "`.dark` is OPTIONAL and only does something on a page that renders a theme toggle, which lets a visitor " +
-          "switch. Write it only if you put one there, and make it the opposite of `:root`, not a second guess at it.\n" +
-          "YOUR RULES ARE WRITTEN LAST, so an ordinary selector beats anything the template shipped. Style whatever " +
-          "you like beyond the variables: headings, links, buttons, cards, backgrounds, borders, hover and focus " +
-          "states, animations, gradients, textures, spacing, media queries.\n" +
+          "`:root` IS WHAT THE SITE LOOKS LIKE. A customer asking for a dark site is dark values on `:root`: " +
+          "near-black `--background`, pale `--foreground`, and every other pair solved against them. The theme " +
+          "already ships its own designed `.dark` half — it only does something on a page that renders " +
+          "a theme toggle — so write `.dark` yourself only to override that half deliberately.\n" +
+          "YOUR RULES ARE WRITTEN LAST, so an ordinary selector beats the theme and the template alike — a token " +
+          "you set replaces the theme's, a rule you write wins over its rules. Style whatever was asked for: " +
+          "headings, links, buttons, cards, backgrounds, borders, hover and focus states, animations, gradients, " +
+          "textures, spacing, media queries.\n" +
           // ── THE AXES: A DECISION LIST, NOT A MENU (2026-08-27, owner's call) ──
           //
           // "lets do the test build with this new axes." The 29-axis engine died
@@ -4012,10 +4058,12 @@ const SITE_SCHEMA_TOOL = {
           // `direction` is OMITTED (the language system sets `dir`, and a style
           // axis fighting it re-breaks every right-to-left site); reduced
           // motion is a RULE rather than an axis (removing animation for
-          // people who ask is accessibility, not taste); `theme` is the
-          // closing line (the sheet IS the theme).
-          "DECIDE EVERY AXIS BELOW, IN THE STYLESHEET ITSELF — there are no options; you write the rules. " +
-          "Skip one only when the default is truly what this site wants.\n" +
+          // people who ask is accessibility, not taste); `theme` became a
+          // FIELD again on 2026-08-27, so the closing line now states the
+          // layering instead of claiming the sheet is the theme.
+          "WHEN THE CUSTOMER ASKS FOR A LOOK OF YOUR OWN — a whole custom design, not a tweak — decide every " +
+          "axis below, in the stylesheet itself; there are no options, you write the rules. For a single ask, " +
+          "write only the rules that answer it and leave the rest to the theme.\n" +
           "MOTION — motion character · reveal · transition · duration · easing · stagger · parallax · " +
           "scroll-timeline. Always inside @media (prefers-reduced-motion: no-preference). On a `tool`, motion is " +
           "restraint — a working screen earns a fast transition, never an entrance.\n" +
@@ -4027,7 +4075,8 @@ const SITE_SCHEMA_TOOL = {
           "contrast (text stays clearly readable) · selection · link · scrollbar · scheme.\n" +
           "SCROLL — scroll behaviour · snap · overscroll and its chain · scroll-padding · safe-area.\n" +
           "SCALE — the one size relationship text, spacing and components all share.\n" +
-          "The sheet itself IS the theme.\n" +
+          "A full sheet REPLACES the theme's answers wherever it speaks; everywhere it is silent, the theme " +
+          "still holds.\n" +
           // ── THE COMPONENTS' OWN CSS (2026-08-27, run 48's dead selectors) ───
           //
           // Run 48 ("Brewline") already KNEW component css was the lever — its
@@ -4880,12 +4929,15 @@ const SITE_SCHEMA_TOOL = {
     // which strict validation refuses), so `required` compels the KEY and the
     // description is still what asks for axes worth having. An answer of `{}`
     // is legal and behaves exactly as an absent one did.
-    // `css` REPLACES `seeds`, `fonts` and `style` HERE AS WELL AS ABOVE, and
-    // compelling it is the same argument those three were compelled under: an
-    // unanswered look is not a design choice, it is the template's plain default
-    // wearing one. With five fields there were three ways to half-answer; with
-    // one there is none.
-    required: ["brand", "slug", "backend", "description", "css", ...PLAN_REQUIRED],
+    // `theme` REPLACES `css` HERE (2026-08-27, owner's call), and the swap IS
+    // the design: an unanswered look is not a design choice, it is the
+    // template's plain default wearing one — so the field that carries the look
+    // is compelled, and that field is the theme now. `css` is deliberately NOT
+    // required any more: its whole contract is "omit unless the customer asked
+    // for something specific", and a compelled field is one the model must
+    // answer — requiring it would force a sheet onto every build and re-create
+    // the unprompted-design gamble the theme exists to end.
+    required: ["brand", "slug", "backend", "description", "theme", ...PLAN_REQUIRED],
   },
 };
 
@@ -8994,31 +9046,26 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // flipping between the owner's artwork and a drawn mark depending on
           // which lane published last.
           icon: icon || "",
-          // ── THE LOOK IS THE STYLESHEET, AND NOTHING ELSE ────────────────────
+          // ── THE LOOK IS THE THEME PLUS THE STYLESHEET (2026-08-27) ──────────
           //
-          // `seeds`, `fonts`, `tokens`, `pageTokens`, `pageFonts` and `style`
-          // were all sent from here until 2026-08-24 (owner's call: "let it just
-          // be css"). What made that safe to do rather than merely tidy is that
-          // all six were ALREADY DEAD — `design_schema` stopped asking for any of
-          // them on 2026-08-23, so `designed.tokens` is `undefined` on every
-          // build and `mergeTokens(prior, undefined)` was a no-op handing back
-          // whatever the site already wore.
+          // ON THE SPINE, which is the half that is easy to miss: every text
+          // fix, colour change and swapped picture republishes through here,
+          // and the container renders the stylesheet from a pristine copy each
+          // build — so a path that does not carry the stored theme carries
+          // nothing, and nothing means a themed site republishes on the plain
+          // template because its owner fixed a typo. The `mode` lesson
+          // (2026-08-18), for the field that replaced it.
           //
-          // THE ONE REASON THEY SURVIVED WAS MEASURED AND IS GONE. The note that
-          // used to sit here said a site built before the `css` field "has all
-          // three of those and no `css`", so removing them would restyle the
-          // platform on somebody's next typo fix. True, and the platform is 25
-          // sites, every one of them ours — smoke runs and the `lido-*`
-          // experiment arms. There is no customer to restyle.
-          //
-          // WHAT IT COSTS, WRITTEN DOWN RATHER THAN GLOSSED. The 31-token derived
-          // palette goes, and with it `normalizeSeeds`' contrast floors — the
-          // model's stylesheet is read and never validated by design, so nothing
-          // now proves a site's body text is legible. A site whose `css` sets no
-          // token renders on the template's own shadcn defaults, which is a
-          // real, working, plain look rather than a broken one. And the favicon
-          // falls back from the brand accent to the hue hashed from the business
-          // name, which is what it did before 2026-08-20.
+          // `fonts` is derived from the theme HERE, not stored: the pair lives
+          // in the registry beside the theme's own name, so deriving at the
+          // payload means a repaired or re-tuned pairing reaches every site on
+          // its next publish instead of being frozen per site.
+          theme: (look && look.theme) || undefined,
+          fonts: themeFontPair(look && look.theme) || undefined,
+          // `seeds`, `tokens`, `pageTokens`, `pageFonts` and `style` came off
+          // this payload on 2026-08-24 ("let it just be css") — all six were
+          // already dead on the tool, and the platform was 25 sites, all ours.
+          // They stay off: the look is the theme plus this sheet, nothing else.
           css: cssRead.usable ? cssRead.css : undefined,
           // WHICH FAMILIES IT NAMES, so the container emits an `@font-face` for
           // each and the bundler imports the installed ones. Ids only — the
@@ -9226,7 +9273,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, css, plan, lang, langs, langStrings, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, lang, langs, langStrings, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
   // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
   // runs the compile dep TWICE — one page swapped for a stub — and a cache that
   // lived inside the dep would pay a second Haiku call for strings answered
@@ -9558,11 +9605,20 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // at a few hundred pixels and a smear at 16. An empty string is a
           // real answer and the container draws the initials mark instead.
           icon: icon || "",
-          // THE MODEL'S OWN STYLESHEET, AND THE WHOLE LOOK. `seeds`, `tokens`,
-          // `pageTokens`, `pageFonts`, `style` and `fonts` were sent from here
-          // until 2026-08-24 (owner's call: "let it just be css"); see the same
-          // deletion on the cheap spine above for the measurement that made it
-          // safe and for what it costs.
+          // THE THEME UNDER EVERYTHING (2026-08-27, owner's call) and the pair
+          // of typefaces it was designed around. `writeTheme` renders the
+          // registry theme first, so the model's stylesheet below lands ON TOP
+          // and wins wherever it speaks; `fonts` goes through the same
+          // `writeFonts` pair machinery the design tool used to feed — every
+          // theme's pair is drawn from the 24 installed families, so no fetch
+          // is needed and the npm import bundles exactly those two.
+          theme: theme || undefined,
+          fonts: themeFontPair(theme) || undefined,
+          // THE MODEL'S OWN STYLESHEET — the on-request layer since 2026-08-27,
+          // the whole look for the free-CSS era before it. `seeds`, `tokens`,
+          // `pageTokens`, `pageFonts` and `style` came off this payload on
+          // 2026-08-24 ("let it just be css") and stay off: the look is the
+          // theme plus this sheet, nothing else.
           css: cssRead.usable ? cssRead.css : undefined,
           // The families it names, for the `@font-face` blocks and the npm
           // imports. The woff2 for each is already in `fontFiles` above.
@@ -12184,8 +12240,14 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             attachments: attached.blocks,
             priorUsage: (researched && researched.usage) || null,
             model: models.pages,
+            // THE THEME OFF THE MERGED LOOK (2026-08-27) — required of a first
+            // build's designer, stored-unless-named on a revise, and validated
+            // by `FIELD_KEEPS.theme` before it could land in `merged`. The
+            // container renders it as the base of the whole look.
+            theme: look.theme,
             // THE MODEL'S OWN STYLESHEET — merged above, so a revise that said
-            // nothing about the look carries what the site already wears.
+            // nothing about the look carries what the site already wears. The
+            // on-request layer over the theme since 2026-08-27.
             css: siteCss,
             // THE AUTHORED PLAN, assembled from the merged look rather than
             // stored as one object — each of its six axes is its own
@@ -17517,8 +17579,10 @@ async function handleRequest(request, env, ctx) {
 
               // WHAT THIS LANE CAN HONESTLY MOVE, AND WHAT IT ONLY APPEARS TO.
               //
-              // The container is handed `theme`, `tokens` and `fonts`, so those
-              // really do change a site that is merely recompiled. The AUTHORED
+              // The container is handed `theme` (2026-08-27, with the font pair
+              // it recommends riding beside it) and `css`, so both really do
+              // change a site that is merely recompiled — "switch it to noir"
+              // is one cheap call and one recompile on this lane. The AUTHORED
               // PLAN is not: its six fields are inputs to page GENERATION —
               // what leads, the section order, the primary verb, the page set,
               // the component manifest — and the container never sees any of

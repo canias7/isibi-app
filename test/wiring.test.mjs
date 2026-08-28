@@ -91,21 +91,30 @@ test("THE PALETTE IS AUTHORED, AND THE WHOLE CHAIN IS WIRED", () => {
   // carries no look at all.
   assert.match(worker, /\n\s*css: siteCss,/, "the stylesheet never reaches buildAndPublishPages");
 
-  // AND THE NAME IS GONE, asserted as an ABSENCE with COMMENTS BLANKED — the
-  // notes recording why `theme` was removed necessarily spell it, and this repo
-  // has been caught by that more than half a dozen times.
+  // THE REGISTRY IS BACK (2026-08-27) AND ONLY ITS CURRENT SHAPE MAY BE. The
+  // Worker legitimately holds `THEME_IDS` (the enum) and `themeFontPair` (the
+  // pair on both payloads); what must stay gone is the OLD plumbing — the
+  // 100-name shortlist and its `SITE_THEME_IDS` alias — because a shortlist
+  // beside a full enum is two answers to what the designer may pick from.
+  // Asserted with COMMENTS BLANKED: the notes recording this history
+  // necessarily spell the names.
   const code = worker.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  assert.doesNotMatch(code, /\bTHEME_SHORTLIST\b|\bthemeFontPair\b|\bSITE_THEME_IDS\b/,
-    "the theme registry is back in the Worker — two answers to what colour a site is");
+  assert.doesNotMatch(code, /\bTHEME_SHORTLIST\b|\bSITE_THEME_IDS\b/,
+    "the old shortlist plumbing is back in the Worker — two answers to what the designer may pick from");
+  assert.match(code, /\bthemeFontPair\(/,
+    "the theme's own pair no longer reaches a payload — an unasked site ships the default face");
 });
 
-test("the container is the ONE place a palette is judged", () => {
-  // `normalizeSeeds` runs next to the `themeCss` call that consumes its answer,
-  // so there is exactly one place a palette can be refused. Judging in the Worker
-  // as well would put the derived 31-token result on the wire beside the three
-  // seeds and let the two copies drift.
-  assert.match(buildServer, /import \{[^}]*normalizeSeeds[^}]*\} from "\.\/site-seeds\.mjs"/,
-    "the container does not import the normaliser");
+test("the container is the ONE place a look is rendered", () => {
+  // `resolveTheme` runs next to the `themeCss` call that consumes its answer
+  // (2026-08-27 — the registry returned, so the look's base is a name again),
+  // so there is exactly one place a theme becomes CSS. The Worker's only
+  // judging is `FIELD_KEEPS.theme` asking the same registry whether an answer
+  // COUNTS — a different question at a different moment, never a rendering —
+  // and `normalizeSeeds` must not return to it: two places judging one palette
+  // is how the same colours get refused on one path and accepted on the other.
+  assert.match(buildServer, /import \{[^}]*resolveTheme[^}]*\} from "\.\/site-theme-registry\.mjs"/,
+    "the container does not import the registry");
   const code = worker.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   assert.doesNotMatch(code, /normalizeSeeds\(/,
     "the Worker judges the palette too — one of the two will eventually disagree");
@@ -157,15 +166,18 @@ test("and REQUIRED to choose, or every site silently keeps the default look", ()
   // exactly the fix `site-fonts.test.mjs` needed for its copy of this read.
   const req = worker.match(/required: \[[^\]]*\],\s*\n\s*\},\s*\n\};/);
   assert.ok(req, "could not find design_schema's required list");
-  // ── THREE COMPELLED LOOK FIELDS BECAME ONE (2026-08-23, owner's call) ──────
+  // ── THE COMPELLED LOOK FIELD IS `theme` NOW (2026-08-27, owner's call) ─────
   //
-  // `seeds`, `fonts` and `style` were each required for the same stated reason —
-  // an unanswered look is not a design choice, it is the template's plain
-  // default wearing one — and `css` inherits all of it. What changes is that
-  // there is no longer any way to half-answer: three fields meant three chances
-  // to omit one and ship a site part-designed.
-  assert.match(req[0], /"css"/,
-    "the stylesheet is optional, so a designer may skip it and the site ships the template's plain default look");
+  // The reason is unchanged through all three eras — an unanswered look is not
+  // a design choice, it is the template's plain default wearing one — and the
+  // field that carries the look moved: seeds/fonts/style (three chances to
+  // half-answer), then `css` (one), now `theme` (one, and a hand-designed one).
+  // `css` must NOT be compelled beside it: its contract is "omit unless the
+  // customer asked", and a required field is one the model must answer.
+  assert.match(req[0], /"theme"/,
+    "the theme is optional, so a designer may skip it and the site ships the template's plain default look");
+  assert.doesNotMatch(req[0], /"css"/,
+    "`css` is compelled again — a sheet is forced onto every build against the on-request contract");
   for (const gone of ["seeds", "fonts", "style", "tokens", "tokensPage"]) {
     assert.doesNotMatch(req[0], new RegExp('"' + gone + '"'),
       "`" + gone + "` is required and the tool no longer has it — every build 400s on a field the model cannot answer");
@@ -312,9 +324,13 @@ test("`structure` IS GONE FROM EVERY LAYER IT LIVED AT", () => {
     "worker.js imports the deleted layouts module");
 });
 
-test("the container turns the palette into real CSS, after the font write", () => {
+test("the container turns the theme into real CSS, after the font write", () => {
   assert.match(buildServer, /function writeTheme\(/);
-  assert.match(buildServer, /normalizeSeeds\(seeds\)/, "writeTheme no longer derives a theme from the seeds");
+  // A NAME AGAIN (2026-08-27): the registry returned, so `writeTheme` resolves
+  // the designer's pick rather than normalising three authored colours — the
+  // same seam it used before 2026-08-20, because a registry theme and an
+  // authored palette were always one object shape to the engine.
+  assert.match(buildServer, /resolveTheme\(name\)/, "writeTheme no longer resolves the registry name");
   // Ordering is the correctness argument: writeFonts restores styles.css from
   // the pristine base, so a theme written first is overwritten by it.
   const fontsAt = buildServer.indexOf("const fontsUsed = writeFonts(");

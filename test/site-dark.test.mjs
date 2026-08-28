@@ -116,7 +116,9 @@ test("A DARK SITE IS EXPRESSIBLE, and the tool says how", () => {
   // saying where darkness now lives leaves the model with no way to answer "make
   // it dark" at all — the `publicView` failure, which has cost a whole build
   // twice: a capability conditioned on a fact the model was never given.
-  const at = worker.indexOf('"THE SITE\'S ENTIRE STYLESHEET');
+  // Re-anchored 2026-08-27 when the field's opener became the on-request
+  // contract ("CSS ON TOP OF THE THEME") with the registry's return.
+  const at = worker.indexOf('"CSS ON TOP OF THE THEME');
   assert.ok(at > 0, "the css field description is no longer where this test looks");
   const end = worker.indexOf("\n      },", at);
   assert.ok(end > at, "the css field never closes");
