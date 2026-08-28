@@ -596,6 +596,29 @@ jobs:
           # NOT fired late: the last image-rolling deploy (acba0f03) settled
           # hours ago, and the commits since are Worker + prompt only.
           #
+          # ── RUN 54: A NEW BRIEF, AND THE ONE-JOB LAW'S FIRST TEST ──
+          #
+          # Owner, after run 53: "it just turned what it used to be 5 pages
+          # into one page, thats not my purpose... my purpose is to make one
+          # page" — and the fix went in the same hour (the cram sentence out of
+          # `pages`, the second-screen law into `shape`, the component floor
+          # off). THIS RUN IS THAT LAW'S FIRST PAID MEASUREMENT, and the brief
+          # is chosen to put it under load: a teacher's gradebook implies three
+          # working screens (the class, one student, recording marks) exactly
+          # as the CRM did, so a stacked answer would look identical to run
+          # 53's failure. What we want instead is ONE job chosen and the rest
+          # LEFT OUT and said so in the reply.
+          #
+          # A DIFFERENT TRADE ON PURPOSE, too: every run since 47 has been the
+          # same CRM, so a shape book that only ever meets one brief is a shape
+          # book measured once. This is still shape 8/9 territory (a workspace
+          # or an analysis screen) and the designer has to pick which.
+          #
+          # READ: (1) ONE job, with the other screens named as left out rather
+          # than stacked; (2) a component list under 15 and honestly short
+          # rather than padded to a quota; (3) the standing proofs — kind tool,
+          # images 0/0, a theme by name, no marketing bands, honest footer.
+          #
           # ── RUN 53: THE SAME MEASUREMENT, PAST OUR OWN CAP ──
           #
           # Run 52 proved the one-page world end to end and died on a constant
@@ -617,9 +640,9 @@ jobs:
           #
           # Fresh slug: northgroup-9 through -16 are the owner's LIVE sites
           # now — re-using any would revise it.
-          OWNER_SLUG: northgroup-17
+          OWNER_SLUG: markbook-1
           OWNER_PICKER: grok
-          OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
+          OWNER_BRIEF: "Software for a secondary school teacher to keep track of their students' grades. The teacher signs in - nothing here is public. They teach about ninety students across four classes. They want to pick a class and see every student in it with their mark for each assessment so far, their average, and who is falling behind. They want to open a single student and see all of that student's marks together with a note on how they are getting on. And they want to record a new set of marks after an assessment without typing each one into a separate form. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
