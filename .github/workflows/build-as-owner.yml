@@ -596,6 +596,15 @@ jobs:
           # NOT fired late: the last image-rolling deploy (acba0f03) settled
           # hours ago, and the commits since are Worker + prompt only.
           #
+          # REFIRED: the first attempt died at the design call with `upstream:
+          # 403` in 4.2 seconds — the xAI account was out of credit, which that
+          # provider answers as a refused credential rather than a billing 400.
+          # `gen probe` said the same thing independently and for free on the
+          # same push ("THE CONTAINER'S KEY IS NOT USABLE — 403"), and the
+          # ledger did not move (84 -> 84): the refusal lands before
+          # provisioning, so the slug was never claimed and `markbook-1` is
+          # still free to reuse rather than needing a fresh name.
+          #
           # ── RUN 54: A NEW BRIEF, AND THE ONE-JOB LAW'S FIRST TEST ──
           #
           # Owner, after run 53: "it just turned what it used to be 5 pages
