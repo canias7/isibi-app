@@ -109,6 +109,29 @@ test("the address the template builds is a REAL url for every route, against the
     // crawler and an unfurler both act on.
     assert.equal(new URL(url).pathname, here, "the path is not the route's own for " + here);
   }
+
+  // A RUN OF SLASHES, not just one. `siteUrlFor` has a second branch — the
+  // `/s/<slug>/` form it answers with when a site has no host of its own — and
+  // that branch really can end in TWO slashes. A publish should never carry the
+  // degenerate slug that produces it, so this is defence rather than a
+  // reachable case; it is asserted anyway because it is what makes the `+` in
+  // the expression's `\/+$` load-bearing. A mutation sweep found this: narrowed
+  // to a single `\/$`, every other check here still passed.
+  //
+  // The input is a REAL producer answer, not a hand-typed string — the whole
+  // point of this file. Whatever `siteUrlFor` can return, the join survives it.
+  for (const degenerate of [siteUrlFor("", "https://gofarther.app"), "https://x.example///"]) {
+    assert.ok(/\/\/$/.test(degenerate), "this case no longer has a run of slashes to strip: " + degenerate);
+    for (const here of ["", "/menu"]) {
+      const url = pageOf({ origin: degenerate }, here);
+      assert.ok(!/[^:]\/\//.test(url), "a run of trailing slashes survived the join: " + url);
+      // The pathname is NOT `here` for these: the `/s/<slug>/` form carries a
+      // path of its own, so the address is that path with the route under it.
+      // What must hold either way is that it parses and ends in the route.
+      const p = new URL(url).pathname;
+      assert.ok(p.endsWith(here || "/"), "the route is not at the end of " + url);
+    }
+  }
 });
 
 test("theme-color is emitted only when the build baked one, from SITE_THEME_COLOR", () => {
