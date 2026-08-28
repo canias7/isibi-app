@@ -731,7 +731,7 @@ test("THE SHAPE FIELD CARRIES NO WORKED EXAMPLE (owner's call, 2026-08-27)", () 
   // function-first and names no kit component, which is what keeps these
   // absences true beside it.
   const d = planFieldFor("shape").description;
-  assert.match(d, /WHERE EVERYTHING GOES, ONE ENTRY PER PAGE/,
+  assert.match(d, /WHERE EVERYTHING GOES ON THE ONE PAGE/,
     "the field no longer says what it is for");
   assert.ok(!/Examples:/i.test(d), "a worked example is back — every site will copy it");
   assert.ok(!d.includes('{"path"'), "an example entry skeleton is back — every site will copy it");
@@ -742,9 +742,14 @@ test("THE SHAPE FIELD CARRIES NO WORKED EXAMPLE (owner's call, 2026-08-27)", () 
   for (const c of ["service-list", "team-grid", "map-card", "filter-bar", "data-table"]) {
     assert.ok(!d.includes(c), `the library names the kit component "${c}" — a copyable answer is back`);
   }
-  // The one PIPELINE fact stays: an omitted page is arranged by the page
-  // writer — a model not told that answers every page out of duty.
-  assert.match(d, /leave out/, "the omission semantics are gone — the model cannot know them");
+  // The one PIPELINE fact stays, INVERTED with the one-page call (2026-08-28):
+  // an omitted entry is a layout the page writer improvises — and with one
+  // page that is the whole site going unarranged, so the field now says to
+  // always arrange it rather than blessing the omission.
+  assert.match(d, /ALWAYS ARRANGE THE PAGE/,
+    "the always-arrange law is gone — the model is back to skipping the only page");
+  assert.match(d, /leave out is a layout the page writer improvises/,
+    "the omission semantics are gone — the model cannot know them");
 });
 
 test("THE 13-SHAPE LIBRARY IS WHOLE (owner's call, 2026-08-28)", () => {

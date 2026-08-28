@@ -570,9 +570,35 @@ jobs:
           # this run's whole question is whether the stamps are live. This
           # commit is workflow-only and rolls nothing.
           #
-          # Fresh slug: northgroup-9 through -14 are the owner's LIVE sites
+          # ── RUN 52 (2026-08-28): FIRST BUILD ON THE ONE-PAGE WORLD ──
+          #
+          # Owner: "ok top up that account and lets see" (ledger 11 -> 111 the
+          # same hour). Everything shipped this week lands at once and this is
+          # the first paid measurement of any of it: the 500-theme base with
+          # the 100-name shortlist enum, the 13-shape library with the five
+          # layout words, MAX_PAGES 5 -> 1 (the front page IS the site), and
+          # the 8-15 component manifest.
+          #
+          # SAME BRIEF ON PURPOSE, and the brief now ASKS FOR THREE PAGES
+          # against a plan capped at one — that tension is not a mistake, it
+          # is the measurement: real customers will write multi-page briefs at
+          # a one-page product, and what the designer folds onto the one desk
+          # (and what it drops) is exactly what this run reads. Comparability
+          # with runs 47-51 is the other half.
+          #
+          # READ: (1) does the plan come back ONE page, shaped as the
+          # management workspace, with `sections` lines carrying widths and
+          # columns in the layout words; (2) does the designer answer a THEME
+          # by name off the shortlist, and does the site wear it; (3) the
+          # standing proofs hold — kind tool, images 0/0, readable CTA, the
+          # shell guard, no marketing bands, honest footer.
+          #
+          # NOT fired late: the last image-rolling deploy (acba0f03) settled
+          # hours ago, and the commits since are Worker + prompt only.
+          #
+          # Fresh slug: northgroup-9 through -15 are the owner's LIVE sites
           # now — re-using any would revise it.
-          OWNER_SLUG: northgroup-15
+          OWNER_SLUG: northgroup-16
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs

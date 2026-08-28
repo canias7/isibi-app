@@ -928,8 +928,8 @@ export const SHAPE_FIELD = {
   // absence guards on literal examples (`Examples:`, the entry skeleton,
   // `hero — `) therefore stay in force beside the library's own floors.
   description:
-    "WHERE EVERYTHING GOES, ONE ENTRY PER PAGE.\n" +
-    "The pages and the component manifest are already decided above, so arrange what you have " +
+    "WHERE EVERYTHING GOES ON THE ONE PAGE.\n" +
+    "The page and the component manifest are already decided above, so arrange what you have " +
     "chosen rather than describing a mood. Each section line reads: the component that carries " +
     "the band — what goes in it — HOW IT SITS, in the layout words below (its width, its " +
     "columns, its place). The primary action is NOT yet named — decide where it sits and let " +
@@ -949,7 +949,7 @@ export const SHAPE_FIELD = {
     "The one shape where airy is right.\n" +
     "2. SERVICE BOOKING — the slot is the product. Lead is a split: who and why here on one " +
     "side, the booking control or its one button on the other, above the fold. What can be " +
-    "booked as cards three-across, a price on each. The booking page itself is a narrow " +
+    "booked as cards three-across, a price on each. The booking sequence sits in a narrow " +
     "column — picker, then details, one action at the end.\n" +
     "3. CATALOG & TRANSACTION — the owner's items lead. Category row directly under the " +
     "header, sticky; the grid three-across (two on tablet), every card image, name, price " +
@@ -965,14 +965,14 @@ export const SHAPE_FIELD = {
     "explains itself.\n" +
     "6. CONTENT PLATFORM — a growing library. The newest or strongest piece spans the frame, " +
     "title large; the stream as cards two- or three-across; topics one modest row, not a " +
-    "rail. A piece's own page is a narrow reading column under a frame-wide image.\n" +
+    "rail. Long reading, where it happens, is a narrow column under a frame-wide image.\n" +
     "7. COMMUNITY PLATFORM — the conversation leads. One feed column, narrower than the " +
     "frame, a slim rail beside it for rooms and rules; the write control at the top of the " +
     "feed for members; outsiders see the life and the door in.\n" +
     "8. MANAGEMENT WORKSPACE (a tool) — the team's desk, records and tasks alike. A rail for " +
     "nav, content at full remaining width: figures four-five across on top, the worklist as " +
     "a frame-wide table under, filters one row above it, the file-new-work control at its " +
-    "top right. Dense, the same frame on every page, no marketing anywhere.\n" +
+    "top right. Dense, one unbroken frame, no marketing anywhere.\n" +
     "9. ANALYSIS & MONITORING (a tool) — the numbers lead. Verdict figures four across; " +
     "charts in equal-height pairs, the biggest question's chart may take a full row; alerts " +
     "a compact list; detail tables frame-wide, last. Controls exist only to change what is " +
@@ -983,7 +983,7 @@ export const SHAPE_FIELD = {
     "page. Never fake the empty state.\n" +
     "11. GUIDED JOURNEY — a flow that ends in a result. The narrow column is the law here: " +
     "one step per screen as a single card, the first question opening the page, progress " +
-    "along the top, back and next at the card's edge. The result page may widen to the " +
+    "along the top, back and next at the card's edge. The result may widen to the " +
     "frame.\n" +
     "12. LOCATION-LED — where leads. Locations as cards two-three across, each with hours, " +
     "address, directions and its own action; or a split — the list on one side, the chosen " +
@@ -996,8 +996,13 @@ export const SHAPE_FIELD = {
     "two bands saying one thing; end near the action, not after it; a band that bleeds keeps " +
     "its content in the frame; shopfronts breathe, tools are tight; controls stay big enough " +
     "for thumbs.\n" +
-    "A page you leave out is one the page writer arranges itself, so leave out the ones with " +
-    "nothing to say.",
+    // THE CLOSING LINE FLIPPED WITH THE ONE-PAGE CALL (2026-08-28). It used to
+    // bless leaving thin pages out — right with five pages, and with one it
+    // invited skipping the only arrangement there is. The pipeline fact it
+    // carried (an absent entry is a page the writer improvises) survives inside
+    // the new sentence, because a model not told that cannot know it.
+    "ALWAYS ARRANGE THE PAGE: an entry you leave out is a layout the page writer improvises, " +
+    "and the one page is the whole site.",
 };
 
 /**
