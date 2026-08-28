@@ -104,17 +104,25 @@ const SCENARIOS = [
       // scenario keeping one would send a directive with no arrangement in it
       // while production sends one with — a harness measuring a different
       // pipeline, which is worse than no harness.
+      // ONE PAGE SINCE 2026-08-28 (owner's call — site-plan's MAX_PAGES fell
+      // 5 -> 1, the front page IS the site), and the same header rule as the
+      // per-page rewrite above applies: a scenario still declaring four pages
+      // would be sliced to one by `normalizePlan` anyway, so keeping them here
+      // is measuring a directive production never sends. The bands fold onto
+      // "/" instead, inside MAX_SECTIONS.
       shape: [
-        { path: "/", sections: ["hero — what the studio is, and the Book a class button", "week-strip — this week's timetable", "faq — what to bring, and whether it suits a beginner"] },
-        { path: "/book", sections: ["availability-grid — the free slots, taken ones struck through", "form-row — a name and an email", "busy-button — the one submit"] },
-        { path: "/notes", sections: ["data-list — this member's own notes", "empty-state — before they have written one"] },
-        { path: "/account", sections: ["form-row — sign in", "data-list — the announcements"] },
+        { path: "/", sections: [
+          "hero — what the studio is, and the Book a class button",
+          "week-strip — this week's timetable",
+          "availability-grid — the free slots, taken ones struck through",
+          "form-row — the booking: a name and an email, busy-button the one submit",
+          "form-row — sign in, for members",
+          "data-list — a member's own notes once they are in, empty-state before they have written one",
+          "faq — what to bring, and whether it suits a beginner",
+        ] },
       ],
       pages: [
-        { path: "/", role: "what the studio is, the timetable, and the way to book" },
-        { path: "/book", role: "pick a class and a slot, and leave a name and email" },
-        { path: "/notes", role: "a member's own notes, private to them" },
-        { path: "/account", role: "sign in, sign out, and the announcements" },
+        { path: "/", role: "the studio, the timetable, the booking, and a member's own notes" },
       ],
       action: ["Book a class"],
       components: ["site-chrome", "section-header", "data-list", "availability-grid", "form-row",
@@ -144,14 +152,17 @@ const SCENARIOS = [
     plan: {
       purpose: "A neighbourhood restaurant showing its menu, its cooks and how to find it",
       shape: [
-        { path: "/", sections: ["hero — the place, and the phone number as the action", "data-list — a taste of the menu, six dishes", "location-card — the address", "opening-hours — the week"] },
-        { path: "/menu", sections: ["section-header — one per course", "price-row — every dish with its price", "empty-state — when a course has nothing in it"] },
-        { path: "/about", sections: ["data-list — who cooks", "opening-hours — the week again, because this is where people look"] },
+        { path: "/", sections: [
+          "hero — the place, and the phone number as the action",
+          "section-header — one per course, price-row every dish with its price",
+          "empty-state — when a course has nothing in it",
+          "data-list — who cooks",
+          "opening-hours — the week",
+          "location-card — the address",
+        ] },
       ],
       pages: [
-        { path: "/", role: "what the place is, a taste of the menu, the address and the phone number" },
-        { path: "/menu", role: "every dish with its price, grouped by course" },
-        { path: "/about", role: "who cooks, and the opening hours" },
+        { path: "/", role: "the whole restaurant on one page: the menu with prices, who cooks, the hours and the address" },
       ],
       action: ["Call us"],
       components: ["site-chrome", "section-header", "data-list", "price-row", "opening-hours",
@@ -172,16 +183,17 @@ const SCENARIOS = [
     plan: {
       purpose: "An internal tool where a small sales team signs in and works its deals",
       shape: [
-        { path: "/", sections: ["form-row — sign in, because everything here is behind it", "data-table — the team's deals once they are in"] },
-        { path: "/deals", sections: ["filter-bar — search, and a filter by stage", "data-table — every deal, with status-dot and bulk-actions", "form-row — add a deal", "empty-state — when the filter matches nothing"] },
-        { path: "/accounts", sections: ["data-table — the shared accounts, everyone sees the same rows"] },
-        { path: "/playbook", sections: ["data-list — what the admins have written down"] },
+        { path: "/", sections: [
+          "form-row — sign in, because everything here is behind it",
+          "filter-bar — search, and a filter by stage",
+          "data-table — every deal, with status-dot and bulk-actions, form-row to add one",
+          "empty-state — when the filter matches nothing",
+          "data-table — the shared accounts, everyone sees the same rows",
+          "data-list — the playbook, what the admins have written down",
+        ] },
       ],
       pages: [
-        { path: "/", role: "sign in, then the team's deals" },
-        { path: "/deals", role: "the team's deals, and a way to add one" },
-        { path: "/accounts", role: "the shared list of accounts everyone can see" },
-        { path: "/playbook", role: "what the admins have written down" },
+        { path: "/", role: "sign in, then the team's whole desk: deals, accounts, and the playbook" },
       ],
       action: ["Add a deal"],
       components: ["site-chrome", "data-table", "data-list", "form-row", "busy-button",

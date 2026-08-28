@@ -666,6 +666,13 @@ import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMe
 // site-uploads.mjs imports only site-access.mjs, so this stays dependency-free.
 import { acceptsVisitorUploads } from "../site-uploads.mjs";
 
+// DELIBERATELY NOT CUT WITH THE PLAN'S CAP (2026-08-28, when site-plan's
+// MAX_PAGES fell 5 -> 1). This one bounds what the WRITER returns, and a full
+// revise of a site built before that date hands every stored page back through
+// `validatePages` — capping here at one would silently delete pages off a live
+// multi-page site on its owner's next unrelated edit. New builds are one page
+// because the PLAN is one page; this stays the tolerance for what already
+// exists.
 export const MAX_PAGES = 6;
 export const MAX_PAGE_CHARS = 24000;
 

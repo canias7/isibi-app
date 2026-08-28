@@ -217,18 +217,38 @@ test("A CAP A MODEL IS MERELY TOLD ABOUT IS NOT A CAP", () => {
   const big = normalizePlan({
     ...GOOD,
     // BANDS ARE CAPPED PER PAGE, so the fixture has to declare a page that will
-    // survive `pageList`'s own cap — `/p0` is inside MAX_PAGES and `/p39` is not,
-    // and an entry for a dropped page is dropped with it. Pinned on `/p0` so the
-    // band cap is what this assertion measures rather than the page cap twice.
-    shape: [{ path: "/p0", sections: Array.from({ length: 30 }, (_, i) => "band " + i) }],
+    // survive `pageList`'s own cap — since 2026-08-28 that is ONE page, and the
+    // survivor is coerced to "/", so the shape entry keys on "/" so the band cap
+    // is what this assertion measures rather than the page cap twice.
+    shape: [{ path: "/", sections: Array.from({ length: 30 }, (_, i) => "band " + i) }],
     action: Array.from({ length: 20 }, (_, i) => "Verb " + i),
     components: Array.from({ length: 200 }, (_, i) => "comp-" + i),
-    pages: Array.from({ length: 40 }, (_, i) => ({ path: "/p" + i, role: "role " + i })),
+    pages: [{ path: "/", role: "home" }, ...Array.from({ length: 39 }, (_, i) => ({ path: "/p" + i, role: "role " + i }))],
   });
   assert.equal(big.shape[0].sections.length, MAX_SECTIONS);
   assert.equal(big.action.length, MAX_ACTION);
   assert.equal(big.components.length, MAX_COMPONENTS);
   assert.equal(big.pages.length, MAX_PAGES);
+});
+
+test("ONE PAGE, 8-15 COMPONENTS (owner's call, 2026-08-28)", () => {
+  // PINNED OUTRIGHT, NOT IN TERMS OF THE CONSTANTS — the `RESUME_MAX_REFIRES`
+  // lesson: every derived assertion above moves WITH the constant, so a mutant
+  // restoring MAX_PAGES = 5 or MAX_COMPONENTS = 50 passes all of them. These two
+  // numbers are the owner's own ("for the pages, max 1 instead of 5", "a
+  // components from 8-15") and changing either is a product decision, not a
+  // tuning one.
+  assert.equal(MAX_PAGES, 1, "the front page stopped being the whole site");
+  assert.equal(MAX_COMPONENTS, 15, "the manifest ceiling moved off the owner's 8-15");
+  // THE FLOOR IS PROSE AND ONLY PROSE — code cannot invent components a model
+  // did not name, so the description asking for the range is the entire floor,
+  // and losing the sentence is losing the floor.
+  assert.match(PLAN_FIELDS.components.description, /Between 8 and 15 components/,
+    "the 8-15 range stopped being asked for");
+  // A small honest answer is sliced by nothing and refused by nothing — the
+  // floor must never become a refusal that kills a build over a quality nudge.
+  const thin = normalizePlan({ ...GOOD, components: ["price-list", "hero"] });
+  assert.deepEqual(thin.components, ["price-list", "hero"]);
 });
 
 test("a value that merely STRINGIFIES is refused, not coerced", () => {
@@ -269,22 +289,28 @@ test("an entry with no usable band does not survive as an empty one", () => {
   // for it and the block comes out identical either way. What it does change is
   // the stored plan — `movedFields` compares by `JSON.stringify`, so a kept empty
   // entry makes a revise report the layout as changed when nothing about it did.
-  const out = normalizePlan({
+  const junk = normalizePlan({
     ...GOOD,
-    shape: [{ path: "/", sections: [7, null, {}, "   "] }, { path: "/prices", sections: ["real"] }],
+    shape: [{ path: "/", sections: [7, null, {}, "   "] }],
   });
-  assert.deepEqual(out.shape, [{ path: "/prices", sections: ["real"] }],
+  assert.equal(junk.shape, undefined,
     "an entry whose every band was junk was kept with an empty band list");
+  // …and a real band on the same page survives, so the drop above is the entry
+  // being judged rather than the whole field going dark.
+  const real = normalizePlan({ ...GOOD, shape: [{ path: "/", sections: ["real"] }] });
+  assert.deepEqual(real.shape, [{ path: "/", sections: ["real"] }]);
 });
 
 test("a page with NO arrangement keeps its role line and gains nothing", () => {
-  // Not compelling one per page is deliberate: six pages of eight bands is a very
-  // long answer, and a model made to fill every slot pads the thin pages rather
-  // than admitting they are thin. An absent page is one the page writer lays out
-  // itself, exactly as every page did before this field existed.
-  const d = directiveFromPlan({ ...GOOD, shape: [{ path: "/", sections: ["hero — the shop"] }] });
-  assert.match(d, /- \/prices — what each cut costs\n?$/,
+  // Not compelling an arrangement is deliberate: a model made to fill every slot
+  // pads a thin page rather than admitting it is thin. An absent entry is a page
+  // the page writer lays out itself, exactly as every page did before this field
+  // existed — and with the plan one page long since 2026-08-28, that one page is
+  // the case.
+  const bare = directiveFromPlan({ ...GOOD, shape: undefined });
+  assert.match(bare, /- \/ — book a chair\n?$/,
     "a page with no arrangement did not come out as a bare role line");
+  const d = directiveFromPlan({ ...GOOD, shape: [{ path: "/", sections: ["hero — the shop"] }] });
   assert.match(d, /- \/ — book a chair\n {4}1\. hero — the shop/,
     "the arranged page's bands are not nested under it");
 });
@@ -312,37 +338,54 @@ test("A STORED FLAT SHAPE IS STILL LEGAL INPUT AND BUYS NOTHING", () => {
   assert.ok(legacy, "a stored flat shape stopped the whole plan normalising");
   assert.equal(legacy.shape, undefined, "a flat shape was kept, so two shapes are live downstream");
   assert.equal(legacy.purpose, GOOD.purpose);
-  assert.equal(legacy.pages.length, 2);
+  // ONE page since 2026-08-28 — the stored two-page list folds to its front page.
+  assert.equal(legacy.pages.length, 1);
 });
 
 test("a page the pipeline could not address is DROPPED, never repaired", () => {
   // The same shape `validatePages` and `routeOf` already agree on. Repairing one
   // is guessing what the model meant, and a wrong guess names a page the
-  // generator then writes at an address nothing routes to.
+  // generator then writes at an address nothing routes to. The bad shapes come
+  // FIRST here, so what this proves is that each was dropped rather than
+  // repaired into the page that survives them.
   const out = normalizePlan({
     ...GOOD,
     pages: [
-      { path: "/", role: "home" },
       { path: "book", role: "no leading slash" },
       { path: "/book.tsx", role: "an extension" },
       { path: "/book/", role: "a trailing slash" },
       { path: "/my page", role: "a space" },
-      { path: "/about/team", role: "nested is fine" },
       { path: "/x", role: "" },
       { role: "no path at all" },
+      { path: "/", role: "home" },
     ],
   });
-  assert.deepEqual(out.pages.map((p) => p.path), ["/", "/about/team"]);
+  assert.deepEqual(out.pages.map((p) => p.path), ["/"]);
+  assert.equal(out.pages[0].name, "home", "a refused path was repaired into the surviving page");
+  // A plan whose EVERY path is refused composes no directive at all — the
+  // null-fallback path, not a silent empty page set.
+  const none = normalizePlan({ ...GOOD, pages: [{ path: "book/", role: "junk" }] });
+  assert.equal(none, null);
 });
 
-test("…and CASE is the one thing it does normalise, on purpose", () => {
-  // `/Book` and `/book` are one route written two ways, with no second thing it
-  // could have meant — and these paths feed the DIRECTIVE rather than a
-  // filename, so lowercasing tells the model to build a legal route where
-  // dropping would silently delete a page it asked for. Asserted apart from the
-  // refusals above so the exception cannot quietly widen into repairing them.
-  const out = normalizePlan({ ...GOOD, pages: [{ path: "/Book", role: "book a chair" }] });
-  assert.deepEqual(out.pages.map((p) => p.path), ["/book"]);
+test("…and a lone page is renamed to the front door, never dropped (2026-08-28)", () => {
+  // With the plan ONE page long, a single page whose path is not "/" has no
+  // second thing it could have meant — the front page IS the site, and
+  // `publishPages` REFUSES a site with no index outright. Renaming publishes the
+  // page the model planned; keeping "/menu" publishes nothing at stage "home".
+  // The lowercase normalisation above it is belt-and-braces now — a lone "/Book"
+  // reaches "/" through either — and stays because the cap is one owner's call
+  // from moving back.
+  const out = normalizePlan({ ...GOOD, pages: [{ path: "/menu", role: "the menu is the site" }] });
+  assert.deepEqual(out.pages, [{ path: "/", name: "the menu is the site" }]);
+  // A shape entry keyed to the old path is dropped by validation, which is the
+  // documented absent-entry behaviour — never remapped by guesswork.
+  const shaped = normalizePlan({
+    ...GOOD,
+    pages: [{ path: "/menu", role: "the menu" }],
+    shape: [{ path: "/menu", sections: ["menu-section — the food"] }],
+  });
+  assert.equal(shaped.shape, undefined);
 });
 
 test("two entries for one path is a page set with a bug — first wins", () => {
@@ -377,11 +420,15 @@ test("a plan STORED BEFORE `pages` became {name, path} keeps every page", () => 
     { path: "/book", role: "take the booking" },
   ] });
   assert.ok(stored, "a stored plan stopped normalising, which voids the whole plan");
-  assert.equal(stored.pages.length, 2);
-  assert.deepEqual(stored.pages.map((p) => p.path), ["/", "/book"]);
-  // The legacy clause becomes the name, so the directive line still says something.
+  // SINCE 2026-08-28 THE CAP IS ONE, so a stored multi-page plan folds to its
+  // front page — the owner's accepted cost, weighed against every legacy site
+  // being the owner's own test sites. What must still hold is the half that
+  // mattered: the legacy `role` is accepted as the name, so the surviving line
+  // says something and the plan never voids.
+  assert.equal(stored.pages.length, 1);
+  assert.deepEqual(stored.pages.map((p) => p.path), ["/"]);
   assert.equal(stored.pages[0].name, "the shop in one scroll");
-  assert.match(directiveFromPlan(stored), /- \/book — take the booking/);
+  assert.match(directiveFromPlan(stored), /- \/ — the shop in one scroll/);
 
   // A FRESH `name` WINS over a stored `role` on the same entry, or an edit that
   // renames a page would be silently overruled by the value it is replacing.
@@ -430,11 +477,14 @@ test("the `pages` field names no example page, so the model cannot copy a menu",
   const mid = it.name.description.replace(/(^|[.!?]\s+)[A-Z]/g, "$1x").match(/\b[A-Z][a-z]+/g) || [];
   assert.deepEqual(mid, [], `the name description names an example page: ${mid.join(", ")}`);
 
-  // AND THE FORMAT FACTS SURVIVE, or a guard against examples has quietly turned
-  // into a guard against saying anything. `PATH_OK` DROPS a page whose path is
-  // wrong — silently — so these are the difference between a page and no page.
+  // AND THE FACTS SURVIVE, or a guard against examples has quietly turned into a
+  // guard against saying anything. Since 2026-08-28 the one fact a route needs
+  // is "/" — there are no other routes to state a format for — and the field's
+  // own description must carry the one-page law, because `pageList` cutting at
+  // one with the model never told is a plan that silently loses what it wrote.
   assert.match(it.path.description, /"\/"/, "the home page's route stopped being stated");
-  assert.match(it.path.description, /lowercase/i, "the case rule stopped being stated");
+  assert.match(PLAN_FIELDS.pages.description, /ONE page/,
+    "the one-page law stopped being stated where the model reads it");
 });
 
 test("a plan STORED BEFORE `structure` went still normalises, and the skeleton never reaches the directive", () => {
@@ -510,16 +560,15 @@ test("the directive names every page and the verb", () => {
   assert.match(d, /^LAYOUT — the slot picker is the hero/);
   assert.match(d, /Primary action: "Book now" —/);
   assert.match(d, /Reach first for: availability-grid, week-strip, price-list\./);
-  assert.match(d, /This site has 2 pages:/);
+  // ONE page since 2026-08-28 — GOOD declares two and the cap folds it to the
+  // front page, so the directive says so in the singular. "1 pages" is the sort
+  // of thing a model copies, so the singular is asserted rather than assumed.
+  assert.match(d, /This site has 1 page:/);
   assert.match(d, /- \/ — book a chair/);
-  assert.match(d, /- \/prices — what each cut costs/);
-  // The arrangement is UNDER its own page, and only under that one — an
-  // instruction printed against the wrong address is worse than none.
+  assert.ok(!d.includes("/prices"), "a page past the cap still reached the directive");
+  // The arrangement is UNDER its own page — an instruction printed against the
+  // wrong address is worse than none.
   assert.match(d, /- \/ — book a chair\n {4}1\. hero — the shop and the Book now button/);
-  assert.match(d, /- \/prices — what each cut costs\n {4}1\. price-list — every cut, sectioned/);
-  // Singular reads correctly, because a one-page café is the commonest shape
-  // this platform builds and "1 pages" is the sort of thing a model copies.
-  assert.match(directiveFromPlan({ ...GOOD, pages: [{ path: "/", role: "everything" }] }), /This site has 1 page:/);
 });
 
 /* ── kind: shopfront or tool (2026-08-27) ───────────────────────────────── */

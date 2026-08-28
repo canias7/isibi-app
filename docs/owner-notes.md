@@ -18850,3 +18850,36 @@ when you top up, the first build fires on it immediately — no 15-20 minute
 wait for this one. What that build measures: whether the designer's `sections`
 lines come back carrying widths and columns, and whether the front page it
 plans actually reads as its shape.
+
+### Same day: one page, 8-15 components
+
+"Ok something else tho, for the pages, max 1 instead of 5 i think there is, a
+components from 8-15."
+
+Done. Every new build is now ONE page — the front page is the whole site — and
+the parts list the designer picks is 8 to 15 components instead of up-to-50.
+The thinking matches your shapes call: instead of the model spreading itself
+over four or five thin pages, all of its attention goes on the one screen a
+visitor actually judges, laid out as one of the 13 shapes.
+
+Details worth knowing:
+
+- If the model names its single page something other than "/" (the front
+  door), we rename it to "/" automatically — with one page there's nothing
+  else it could have meant, and the alternative is a build that publishes
+  nothing.
+- The 8 is a request in the prompt, the 15 is enforced in code (anything past
+  15 is cut). We can't force a minimum in code — you can't invent components
+  the model didn't name — but under 8 the page reads thin, and the prompt says
+  so.
+- Your existing multi-page test sites (northgroup etc.) keep their pages —
+  the writer side still tolerates up to 6, so a revise can't delete pages off
+  a live site. Only NEW plans are one page. One side effect: if you fully
+  revise an old multi-page site, its plan folds to the front page.
+- The eval's three test scenarios were refolded to one-page plans so the eval
+  keeps measuring what production actually does. Its compile-rate history
+  isn't comparable across this line.
+
+Suite green (4,372), sweep 5/5 with the control surviving. Same NOT-proven-live
+caveat: ~11 credits in the account. The first funded build is the real
+measurement — one page done properly versus five done thinly.

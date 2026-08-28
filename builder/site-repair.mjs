@@ -48,8 +48,10 @@ import { routeOf } from "./site-addon.mjs";
 /**
  * How many pages one build will pay to repair.
  *
- * A site has at most 5 pages (`MAX_PAGES`), so this is not really a cost bound
- * — it is a sanity bound. A render report naming every page as broken is far
+ * A new build plans ONE page (site-plan's `MAX_PAGES`, 2026-08-28) and the
+ * writer keeps at most 6 (page-gen's own `MAX_PAGES`, the tolerance for sites
+ * built before that), so this is not really a cost bound — it is a sanity
+ * bound. A render report naming every page as broken is far
  * more likely to be the check having a bad day than five independently broken
  * pages, and spending five calls on that is the false-alarm failure paying for
  * itself. Three is enough for the real case and small enough that a wrong

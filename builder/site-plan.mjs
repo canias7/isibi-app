@@ -244,22 +244,40 @@ export const COMPONENT_MENU = (() => {
 // CAPS LIVE HERE, IN CODE, AND ALSO IN THE DESCRIPTIONS — this repo's standing
 // distinction, and the reason `MAX_CLARIFY` is arithmetic rather than a
 // sentence. A cap a model is merely told about is not a cap.
-export const MAX_PAGES = 5;
-export const MAX_ACTION = 3;
-// 24 UNTIL 2026-08-24, AND THE OWNER RAISED IT TO 50: "so the model chooses how
-// many it needs, and the cap is 50." A FLOOR WENT WITH IT — the field asked for
-// "10-24", which is a range, and a range makes a site that genuinely needs eight
-// components pad to ten. What is left is a ceiling and a judgement.
 //
-// THE COST IS MEASURED AND IT IS THE PER-SITE BLOCK, NOT THE CACHED ONE. This is
-// a MANIFEST: page generation is shown the exact props of every name on it, and
-// that block is per site, so it is FRESH INPUT on every build and cannot be
-// cached. Driven against the real `componentApiFor`: 24 names is 3,872
-// characters (~1,076 tokens) and 50 is 9,494 (~2,637) — +1,561 tokens, which on
-// the default picker's rate is +$0.0031, or **0.39 credits**, about 1% of a
-// 38-credit build. And it is only paid by a site that really names 50: a shop
-// that needs twelve sends twelve.
-export const MAX_COMPONENTS = 50;
+// 5 UNTIL 2026-08-28, AND THE OWNER CUT IT TO ONE: "for the pages, max 1
+// instead of 5." The front page IS the site — every band the shape step plans
+// lands on the one screen a visitor actually judges, and the model's whole
+// attention goes there instead of being spread across four thin pages.
+// `pageList` CUTS at this, so a plan declaring more loses the rest silently —
+// and a single-page plan whose page is not "/" is renamed to "/" there, the
+// lowercase class of repair rather than a guess (see pageList).
+//
+// THE WRITER-SIDE CAP IS DELIBERATELY NOT CUT WITH IT: `page-gen.mjs` keeps its
+// own MAX_PAGES = 6 at `validatePages`, because a full revise of a site built
+// BEFORE this hands every stored page back through validation — capping there
+// would silently delete pages off a live multi-page site on its owner's next
+// unrelated edit. New builds are one page because the PLAN is one page.
+export const MAX_PAGES = 1;
+export const MAX_ACTION = 3;
+// 24 UNTIL 2026-08-24 ("so the model chooses how many it needs, and the cap is
+// 50"), 50 UNTIL 2026-08-28, AND THE OWNER NARROWED IT TO 8-15: "a components
+// from 8-15." THE FLOOR RETURNS WITH THAT CALL — 2026-08-24 dropped it because
+// a range makes a thin site pad to the minimum, and the owner has weighed that
+// against the opposite failure: a one-page site built out of four parts. The
+// floor is PROSE (the description asks for 8-15) because code cannot invent
+// components a model did not name, and refusing a 6-component plan outright
+// would kill a build over a quality nudge. The ceiling is CODE: `normalizePlan`
+// slices here.
+//
+// THE COST IS THE PER-SITE BLOCK, NOT THE CACHED ONE. This is a MANIFEST: page
+// generation is shown the exact props of every name on it, and that block is
+// per site, so it is FRESH INPUT on every build and cannot be cached. Driven
+// against the real `componentApiFor` when the cap moved before: 24 names is
+// 3,872 characters (~1,076 tokens) and 50 is 9,494 (~2,637) — so 15 bounds the
+// block near the old 24-name measurement, and the narrowing is a cost CUT on
+// every build that used to name more.
+export const MAX_COMPONENTS = 15;
 
 /**
  * How many bands one page may declare, MEASURED rather than chosen.
@@ -379,6 +397,15 @@ function pageList(v) {
     out.push({ path, name });
     if (out.length >= MAX_PAGES) break;
   }
+  // A ONE-PAGE SITE'S PAGE IS THE FRONT PAGE, and renaming it there is the
+  // lowercase class of repair rather than a guess (see PATH_OK's comment): with
+  // exactly one page there is no second thing the model could have meant, and
+  // `publishPages` REFUSES a site with no index outright — so keeping a lone
+  // "/menu" publishes nothing at stage "home", while renaming it publishes the
+  // page the model planned. A `shape`/`images` entry keyed to the old path is
+  // then dropped by the validation below, which degrades to the documented
+  // absent-entry behaviour: the page writer arranges the page itself.
+  if (out.length === 1 && out[0].path !== "/") out[0] = { ...out[0], path: "/" };
   return out;
 }
 
@@ -685,6 +712,10 @@ export const PLAN_FIELDS = {
       "a choice that does not serve it is wrong.",
   },
 
+  // SINCE 2026-08-28 THE LIST IS ONE ENTRY LONG (owner's call — see MAX_PAGES);
+  // the shape below documents the field as it was born, and the layer facts in
+  // it still hold at a cap of one.
+  //
   // WHAT THIS STEP IS FOR, AND ALL IT IS FOR (owner's call, 2026-08-24): the
   // page list and the routes. Which pages exist, what each is called, where it
   // lives. `role` — a clause about what a page was FOR — is gone with the rest
@@ -730,16 +761,19 @@ export const PLAN_FIELDS = {
         // anywhere else, and a site with no "/" has no front door.
         path: {
           type: "string",
-          description:
-            'Its route. The home page is "/". Every other page is a leading slash then lowercase ' +
-            "words with hyphens for spaces — no trailing slash, no file extension.",
+          description: 'Its route: "/". The front page is the whole site.',
         },
       },
       required: ["name", "path"],
     },
+    // ONE PAGE (owner's call, 2026-08-28): "for the pages, max 1 instead of 5."
+    // The description states the law and `pageList` enforces it — the cap cuts
+    // there, and a lone page not at "/" is renamed to the front door there, so
+    // the field cannot produce a site that dies at stage "home".
     description:
-      `Which pages this site has, at most ${MAX_PAGES}. Decide how many it needs, what each one is ` +
-      "called, and its route. Nothing else — this step is the page list and the routes.",
+      `This site is ONE page — the front page is the whole site (at most ${MAX_PAGES}). ` +
+      'One entry: what the site is called, route "/". Everything the brief needs lands on ' +
+      "that page as bands, in the order `shape` arranges them. There are no other routes.",
   },
 
 
@@ -750,14 +784,15 @@ export const PLAN_FIELDS = {
     type: "array",
     items: { type: "string" },
     description:
-      `As many components from the kit as this site needs, at most ${MAX_COMPONENTS}. ` +
-      "THIS IS A MANIFEST, NOT A SHORTLIST: the step that writes the pages is shown the exact props of the " +
+      `Between 8 and ${MAX_COMPONENTS} components from the kit — what this one page needs. ` +
+      "THIS IS A MANIFEST, NOT A SHORTLIST: the step that writes the page is shown the exact props of the " +
       "components you name here, so one you leave out is one it has to guess the props of — and a wrong guess " +
-      "costs that page. You have just written the page list above; name what those pages need, the ordinary " +
-      "parts as well as the distinctive ones. A booking page wants availability-grid and week-strip, a menu " +
+      "costs the page. You have just arranged the page above; name what its bands need, the ordinary " +
+      "parts as well as the distinctive ones. A booking band wants availability-grid and week-strip, a menu " +
       "wants menu-section and price-list, a live board wants countdown and live-badge. " +
       "A records screen wants data-table with row-actions, pagination and stat-card, not a stack of cards. " +
-      "Naming a component that does not exist is refused and costs nothing; leaving one out is what hurts.\n\n" +
+      "Naming a component that does not exist is refused and costs nothing; leaving one out is what hurts. " +
+      `Fewer than 8 and the page is thinner than it should be; everything past ${MAX_COMPONENTS} is dropped.\n\n` +
       // THE WHOLE KIT, MOST-USED FIRST — and the order is information rather than
       // formatting: the head is what a small business site nearly always needs
       // and the tail is what one site in fifty does. Named here because a
