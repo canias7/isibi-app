@@ -30,13 +30,15 @@ then the composed card).
   instead of breaking.
 - Free — no model call, no credits.
 
-**#3 — analytics.** You chose to have it on, and it looks like it already is:
-the measuring script is on every published site and the security policy has
-allowed it to send since mid-August. What nobody could see from here is
-whether data is actually arriving in the Cloudflare account. There's now a
-free, read-only **"rum report"** check that prints visits per site — it runs
-automatically with this update, and re-running it any time is a one-line
-nudge. If it shows zero, the next step is written in the report itself.
+**#3 — analytics.** You chose to have it on — and the first reading proves it
+already is, and has been since mid-August: **451 page views in the last 7
+days**, per site, in your Cloudflare account. The config was created 9 August
+and the security-policy fix on 15 August is what let it start sending, so the
+"No data available" you'd have seen before then was real at the time and isn't
+any more. A sample: northgroup-12 had 71 views this week, northgroup-17 42,
+markbook-1 24, shoeroom-1 13. The dashboard is Cloudflare → Analytics → Web
+Analytics; the free, read-only **"rum report"** check prints the same numbers
+any time — re-running it is a one-line nudge to its file.
 
 ## The share card — every site gets a picture on its link now (2026-08-28)
 
