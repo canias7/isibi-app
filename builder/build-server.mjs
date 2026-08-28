@@ -350,7 +350,7 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon, wordmark }) {
+function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon, wordmark, theme, tokens }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
   // The drawn logo's file, deleted per build for the reason the icon's is one
@@ -515,6 +515,20 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
   // enough for the one question asked of it — is what I am reading the thing I
   // just uploaded — which needs only difference, never order.
   const buildValue = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+  // THE MOBILE BROWSER'S TINT, from the SAME reading the share card paints
+  // with (`cardColors` — the theme's light paper, a skew-era token patch still
+  // overriding through isColor), so the browser bar and the card cannot name
+  // two different papers. Never a throw: cardColors answers the template's own
+  // white for a theme it cannot read, which is what the page renders anyway.
+  let themeColorValue = "";
+  try { themeColorValue = cardColors(resolveTheme(theme), tokens).paper || ""; } catch { /* no tint claimed */ }
+  // THE HOME-SCREEN ICON EXISTS ONLY WHEN THIS BUILD WROTE A LOCAL MARK — the
+  // drawn favicon or the initials, the `!iconOk` half — because the rasterise
+  // step below reads `icon.svg` out of this build's own dist. An OWNER-uploaded
+  // tab icon is a remote file this build does not fetch (a stated limit), and
+  // an empty value here is what keeps `__root.tsx` from emitting a link that
+  // 404s on every page.
+  const touchValue = icon && !iconOk ? "/apple-touch-icon.png" : "";
   fs.writeFileSync(
     path.join(APP, "src", "site-brand.ts"),
     "// Generated per build by build-server.mjs. Do not edit.\n" +
@@ -556,6 +570,8 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
       "export const SITE_ICON = " + JSON.stringify(icon || "/favicon.svg") + ";\n" +
       "export const SITE_ICON_TYPE = " + JSON.stringify(iconType || "image/svg+xml") + ";\n" +
       "export const SITE_NAME = " + JSON.stringify(titleValue) + ";\n" +
+      "export const SITE_THEME_COLOR: string = " + JSON.stringify(themeColorValue) + ";\n" +
+      "export const SITE_TOUCH_ICON: string = " + JSON.stringify(touchValue) + ";\n" +
       "export const SITE_BUILD = " + JSON.stringify(buildValue) + ";\n",
   );
   // `ownIcon` SEPARATES THE TWO OUTCOMES the single `icon` boolean could not:
@@ -563,7 +579,7 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
   // both answered true, so a favicon that was stored and then refused by the
   // shape check reported as a working icon.
   return { lang: langValue, dir: dirValue, langs: langsValue, transition: transitionValue, icon: !!icon, ownIcon: iconOk, favicon: faviconDrawn, wordmark: wordmarkUsed, logo: !!logoValue, slug: !!slugValue,
-    refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
+    touch: !!touchValue, refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
 }
 
 // The site's typeface, written per build.
@@ -1606,7 +1622,7 @@ const server = http.createServer((req, res) => {
       // once, passed to both, and `parseStyle` is idempotent so `applyStyle`
       // re-reading it downstream cannot change the answer.
       const styleUsed = parseStyle(payload.style, { max: MAX_STYLE_BUILD }).style;
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, wordmark: payload.wordmark, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, wordmark: payload.wordmark, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition, theme: payload.theme, tokens: payload.tokens });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts, payload.cssFonts);
       // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
       // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly
@@ -1760,6 +1776,46 @@ const server = http.createServer((req, res) => {
         console.error("share card compose failed:", e && e.message);
       }
 
+      // ── THE HOME-SCREEN ICON, RASTERISED FROM THE TAB'S OWN MARK ────────────
+      //
+      // iOS takes a PNG or a screenshot of the page — it does not read an SVG —
+      // so a site whose only mark is `icon.svg` had nothing to offer "add to
+      // home screen". This paints that same mark, full-bleed, over the theme's
+      // paper (`cardColors` again — a transparent mark composited onto nothing
+      // becomes a BLACK square on iOS) and writes the PNG into `dist/client`
+      // like the card above: published by `collectDist`, wiped per build, so a
+      // cross-build leak is impossible by where the file lives.
+      //
+      // GATED ON `brandUsed.touch` — the same decision that baked
+      // `SITE_TOUCH_ICON` into the bundle before vite ran — and read OUT OF
+      // THIS BUILD'S OWN DIST (vite copies `public/` in), the wordmark's rule:
+      // `icon.svg` being there means THIS build wrote it.
+      //
+      // BEST-EFFORT, and the failure is benign by a platform fact: Safari
+      // probes `/apple-touch-icon.png` blindly whether or not a page links it,
+      // so a baked link over a missing file adds no request that was not
+      // already being made — the failure costs the icon, never the build, and
+      // is named in the log and as `touchIcon: false` on the response.
+      let touchMade = false;
+      const touchSvgPath = path.join(CLIENT_DIST, "icon.svg");
+      if (brandUsed.touch && fs.existsSync(touchSvgPath)) {
+        try {
+          await timed("touchMs", null, null, async () => {
+            const paper = cardColors(resolveTheme(payload.theme), payload.tokens).paper;
+            // A data: URI rather than a served path — `setContent` renders a
+            // self-contained page with no server behind it, the card's rule.
+            const uri = "data:image/svg+xml;base64," + fs.readFileSync(touchSvgPath).toString("base64");
+            const html = '<!doctype html><meta charset="utf-8"><body style="margin:0;background:' + paper + '">' +
+              '<img src="' + uri + '" style="display:block;width:180px;height:180px" alt="">';
+            const shot = await screenshotHtml(html, { width: 180, height: 180 });
+            fs.writeFileSync(path.join(CLIENT_DIST, "apple-touch-icon.png"), shot);
+            touchMade = true;
+          });
+        } catch (e) {
+          console.error("touch icon rasterise failed:", e && e.message);
+        }
+      }
+
       // ONLY THE CLIENT HALF IS PUBLISHED. Start emits `dist/client/**` (what a
       // visitor downloads) and `dist/server/server.js` (the script that renders).
       // `collectDist(DIST)` would publish BOTH — so every asset would land at
@@ -1834,7 +1890,7 @@ const server = http.createServer((req, res) => {
       // because "we thought this was sandboxed" is a worse position than knowing
       // it is not, and the one thing a check like this must not do is report a
       // confinement that is not there.
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, card: cardMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

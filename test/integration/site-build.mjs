@@ -973,6 +973,60 @@ try {
           homeHtml2.includes(META.description)
             && homeHtml2.includes('property="og:url" content="' + META.origin + '"'),
           "the home page is the ONE that must not override — its description was written for exactly this");
+
+        // ── the head-tag pack (2026-08-28) ────────────────────────────────────
+        //
+        // Only a render can prove these: the tags are composed by `__root.tsx`
+        // at request time, so a unit test can read the template's source and
+        // nothing more. Asserted on /menu as well as / — the per-page half is
+        // the point of the canonical.
+        ok("og:site_name is the business's name, on every page",
+          homeHtml2.includes('property="og:site_name" content="Fold Coffee"')
+            && menuHtml.includes('property="og:site_name" content="Fold Coffee"'),
+          "og:site_name is missing — Slack and Discord show the raw hostname above every card");
+        // THE CANONICAL, from the SAME address og:url speaks. A site with a
+        // custom domain serves at TWO hostnames; without this a search engine
+        // reads them as duplicate sites and splits the ranking.
+        const canonOf = (h) => (((h.match(/<link[^>]*rel="canonical"[^>]*>/) || [""])[0]).match(/href="([^"]+)"/) || [])[1] || "";
+        ok("the canonical names THIS page's address",
+          canonOf(homeHtml2) === META.origin && canonOf(menuHtml) === META.origin + "/menu",
+          JSON.stringify({ home: canonOf(homeHtml2), menu: canonOf(menuHtml) }));
+        ok("og:locale speaks the site's language", homeHtml2.includes('property="og:locale" content="en"'),
+          "no og:locale — an unfurler guesses the language of every preview");
+        // The tint: this build sent no theme, and the paper such a site really
+        // renders is the template's own white — the same answer `cardColors`
+        // gives the card.
+        ok("the mobile browser's tint is the paper the site renders",
+          homeHtml2.includes('name="theme-color" content="#ffffff"'),
+          "no theme-color — the browser bar stays grey over the site's own paper");
+        // The home-screen icon: this build drew initials, so the link must be
+        // there AND point at a file this build published (the rtl icon check's
+        // own rule — a head pointing at a 404 is worse than no link).
+        const touchLink = (homeHtml2.match(/<link[^>]*rel="apple-touch-icon"[^>]*>/) || [""])[0];
+        const touchHref = ((touchLink.match(/href="([^"]+)"/) || [])[1] || "").replace(/^\.?\//, "");
+        ok("the home-screen icon is linked, at a file this build published",
+          !!touchHref && !!wpack.files[touchHref], touchLink || "no apple-touch-icon link in the head");
+        // THE DIMENSIONS ARE THE CARD'S ALONE. This sidecar's image is an owner
+        // upload, so no size may be claimed — some unfurlers crop to the
+        // declared box — while the alt still rides.
+        ok("an owner upload's og:image claims no dimensions",
+          !homeHtml2.includes("og:image:width") && !homeHtml2.includes("og:image:height"),
+          "dimensions were claimed for an image whose size nobody knows");
+        ok("…but still carries an alt", homeHtml2.includes('property="og:image:alt" content="Fold Coffee"'),
+          "no og:image:alt — a screen reader gets nothing for the card");
+        // …and the composed card's ARE claimed: same script, a sidecar whose
+        // image is the card, so the gate is proved in both directions. A FRESH
+        // IMPORT, because the entry reads the sidecar ONCE PER ISOLATE by
+        // design (`loaded` in server.ts — one dispatch script serves one site),
+        // so the instance above has already cached the upload-shaped meta; the
+        // query string is Node's fresh-isolate equivalent.
+        const cardSide = { ...objs, "sitemeta/fold-coffee.json": JSON.stringify({ ...META, image: META.origin + "/card.png" }) };
+        const site2 = (await import("file://" + bundleFile + "?cardmeta")).default;
+        const cardDoc = await (await site2.fetch(new Request("https://fold-coffee.gofarther.app/"), { SITES: bucketOf(cardSide) }, { waitUntil() {} })).text();
+        ok("the composed card's og:image claims its pinned size",
+          cardDoc.includes('property="og:image:width" content="1200"')
+            && cardDoc.includes('property="og:image:height" content="630"'),
+          "the card's dimensions never reached the head — the first share reflows instead of rendering instantly");
       }
 
       // THE FLAT FORM, AGAINST THE THING THAT DECIDES. `about.team.tsx` is
@@ -1155,6 +1209,29 @@ try {
       ok("…and big enough to be a rendered card rather than a blank", png.length > 5000, png.length + " bytes");
     }
     ok("the response says the card was made", built.card === true, JSON.stringify(built.card));
+
+    // ── the home-screen icon, rasterised from the tab's own mark (2026-08-28) ─
+    //
+    // Same argument as the card one block up: only a real build can prove a
+    // browser rasterised anything, and the PNG's own header is the assertion.
+    // This build drew initials, which is exactly the case the rasterise exists
+    // for — an SVG mark iOS cannot read, made into the PNG it can.
+    const touchB64 = ((built.files || {})["apple-touch-icon.png"] || {}).b || "";
+    ok("a build with a local mark rasterises a home-screen icon into its dist", !!touchB64,
+      "no apple-touch-icon.png in the dist — the baked link 404s on every page");
+    if (touchB64) {
+      const tpng = Buffer.from(touchB64, "base64");
+      ok("…and it is a real PNG at the touch size",
+        tpng.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+          && tpng.readUInt32BE(16) === 180 && tpng.readUInt32BE(20) === 180,
+        tpng.subarray(0, 8).toString("hex") + " " + tpng.readUInt32BE(16) + "x" + tpng.readUInt32BE(20));
+      // A size floor, the card's rule: an all-white square (the mark lost, the
+      // paper alone) compresses to almost nothing.
+      ok("…and big enough to carry the mark rather than bare paper", tpng.length > 800, tpng.length + " bytes");
+    }
+    ok("the response says the touch icon was made", built.touchIcon === true, JSON.stringify(built.touchIcon));
+    ok("…and the brand report carries the decision the link was baked from", (built.brand || {}).touch === true,
+      JSON.stringify((built.brand || {}).touch));
 
     // A LOGO ON A SITE WITH NO HEADER IS HARMLESS, and that is the only thing
     // this build can honestly say about one. These fixtures render no

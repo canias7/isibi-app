@@ -10,6 +10,39 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## The head every site on the web has (2026-08-28)
+
+Your call ("ok do that", after "im talking about something every site has like
+og image , etc etc etc"). Every new build now carries the standard head tags
+real sites have and ours were missing — checked against your own live sites
+first, where every one of these was absent:
+
+- **The business's name above the link card** (`og:site_name`). Shares in
+  Slack, Discord and Telegram showed the raw machine hostname there; now they
+  show the business's own name.
+- **One official address per page** (a canonical link). Once a site has a
+  custom domain it serves at TWO addresses — the `.app` one stays live — and
+  without this Google reads them as duplicate sites and splits the ranking
+  between them. Now every page names its one real address.
+- **A real home-screen icon.** "Add to home screen" on a phone used to get a
+  screenshot or a black square; now each build turns the site's own tab mark
+  into a proper 180×180 icon on the theme's paper. (A site where you uploaded
+  your own tab icon is the one case that still goes without — stated limit.)
+- **The phone browser tints to the site.** The bar above the page takes the
+  theme's paper colour instead of staying grey — the same colour the link
+  card uses, so they can never disagree.
+- **The link card renders instantly.** The composed card now declares its
+  exact size, so chat apps lay the preview out before the image arrives
+  instead of reflowing. And the picture carries a text alternative for
+  screen readers.
+- **The language is declared for previews** (`og:locale`), and a bilingual
+  site declares both.
+
+All free — no model call, no credits, nothing to do on your side. Reaches
+each site on its next build or edit. **Not proven live yet** (18 credits,
+same as the card and the wordmark); the push rolls the container image, so
+the usual 15–20 minute wait applies before the first build against it.
+
 ## Pick your own link-preview picture, and the analytics answer (2026-08-28)
 
 Your call ("ok do 2 and 3").

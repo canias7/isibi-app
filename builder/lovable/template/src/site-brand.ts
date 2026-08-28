@@ -113,6 +113,20 @@ export const SITE_ICON_TYPE = "image/svg+xml";
 // non-home page at publish, after the fact; a default the routes can override is
 // the same outcome with the ordering the right way round.
 export const SITE_NAME = "App";
+// THE MOBILE BROWSER'S OWN TINT — `<meta name="theme-color">` — baked from the
+// theme's light paper, the SAME reading the share card paints with, so the
+// browser bar and the card cannot name two different papers. Empty — the
+// template's own standalone state — means the tag is not emitted at all, so
+// every site built before this renders exactly as it did.
+export const SITE_THEME_COLOR: string = "";
+// THE HOME-SCREEN ICON — `/apple-touch-icon.png`, rasterised per build from the
+// same mark the tab shows (the drawn favicon or the initials), on the theme's
+// paper so a transparent mark does not become a black square on iOS. Empty when
+// this build made none — an owner-uploaded tab icon is a remote file this
+// build does not rasterise (a stated limit, not an oversight) — and empty means
+// no link is emitted, because a link to a file that was never made is a 404 on
+// every page.
+export const SITE_TOUCH_ICON: string = "";
 // WHICH BUILD THIS IS — the one value here that nothing renders. `src/server.ts`
 // returns it as `x-site-build` on every response, and the platform waits for it
 // to match what it just uploaded before calling a publish done: a script does

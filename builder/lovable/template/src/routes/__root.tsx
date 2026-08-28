@@ -21,7 +21,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { SpamGuard } from "@/lib/spam-guard";
-import { SITE_LANG, SITE_DIR, SITE_LANGS, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
+import { SITE_LANG, SITE_DIR, SITE_LANGS, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG, SITE_THEME_COLOR, SITE_TOUCH_ICON } from "@/site-brand";
 import { siteMeta } from "@/site-runtime";
 // The stylesheet and the site's typeface, imported here rather than in a client
 // entry so the SERVER render emits their <link> tags too. Imported in
@@ -65,13 +65,37 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       const p = list.length ? list[list.length - 1]?.pathname : "";
       return typeof p === "string" && p.startsWith("/") ? p.replace(/\/+$/, "") : "";
     })();
+    // THE PAGE'S ONE PUBLIC ADDRESS, computed ONCE and used by `og:url` AND the
+    // canonical link — the same expression, so the two can never disagree about
+    // which address is the real one. The canonical is what consolidates: once a
+    // site has a custom domain it serves at TWO hostnames (the .app subdomain
+    // stays live), and without this tag a search engine reads them as duplicate
+    // sites and splits the ranking between them. Absent origin means NO tag —
+    // a wrong canonical is worse than none.
+    const page = m?.origin ? m.origin + here : "";
     const tags: Array<Record<string, string>> = [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: SITE_NAME },
       { property: "og:title", content: SITE_NAME },
+      // THE LITTLE LINE AT THE TOP OF THE CARD. Without it Slack, Discord and
+      // Telegram fall back to the raw hostname there — the machine's name in
+      // the most visible place a share has.
+      { property: "og:site_name", content: SITE_NAME },
       { property: "og:type", content: "website" },
+      // `og:locale` is the site's own language in OG's underscore spelling;
+      // a bilingual site declares the other half as an alternate.
+      { property: "og:locale", content: SITE_LANG.replace(/-/g, "_") },
     ];
+    for (const l of SITE_LANGS) {
+      if (l && l.lang && l.lang !== SITE_LANG) {
+        tags.push({ property: "og:locale:alternate", content: l.lang.replace(/-/g, "_") });
+      }
+    }
+    // The mobile browser's own chrome tints to the theme's paper instead of
+    // grey. Baked from the SAME reading the share card paints with, so the
+    // browser bar and the card cannot name two different papers.
+    if (SITE_THEME_COLOR) tags.push({ name: "theme-color", content: SITE_THEME_COLOR });
     if (SITE_SLUG) tags.push({ name: "site-slug", content: SITE_SLUG });
     // EACH ONE ONLY IF THERE IS SOMETHING TO SAY. An empty `og:description` is
     // worse than none — a preview renders the empty string rather than falling
@@ -82,13 +106,24 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     }
     if (m?.image) {
       tags.push({ property: "og:image", content: m.image });
+      // THE DIMENSIONS, ONLY WHEN THEY ARE KNOWN. The composed card is pinned
+      // at 1200×630 platform-wide and always serves at /card.png, so an
+      // unfurler told the size can lay the card out before the image arrives —
+      // the first share renders instantly instead of reflowing. An OWNER
+      // upload's dimensions are whatever they uploaded, and a wrong claim is
+      // worse than none: some unfurlers crop to the declared box.
+      if (/\/card\.png$/.test(m.image)) {
+        tags.push({ property: "og:image:width", content: "1200" });
+        tags.push({ property: "og:image:height", content: "630" });
+      }
+      tags.push({ property: "og:image:alt", content: SITE_NAME });
       // `summary_large_image` WITH NO IMAGE RENDERS AN EMPTY BOX, so the card
       // type follows whether there is actually one — the rule `metaTags` already had.
       tags.push({ name: "twitter:card", content: "summary_large_image" });
     } else {
       tags.push({ name: "twitter:card", content: "summary" });
     }
-    if (m?.origin) tags.push({ property: "og:url", content: m.origin + here });
+    if (page) tags.push({ property: "og:url", content: page });
     // PROVING THE SITE BELONGS TO THE BUSINESS. Search Console and the rest read
     // the tag off whichever URL they were pointed at, so it goes on EVERY page
     // rather than only the home page — a site verified at its root and not at
@@ -105,7 +140,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     }
     return {
       meta: tags,
-      links: [{ rel: "icon", href: SITE_ICON, type: SITE_ICON_TYPE }],
+      links: [
+        { rel: "icon", href: SITE_ICON, type: SITE_ICON_TYPE },
+        // The home-screen icon, only when this build rasterised one — a link
+        // to a file that was never made is a 404 on every page.
+        ...(SITE_TOUCH_ICON ? [{ rel: "apple-touch-icon", href: SITE_TOUCH_ICON }] : []),
+        // The one real address, from the SAME `page` og:url speaks.
+        ...(page ? [{ rel: "canonical", href: page }] : []),
+      ],
     };
   },
   component: RootDocument,
