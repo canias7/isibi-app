@@ -258,6 +258,18 @@ express the change. Cheapest first:
 **`sameProse` is the guarantee the page layer cannot make**: a tweak that moved
 the words is thrown away. Measured 0 false alarms over 1,640 real tweaks.
 
+**`look` IS the CSS editor**, and it is the only layer that touches the
+stylesheet — `text` and `picture` edit the page SOURCE, so a wording change never
+opens the sheet. On an edit the model is handed the site's current stylesheet
+(`currentStateNote`) and `css` is **REPLACED, not merged**, which is why the
+editor's contract lives in `EDIT_RULE` rather than in the cached tool: **as many
+edits as there were asks**, each **only as wide as it was asked** — a rule on a
+control, not a new value for a token every component repaints from — and
+**nothing unasked-for moves**. The width half is the one with teeth: "make this
+button darker" reads equally as one rule or one token, and only one of them is
+the edit the customer asked for. Stated as the mechanism, never as a ban-list —
+a list covers tonight's control and the next request is always a different one.
+
 Every cheap edit republishes through `recompileAndPublish` — the shared spine.
 **Anything a build bakes must be sent by that spine too**, or a typo fix silently
 strips it.

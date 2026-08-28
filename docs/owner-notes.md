@@ -65,6 +65,11 @@ owner signals one; move an item out of Open the moment it is resolved.
   is related to what the customer wants."** An invented detail stays inside the
   brief.
 - **A cap the model is only told about is not a cap.** Enforce it in code.
+- **An edit is measured against what was asked.** *"If the user wants one thing,
+  you change one thing. If the user wants three, you change three… do not change
+  something that the user hasn't told you to change."* And each change reaches
+  only as far as the ask did — restyling one button is a rule for that button,
+  not a new site-wide colour that happens to repaint it.
 - **"They gotta be smart with the questions, not all the time."**
 - **"I just want it treated normal, like an attachment — the user will say what he
   wants that for, it's part of the conversation."**

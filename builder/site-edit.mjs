@@ -328,6 +328,33 @@ export const EDIT_RULE =
   "return the site's current stylesheet, printed above when the site has one, with ONLY that change made to it. " +
   "Whatever you return REPLACES the whole stylesheet, so a sheet written from scratch is a different design and " +
   "anything you leave out is gone. If the change is not about the look at all, omit `css`.\n" +
+  // ── THE EDITOR'S THREE RULES (2026-08-28, owner's call) ────────────────────
+  //
+  // "if the user wants one thing, you change one thing. if the user wants
+  // three, you change three… do not change something that the user hasn't told
+  // you to change." The paragraph above already says "ONLY that change made",
+  // and it was not enough on its own, because it leaves two things unsaid that
+  // a model fills in from training: HOW MANY edits an ask is worth, and HOW WIDE
+  // each one should reach.
+  //
+  // THE WIDTH HALF IS THE ONE WITH TEETH. "Make this button darker" has two
+  // readings that look equally reasonable from inside the sheet — a rule on the
+  // button, or a new value for the token the button paints with — and the second
+  // repaints every component that reads that token. From the customer's side
+  // those are not two ways to do one job: one is the edit they asked for and the
+  // other is a re-skin of the site. The mechanism is named rather than banned,
+  // because a ban-list covers tonight's case and the customer's next request is
+  // always a control nobody listed.
+  //
+  // NO WORKED EXAMPLE, deliberately — the owner's standing rule, and the one
+  // thing a model reliably copies. Stated as the purpose and left there.
+  "YOU ARE EDITING A STYLESHEET, NOT WRITING ONE. Change exactly as many things as they asked for: one ask is " +
+  "one edit to the sheet, three asks are three. Everything else comes back exactly as it is printed above.\n" +
+  "AND EACH ONE ONLY AS WIDE AS THEY ASKED. A change to one control is a rule for that control. A new value for " +
+  "a token is not — every component that reads that token repaints, so a request about one button becomes a " +
+  "different-looking site. Reach for a token only when what they named really is the whole site.\n" +
+  "NOTHING THEY DID NOT ASK FOR MOVES — not a spacing you would have set differently, not a colour you think " +
+  "sits better beside the new one. Taste nobody asked for reads as the site changing on its own.\n" +
   "A change to the wording is neither — the pages are edited " +
   "elsewhere, so return no tables and no seed for it. Only declare a table when this change genuinely needs one " +
   "stored, and then declare only that table; the ones it already has are kept for you.\n" +

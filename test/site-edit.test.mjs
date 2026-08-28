@@ -353,6 +353,55 @@ test("…and the rule tells it not to restate the language, in the terms the mer
   assert.match(EDIT_RULE, /conversation is in English and the site may not be/i);
 });
 
+test("the css editor is told how MANY things to change and how WIDE each one reaches", () => {
+  // The owner's call, 2026-08-28: "if the user wants one thing, you change one
+  // thing… do not change something that the user hasn't told you to change."
+  //
+  // Windowed from the css paragraph to the wording one — landmark to landmark,
+  // never a byte count, and both landmarks asserted before the slice, because
+  // `indexOf` answering -1 gives an empty window that passes every check inside
+  // it. Derived from the NEXT section's opening so anything inserted between
+  // them lands inside the window rather than escaping it.
+  const from = EDIT_RULE.indexOf("A change to the LOOK");
+  const to = EDIT_RULE.indexOf("A change to the wording");
+  assert.ok(from >= 0, "the css paragraph is gone from the edit rule");
+  assert.ok(to > from, "the wording paragraph no longer follows the css one");
+  const css = EDIT_RULE.slice(from, to);
+
+  // PROPORTIONALITY: the count of edits follows the count of asks. Without it
+  // "ONLY that change" leaves the model to decide what one change is worth.
+  assert.match(css, /as many things as they asked|one ask is one edit/i,
+    "the css editor is not told to change as many things as it was asked for");
+
+  // WIDTH: a token is the site-wide lever and a control is the narrow one. This
+  // is the half with teeth — both readings of \"make this button darker\" look
+  // reasonable from inside the sheet, and only one of them is the edit asked
+  // for. Asserted as the DISTINCTION, not as a banned selector: a ban-list
+  // covers tonight's control and the next request is always a different one.
+  assert.match(css, /\btoken\b/i, "the css editor is never told what makes a change site-wide");
+  const tokenAt = css.search(/\btoken\b/i);
+  assert.match(css.slice(tokenAt), /repaint|every component|whole site/i,
+    "a token is named without saying that changing one reaches the whole site");
+
+  // AND THE PLAIN RULE, which is the one the owner actually said out loud.
+  assert.match(css, /NOTHING THEY DID NOT ASK FOR|did not ask for/i,
+    "the css editor is not told to leave unasked-for things alone");
+});
+
+test("…and that rule really reaches the model, on the edit lane only", () => {
+  // THE WIRING HALF. A rule perfectly worded and never sent is this repo's
+  // most repeated bug, and the two are indistinguishable from outside: the
+  // model not obeying and the model never being told read as the same output.
+  // Asserted against the composition in worker.js rather than a list of hops.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /currentStateNote\(current\) \+ EDIT_RULE/,
+    "EDIT_RULE no longer rides with the current-state note into the design call");
+  // Gated on there BEING a current state — a first build must not be told it is
+  // an edit, which is what the `current ?` ternary buys.
+  assert.match(worker, /current \? brief \+ currentStateNote\(current\) \+ EDIT_RULE : brief/,
+    "the edit rule is sent unconditionally — a first build is now told it is an edit");
+});
+
 test("naming one field moves exactly that one", () => {
   const out = mergeLook(STORED, { seeds: { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" } }, null, { instructed: true });
   assert.deepEqual(out.seeds, { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" }, "an edit that asks for a new look cannot get one");
