@@ -42,11 +42,22 @@ test("og:site_name is the business's name — the line above the card that other
 
 test("canonical and og:url speak from ONE expression, so they can never disagree about the real address", () => {
   const r = blank(root);
-  // Exactly one place computes origin + path. A second copy is the two-readings
-  // bug: the day one gains a trailing slash or drops the origin gate, a page
-  // declares one address to crawlers and a different one to unfurlers.
-  assert.equal((r.match(/m\.origin \+ here/g) || []).length, 1,
-    "the page address is computed in more than one place — canonical and og:url can now disagree");
+  // Exactly one place computes the address, and it is the ONLY reader of the
+  // sidecar's origin. A second reader is the two-readings bug: the day one
+  // gains a trailing slash or drops the origin gate, a page declares one
+  // address to crawlers and a different one to unfurlers.
+  //
+  // Asserted on the PROPERTY — "the origin is read on one line" — and NOT on
+  // today's spelling of the expression. The first version of this guard pinned
+  // `m.origin + here` literally, so when that expression was corrected to strip
+  // the origin's trailing slash the guard went red reporting that the FEATURE
+  // was gone. That is the repo's most repeated own-goal, committed inside the
+  // guard written to prevent it.
+  const pageLines = r.split("\n").filter((l) => /\bconst page\b/.test(l));
+  assert.equal(pageLines.length, 1, "the page address is computed in more than one place");
+  const originLines = r.split("\n").filter((l) => /\bm\??\.origin\b/.test(l));
+  assert.deepEqual(originLines, pageLines,
+    "something other than the page-address expression reads the sidecar origin — the two can now disagree");
   // Both consumers read the shared `page`, and both are GATED on it: with no
   // origin in the sidecar there is NO tag, because a wrong canonical is worse
   // than none — it hands the ranking to an address that is not the site's.
@@ -54,6 +65,50 @@ test("canonical and og:url speak from ONE expression, so they can never disagree
     "og:url is ungated or reads something other than the shared address");
   assert.match(r, /\.\.\.\(page \? \[\{ rel: "canonical", href: page \}\] : \[\]\)/,
     "the canonical link is ungated or reads something other than the shared address");
+});
+
+test("the address the template builds is a REAL url for every route, against the origin siteUrlFor actually produces", async () => {
+  // THIS ONE EXECUTES THE EXPRESSION rather than reading it, and it takes the
+  // origin from the REAL producer rather than a fixture — because a fixture is
+  // exactly what hid this bug. `site-build`'s leg stored
+  // "https://fold-coffee.gofarther.app" with NO trailing slash; `siteUrlFor`
+  // returns one WITH one. Every non-home route was emitting
+  // `https://slug.gofarther.app//menu` as its og:url AND its canonical, and
+  // both the unit guard (pinned to the spelling) and the container harness
+  // (pinned to the fixture) reported the feature working.
+  //
+  // Deriving the origin from `siteUrlFor` is what makes this durable: the two
+  // halves cannot drift apart again, because there is no second copy of what
+  // an origin looks like.
+  const { siteUrlFor } = await import("../site-domains.mjs");
+  const origin = siteUrlFor("fold-coffee", "https://gofarther.app");
+
+  // Lift the expression out of the template and run it. Landmark to landmark,
+  // never a byte window, and both landmarks are asserted before the slice.
+  const src = blank(root);
+  const a = src.indexOf("const page = ");
+  assert.ok(a >= 0, "the page-address expression is gone");
+  const b = src.indexOf(";", a);
+  assert.ok(b > a, "the page-address expression has no terminator");
+  const expr = src.slice(a + "const page = ".length, b);
+  const pageOf = new Function("m", "here", "return (" + expr + ");");
+
+  // The gate still holds: no origin, no tag.
+  assert.equal(pageOf(null, "/menu"), "", "the address is claimed with no origin in the sidecar");
+  assert.equal(pageOf({}, "/menu"), "", "the address is claimed with an empty origin");
+
+  // The home page keeps the site's own address, trailing slash and all.
+  assert.equal(pageOf({ origin }, ""), origin, "the home page's canonical is not the site's address");
+
+  // And every deeper route is a well-formed url — the actual bug.
+  for (const here of ["/menu", "/book", "/book/table"]) {
+    const url = pageOf({ origin }, here);
+    assert.equal(url, origin.replace(/\/+$/, "") + here, "wrong address for " + here);
+    assert.ok(!/[^:]\/\//.test(url), "double slash in the address for " + here + ": " + url);
+    // Parseable, and the path is exactly the route asked for — the property a
+    // crawler and an unfurler both act on.
+    assert.equal(new URL(url).pathname, here, "the path is not the route's own for " + here);
+  }
 });
 
 test("theme-color is emitted only when the build baked one, from SITE_THEME_COLOR", () => {

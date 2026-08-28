@@ -22,6 +22,7 @@ import { validatePages } from "../../builder/page-gen.mjs";
 // some file compiles and say nothing about the one the salvage actually writes.
 import { stubPage } from "../../builder/publish-pages.mjs";
 import { themeCss } from "../../builder/site-theme.mjs";
+import { siteUrlFor } from "../../site-domains.mjs";
 import { ALL_THEMES, resolveTheme } from "../fixtures/themes.mjs";
 
 // THE PAYLOADS BELOW NAME A THEME AGAIN (2026-08-27). The registry left the
@@ -854,8 +855,17 @@ try {
       // the home page's copy makes the "this is not the home page" assertion
       // below unfalsifiable — which is exactly what a first draft did, using
       // "Wick Lane" for both.
+      // THE ORIGIN COMES FROM THE REAL PRODUCER, never a hand-typed string.
+      // It was `"https://fold-coffee.gofarther.app"` — and `siteUrlFor`, the
+      // only thing that ever writes this field, returns it WITH a trailing
+      // slash. That one missing character made this harness certify a head that
+      // was emitting `https://fold-coffee.gofarther.app//menu` as the og:url and
+      // the canonical of every route but the home page. A fixture that does not
+      // produce the shape the pipeline produces is the trap this file has
+      // recorded before; the fix is to stop having a second copy of what an
+      // origin looks like.
       const META = {
-        description: "A very short shop blurb", image: "https://x/og.png", origin: "https://fold-coffee.gofarther.app",
+        description: "A very short shop blurb", image: "https://x/og.png", origin: siteUrlFor("fold-coffee", "https://" + "gofarther.app"),
         // OWNERSHIP VERIFICATION, resolved to pairs by `site-verify.mjs` on the
         // platform side. This is the ONLY place the whole chain can be proved:
         // the module can be perfectly correct, the sidecar can carry it, and the
@@ -964,14 +974,19 @@ try {
       // og:url IS COMPUTED, NOT WRITTEN BY THE PAGE. The root reads the matched
       // routes, so this is right for a page the model has never seen — and it
       // is what stops a crawler being told several addresses are one page.
+      // THE EXPECTED ADDRESS IS BUILT THE WAY A URL IS BUILT, not by gluing
+      // strings — `META.origin` really ends in a slash now (that is what
+      // `siteUrlFor` returns) and `META.origin + "/menu"` would assert the very
+      // double slash this leg exists to catch.
+      const pageUrl = (here) => META.origin.replace(/\/+$/, "") + (here || "/");
       ok("…and og:url is THIS page's address",
-        menuHtml.includes('property="og:url" content="' + META.origin + '/menu"'),
+        menuHtml.includes('property="og:url" content="' + pageUrl("/menu") + '"'),
         "og:url is not the page's own address — every route claims to be the site root");
       if (home) {
         const homeHtml2 = await (await call("/")).text();
         ok("the home page keeps the site's own description, and the bare origin",
           homeHtml2.includes(META.description)
-            && homeHtml2.includes('property="og:url" content="' + META.origin + '"'),
+            && homeHtml2.includes('property="og:url" content="' + pageUrl("") + '"'),
           "the home page is the ONE that must not override — its description was written for exactly this");
 
         // ── the head-tag pack (2026-08-28) ────────────────────────────────────
@@ -989,7 +1004,23 @@ try {
         // reads them as duplicate sites and splits the ranking.
         const canonOf = (h) => (((h.match(/<link[^>]*rel="canonical"[^>]*>/) || [""])[0]).match(/href="([^"]+)"/) || [])[1] || "";
         ok("the canonical names THIS page's address",
-          canonOf(homeHtml2) === META.origin && canonOf(menuHtml) === META.origin + "/menu",
+          canonOf(homeHtml2) === pageUrl("") && canonOf(menuHtml) === pageUrl("/menu"),
+          JSON.stringify({ home: canonOf(homeHtml2), menu: canonOf(menuHtml) }));
+        // AND IT IS A WELL-FORMED URL, asserted separately from its value. The
+        // equality above is only as good as the address the test computes; this
+        // one asks the URL parser, which cannot be talked into agreeing with a
+        // wrong expectation. `//menu` parses as a PROTOCOL-RELATIVE address —
+        // a crawler reads it as the host `menu`, so the canonical points at a
+        // different site entirely rather than at a wrong page of this one.
+        ok("every address the head claims is a real url with the route's own path",
+          [[homeHtml2, "/"], [menuHtml, "/menu"]].every(([h, want]) => {
+            const c = canonOf(h);
+            const u = (h.match(/property="og:url" content="([^"]+)"/) || [])[1] || "";
+            return c && u && c === u
+              && !/[^:]\/\//.test(c)
+              && new URL(c).pathname === want
+              && new URL(c).host === new URL(META.origin).host;
+          }),
           JSON.stringify({ home: canonOf(homeHtml2), menu: canonOf(menuHtml) }));
         ok("og:locale speaks the site's language", homeHtml2.includes('property="og:locale" content="en"'),
           "no og:locale — an unfurler guesses the language of every preview");

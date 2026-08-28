@@ -175,6 +175,19 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **Fixed same day, never reached a site: the canonical was malformed on every
+  page but the home page.** The head tags shipped 28 August glued the site's
+  address (which ends in a slash) to the page's path (which starts with one), so
+  `/menu` declared itself as `https://slug.gofarther.app//menu` in both its
+  canonical and its share link. That is not a cosmetic slip — a browser reads
+  `//menu` as a different *site*, so the tag would have pointed search engines
+  away from the site entirely. Caught the same afternoon; the last site published
+  was 11 hours before the bug existed, so no customer site ever carried it. Worth
+  knowing because it says something about the tests rather than the code: both
+  the unit guard and the container harness certified it, because the harness's
+  fixture had typed the address by hand and got that one slash wrong. The fixture
+  now comes from the real code instead.
+
 - **`Tooltip` crashes any page that uses it.** The kit's `Tooltip` is a bare Radix
   root with no provider, nothing mounts one at the app root, and `tooltip` is in
   the list the generator is told it may use. It typechecks, bundles, publishes,

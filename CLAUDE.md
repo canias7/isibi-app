@@ -193,6 +193,12 @@ impossible — which is why a framework upgrade means republishing every site
   publish-time half (the R2 sidecar): title, description, canonical, og:* (url,
   site_name, type, locale + alternates, image + dimensions for the composed card
   only, alt), twitter:card, theme-color, verification tags, icon, apple-touch-icon.
+  **`og:url` and the canonical are ONE expression** so they cannot disagree, and
+  that expression NORMALISES the join: `siteUrlFor` ends its answer with a slash
+  (it names a site) and the router's pathname starts with one (it is a path), so
+  concatenating them shipped `//menu` on every route but the home page. Strip the
+  origin's trailing slashes, put exactly one back; `here` is `""` on the home
+  page, which is how the home page keeps its own.
 - **The share card** is composed free at build time — the name (or the drawn
   wordmark) and the description on the theme's paper, screenshotted at 1200×630
   into `dist/client/card.png`. Precedence for `og:image`: **the owner's chosen
@@ -360,9 +366,22 @@ caller-supplied key.
 stops at the first `)`, which is usually inside a nested call. Argument lists,
 object literals and selector lists all need a depth-aware splitter.
 
-**A fixture more capable than reality.** `setTotp`'s fake did a partial update the
-real one could not; a path fixture used a shape the pipeline never produces. A
-fake that is MORE capable hides bugs exactly like one that is less.
+**A fixture in a different shape from reality.** `setTotp`'s fake did a partial
+update the real one could not; a path fixture used a shape the pipeline never
+produces. A fake that is MORE capable hides bugs exactly like one that is less —
+and so does one that differs by a single character. The og:url/canonical fixture
+stored `https://slug.gofarther.app` while `siteUrlFor`, the ONLY writer of that
+field, returns it WITH a trailing slash; every non-home route emitted
+`https://slug.gofarther.app//menu` as both its canonical and its og:url, and the
+container harness certified it for a day. **Derive a fixture from its real
+producer.** A hand-typed constant is a second copy of what a value looks like,
+and two copies drift silently — this IS "two lists of the same thing".
+
+**A `//` in a URL is not a cosmetic defect.** `https://host//menu` parses as the
+host `menu` under protocol-relative rules, so a wrong canonical does not name a
+wrong PAGE of the site — it names a different SITE. Assert an address by parsing
+it (`new URL(u).pathname`, `.host`), never only by string equality against an
+expectation the test assembled the same wrong way.
 
 **A rule true because of a layer below it expires when that layer moves,
 and nothing announces it.** `#/` hrefs were correct under hash history; a

@@ -72,7 +72,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     // stays live), and without this tag a search engine reads them as duplicate
     // sites and splits the ranking between them. Absent origin means NO tag —
     // a wrong canonical is worse than none.
-    const page = m?.origin ? m.origin + here : "";
+    //
+    // THE JOIN NORMALISES, because the two halves are written by people who
+    // cannot see each other: `siteUrlFor` (site-domains.mjs) ends its answer
+    // with a slash — it names a SITE, and a site's address ends in one — while
+    // `here` above starts with a slash because it is a PATH. Concatenating them
+    // shipped `https://slug.gofarther.app//menu` on every route but the home
+    // page, in both this tag and the canonical, which is precisely the wrong
+    // canonical the comment above says is worse than none. So strip the
+    // origin's trailing slashes and put exactly one back — `here` is "" on the
+    // home page, which is how the home page keeps its own trailing slash.
+    const page = m?.origin ? m.origin.replace(/\/+$/, "") + (here || "/") : "";
     const tags: Array<Record<string, string>> = [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
