@@ -47,7 +47,9 @@ const chromiumPath = findChromium();
 
 // Which looks to photograph. Deliberately spread: a print theme, a dark one, a
 // loud one and a quiet one, so a change that only breaks one family of them
-// cannot pass unseen.
+// cannot pass unseen. `zine` and `bauhaus` sit OFF the 100-name shortlist on
+// purpose — the enum bounds what the designer picks, the registry keeps all
+// 500, and these two are the living proof a registry-only theme still renders.
 const CASES = (process.env.THEME_CASES || "broadsheet,editorial,zine,bauhaus")
   .split(",").map((s) => s.trim()).filter(Boolean);
 

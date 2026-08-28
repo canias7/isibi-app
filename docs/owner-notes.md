@@ -18787,3 +18787,16 @@ NOT proven live: the balance is ~11 credits and a build needs ~17+, so no real
 build has run against it yet. Also note the container image changes with this
 push — if you top up and want a proving build, give the deploy 15–20 minutes
 before firing it.
+
+### Same day, your follow-up: 100 in the menu, 500 in the wardrobe
+
+"Ok but the 500 ship at build, if so do only 100 and keep the otherones there."
+
+Done. The designer now picks from a 100-theme shortlist (spread across all 53
+categories, so it can dress a bakery as well as a tech firm — not just the
+first hundred in the file), which costs ~288 tokens per build instead of
+~1,525. The other 400 stay in the registry: a site can still wear any of the
+500 (stored themes survive edits, the container renders them all) — the
+shortlist only bounds what the model chooses between on its own. Two of the
+themes the render harness photographs are deliberately off-shortlist to prove
+that keeps working. Suite green (4,370), second sweep 5/5.

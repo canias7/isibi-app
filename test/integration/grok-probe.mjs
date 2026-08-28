@@ -23,7 +23,7 @@ import { readSchemaTool } from "./schema-tool.mjs";
 import { toXaiRequest, fromXaiResponse, XAI_ENDPOINT } from "../../builder/model-xai.mjs";
 import { BUILD_MODELS } from "../../builder/build-models.mjs";
 import { normalizeSchema } from "../../site-schema.mjs";
-import { normalizeSeeds as normalizeSeeds_ } from "../../builder/site-seeds.mjs";
+import { resolveTheme, THEME_SHORTLIST } from "../../builder/site-theme-registry.mjs";
 import { MODEL_RATES } from "../../builder/publish-pages.mjs";
 
 const KEY = process.env.XAI_API_KEY || "";
@@ -111,33 +111,40 @@ ok(missing.length === 0, "all 13 required fields are present", missing.length ? 
 
 ok(typeof input.brand === "string" && input.brand.length > 0, "brand", input.brand ? `"${input.brand}"` : "");
 ok(/^[a-z0-9-]+$/.test(String(input.slug || "")), "slug is well-formed", String(input.slug || ""));
-ok(Array.isArray(input.tables) && input.tables.length > 0, "tables",
-  Array.isArray(input.tables) ? input.tables.map((t) => t && t.name).join(", ") : "not an array");
+// `tables` STOPPED BEING REQUIRED ON 2026-08-25 — a first build is
+// frontend-only by the owner's design, so a trattoria brochure declaring NO
+// tables is the CORRECT answer, and this probe failed it for a day ("tables:
+// not an array" over a designed omission — a false alarm on a right answer,
+// which this repo rates worse than the miss). Absent is a pass; declared must
+// be an array, since that is the shape the schema asks for.
+ok(input.tables === undefined || (Array.isArray(input.tables) && input.tables.length > 0),
+  "tables, when declared, are a non-empty array",
+  input.tables === undefined ? "none declared — frontend-only, the designed first-build answer"
+    : Array.isArray(input.tables) ? input.tables.map((t) => t && t.name).join(", ") : "not an array");
 
 // THE SEED FIELD IS THE ONE SONNET KEEPS DROPPING, so it is the interesting
 // comparison rather than a formality: an unseeded display table is an empty list
 // forever and a form that reads it has nothing to choose.
-const displays = (input.tables || []).filter((t) => t && (t.access === "display" || (t.read === "public" && t.write === "none")));
+const rawTables = Array.isArray(input.tables) ? input.tables : [];
+const displays = rawTables.filter((t) => t && (t.access === "display" || (t.read === "public" && t.write === "none")));
 const seeded = displays.filter((t) => Array.isArray((input.seed || {})[t.name]) && input.seed[t.name].length > 0);
 ok(displays.length === 0 || seeded.length === displays.length, "every display table got seed rows",
   `${seeded.length}/${displays.length} seeded`);
 
-// The authored theme and the plan — the two newest required blocks, and the ones
-// most likely to defeat a model that is merely filling in a form.
-// THROUGH THE REAL `normalizeSeeds`, NEVER A SHAPE RESTATED HERE — and this one
-// is a lesson about the probe rather than about Grok. The first two runs failed
-// it, because I asserted `seeds.light.paper` against a field that is FLAT
-// (`{name, paper, ink, accent, dark?}`). Grok had answered it perfectly both
-// times; the harness was wrong, and it nearly bought a "tolerance fix" to a
-// normaliser that was already correct.
-//
-// A restated shape can disagree with the real one, and when it does the harness
-// reports a failure that is not there — the mirror of a vacuous pass, and just
-// as expensive. So this asks the engine the only question that matters: would
-// we accept this palette and build a site out of it?
-const seedRes = normalizeSeeds_(input.seeds);
-ok(!!seedRes.theme, "the authored palette is one our engine accepts",
-  seedRes.theme ? `"${seedRes.theme.label}"` : seedRes.why + " · got: " + JSON.stringify(input.seeds).slice(0, 200));
+// THE THEME AND THE PLAN — the compelled look field since 2026-08-27 (the
+// registry's return: the designer picks a name, the model's own css waits to
+// be asked) and the blocks most likely to defeat a model merely filling in a
+// form. THROUGH THE REAL `resolveTheme`, NEVER A SHAPE RESTATED HERE — this
+// probe's own recorded lesson: its seeds-era check restated a field shape,
+// reported two perfect Grok answers as failures, and nearly bought a
+// "tolerance fix" to a normaliser that was already correct. So it asks the
+// registry the only question production asks: does this name resolve? The
+// shortlist line is INFORMATION, not a gate — the enum is advisory, and a
+// registry name off the shortlist still builds.
+const pickedTheme = resolveTheme(input.theme);
+ok(!!pickedTheme, "the theme it picked is one the registry resolves",
+  pickedTheme ? `"${input.theme}" (${pickedTheme.label || "no label"})` : "got: " + JSON.stringify(input.theme).slice(0, 120));
+if (pickedTheme) console.log(`  (${THEME_SHORTLIST.includes(input.theme) ? "on" : "OFF"} the 100-name shortlist enum)`);
 ok(Array.isArray(input.pages) && input.pages.length > 0, "the plan names pages",
   Array.isArray(input.pages) ? input.pages.map((p) => p && p.path).join(" ") : "");
 ok(Array.isArray(input.components) && input.components.length > 0, "the plan names a component manifest",
@@ -148,12 +155,18 @@ ok(Array.isArray(input.components) && input.components.length > 0, "the plan nam
 // THE REAL GATE, and the reason this probe is worth more than "it returned
 // JSON". `normalizeSchema` is an allow-list: a field in a shape it does not
 // recognise is DROPPED SILENTLY, so an answer that looks fine above can still
-// arrive at the database with its guarantees stripped.
-const norm = normalizeSchema({ tables: input.tables });
-ok(norm.tables.length === input.tables.length, "our normaliser keeps every table",
-  norm.tables.length + " of " + input.tables.length);
-const named = norm.tables.map((t) => t.name).filter(Boolean);
-ok(named.length === norm.tables.length, "every table survived with a name", named.join(", "));
+// arrive at the database with its guarantees stripped. Gated on tables being
+// DECLARED — a frontend-only answer has nothing to normalise, and driving
+// `undefined` through here was a TypeError that took the probe down after
+// every check above had passed (a crash is the one report shape that says
+// nothing).
+if (rawTables.length) {
+  const norm = normalizeSchema({ tables: rawTables });
+  ok(norm.tables.length === rawTables.length, "our normaliser keeps every table",
+    norm.tables.length + " of " + rawTables.length);
+  const named = norm.tables.map((t) => t.name).filter(Boolean);
+  ok(named.length === norm.tables.length, "every table survived with a name", named.join(", "));
+}
 
 /* --------------------------------------------------- what it cost, measured */
 

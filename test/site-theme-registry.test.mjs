@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
-import { ALL_THEMES, THEME_IDS, resolveTheme, themeFontPair } from "../builder/site-theme-registry.mjs";
+import { ALL_THEMES, THEME_IDS, THEME_SHORTLIST, resolveTheme, themeFontPair } from "../builder/site-theme-registry.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 import { mergeLook, keepsValue, EDIT_FIELDS } from "../builder/site-edit.mjs";
 
@@ -76,16 +76,33 @@ test("the fixture path is a re-export of the product, not a second copy", async 
 
 /* ── the tool ─────────────────────────────────────────────────────────────── */
 
-test("the tool's theme enum IS the registry — all 500, derived", async () => {
+test("the tool's enum is the 100-name shortlist; the registry keeps all 500", async () => {
+  // The owner's second call, an hour after the first: "the 500 ship at build,
+  // if so do only 100 and keep the otherones there." Both halves are load
+  // bearing — the enum at 100 (~288 tokens against ~1,525) AND the registry
+  // still whole, because "keep the otherones there" is what lets a stored
+  // off-list theme survive every merge and render on every publish.
   const { tool } = await readSchemaTool();
   const field = tool.input_schema.properties.theme;
   assert.ok(field, "design_schema no longer offers a theme");
-  // The enum is the registry's own id list — an enum restated by hand drifts,
-  // and the direction it drifts in is a designer told a theme exists that the
+  // The enum is the DERIVED shortlist — an enum restated by hand drifts, and
+  // the direction it drifts in is a designer told a theme exists that the
   // container then cannot resolve: a site that reports a look and ships the
   // default.
-  assert.deepEqual(field.enum, THEME_IDS, "the tool's enum is not the registry's own id list");
-  assert.ok(field.enum.length >= 490, "the enum shrank — the owner's call is all 500, not a shortlist");
+  assert.deepEqual(field.enum, THEME_SHORTLIST, "the tool's enum is not the shortlist");
+  assert.equal(THEME_SHORTLIST.length, 100, "the shortlist is not 100 names");
+  // Every offered name must resolve — a shortlist entry outside the registry
+  // is the exact silent-default failure the enum exists to prevent.
+  for (const id of THEME_SHORTLIST) assert.ok(resolveTheme(id), `${id} is offered and does not resolve`);
+  // SPREAD, NOT THE FIRST 100: the candidates are stored grouped by category,
+  // so a flat slice would be every print and tech theme and nothing else — a
+  // shortlist that cannot dress a bakery. 53 categories exist; the floor has
+  // headroom so an added category cannot flip this red.
+  const cats = new Set(THEME_SHORTLIST.map((n) => resolveTheme(n).cat || "shipped"));
+  assert.ok(cats.size >= 40, `only ${cats.size} categories on the shortlist — the spread collapsed to a flat slice`);
+  // And the registry did NOT shrink with the enum — that is the "keep the
+  // otherones there" half, and the merge/container tests below depend on it.
+  assert.ok(THEME_IDS.length >= 490, "the registry shrank with the enum — the other 400 are gone");
   // Required on a BUILD — the compelled look field — and the description must
   // say the css bargain, or the model answers both halves on every build.
   assert.ok(tool.input_schema.required.includes("theme"), "a first build no longer compels a theme");
@@ -122,6 +139,13 @@ test("mergeLook can never return a theme the registry refuses", () => {
   // default look on every publish for good. Same invariant as `seeds`, same
   // single-validator rule.
   assert.equal(keepsValue("theme", "broadsheet"), true);
+  // And a name OFF the 100-name shortlist is still a keepable value — the
+  // merge judges against the FULL registry, which is the "keep the otherones
+  // there" half of the owner's call: a stored off-list theme must survive
+  // every later edit, not be stripped as a hallucination.
+  assert.ok(!THEME_SHORTLIST.includes("zine") && resolveTheme("zine"),
+    "the fixture drifted — zine is meant to be registry-only");
+  assert.equal(keepsValue("theme", "zine"), true, "an off-shortlist registry theme is refused by the merge");
   for (const junk of ["not-a-theme", "", "__proto__", "constructor", ["broadsheet"], { name: "noir" }]) {
     assert.equal(keepsValue("theme", junk), false, JSON.stringify(junk) + " counts as a theme");
   }

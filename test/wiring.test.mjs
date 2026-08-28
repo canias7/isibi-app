@@ -92,15 +92,19 @@ test("THE PALETTE IS AUTHORED, AND THE WHOLE CHAIN IS WIRED", () => {
   assert.match(worker, /\n\s*css: siteCss,/, "the stylesheet never reaches buildAndPublishPages");
 
   // THE REGISTRY IS BACK (2026-08-27) AND ONLY ITS CURRENT SHAPE MAY BE. The
-  // Worker legitimately holds `THEME_IDS` (the enum) and `themeFontPair` (the
-  // pair on both payloads); what must stay gone is the OLD plumbing — the
-  // 100-name shortlist and its `SITE_THEME_IDS` alias — because a shortlist
-  // beside a full enum is two answers to what the designer may pick from.
+  // Worker legitimately holds `THEME_SHORTLIST` (the enum — the owner's
+  // second call the same day cut it from all 500 to the 100-name spread) and
+  // `themeFontPair` (the pair on both payloads); what must stay gone is the
+  // FULL id list `THEME_IDS` and the old `SITE_THEME_IDS` alias — a full enum
+  // beside the shortlist is two answers to what the designer may pick from,
+  // and the full list is the ~1,525-token spend the second call refused.
   // Asserted with COMMENTS BLANKED: the notes recording this history
   // necessarily spell the names.
   const code = worker.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  assert.doesNotMatch(code, /\bTHEME_SHORTLIST\b|\bSITE_THEME_IDS\b/,
-    "the old shortlist plumbing is back in the Worker — two answers to what the designer may pick from");
+  assert.doesNotMatch(code, /\bTHEME_IDS\b|\bSITE_THEME_IDS\b/,
+    "the full 500-id list is back in the Worker — two answers to what the designer may pick from");
+  assert.match(code, /\bTHEME_SHORTLIST\b/,
+    "the shortlist is gone from the Worker — the enum lost its source");
   assert.match(code, /\bthemeFontPair\(/,
     "the theme's own pair no longer reaches a payload — an unasked site ships the default face");
 });

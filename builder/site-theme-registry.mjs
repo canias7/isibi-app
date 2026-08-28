@@ -44,16 +44,60 @@ export const ALL_THEMES = Object.fromEntries([
 
 export const THEME_IDS = Object.keys(ALL_THEMES);
 
-// ALL 500, NOT THE OLD 100-NAME SHORTLIST, and that is the owner's own words —
-// "we are gonna have the 500 themes". The shortlist existed to save ~1,200
-// tokens on the design call; the full key list measures ~1,525 tokens and it
-// rides in the CACHED tool block, so a warm build pays a tenth of that. Names
-// only, never labels: the same list with its one-line labels is ~7,019 tokens,
-// and the keys carry the meaning on their own (`broadsheet`, `bakery`,
-// `jazz-club`, `apothecary`).
-export function themeIdsForPrompt() {
-  return THEME_IDS;
+// THE SHORTLIST THE DESIGNER ACTUALLY PICKS FROM — 100 of the 500.
+//
+// The owner's second call, an hour after the first put all 500 in the enum:
+// "Ok but the 500 ship at build, if so do only 100 and keep the otherones
+// there." So the ENUM is 100 names (~312 tokens on the design call against
+// ~1,525 for the full list) and the REGISTRY keeps all 500: everything below
+// resolves any of them, the merge stores any of them, the container renders
+// any of them — what the shortlist bounds is what the MODEL chooses between.
+// The fonts playbook exactly: `site-fonts.mjs` offers 24 of 2,096 families for
+// the same reason. Names only, never labels — the same list with its one-line
+// labels is ~7,019 tokens for all 500, and the keys carry the meaning on their
+// own (`broadsheet`, `bauhaus`, `zine`).
+//
+// SPREAD ACROSS CATEGORIES, NOT THE FIRST 100. The candidates carry a `cat`
+// (53 of them: print, tech, retro, materials, places, eras, land, trades,
+// media…) and they are stored grouped, so a flat first-100 would be every
+// print and tech theme and nothing else — a shortlist that cannot dress a
+// bakery. Round-robin takes one from each category before a second from any,
+// so all 53 are represented before depth is added anywhere.
+//
+// DERIVED AND DETERMINISTIC. No hand-picked list to drift from the catalogue,
+// and no randomness — the same 100 every build, which is also what lets the
+// prompt carrying it be cached at all.
+const SHORTLIST_SIZE = 100;
+
+function spreadByCategory(themes, size) {
+  const byCat = new Map();
+  for (const [name, t] of Object.entries(themes)) {
+    const cat = t.cat || "shipped";
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat).push(name);
+  }
+  const lanes = [...byCat.values()];
+  const out = [];
+  for (let depth = 0; out.length < size; depth++) {
+    let placed = false;
+    for (const lane of lanes) {
+      if (depth >= lane.length) continue;
+      out.push(lane[depth]);
+      placed = true;
+      if (out.length >= size) break;
+    }
+    if (!placed) break; // every lane exhausted — fewer than `size` exist
+  }
+  return out;
 }
+
+// The shipped themes are always offered — they are the ones whose `needs` are
+// actually built, and dropping one because a category lane filled up first
+// would make the best-supported themes the least likely to be chosen.
+export const THEME_SHORTLIST = [
+  ...Object.keys(THEMES),
+  ...spreadByCategory(CANDIDATES, SHORTLIST_SIZE).filter((n) => !(n in THEMES)),
+].slice(0, SHORTLIST_SIZE);
 
 // Resolve a name the designer chose. Unknown -> null rather than a throw: a
 // theme is decoration on a site whose data layer is already live, and losing a

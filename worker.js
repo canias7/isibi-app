@@ -109,11 +109,14 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, normalizePlan } from "./builder/site-plan.mjs";
-// THE 500 THEMES, BACK IN THE PRODUCT (2026-08-27, owner's call). `THEME_IDS`
-// is the tool's enum, `themeFontPair` is where an unasked site's typeface comes
-// from again, and `resolveTheme` never runs here — the merge validates through
-// `FIELD_KEEPS.theme` in site-edit.mjs, which is the one place a name is judged.
-import { THEME_IDS, themeFontPair } from "./builder/site-theme-registry.mjs";
+// THE 500 THEMES, BACK IN THE PRODUCT (2026-08-27, owner's call). The tool's
+// enum is `THEME_SHORTLIST` — 100 of the 500, the owner's second call the same
+// day ("do only 100 and keep the otherones there") — `themeFontPair` is where
+// an unasked site's typeface comes from again, and `resolveTheme` never runs
+// here: the merge validates through `FIELD_KEEPS.theme` in site-edit.mjs,
+// which judges against the FULL registry, so all 500 stay storable and
+// renderable while the shortlist only bounds what the model picks between.
+import { THEME_SHORTLIST, themeFontPair } from "./builder/site-theme-registry.mjs";
 import { laneName } from "./builder/build-lane.mjs";
 // THE TWO LONG MODEL CALLS, IN A MODULE THE CONTAINER CAN IMPORT TOO. Aliased
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
@@ -3937,15 +3940,20 @@ const SITE_SCHEMA_TOOL = {
       // argument that moved `images` to the designer at all ("it could not know
       // it was dressing a near-black recording studio").
       //
-      // AN ENUM OF ALL 500, not the old 100-name shortlist — the owner's words,
-      // and the cost is measured: ~1,525 tokens of names in the CACHED block.
+      // THE 100-NAME SHORTLIST, NOT ALL 500 — the owner's second call ("the
+      // 500 ship at build, if so do only 100 and keep the otherones there"),
+      // measured at ~288 tokens against ~1,525 for the full list. The other
+      // 400 stay in the registry: `FIELD_KEEPS.theme` and the container both
+      // accept any of the 500, so a stored off-list theme survives every merge
+      // and renders on every publish — the shortlist bounds only what the
+      // model picks between, the `site-fonts.mjs` 24-of-2,096 bargain exactly.
       // An enum rather than a free string for the reason the old field was one:
       // a name outside the registry renders as the untouched template while the
       // response claims a theme, which is the failure shape the font write
       // exists to end. `FIELD_KEEPS.theme` is the belt behind the enum.
       theme: {
         type: "string",
-        enum: THEME_IDS,
+        enum: THEME_SHORTLIST,
         description:
           "The site's visual world — every build wears one. Pick for the TRADE and its mood, not for novelty: " +
           "the name says what it is (broadsheet, bakery, apothecary, jazz-club, noir). A barber shop and a law " +

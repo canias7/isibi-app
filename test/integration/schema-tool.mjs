@@ -61,14 +61,15 @@ export async function readSchemaTool() {
     PLAN_REQUIRED: plan.PLAN_REQUIRED,
     SITE_TOKEN_NAMES: tokens.ASKABLE,
     siteTokenHint: tokens.valueHint,
-    // THE 500 THEME NAMES, BACK (2026-08-27, owner's call). The registry
-    // returned to the product and `theme` is an enum of all its ids again —
-    // the REAL list, never a stub, because the enum IS the field: a stubbed
-    // one-entry list measures a tool where the designer can only ever answer
-    // one theme, which is not the tool production sends. The third time this
-    // scope has grown the day the tool did; `schema-eval-scope.test.mjs` is
-    // what turns the miss into a unit failure rather than a dead harness.
-    THEME_IDS: registry.THEME_IDS,
+    // THE THEME SHORTLIST, BACK (2026-08-27, owner's call — and the same
+    // day's second call cut the enum from all 500 to the 100-name spread:
+    // "do only 100 and keep the otherones there"). The REAL list, never a
+    // stub, because the enum IS the field: a stubbed one-entry list measures
+    // a tool where the designer can only ever answer one theme, which is not
+    // the tool production sends. The third time this scope has grown the day
+    // the tool did; `schema-eval-scope.test.mjs` is what turns the miss into
+    // a unit failure rather than a dead harness.
+    THEME_SHORTLIST: registry.THEME_SHORTLIST,
     // THE AUTHORED PALETTE, where the 100-name theme enum used to be. `theme`
     // left `design_schema` on 2026-08-20 with the registry it named — the
     // designer writes the site's own three anchor colours now. The REAL field,
