@@ -26,7 +26,7 @@ import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
-import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY } from "./site-uploads.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -9305,16 +9305,45 @@ async function siteRedirectFor(env, slug, path) {
 async function siteOgImage(env, slug, dist) {
   // THE COMPOSED CARD, AS THE FLOOR (2026-08-28, owner's call). `dist` is the
   // build being published RIGHT NOW, so `card.png` in it means the container
-  // composed a share card this publish — computed up front because two of the
-  // three exits below want it, and an upload-listing failure must degrade TO
-  // the card rather than past it.
-  const card = dist && dist["card.png"]
+  // composed a share card this publish — computed up front because the exits
+  // below want it, and an upload-listing failure must degrade TO the card
+  // rather than past it.
+  let card = dist && dist["card.png"]
     ? siteOrigin(slug, "https://" + APP_ZONE) + "/card.png"
     : null;
   try {
     if (!env.SITES_BUCKET) return card;
+    // NO DIST MEANS "AS THE SITE STANDS" — the share picker's sidecar recompute
+    // (2026-08-28), which has no build in hand. The card is then whatever the
+    // last publish left serving, asked of the bucket. DELIBERATELY NOT asked on
+    // a publish whose own compose failed: the published card is about to be
+    // swept by the very publish this answer rides on, so claiming it points the
+    // preview at a file with one publish left to live.
+    if (!dist) {
+      try {
+        if (await env.SITES_BUCKET.head("sites/" + slug + "/card.png")) {
+          card = siteOrigin(slug, "https://" + APP_ZONE) + "/card.png";
+        }
+      } catch (e) { /* cannot tell → no card claim; the uploads may still answer */ }
+    }
     const objs = await siteUploadList(env, slug);
-    // OWNER UPLOADS FIRST — a person's own picture beats the composed card,
+    // THE OWNER'S OWN CHOICE FIRST (2026-08-28, the share picker). The config
+    // stores a BASENAME; it is re-validated against the live list on every
+    // read — owner-uploaded, still there — so a deleted file falls back to the
+    // ordinary rule rather than 404ing the preview, and a stored name can
+    // never address a visitor's file however it got stored. Read with no
+    // legacy ramp on purpose: a choice can only exist where the picker wrote
+    // it, and the picker writes R2.
+    let chosen = "";
+    try {
+      const cfg = await readSiteConfig(env, slug, null);
+      if (cfg.ok) chosen = cfg.config.share || "";
+    } catch (e) { /* an unreadable config is no choice, never no image */ }
+    if (chosen) {
+      const hit = objs.find((o) => o && !o.visitor && o.key.split("/").pop() === chosen);
+      if (hit) return siteOrigin(slug, "https://" + APP_ZONE) + "/u/" + slug + "/" + chosen;
+    }
+    // OWNER UPLOADS NEXT — a person's own picture beats the composed card,
     // the same precedence the logo and the icon live under. And no `|| objs[0]`
     // fallback past the `.find`: that fallback fired exactly when the library
     // held ONLY visitor uploads, so on any site whose form accepts a picture,
@@ -16854,6 +16883,16 @@ async function handleRequest(request, env, ctx) {
       // set-once action on the same shelf as Secrets and Domains. It also costs
       // nothing: no model call anywhere on this path.
       const sv = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/verify$/i);
+      // WHICH UPLOAD IS THE LINK-PREVIEW PICTURE. The platform's own pick is
+      // "smallest hash wins" — `siteUploadList` never sorts and a key is the
+      // SHA-256 of the file's own bytes, so the og:image was effectively
+      // arbitrary among the owner's uploads and could not be chosen at any
+      // price (recorded 2026-08-14 as the residue of the og:image fix). A
+      // PANEL FIELD rather than a chat lane, like `verify` and for its reason:
+      // picking one file out of a grid is a click, not a sentence, and a model
+      // call that guesses which picture "the one with the chairs" means fails
+      // silently when it guesses wrong.
+      const sh = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/share$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -16865,10 +16904,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv) {
+      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv || sh) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv || sh)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -19112,6 +19151,102 @@ async function handleRequest(request, env, ctx) {
               live,
               note: verificationNote(merged),
             });
+          } else if (sh) {
+            // THE SHARE-IMAGE PICKER (2026-08-28, owner's call: "ok do 2").
+            // Which of the owner's OWN uploads is the picture a chat app shows
+            // when the site's link is pasted. Until this the platform picked —
+            // smallest content hash wins, since `siteUploadList` never sorts —
+            // and there was no way to choose at any price.
+            const shslug = sh[1].toLowerCase();
+            const gS = await assertOwner(ownerDeps, shslug, ou.id);
+            if (gS.error) return Response.json(gS.error.body, { status: gS.error.status });
+            if (request.method !== "GET" && request.method !== "POST") {
+              return Response.json({ error: "method not allowed" }, { status: 405 });
+            }
+            if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
+            // THE THREE-WAY BACKEND READ, because this route must work on a
+            // frontend-only site — the DEFAULT kind since 2026-08-25, and one
+            // `siteBackendBySlug` answers null for. A null from THAT read
+            // cannot tell "no database" from "could not resolve one", and on
+            // the second, patching with no legacy ramp writes a fresh R2
+            // config over a pre-migration site's `_meta` look — the exact
+            // stranding `site_lang_strings` already records. `siteBackendRowFresh`
+            // separates them: it THROWS on cannot-tell, and answers
+            // `{conn: null}` only for a site that genuinely has no database.
+            let shRow;
+            try { shRow = await siteBackendRowFresh(env, shslug); } catch (e) {
+              return Response.json({ ok: false, error: "couldn't reach this site's settings just now" }, { status: 503 });
+            }
+            // `assertOwner` just proved the row exists and is theirs, so no row
+            // here is a delete racing this request — gone is gone.
+            if (!shRow) return Response.json({ error: "not found" }, { status: 404 });
+            const shconn = shRow.conn;
+            const shCfg = await readSiteConfig(env, shslug, shconn);
+            if (!shCfg.ok) {
+              console.error("share read failed:", shslug, shCfg.why, shCfg.error);
+              return Response.json({ ok: false, error: "couldn't read this site's settings just now" }, { status: 503 });
+            }
+            const shStored = shCfg.config.share || "";
+            if (request.method === "GET") return Response.json({ ok: true, share: shStored });
+
+            const shBody = await request.json().catch(() => null);
+            if (!shBody || typeof shBody !== "object") return Response.json({ error: "send a JSON object" }, { status: 400 });
+            // `file` is a name from the owner's own uploads, or null to go back
+            // to the platform's pick. Anything else is refused rather than
+            // coerced — `String(["a.png"])` is `"a.png"`, the array-coercion
+            // bug this codebase has shipped three times.
+            if (shBody.file !== null && typeof shBody.file !== "string") {
+              return Response.json({ error: "send file as a name from your uploads, or null to clear" }, { status: 400 });
+            }
+            let shFile = "";
+            if (typeof shBody.file === "string" && shBody.file) {
+              // VALIDATED AGAINST THE LIVE LIST, never against a shape: a name
+              // that is not one of this site's own objects cannot be stored,
+              // so the stored value can never address anything — and the match
+              // requires `!o.visitor`, because a stranger's form upload must
+              // not become the business's preview picture (the 2026-08-13
+              // `|| objs[0]` audit finding, closed at the choosing end too).
+              const shName = String(shBody.file).split("/").pop();
+              const shObjs = await siteUploadList(env, shslug);
+              const shHit = shObjs.find((o) => o && !o.visitor && o.key.split("/").pop() === shName);
+              if (!shHit) return Response.json({ ok: false, error: "that file isn't one of your uploads" }, { status: 404 });
+              // An og:image pointing at a document renders NOTHING in the chat
+              // app, silently — refused here with a reason rather than left to
+              // the unfurler to discover.
+              if (!uploadIsImage(shName)) {
+                return Response.json({ ok: false, error: "the link preview has to be a picture — that file is a document" }, { status: 400 });
+              }
+              shFile = shName;
+            }
+            {
+              const w = await patchSiteConfig(env, shslug, shconn, { share: shFile });
+              if (!w.ok) {
+                console.error("share write failed:", shslug, w.error);
+                return Response.json({ ok: false, error: "couldn't save that just now" }, { status: 503 });
+              }
+            }
+            // AND IT TAKES EFFECT WITHOUT A REPUBLISH, the verify route's
+            // pattern: the site's own Worker reads its head out of the sidecar,
+            // so patching that one key is the whole deployment. The value is
+            // RE-DERIVED from the stored config through `siteOgImage` — the one
+            // reader of the precedence — rather than composed here, so the
+            // sidecar and the next publish cannot disagree about what the
+            // preview is. `null` for the dist: there is no build in hand, and
+            // that is the reading's own "as the site stands" case.
+            //
+            // BEST-EFFORT, AND THE STORED VALUE IS ALREADY SAFE: a failure here
+            // means the choice appears at the site's next publish rather than
+            // now, a delay rather than a loss.
+            let shLive = false;
+            try {
+              const img = await siteOgImage(env, shslug, null);
+              const cur = await env.SITES_BUCKET.get(siteMetaKey(shslug));
+              const side = cur ? JSON.parse(await cur.text()) : {};
+              side.image = img || "";
+              await env.SITES_BUCKET.put(siteMetaKey(shslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
+              shLive = true;
+            } catch (e) { console.error("share sidecar patch failed:", shslug, e && e.message); }
+            return Response.json({ ok: true, share: shFile, live: shLive });
           } else if (nt) {
             // The off switch. Email the owner did not ask for, with no way to
             // stop it, is not something to ship.

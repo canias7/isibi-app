@@ -52,10 +52,18 @@
 export const CONFIG_KEY = (slug) => "config/" + String(slug) + ".json";
 
 /**
- * The six fields, in one place, so the readers and the fallback cannot disagree
- * about what a config is. A seventh added here reaches both halves at once.
+ * The fields, in one place, so the readers and the fallback cannot disagree
+ * about what a config is. One added here reaches both halves at once.
+ *
+ * `share` is the owner's chosen link-preview picture (2026-08-28): the BASENAME
+ * of one of their own uploads, or "" for "let the platform pick". A basename
+ * rather than a URL, because the origin a site serves at can change (a custom
+ * domain arrives, the zone moves) and a stored absolute URL would go stale with
+ * it — the reader re-derives the address and re-validates the file against the
+ * live upload list on every use, so a deleted file falls back rather than
+ * 404ing the preview.
  */
-export const CONFIG_FIELDS = ["look", "css", "logo", "icon", "verify", "langStrings"];
+export const CONFIG_FIELDS = ["look", "css", "logo", "icon", "verify", "langStrings", "share"];
 
 /**
  * What each field was called in `_meta`. The `site_` prefix earned its keep
@@ -70,10 +78,15 @@ export const LEGACY_META = {
   icon: "site_icon",
   verify: "site_verify",
   langStrings: "site_lang_strings",
+  // `share` has NO legacy name, deliberately: it postdates the `_meta` era, so
+  // no site ever stored one there and a fallback key would be a search for a
+  // row that cannot exist. The filter below is what keeps its absence out of
+  // the legacy SELECT — an unfiltered map would interpolate 'undefined' into
+  // the IN list.
 };
 
 /** Every key `_meta` holds a config value under, for the fallback's SELECT. */
-export const LEGACY_KEYS = CONFIG_FIELDS.map((f) => LEGACY_META[f]);
+export const LEGACY_KEYS = CONFIG_FIELDS.map((f) => LEGACY_META[f]).filter(Boolean);
 
 const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 
@@ -86,7 +99,7 @@ const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
  * look lane) without a second flag to keep in step.
  */
 export function emptyConfig() {
-  return { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null };
+  return { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null, share: "" };
 }
 
 /** Coerce anything into the shape above. A wrong type reads as absent. */
@@ -99,6 +112,7 @@ function normalize(raw) {
     icon: typeof o.icon === "string" ? o.icon : "",
     verify: isObj(o.verify) ? o.verify : null,
     langStrings: isObj(o.langStrings) ? o.langStrings : null,
+    share: typeof o.share === "string" ? o.share : "",
   };
 }
 

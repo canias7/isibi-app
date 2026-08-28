@@ -1,0 +1,39 @@
+# IS WEB ANALYTICS COLLECTING ON THE PUBLISHED SITES? — free, read-only.
+#
+# Fires on a push touching its own two files: the way to take a reading is to
+# nudge RUM_DAYS below and push, the `container logs` pattern exactly.
+# `workflow_dispatch` is here for anyone with the button; a session cannot
+# press it (403). It spends nothing — one REST list and one GraphQL query,
+# nothing created, no marker needed.
+#
+# WHY (2026-08-28, owner's call: analytics ON): the beacon is injected on the
+# .app zone and the site CSP has allowed both its hosts since 2026-08-15, so
+# collection has PLAUSIBLY worked since — but the only dashboard reading on
+# record predates that fix, and a session holds no account token to ask. This
+# is the asking: which RUM configs exist, and pageloads per hostname.
+name: rum report
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rum-report.yml'
+      - 'scripts/rum-report.mjs'
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: read web analytics
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # The window for THIS reading, in days back from now (max 30).
+          RUM_DAYS: '7'
+        run: node scripts/rum-report.mjs

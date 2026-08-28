@@ -13134,7 +13134,8 @@ async function siteFiles(site) {
   const { bodyEl } = stCloudModal('siteFilesModal', 'Files');
   bodyEl.innerHTML =
     '<p class="sp-intro">Pictures and documents on your site — the ones you added, and the ones visitors sent with a form. ' +
-    'Add a PDF here, then ask me to put a download link on a page.</p>' +
+    'Add a PDF here, then ask me to put a download link on a page. ' +
+    'Pick a picture as your <b>link preview</b> — what WhatsApp, iMessage and Slack show when someone shares your site’s link.</p>' +
     '<div class="fl-add"><button type="button" class="st-btn" id="flAdd">Add a file</button>' +
     '<span class="fl-hint">Pictures up to 5 MB \u00b7 PDF, Word, Excel and ZIP up to 10 MB</span></div>' +
     '<div id="flList">Loading…</div>';
@@ -13164,11 +13165,17 @@ async function siteFiles(site) {
     };
     inp.click();
   };
-  const list = () => apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads')
-    .then(async (r) => {
+  const list = () => Promise.all([
+    apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads'),
+    // The stored link-preview choice, fetched beside the list so the grid can
+    // mark it. A failed read degrades to no badge, never to a dead panel.
+    apiFetch('/api/site/' + encodeURIComponent(slug) + '/share').then((r) => r.json()).catch(() => ({})),
+  ])
+    .then(async ([r, sd]) => {
       const d = await r.json().catch(() => ({}));
       const box = document.getElementById('flList'); if (!box) return;
       if (!r.ok) { box.innerHTML = '<div class="st-sec-empty"><b>Couldn\u2019t load your files</b><span>Try again in a moment.</span></div>'; return; }
+      const shareChoice = (sd && typeof sd.share === 'string') ? sd.share : '';
       const files = Array.isArray(d.files) ? d.files : [];
       if (!files.length) { box.innerHTML = '<div class="st-sec-empty"><b>No files yet</b><span>Pictures and documents you add, or that visitors upload with a form, appear here.</span></div>'; return; }
       const mb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
@@ -13190,15 +13197,49 @@ async function siteFiles(site) {
             // The class swap leaves the tile its own size and says what happened.
             : '<img src="' + esc(f.url) + '" alt="" loading="lazy" ' +
               'onerror="this.closest(\'.fl-item\').classList.add(\'fl-gone\');this.remove()" />';
+          // The link-preview toggle: only a PICTURE the OWNER added is offered.
+          // A document renders nothing in a chat app's card and a visitor's
+          // upload must not become the business's preview \u2014 the server refuses
+          // both, and a button it would refuse teaches the owner a dead click.
+          const canShare = !doc && !f.visitor;
+          const isShare = canShare && shareChoice && f.name === shareChoice;
+          const shareBtn = !canShare ? '' :
+            '<button type="button" class="fl-share' + (isShare ? ' fl-share-on' : '') + '" data-share="' + esc(f.name) + '" data-on="' + (isShare ? '1' : '0') + '" ' +
+            'title="' + (isShare ? 'Link previews use this picture. Click to let your site pick again.' : 'Show this picture when someone shares your site\u2019s link') + '">' +
+            (isShare ? 'Link preview \u2713' : 'Use in link previews') + '</button>';
           return '<figure class="fl-item' + (doc ? ' fl-isdoc' : '') + '">' +
             '<a href="' + esc(f.url) + '" target="_blank" rel="noreferrer">' + face + '</a>' +
             '<figcaption><span class="fl-nm" title="' + esc(label) + '">' + esc(label) + '</span>' +
             '<span class="fl-sz">' + mb(f.size) + '</span>' +
-            '<button type="button" class="fl-del" data-file="' + esc(f.name) + '" aria-label="Delete ' + esc(label) + '">\u00d7</button></figcaption></figure>';
+            '<button type="button" class="fl-del" data-file="' + esc(f.name) + '" aria-label="Delete ' + esc(label) + '">\u00d7</button></figcaption>' +
+            shareBtn + '</figure>';
         }).join('') +
         '</div>';
+      // Setting or clearing the link preview. Clicking the current one clears
+      // it — back to the site picking — and the toast says which of the two
+      // worlds the change is in: live on the site now, or waiting for the next
+      // publish (the server's own `live` flag; "saved" and "live right now"
+      // are different facts).
+      box.querySelectorAll('.fl-share').forEach((b) => b.onclick = async () => {
+        const name = b.getAttribute('data-share');
+        const wasOn = b.dataset.on === '1';
+        b.disabled = true;
+        try {
+          const r2 = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/share', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file: wasOn ? null : name }),
+          });
+          const d2 = await r2.json().catch(() => ({}));
+          if (!r2.ok) { b.disabled = false; if (typeof sbToast === 'function') sbToast(d2.error || 'Couldn’t change that — try again.'); return; }
+          if (typeof sbToast === 'function') {
+            sbToast(wasOn ? 'Your site picks the preview picture again.'
+              : (d2.live ? 'Link previews show this picture now.' : 'Saved — link previews use it from your next change.'));
+          }
+          list();
+        } catch (e) { b.disabled = false; if (typeof sbToast === 'function') sbToast('Couldn’t change that — check your connection.'); }
+      });
       // Deleting is irreversible and the file may be on a live page, so it asks
-      // first — the one place in this panel that changes anything.
+      // first — the preview toggle above is reversible in one click and does not.
       box.querySelectorAll('.fl-del').forEach((b) => b.onclick = async () => {
         const name = b.getAttribute('data-file');
         if (!window.confirm('Delete ' + name + '? If a page uses it, that picture or download will stop working.')) return;

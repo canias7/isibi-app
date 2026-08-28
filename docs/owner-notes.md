@@ -10,6 +10,34 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## Pick your own link-preview picture, and the analytics answer (2026-08-28)
+
+Your call ("ok do 2 and 3").
+
+**#2 — the picker.** Until now, which of your uploads became the link-preview
+picture was effectively random (whichever file's internal name sorted first),
+and there was no way to choose. Now, in **Cloud → Files**, every picture you
+added carries a **"Use in link previews"** button — click one and that's the
+picture WhatsApp, iMessage and Slack show when someone shares your site's
+link. Click it again to let the site pick automatically (your pictures first,
+then the composed card).
+
+- Takes effect immediately on most sites — the toast tells you if it's live
+  now or waiting for your next change.
+- Only **your** pictures are offered: never a visitor's form upload, never a
+  PDF (chat apps show nothing for those, silently).
+- If you later delete the chosen file, previews fall back automatically
+  instead of breaking.
+- Free — no model call, no credits.
+
+**#3 — analytics.** You chose to have it on, and it looks like it already is:
+the measuring script is on every published site and the security policy has
+allowed it to send since mid-August. What nobody could see from here is
+whether data is actually arriving in the Cloudflare account. There's now a
+free, read-only **"rum report"** check that prints visits per site — it runs
+automatically with this update, and re-running it any time is a one-line
+nudge. If it shows zero, the next step is written in the report itself.
+
 ## The share card — every site gets a picture on its link now (2026-08-28)
 
 Your call ("ok build it"), after the live example: shoeroom-1's link had a photo

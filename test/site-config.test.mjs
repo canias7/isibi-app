@@ -47,6 +47,9 @@ const FULL = {
   icon: "/u/fold/icon.png",
   verify: { google: "TOKEN" },
   langStrings: { es: { Book: "Reservar" } },
+  // The chosen link-preview picture (2026-08-28): a BASENAME from the owner's
+  // own uploads, re-validated against the live list on every read.
+  share: "9a4c1e.jpg",
 };
 
 // ── THE KEY ──────────────────────────────────────────────────────────────────
@@ -61,18 +64,28 @@ test("the config is not stored where the public is served", () => {
     "the config would be a public file — it holds verification tokens");
 });
 
-test("the legacy key list is derived and covers every field", () => {
+test("the legacy key list is derived and covers every MIGRATED field", () => {
   // A hand-written SELECT list is how one field stops being read while the other
   // five keep working — silently, since a missing key is just an absent value.
-  assert.equal(LEGACY_KEYS.length, CONFIG_FIELDS.length);
+  //
+  // `share` is the deliberate exception: it postdates the `_meta` era entirely,
+  // so no site ever stored one there and a legacy name would be a search for a
+  // row that cannot exist. Named here so a SECOND field without a legacy name
+  // has to be a decision too, not a map entry somebody forgot.
+  const legacyless = CONFIG_FIELDS.filter((f) => !LEGACY_META[f]);
+  assert.deepEqual(legacyless, ["share"],
+    "a migrated field lost its _meta name — the fallback cannot read it");
+  assert.equal(LEGACY_KEYS.length, CONFIG_FIELDS.length - legacyless.length);
   for (const f of CONFIG_FIELDS) {
-    assert.ok(LEGACY_META[f], `${f} has no _meta name — the fallback cannot read it`);
+    if (legacyless.includes(f)) continue;
     assert.ok(LEGACY_KEYS.includes(LEGACY_META[f]));
   }
   // And the names are the ones already in every site's database. Getting one
-  // wrong reads as a site that never had a look.
+  // wrong reads as a site that never had a look — and an UNFILTERED map would
+  // interpolate 'undefined' into the legacy SELECT's IN list.
   assert.deepEqual([...LEGACY_KEYS].sort(),
     ["site_css", "site_icon", "site_lang_strings", "site_logo", "site_look", "site_verify"]);
+  assert.ok(!LEGACY_KEYS.includes(undefined), "the filter is gone — the SELECT asks for 'undefined'");
 });
 
 // ── SHAPE ────────────────────────────────────────────────────────────────────
@@ -80,9 +93,9 @@ test("the legacy key list is derived and covers every field", () => {
 test("a config round-trips, and an absent field keeps the shape the call sites use", () => {
   assert.deepEqual(readConfig(writeConfig(FULL)), FULL);
   // The absent values are what the read sites already declare: null for the
-  // three objects, "" for the three strings. `if (!priorLook && !priorCss)` is a
+  // three objects, "" for the strings. `if (!priorLook && !priorCss)` is a
   // real gate in the look lane and has to keep answering the same way.
-  assert.deepEqual(emptyConfig(), { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null });
+  assert.deepEqual(emptyConfig(), { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null, share: "" });
   assert.deepEqual(readConfig(writeConfig({})), emptyConfig());
 });
 
@@ -133,7 +146,9 @@ test("_meta rows become a config, and a bad row loses one field rather than six"
   ];
   const { config, found } = fromMetaRows(rows);
   assert.equal(found, true);
-  assert.deepEqual(config, FULL);
+  // `share` postdates `_meta`, so the fallback can never produce one — the
+  // migrated six arrive and the picker's field is honestly absent.
+  assert.deepEqual(config, { ...FULL, share: "" });
 
   // A bad `site_verify` row is no verification and a bad `site_lang_strings` is
   // a cold cache — exactly what the call sites tolerate today, per field.
@@ -276,7 +291,7 @@ test("a bad patch cannot store a bad shape", async () => {
   // normalises too, so asserting the round trip is satisfied by a writer that
   // stores whatever it was given — a mutant dropping `normalize` from
   // `writeConfig` survived exactly that. What the write side owes is that the
-  // object in the bucket is the six declared fields and nothing else: an
+  // object in the bucket is the declared fields and nothing else: an
   // operator reads it by hand, and a caller's stray keys would accumulate there
   // for the life of the site.
   const raw = JSON.parse(s.bucket.get("config/fold.json"));

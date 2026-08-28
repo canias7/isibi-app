@@ -5854,6 +5854,18 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   font-size:1rem;line-height:1;cursor:pointer;padding:0 .1rem}
 .fl-del:hover{color:var(--text)}
 .fl-del:disabled{opacity:.4;cursor:default}
+/* THE LINK-PREVIEW TOGGLE. A full-width row under the caption rather than a
+   chip beside the filename: the tile is ~128px and the caption row is already
+   name + size + delete, so a fourth inline item ellipsises the one thing the
+   tile exists to say. The active state is a FILLED row as well as the check —
+   colour alone does not survive greyscale, the kit's own status discipline. */
+.fl-share{display:block;width:100%;border:0;border-top:1px solid var(--line);
+  background:none;color:var(--muted);font-size:.66rem;line-height:1;
+  padding:.42rem .5rem;cursor:pointer;text-align:center}
+.fl-share:hover{color:var(--text);background:var(--panel)}
+.fl-share:disabled{opacity:.4;cursor:default}
+.fl-share-on{background:var(--text);color:var(--bg);font-weight:600}
+.fl-share-on:hover{background:var(--text);color:var(--bg)}
 /* A file whose thumbnail would not load. The tile keeps its size so the grid
    does not reflow, and says which one is missing instead of showing a torn-page
    icon that reads as a broken panel. */

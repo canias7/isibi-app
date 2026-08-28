@@ -886,10 +886,10 @@ test("A FAILED LOOK READ FAILS THE EDIT — never a stripped publish reported as
   // through the real module rather than read off the spine, because that is
   // where the distinction now lives.
   assert.equal(readConfig(""), null, "an unreadable config reads as an empty one");
-  assert.deepEqual(emptyConfig(), { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null });
+  assert.deepEqual(emptyConfig(), { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null, share: "" });
 });
 
-test("the preview image is derived in ONE place, for both publish paths", () => {
+test("the preview image is derived in ONE place, for both publish paths and the picker", () => {
   // The divergence that caused it: a build derived the image inline and the text
   // edit did not. Two implementations of "publish this site" is how the second
   // quietly lacks what the first has. The function's ARITY is deliberately not
@@ -897,12 +897,19 @@ test("the preview image is derived in ONE place, for both publish paths", () => 
   // the old `\(env, slug\)` pin failed that correct change, which is this
   // repo's most repeated own-goal.
   assert.match(worker, /async function siteOgImage\(/, "the derivation is inlined again");
-  const calls = [...worker.matchAll(/await siteOgImage\(env, slug, ([^)]+)\)/g)];
-  assert.equal(calls.length, 2,
-    "one of the two publish paths derives its own preview image again — or stopped passing its dist, which silently loses the composed-card fallback on that path");
-  // Each call hands over the dist it is about to publish, and they are two
-  // DIFFERENT maps — both naming one variable would mean one path publishes a
-  // card resolved against the other's files.
-  assert.deepEqual(calls.map((m) => m[1]).sort(), ["built.files", "dist"],
+  // The slug identifier is not pinned either: the share route's recompute calls
+  // with its own local (`shslug`), and a `slug`-only pattern was blind to it —
+  // a guard that cannot see a third call site is one that reports two readers
+  // while a fourth drifts.
+  const calls = [...worker.matchAll(/await siteOgImage\(env, \w+, ([^)]+)\)/g)];
+  assert.equal(calls.length, 3,
+    "a publish path or the share picker derives its own preview image again — or stopped passing its dist, which silently loses the composed-card fallback on that path");
+  // Each publish path hands over the dist it is about to publish, and they are
+  // two DIFFERENT maps — both naming one variable would mean one path publishes
+  // a card resolved against the other's files. The picker's recompute has NO
+  // build in hand and says so with `null`, which is the reading's own "as the
+  // site stands" case — a dist faked there would claim a card the last publish
+  // may never have made.
+  assert.deepEqual(calls.map((m) => m[1]).sort(), ["built.files", "dist", "null"],
     "a publish path resolves the card against a dist it is not publishing");
 });

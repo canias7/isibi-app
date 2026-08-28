@@ -395,11 +395,14 @@ test("a shared link's preview image is on the SITE's domain, not the platform's"
   // from the SITE's origin, wherever that happens.
   assert.match(w, /siteOrigin\(slug, "https:\/\/" \+ APP_ZONE\) \+ "\/u\/"/,
     "the preview image is not built from the site's own origin");
-  // …and that BOTH publish paths get one. The build derived it inline and the
-  // text edit never did, so fixing a typo stripped the site's preview image —
-  // exactly the divergence one spine exists to prevent.
-  assert.equal((w.match(/await siteOgImage\(env, /g) || []).length, 2,
-    "one of the two publish paths no longer asks for a preview image");
+  // …and that BOTH publish paths get one, plus the share picker's sidecar
+  // recompute (2026-08-28) — the third reader, which re-derives the preview
+  // through the same function rather than composing its own copy of the
+  // precedence. The build derived it inline and the text edit never did, so
+  // fixing a typo stripped the site's preview image — exactly the divergence
+  // one reader exists to prevent.
+  assert.equal((w.match(/await siteOgImage\(env, /g) || []).length, 3,
+    "a publish path or the share picker no longer asks for a preview image");
 });
 
 test("a paying customer is returned to the site, not to a 404", () => {

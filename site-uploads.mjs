@@ -128,6 +128,21 @@ export function sniffUpload(b, name) {
 export const UPLOAD_EXTS = ["png", "jpg", "webp", "gif", "pdf", ...Object.keys(ZIP_MEMBERS)];
 
 /**
+ * Is a stored upload an IMAGE, by the name our own sniffer minted?
+ *
+ * ONE reading, shared by the panel's kind label and the share picker's gate —
+ * two copies of "pdf or a zip member is a document" is how a format added to
+ * one list turns up choosable as a link preview in the other. An og:image
+ * pointing at a PDF renders NOTHING in WhatsApp or Slack, silently, which is
+ * why the picker refuses documents outright rather than letting the unfurler
+ * discover it.
+ */
+export const uploadIsImage = (name) => {
+  const ext = String(name || "").split(".").pop();
+  return !(ext === "pdf" || Object.hasOwn(ZIP_MEMBERS, ext));
+};
+
+/**
  * What a browser should DO with the bytes, decided from the type that was
  * STORED — which is what the leading bytes said, and the one thing about a file
  * the caller cannot lie about.
@@ -328,13 +343,15 @@ export async function handleUploadList(deps, { slug, uid } = {}) {
     .filter((o) => o && typeof o.key === "string" && o.key.startsWith(prefix))
     .map((o) => {
       const name = o.key.slice(prefix.length);
-      const ext = name.split(".").pop();
       // Which of the two a file is, said out loud rather than left to the panel
       // to guess from an extension. The panel shows a thumbnail for one and a
       // filename for the other, and a wrong guess there is a broken image.
-      const kind = ext === "pdf" || Object.hasOwn(ZIP_MEMBERS, ext) ? "doc" : "image";
+      const kind = uploadIsImage(name) ? "image" : "doc";
       const download = readDownloadName(o.download);
-      return { name, url: urlFor(slug, name), size: Number(o.size) || 0, kind, ...(download ? { download } : {}) };
+      // `visitor` travels too (2026-08-28): the share picker must not offer a
+      // stranger's file as the business's link preview, and a panel that shows
+      // the button anyway teaches the owner a click the server then refuses.
+      return { name, url: urlFor(slug, name), size: Number(o.size) || 0, kind, ...(download ? { download } : {}), ...(o.visitor ? { visitor: true } : {}) };
     });
   return json({
     files,

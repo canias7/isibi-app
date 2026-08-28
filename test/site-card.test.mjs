@@ -151,30 +151,54 @@ test("the rasteriser lives in render-check, launches through the shared launcher
 
 /* ── the worker: the fallback, under the person ──────────────────────────── */
 
-test("siteOgImage: an owner upload first, then the composed card, never a visitor's file", () => {
+test("siteOgImage: the owner's CHOICE, then an owner upload, then the card — never a visitor's file", () => {
   const at = worker.indexOf("async function siteOgImage(");
   assert.ok(at > 0, "siteOgImage is gone");
   const body = worker.slice(at, worker.indexOf("\nasync function ", at + 10));
   // The card URL exists and keys on the dist being published RIGHT NOW.
   assert.match(body, /dist && dist\["card\.png"\]/, "the fallback does not key on the published dist");
   assert.match(body, /\/card\.png"/, "the fallback does not point at the card's address");
-  // PRECEDENCE: the upload return comes after the `.find`, and the card is
-  // returned only when no owner upload exists — a person first, at every
+  // THE PICKER'S CHOICE (2026-08-28) is top of the order and is RE-VALIDATED on
+  // every read: owner-uploaded and still in the list, so a stored basename can
+  // never address a visitor's file and a deleted one falls back rather than
+  // 404ing the preview. Read with NO legacy ramp — a choice can only exist
+  // where the picker wrote it, and the picker writes R2; handing a conn here
+  // would put a Neon read on every publish for a row that cannot exist.
+  const cfgRead = body.indexOf("readSiteConfig(env, slug, null)");
+  const chosenFind = body.indexOf('objs.find((o) => o && !o.visitor && o.key.split("/").pop() === chosen)');
+  assert.ok(cfgRead > 0, "the stored choice is never read — the picker stores a value nothing consumes");
+  assert.ok(chosenFind > 0, "the stored choice is not re-validated against the live owner uploads");
+  assert.match(body, /if \(hit\) return /, "the chosen file is returned without the validation deciding it");
+  // PRECEDENCE: choice → hash-pick upload → card. The fallback `.find` comes
+  // after the chosen block, the card is returned only when no owner upload
+  // exists, and the plain upload return follows it — a person first, at every
   // surface (the logo's rule).
   const find = body.indexOf("objs.find((o) => o && !o.visitor)");
   const cardReturn = body.indexOf("if (!first) return card;");
-  const uploadReturn = body.indexOf('"/u/" + slug');
-  assert.ok(find > 0 && cardReturn > find && uploadReturn > cardReturn,
+  const uploadReturn = body.lastIndexOf('"/u/" + slug');
+  assert.ok(find > chosenFind && cardReturn > find && uploadReturn > cardReturn,
     "the composed card outranks the owner's own picture, or a visitor's upload is back in the running");
   // Positions cannot see an INSERTED early `return card` (a "simplification"
   // that hands the card the win while every ordering above stays green), so
-  // the region before the `.find` is counted: exactly ONE `return card` may
-  // precede it — the bucketless exit, which has no uploads to prefer.
+  // the region before the fallback `.find` is counted: exactly ONE `return
+  // card` may precede it — the bucketless exit, which has no uploads to
+  // prefer. The `!dist` head-check ASSIGNS card and must not return it.
   assert.equal((body.slice(0, find).match(/return card;/g) || []).length, 1,
     "something returns the card before the owner's uploads are even looked at");
+  // NO DIST MEANS "AS THE SITE STANDS" — the picker's sidecar recompute asks
+  // the bucket whether the LAST publish left a card serving. Gated on `!dist`,
+  // because on a publish whose own compose failed the published card is about
+  // to be swept by the very publish the answer rides on.
+  const headAt = body.indexOf('.head("sites/" + slug + "/card.png")');
+  const distGate = body.indexOf("if (!dist) {");
+  assert.ok(headAt > 0, "with no dist in hand the published card is never looked for");
+  assert.ok(distGate > 0 && distGate < headAt,
+    "the published-card check runs on a publish too — it claims a card this publish is about to sweep");
   // A failed upload LISTING degrades TO the card, not past it: the site with a
-  // working card must not lose it to an R2 blip.
-  const catchAt = body.indexOf("catch (e)");
+  // working card must not lose it to an R2 blip. The OUTER catch — lastIndexOf,
+  // because the head-check and the config read carry their own inner catches
+  // now and the first one no longer identifies the fallback.
+  const catchAt = body.lastIndexOf("catch (e)");
   assert.ok(catchAt > 0 && /return card;/.test(body.slice(catchAt)),
     "an upload-listing failure loses the composed card too");
   // And with no bucket at all the card still answers — the card is IN the dist
