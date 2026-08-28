@@ -44,7 +44,7 @@ import { dirFor, initialsMark, normalizeLang, siteIconFrom } from "./site-identi
 // the Worker's merge, on the tokensPage rule: the Worker and the container are
 // two layers, version skew and hand-written payloads reach this one directly,
 // and the mark is an SVG document served from the site's own origin.
-import { cleanFavicon } from "./site-favicon.mjs";
+import { cleanFavicon, readWordmark } from "./site-favicon.mjs";
 import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { runStep } from "./run-step.mjs";
@@ -349,9 +349,14 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon }) {
+function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon, wordmark }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
+  // The drawn logo's file, deleted per build for the reason the icon's is one
+  // line up: this container is long-lived and a stale one is one site's
+  // wordmark in another's header.
+  const logoSvgPath = path.join(APP, "public", "logo.svg");
+  try { fs.rmSync(logoSvgPath, { force: true }); } catch {}
 
   // THE OWNER'S OWN TAB ICON WINS OVER THE DRAWN ONE, and it is a SEPARATE
   // piece of artwork from the header logo rather than a smaller copy of it: a
@@ -421,7 +426,28 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
   const raw = typeof logo === "string" ? logo.trim() : "";
   const logoOk = /^https:\/\/[^\s"'<>]+$/i.test(raw)
     || /^\/u\/[a-z0-9][a-z0-9-]{0,80}\/[a-z0-9._-]{1,120}$/i.test(raw);
-  const logoValue = logoOk ? raw : "";
+  let logoValue = logoOk ? raw : "";
+  // THE DESIGNER'S WORDMARK, under the owner's uploaded logo (a model must not
+  // outrank a person) and over the name-as-text default. `text` is a real
+  // answer and writes nothing — the header renders the brand in type, which is
+  // what every site did before this field. Validated AGAIN here like the
+  // favicon below, and reported only once the bytes are down.
+  let wordmarkUsed = false;
+  if (!logoValue) {
+    try {
+      const wm = readWordmark(wordmark);
+      if (wordmark && !wm.kind) console.error("wordmark refused:", wm.why);
+      if (wm.kind === "svg") {
+        fs.mkdirSync(path.dirname(logoSvgPath), { recursive: true });
+        fs.writeFileSync(logoSvgPath, wm.svg);
+        logoValue = "/logo.svg";
+        wordmarkUsed = true;
+      }
+    } catch {
+      // The header keeps the name in type. Failing a build over a logo would
+      // trade a working site for a decoration — the favicon's rule, above.
+    }
+  }
   // `normalizeLang` REFUSES rather than defaulting, so an unusable value leaves
   // the site on the template's English instead of guessing at one.
   const langValue = normalizeLang(lang) || "en";
@@ -535,7 +561,7 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
   // a site drawing its initials and a site serving the owner's own artwork
   // both answered true, so a favicon that was stored and then refused by the
   // shape check reported as a working icon.
-  return { lang: langValue, dir: dirValue, langs: langsValue, transition: transitionValue, icon: !!icon, ownIcon: iconOk, favicon: faviconDrawn, logo: !!logoValue, slug: !!slugValue,
+  return { lang: langValue, dir: dirValue, langs: langsValue, transition: transitionValue, icon: !!icon, ownIcon: iconOk, favicon: faviconDrawn, wordmark: wordmarkUsed, logo: !!logoValue, slug: !!slugValue,
     refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
 }
 
@@ -1579,7 +1605,7 @@ const server = http.createServer((req, res) => {
       // once, passed to both, and `parseStyle` is idempotent so `applyStyle`
       // re-reading it downstream cannot change the answer.
       const styleUsed = parseStyle(payload.style, { max: MAX_STYLE_BUILD }).style;
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, wordmark: payload.wordmark, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts, payload.cssFonts);
       // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
       // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly

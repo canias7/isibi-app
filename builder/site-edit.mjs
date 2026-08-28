@@ -32,7 +32,7 @@
 import { PLAN_EDIT_FIELDS } from "./site-plan.mjs";
 import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
-import { cleanFavicon } from "./site-favicon.mjs";
+import { cleanFavicon, readWordmark } from "./site-favicon.mjs";
 
 /**
  * The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths.
@@ -86,7 +86,10 @@ import { cleanFavicon } from "./site-favicon.mjs";
 // merge carries it the way it carries the theme: absent means unchanged, and a
 // revise about a phone number cannot take a drawn mark off a site. Judged by
 // `FIELD_KEEPS.favicon` below, so a junk answer can never replace a good one.
-export const EDIT_FIELDS = ["brand", "description", "theme", "favicon", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs"];
+// …and `wordmark` beside it (same day, same call — "for the logo, either do
+// the text or an svg logo"): the header logo as the designer's own choice,
+// `text` or a drawn SVG, judged by `FIELD_KEEPS.wordmark`.
+export const EDIT_FIELDS = ["brand", "description", "theme", "wordmark", "favicon", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs"];
 
 /**
  * Nothing is required of an EDIT.
@@ -141,6 +144,13 @@ export function currentStateNote(current) {
   if (mark) {
     lines.push("its tab icon (an SVG you drew — to change it, return `favicon` as a whole new mark; " +
       "to keep it, omit `favicon`):\n" + mark);
+  }
+  // AND THE WORDMARK, same contract: `text` prints as the choice it is, a
+  // drawn one prints whole so a revise can redraw it deliberately.
+  const wm = str(c.wordmark);
+  if (wm) {
+    lines.push("its header logo (`text` = the name in type; to change it, return `wordmark`; to keep " +
+      "it, omit `wordmark`):\n" + wm);
   }
   // THE PALETTE THE SITE IS ALREADY WEARING, spelled out as the three colours
   // rather than as a name — there is no registry to name one from since
@@ -626,6 +636,9 @@ const FIELD_KEEPS = {
   // falls back to the initials for good — while the response says the look
   // changed.
   favicon: (v) => !!cleanFavicon(v).svg,
+  // Same rule for the wordmark: `text` and a valid SVG are the two answers,
+  // and everything else must not replace either of them in the store.
+  wordmark: (v) => !!readWordmark(v).kind,
   // AN ANSWERED-EMPTY `images` IS A VALUE, NOT SILENCE (2026-08-27). The tool
   // field promises "send an empty list to say it should have none", `images`
   // is REQUIRED on a first build — and `hasValue([])` is false, so this merge

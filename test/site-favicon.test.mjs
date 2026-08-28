@@ -13,6 +13,7 @@ import assert from "node:assert";
 import fs from "node:fs";
 import {
   cleanFavicon, FAVICON_FIELD, FAVICON_TAGS, FAVICON_ATTRS, MAX_FAVICON,
+  readWordmark, WORDMARK_FIELD, MAX_WORDMARK,
 } from "../builder/site-favicon.mjs";
 import { mergeLook, currentStateNote, EDIT_FIELDS } from "../builder/site-edit.mjs";
 
@@ -198,7 +199,7 @@ test("the tool asks: after the theme, before the shape, compelled on a build", (
   assert.ok(at > theme && at < shape, "the favicon is not drawn between the theme and the shape");
   // Compelled on a BUILD — an unanswered mark is the name-hash initials — and
   // the required list is the build tool's, which a revise swaps out whole.
-  assert.match(w, /required: \["brand", "slug", "backend", "description", "theme", "favicon", \.\.\.PLAN_REQUIRED\]/);
+  assert.match(w, /required: \["brand", "slug", "backend", "description", "theme", "wordmark", "favicon", \.\.\.PLAN_REQUIRED\]/);
 });
 
 test("both container payloads carry the mark — derived from the icon hops", () => {
@@ -281,4 +282,117 @@ test("the router knows a tab-icon ask is the cheap look layer", () => {
   const at = ask.indexOf('\\"look\\" — colour, theme');
   assert.ok(at > 0, "the look layer's description is gone");
   assert.match(ask.slice(at, at + 400), /TAB ICON/, "the look layer never mentions the tab icon");
+});
+
+
+/* ── the wordmark: text or a drawn logo (owner's call, 2026-08-28) ─────────── */
+
+const MARK = '<svg viewBox="0 0 240 64"><rect width="240" height="64" rx="8" fill="#10331f"/>' +
+  '<path d="M20 44 V20 h8 l10 16 10-16 h8 v24 h-7 V33 l-8 12 h-6 l-8-12 v11 z" fill="#f2f7f0"/></svg>';
+
+test("`text` and a drawn SVG are the two answers, and only those two", () => {
+  // "for the logo, either do the text or an svg logo, any of those 2 is fine".
+  assert.equal(readWordmark("text").kind, "text");
+  assert.equal(readWordmark("  Text ").kind, "text", "case and whitespace are not a third answer");
+  const r = readWordmark(MARK);
+  assert.equal(r.kind, "svg");
+  // THE SIZE COMES FROM THE DRAWING, not the favicon's square: the header
+  // constrains by height (`h-7 w-auto`), so the intrinsic aspect off the
+  // viewBox is what lays a wide wordmark out at its own width.
+  assert.match(r.svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="240" height="64" viewBox="0 0 240 64"/);
+  // Everything else is a refusal, never a repair and never a coercion.
+  for (const v of ["logo", "", 42, null, ["text"], "<svg onload=x>"]) {
+    assert.equal(readWordmark(v).kind, null, "accepted: " + JSON.stringify(v));
+  }
+  // …and it is the SAME scanner as the favicon's — one security question, one
+  // answer — so a script refuses here exactly as it does there.
+  assert.equal(readWordmark('<svg viewBox="0 0 240 64"><scr' + 'ipt>x</scr' + 'ipt></svg>').kind, null);
+});
+
+test("the wordmark field offers the choice and states its rules", () => {
+  const d = WORDMARK_FIELD.description;
+  assert.match(d, /`text`/, "the text answer is not offered");
+  assert.match(d, /name set in the header's own type/i, "text is not described as a full answer");
+  assert.match(d, /refused WHOLE/);
+  assert.match(d, /owner's own\s+uploaded logo always wins/i, "the person-beats-model rule is unstated");
+  // The ground clause. Measured on the wordmark contact sheet (2026-08-28):
+  // a bare dark-ink mark on a transparent ground disappears on a dark theme's
+  // header, and the theme is decided ONE FIELD EARLIER — so the designer knows
+  // the ground it is drawing against, and the field has to say to use that.
+  assert.match(d, /SITS ON THE SITE'S OWN HEADER/, "the ground clause is gone — a dark-ink mark vanishes on a dark site");
+  assert.match(d, /light and its dark ground alike/i, "the both-grounds half of the ground clause is gone");
+  assert.ok(d.includes(String(MAX_WORDMARK)), "the cap is enforced in code and stated nowhere the model reads");
+  assert.match(d, /leave it out to keep/i, "the revise contract");
+});
+
+test("the wordmark merges like the favicon: junk never replaces, `text` is a value", () => {
+  const stored = { wordmark: MARK };
+  const junk = mergeLook(stored, { wordmark: "<svg onload=x>" }, null, { instructed: true });
+  assert.equal(junk.wordmark, MARK, "a refused answer replaced the stored wordmark");
+  const toText = mergeLook(stored, { wordmark: "text" }, null, { instructed: true });
+  assert.equal(toText.wordmark, "text", "`text` is a real answer and must replace a drawn mark when given");
+  assert.ok(EDIT_FIELDS.includes("wordmark"));
+  const note = currentStateNote({ wordmark: MARK });
+  assert.ok(note.includes(MARK), "the note truncated or dropped the stored wordmark");
+  assert.match(note, /omit `wordmark`/);
+});
+
+test("the wordmark rides every hop the favicon rides", () => {
+  const w = blank(worker);
+  // The tool, between the theme and the favicon — the big identity first, the
+  // tab glyph after it.
+  const at = w.indexOf("wordmark: WORDMARK_FIELD");
+  const fav = w.indexOf("favicon: FAVICON_FIELD");
+  const theme = w.indexOf("theme: {");
+  assert.ok(at > 0 && theme > 0 && fav > 0, "an anchor is gone");
+  assert.ok(at > theme && at < fav, "the wordmark is not drawn between the theme and the favicon");
+  // Both payloads and the build args, derived from the same icon hops the
+  // favicon guard uses.
+  const hops = [...w.matchAll(/icon: icon \|\| "",/g)];
+  assert.ok(hops.length >= 2);
+  for (const h of hops) {
+    assert.match(w.slice(h.index, h.index + 1200), /wordmark: /,
+      "a container payload carries the favicon and not the wordmark");
+  }
+  const args = w.indexOf("favicon: look.favicon,");
+  assert.ok(args > 0);
+  assert.match(w.slice(args, args + 300), /wordmark: look\.wordmark/);
+});
+
+test("the container: the owner's logo, then the drawn wordmark, then the name in type", () => {
+  const s2 = blank(server);
+  const body = topLevel(s2, "function writeSiteBrand(");
+  // The drawn path is gated on the owner having no logo — the literal gate is
+  // the precedence, and `if (true)` is a model outranking a person.
+  const gate = body.indexOf("if (!logoValue) {");
+  const read = body.indexOf("readWordmark(wordmark)");
+  assert.ok(gate > 0 && read > gate, "the wordmark is not gated on the owner having no logo");
+  // Reported and pathed only once the bytes are down.
+  const write = body.indexOf("writeFileSync(logoSvgPath");
+  const used = body.indexOf("wordmarkUsed = true");
+  assert.ok(write > 0 && used > write, "the report does not wait for the write");
+  // The stale file is deleted per build — a long-lived container, one site's
+  // wordmark in another's header otherwise.
+  assert.match(body, /rmSync\(logoSvgPath/, "a stale logo.svg survives into the next site's build");
+  // And the RAW value is read nowhere but the validator and the refusal log —
+  // the validated-then-discarded shape, favicon's rule applied to its sibling.
+  const reads = body
+    .replace("readWordmark(wordmark)", "")
+    .replace("if (wordmark && !wm.kind)", "")
+    .replace("wordmark: wordmarkUsed", "")
+    .replace(/^function writeSiteBrand\([^)]*\)/, "")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''");
+  assert.ok(!/\bwordmark\b/.test(reads.replace(/\bwordmarkUsed\b/g, "")),
+    "writeSiteBrand reads the RAW wordmark somewhere other than the validator");
+  assert.match(s2, /wordmark: payload\.wordmark/);
+});
+
+test("the reply and the router both know the logo choice", () => {
+  assert.match(chat, /wordmark: 'the logo'/);
+  const ask = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
+  const at = ask.indexOf('\\"look\\" — colour, theme');
+  assert.ok(at > 0);
+  assert.match(ask.slice(at, at + 700), /draw us a logo/,
+    "the look layer never says a drawn logo is reachable without a file");
 });

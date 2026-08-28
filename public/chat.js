@@ -11678,7 +11678,7 @@ function editReply(e) {
     // the branch four lines below says "the name" about the field this sentence
     // called "brand". Anything unmapped falls through unchanged, so a field
     // added later reads no worse than it does today.
-    const SAY = { lang: 'language', brand: 'name', description: 'the description', theme: 'the theme', favicon: 'the tab icon' };
+    const SAY = { lang: 'language', brand: 'name', description: 'the description', theme: 'the theme', favicon: 'the tab icon', wordmark: 'the logo' };
     // NOTHING TO DO IS ITS OWN ANSWER, and it has to come before the sentence
     // below: an ask that was already satisfied moves nothing, so "✅ Updated the
     // look." with no list reads as a change that silently failed. The server

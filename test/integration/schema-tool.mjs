@@ -62,6 +62,7 @@ export async function readSchemaTool() {
     // The designer-drawn tab icon (2026-08-28) — the real field, never a stub,
     // for the reason this function's own header gives.
     FAVICON_FIELD: favicon.FAVICON_FIELD,
+    WORDMARK_FIELD: favicon.WORDMARK_FIELD,
     PLAN_REQUIRED: plan.PLAN_REQUIRED,
     SITE_TOKEN_NAMES: tokens.ASKABLE,
     siteTokenHint: tokens.valueHint,

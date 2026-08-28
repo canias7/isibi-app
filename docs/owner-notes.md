@@ -10,6 +10,34 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## The logo is a design step too — the name in type, or a drawn wordmark (2026-08-28)
+
+Your call: "for the logo, either do the text or an svg logo, any of those 2 is
+fine, so have that potion there."
+
+- **The choice**: on every new build the designer now answers `wordmark` right
+  after picking the theme — either the literal word `text` (the business name in
+  the header's own type, exactly what every site shows today, and described to
+  the model as the right answer for most small businesses) or a complete drawn
+  SVG wordmark, which lands in the header at 28px tall at the drawing's own
+  width. Same strict gate as the favicon; anything that breaks the rules is
+  refused WHOLE and the header keeps the name in type.
+- **Your logo always wins**: a logo you upload beats the model's drawn one,
+  always — the drawn mark only fills the header when you haven't attached one.
+  "Draw us a logo" / "just use our name as the logo" are cheap look edits;
+  attaching a file is the logo lane it's always been.
+- **A trap measured and closed**: on the render sheet, a wordmark drawn in bare
+  dark ink disappeared on a dark site's header. The theme is picked one field
+  earlier, so the model is told to draw against the theme's own ground — a
+  plate behind the letters is the safe shape.
+- **Proven**: four wordmark styles rendered in a faithful header mock (light and
+  dark) plus the `text` answer; and real container builds — the drawn mark is
+  server-rendered into a real header with the business name as its alt, your
+  uploaded logo beats it on the same build, and one site's drawn logo can't
+  leak into the next site's build. `site build` 281/281.
+- **Not yet seen live** — same 18-credit balance as the favicon; one top-up
+  proves both at once, since they ride the same design call.
+
 ## The favicon is a design step now — the model draws it (2026-08-28)
 
 Your call: "in the design step, lets add a svg step, for the favicon."

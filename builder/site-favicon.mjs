@@ -151,10 +151,22 @@ const ATTR = /\s+([A-Za-z][A-Za-z0-9:_.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/y;
  * lowercase class of repair, like the lone page renamed to "/".
  */
 export function cleanFavicon(input) {
+  // The tab icon is OUR size — a square, whatever the drawing's own aspect —
+  // because a favicon slot is square everywhere it appears.
+  return cleanMark(input, { max: MAX_FAVICON, size: () => [64, 64] });
+}
+
+/**
+ * The shared scan — the favicon and the wordmark are one security question
+ * (an SVG document on the site's own origin) with two sizing answers, so the
+ * validator is one function and the marks differ only in `max` and in how the
+ * emitted `width`/`height` are chosen.
+ */
+function cleanMark(input, { max, size }) {
   if (typeof input !== "string") return refuse("not text");
   let s = input.trim().replace(/^<\?xml[^>]*\?>\s*/i, "");
   if (!s) return refuse("empty");
-  if (s.length > MAX_FAVICON) return refuse("over " + MAX_FAVICON + " characters");
+  if (s.length > max) return refuse("over " + max + " characters");
   // Entities first, over the whole document: strip the allowed ones, and any
   // `&` left is one the scan below cannot be trusted to understand.
   if (s.replace(ENTITY, "").includes("&")) return refuse("an entity that is not XML's own");
@@ -271,12 +283,45 @@ export function cleanFavicon(input) {
   const extras = root.extras
     .map(([n, v]) => " " + n + '="' + v.replace(/"/g, "&quot;") + '"')
     .join("");
+  const [w, h] = size(root.viewBox);
   return {
     svg:
-      '<svg xmlns="' + SVG_NS + '" width="64" height="64" viewBox="' + root.viewBox + '"' +
+      '<svg xmlns="' + SVG_NS + '" width="' + w + '" height="' + h + '" viewBox="' + root.viewBox + '"' +
       extras + ">" + inner + "</svg>",
     why: null,
   };
+}
+
+/**
+ * The header logo the DESIGNER answers — the word `text`, or a drawn SVG.
+ *
+ * THE OWNER'S CALL (2026-08-28): "for the logo, either do the text or an svg
+ * logo, any of those 2 is fine, so have that option there." `text` is a full
+ * answer, not a shrug — most small businesses' logo IS their name set in type,
+ * and that is exactly what the header renders for it. The same rule as
+ * `site-authored.mjs`: a string that IS the named option is the name, and a
+ * document starts with a tag, so the two cannot be confused.
+ *
+ * THE SIZE COMES FROM THE DRAWING, unlike the favicon's forced square: the
+ * header constrains the logo by HEIGHT (`h-7 w-auto`), so the intrinsic
+ * width/height — read off the validated viewBox — are what make a wide
+ * wordmark lay out at its own aspect instead of letterboxed into a square.
+ */
+export const MAX_WORDMARK = 8000;
+
+function wordmarkSize(viewBox) {
+  const n = viewBox.split(/\s+/).map(Number);
+  const clamp = (v) => Math.max(1, Math.round(Math.abs(v) || 1));
+  return [clamp(n[2]), clamp(n[3])];
+}
+
+export function readWordmark(v) {
+  if (typeof v !== "string") return { kind: null, why: "not text" };
+  const s = v.trim();
+  if (!s) return { kind: null, why: "empty" };
+  if (/^text$/i.test(s)) return { kind: "text" };
+  const r = cleanMark(s, { max: MAX_WORDMARK, size: wordmarkSize });
+  return r.svg ? { kind: "svg", svg: r.svg } : { kind: null, why: r.why };
 }
 
 /**
@@ -291,6 +336,31 @@ export function cleanFavicon(input) {
  * fallback is stated too, so a refused answer is understood as "the site keeps
  * a plain initials mark" rather than as a build that broke.
  */
+/**
+ * The wordmark field. Directly after `theme` and before `favicon` — the big
+ * identity is drawn first, in the world just decided, and the tab glyph after
+ * it (a favicon is often the wordmark compressed to one letter). Required on a
+ * build for the reason `favicon` is: "the name in type" is a real design
+ * choice, and compelling the field is what makes it one rather than a default
+ * nobody made. A revise keeps the stored answer by omission.
+ */
+export const WORDMARK_FIELD = {
+  type: "string",
+  description:
+    "The site's LOGO in the header: answer the word `text`, or draw one. `text` means the business name " +
+    "set in the header's own type — the right answer for most small businesses, and a full answer, not a " +
+    "shrug. To draw one instead, send one complete SVG document: a WORDMARK or simple lockup that reads at " +
+    "28 pixels tall — the header shows it at that height, width to match — wide viewBox (e.g. " +
+    '<svg viewBox="0 0 240 64">), letterforms drawn as paths (<text> renders in system fonts only, never ' +
+    "the site's own faces). IT SITS ON THE SITE'S OWN HEADER — draw in colours that read against the theme " +
+    "you just picked, on its light and its dark ground alike; a plate behind the letters is the safe shape, " +
+    "bare dark ink on a transparent ground disappears on a dark site. Same rules as the favicon: plain " +
+    "shapes and presentation attributes only, no " +
+    "style attribute, no href of any kind, nothing external, under " + MAX_WORDMARK + " characters — a " +
+    "document that breaks any rule is refused WHOLE and the header shows the name as text. The owner's own " +
+    "uploaded logo always wins over a drawn one. On a revise, leave it out to keep what the site has.",
+};
+
 export const FAVICON_FIELD = {
   type: "string",
   description:

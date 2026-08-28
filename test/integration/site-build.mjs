@@ -1182,9 +1182,11 @@ try {
   console.log("\nbuilding a site whose designer drew the mark…");
   const DRAWN = '<svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0b3d2e"/>' +
     '<path d="M18 40 L32 16 L46 40 Z" fill="#f2e9d8"/></svg>';
+  const DRAWN_WM = '<svg viewBox="0 0 240 64"><rect width="240" height="64" rx="8" fill="#0b3d2e"/>' +
+    '<path d="M20 44 V20 h8 l10 16 10-16 h8 v24 h-7 V33 l-8 12 h-6 l-8-12 v11 z" fill="#f2e9d8"/></svg>';
   const withMark = await post({
     files: { "index.tsx": MENU.replace('createFileRoute("/menu")', 'createFileRoute("/")').replace("function Menu", "function Home").replace("component: Menu", "component: Home") },
-    slug: "favicon-site", title: "Poulson's", favicon: DRAWN,
+    slug: "favicon-site", title: "Poulson's", favicon: DRAWN, wordmark: DRAWN_WM,
   });
   ok("a site with a designed mark builds", withMark.ok === true, withMark.stage + ": " + withMark.error);
   {
@@ -1196,6 +1198,22 @@ try {
     ok("…and not the initials the same title would have drawn", !/>P</.test(m), m.slice(0, 200));
     ok("the report says the designer drew it", (withMark.brand || {}).favicon === true,
       JSON.stringify((withMark.brand || {}).favicon));
+    // …and the WORDMARK, its sibling (same owner's call): the drawn logo lands
+    // as its own file at its own aspect — the header constrains by height, so
+    // the intrinsic 240×64 is what makes `w-auto` lay it out wide — and the
+    // bundle's SITE_LOGO points at it.
+    const wm = ((withMark.files || {})["logo.svg"] || {}).t || "";
+    ok("the designer's wordmark is what the header gets", wm.includes('d="M20 44 V20'), wm.slice(0, 160));
+    ok("…at the drawing's own aspect, under OUR root",
+      /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="240" height="64" viewBox="0 0 240 64">/.test(wm),
+      wm.slice(0, 120));
+    ok("the report says the wordmark was drawn", (withMark.brand || {}).wordmark === true,
+      JSON.stringify((withMark.brand || {}).wordmark));
+    // NO bundle assertion here, on purpose: this fixture renders no
+    // `SiteChrome`, so Vite tree-shakes `site-brand.ts` and `/logo.svg` is
+    // correctly absent from the JS — the logo comment further up records the
+    // same wrong draft twice for the `logo` field. The proof that the header
+    // GETS the drawn wordmark is a render, on the chrome-using build below.
   }
 
   console.log("\nbuilding a page with a type error…");
@@ -2459,7 +2477,10 @@ function Home() {
   ok("nothing was written outside the sandbox", !fs.existsSync("/etc/passwd.tsx"));
 
   console.log("\nrebuilding to prove the routes are reset…");
-  const solo = await post({ files: { "index.tsx": MENU.replace('createFileRoute("/menu")', 'createFileRoute("/")').replace("function Menu", "function Home").replace("component: Menu", "component: Home") }, slug: "fold-coffee" });
+  const solo = await post({ files: { "index.tsx": MENU.replace('createFileRoute("/menu")', 'createFileRoute("/")').replace("function Menu", "function Home").replace("component: Menu", "component: Home") }, slug: "fold-coffee", wordmark: "text" });
+  ok("`text` is a full wordmark answer: nothing is drawn and the header keeps the name in type",
+    !((solo.files || {})["logo.svg"]) && (solo.brand || {}).wordmark === false,
+    JSON.stringify({ file: !!(solo.files || {})["logo.svg"], wordmark: (solo.brand || {}).wordmark }));
   ok("a rebuild with fewer pages succeeds", solo.ok === true, solo.stage + ": " + solo.error);
   ok("the previous build's extra route is gone", !fs.existsSync(path.join(sandbox, "src/routes/menu.tsx")));
 
@@ -2565,8 +2586,16 @@ function Home() {
   // request from the script's own bundle. Executing it is a stronger form of the
   // same assertion — "SERVER-RENDERED into the header" is what it always claimed
   // and now what it actually checks.
-  const withLogo = await post({ files: { "index.tsx": CHROMED }, slug: "logo-site", title: "Sharp Fade Barbers", logo: "/u/logo-site/mark.png", worker: true });
+  const withLogo = await post({ files: { "index.tsx": CHROMED }, slug: "logo-site", title: "Sharp Fade Barbers", logo: "/u/logo-site/mark.png",
+    // A drawn wordmark rides the SAME payload, so this build is also the
+    // precedence proof: the owner's uploaded file wins and the drawn one is
+    // never written — a model must not outrank a person.
+    wordmark: '<svg viewBox="0 0 200 64"><rect width="200" height="64" fill="#111"/></svg>',
+    worker: true });
   ok("a site using the site frame builds with a logo", withLogo.ok === true, withLogo.stage + ": " + withLogo.error);
+  ok("the owner's uploaded logo beats the drawn wordmark",
+    (withLogo.brand || {}).wordmark === false && !((withLogo.files || {})["logo.svg"]),
+    JSON.stringify({ wordmark: (withLogo.brand || {}).wordmark, file: !!(withLogo.files || {})["logo.svg"] }));
 
   // A fake R2 carrying only what a document render needs: the liveness marker.
   // Without it the entry answers 404 for every route — which is the take-down
@@ -2611,12 +2640,42 @@ function Home() {
     ok("…and a width bound, so it cannot push the nav off the page", /max-w-\[\d+px\]/.test(logoImg), logoImg);
   }
 
+  // ── the DRAWN wordmark in the same real header ────────────────────────────
+  //
+  // The favicon-site build proves the container writes the file; only a render
+  // can prove the header GETS it — its fixture has no chrome, so `site-brand.ts`
+  // is tree-shaken there and asserting on its bundle was the same wrong draft
+  // the logo comment above records twice. Same chrome page, no owner logo, a
+  // drawn mark: SITE_LOGO must come out of the SERVED header as `/logo.svg`
+  // with the name as the alt.
+  console.log("\nbuilding a site whose designer drew the wordmark…");
+  const HDR_WM = '<svg viewBox="0 0 240 64"><rect width="240" height="64" rx="8" fill="#0b3d2e"/>' +
+    '<path d="M20 44 V20 h8 l10 16 10-16 h8 v24 h-7 V33 l-8 12 h-6 l-8-12 v11 z" fill="#f2e9d8"/></svg>';
+  const wmSite = await post({ files: { "index.tsx": CHROMED }, slug: "wordmark-site", title: "Sharp Fade Barbers",
+    wordmark: HDR_WM, worker: true });
+  ok("a chrome site with a drawn wordmark builds", wmSite.ok === true, wmSite.stage + ": " + wmSite.error);
+  ok("…and its dist carries the drawn file", (((wmSite.files || {})["logo.svg"] || {}).t || "").includes('d="M20 44 V20'),
+    Object.keys(wmSite.files || {}).filter((n) => n.endsWith(".svg")).join(", "));
+  const hw = await renderHome(wmSite, "wordmark-site");
+  if (hw) {
+    const wmImg = (hw.match(/<img[^>]*src="\/logo\.svg"[^>]*>/) || [""])[0];
+    ok("the drawn wordmark is SERVER-RENDERED into the header", !!wmImg, hw.slice(0, 400));
+    ok("…with the business name as its alt, so a failed image degrades to the name",
+      /alt="Sharp Fade Barbers"/.test(wmImg), wmImg);
+  }
+
   const noLogo = await post({ files: { "index.tsx": CHROMED }, slug: "logo-site", title: "Sharp Fade Barbers", worker: true });
   const h2 = await renderHome(noLogo, "logo-site");
   if (h2) {
     ok("a site with no logo shows the name, exactly as before",
       h2.includes("Sharp Fade Barbers") && !/<img[^>]*mark\.png/.test(h2),
       "the previous build's logo survived into a site that sent none");
+    // The build directly above DREW a wordmark into the shared container's
+    // public/, so this site's dist is the per-build cleanup proof: drop the
+    // `rmSync(logoSvgPath)` and wordmark-site's mark ships in logo-site's dist.
+    ok("…and the previous build's DRAWN wordmark did not leak into this dist",
+      !((noLogo.files || {})["logo.svg"]),
+      "wordmark-site's logo.svg survived into logo-site — the per-build rm is gone");
     // AND IT DRAWS NO RULES, which is the half that can rot silently: a later
     // edit restoring an unconditional `border-b` puts them back on every site
     // on the platform with the axis still present and every other check green.

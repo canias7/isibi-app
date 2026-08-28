@@ -27,6 +27,9 @@ const STORED = {
   // `FIELD_KEEPS.favicon` validates through `cleanFavicon`, so junk here would
   // be nulled by the very merge under test and every "nothing moved" loop would
   // report a phantom.
+  // …and the wordmark: `text` is the commoner of its two valid answers and is
+  // what most stored sites will hold.
+  wordmark: "text",
   favicon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#332a26"/><path d="M20 44 L32 20 L44 44 Z" fill="#f7f2ea"/></svg>',
   seeds: { name: "Warm Brick", paper: "#f7f2ea", ink: "#332a26", accent: "#b44a2e" }, family: "salon",
   fonts: { heading: "noto-serif", body: "source-sans-3" },
@@ -285,6 +288,7 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
     // so a designer that cannot see the current document cannot hand it back
     // with one change made.
     favicon: "value-of-favicon",
+    wordmark: "value-of-wordmark",
     family: "value-of-family", lang: "value-of-lang",
     fonts: { heading: "inter", body: "inter" }, langs: ["value-of-langs"],
     // THE FIVE OTHER PLAN AXES CARRY THE SHARPEST VERSION OF THIS GUARD'S OWN
