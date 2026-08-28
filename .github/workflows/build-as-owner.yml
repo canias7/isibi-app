@@ -596,6 +596,36 @@ jobs:
           # NOT fired late: the last image-rolling deploy (acba0f03) settled
           # hours ago, and the commits since are Worker + prompt only.
           #
+          # ── RUN 55: THE FIRST SHOPFRONT SINCE THE ONE-PAGE WORLD ──
+          #
+          # Owner: "now lets do an online shoe store that sells every type of
+          # shoes." Runs 52-54 were all `tool` — a CRM twice and a markbook —
+          # so the whole one-page arc has never met the OTHER kind. That makes
+          # this the first run where several dormant branches all fire at once:
+          # `kind: shopfront` (so `planBudget` allows photographs where a tool
+          # is pinned to 0), the shopfront half of TOOL_DIRECTIVE's split, and
+          # shape 3 (catalog & transaction) rather than 8/9.
+          #
+          # AND THE ONE-JOB LAW MEETS ITS HARDEST BRIEF. A shop implies a
+          # catalogue, a product page, a basket and a checkout — four screens,
+          # more than the CRM or the markbook — and the honest answer is the
+          # catalogue with the rest named as left out. Run 54 did exactly that
+          # on three ("Record marks sits in the header for the next step rather
+          # than a form that would drop what you typed"); this is the same test
+          # with more to refuse.
+          #
+          # COST, MEASURED BEFORE FIRING: a one-page shopfront's derived budget
+          # is 1 photograph, rising to 2 if the designer declares several — so
+          # ~19-38 credits of real fal spend on top of ~15 of model, against a
+          # balance of 69. Affordable, and the first paid photographs of the
+          # one-page era either way.
+          #
+          # READ: (1) one job, the other screens named as left out; (2) a
+          # shopfront that is actually a shopfront — pictures, prices, an Add
+          # to basket verb — where three runs running have been dense tools;
+          # (3) whether it is honest about checkout, which needs the owner's
+          # own Stripe key and cannot work today.
+          #
           # REFIRED: the first attempt died at the design call with `upstream:
           # 403` in 4.2 seconds — the xAI account was out of credit, which that
           # provider answers as a refused credential rather than a billing 400.
@@ -649,9 +679,9 @@ jobs:
           #
           # Fresh slug: northgroup-9 through -16 are the owner's LIVE sites
           # now — re-using any would revise it.
-          OWNER_SLUG: markbook-1
+          OWNER_SLUG: shoeroom-1
           OWNER_PICKER: grok
-          OWNER_BRIEF: "Software for a secondary school teacher to keep track of their students' grades. The teacher signs in - nothing here is public. They teach about ninety students across four classes. They want to pick a class and see every student in it with their mark for each assessment so far, their average, and who is falling behind. They want to open a single student and see all of that student's marks together with a note on how they are getting on. And they want to record a new set of marks after an assessment without typing each one into a separate form. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
+          OWNER_BRIEF: "An online shoe shop that sells every kind of shoe - trainers, boots, formal shoes, sandals, kids' shoes and slippers. Shoppers browse what is in stock, filter by kind and by size, and see each pair with its picture, its price and which sizes are left. They open a pair to read what it is made of and pick their size. They add pairs to a basket and pay by card. There is also a page about the shop, which has been on the same street for forty years, and how returns work. It should feel like a proper shop rather than a warehouse - the shoes are the thing you see first, prices plain, and nothing in the way of buying."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
