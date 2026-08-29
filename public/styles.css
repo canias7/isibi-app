@@ -6136,9 +6136,13 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   color:var(--graphite);text-align:center}
 .mkt-crt .gf-reel-sub{margin:0 0 2.4rem;max-width:52ch;text-align:center;
   color:var(--graphite-2);font-size:1.06rem;line-height:1.5}
-/* the viewport: full width, with the edges faded so a frame arrives and leaves
-   rather than being chopped off at a hard line */
-.mkt-crt .gf-reel{position:relative;width:100%;overflow:hidden;padding:.6rem 0;
+/* Two thirds of the screen, centred (owner 2026-08-29: "instead of it taking
+   the whole screen, or the whole width, let it only take 2/3 of the screen,
+   especially the right side"). Bounded, so a frame enters and leaves inside
+   the box instead of off the page edge — which is what stopped it reading as
+   content running out of the window on the right. The edges are faded so it
+   arrives and leaves rather than being chopped at a hard line. */
+.mkt-crt .gf-reel{position:relative;width:66%;margin-inline:auto;overflow:hidden;padding:.6rem 0;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);
   mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
 .mkt-crt .gf-reel-track{display:flex;align-items:center;width:max-content;
