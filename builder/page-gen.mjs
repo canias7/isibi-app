@@ -1851,12 +1851,23 @@ export const ALWAYS_API_CORE = (() => {
  * exactly the request it sent before this existed.
  */
 export function siteComponentApi(components) {
-  const core = new Set(ALWAYS_API_CORE);
-  const extra = (Array.isArray(components) ? components : []).filter((n) => !core.has(n));
-  const block = componentApiFor(extra);
+  // ── THE MANIFEST IS THE WHOLE SET (owner, 2026-08-29) ─────────────────────
+  //
+  // "it should be only 15, the 15 on the design step."
+  //
+  // This SUBTRACTED `ALWAYS_API_CORE` — thirty-one components whose props rode
+  // in the cached block on every build whether the designer named them or not,
+  // so the page writer could reach for up to forty-six. The subtraction was a
+  // caching optimisation (a component printed twice is paid for twice, at 1x
+  // rather than a cache read's 0.1x) and it quietly made the manifest
+  // ADVISORY: the design step said "these fifteen" and the page step was told
+  // "those, plus these thirty-one, use whichever you like".
+  //
+  // One decision, one place. What the designer names is what the writer gets.
+  const block = componentApiFor(Array.isArray(components) ? components : []);
   if (!block) return "";
-  return "THE COMPONENTS THIS SITE NEEDS — their exact props, checked against the same rule as the\n" +
-    "core above: a prop that does not exist is a compile error and costs the page.\n" + block;
+  return "THE COMPONENTS THIS SITE NEEDS — their exact props. A prop that does not exist is a\n" +
+    "compile error and costs the page.\n" + block;
 }
 
 
@@ -1892,9 +1903,8 @@ or an access level — anything not in the schema below does not exist.
 3. THE KIT FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
    button, input, select, checkbox or dialog.
 
-   WHAT YOU MAY IMPORT IS NAMED FOR YOU, in two places and nowhere else: the
-   components with signatures below, which every site gets, and the block LATER IN
-   THIS MESSAGE listing the ones chosen for THIS site. There are ${UI_COMPONENTS.length.toLocaleString("en-GB")}
+   WHAT YOU MAY IMPORT IS NAMED FOR YOU, in the block LATER IN THIS MESSAGE
+   listing the components chosen for THIS site — and nowhere else. There are ${UI_COMPONENTS.length.toLocaleString("en-GB")}
    modules under that path and the step that designed this site has already picked
    from them for you — so a name in neither place is one you would be guessing at,
    and a module that does not exist is a compile error that costs the page.
@@ -1920,12 +1930,14 @@ or an access level — anything not in the schema below does not exist.
    and the whole site falls back to its data model. Where a type is a NAME
    (\`Row[]\`, \`Activity[]\`), hand it the rows a hook gave you and do not invent
    fields on it.
-   **The two places named at the top of this rule are the whole set: the handful
-   below, which every site gets, and the block LATER IN THIS MESSAGE chosen for THIS
-   site. Both give you full props. If you do reach past them for something you are
-   sure of, keep the call to \`children\` and \`className\` — every component in the kit
-   accepts those — because anything else would be a prop you have not been shown.**
-${componentApiFor(ALWAYS_API_CORE)}
+   **THE BLOCK LATER IN THIS MESSAGE IS THE WHOLE SET. It lists the components
+   chosen for THIS site, with full props, and there is no second list: a name that
+   is not in it is one you have not been shown. If you do reach past it for
+   something you are sure of, keep the call to \`children\` and \`className\` —
+   every component in the kit accepts those — because anything else would be a
+   prop you are guessing at, and a prop that does not exist is a compile error
+   that costs the page.**
+
 
    There is no "toast" or "use-toast" component — toasts come from \`import { toast } from "sonner"\`.
    The kit does not stop here: ${CHART_NAME_COUNT} chart components live under

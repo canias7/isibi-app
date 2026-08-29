@@ -1806,37 +1806,42 @@ test("EVERY COMPONENT WHOSE PROPS ARE PROMISED REALLY HAS THEM STATED", () => {
   // quiet. Four compile errors, one root cause — names and no signatures — and
   // the whole site published as its data model.
   //
-  // THE INVARIANT SURVIVED THE PER-SITE CHANGE AND ITS SUBJECT MOVED. It used to
-  // read the 292-name shortlist; props now come from two places and the promise
-  // is about both: the always-on core, cached in the rules, and the manifest this
-  // site's designer wrote, fresh in the user turn. Asserted at both, because
-  // either alone passes while the other sends names with nothing behind them.
-  assert.ok(ALWAYS_API_CORE.length >= 25, `the core is only ${ALWAYS_API_CORE.length} components`);
-  for (const n of ALWAYS_API_CORE) {
-    if (!COMPONENT_API[n]) continue;
-    assert.ok(PAGE_RULES.includes(n + " — " + COMPONENT_API[n]),
-      `${n} is in the always-on core and the rules state no props for it`);
-  }
-  // …and the per-site half, driven with a manifest deliberately OUTSIDE the core
-  // so this cannot pass on what the cache already carries.
-  const outside = UI_COMPONENTS.filter((n) => COMPONENT_API[n] && !ALWAYS_API_CORE.includes(n)).slice(0, 6);
-  assert.equal(outside.length, 6, "could not find six components outside the core — the scan is broken");
-  const block = siteComponentApi(outside);
-  for (const n of outside) {
-    assert.ok(block.includes(n + " — " + COMPONENT_API[n]),
-      `${n} is named in a site's manifest and its props are never stated`);
+  // ONE PLACE NOW, NOT TWO (owner, 2026-08-29: "it should be only 15, the 15 on
+  // the design step"). The props used to come from the always-on core AND the
+  // manifest, and this asserted both. The core is gone: what the designer names
+  // is the whole set the page writer is shown, so the promise is about the
+  // manifest alone — and it is a stronger promise than before, because a name
+  // the manifest omits is now unusable rather than merely unexplained.
+  const named = ["site-chrome", "faq", "price-list", "gallery", "stats-band"];
+  const block = siteComponentApi(named);
+  assert.ok(block.length > 200, "the per-site block is empty — this guard is watching nothing");
+  for (const n of named) {
+    assert.ok(COMPONENT_API[n], `${n} has no signature in COMPONENT_API — the fixture names something the kit lacks`);
+    assert.ok(block.includes(n + " — "),
+      `${n} was named to the page writer with no props behind it — the failure this test exists for`);
   }
 });
 
-test("…and a component the cache ALREADY carries is not sent twice", () => {
-  // A signature printed in both blocks is one paid for twice — at 1x in the user
-  // turn where the cached copy costs 0.1x. The manifest is what the designer
-  // wrote and it will name the obvious things, so the overlap is the common case
-  // rather than the rare one.
-  const inCore = ALWAYS_API_CORE.find((n) => COMPONENT_API[n]);
-  assert.ok(inCore, "the core has no component with a signature");
-  assert.equal(siteComponentApi([inCore]), "",
-    `${inCore} is in the cached core and was sent again in the user turn`);
+test("the manifest is sent WHOLE — nothing is withheld as already-cached", () => {
+  // THE OPPOSITE OF WHAT THIS ASSERTED. It required a component in the always-on
+  // core to be withheld from the user turn, because a signature printed twice is
+  // paid for twice — at 1x where the cached copy costs 0.1x. That saving is why
+  // the core existed, and the core is why the manifest was only ADVISORY: the
+  // design step said "these fifteen" and the page step was told "those, plus
+  // these thirty-one, use whichever you like".
+  //
+  // Owner's call, 2026-08-29: "it should be only 15, the 15 on the design step."
+  // So every name the designer writes now arrives with its props, and a name
+  // withheld here is a component the writer cannot use at all.
+  const block = siteComponentApi(["site-chrome", "faq"]);
+  for (const n of ["site-chrome", "faq"]) {
+    assert.ok(block.includes(n + " — "), `${n} was named by the designer and withheld from the page writer`);
+  }
+  // AND NOTHING ELSE RIDES ALONG. A block that quietly re-added the old core
+  // would restore the advisory manifest without anybody noticing.
+  const names = [...block.matchAll(/^\s*([a-z0-9-]+) — /gm)].map((m) => m[1]);
+  assert.deepEqual([...names].sort(), ["faq", "site-chrome"],
+    "the per-site block carries components the designer did not name: " + names.join(","));
 });
 
 test("a string-literal union is never truncated — a half-shown enum is worse than none", () => {
@@ -2970,7 +2975,12 @@ test("the guard above is looking at the right thing", () => {
 test("the prompt tells the model the field exists", () => {
   // Carrying it on the type is half. If the resolved shape in the prompt still
   // says otherwise the model has no reason to use it, and the fix is invisible.
-  assert.match(PAGE_RULES, /Shot = \{[^}]*fallbackSeed/,
+  // READ OFF THE PER-SITE BLOCK, NOT THE RULES (2026-08-29). `gallery`'s
+  // signature rode in the always-on core inside `PAGE_RULES`; the core is gone —
+  // the manifest is the whole set — so the props now arrive where the designer's
+  // choice arrives. The property is unchanged: the writer must be shown
+  // `fallbackSeed`, or it invents one and the picture has no stable placeholder.
+  assert.match(siteComponentApi(["gallery"]), /Shot = \{[^}]*fallbackSeed/,
     "the generator is still shown a Shot without fallbackSeed");
 });
 

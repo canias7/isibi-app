@@ -464,8 +464,15 @@ test("THE PAGE PROMPT DOES NOT NAME THE KIT — the designer already picked", ()
   assert.ok(i > 0, "rule 3 moved and this guard is reading nothing");
   const rule = PAGE_RULES.slice(i, PAGE_RULES.indexOf("4. FORMS ARE"));
   assert.ok(rule.length > 1000, "rule 3 collapsed — this guard is reading a fragment");
-  assert.match(rule, /in two places and nowhere else/,
-    "rule 3 no longer tells the model where the names it may import come from");
+  // ONE PLACE, NOT TWO (owner, 2026-08-29: "it should be only 15, the 15 on the
+  // design step"). This required rule 3 to say "in two places and nowhere else"
+  // — the always-on core AND this site's manifest. The core is gone, so the
+  // sentence would now be false: there is one place, and a name that is not in
+  // it is one the writer has not been shown.
+  assert.match(rule, /and nowhere else/,
+    "rule 3 no longer bounds what the model may import at all");
+  assert.ok(!/in two places/.test(rule),
+    "rule 3 still promises a second list of components — the always-on core is gone");
   assert.match(rule, /LATER IN\s+THIS MESSAGE/,
     "rule 3 never points at this site's own manifest, so the per-site block is unreachable prose");
 
