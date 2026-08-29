@@ -17080,13 +17080,30 @@ async function handleRequest(request, env, ctx) {
             // one place, and `pageCredits` still rounds ONCE over all the parts,
             // where summing per lane would round twice.
             let pickUsage = null;
-            const eCharge = async (usage, ...more) => {
+            //
+            // ── ONE LIST, BILLED AND REPORTED ────────────────────────────
+            //
+            // Split out of `eCharge` because a lane also has to SAY what it
+            // spent, and the two answers were assembled separately: the look
+            // lane seeded its own `langUsage` with `pickUsage` while this
+            // function prepended it too, so the router's call was billed TWICE
+            // on every look edit. Found by a mutation sweep, not by a test —
+            // removing it from one place left the other correct, which is
+            // exactly how a double-count hides.
+            //
+            // Now there is one list and both callers read it, so what is
+            // charged and what is reported cannot disagree.
+            const billParts = (usage, ...more) => {
               const parts = [];
               for (const p of [pickUsage, usage, ...more]) {
                 if (!p) continue;
                 if (Array.isArray(p.langUsage)) parts.push(...p.langUsage.filter(Boolean));
                 else parts.push(p);
               }
+              return parts;
+            };
+            const eCharge = async (usage, ...more) => {
+              const parts = billParts(usage, ...more);
               if (!parts.length) return 0;
               try { return await collectCredits(eAuth, pageCredits(...parts)); } catch { return 0; }
             };
@@ -17860,15 +17877,13 @@ async function handleRequest(request, env, ctx) {
               // rather than adding a second place a lane's spend is priced —
               // and rounds once, where summing two calls rounds twice. That is
               // the bug the addon lane had.
-              // THE ROUTER'S CALL IS PART OF THIS MESSAGE'S SPEND, and it is
-              // seeded here as well as folded into `eCharge` — because what is
-              // BILLED and what is REPORTED must be the same list. `eCharge`
-              // adds `pickUsage` for every layer, including the ones this lane
-              // dispatches to, which have no `dUsage` of their own; here it is
-              // also what makes `usage` on the reply add up to the `cost` beside
-              // it. Two numbers that disagree about one message is a bug report
-              // nobody can act on.
-              const laneUsages = pickUsage ? [pickUsage] : [];
+              // THE ACTING CALLS ONLY. The router's call is added by `billParts`
+              // for EVERY layer — including the ones this lane dispatches to,
+              // which have no `dUsage` of their own — so seeding it here as well
+              // billed it twice on every look edit. The reply reports
+              // `billParts(dUsage)`, which is the same list `eCharge` prices, so
+              // the `usage` and the `cost` beside it cannot disagree.
+              const laneUsages = [];
               const dUsage = { langUsage: laneUsages };
               // WHICH PARTS OF THE SITE THIS TOUCHED, carried out to the reply.
               // A lane that cannot say what it did is this file's single
@@ -18037,7 +18052,7 @@ async function handleRequest(request, env, ctx) {
                   // from the lists, and an empty list plus this note reads as
                   // "nothing to do" rather than as a change that failed.
                   lookNote: "Your site already looks like that — nothing to change.",
-                  lanes: ranLanes, cost: await eCharge(dUsage), usage: dUsage,
+                  lanes: ranLanes, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
                 });
               }
 
@@ -18167,7 +18182,7 @@ async function handleRequest(request, env, ctx) {
                 // an edit that ran two lanes was, until now, indistinguishable
                 // from one that ran one.
                 lanes: ranLanes,
-                renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: dUsage,
+                renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
               });
             }
 

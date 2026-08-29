@@ -161,16 +161,39 @@ export const LANE_LAYER = {
 export const LANE_UNBUILT = { kind: "rebuild", pages: "page-set", slug: "move" };
 
 /**
- * ── PLACEHOLDER WORDING (owner, 2026-08-29: "i will tell you the prompt
- * later"). Every `hint` and every `edit` string below is the edit path's own and
- * is written to be replaced. They are honest today: each says what the field is
- * and what changing it means, in the words an owner of a live site would use.
- * Nothing else in this repo reads them, so replacing a value here is the whole
- * change when the owner's wording lands. ──
+ * ── A RULE PER LANE, AND THE RULE HAS FOUR NAMED PARTS ──────────────────────
  *
- * `hint` — one line, for the router: how a customer's sentence points here.
- * `edit` — the acting tool's own description: what this value is and what
- *          answering it does. Written for CHANGING, never for inventing.
+ * Owner, 2026-08-29: *"i want a rule per everysingle one of them, just like we
+ * did for css"*.
+ *
+ * The `css` rule was the only complete one and it is the model. Read it apart
+ * and it is four statements, of which exactly ONE is genuinely about `css`:
+ *
+ *   is     what the field is                        descriptive
+ *   yours  the whole of it is yours to edit         permission
+ *   wide   ── HOW *THIS* FIELD GETS OVER-ANSWERED ── the rule
+ *   keep   what "everything else" means here        ceiling
+ *
+ * `yours` and `keep` restate `EDIT_SYSTEM` in the field's own nouns; `wide` is
+ * the part no other lane can borrow, because every field is over-answered in a
+ * different way. `css` gets a token where a rule was asked for. `brand` gets a
+ * name improved instead of copied. `lang` gets the site TRANSLATED. `langs` gets
+ * the list replaced when one was being added. Naming that trap per field is the
+ * whole value of a per-lane rule; without it a lane is a description with a
+ * ceiling bolted on, which is what six of the eight were.
+ *
+ * STRUCTURAL, NOT PROSE, and that is the point. Each part is its own key, so a
+ * lane added tomorrow WITHOUT a width rule fails at module load rather than
+ * shipping as a field with no ceiling — and a guard can assert the rule exists
+ * rather than grepping for a sentence. This repo's record is that a rule kept in
+ * prose is one the next edit quietly drops.
+ *
+ * ── PLACEHOLDER WORDING (owner: "i will tell you the prompt later"). Every
+ * string below is the edit path's own and is written to be replaced. Replacing
+ * one is editing one value here; nothing else in this repo reads them. ──
+ *
+ * `hint`  — one line, for the router: how a customer's sentence points here.
+ * `edit`  — the four parts above. Written for CHANGING, never for inventing.
  * `shape` — this path's own. Not borrowed and not derived; see the header.
  */
 const LANES = {
@@ -178,90 +201,152 @@ const LANES = {
   css: {
     hint: "THE STYLESHEET — any change to how something LOOKS that is not a change of theme: a colour, a size, spacing, corners, a typeface, one control, one section, dark or light. The ordinary answer for a look change.",
     shape: { type: "string" },
-    edit:
-      "The site's stylesheet, as it should be after their change.\n" +
-      "THE WHOLE LOOK IS HERE AND ALL OF IT IS YOURS TO EDIT. Any element, any component, any state, any one " +
-      "page — whatever they asked to look different, write the rule that does it. You are not limited to what " +
-      "the theme offers and nothing on the page is out of reach.\n" +
-      "AS MANY EDITS AS THERE WERE ASKS, AND NEVER MORE. One ask is one edit; three asks are three. Everything " +
-      "else comes back exactly as it was given to you, byte for byte.\n" +
-      "AND EACH ONE ONLY AS WIDE AS IT WAS ASKED. A change to one control is a rule for that control. A new " +
-      "value for a token is not — every component reading that token repaints, so a request about one button " +
-      "becomes a different-looking site. Reach for a token only when what they named really is the whole site.\n" +
-      "NOTHING THEY DID NOT ASK FOR MOVES — not a spacing you would have set differently, not a colour you " +
-      "think sits better beside the new one. Taste nobody asked for reads as the site changing on its own.",
+    edit: {
+      is: "The site's stylesheet, as it should be after their change.",
+      yours:
+        "THE WHOLE LOOK IS HERE AND ALL OF IT IS YOURS TO EDIT. Any element, any component, any state, any one " +
+        "page — whatever they asked to look different, write the rule that does it. You are not limited to what " +
+        "the theme offers and nothing on the page is out of reach.",
+      wide:
+        "EACH EDIT ONLY AS WIDE AS IT WAS ASKED. A change to one control is a rule for that control. A new value " +
+        "for a token is not — every component reading that token repaints, so a request about one button becomes " +
+        "a different-looking site. Reach for a token only when what they named really is the whole site.",
+      keep:
+        "EVERYTHING ELSE COMES BACK BYTE FOR BYTE — every rule you were given, in the order you were given it. " +
+        "Not a spacing you would have set differently, not a colour you think sits better beside the new one. " +
+        "Taste nobody asked for reads as the site changing on its own.",
+    },
   },
   theme: {
     hint: "The site's whole visual world, picked by name — broadsheet, bakery, apothecary, noir. Asking for a DIFFERENT LOOK ENTIRELY is this; asking for one colour or one control to change is `css`.",
     shape: { type: "string", enum: THEME_SHORTLIST },
-    edit:
-      "The theme the site should wear instead, by name.\n" +
-      "THIS REPLACES THE SITE'S ENTIRE VISUAL WORLD — palette, typefaces, corners, shadows, spacing — so answer " +
-      "it only when they have asked for the whole site to feel different. \"Make it feel like a newspaper\", " +
-      "\"something warmer\", \"put it on black\" said of the site as a whole.\n" +
-      "A REQUEST ABOUT ONE COLOUR OR ONE CONTROL IS NOT THIS. Leave it out and something else handles it; " +
-      "answering here would repaint every page to change one button.",
+    edit: {
+      is: "The theme the site should wear instead, by name.",
+      yours:
+        "EVERY THEME ON THE LIST IS AVAILABLE TO YOU and they are genuinely different worlds — pick the one whose " +
+        "mood matches what they described, for the trade this site is in. You are not limited to something near " +
+        "the one it has.",
+      wide:
+        "THIS FIELD HAS NO NARROW VERSION, WHICH IS THE WHOLE RULE FOR IT. A theme replaces the palette, the " +
+        "typefaces, the corners, the shadows and the spacing on every page at once — there is no way to answer " +
+        "it a little. So answer it ONLY when what they asked for really is the whole site feeling different: " +
+        "\"make it feel like a newspaper\", \"something warmer\", \"put the whole thing on black\". A request " +
+        "about one colour, one control or one section is not this, however strongly you would pick a theme for " +
+        "it — answering here would repaint an entire site to change one button.",
+      keep:
+        "IF THE THEME SHOULD STAY, ANSWER NOTHING. The site keeps the one it has and the stylesheet lane makes " +
+        "the change they actually asked for. A near-miss theme is a redesign nobody ordered.",
+    },
   },
   brand: {
     hint: "The site's NAME — what the business is called, as it appears in the header, the browser tab and a shared link.",
     shape: { type: "string" },
-    edit:
-      "The name the business should be called instead, exactly as they wrote it.\n" +
-      "THE NAME IS THEIRS AND YOU ARE COPYING IT, NOT CHOOSING IT. If they said what to call it, that, verbatim " +
-      "— capitals, punctuation and all. Do not tidy it, shorten it, or improve on it.\n" +
-      "This changes the header, the browser tab, the link preview and every heading that says the old name.",
+    edit: {
+      is: "The name the business should be called instead.",
+      yours:
+        "ANY NAME THEY GIVE YOU IS THE ANSWER — one word or six, a person's name, an ampersand, an apostrophe, " +
+        "a language other than the site's. None of that is a problem and none of it needs your approval.",
+      wide:
+        "COPY IT, DO NOT CHOOSE IT — this field's whole trap is that it looks like a naming job and is a " +
+        "transcription job. Take their name exactly as they wrote it: their capitals, their punctuation, their " +
+        "spacing, their spelling. Do not shorten it, expand it, title-case it, drop the \"Ltd\", add \"& Co\", " +
+        "or make it sound more like a brand. If they did not say what to call it, answer nothing rather than " +
+        "inventing one — this site already has a name and yours would replace it.",
+      keep:
+        "THE NAME ONLY. The description, the wordmark and the tab icon are their own fields and other lanes own " +
+        "them; a new name is not permission to restyle everything that mentions it.",
+    },
   },
   description: {
     hint: "The one-line summary under the name in a Google result or a shared-link preview.",
     shape: { type: "string" },
-    edit:
-      "The site's one-sentence description, as it should read after their change.\n" +
-      "One sentence, written for a customer rather than a developer: what the business is, who it serves, and " +
-      "where. It is what shows under the name in a search result and beside a shared link.\n" +
-      "KEEP WHAT THEY DID NOT ASK YOU TO CHANGE. If they gave you a new address, the rest of the sentence " +
-      "stays as it is.",
+    edit: {
+      is: "The site's one-sentence description, as it should read after their change. One sentence, written for a customer rather than a developer: what the business is, who it serves, and where. It is what shows under the name in a search result and beside a shared link.",
+      yours:
+        "THE WHOLE SENTENCE IS YOURS TO WORD when that is what they asked for — a different emphasis, a different " +
+        "audience, a fact that has changed, a tone that fits them better.",
+      wide:
+        "A NEW FACT IS NOT A NEW SENTENCE, and that is how this field gets over-answered: they tell you they have " +
+        "moved to Leeds, and the temptation is to rewrite the line around it. Change the part they named and " +
+        "leave the rest of the sentence standing, in its own words. Only rewrite the whole thing when the whole " +
+        "thing is what they asked about.",
+      keep:
+        "EVERY FACT YOU WERE NOT ASKED ABOUT SURVIVES — the trade, the place, who it serves. A description that " +
+        "quietly drops one is a search result that stops describing the business.",
+    },
   },
   wordmark: {
     hint: "The logo in the header — the business name set in type, or a drawn mark.",
     shape: { type: "string" },
-    edit:
-      "The header logo: answer the single word `text`, or draw one as a complete SVG document.\n" +
-      "`text` MEANS THE BUSINESS NAME SET IN THE HEADER'S OWN TYPE, and it is a full answer rather than a " +
-      "shrug — it is the right one for most small businesses and it is what \"just use our name\" means.\n" +
-      "To draw one, answer one complete `<svg>` document with a viewBox: flat shapes and letterforms, no " +
-      "photographs, no gradients, sized to be read at the height of a header.\n" +
-      "A LOGO THEY ATTACHED AS A FILE IS NOT THIS. That is their own artwork and something else places it.",
+    edit: {
+      is: "The header logo: answer the single word `text`, or draw one as a complete SVG document with a viewBox — flat shapes and letterforms, no photographs, no gradients, sized to be read at the height of a header.",
+      yours:
+        "YOU MAY DRAW, AND YOU MAY ALSO STOP DRAWING. `text` means the business name set in the header's own " +
+        "type, and it is a FULL ANSWER rather than a shrug — it is right for most small businesses and it is " +
+        "exactly what \"just use our name\" means.",
+      wide:
+        "A CHANGE TO A MARK IS NOT A NEW MARK. If the site already has a drawn wordmark and they asked for one " +
+        "thing about it — a colour, thinner strokes, drop the circle — return THAT mark with that one change, " +
+        "not a fresh design you like better. Redrawing from scratch is the failure this field invites, because " +
+        "a new mark always looks like an answer.",
+      keep:
+        "A LOGO THEY ATTACHED AS A FILE IS NOT THIS. That is their own artwork, another lane places it, and " +
+        "drawing over it replaces the thing they gave you.",
+    },
   },
   favicon: {
     hint: "The TAB ICON — the small mark in the browser tab and on a bookmark.",
     shape: { type: "string" },
-    edit:
-      "The site's tab icon, drawn by you as one complete SVG document.\n" +
-      "A FLAT MARK, NOT A PICTURE: one simple shape or letterform, two or three colours at most, bold enough " +
-      "to read at 16 pixels. Give it a viewBox and draw to fill it.\n" +
-      "It is the mark in the browser tab, on a bookmark and on a phone's home screen — nothing on the page " +
-      "itself changes.",
+    edit: {
+      is: "The site's tab icon, as one complete SVG document with a viewBox, drawn to fill it. It is the mark in the browser tab, on a bookmark and on a phone's home screen — nothing on the page itself changes.",
+      yours:
+        "THE WHOLE MARK IS YOURS TO DRAW — any shape, any letterform, any colours from the site's world. It does " +
+        "not have to resemble the logo and it does not have to be initials.",
+      wide:
+        "SIXTEEN PIXELS IS THE RULE THIS FIELD LIVES UNDER. One simple shape or letterform, two or three colours " +
+        "at most, heavy strokes, no thin lines, no small text, no fine detail — anything more disappears at the " +
+        "size it is actually seen. And if they asked for one thing about the mark they have, change that one " +
+        "thing: a colour is a colour, not a redesign.",
+      keep:
+        "NOTHING ON THE PAGE MOVES. This is the tab, the bookmark and the home screen only — not the header logo, " +
+        "which is its own field and its own lane.",
+    },
   },
   lang: {
     hint: "The language the site's pages are declared to be written in.",
     shape: { type: "string" },
-    edit:
-      "The language the site's pages are written in, as a BCP-47 tag — `es`, `fr`, `pt-BR`, `de`.\n" +
-      "THIS IS A DECLARATION, NOT A TRANSLATION. It tells a browser and a search engine what language the " +
-      "words on the page already are; it does not rewrite them. \"This site is in Spanish, stop telling people " +
-      "it's English\" is this. \"Translate the site into Spanish\" is not, and answering here would leave the " +
-      "site claiming a language its own pages are not in.",
+    edit: {
+      is: "The language the site's pages are written in, as a BCP-47 tag — `es`, `fr`, `pt-BR`, `de`.",
+      yours:
+        "ANY LANGUAGE, and a regional tag when they named a region — `pt-BR` rather than `pt` for Brazil, " +
+        "`en-GB` rather than `en` when it matters to them.",
+      wide:
+        "THIS IS A DECLARATION, NOT A TRANSLATION, and confusing the two is the only way this field goes wrong. " +
+        "It tells a browser and a search engine what language the words on the page ALREADY ARE; it does not " +
+        "rewrite a single one of them. \"This site is in Spanish, stop telling people it's English\" is this. " +
+        "\"Translate the site into Spanish\" is NOT — answering there would leave the site claiming a language " +
+        "its own pages are not written in, which is worse than the original mistake.",
+      keep:
+        "ONE TAG, AND NOTHING ELSE. The other languages the site is offered in are their own field.",
+    },
   },
   langs: {
     hint: "The other languages the site is also offered in.",
     shape: { type: "array", items: { type: "string" }, maxItems: 12 },
-    edit:
-      "Every language the site is ALSO offered in, beyond the one its pages are written in, as BCP-47 tags — " +
-      "`[\"es\"]`, `[\"cy\", \"ga\"]`.\n" +
-      "THE WHOLE LIST, NOT THE ADDITION. This replaces what is stored, so send the languages they should have " +
-      "after the change: adding Welsh to a site already offered in Spanish is `[\"es\", \"cy\"]`, and answering " +
-      "`[\"cy\"]` would take Spanish away.\n" +
-      "Send an empty list to say it is offered in one language only.",
+    edit: {
+      is: "Every language the site is ALSO offered in, beyond the one its pages are written in, as BCP-47 tags — `[\"es\"]`, `[\"cy\", \"ga\"]`.",
+      yours:
+        "ADD OR REMOVE AS MANY AS THEY ASKED FOR, in any language. An empty list is a real answer: it says the " +
+        "site is offered in one language only.",
+      wide:
+        "SEND THE WHOLE LIST, NOT THE CHANGE — this field REPLACES what is stored, so a list that names only the " +
+        "new language silently deletes the others. Adding Welsh to a site already offered in Spanish is " +
+        "`[\"es\", \"cy\"]`, never `[\"cy\"]`. Start from the list you were given, apply their change to it, " +
+        "and send back the result.",
+      keep:
+        "THE LANGUAGE THE PAGES ARE WRITTEN IN IS NOT ON THIS LIST — it is its own field, and repeating it here " +
+        "offers the site in its own language twice.",
+    },
   },
 
   /* ---- the six that act on another layer ---- */
@@ -506,10 +591,43 @@ export function editTool(field) {
     description: "Make the one change they asked for to this part of their site.",
     input_schema: {
       type: "object",
-      properties: { [field]: { ...lane.shape, description: lane.edit } },
+      properties: { [field]: { ...lane.shape, description: laneRule(field) } },
       required: [],
     },
   };
+}
+
+/**
+ * The four parts of a lane's rule, in order, as the one string the tool carries.
+ *
+ * COMPOSED RATHER THAN STORED WHOLE (owner, 2026-08-29: "i want a rule per
+ * everysingle one of them, just like we did for css"), because a rule kept as
+ * one paragraph is a rule whose missing half nobody notices. Each part is its
+ * own key, `RULE_PARTS` names them in the order they are read, and `laneRule`
+ * refuses a lane that is missing one — so a lane cannot ship as a description
+ * with no ceiling, which is what six of the eight were before today.
+ *
+ * ORDER IS DELIBERATE AND IS THE ORDER A PERSON WOULD SAY IT IN: what this is,
+ * what you may do, how far, and what must survive. `wide` sits third because it
+ * is the part with teeth — the last thing before `keep` and the only part no
+ * other lane could borrow.
+ */
+export const RULE_PARTS = ["is", "yours", "wide", "keep"];
+
+export function laneRule(field) {
+  if (typeof field !== "string" || !Object.hasOwn(LANES, field)) throw new Error("laneRule: no lane for: " + field);
+  const rule = LANES[field].edit;
+  if (!rule || typeof rule !== "object") throw new Error("laneRule: `" + field + "` has no rule");
+  return RULE_PARTS.map((part) => {
+    const text = rule[part];
+    // A MISSING PART IS A LANE WITH NO CEILING, and from outside that is a lane
+    // that quietly over-answers — indistinguishable from a model being
+    // careless. Refused where the name is still in hand.
+    if (typeof text !== "string" || !text.trim()) {
+      throw new Error("laneRule: `" + field + "` has no `" + part + "` — every lane states all four parts of its rule");
+    }
+    return text.trim();
+  }).join("\n");
 }
 
 /**

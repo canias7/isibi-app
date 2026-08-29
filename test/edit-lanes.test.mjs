@@ -29,7 +29,7 @@ import { PLAN_KEYS } from "../builder/site-plan.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import {
   LANE_FIELDS, ACTING_LANES, DISPATCHED_LANES, UNBUILT_LANES, MAX_LANES,
-  laneLayer, laneUnbuilt, editTool, pickTool, readLanes, readLaneAnswer, editRequest, pickRequest,
+  laneLayer, laneUnbuilt, laneRule, RULE_PARTS, editTool, pickTool, readLanes, readLaneAnswer, editRequest, pickRequest,
 } from "../builder/site-lanes.mjs";
 
 const LANES_SRC = fs.readFileSync(new URL("../builder/site-lanes.mjs", import.meta.url), "utf8");
@@ -111,7 +111,70 @@ test("the edit path does not send the build's framing — the sentence EDIT_RULE
   // ceiling: permission without a ceiling invites a redesign, a ceiling without
   // permission reads as "don't touch anything" (owner, 2026-08-28).
   assert.match(edit, /yours to edit/i, "the css lane no longer grants the sheet to the model");
-  assert.match(edit, /never more/i, "the css lane no longer caps how much may change");
+
+  // ── THE CEILING IS STILL SENT, AND IT MOVED (2026-08-29) ─────────────────
+  //
+  // This read `/never more/` off the css lane. That clause — as many edits as
+  // there were asks and never more — is GENERIC: it says nothing about
+  // stylesheets and it is true of all eight lanes. When every lane got its own
+  // four-part rule (owner: "i want a rule per everysingle one of them") it moved
+  // to `EDIT_SYSTEM`, which is sent with every acting call, so restating it per
+  // lane would be the duplication that makes a prompt long without making it
+  // stronger.
+  //
+  // SO IT IS ASSERTED WHERE IT LIVES, and BOTH halves are: the count in the
+  // shared block, the width in the lane. Dropping this to "the css lane still
+  // says something" would let the ceiling vanish from both places at once.
+  const shared = String(editRequest({ field: "css", message: "m", value: "v", model: "x" }).system[0].text || "");
+  assert.match(shared, /never more/i, "the shared rule no longer caps HOW MANY changes an edit may make");
+  assert.match(laneRule("css"), /only as wide as it was asked/i, "the css lane no longer caps how WIDE one change may be");
+});
+
+test("EVERY acting lane states all four parts of its rule — including the one with teeth", () => {
+  // Owner, 2026-08-29: "i want a rule per everysingle one of them, just like we
+  // did for css".
+  //
+  // The css rule was the only complete one. Read apart it is four statements —
+  // what the field is, that it is yours, HOW WIDE, and what survives — of which
+  // exactly one is about `css`. `yours` and `keep` restate `EDIT_SYSTEM` in the
+  // field's own nouns; `wide` names the way THIS field gets over-answered, and
+  // no other lane can borrow it: css gets a token where a rule was asked for,
+  // brand gets a name improved instead of copied, lang gets the site
+  // TRANSLATED, langs gets the list replaced when one was being added.
+  //
+  // STRUCTURAL, NOT A GREP FOR A SENTENCE. Each part is its own key, so this
+  // asserts the rule EXISTS rather than that some wording is still present —
+  // which matters because every string here is a placeholder awaiting the
+  // owner's wording, and a guard pinned to my phrasing would go red for their
+  // rewrite rather than for a missing ceiling.
+  assert.deepEqual(RULE_PARTS, ["is", "yours", "wide", "keep"], "the parts of a lane's rule changed — this guard names them");
+  assert.ok(ACTING_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
+
+  for (const field of ACTING_LANES) {
+    const rule = laneRule(field);
+    const lines = rule.split("\n");
+    assert.equal(lines.length, RULE_PARTS.length,
+      "the " + field + " lane does not state its rule in " + RULE_PARTS.length + " parts: " + lines.length);
+    for (let i = 0; i < lines.length; i++) {
+      // A PART THAT IS PRESENT AND EMPTY is the same as a missing one from the
+      // model's side, and easier to introduce — a lane trimmed down to a
+      // placeholder still passes a `hasOwn` check.
+      assert.ok(lines[i].trim().length >= 40,
+        "the " + field + " lane's `" + RULE_PARTS[i] + "` is a stub (" + lines[i].trim().length + " chars): " + lines[i]);
+    }
+    // THE WIDTH RULE CARRIES THE WEIGHT, so it is held to more than existing.
+    // It is the part that stops a lane answering a bigger question than it was
+    // asked, and a one-line version of it is a description, not a ceiling.
+    const wide = lines[RULE_PARTS.indexOf("wide")];
+    assert.ok(wide.length >= 150,
+      "the " + field + " lane's width rule is too thin to name how this field over-answers (" + wide.length + " chars)");
+  }
+
+  // AND A LANE MISSING A PART IS REFUSED, not shipped with three. Proven by
+  // building one rather than asserted about the code: a negative that never
+  // runs the refusal is satisfied by a refusal that was deleted.
+  assert.throws(() => laneRule("shape"), /has no rule/, "a dispatched lane composed a rule out of nothing");
+  assert.throws(() => laneRule("nope"), /no lane for/, "an unknown field composed a rule");
 });
 
 test("a lane's tool is one property and nothing required — the wall, not the rule", () => {

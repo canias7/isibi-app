@@ -1472,8 +1472,14 @@ test("the translation calls are billed, and a refused language is reported", () 
   // rather than a preference: `pageCredits` is variadic precisely so several
   // calls land on ONE bill with ONE rounding, and billing separately down there
   // would round twice — the exact bug the addon lane had.
-  const ec = w.slice(w.indexOf("const eCharge = async ("), w.indexOf("const modelDown = ("));
-  assert.ok(ec.length > 100 && ec.length < 2500, "eCharge moved — rescope this");
+  // WINDOWED FROM `billParts`, NOT FROM `eCharge` (2026-08-29). The unwrapping
+  // moved into `billParts` when the edit route needed to REPORT the same list it
+  // bills — the look lane was assembling its `usage` separately and the router's
+  // call was counted twice. `eCharge` now calls `billParts` and prices it, so a
+  // window starting at `eCharge` sees two lines and none of the logic. The
+  // property is unchanged: one list, unwrapped once, priced once.
+  const ec = w.slice(w.indexOf("const billParts = ("), w.indexOf("const modelDown = ("));
+  assert.ok(ec.length > 100 && ec.length < 2500, "billParts/eCharge moved — rescope this");
   assert.match(ec, /Array\.isArray\(p\.langUsage\)/, "eCharge no longer unwraps a publish result");
   assert.match(ec, /parts\.push\(\.\.\.p\.langUsage\.filter\(Boolean\)\)/, "the language usage is detected and dropped");
   assert.match(ec, /pageCredits\(\.\.\.parts\)/, "the parts are no longer priced together, so the rounding is charged twice");

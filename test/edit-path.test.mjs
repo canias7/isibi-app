@@ -336,12 +336,23 @@ test("the router's call is billed on the layer it dispatched to", async () => {
   // nothing else could carry it.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
     .replace(/^\s*\/\/[^\n]*$/gm, (m) => " ".repeat(m.length));
-  const at = src.indexOf("const eCharge = async (usage, ...more) => {");
-  assert.ok(at > 0, "eCharge is gone or was renamed — this scan has no subject");
+  // WINDOWED ON `billParts` (2026-08-29). The parts list moved out of `eCharge`
+  // when the reply had to report the SAME list it bills: the look lane was
+  // seeding `pickUsage` into its own `usage` while `eCharge` prepended it too,
+  // so the router's call was billed twice on every look edit. One list now, two
+  // readers — the charge and the reply — which is what makes them agree by
+  // construction rather than by both being written correctly.
+  const at = src.indexOf("const billParts = (usage, ...more) => {");
+  assert.ok(at > 0, "billParts is gone or was renamed — this scan has no subject");
   const block = src.slice(at, src.indexOf("\n            };", at));
-  assert.ok(block.length > 100, "the eCharge window closed immediately — rescope this");
+  assert.ok(block.length > 100, "the billParts window closed immediately — rescope this");
   assert.match(block, /for \(const p of \[pickUsage,/,
-    "the router's call is not in eCharge's parts, so a dispatched layer bills the work and not the routing");
+    "the router's call is not in the billed parts, so a dispatched layer bills the work and not the routing");
+  // AND IT IS ADDED EXACTLY ONCE. Seeding it into a lane's own usage as well
+  // double-charged every look edit — the shape a sweep found and no test did,
+  // because each place looked right on its own.
+  assert.equal((src.match(/pickUsage \? \[pickUsage\]/g) || []).length, 0,
+    "a lane seeds the router's usage into its own list as well, so it is billed twice");
   // AND NOTHING ELSE CARRIES IT THERE. `dUsage` seeds `pickUsage` too, which is
   // what keeps the ACTING lane's reported usage and its cost in step — but that
   // object exists only inside the look lane, so it cannot reach `nav`,
