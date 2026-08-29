@@ -158,7 +158,31 @@ export const LANE_LAYER = {
  *   slug   the site's address. A move: republish under a new name, redirect the
  *          old one, and every custom domain has to keep pointing at it.
  */
-export const LANE_UNBUILT = { kind: "rebuild", pages: "page-set", slug: "move" };
+export const LANE_UNBUILT = { slug: "move" };
+
+/**
+ * ── THE THREE THINGS `pages` MEANS, AND WHY THEY NEED A SECOND WORD ─────────
+ *
+ * "Which pages the site has" is one field and three capabilities, each already
+ * built and each on a different rung: adding one is the ADDON route, taking one
+ * away is the `page` rung with `remove`, moving one is the `page` rung with a new
+ * address. A lane cannot pick between them from the field name alone, and
+ * guessing is the worst option available — `add` guessed as `remove` deletes a
+ * page somebody wanted.
+ *
+ * So the router answers a VERB alongside the lane. It is optional and it is only
+ * read for `pages`; a lane with no verbs ignores it entirely, which is the same
+ * scoping `remove` and `tab` already have one router up.
+ *
+ * NO DEFAULT. A `pages` ask with no verb escalates rather than picking one —
+ * this is the one place in the edit path where the bias inverts, for the reason
+ * `readEdit` already states about deletion: everywhere else a wrong guess costs
+ * a change the customer can see and undo, and here it can cost them a page.
+ */
+export const PAGE_VERBS = ["add", "remove", "move"];
+
+/** Which rung each verb's work really happens on. */
+export const PAGE_VERB_LAYER = { add: "addon", remove: "page", move: "page" };
 
 /**
  * ── A RULE PER LANE, AND THE RULE HAS FOUR NAMED PARTS ──────────────────────
@@ -358,8 +382,8 @@ const LANES = {
   backend: { hint: "What the site STORES — its tables, the rows in them, who may read or add one, and what it refuses.", elsewhere: "backend" },
 
   /* ---- the three that are still their own work ---- */
-  kind: { hint: "Whether this is a shopfront that persuades a visitor, or a tool the business works in. Changing it rebuilds the site.", unbuilt: true },
-  pages: { hint: "Which pages the site has — adding one, taking one away, or moving one to a new address.", unbuilt: true },
+  kind: { hint: "Whether this is a shopfront that persuades a visitor, or a tool the business works in — changing it makes a different site.", escalate: "build" },
+  pages: { hint: "Which pages the site HAS — adding one, taking one away, or moving one to a new address. Not what is ON a page.", verbs: true },
   slug: { hint: "The site's web address — the word in <name>.gofarther.app.", unbuilt: true },
 };
 
@@ -367,7 +391,40 @@ const LANES = {
 export const LANE_FIELDS = Object.keys(LANES);
 
 /** The eight this module edits itself. Derived, so a lane cannot be acting-but-unreachable. */
-export const ACTING_LANES = LANE_FIELDS.filter((f) => !LANES[f].elsewhere && !LANES[f].unbuilt);
+export const ACTING_LANES = LANE_FIELDS.filter(
+  (f) => !LANES[f].elsewhere && !LANES[f].unbuilt && !LANES[f].verbs && !LANES[f].escalate);
+
+/**
+ * The lanes whose rung depends on a VERB the router also answers.
+ *
+ * Its own group rather than a flag on a dispatched one, because "which rung"
+ * genuinely is not knowable from the field: `pages` add is the addon route,
+ * remove and move are the `page` rung. A `LANE_LAYER` entry would have to name
+ * one of them and be wrong for the other two.
+ */
+export const VERB_LANES = LANE_FIELDS.filter((f) => LANES[f].verbs);
+
+/**
+ * The lanes whose work is real, exists, and lives ABOVE this route.
+ *
+ * A THIRD ANSWER, and it had to be: `kind` is a rebuild — shopfront and tool are
+ * different sites and every planning answer follows from the choice — so there
+ * is no cheap version, and calling it "not built" was wrong twice over. The
+ * capability exists; it is simply not one an EDIT can run, because this route
+ * publishes an existing site rather than making a new one.
+ *
+ * `build` IS NOT AN EDIT LAYER, which is exactly why this is not a dispatch. The
+ * guard that every dispatch target appears in `EDIT_LAYERS` is what caught the
+ * first attempt to put it there — a lane pointing at a rung no dispatch matches
+ * is a request that vanishes.
+ */
+export const ESCALATE_LANES = LANE_FIELDS.filter((f) => LANES[f].escalate);
+
+/** The rung above that does this lane's work, or `null` when this route can. */
+export function laneEscalate(field) {
+  if (typeof field !== "string" || !Object.hasOwn(LANES, field)) return null;
+  return LANES[field].escalate || null;
+}
 
 /** The six that act on another edit layer. */
 export const DISPATCHED_LANES = LANE_FIELDS.filter((f) => LANES[f].elsewhere);
@@ -393,6 +450,18 @@ export function laneLayer(field) {
 export function laneUnbuilt(field) {
   if (typeof field !== "string" || !Object.hasOwn(LANES, field)) return null;
   return LANES[field].unbuilt ? LANE_UNBUILT[field] || "unbuilt" : null;
+}
+
+/** Whether this lane's rung is decided by a verb rather than by its name. */
+export function laneVerbs(field) {
+  if (typeof field !== "string" || !Object.hasOwn(LANES, field)) return null;
+  return LANES[field].verbs ? PAGE_VERBS : null;
+}
+
+/** The rung a verb's work happens on, or `null` for a verb nobody offered. */
+export function verbLayer(verb) {
+  if (typeof verb !== "string" || !Object.hasOwn(PAGE_VERB_LAYER, verb)) return null;
+  return PAGE_VERB_LAYER[verb];
 }
 
 /**
@@ -462,6 +531,40 @@ export function pickTool(fields = LANE_FIELDS) {
             "NEVER NAME EVERYTHING. If you cannot tell which part they mean, name the single closest one.\n\n" +
             "The parts:\n" + lines.join("\n"),
         },
+        // ── AND, FOR `pages` ALONE, WHICH OF THE THREE ────────────────────
+        //
+        // "Which pages the site has" is one field and three capabilities, each
+        // on a different rung. A lane cannot pick between them from the field
+        // name, and guessing is the worst option available: `add` guessed as
+        // `remove` deletes a page somebody wanted.
+        //
+        // OPTIONAL, AND READ FOR ONE LANE. A lane with no verbs ignores it
+        // entirely — the same scoping `remove` and `tab` already have one
+        // router up, and for the same reason: a flag carried by a lane that
+        // cannot act on it is one nothing reads.
+        pageVerb: {
+          type: "string",
+          enum: PAGE_VERBS,
+          description:
+            "ONLY when `fields` includes \"pages\". Which of the three they are asking for.\n" +
+            "\"add\" — a page the site does NOT have yet. \"Can we have a gallery page\", \"add an about page\".\n" +
+            "\"remove\" — a page it has, taken off the site. \"Delete the gallery page\", \"we don't need /about any more\".\n" +
+            "\"move\" — the same page at a DIFFERENT ADDRESS. \"Move the gallery to /work\", \"/about-us should be /about\".\n" +
+            "AN ADDRESS IS NOT A HEADING. \"Call that page Services instead\" is about the WORDS on it and is not this " +
+            "field at all — leave `pages` out and let the wording lane have it.\n" +
+            "LEAVE THIS OUT IF YOU CANNOT TELL. It is better to be asked again than to delete a page they wanted kept.",
+        },
+        pageName: {
+          type: "string",
+          description:
+            "ONLY with `pageVerb`. Which page they mean, as its route path — \"/\" for the home page, \"/menu\", " +
+            "\"/gallery\". Copy it from the list of pages above when the site already has it. For \"move\", this is " +
+            "the page being moved and `pageTo` is where it goes.",
+        },
+        pageTo: {
+          type: "string",
+          description: "ONLY with `pageVerb: \"move\"`. The NEW address, starting with a slash — \"/work\".",
+        },
       },
       required: ["fields"],
     },
@@ -526,6 +629,32 @@ export function readLanes(reply, fields = LANE_FIELDS) {
   return offered.filter((f) => seen.has(f));
 }
 
+/**
+ * The verb, the page and the destination — refused down to shapes we can use.
+ *
+ * REFUSED, NEVER DEFAULTED. A `pages` ask whose verb we cannot read escalates,
+ * which is the one place in the edit path where the bias inverts: everywhere
+ * else an unclear answer resolves to work, because a wrong action costs a change
+ * the customer can see and undo. Here a wrong action can cost them a page.
+ */
+export function readPageVerb(reply) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const input = (use && use.input) || {};
+  const verb = typeof input.pageVerb === "string" && PAGE_VERBS.includes(input.pageVerb) ? input.pageVerb : null;
+  if (!verb) return null;
+  // `String(["/menu"])` IS `"/menu"` — refused rather than coerced, the same
+  // rule the lane names live under.
+  const path = (v) => (typeof v === "string" ? v.trim().toLowerCase().slice(0, 120) : "");
+  const name = path(input.pageName);
+  const to = path(input.pageTo);
+  // A MOVE WITH NOWHERE TO GO IS NOT A MOVE. Refused here rather than passed on
+  // as a rename to the empty string, which `renameRoute` would have to invent a
+  // refusal for.
+  if (verb === "move" && !(to.startsWith("/") && to.length > 1)) return null;
+  return { verb, layer: verbLayer(verb), name, to };
+}
+
 /** Usage in the four kinds `pageCredits` prices, tagged with the model we sent. */
 export function laneUsage(reply, model) {
   const u = (reply && reply.usage) || null;
@@ -560,7 +689,7 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
     // model by reading `e.status` and `e.detail`.
     return { fields: [], usage: null, failed: true, error: e };
   }
-  return { fields: readLanes(reply, fields), usage: laneUsage(reply, LANE_MODEL), failed: false };
+  return { fields: readLanes(reply, fields), page: readPageVerb(reply), usage: laneUsage(reply, LANE_MODEL), failed: false };
 }
 
 /* ---------------------------------------------------------------- the action */
@@ -586,6 +715,8 @@ export function editTool(field) {
   // schema the model would fill with something.
   if (lane.elsewhere) throw new Error("editTool: `" + field + "` does not act here — it runs on the " + laneLayer(field) + " layer");
   if (lane.unbuilt) throw new Error("editTool: `" + field + "` does not act here — it needs " + laneUnbuilt(field));
+  if (lane.verbs) throw new Error("editTool: `" + field + "` does not act here — its rung depends on the verb");
+  if (lane.escalate) throw new Error("editTool: `" + field + "` does not act here — the " + lane.escalate + " rung does this");
   return {
     name: "edit_site",
     description: "Make the one change they asked for to this part of their site.",

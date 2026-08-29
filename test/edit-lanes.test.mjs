@@ -28,7 +28,8 @@ import { readSchemaTool } from "./integration/schema-tool.mjs";
 import { PLAN_KEYS } from "../builder/site-plan.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import {
-  LANE_FIELDS, ACTING_LANES, DISPATCHED_LANES, UNBUILT_LANES, MAX_LANES,
+  LANE_FIELDS, ACTING_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES, MAX_LANES,
+  laneEscalate, laneVerbs, verbLayer, readPageVerb, PAGE_VERBS,
   laneLayer, laneUnbuilt, laneRule, composeRule, RULE_PARTS, editTool, pickTool, readLanes, readLaneAnswer, editRequest, pickRequest,
 } from "../builder/site-lanes.mjs";
 
@@ -215,7 +216,7 @@ test("a lane's tool is one property and nothing required — the wall, not the r
   }
 });
 
-test("EVERY lane acts — eight here, six on another layer, three named unbuilt", () => {
+test("EVERY lane acts — and the partition over all seventeen is total and disjoint", () => {
   // Owner, 2026-08-29: "i need all the 17 lanes acting". Nine lanes were
   // refused at the door — named, priced at zero, sent up the ladder — which was
   // honest about this module and wrong about the customer, who asked for a
@@ -225,13 +226,54 @@ test("EVERY lane acts — eight here, six on another layer, three named unbuilt"
   // THE PARTITION IS TOTAL AND DISJOINT, and both halves matter. A lane in no
   // group is a request that reaches the front door and falls out of it; a lane
   // in two is one whose behaviour depends on which check runs first.
-  const groups = [ACTING_LANES, DISPATCHED_LANES, UNBUILT_LANES];
+  // FIVE GROUPS SINCE 2026-08-29, and each is a different KIND of answer:
+  //   acting      this module edits the value
+  //   dispatched  another edit layer does the work
+  //   verbs       which layer depends on a verb the router also answers
+  //   escalate    a rung ABOVE this route does it (`kind` is a rebuild)
+  //   unbuilt     nobody does it yet (`slug` is an address move)
+  // Collapsing any two of them loses a real distinction: "the page rung does
+  // this", "we cannot tell which of three you mean", "the build rung does this"
+  // and "nothing does this" are four different sentences to a customer.
+  const groups = [ACTING_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES];
   assert.equal(groups.reduce((n, g) => n + g.length, 0), LANE_FIELDS.length,
     "the three groups do not add up to the seventeen lanes");
   for (const f of LANE_FIELDS) {
     assert.equal(groups.filter((g) => g.includes(f)).length, 1, "`" + f + "` is in more than one group, or none");
   }
   assert.ok(DISPATCHED_LANES.length >= 6, "fewer dispatched lanes than there were — this loop may be scanning almost nothing");
+
+  // ── THE VERB LANE ────────────────────────────────────────────────────────
+  // `pages` is three capabilities behind one field, each on a different rung.
+  // Every verb must name a rung, or the ask reaches nothing.
+  for (const f of VERB_LANES) {
+    const verbs = laneVerbs(f);
+    assert.ok(Array.isArray(verbs) && verbs.length >= 2, "`" + f + "` is a verb lane with fewer than two verbs");
+    for (const v of verbs) assert.ok(verbLayer(v), "the `" + v + "` verb of `" + f + "` names no rung");
+    assert.throws(() => editTool(f), /does not act here/, "a verb lane built a tool of its own");
+  }
+  // NO DEFAULT VERB. This is the one place in the edit path where the bias
+  // inverts: everywhere else an unclear answer resolves to work, because a wrong
+  // action costs a change the customer can see and undo. Here it can cost them
+  // a page, so an unreadable verb must answer nothing.
+  const vr = (i) => readPageVerb({ content: [{ type: "tool_use", input: i }] });
+  assert.equal(vr({ pageName: "/gallery" }), null, "a `pages` ask with no verb was given one");
+  assert.equal(vr({ pageVerb: "delete", pageName: "/g" }), null, "a verb nobody offered was accepted");
+  assert.equal(vr({ pageVerb: ["remove"] }), null, "a one-element array coerced into a verb");
+  assert.equal(vr({ pageVerb: "move", pageName: "/g" }), null, "a move with no destination was accepted");
+  assert.equal(vr({ pageVerb: "remove", pageName: "/g" }).layer, "page", "a removal does not reach the page rung");
+  assert.equal(vr({ pageVerb: "add", pageName: "/g" }).layer, "addon", "an addition does not reach the addon rung");
+
+  // ── THE ESCALATING LANE ──────────────────────────────────────────────────
+  // `build` is NOT an edit layer, which is why this is not a dispatch — a lane
+  // pointing at a rung no dispatch matches is a request that vanishes, and the
+  // dispatch guard above is what caught the first attempt to put it there.
+  for (const f of ESCALATE_LANES) {
+    const up = laneEscalate(f);
+    assert.ok(up, "`" + f + "` escalates to nothing");
+    assert.ok(!EDIT_LAYERS.includes(up), "`" + f + "` escalates to `" + up + "`, which IS an edit layer — it should dispatch");
+    assert.throws(() => editTool(f), /does not act here/, "an escalating lane built a tool of its own");
+  }
 
   for (const f of DISPATCHED_LANES) {
     // ASKING FOR A TOOL IS REFUSED, not answered with an empty schema the model
@@ -288,6 +330,7 @@ test("EVERY lane acts — eight here, six on another layer, three named unbuilt"
   // a rebuild, a page-set change, an address move — and a single word for all
   // three is the failure-that-cannot-name-itself shape this repo has recorded
   // seven times over; the last one cost two live runs.
+  assert.ok(UNBUILT_LANES.length >= 1, "nothing is unbuilt — if that is true, say so here rather than leaving an empty loop");
   assert.equal(new Set(UNBUILT_LANES.map(laneUnbuilt)).size, UNBUILT_LANES.length,
     "two unbuilt lanes share one reason, so nobody can tell which job is missing");
   for (const f of UNBUILT_LANES) {

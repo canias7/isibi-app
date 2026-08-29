@@ -31,7 +31,7 @@ import fs from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
-import { LANE_FIELDS, ACTING_LANES, laneLayer, laneUnbuilt } from "../builder/site-lanes.mjs";
+import { LANE_FIELDS, ACTING_LANES, UNBUILT_LANES, laneLayer, laneUnbuilt, laneEscalate } from "../builder/site-lanes.mjs";
 // THE PAGE LAYER'S TOOL NAME, TAKEN FROM THE MODULE THAT DEFINES IT. Typed by
 // hand it was wrong, the stub never matched, the call 503d, and the billing
 // assertion below "failed" for a reason that had nothing to do with billing.
@@ -383,7 +383,12 @@ test("a lane that is genuinely not built yet says WHICH job is missing", async (
   // capabilities behind one field, `slug` is an address move. One word for all
   // three is the failure-that-cannot-name-itself shape this repo has recorded
   // seven times over — the last one cost two live runs.
-  for (const field of ["kind", "pages", "slug"]) {
+  // ONLY `slug` NOW (2026-08-29). `kind` escalates to the BUILD rung — a
+  // rebuild is what it is, and the capability exists — and `pages` acts through
+  // its three verbs. Both are covered by their own cases; leaving them in this
+  // loop would assert they are still missing, which is the guard going red for
+  // the change rather than for a bug.
+  for (const field of UNBUILT_LANES) {
     await withWire(
       { pick_lanes: { fields: [field] }, edit_site: { css: "never{used:1}" } },
       async (calls) => {
@@ -613,4 +618,66 @@ test("the billing is per MESSAGE, not per rung — measured against the ledger",
       { billed },
     );
   } finally { c.uninstall(); }
+});
+
+test("`kind` escalates to the rung that rebuilds — it is not reported as missing", async () => {
+  // A rebuild is what `kind` IS: shopfront and tool are different sites, every
+  // planning answer follows from the choice, and the capability exists one rung
+  // up. Reporting it as "not built" was wrong twice — the work exists, and an
+  // escalation is how the ladder reaches it.
+  await withWire(
+    { pick_lanes: { fields: ["kind"] }, edit_site: { css: "never{used:1}" } },
+    async (calls) => {
+      const { body } = await edit("wire-kind", "this should be a working tool, not a shopfront");
+      assert.equal(body && body.reason, laneEscalate("kind"),
+        "`kind` does not escalate to the rung that rebuilds: " + JSON.stringify(body));
+      assert.notEqual(body && body.reason, "unbuilt", "`kind` is still reported as missing, but the build rung does this");
+      assert.equal(body && body.cost, 0, "a free escalation charged for something");
+      assert.deepEqual(toolsOf(calls), ["pick_lanes"], "work was bought for a lane that escalates");
+    },
+  );
+});
+
+test("`pages` acts — remove and move reach the page rung, add reaches addon", async () => {
+  // Three capabilities behind one field, each already built and each on a
+  // different rung. What was missing was a second word saying WHICH, so the lane
+  // escalated under one name for three different jobs.
+  const cases = [
+    { verb: "remove", input: { pageVerb: "remove", pageName: "/" }, expect: "ran" },
+    { verb: "move", input: { pageVerb: "move", pageName: "/", pageTo: "/home" }, expect: "ran" },
+    { verb: "add", input: { pageVerb: "add", pageName: "/blog" }, expect: "addon" },
+  ];
+  for (const c of cases) {
+    await withWire(
+      { pick_lanes: { fields: ["pages"], ...c.input }, [TWEAK_TOOL.name]: { source: "export default function Home(){return null}" } },
+      async (calls) => {
+        const { body } = await edit("wire-pages-" + c.verb, c.verb + " that page");
+        assert.notEqual(body && body.reason, "unbuilt", "`pages` " + c.verb + " is still reported as missing");
+        assert.notEqual(body && body.reason, "page-verb", "the verb was read back as unreadable: " + JSON.stringify(body));
+        if (c.expect === "addon") {
+          // ADDING IS THE ADDON ROUTE, which this route cannot run — it
+          // publishes a site that exists rather than adding to it. Named, so
+          // the ladder climbs to the rung that really does it.
+          assert.equal(body && body.reason, "addon", "adding a page does not reach the addon rung: " + JSON.stringify(body));
+          assert.deepEqual(toolsOf(calls), ["pick_lanes"], "work was bought before escalating to addon");
+        } else {
+          assert.notEqual(body && body.reason, "addon", c.verb + " was sent to the addon rung");
+        }
+      },
+    );
+  }
+});
+
+test("a `pages` ask with no readable verb refuses rather than guessing", async () => {
+  // THE ONE PLACE THE BIAS INVERTS. Everywhere else in the edit path an unclear
+  // answer resolves to work, because a wrong action costs a change the customer
+  // can see and undo. Here a wrong guess can take a page off their site.
+  await withWire(
+    { pick_lanes: { fields: ["pages"] }, [TWEAK_TOOL.name]: { source: "x" } },
+    async (calls) => {
+      const { body } = await edit("wire-pages-noverb", "do something about the pages");
+      assert.equal(body && body.reason, "page-verb", "a verbless `pages` ask was given a verb: " + JSON.stringify(body));
+      assert.deepEqual(toolsOf(calls), ["pick_lanes"], "work was bought for an ask nobody could read");
+    },
+  );
 });

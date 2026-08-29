@@ -102,7 +102,7 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, ACTING_LANES } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, ACTING_LANES } from "./builder/site-lanes.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -17037,6 +17037,13 @@ async function handleRequest(request, env, ctx) {
             // while the client was its only caller; a lane dispatched here has
             // no `eb.page` to offer and would find nothing to edit.
             let ePage = String((eb && eb.page) || "");
+            // THE PAGE VERBS, READ THROUGH ONE NAME EACH, for the reason `ePage`
+            // is: the `page` branch took them straight off the body, which was
+            // right while the client was its only caller. The `pages` lane
+            // decides them from the customer's sentence and has no body fields
+            // to put them in.
+            let eRemove = eb && eb.remove === true;
+            let eRename = typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
             const eInstruction = String((eb && eb.instruction) || "").trim().slice(0, 2000);
             const eAuth = request.headers.get("Authorization") || "";
             // ONE shape for every "I cannot do this, try the rung above".
@@ -17348,6 +17355,47 @@ async function handleRequest(request, env, ctx) {
                 const to = laneLayer(f);
                 if (to) steps.push({ layer: to, page: to === "page" ? fallbackPage : ePage, fields: [f] });
               }
+
+              // ── `pages`: THREE CAPABILITIES BEHIND ONE FIELD ─────────────
+              //
+              // Adding a page is the ADDON route, taking one away is the `page`
+              // rung with `remove`, moving one is the `page` rung with a new
+              // address. All three already worked; what was missing was a
+              // second word saying WHICH, so the lane escalated under one name
+              // for three different jobs.
+              //
+              // NO GUESS. A `pages` ask whose verb the router could not name
+              // escalates — the one place in the edit path where the bias
+              // inverts, because everywhere else a wrong action costs a change
+              // the customer can see and undo, and here it can cost them a page.
+              if (pickedFields.includes("pages")) {
+                const pv = picked.page;
+                if (!pv) return escalate("page-verb");
+                // ADDING IS THE ADDON ROUTE, which this route cannot run — it
+                // publishes a site that exists rather than adding to it. Named
+                // rather than folded into a generic escalation, so the ladder
+                // climbs to the rung that really does it.
+                if (pv.layer === "addon") return escalate("addon", { field: "pages", verb: pv.verb });
+                // A PAGE THE SITE DOES NOT HAVE IS NOT AN EDIT OF IT. Checked
+                // against the real route list, the same way `readEdit` does one
+                // router up — and for the same reason: a removal aimed at a page
+                // nobody has is an addon, correctly identified without asking a
+                // model twice.
+                const known = eSrc.map((pg) => routeOf(pg.path)).filter(Boolean);
+                if (pv.name && known.length && !known.includes(pv.name)) {
+                  return escalate("no-page", { page: pv.name, verb: pv.verb });
+                }
+                if (pv.verb === "remove") eRemove = true;
+                if (pv.verb === "move") eRename = pv.to;
+                steps.push({ layer: "page", page: pv.name || fallbackPage, fields: ["pages"] });
+              }
+
+              // A RUNG ABOVE THIS ROUTE DOES IT. `kind` is a rebuild — shopfront
+              // and tool are different sites — so it is escalated by the name of
+              // the rung that can, not reported as missing. The capability
+              // exists; it is simply not one an EDIT can run.
+              const above = pickedFields.map((f) => [f, laneEscalate(f)]).find(([, r]) => r);
+              if (above && !steps.length) return escalate(above[1], { field: above[0] });
               // NOT BUILT YET, AND IT SAYS WHICH — three different jobs that must
               // never share one word. `kind` is a rebuild by definition, `pages`
               // is three capabilities behind one field (add, remove, move),
@@ -18379,7 +18427,7 @@ async function handleRequest(request, env, ctx) {
               // another page still links to. That second refusal is the whole
               // reason a model is still sometimes needed — and when it fires this
               // escalates to the addon lane, which can rewrite the linkers.
-              if (eb && eb.remove === true) {
+              if (eRemove) {
                 const cut = mergeAddonPages(eSrc, [], [target.path]);
                 if (!cut.ok) {
                   // A page something still links to needs the links taken out
@@ -18424,7 +18472,7 @@ async function handleRequest(request, env, ctx) {
               // page either — sending it up would spend ~25 credits to fail
               // differently. The deletion branch's own `cut.msg` case makes the
               // same call.
-              const wantRename = typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
+              const wantRename = eRename;
               if (wantRename) {
                 const rn = renameRoute(eSrc, wantRoute, wantRename, routeOf);
                 if (!rn.ok) {

@@ -1518,7 +1518,15 @@ test("the deletion path reaches the route and calls no model", () => {
   const at = w.indexOf('if (eLayer === "page") {');
   assert.ok(at > 0, "the page layer moved");
   const branch = w.slice(at, w.indexOf('const eModels = modelsFor(', at));
-  assert.match(branch, /eb\.remove === true/, "the route never reads the removal");
+  // `eRemove`, NOT `eb.remove` DIRECTLY (2026-08-29). The flag is read once at
+  // the top of the route into a name the front door can also SET, because the
+  // `pages` lane decides a removal from the customer's sentence and has no body
+  // field to put it in. The property is unchanged and is asserted in both
+  // halves: the body is still `=== true` and nothing merely truthy, and the
+  // branch still gates on it.
+  assert.match(w, /let eRemove = eb && eb\.remove === true;/,
+    "the route no longer reads the removal off the body, or reads it loosely");
+  assert.match(branch, /if \(eRemove\) \{/, "the page branch never reads the removal");
   assert.match(branch, /mergeAddonPages\(eSrc, \[\], \[target\.path\]\)/,
     "the removal does not go through the merge that holds the guards");
   // THE WHOLE POINT: it returns before the model call. If `generateSitePages`
