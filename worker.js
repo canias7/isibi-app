@@ -4900,6 +4900,37 @@ const SITE_SCHEMA_TOOL = {
           "language the brief was written in — that one is `lang`. This is the WHOLE list, not an addition: " +
           "to keep what the site has, leave it out; to remove every extra language, answer `[]`.",
       },
+      // ── 3D, AND IT IS OPTIONAL THE WAY `css` IS OPTIONAL ────────────────
+      //
+      // Owner, 2026-08-29: "we are adding more tools, as optional — three.js and
+      // webgl… make sure it is only optional".
+      //
+      // ABSENT IS THE ORDINARY ANSWER and absent means none: a barber shop, a
+      // café, a plumber get a site with no canvas on it, exactly as before this
+      // field existed. `three` and `@react-three/fiber` are real dependencies of
+      // the template now, so a page that imports them compiles — but a page that
+      // does not is the overwhelming majority and pays nothing for the option.
+      //
+      // A BRIEF FOR THE SCENE, NOT THE SCENE ITSELF. What goes here is what the
+      // thing IS and where it sits; the page writer writes the `<Canvas>`. The
+      // same division as `images`, which says which photographs a site gets and
+      // leaves the markup to the step that writes markup.
+      three: {
+        type: "string",
+        description:
+          "A 3D or WebGL element on the page, described in one or two sentences — ONLY when the brief asks for one, " +
+          "or when what the business does genuinely is three-dimensional: a furniture maker showing a chair you can " +
+          "turn, an architect's massing model, a product configurator, a studio whose work IS motion. OMIT this field " +
+          "entirely otherwise, and that is the right answer for nearly every site.\n" +
+          "WHAT IT IS AND WHERE IT SITS, not how to build it: \"a slowly rotating wireframe of the shopfront behind the " +
+          "opening headline\", \"the chair, turnable by dragging, on the product band\". The step that writes the page " +
+          "writes the canvas; this decides whether there is one and what it shows.\n" +
+          "A SCENE IS NOT DECORATION. A canvas costs a visitor real download and real battery, and on a phone it is the " +
+          "heaviest thing on the page — so it earns its place by BEING the thing the business is selling, never by " +
+          "making a hero look expensive. If a photograph would say the same thing, ask for the photograph.\n" +
+          "NEVER FOR TEXT, A LOGO OR A BACKGROUND EFFECT. Those are the stylesheet's job and they work for everyone; " +
+          "a canvas that fails to start leaves a hole where the words should have been.",
+      },
       // THE WEB-SEARCH GATE, RIDING ON A CALL THAT ALREADY HAPPENS. Searching
       // costs real money per search and is worth it on a small minority of
       // briefs, so it has to be gated — and the obvious way to gate it, a small

@@ -1108,6 +1108,16 @@ changes, both applied at build time, so a colour written into a page is one they
 yellow background afterwards and every token moves except the one you hardcoded. It breaks dark mode too. Also available:
 lucide-react icons, date-fns, recharts. Import nothing that is not already a dependency.
 
+3D IS AVAILABLE AND IS ALMOST NEVER RIGHT. \`three\` and \`@react-three/fiber\` are real
+dependencies, so \`import { Canvas } from "@react-three/fiber"\` compiles — but write one
+ONLY where the design step asked for it in as many words. A canvas is the heaviest thing on
+a page, it costs a visitor real download and real battery, and on a phone it is what makes a
+site feel slow. It earns its place by BEING what the business sells — a chair you can turn,
+a massing model — never by making a hero look expensive.
+NEVER PUT WORDS, A LOGO OR A BACKGROUND EFFECT IN A CANVAS. Those are the stylesheet's job
+and they work for everyone; a canvas that fails to start leaves a hole where the reading
+should have been. Give every \`<Canvas>\` a fixed height and something visible behind it.
+
 ## Motion
 
 ${MOTION_COUNT} effects, as plain classes. There is NO animation library installed and none is
