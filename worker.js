@@ -102,7 +102,7 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, ACTING_LANES } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES } from "./builder/site-lanes.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -17621,7 +17621,7 @@ async function handleRequest(request, env, ctx) {
               const routes = eSrc.map((p) => routeOf(p.path)).filter(Boolean);
               const fallbackPage = ePage || (routes.length === 1 ? routes[0] : (routes.includes("/") ? "/" : routes[0] || ""));
 
-              const acting = pickedFields.filter((f) => ACTING_LANES.includes(f));
+              const acting = pickedFields.filter((f) => OWN_LANES.includes(f));
               if (acting.length) steps.push({ layer: "look", page: ePage, fields: acting });
               for (const f of pickedFields) {
                 const to = laneLayer(f);
@@ -18371,7 +18371,7 @@ async function handleRequest(request, env, ctx) {
                 // door escalated), and the three groups are a total, disjoint
                 // partition of the seventeen — asserted in
                 // `test/edit-lanes.test.mjs`, derived from the same table this
-                // reads. So the survivors are exactly `ACTING_LANES`.
+                // reads. So the survivors are exactly `OWN_LANES`.
                 //
                 // A `stray` guard stood here until a sweep proved it could
                 // never fire: every field that can reach this line is already an

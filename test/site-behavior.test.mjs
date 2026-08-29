@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 
 import { BEHAVIOR_FIELD, BEHAVIOR_ITEM, MAX_BEHAVIOR } from "../builder/site-plan.mjs";
 import { EDIT_FIELDS, mergeLook, currentStateNote, movedFields } from "../builder/site-edit.mjs";
-import { ACTING_LANES, LANE_FIELDS, editTool, laneRule } from "../builder/site-lanes.mjs";
+import { OWN_LANES, LANE_FIELDS, editTool, laneRule } from "../builder/site-lanes.mjs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
 
 // Prose in this repo contains the things it forbids — a comment arguing about a
@@ -143,7 +143,7 @@ test("the behaviour lane ACTS in this module — it is not dispatched to a page 
   // like we been doing it". Dispatching would price a wording change at a page
   // rewrite, and right now there is no generated source to rewrite.
   assert.ok(LANE_FIELDS.includes("behavior"), "there is no behaviour lane, so a customer can never change one");
-  assert.ok(ACTING_LANES.includes("behavior"), "the behaviour lane no longer acts here");
+  assert.ok(OWN_LANES.includes("behavior"), "the behaviour lane no longer acts here");
 
   // THE WALL, NOT THE RULE: one property and nothing required, so the lane
   // physically cannot answer another field.

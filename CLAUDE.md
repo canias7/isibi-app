@@ -359,8 +359,9 @@ lanes acting"* — seventeen then, nineteen now that `three` and `behavior` have
 arrived). `pick_lanes` runs ABOVE the layer dispatch, so it is the front door for
 all twenty-two and what it names decides which layer runs.
 
-**"Acting" is a group name, not a verdict.** `ACTING_LANES` in the code means
-*the ones this module edits itself*; the dispatched, verb and escalate lanes all
+**`OWN_LANES` is a group name, not a verdict** — renamed from `ACTING_LANES` on
+2026-08-29 after the owner asked *"i thought all of them were act?"* twice. It
+means *the ones this module edits itself*; the dispatched, verb and escalate lanes all
 do real work too, just on another rung. **21 of 22 act in the plain sense — only
 `slug` does nothing.**
 

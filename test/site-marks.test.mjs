@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { cleanGif, cleanFavicon, GIF_TAGS, GIF_ATTRS, GIF_ANIMATABLE, MAX_GIF, GIF_FIELD, FAVICON_ATTRS } from "../builder/site-favicon.mjs";
 import { qrSvg, readQrText, QR_FIELD, MAX_QR_TEXT } from "../builder/site-qr.mjs";
 import { EDIT_FIELDS, currentStateNote, mergeLook } from "../builder/site-edit.mjs";
-import { ACTING_LANES, LANE_FIELDS, editTool, laneRule } from "../builder/site-lanes.mjs";
+import { OWN_LANES, LANE_FIELDS, editTool, laneRule } from "../builder/site-lanes.mjs";
 import { marksDirective, briefWithLayout } from "../builder/page-gen.mjs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
 import qrcode from "qrcode-generator";
@@ -245,7 +245,7 @@ test("THE CHAIN — both marks reach the site, and survive every later publish",
 test("both act here — a redraw and two strings are the cheapest edits there are", () => {
   for (const f of ["gif", "qr"]) {
     assert.ok(LANE_FIELDS.includes(f), "there is no `" + f + "` lane, so it can never be changed");
-    assert.ok(ACTING_LANES.includes(f), "the `" + f + "` lane no longer acts here");
+    assert.ok(OWN_LANES.includes(f), "the `" + f + "` lane no longer acts here");
     assert.deepEqual(Object.keys(editTool(f).input_schema.properties), [f], "the `" + f + "` lane can answer another field");
     assert.deepEqual(editTool(f).input_schema.required, [], "the `" + f + "` lane compels an answer on an edit");
   }

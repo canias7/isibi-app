@@ -27,15 +27,30 @@
 // one. The value shapes are not borrowed either — they are not borrowable, which
 // is the observation the whole design rests on and is set out below.
 //
-// ── PURE ACTION: WHY THERE ARE EIGHT TOOLS AND NOT SEVENTEEN ─────────────────
+// ── "ACTS" MEANS TWO DIFFERENT THINGS AND THE NAMES NOW SAY WHICH ────────────
 //
-// The design tool has 19 properties; 17 of them are things a customer could ask
+// Owner, twice: *"i thought all of them were act?"* — and they were right both
+// times. `OWN_LANES` (renamed from `ACTING_LANES`, 2026-08-29) is a group name
+// for *the ones this module edits itself*. It is NOT a verdict on whether a lane
+// works. **21 of the 22 act**; only `slug` does nothing. The old name implied the
+// other eleven sat idle, which cost the same explanation twice.
+//
+// THE GROUPS SAY *WHERE* THE WORK HAPPENS, NEVER WHETHER IT HAPPENS:
+//   own       — this module's own tool, one cheap call
+//   dispatch  — a rung that already does this, at that rung's own price
+//   verb      — `pages`, where the router answers a verb and that picks the rung
+//   escalate  — `kind`, which is a rebuild by definition
+//   unbuilt   — `slug`, and it is the only one
+//
+// ── WHY THE OWN LANES CAN OWN THEIR SHAPES ───────────────────────────────────
+//
+// The design tool has 24 properties; 22 of them are things a customer could ask
 // to change (the web pair decides whether writing a site's COPY needs a search,
-// which is a fact about a build). All 17 are ADDRESSABLE here — the router can
+// which is a fact about a build). All 22 are ADDRESSABLE here — the router can
 // name any of them, and a message about any of them is understood.
 //
-// But only EIGHT of them are values the edit path can act on, and the split is
-// not a matter of taste. `kind`, `purpose`, `pages`, `components`, `shape`,
+// The split between own and dispatched is not a matter of taste. `kind`,
+// `purpose`, `pages`, `components`, `shape`,
 // `images` and `action` are `PLAN_KEYS`: inputs to page GENERATION. Nothing
 // downstream of a cheap edit reads them — the container is handed the pages, the
 // theme and the stylesheet, and never the plan — so storing a new one changes
@@ -49,16 +64,20 @@
 // and the `data` and `rules` rungs are the lanes that read and enforce rows.
 // `slug` is a site's ADDRESS — changing it is a move, not an edit.
 //
-// So: nine lanes answer "not me, and here is who" for free, and eight lanes act.
-// Every one of the eight is a plain string, an enum, or a list of short strings,
-// which is why this module can own its own shapes outright and share nothing.
-// THAT is what makes two separate paths possible rather than merely stated: the
-// values the edit path touches are simple enough to define twice on purpose,
-// and the ones that are not are the ones it was never allowed to touch.
+// So: eleven lanes are answered here and the rest are routed to the rung that
+// really does the work. Every one of the eleven is a plain string, an enum, a
+// short list or one drawn document — simple enough that this module can own its
+// own shapes outright. THAT is what makes two separate paths possible rather
+// than merely stated: the values the edit path touches are simple enough to
+// define twice on purpose, and the ones that are not are the ones it routes.
+//
+// `behavior` IS THE ONE EXCEPTION and it is deliberate: its item shape is shared
+// from `site-plan.mjs`, the one module both paths may read, because the same six
+// properties are answered on both sides and two copies would drift in silence.
 //
 // ── THE ONE THING STILL HELD TOGETHER, AND IT IS A TRIPWIRE, NOT A COUPLING ──
 //
-// The seventeen NAMES are asserted against the design tool's own properties, in
+// The twenty-two NAMES are asserted against the design tool's own properties, in
 // both directions, by `test/edit-lanes.test.mjs`. A field added to the build
 // tomorrow with no lane here is a part of a site the customer can never change
 // again, and a lane here for a field the build no longer produces is a lane that
@@ -110,7 +129,7 @@ export const MAX_LANES = 4;
 /* ------------------------------------------------------------------ the lanes */
 
 /**
- * ── EVERY LANE ACTS. NINE OF THEM ACT SOMEWHERE ELSE ────────────────────────
+ * ── EVERY LANE ACTS. EIGHT OF THEM ACT SOMEWHERE ELSE ───────────────────────
  *
  * Owner, 2026-08-29: *"i need all the 17 lanes acting"*.
  *
@@ -239,7 +258,7 @@ export const PAGE_VERB_LAYER = { add: "addon", remove: "page", move: "page" };
  * `shape` — this path's own. Not borrowed and not derived; see the header.
  */
 const LANES = {
-  /* ---- the nine that act in this module ---- */
+  /* ---- the eleven this module answers itself ---- */
   css: {
     hint: "THE STYLESHEET — any change to how something LOOKS that is not a change of theme: a colour, a size, spacing, corners, a typeface, one control, one section, dark or light. The ordinary answer for a look change.",
     shape: { type: "string" },
@@ -531,7 +550,7 @@ const LANES = {
 export const LANE_FIELDS = Object.keys(LANES);
 
 /** The eight this module edits itself. Derived, so a lane cannot be acting-but-unreachable. */
-export const ACTING_LANES = LANE_FIELDS.filter(
+export const OWN_LANES = LANE_FIELDS.filter(
   (f) => !LANES[f].elsewhere && !LANES[f].unbuilt && !LANES[f].verbs && !LANES[f].escalate);
 
 /**
@@ -622,7 +641,7 @@ export function verbLayer(verb) {
  * downstream of this module reads a plan.
  */
 for (const k of PLAN_KEYS) {
-  if (ACTING_LANES.includes(k)) throw new Error("site-lanes: `" + k + "` is a plan axis and must not be edited here — nothing reads a stored plan");
+  if (OWN_LANES.includes(k)) throw new Error("site-lanes: `" + k + "` is a plan axis and must not be edited here — nothing reads a stored plan");
   if (!Object.hasOwn(LANES, k)) throw new Error("site-lanes: `" + k + "` is a plan axis with no lane at all");
 }
 for (const k of LANE_FIELDS) {

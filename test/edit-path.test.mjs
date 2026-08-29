@@ -31,7 +31,7 @@ import fs from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
-import { LANE_FIELDS, ACTING_LANES, UNBUILT_LANES, laneLayer, laneUnbuilt, laneEscalate } from "../builder/site-lanes.mjs";
+import { LANE_FIELDS, OWN_LANES, UNBUILT_LANES, laneLayer, laneUnbuilt, laneEscalate } from "../builder/site-lanes.mjs";
 // THE PAGE LAYER'S TOOL NAME, TAKEN FROM THE MODULE THAT DEFINES IT. Typed by
 // hand it was wrong, the stub never matched, the call 503d, and the billing
 // assertion below "failed" for a reason that had nothing to do with billing.
@@ -422,8 +422,8 @@ test("every acting lane can actually be reached through the route", async () => 
   // from outside it looks like the model declining. So each of the eight is
   // driven for real, through `worker.fetch`, rather than trusted because its
   // tool builds.
-  assert.ok(ACTING_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
-  for (const field of ACTING_LANES) {
+  assert.ok(OWN_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
+  for (const field of OWN_LANES) {
     // A value of the field's own shape. `langs` is the one list among them.
     const value = field === "langs" ? ["cy"] : "x";
     await withWire(

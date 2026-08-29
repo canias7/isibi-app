@@ -17,7 +17,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeSchema, sqlIdent, looksLikeTable, refusedFields, TOOL_TABLE_FIELDS, liftBackend, BACKEND_FIELDS } from "../site-schema.mjs";
 import { resolveAccess } from "../site-access.mjs";
-import { ACTING_LANES } from "../builder/site-lanes.mjs";
+import { OWN_LANES } from "../builder/site-lanes.mjs";
 import fs from "node:fs";
 
 const one = (def) => normalizeSchema({ tables: [{ name: "t", ...def }] }).tables[0];
@@ -847,6 +847,6 @@ test("BOTH designer answers are lifted before anything reads them", async () => 
   // that reads and enforces rows. Asserted against the module, so a lane list
   // that later let `backend` act would fail HERE rather than seeding nothing
   // silently, which is the exact failure this test is written for.
-  assert.ok(!ACTING_LANES.includes("backend"),
+  assert.ok(!OWN_LANES.includes("backend"),
     "the edit path can now answer `backend`, so its answers need lifting like a designer's do");
 });

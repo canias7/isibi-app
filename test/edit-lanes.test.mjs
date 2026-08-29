@@ -29,7 +29,7 @@ import { PLAN_KEYS } from "../builder/site-plan.mjs";
 import { EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import {
-  LANE_FIELDS, ACTING_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES, MAX_LANES,
+  LANE_FIELDS, OWN_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES, MAX_LANES,
   laneEscalate, laneVerbs, verbLayer, readPageVerb, PAGE_VERBS,
   laneLayer, laneUnbuilt, laneRule, composeRule, RULE_PARTS, editTool, pickTool, readLanes, readLaneAnswer, editRequest, pickRequest,
 } from "../builder/site-lanes.mjs";
@@ -97,9 +97,9 @@ test("every acting lane but `css` is a key on the stored look — the read and t
   // and written beside the look rather than inside it. Named here rather than
   // filtered silently, or the exception becomes the rule the first time somebody
   // adds a second one.
-  const onLook = ACTING_LANES.filter((f) => f !== "css");
+  const onLook = OWN_LANES.filter((f) => f !== "css");
   assert.ok(onLook.length >= 8, "too few acting lanes to be scanning anything — this check would pass vacuously");
-  assert.ok(ACTING_LANES.includes("css"), "`css` no longer acts, so excluding it here excludes nothing");
+  assert.ok(OWN_LANES.includes("css"), "`css` no longer acts, so excluding it here excludes nothing");
   for (const f of onLook) {
     assert.ok(EDIT_FIELDS.includes(f),
       "the `" + f + "` lane acts on the stored look and `mergeLook` does not carry it — it will bill and change nothing");
@@ -189,9 +189,9 @@ test("EVERY acting lane states all four parts of its rule — including the one 
   // owner's wording, and a guard pinned to my phrasing would go red for their
   // rewrite rather than for a missing ceiling.
   assert.deepEqual(RULE_PARTS, ["is", "yours", "wide", "keep"], "the parts of a lane's rule changed — this guard names them");
-  assert.ok(ACTING_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
+  assert.ok(OWN_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
 
-  for (const field of ACTING_LANES) {
+  for (const field of OWN_LANES) {
     const rule = laneRule(field);
     const lines = rule.split("\n");
     assert.equal(lines.length, RULE_PARTS.length,
@@ -238,8 +238,8 @@ test("EVERY acting lane states all four parts of its rule — including the one 
 });
 
 test("a lane's tool is one property and nothing required — the wall, not the rule", () => {
-  assert.ok(ACTING_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
-  for (const field of ACTING_LANES) {
+  assert.ok(OWN_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
+  for (const field of OWN_LANES) {
     const t = editTool(field);
     const props = Object.keys(t.input_schema.properties);
     assert.deepEqual(props, [field], "the " + field + " lane can reach fields that are not its own: " + props.join(","));
@@ -275,7 +275,7 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
   // Collapsing any two of them loses a real distinction: "the page rung does
   // this", "we cannot tell which of three you mean", "the build rung does this"
   // and "nothing does this" are four different sentences to a customer.
-  const groups = [ACTING_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES];
+  const groups = [OWN_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES];
   assert.equal(groups.reduce((n, g) => n + g.length, 0), LANE_FIELDS.length,
     "the five groups do not add up to the lanes there are");
   for (const f of LANE_FIELDS) {
@@ -404,7 +404,7 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
   // success — `needsPages` is the same rule one layer down, arriving only after
   // a model call has been bought.
   for (const k of PLAN_KEYS) {
-    assert.ok(!ACTING_LANES.includes(k), "`" + k + "` is a plan axis and is edited here — nothing reads a stored plan");
+    assert.ok(!OWN_LANES.includes(k), "`" + k + "` is a plan axis and is edited here — nothing reads a stored plan");
     assert.ok(LANE_FIELDS.includes(k), "`" + k + "` is a plan axis with no lane at all");
   }
 });
@@ -487,7 +487,7 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
   // The smallest lane tool is the strictest available comparison and it moves
   // with the code, so this cannot drift.
   const perLane = pick / LANE_FIELDS.length;
-  const smallestLane = Math.min(...ACTING_LANES.map((f) => JSON.stringify(editTool(f)).length));
+  const smallestLane = Math.min(...OWN_LANES.map((f) => JSON.stringify(editTool(f)).length));
   assert.ok(smallestLane > 200, "no lane tool worth comparing against — this check is measuring nothing");
   assert.ok(perLane < smallestLane / 2,
     "the lane router is carrying instructions, not hints: " + perLane.toFixed(0) +
