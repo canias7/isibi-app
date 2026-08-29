@@ -29,7 +29,7 @@ import { PLAN_KEYS } from "../builder/site-plan.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import {
   LANE_FIELDS, ACTING_LANES, DISPATCHED_LANES, UNBUILT_LANES, MAX_LANES,
-  laneLayer, laneUnbuilt, laneRule, RULE_PARTS, editTool, pickTool, readLanes, readLaneAnswer, editRequest, pickRequest,
+  laneLayer, laneUnbuilt, laneRule, composeRule, RULE_PARTS, editTool, pickTool, readLanes, readLaneAnswer, editRequest, pickRequest,
 } from "../builder/site-lanes.mjs";
 
 const LANES_SRC = fs.readFileSync(new URL("../builder/site-lanes.mjs", import.meta.url), "utf8");
@@ -175,6 +175,25 @@ test("EVERY acting lane states all four parts of its rule — including the one 
   // runs the refusal is satisfied by a refusal that was deleted.
   assert.throws(() => laneRule("shape"), /has no rule/, "a dispatched lane composed a rule out of nothing");
   assert.throws(() => laneRule("nope"), /no lane for/, "an unknown field composed a rule");
+
+  // ── AND THE MISSING-PART REFUSAL REALLY FIRES ───────────────────────────
+  //
+  // A sweep proved it INERT: every lane is complete, so the line could never
+  // run, and deleting it survived the whole suite. An inert mutant reads like a
+  // test gap and this one WAS one — the ceiling existed and nothing had ever
+  // watched it work, so a later edit could take it out in silence.
+  //
+  // `LANES` is module-private, so no test could build a bad lane. `composeRule`
+  // takes the rule as an argument for exactly this reason: a guard nothing can
+  // trigger is a guard nobody can trust.
+  const whole = { is: "a".repeat(50), yours: "b".repeat(50), wide: "c".repeat(50), keep: "d".repeat(50) };
+  assert.ok(composeRule("probe", whole).split("\n").length === RULE_PARTS.length, "a complete rule is refused");
+  for (const part of RULE_PARTS) {
+    assert.throws(() => composeRule("probe", { ...whole, [part]: undefined }), new RegExp("has no ." + part),
+      "a rule missing `" + part + "` was composed anyway — that lane would ship with no ceiling");
+    assert.throws(() => composeRule("probe", { ...whole, [part]: "   " }), new RegExp("has no ." + part),
+      "a rule whose `" + part + "` is blank was composed anyway");
+  }
 });
 
 test("a lane's tool is one property and nothing required — the wall, not the rule", () => {
@@ -237,6 +256,33 @@ test("EVERY lane acts — eight here, six on another layer, three named unbuilt"
     assert.notEqual(layer, "look",
       "the " + f + " lane dispatches to `look`, which is the door it came through — the ask lands back where it started");
   }
+
+  // ── AND EACH MAPPING BY NAME ────────────────────────────────────────────
+  //
+  // The two checks above ask "is the target a real layer" and "is it not the
+  // door". A sweep walked through both: `action: "nav"` -> `action: "rules"`
+  // SURVIVED, because `rules` is a real layer and is not `look`. But `rules`
+  // enforces what a site STORES and has no way to change a button's words — so
+  // the ask reaches a rung that cannot express it, and the customer is told
+  // there was nothing to change. Anything weaker than "which layer" reads as
+  // coverage and is not.
+  //
+  // NAMED RATHER THAN DERIVED, because there is nothing to derive it from:
+  // which rung a photograph or a button belongs to is a product decision, not a
+  // fact computable from either module. Naming it here makes changing one
+  // something somebody does on purpose.
+  const MAPPING = {
+    images: "picture", action: "nav", backend: "rules",
+    shape: "page", components: "page", purpose: "page",
+  };
+  for (const [field, layer] of Object.entries(MAPPING)) {
+    assert.equal(laneLayer(field), layer,
+      "`" + field + "` no longer dispatches to the " + layer + " rung — its work would land on a lane that cannot do it");
+  }
+  // BOTH DIRECTIONS: a lane joining or leaving the dispatched group without a
+  // decision about where its work goes is the half that rots silently.
+  assert.deepEqual([...DISPATCHED_LANES].sort(), Object.keys(MAPPING).sort(),
+    "the dispatched group changed without a decision about where the new lane's work goes");
 
   // THE UNBUILT ONES EACH NAME THEIR OWN JOB. Three different pieces of work —
   // a rebuild, a page-set change, an address move — and a single word for all

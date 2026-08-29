@@ -614,9 +614,22 @@ export function editTool(field) {
  */
 export const RULE_PARTS = ["is", "yours", "wide", "keep"];
 
-export function laneRule(field) {
-  if (typeof field !== "string" || !Object.hasOwn(LANES, field)) throw new Error("laneRule: no lane for: " + field);
-  const rule = LANES[field].edit;
+/**
+ * The composer, taking the rule as an ARGUMENT so the refusal can be tested.
+ *
+ * SPLIT OUT BECAUSE THE REFUSAL WAS UNREACHABLE (2026-08-29). Folded into
+ * `laneRule`, it could only ever fire on a lane whose rule was incomplete — and
+ * every lane is complete, so a mutation sweep proved the line inert: deleting
+ * the throw changed nothing and SURVIVED the whole suite. An inert mutant reads
+ * exactly like a test gap, and here it was a real one wearing that disguise: the
+ * ceiling existed and nothing proved it would ever fire, so a later edit could
+ * remove it silently.
+ *
+ * `LANES` is module-private, so no test could build a bad lane to try it with.
+ * Taking the rule as a parameter is what makes the guard reachable, and the
+ * whole point of a guard is that something has watched it work.
+ */
+export function composeRule(field, rule) {
   if (!rule || typeof rule !== "object") throw new Error("laneRule: `" + field + "` has no rule");
   return RULE_PARTS.map((part) => {
     const text = rule[part];
@@ -628,6 +641,11 @@ export function laneRule(field) {
     }
     return text.trim();
   }).join("\n");
+}
+
+export function laneRule(field) {
+  if (typeof field !== "string" || !Object.hasOwn(LANES, field)) throw new Error("laneRule: no lane for: " + field);
+  return composeRule(field, LANES[field].edit);
 }
 
 /**
