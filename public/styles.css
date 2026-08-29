@@ -6146,9 +6146,12 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    It sits at z-index 0 with the content above it, and is inert to the pointer,
    so it cannot come between a visitor and a card. ---- */
 .mkt-crt .gf-reel-panel{position:relative;isolation:isolate;overflow:hidden;
-  border-radius:clamp(18px,2vw,30px);
+  /* two thirds of the page, held to the right edge — the box is the thing that
+     is 2/3 now, and the strip simply fills it */
+  width:66%;margin-left:auto;margin-right:0;
+  border-radius:clamp(16px,1.6vw,24px);
   background:var(--paper);
-  padding:clamp(2rem,5vh,3.2rem) 0 clamp(2.2rem,5vh,3rem);
+  padding:clamp(1.1rem,2.6vh,1.7rem) 0;
   box-shadow:
     0 38px 80px -54px rgba(51,49,61,.62),
     0 3px 10px -6px rgba(51,49,61,.18),
@@ -6187,7 +6190,7 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    the box instead of off the page edge — which is what stopped it reading as
    content running out of the window on the right. The edges are faded so it
    arrives and leaves rather than being chopped at a hard line. */
-.mkt-crt .gf-reel{position:relative;width:66%;margin-left:auto;margin-right:0;overflow:hidden;padding:.6rem 0;
+.mkt-crt .gf-reel{position:relative;width:100%;overflow:hidden;padding:0;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 100%);
   mask-image:linear-gradient(90deg,transparent,#000 14%,#000 100%)}
 .mkt-crt .gf-reel-track{display:flex;align-items:center;width:max-content;
@@ -6205,15 +6208,16 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 /* One declaration per line, deliberately: landing-models.test.mjs collects
    defined tokens with a LINE-ANCHORED regex, so a token declared mid-line is
    invisible to it and reads as undefined. */
-/* Every item is the SAME HEIGHT — 470px, measured — and that is the reason the
+/* Every item is the SAME HEIGHT — 400px, measured — and that is the reason the
    strip stopped looking like a pile of odds and ends. A browser card is
-   chrome + a 16:10 body; the phone is 372x790 of page cropped to that same
-   470, which decides its width and its scale rather than the other way round.
+   chrome + a 16:10 body; the phone is the demo's 380x800 device cropped to that
+   same 400, which decides its width and its scale rather than the other way
+   round.
    Change one and recompute the other, or they go back to not lining up. */
-.mkt-crt .gf-reel-slide{position:relative;flex:0 0 auto;width:min(680px,72vw);
+.mkt-crt .gf-reel-slide{position:relative;flex:0 0 auto;width:min(568px,70vw);
   border-radius:14px;overflow:hidden;background:rgba(255,253,247,.7);
   box-shadow:0 14px 34px -22px rgba(51,49,61,.55);
-  --fw:1088px;
+  --fw:908px;
   --sc:.625}
 .mkt-crt .gf-reel-slide::before{content:"";position:absolute;inset:0;z-index:3;
   border-radius:inherit;border:1.9px solid var(--graphite);
@@ -6266,7 +6270,7 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    is resized. That is why the frame is pinned at 1200x1400 rather than
    inheriting --fw like the browser slides. Re-read the rect if either moves;
    do not scale these. */
-.mkt-crt .gf-reel-slide.gf-phone{width:223.25px;border-radius:32px;background:none;
+.mkt-crt .gf-reel-slide.gf-phone{width:190px;border-radius:27px;background:none;
   box-shadow:0 16px 36px -22px rgba(51,49,61,.6)}
 .mkt-crt .gf-reel-slide.gf-phone::before{border-radius:34px;border-width:1.7px}
 .mkt-crt .gf-phone .gf-reel-body{aspect-ratio:380 / 800;background:none}
@@ -6274,11 +6278,10 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   width:1200px;
   height:1400px;
   /* translate first, then scale: the phone's top-left corner lands on the
-     slide's. .5875 is not a taste: 800 x .5875 = 470, and 470 is the measured
-     height of a browser card in this strip — chrome plus a 16:10 body, read
-     off the laid-out page. The width follows from it (380 x .5875 = 223.25).
-     Recompute both if the card or the device moves. */
-  transform:scale(.5875) translate(-745px,-139px)}
+     slide's. .5 is not a taste: 800 x .5 = 400, and 400 is the height of a
+     browser card in this strip — chrome plus a 16:10 body. The width follows
+     from it (380 x .5 = 190). Recompute both if the card or the device moves. */
+  transform:scale(.5) translate(-745px,-139px)}
 
 /* ---- The Video / App switch (owner 2026-08-29): "on top of this thing make
    like a switch to switch from video to app type thing."
@@ -6308,7 +6311,7 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   border:1.6px solid var(--graphite);filter:url(#pencilRough)}
 .mkt-crt .gf-sw{isolation:isolate}
 /* the two panes share one box, so switching cannot jolt the page height */
-.mkt-crt .gf-reel{min-height:494px}
+.mkt-crt .gf-reel{min-height:412px}
 .mkt-crt .gf-reel-video{display:flex;align-items:center;height:100%}
 .mkt-crt .gf-reel-video[hidden],.mkt-crt .gf-reel-track[hidden]{display:none}
 /* the reel is 1728x720 — a 2.4:1 screen, so it is framed at its own shape

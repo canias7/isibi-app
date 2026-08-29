@@ -308,5 +308,26 @@ if ('IntersectionObserver' in window) {
   ['how','roasters','get'].forEach(function (id) { var el = document.getElementById(id); if (el) io.observe(el); });
 }
 </script>
+<script>
+// In the showcase strip this page is a fixed window onto its own top — the
+// frame shows one screenful and, for the phone, a crop measured to the pixel.
+// A fragment jump scrolls the document out from under that crop and the card
+// goes blank or shows the middle of a section, which reads as the strip being
+// broken.
+//
+// So when this page is framed, same-document links do not travel and the
+// document is pinned at the top. Everything that is not navigation still works
+// in place: filters, the cart, tabs, accordions, the forms. Opened on its own
+// the page is untouched and every link scrolls normally.
+if (window.top !== window.self) {
+  document.documentElement.style.scrollBehavior = 'auto';
+  document.addEventListener('click', function (e) {
+    var t = e.target, a = t && t.closest ? t.closest('a[href^="#"]') : null;
+    if (a) e.preventDefault();
+  }, true);
+  // focusing a field can scroll the document even without a link being clicked
+  addEventListener('scroll', function () { if (window.scrollY) window.scrollTo(0, 0); }, { passive: true });
+}
+</script>
 </body>
 </html>
