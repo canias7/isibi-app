@@ -9444,10 +9444,38 @@ function initCrtStage() {
   slots.forEach((s, n) => { const g = s.querySelector('.mb-grab'); if (g) g.addEventListener('click', () => { front = n; layoutWeb(); }); });
   layoutWeb();
 }
+// The reel moves in CSS — there is no stepping here and there must not be.
+// A JS-driven transform competes with the compositor and shows as jitter, and
+// it goes on running when nobody is looking; a CSS animation is handed to the
+// compositor and paused by the browser for free.
+//
+// All this does is decide WHEN the ten frames become real pages. They are ten
+// live documents, so loading them at boot would cost a visitor who never
+// scrolls that far; they load when the strip is approached, once.
+function initReel() {
+  const reel = document.querySelector('.gf-reel-sec');
+  if (!reel) return;
+  const frames = Array.prototype.slice.call(reel.querySelectorAll('.gf-reel-frame[data-src]'));
+  if (!frames.length) return;
+  const load = () => frames.forEach((f) => {
+    const u = f.getAttribute('data-src');
+    if (!u) return;
+    f.removeAttribute('data-src');
+    f.src = u;
+  });
+  if (!('IntersectionObserver' in window)) return load();
+  const io = new IntersectionObserver((es) => es.forEach((e) => {
+    if (!e.isIntersecting) return;
+    load();
+    io.disconnect();   // once they are real pages there is nothing left to watch
+  }), { root: document.getElementById('marketing'), rootMargin: '400px' });
+  io.observe(reel);
+}
 function initCrt() {
   const menu = document.getElementById('crtMenu');
   if (!menu) return;
   initCrtStage();
+  initReel();
   const mkt = document.getElementById('marketing');
   // click a channel → tune it, then act (live → sign-up, soon → NO SIGNAL)
   menu.querySelectorAll('.crt-opt').forEach((opt, i) => {

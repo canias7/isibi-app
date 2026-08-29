@@ -6103,3 +6103,85 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   font-weight:700;font-size:1.35rem;color:var(--graphite)}
 .mkt-crt .mkt-foot .mkt-brand .logo-mark{width:26px;height:26px;overflow:visible}
 .mkt-crt .mkt-foot-links,.mkt-crt .mkt-foot-links span{color:var(--graphite-3);font-size:.95rem}
+
+/* ---- The reel (owner 2026-08-29): "like a video that it moves, not 5 static
+   switch stuff, just like CSS moving."
+
+   So it is a MARQUEE, not a carousel. There is no current slide, no step, no
+   dots and no arrows — the track drifts left forever at a constant rate and
+   the frames simply pass by. A carousel that snaps between five positions is
+   the thing this replaced; it read as a slideshow because it WAS one.
+
+   The seam is handled by running the five slides twice. The animation travels
+   exactly -50% — one full pass — so the moment it wraps, pass two is sitting
+   precisely where pass one began and nothing jumps. This is why the keyframe
+   distance and the number of passes are one fact: change the passes and -50%
+   is wrong, and the loop will visibly stutter once per cycle.
+
+   FIVE sites, and it must stay five. A published game is served with
+   `frame-ancestors 'none'` and cannot go in a frame at all — that is why an
+   earlier version of this section showed broken cards live. Only /mkt/demo*
+   carries `frame-ancestors 'self'`. Read the headers before adding anything.
+
+   Motion is CSS, not a timer: a JS-stepped transform competes with the
+   compositor and shows as jitter, and it keeps running when the tab is hidden.
+   An animation is handed to the compositor and paused by the browser for free.
+   ---- */
+.mkt-crt .gf-reel-sec{flex:0 0 auto;
+  padding:clamp(3rem,8vh,5.5rem) 0 clamp(3rem,7vh,4.5rem);overflow:hidden}
+.mkt-crt .gf-reel-head{max-width:1000px;margin:0 auto;padding:0 clamp(1.1rem,4vw,3rem);
+  display:flex;flex-direction:column;align-items:center}
+.mkt-crt .gf-reel-h{font-family:'Caveat','Patrick Hand',cursive;font-weight:700;
+  font-size:clamp(2rem,3.6vw,3.1rem);line-height:1.1;margin:0 0 .35rem;
+  color:var(--graphite);text-align:center}
+.mkt-crt .gf-reel-sub{margin:0 0 2.4rem;max-width:52ch;text-align:center;
+  color:var(--graphite-2);font-size:1.06rem;line-height:1.5}
+/* the viewport: full width, with the edges faded so a frame arrives and leaves
+   rather than being chopped off at a hard line */
+.mkt-crt .gf-reel{position:relative;width:100%;overflow:hidden;padding:.6rem 0;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
+.mkt-crt .gf-reel-track{display:flex;align-items:center;width:max-content;
+  gap:clamp(1.4rem,3vw,2.4rem);
+  animation:gf-reel-drift 64s linear infinite;will-change:transform}
+/* the gap is part of the pass, so the wrap lands mid-gap and stays even */
+@keyframes gf-reel-drift{
+  from{transform:translateX(0)}
+  to{transform:translateX(calc(-50% - clamp(1.4rem,3vw,2.4rem) / 2))}
+}
+.mkt-crt .gf-reel:hover .gf-reel-track{animation-play-state:paused}
+@media (prefers-reduced-motion:reduce){
+  .mkt-crt .gf-reel-track{animation:none}
+}
+/* One declaration per line, deliberately: landing-models.test.mjs collects
+   defined tokens with a LINE-ANCHORED regex, so a token declared mid-line is
+   invisible to it and reads as undefined. */
+.mkt-crt .gf-reel-slide{position:relative;flex:0 0 auto;width:min(680px,72vw);
+  border-radius:14px;overflow:hidden;background:rgba(255,253,247,.7);
+  --fw:1088px;
+  --sc:.625}
+.mkt-crt .gf-reel-slide::before{content:"";position:absolute;inset:0;z-index:3;
+  border-radius:inherit;border:1.9px solid var(--graphite);
+  filter:url(#pencilRough);pointer-events:none}
+.mkt-crt .gf-reel .mkt-chrome{background:none;border-bottom:0;padding:.55rem .85rem;position:relative}
+.mkt-crt .gf-reel .mkt-chrome::after{content:"";position:absolute;left:.65rem;right:.65rem;bottom:0;
+  height:1.2px;background:var(--graphite-3);opacity:.7;filter:url(#pencilRough2)}
+.mkt-crt .gf-reel .mkt-dot{width:10px;height:10px;background:none;border:1.4px solid var(--graphite-3)}
+.mkt-crt .gf-reel .mkt-url{background:none;color:var(--graphite-2);font-size:.88rem;
+  padding:.12rem .9rem;border:1.2px solid rgba(145,141,156,.5);border-radius:6px}
+.mkt-crt .gf-reel .mkt-chrome i{width:30px}
+.mkt-crt .gf-reel-body{position:relative;width:100%;aspect-ratio:16/10;overflow:hidden;
+  background:var(--paper)}
+.mkt-crt .gf-reel-frame{position:absolute;top:0;left:0;border:0;pointer-events:none;
+  width:var(--fw);height:calc(var(--fw) * 10 / 16);
+  transform:scale(var(--sc));transform-origin:top left}
+/* the whole strip pauses under the pointer, so the link is reachable */
+.mkt-crt .gf-reel-open{position:absolute;right:.8rem;bottom:.8rem;z-index:4;
+  font-size:.94rem;color:var(--graphite);background:var(--paper);border-radius:8px;
+  padding:.18rem .68rem;text-decoration:none;opacity:0;
+  transition:opacity .3s,transform .18s}
+.mkt-crt .gf-reel-open::before{content:"";position:absolute;inset:0;border-radius:inherit;
+  border:1.4px solid var(--graphite);filter:url(#pencilRough2)}
+.mkt-crt .gf-reel-slide:hover .gf-reel-open,
+.mkt-crt .gf-reel-open:focus-visible{opacity:1}
+.mkt-crt .gf-reel-open:hover{transform:translateY(-2px)}
