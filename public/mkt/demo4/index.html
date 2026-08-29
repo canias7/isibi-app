@@ -309,24 +309,44 @@ if ('IntersectionObserver' in window) {
 }
 </script>
 <script>
-// In the showcase strip this page is a fixed window onto its own top — the
-// frame shows one screenful and, for the phone, a crop measured to the pixel.
-// A fragment jump scrolls the document out from under that crop and the card
-// goes blank or shows the middle of a section, which reads as the strip being
-// broken.
+// PINNED ONLY WHEN ASKED (?pin=1), and only the phone card asks.
 //
-// So when this page is framed, same-document links do not travel and the
-// document is pinned at the top. Everything that is not navigation still works
-// in place: filters, the cart, tabs, accordions, the forms. Opened on its own
-// the page is untouched and every link scrolls normally.
-if (window.top !== window.self) {
+// That card is a crop measured to the pixel, so any document scroll slides the
+// device out of its own frame; its app scrolls its own list instead, which is
+// what a phone does anyway.
+//
+// The browser cards do NOT pass the flag: they are plain windows onto a page,
+// so in the strip they scroll under the pointer and their links travel, the
+// same as opening the site. Pinning them turned every anchor in the strip into
+// a dead control — which is exactly how this was found.
+if (window.top !== window.self && /[?&]pin=1/.test(location.search)) {
   document.documentElement.style.scrollBehavior = 'auto';
   document.addEventListener('click', function (e) {
     var t = e.target, a = t && t.closest ? t.closest('a[href^="#"]') : null;
     if (a) e.preventDefault();
   }, true);
-  // focusing a field can scroll the document even without a link being clicked
-  addEventListener('scroll', function () { if (window.scrollY) window.scrollTo(0, 0); }, { passive: true });
+  // Refuse the scroll outright rather than undoing it afterwards. The first
+  // version listened for scroll and reset window.scrollY — but under
+  // scrolling="no" the frame keeps window.scrollY at 0 while
+  // documentElement.scrollTop really moves, so the handler saw nothing and the
+  // device slid 400px out of its crop. overflow:hidden cannot be raced.
+  // The app's own list is an element scroller and is unaffected: the phone
+  // scrolls its list, which is what a phone does.
+  var lock = function () {
+    document.documentElement.style.overflow = 'hidden';
+    if (document.body) document.body.style.overflow = 'hidden';
+  };
+  lock();
+  document.addEventListener('DOMContentLoaded', lock);
+  // overflow:hidden stops the wheel but NOT a programmatic scroll, and focusing
+  // a field inside the app is exactly that. Put it back, reading the scrolling
+  // element rather than window.scrollY — under scrolling="no" scrollY stays 0
+  // while the document really moves, which is how the first attempt at this
+  // missed a 400px slide.
+  addEventListener('scroll', function () {
+    var se = document.scrollingElement || document.documentElement;
+    if (se.scrollTop) se.scrollTop = 0;
+  }, { passive: true });
 }
 </script>
 </body>
