@@ -5352,7 +5352,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    positioned independently, so a stack that grows from its middle grows INTO it
    — measured at 11px of overlap before this. */
 .mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(calc(-50% + 1.6rem))}
-.mkt-crt .crt-crest{top:calc(50% - 7.5rem)}
+.mkt-crt .crt-crest{top:calc(50% - 10.6rem)}
 
 /* ── Gradient Halo chatbox (owner 2026-07-23): the ONE colored element on the
    black-and-white platform. Pinned to the old dark glass + pink→amber halo so it
@@ -5917,3 +5917,154 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .sv-in{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem}
 .sv-save{display:flex;align-items:center;gap:.7rem;margin-top:.2rem;flex-wrap:wrap}
 .sv-msg{font-size:.72rem;color:var(--muted);flex:1 1 12rem;min-width:0}
+
+/* ==========================================================================
+   Pencil landing (owner 2026-08-29) — the landing is DRAWN, not rendered:
+   paper ground, graphite type, every control sketched and shaded in by hand.
+
+   The fonts do not change. Owner: "keep the same fonts just the colors of it,
+   do it like if it was filled with pencil" — so Inter and Space Grotesk stay
+   exactly as they are and only colour, fill and edge are new.
+
+   Two mechanisms carry the whole look, and everything below is one of them:
+
+     · SHADING is a cross-hatch of repeating-linear-gradients — one recipe at
+       three densities. --gr-fill is a pencil pressed hard (a filled button),
+       --gr-wash is a light pass (a chip), --gr-tint is barely a smudge (the
+       chatbox paper).
+
+     · An EDGE is a bordered ::before pushed through the #pencilRough
+       displacement filter, so the LINE wobbles and the text inside does not.
+       Filtering the element itself would smear the type, which is the one
+       thing we were told to leave alone. Every sketched outline here is a
+       pseudo-element for that reason — if you add another, do the same.
+
+   Scoped to .mkt-crt throughout: the signed-in app shell is untouched.
+   ========================================================================== */
+.mkt.mkt-crt{
+  --paper:#f3efe4;
+  --paper-2:#e7e1d2;
+  --graphite:#33313d;      /* the lead itself — never pure black */
+  --graphite-2:#615d6c;    /* a lighter pass, for secondary type */
+  --graphite-3:#918d9c;    /* barely there */
+  --gr-fill:
+    repeating-linear-gradient(56deg,rgba(22,20,29,.95) 0 2.3px,rgba(22,20,29,.10) 2.3px 5.4px),
+    repeating-linear-gradient(129deg,rgba(22,20,29,.66) 0 1.7px,rgba(22,20,29,0) 1.7px 6.4px),
+    repeating-linear-gradient(8deg,rgba(255,255,255,.05) 0 1px,rgba(255,255,255,0) 1px 9px),
+    linear-gradient(168deg,rgba(96,91,110,.92),rgba(58,55,70,.96));
+  --gr-wash:
+    repeating-linear-gradient(56deg,rgba(64,60,74,.30) 0 1.3px,rgba(64,60,74,0) 1.3px 4.6px),
+    repeating-linear-gradient(129deg,rgba(64,60,74,.16) 0 1.1px,rgba(64,60,74,0) 1.1px 6.2px);
+  --gr-tint:
+    repeating-linear-gradient(56deg,rgba(74,70,86,.14) 0 1.2px,rgba(74,70,86,0) 1.2px 6.5px);
+  /* paper: fibre grain multiplied over a warm sheet, plus the soft graphite
+     fall-off you get at the edges of a page somebody has been leaning on.
+     Grain is a background LAYER, not an overlay element — nothing new in the
+     stacking context, so nothing can end up painted over a button. */
+  background-color:var(--paper);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)' opacity='.5'/%3E%3C/svg%3E"),
+    radial-gradient(120% 88% at 50% -6%,rgba(255,255,255,.62),transparent 58%),
+    radial-gradient(76% 62% at 50% 116%,rgba(84,80,98,.16),transparent 62%),
+    radial-gradient(52% 44% at 8% 88%,rgba(84,80,98,.09),transparent 70%);
+  background-blend-mode:multiply,normal,normal,normal;
+  color:var(--graphite)}
+/* a CRT's scanlines and glass are the one thing paper cannot be */
+.mkt-crt .crt-scan,.mkt-crt .crt-glass{display:none}
+
+/* ---- type: same faces, graphite ink ---- */
+.mkt-crt .crt-crest-h{color:var(--graphite)}
+/* the accent word was the pink→amber gradient; on paper it is the word you
+   went back over and underlined. Underline is a ::after so it can be roughed
+   up without touching the letterforms. */
+.mkt-crt .crt-crest-h .mkt-grad{position:relative;display:inline-block;
+  background:none;-webkit-background-clip:border-box;background-clip:border-box;
+  color:var(--graphite);-webkit-text-fill-color:var(--graphite)}
+.mkt-crt .crt-crest-h .mkt-grad::after{content:"";position:absolute;
+  left:-.06em;right:-.06em;bottom:-.12em;height:.075em;border-radius:2px;
+  background:var(--graphite);opacity:.85;filter:url(#pencilRough2)}
+.mkt-crt .crt-topbar .mkt-brand{color:var(--graphite)}
+.mkt-crt .mkt-signin{color:var(--graphite-2)}
+.mkt-crt .mkt-signin:hover{color:var(--graphite)}
+.mkt-crt .crt-legal a,.mkt-crt .crt-legal span{color:var(--graphite-3)}
+.mkt-crt .crt-legal a:hover{color:var(--graphite)}
+/* the mark is inline SVG now, so it takes the ink colour and can be sketched */
+/* The mark is inline SVG so it takes the ink colour — and so it can be drawn
+   the way the rest of the page is: twice, each pass roughed by its own filter
+   and the second offset a hair, which is what a hand does when it goes back
+   over a line. The viewBox is padded (-6) so a displaced stroke has room to
+   wander outside the artwork instead of being clipped flat against it. */
+.mkt-crt .crt-topbar .mkt-brand .logo-mark{color:var(--graphite);overflow:visible;
+  width:34px;height:34px}
+.mkt-crt .logo-mark .gf-pass{transform-origin:50% 50%;transform-box:fill-box}
+.mkt-crt .logo-mark .gf-pass-a{filter:url(#pencilLead);opacity:.94}
+.mkt-crt .logo-mark .gf-pass-b{filter:url(#pencilLead2);opacity:.36;
+  transform:translate(14px,-10px) rotate(.8deg)}
+
+/* ---- buttons: one filled with pencil, one drawn empty ---- */
+.mkt-crt .mkt-cta{background:var(--gr-fill);background-color:#2a2833;
+  color:var(--paper);border:0;box-shadow:none;position:relative;isolation:isolate}
+.mkt-crt .mkt-cta::before{content:"";position:absolute;inset:-1px;z-index:-1;
+  border-radius:inherit;border:1.7px solid var(--graphite);
+  filter:url(#pencilRough);pointer-events:none}
+.mkt-crt .mkt-cta:hover{filter:none;transform:translateY(-2px);
+  box-shadow:0 7px 16px -10px rgba(51,49,61,.75)}
+.mkt-crt .mkt-ghost{background:var(--gr-tint);background-color:transparent;
+  color:var(--graphite);border:0;position:relative}
+.mkt-crt .mkt-ghost::before{content:"";position:absolute;inset:0;
+  border-radius:inherit;border:1.7px solid var(--graphite-2);
+  filter:url(#pencilRough);pointer-events:none}
+/* the second, slightly-off pass you make when one line did not look right */
+.mkt-crt .mkt-ghost::after{content:"";position:absolute;inset:1px 0 -1px 1px;
+  border-radius:inherit;border:1.3px solid var(--graphite-2);opacity:.42;
+  filter:url(#pencilRough2);pointer-events:none}
+.mkt-crt .mkt-ghost:hover{background:var(--gr-wash);transform:translateY(-2px)}
+
+/* ---- the chatbox: a box ruled on the page, shaded lightly inside ---- */
+.mkt-crt .crt-chatbox{background:var(--gr-tint);background-color:rgba(255,253,247,.72);
+  box-shadow:0 18px 34px -26px rgba(51,49,61,.6);border-radius:14px}
+/* was the pink halo ring — now the ruled edge, drawn twice like a real one */
+.mkt-crt .crt-chatbox::before{inset:0;padding:0;border-radius:inherit;
+  background:none;border:1.9px solid var(--graphite);
+  -webkit-mask:none;mask:none;filter:url(#pencilRough)}
+.mkt-crt .crt-chatbox::after{content:"";position:absolute;inset:2px -1px -2px 2px;
+  border-radius:inherit;border:1.2px solid var(--graphite-2);opacity:.38;
+  filter:url(#pencilRough2);pointer-events:none}
+.mkt-crt .crt-chatbox:hover::before{border-color:#22202b}
+.mkt-crt .crt-chatbox-in{color:var(--graphite)}
+.mkt-crt .crt-chatbox-in::placeholder{color:var(--graphite-3)}
+.mkt-crt .crt-chatbox-ico{color:var(--graphite-2);background:var(--gr-wash);
+  background-color:transparent;border:0;position:relative;border-radius:9px}
+.mkt-crt .crt-chatbox-ico::before{content:"";position:absolute;inset:0;
+  border-radius:inherit;border:1.5px solid var(--graphite-2);
+  filter:url(#pencilRough2);pointer-events:none}
+.mkt-crt .crt-chatbox-send{background:var(--gr-fill);background-color:#2a2833;
+  color:var(--paper);box-shadow:none;position:relative;isolation:isolate}
+.mkt-crt .crt-chatbox-send::before{content:"";position:absolute;inset:-1px;z-index:-1;
+  border-radius:50%;border:1.7px solid var(--graphite);
+  filter:url(#pencilRough);pointer-events:none}
+/* the filter defs are markup, not furniture — keep them out of layout */
+.pencil-defs{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none}
+
+/* ---- the hand (owner 2026-08-29): the page is written, so it is written in
+   a hand. Caveat carries the display line, Patrick Hand does the working type
+   — nav, buttons, the prompt, the footer. Scoped to .mkt-crt, so the app the
+   customer works in keeps Inter and stays a tool rather than a note.
+   Both are pencil-plausible AND upright enough to read at 14px, which is the
+   whole reason they are these two and not a novelty face. ---- */
+.mkt.mkt-crt{font-family:'Patrick Hand','Segoe Print',Inter,system-ui,sans-serif;
+  font-size:17px;letter-spacing:.005em}
+.mkt-crt .crt-crest-h{font-family:'Caveat','Patrick Hand',cursive;font-weight:700;
+  font-size:clamp(2.3rem,4.8vw,3.7rem);letter-spacing:.005em;line-height:1.06}
+/* Caveat sits small in its em box, so the underline rides up to meet it */
+.mkt-crt .crt-crest-h .mkt-grad::after{bottom:.04em;height:.055em}
+.mkt-crt .crt-topbar .mkt-brand{font-family:'Caveat','Patrick Hand',cursive;
+  font-weight:700;font-size:1.62rem;letter-spacing:.01em}
+.mkt-crt .mkt-signin,.mkt-crt .mkt-cta,.mkt-crt .mkt-ghost{
+  font-family:inherit;font-weight:400;letter-spacing:.02em}
+.mkt-crt .mkt-signin{font-size:1.02rem}
+.mkt-crt .crt-doors .mkt-cta,.mkt-crt .crt-doors .mkt-ghost{font-size:1.06rem}
+.mkt-crt .crt-topbar .mkt-cta{font-size:1rem}
+.mkt-crt .crt-chatbox-in,.mkt-crt .crt-chatbox-in::placeholder{
+  font-family:inherit;font-size:1.14rem}
+.mkt-crt .crt-legal{font-size:.98rem}
