@@ -5986,8 +5986,6 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .crt-topbar .mkt-brand{color:var(--graphite)}
 .mkt-crt .mkt-signin{color:var(--graphite-2)}
 .mkt-crt .mkt-signin:hover{color:var(--graphite)}
-.mkt-crt .crt-legal a,.mkt-crt .crt-legal span{color:var(--graphite-3)}
-.mkt-crt .crt-legal a:hover{color:var(--graphite)}
 /* the mark is inline SVG now, so it takes the ink colour and can be sketched */
 /* The mark is inline SVG so it takes the ink colour — and so it can be drawn
    the way the rest of the page is: twice, each pass roughed by its own filter
@@ -6067,4 +6065,41 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .crt-topbar .mkt-cta{font-size:1rem}
 .mkt-crt .crt-chatbox-in,.mkt-crt .crt-chatbox-in::placeholder{
   font-family:inherit;font-size:1.14rem}
-.mkt-crt .crt-legal{font-size:.98rem}
+
+/* ---- the page extends (owner 2026-08-29): the landing was ONE fixed screen
+   with overflow hidden, so anything added below it was simply invisible. The
+   hero keeps a full viewport of its own and the footer follows underneath.
+   ---- */
+.mkt.mkt-crt{overflow-y:auto;overflow-x:hidden}
+.mkt-crt .crtl-stage{flex:0 0 auto;min-height:100vh}
+.mkt-crt .mkt-foot{flex:0 0 auto}
+
+/* ---- the footer, ruled and written on the same sheet. The dark-theme footer
+   underneath this is built out of a gradient bar, an ember wash and
+   gradient-clipped uppercase Space Grotesk — three screen effects that have no
+   meaning on paper, so each is answered here rather than left to show through.
+   ---- */
+.mkt-crt .mkt-foot{background:none}
+.mkt-crt .mkt-foot::before{height:2px;background:var(--graphite);opacity:.72;
+  box-shadow:none;filter:url(#pencilRough)}
+.mkt-crt .mkt-foot::after{display:none}
+.mkt-crt .mkt-foot-h{font-family:'Caveat','Patrick Hand',cursive;font-weight:700;
+  text-transform:none;letter-spacing:.005em;font-size:clamp(1.9rem,3.4vw,2.9rem);
+  line-height:1.12;max-width:14ch;background:none;filter:none;
+  -webkit-background-clip:border-box;background-clip:border-box;
+  color:var(--graphite);-webkit-text-fill-color:var(--graphite)}
+.mkt-crt .mkt-foot-cols{grid-template-columns:repeat(3,minmax(0,1fr))}
+.mkt-crt .mkt-foot-hd{color:var(--graphite-3);font-weight:400;font-size:.8rem;letter-spacing:.16em}
+.mkt-crt .mkt-foot-col a,.mkt-crt .mkt-foot-col button{color:var(--graphite-2);font-size:1.02rem}
+.mkt-crt .mkt-foot-col a:hover,.mkt-crt .mkt-foot-col button:hover{color:var(--graphite)}
+.mkt-crt .mkt-foot-col a:focus-visible,.mkt-crt .mkt-foot-col button:focus-visible{
+  color:var(--graphite);outline:1px solid var(--graphite-3)}
+/* the rule above the sign-off is drawn, not bordered */
+.mkt-crt .mkt-foot-row{border-top:0;position:relative}
+.mkt-crt .mkt-foot-row::before{content:"";position:absolute;top:0;
+  left:clamp(1.1rem,4vw,3rem);right:clamp(1.1rem,4vw,3rem);height:1.4px;
+  background:var(--graphite-3);opacity:.75;filter:url(#pencilRough2)}
+.mkt-crt .mkt-foot .mkt-brand{font-family:'Caveat','Patrick Hand',cursive;
+  font-weight:700;font-size:1.35rem;color:var(--graphite)}
+.mkt-crt .mkt-foot .mkt-brand .logo-mark{width:26px;height:26px;overflow:visible}
+.mkt-crt .mkt-foot-links,.mkt-crt .mkt-foot-links span{color:var(--graphite-3);font-size:.95rem}

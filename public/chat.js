@@ -9470,8 +9470,7 @@ function initCrt() {
   // because a signed-out visitor comes back through boot rather than through
   // this handler, and boot is what reads it. Signed in, there is no gate to
   // wait for and enterApp() takes them straight there.
-  const door = (id, view) => {
-    const el = document.getElementById(id);
+  const doorEl = (el, view) => {
     if (!el) return;
     el.addEventListener('click', (e) => {
       e.preventDefault();
@@ -9480,8 +9479,13 @@ function initCrt() {
       if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
     });
   };
+  const door = (id, view) => doorEl(document.getElementById(id), view);
   door('doorVideo', 'home');   // the media studio — video, image, voice
   door('doorApp', 'sites');    // the site builder
+  // The footer's product links are the same doors under another name, so they
+  // are wired from the SAME function rather than a second copy of it — a change
+  // to what a door does cannot reach these two and miss the three below.
+  document.querySelectorAll('[data-door]').forEach((el) => doorEl(el, el.getAttribute('data-door')));
 
   // Landing chatbox: let the visitor type freely; only funnel into the sign-up
   // popup when they commit (Enter) or hit the send arrow — not on tap/focus.

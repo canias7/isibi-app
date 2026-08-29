@@ -53,6 +53,7 @@
         <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="4" seed="41" result="n" />
         <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" />
       </filter>
+      <defs><g id="gfMark" fill="none" stroke="currentColor"><g stroke-width="34"><path d="M425.7 362.7A201.5 201.5 0 0 1 288.9 454.2" /><path d="M220.7 454.2A201.5 201.5 0 0 1 75.9 163.2" /><path d="M92 137.2A201.5 201.5 0 0 1 438.4 339.2" /></g><g stroke-width="16.5"><circle cx="167.5" cy="239" r="22.8" /><circle cx="255" cy="168.5" r="23.5" /><circle cx="342.5" cy="239" r="22.8" /></g><g stroke-width="20" stroke-linecap="round" stroke-linejoin="round"><path d="M255 200V465" /><path d="M167.5 262v63.5L210.5 370v92" /><path d="M342.5 262v63.5L299.5 370v92" /></g></g></defs>
     </svg>
 
     <!-- The CRT is the landing — everything lives inside the screen: the nav on
@@ -64,7 +65,7 @@
           <div class="crt-glass" aria-hidden="true"></div>
           <div class="crt-scan" aria-hidden="true"></div>
           <header class="crt-topbar">
-            <div class="mkt-brand"><svg class="logo-mark" viewBox="-6 -6 524 524" aria-hidden="true"><defs><g id="gfMark" fill="none" stroke="currentColor"><g stroke-width="34"><path d="M425.7 362.7A201.5 201.5 0 0 1 288.9 454.2" /><path d="M220.7 454.2A201.5 201.5 0 0 1 75.9 163.2" /><path d="M92 137.2A201.5 201.5 0 0 1 438.4 339.2" /></g><g stroke-width="16.5"><circle cx="167.5" cy="239" r="22.8" /><circle cx="255" cy="168.5" r="23.5" /><circle cx="342.5" cy="239" r="22.8" /></g><g stroke-width="20" stroke-linecap="round" stroke-linejoin="round"><path d="M255 200V465" /><path d="M167.5 262v63.5L210.5 370v92" /><path d="M342.5 262v63.5L299.5 370v92" /></g></g></defs><use href="#gfMark" class="gf-pass gf-pass-a" /><use href="#gfMark" class="gf-pass gf-pass-b" /></svg> Go Farther</div>
+            <div class="mkt-brand"><svg class="logo-mark" viewBox="-6 -6 524 524" aria-hidden="true"><use href="#gfMark" class="gf-pass gf-pass-a" /><use href="#gfMark" class="gf-pass gf-pass-b" /></svg> Go Farther</div>
             <nav class="mkt-links">
               <!-- Hover (or keyboard focus) opens this — a dropdown hanging off the
                    nav item, not a modal over the page. Visibility is CSS on the
@@ -177,10 +178,41 @@
             </div>
           </div>
 
-          <div class="crt-legal"><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a><span>© gofarther.dev</span></div>
         </div>
       </div>
     </main>
+    <footer class="mkt-foot">
+      <div class="mkt-foot-grid">
+        <div>
+          <h2 class="mkt-foot-h">Describe it. Go Farther builds it.</h2>
+          <button class="mkt-cta mkt-big" data-mkt="start" type="button">Start free</button>
+        </div>
+        <div class="mkt-foot-cols">
+          <div class="mkt-foot-col">
+            <span class="mkt-foot-hd">Make</span>
+            <button type="button" data-door="home">Video, images &amp; voice</button>
+            <button type="button" data-door="sites">Websites &amp; apps</button>
+            <button type="button" data-door="games">Games</button>
+          </div>
+          <div class="mkt-foot-col">
+            <span class="mkt-foot-hd">Account</span>
+            <button type="button" data-mkt="signin">Sign in</button>
+            <button type="button" data-mkt="start">Create an account</button>
+            <button type="button" data-act="credits">Pricing</button>
+          </div>
+          <div class="mkt-foot-col">
+            <span class="mkt-foot-hd">Legal</span>
+            <a href="/privacy.html">Privacy</a>
+            <a href="/terms.html">Terms</a>
+            <a href="/data-deletion.html">Deleting your data</a>
+          </div>
+        </div>
+      </div>
+      <div class="mkt-foot-row">
+        <div class="mkt-brand"><svg class="logo-mark" viewBox="-6 -6 524 524" aria-hidden="true"><use href="#gfMark" class="gf-pass gf-pass-a" /><use href="#gfMark" class="gf-pass gf-pass-b" /></svg> Go Farther</div>
+        <div class="mkt-foot-links"><span>&copy; gofarther.dev</span></div>
+      </div>
+    </footer>
   </div>
 
   <!-- Auth popup — a modal over the marketing landing (backdrop/Esc/✕ close it). -->
