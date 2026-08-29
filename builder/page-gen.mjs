@@ -704,1067 +704,6 @@ export const MAX_PAGE_CHARS = 48000;
 // fresh input. That is also why they are a constant set and not selected per
 // build: varying the block by schema would break the cache on every build and
 // cost far more than the pages it saved.
-export const REFERENCE_PAGES = [
-  {
-    path: "index.tsx",
-    blurb: "THE HOME PAGE — the trade's own layout: menu-style prices, the barbers, the work, find-us.",
-    source: `// Reference page — THE HOME PAGE, laid out the way the TRADE lays one out.
-//
-// A generated site is not a generic landing page wearing a business's name. A
-// barber shop has conventions, and following them is most of what reads as
-// "somebody who knows this trade made this":
-//
-//   - The PRICE LIST IS A MENU — rows with the price on the right — never a
-//     grid of product cards. \`PriceList\`'s own comment calls it the most common
-//     shape on a site this platform builds.
-//   - PEOPLE BOOK A BARBER, not a shop, so the team gets a section. The
-//     pictures are the owner's to add later; \`TeamGrid\` guards them.
-//   - The GALLERY is the work. It is the shop's portfolio, not decoration.
-//   - HOURS, ADDRESS AND PHONE LIVE TOGETHER in one "Find us" section, because
-//     they answer one question. Hours floating alone answer half of it.
-//
-// AND THE BUTTONS SIT WHERE THE DECISION HAPPENS. "Book" is in the header on
-// every page, in the hero, on EVERY ROW of the price list, and once more at the
-// bottom. The per-row button carries its service into the form —
-// \`/book?service=Skin fade\` — so the form opens half-filled. "Call" is beside
-// "Book" in the hero as a real tel: link, because for a barber shop the phone
-// IS a booking channel.
-//
-// The rhythm is BANDS: full-bleed hero, then sections alternating between the
-// page colour and \`bg-muted\`, each with its own inner container. A page where
-// every section is \`mt-14\` inside one narrow column reads as a document.
-//
-// THE PAGES ARE WIRED TOGETHER — owner's call. One chrome navigates between
-// them, the price rows carry their service into /book, the form hands back the
-// claim link /manage opens, and the member pages sit behind the real session,
-// so the site WORKS the day it is generated. What stays written into the page
-// is the owner's own facts — hours, the team, the gallery captions — and that
-// is a data decision, not a wiring one: those cost no query and cannot render
-// empty on a fresh site.
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-
-import { useRows, type Row } from "@/lib/rows";
-import { CtaBand } from "@/components/ui/cta-band";
-import { Gallery } from "@/components/ui/gallery";
-import { Hero } from "@/components/ui/hero";
-import { LocationCard } from "@/components/ui/location-card";
-import { OpenNow } from "@/components/ui/open-now";
-import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
-import { PriceList } from "@/components/ui/price-list";
-import { SectionHeader } from "@/components/ui/section-header";
-import { SiteChrome } from "@/components/ui/site-chrome";
-import { Skeleton } from "@/components/ui/skeleton";
-import { TeamGrid } from "@/components/ui/team-grid";
-import { Testimonial } from "@/components/ui/testimonial";
-import { TrustStrip } from "@/components/ui/trust-strip";
-
-export const Route = createFileRoute("/")({ component: Home });
-
-type Service = Row & {
-  name: string;
-  description: string | null;
-  price: number | null;
-  duration_minutes: number | null;
-};
-
-// The same facts on every page of the site. Written once per file rather than
-// once per return. The phone is a nav link because for this trade it is a
-// booking channel, not small print.
-//
-// IT IS ALSO IN \`contact\`, AND THAT IS NOT A DUPLICATE. The nav entry is the
-// action — ring us now — and the footer entry is the record a visitor scrolls
-// to the bottom to find, beside the address and the hours. Real businesses
-// print their number in both places for exactly that reason.
-const CHROME = {
-  name: "Cutler Row",
-  tagline: "Six chairs on Cutler Row. Walk in, or book one.",
-  links: [
-    { label: "Prices", href: "#prices" },
-    { label: "The barbers", href: "#barbers" },
-    { label: "Find us", href: "#find-us" },
-    { label: "0114 270 0000", href: "tel:+441142700000" },
-  ],
-  action: { label: "Book a chair", href: "/book" },
-  // The footer's small print. \`phone\` is written the way a person writes it and
-  // the \`tel:\` link is derived, so there is no second value to get wrong; the
-  // address carries real newlines, which the footer renders as lines.
-  contact: {
-    phone: "0114 270 0000",
-    email: "hello@cutlerrow.co.uk",
-    address: "14 Cutler Row\\nSheffield S1 2AY",
-    hours: "Tue–Fri 9–6, Sat 8.30–5",
-  },
-  social: [
-    { network: "instagram", href: "https://instagram.com/cutlerrow" },
-    { network: "facebook", href: "https://facebook.com/cutlerrow" },
-  ],
-  // \`legal\` is the fourth footer slot and is deliberately NOT demonstrated here:
-  // this site has no privacy page, and a reference page linking to one it has
-  // not built teaches exactly the dangling link the router refuses. Use it only
-  // for a page the site really has.
-};
-
-// The shop's own facts. Anything the owner will never edit from a form belongs
-// in the page — it costs no query and cannot be empty on a fresh site.
-const HOURS: DayHours[] = [
-  { day: 1, label: "Monday", open: null, close: null },
-  { day: 2, label: "Tuesday", open: "09:00", close: "18:00" },
-  { day: 3, label: "Wednesday", open: "09:00", close: "18:00" },
-  { day: 4, label: "Thursday", open: "09:00", close: "20:00" },
-  { day: 5, label: "Friday", open: "09:00", close: "20:00" },
-  { day: 6, label: "Saturday", open: "08:30", close: "17:00" },
-  { day: 0, label: "Sunday", open: null, close: null },
-];
-
-function Home() {
-  const services = useRows<Service>("services", { order: "price", dir: "asc" });
-  const navigate = useNavigate();
-
-  return (
-    <SiteChrome {...CHROME}>
-      <Hero
-        title="Barbering on Cutler Row since 2014"
-        subtitle="Six barbers, no appointment needed on weekdays. Walk in before eleven, or book a chair."
-        primary={{ label: "Book a chair", href: "/book" }}
-        secondary={{ label: "Call 0114 270 0000", href: "tel:+441142700000" }}
-      />
-
-      {/* Reassurance in the trade's own language, not a corporate stats band. */}
-      <section className="mx-auto max-w-5xl px-6">
-        <TrustStrip
-          items={[
-            { title: "Walk-ins welcome", description: "Before 11 on weekdays you won't wait long" },
-            {
-              title: "4.9 on Google",
-              description: "Two hundred odd reviews, mostly about the fades",
-            },
-            { title: "Cash or card", description: "No booking fee, no deposit" },
-          ]}
-        />
-      </section>
-
-      <section id="prices" className="mt-4 border-y border-border bg-muted/40">
-        <div className="mx-auto max-w-3xl px-6 py-20">
-          <SectionHeader
-            eyebrow="The price list"
-            title="Cuts and shaves"
-            description="Every cut finishes with a hot towel. Students £4 off, Tuesday to Thursday."
-          />
-          {/* A price list is ROWS — name, price on the right, a Book button on
-              the row — because that is how the trade writes one. \`PriceList\`
-              takes the whole list at once, so the query's states sit around it;
-              when a page lays rows out itself, \`DataList\` carries all four
-              states instead. */}
-          {services.isPending && <Skeleton className="mt-8 h-64 rounded-xl" />}
-          {services.isError && (
-            <p className="mt-8 text-sm text-destructive">
-              Couldn't load the price list. Refresh and try again.
-            </p>
-          )}
-          {services.data?.length === 0 && (
-            <p className="mt-8 text-sm text-muted-foreground">Nothing listed yet.</p>
-          )}
-          {!!services.data?.length && (
-            <PriceList
-              className="mt-6"
-              items={services.data.map((s) => ({
-                name: s.name,
-                description: s.description,
-                price: s.price,
-                meta: s.duration_minutes != null ? \`\${s.duration_minutes} min\` : null,
-              }))}
-              /* THE BUTTON IN THE RIGHT PLACE: the row you are reading is the
-                 service you want, so its Book button carries the service into
-                 the form. The search param is typed by /book's own
-                 validateSearch, so a typo here fails the build. */
-              action={{
-                label: "Book",
-                onSelect: (r) => navigate({ to: "/book", search: { service: r.name } }),
-              }}
-            />
-          )}
-        </div>
-      </section>
-
-      <section id="barbers" className="mx-auto max-w-5xl px-6 py-20">
-        <SectionHeader
-          eyebrow="The barbers"
-          title="Pick your chair"
-          description="Six of us, two generations. Ask for whoever cut you last — it's on your booking."
-        />
-        {/* People book a person. Photos are the owner's to add after the build,
-            so every one is guarded by the component. */}
-        <TeamGrid
-          className="mt-8"
-          items={[
-            { name: "Tommy Vasile", role: "Owner — fades and razor work" },
-            { name: "Marcus Obeng", role: "Beards and hot towel shaves" },
-            { name: "Ellis Ward", role: "Scissor cuts" },
-            { name: "Deniz Aydın", role: "Kids and first cuts" },
-          ]}
-        />
-      </section>
-
-      <section className="border-y border-border bg-muted/40">
-        <div className="mx-auto max-w-5xl px-6 py-20 motion-reveal">
-          <SectionHeader eyebrow="The work" title="Recent cuts" />
-          <Gallery
-            className="mt-8"
-            columns={3}
-            items={[
-              { src: null, alt: "Skin fade, front window chair" },
-              { src: null, alt: "Beard line-up" },
-              { src: null, alt: "Scissor crop" },
-              { src: null, alt: "Hot towel shave" },
-              { src: null, alt: "The long window on a Saturday" },
-              { src: null, alt: "Tommy's chair" },
-            ]}
-          />
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-5xl px-6 py-20">
-        <SectionHeader eyebrow="Kind words" title="What the chairs say" />
-        <div className="mt-8 grid gap-5 sm:grid-cols-2">
-          <Testimonial
-            item={{
-              quote:
-                "Been coming since they opened. Never waited more than ten minutes, never had a bad cut.",
-              name: "Dan Whitfield",
-              role: "Every third Thursday",
-            }}
-          />
-          <Testimonial
-            item={{
-              quote: "Took my lad for his first proper cut. Deniz had him laughing the whole time.",
-              name: "Priya Nair",
-              role: "Saturday regular",
-            }}
-          />
-        </div>
-      </section>
-
-      {/* Hours, address and phone are ONE question — how do I get there and
-          when — so they are one section, with the live answer on top. */}
-      <section id="find-us" className="border-y border-border bg-muted/40">
-        <div className="mx-auto grid max-w-5xl gap-10 px-6 py-20 sm:grid-cols-2">
-          <div>
-            <SectionHeader eyebrow="Find us" title="On the row itself" />
-            <OpenNow
-              className="mt-6"
-              hours={HOURS.filter((h) => h.open && h.close).map((h) => ({
-                day: h.day,
-                open: h.open!,
-                close: h.close!,
-              }))}
-            />
-            <OpeningHours days={HOURS} className="mt-4" />
-          </div>
-          <LocationCard
-            className="self-start"
-            name="Cutler Row Barbers"
-            address="14 Cutler Row, Sheffield S1 2AY"
-            note="Two minutes from the Cathedral tram stop. No parking on the row itself — use Campo Lane."
-          />
-        </div>
-      </section>
-
-      {/* The last thing before the footer is the thing you want them to do. */}
-      <section className="mx-auto max-w-5xl px-6 py-20">
-        <CtaBand
-          title="A chair is usually free the same day"
-          description="Book in thirty seconds. We'll call to confirm."
-          action={{ label: "Book a chair", href: "/book" }}
-        />
-      </section>
-    </SiteChrome>
-  );
-}
-`,
-  },
-  {
-    path: "book.tsx",
-    blurb: "THE FORM — validation, taken slots, the claim link back, and ?service= preselect.",
-    source: `// Reference page — THE FORM. Everything a \`collect\` table needs: validation
-// before a round trip, the four list states behind a Select, the slots somebody
-// else has already taken, and a confirmation screen that does not promise the
-// customer a link this page cannot obtain.
-//
-// A \`collect\` table is write-only: no policy lets anyone list it, so a booking
-// page CANNOT read the bookings to work out what is free. \`usePublicRows\` reads
-// a VIEW the schema published for exactly that — the taken times and nothing
-// else. If the schema declares no view for a table, ship the ordinary form; a
-// visitor is told about a clash on submit instead of before it.
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { toast } from "sonner";
-
-import { useRows, useCreateRow, usePublicRows, type Row } from "@/lib/rows";
-import { AvailabilityGrid } from "@/components/ui/availability-grid";
-import { Button } from "@/components/ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { SiteChrome } from "@/components/ui/site-chrome";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-
-export const Route = createFileRoute("/book")({
-  component: Book,
-  // WHAT THIS PAGE IS, so a share of it does not preview as the home page.
-  // Without a \`head\` a route inherits the site's own title and description, so
-  // every address on the site showed one headline and one blurb — the booking
-  // page pasted into a message read as the front page. The root supplies
-  // \`og:url\`, the share image and the card type; a page supplies only these.
-  head: () => ({
-    meta: [
-      { title: "Book a chair — Sharp Fade Barbers" },
-      { property: "og:title", content: "Book a chair — Sharp Fade Barbers" },
-      { name: "description", content: "Pick a service and a time. Takes about a minute, and you get a link to change it." },
-      { property: "og:description", content: "Pick a service and a time. Takes about a minute, and you get a link to change it." },
-    ],
-  }),
-  // Every Book button on the site carries its service here — the price list's
-  // per-row button navigates with \`search: { service: r.name }\` — so the form
-  // opens half-filled. Narrowing here is also what TYPES that navigate call.
-  // The return type marks the key OPTIONAL (\`service?:\`), not merely
-  // possibly-undefined — without that, every <Link to="/book"> in the site is
-  // forced to spell out a search object.
-  validateSearch: (search: Record<string, unknown>): { service?: string } => ({
-    service: typeof search.service === "string" ? search.service : undefined,
-  }),
-});
-
-type Service = Row & { name: string; price: number | null };
-
-// The row shape this form writes. It is a TYPE ARGUMENT ONLY — \`useCreateRow\`
-// resolves to void, because a \`collect\` table grants no SELECT and asking
-// PostgREST to return the inserted row is what made the insert 403.
-type Appointment = Row;
-
-// The same facts on every page of the site. Written once per file rather than
-// once per return.
-const CHROME = {
-  name: "Cutler Row",
-  tagline: "Six chairs on Cutler Row. Walk in, or book one.",
-  links: [
-    { label: "Home", href: "/" },
-    { label: "Book", href: "/book" },
-    { label: "Account", href: "/account" },
-  ],
-  action: { label: "Book a chair", href: "/book" },
-  contact: {
-    phone: "0114 270 0000",
-    email: "hello@cutlerrow.co.uk",
-    address: "14 Cutler Row\\nSheffield S1 2AY",
-    hours: "Tue–Fri 9–6, Sat 8.30–5",
-  },
-  social: [
-    { network: "instagram", href: "https://instagram.com/cutlerrow" },
-    { network: "facebook", href: "https://facebook.com/cutlerrow" },
-  ],
-};
-
-const SLOTS = [
-  "09:00",
-  "09:30",
-  "10:00",
-  "10:30",
-  "11:00",
-  "11:30",
-  "14:00",
-  "14:30",
-  "15:00",
-  "15:30",
-  "16:00",
-  "16:30",
-];
-
-// Mirrors the declared columns. The API rejects anything undeclared anyway, but
-// validating here means the visitor is told before a round trip.
-const booking = z.object({
-  service: z.string().min(1, "Pick a service"),
-  customer_name: z.string().min(2, "Tell us your name"),
-  customer_phone: z.string().min(6, "We need a number to confirm on"),
-  date: z.string().min(1, "Pick a date"),
-  time: z.string().min(1, "Pick a time"),
-  notes: z.string().max(500).optional(),
-});
-
-type Booking = z.infer<typeof booking>;
-
-function Book() {
-  // A service name that no longer exists simply leaves the Select on its
-  // placeholder — a stale link half-fills instead of breaking.
-  const { service: preselected } = Route.useSearch();
-  const services = useRows<Service>("services", { order: "price", dir: "asc" });
-  const create = useCreateRow<Appointment>("appointments");
-  // A plain "did it land" flag, not a token. The token could never have arrived
-  // — see onSuccess below.
-  const [booked, setBooked] = useState(false);
-
-  const form = useForm<Booking>({
-    resolver: zodResolver(booking),
-    defaultValues: {
-      service: preselected ?? "",
-      customer_name: "",
-      customer_phone: "",
-      date: "",
-      time: "",
-      notes: "",
-    },
-  });
-
-  // Watched, because which slots are gone depends on the day being asked about.
-  const date = form.watch("date");
-  // The argument is the TABLE, not the name of a view. A \`publicView\` is a
-  // projection the schema declared ON that table, so \`appointments\` is what is
-  // asked for and the server returns only the published columns.
-  //
-  // Those rows carry NEVER an \`id\` — a projection strips it — so they are keyed
-  // on a published column. Filters are FLAT: a declared column name is the key,
-  // with no \`filter\` wrapper around it.
-  const taken = usePublicRows<{ time: string }>("appointments", date ? { date } : undefined);
-
-  const onSubmit = (values: Booking) => {
-    create.mutate(values, {
-      // The callback parameter is NOT annotated: TanStack's signature is
-      // contravariant in four arguments and refuses any hand-written type here.
-      // NOTHING COMES BACK, and this page is why that had to be said out loud.
-      // It read \`row.claim_token\` off the insert — which needs PostgREST to
-      // RETURN the row, which needs SELECT, which a write-only \`collect\` table
-      // deliberately does not grant. So the header that fetched the token is
-      // what made the INSERT itself 403, and since this file is the reference
-      // the generator is derived from, it taught that pattern to every site the
-      // builder has produced. Confirmation is the end of the flow; a manage link
-      // needs the schema to expose a function that creates AND returns.
-      onSuccess: () => {
-        toast.success("Booked — we'll call to confirm.");
-        form.reset();
-        setBooked(true);
-      },
-      // The API separates the caller's fault from a server fault, so its own
-      // message is worth showing instead of a generic failure.
-      onError: (e: Error) => toast.error(e.message),
-    });
-  };
-
-  // THE CONFIRMATION IS THE END OF THE FLOW, and that is a complete site rather
-  // than a broken one. Offering a "manage your booking" link here would need a
-  // token this page cannot obtain: reading it off the insert is what refused the
-  // insert. A site that wants one declares a function that creates AND returns.
-  if (booked) {
-    return (
-      <SiteChrome {...CHROME}>
-        <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
-          <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
-          <p className="mt-3 text-muted-foreground">
-            We'll call to confirm within the hour. Need to change it? Give us a ring.
-          </p>
-          <Button asChild variant="outline" className="mt-6">
-            <Link to="/">Back to the shop</Link>
-          </Button>
-        </div>
-      </SiteChrome>
-    );
-  }
-
-  return (
-    <SiteChrome {...CHROME}>
-      <div className="mx-auto max-w-2xl px-6 py-14">
-        <h1 className="text-3xl font-semibold tracking-tight">Book a chair</h1>
-        <p className="mt-2 text-muted-foreground">We'll call to confirm within the hour.</p>
-
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
-            <FormField
-              control={form.control}
-              name="service"
-              render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Service</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose one" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {services.data?.map((s) => (
-                        <SelectItem key={s.id} value={s.name}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="customer_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Your name</FormLabel>
-                  <FormControl>
-                    <Input autoComplete="name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="customer_phone"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Phone</FormLabel>
-                  <FormControl>
-                    <Input type="tel" autoComplete="tel" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="date"
-              render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Date</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="time"
-              render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Time</FormLabel>
-                  <FormControl>
-                    {/* Taken slots are struck through and unpickable, so a visitor
-                      sees 09:30 is gone BEFORE submitting rather than being
-                      refused after filling the whole form in. */}
-                    <AvailabilityGrid
-                      slots={SLOTS}
-                      taken={taken.data?.map((t) => t.time) ?? []}
-                      value={field.value}
-                      onSelect={field.onChange}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Anything else?</FormLabel>
-                  <FormControl>
-                    <Textarea rows={3} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="sm:col-span-2">
-              {/* Disabled while in flight, or a customer who sees nothing happen
-                presses again and books three times. */}
-              <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Request appointment"}
-              </Button>
-            </div>
-          </form>
-        </Form>
-      </div>
-    </SiteChrome>
-  );
-}
-`,
-  },
-  {
-    path: "manage.tsx",
-    blurb: "COMING BACK — one row, opened by a claim token off the URL.",
-    source: `// Reference page — COMING BACK. The person who filled the form in has no
-// account and never will, so a claim token IS their identity: it arrives in the
-// confirmation link, it opens exactly one row, and it does nothing else.
-//
-// Build this page whenever a site takes appointments, orders or reservations —
-// anything a customer might need to check, MOVE or cancel. A plain contact form
-// does not need one; nobody comes back to look at an enquiry.
-//
-// CHANGING BEATS CANCELLING, and for a while this page could only cancel. On a
-// booking table with \`unique\` or \`noOverlap\`, cancel-and-rebook gives the slot
-// up before the new one is secured — so the customer can lose the only
-// appointment they had, to move it by an hour. Offer the change when the schema
-// declares a function for it.
-//
-// The token is read off the URL. A wrong token and a row that is not there
-// answer IDENTICALLY, which is deliberate: a distinct "bad link" would tell
-// somebody guessing which bookings exist.
-import { useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { toast } from "sonner";
-
-import { useClaimedRow, useCancelClaim, useAmendClaim, type Row } from "@/lib/rows";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { SiteChrome } from "@/components/ui/site-chrome";
-import { Skeleton } from "@/components/ui/skeleton";
-
-export const Route = createFileRoute("/manage")({
-  component: Manage,
-  // WHAT THIS PAGE IS, so a share of it does not preview as the home page.
-  // Without a \`head\` a route inherits the site's own title and description, so
-  // every address on the site showed one headline and one blurb — the booking
-  // page pasted into a message read as the front page. The root supplies
-  // \`og:url\`, the share image and the card type; a page supplies only these.
-  head: () => ({
-    meta: [
-      { title: "Your booking — Sharp Fade Barbers" },
-      { property: "og:title", content: "Your booking — Sharp Fade Barbers" },
-      { name: "description", content: "Check the time you booked, or cancel it, using the link from your confirmation." },
-      { property: "og:description", content: "Check the time you booked, or cancel it, using the link from your confirmation." },
-    ],
-  }),
-  // Search params arrive as unknown; narrowing here is what makes the token a
-  // string for the rest of the page instead of \`unknown\`.
-  validateSearch: (search: Record<string, unknown>) => ({
-    t: typeof search.t === "string" ? search.t : undefined,
-  }),
-});
-
-type Appointment = Row & {
-  service: string;
-  date: string;
-  time: string;
-  status: string | null;
-};
-
-// The same facts on every page of the site. Written once per file rather than
-// once per return.
-const CHROME = {
-  name: "Cutler Row",
-  tagline: "Six chairs on Cutler Row. Walk in, or book one.",
-  links: [
-    { label: "Home", href: "/" },
-    { label: "Book", href: "/book" },
-    { label: "Account", href: "/account" },
-  ],
-  action: { label: "Book a chair", href: "/book" },
-  contact: {
-    phone: "0114 270 0000",
-    email: "hello@cutlerrow.co.uk",
-    address: "14 Cutler Row\\nSheffield S1 2AY",
-    hours: "Tue–Fri 9–6, Sat 8.30–5",
-  },
-  social: [
-    { network: "instagram", href: "https://instagram.com/cutlerrow" },
-    { network: "facebook", href: "https://facebook.com/cutlerrow" },
-  ],
-};
-
-function Manage() {
-  const { t: claim } = Route.useSearch();
-  // The schema declares these three functions; they are named here, not guessed.
-  const booking = useClaimedRow<Appointment>("booking_by_claim", claim);
-  const cancel = useCancelClaim("cancel_booking_by_claim");
-  const amend = useAmendClaim("amend_booking_by_claim");
-  const [moving, setMoving] = useState(false);
-
-  const onCancel = () => {
-    if (!claim) return;
-    cancel.mutate(
-      { claim },
-      {
-        // Idempotent on purpose — a cancel link gets clicked twice, and the second
-        // click should read as "already cancelled", never as a broken link.
-        onSuccess: () => toast.success("Cancelled. Sorry to miss you."),
-        onError: (e: Error) => toast.error(e.message),
-      },
-    );
-  };
-
-  const onMove = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!claim) return;
-    const form = new FormData(e.currentTarget);
-    // The keys are the FUNCTION'S argument names, and the function decides which
-    // columns those reach — so this page cannot touch a column the business did
-    // not open, and the table's own constraints re-run inside the UPDATE.
-    amend.mutate(
-      { claim, values: { new_date: String(form.get("date") || ""), new_time: String(form.get("time") || "") } },
-      {
-        onSuccess: () => { setMoving(false); toast.success("Moved. See you then."); },
-        // A slot taken between opening this page and submitting it comes back as
-        // the same duplicate error the booking form gets, and says so.
-        onError: (err: Error) => toast.error(err.message),
-      },
-    );
-  };
-
-  return (
-    <SiteChrome {...CHROME}>
-      <div className="mx-auto max-w-lg px-6 py-16">
-        <h1 className="text-3xl font-semibold tracking-tight">Your booking</h1>
-
-        {!claim && (
-          <p className="mt-4 text-muted-foreground">
-            This page needs the link from your confirmation.{" "}
-            <Link to="/book" className="underline">
-              Book a chair
-            </Link>{" "}
-            instead.
-          </p>
-        )}
-
-        {claim && booking.isPending && <Skeleton className="mt-6 h-40 rounded-xl" />}
-
-        {claim && booking.isError && (
-          <p className="mt-4 text-sm text-destructive">
-            Couldn't load your booking. Refresh and try again.
-          </p>
-        )}
-
-        {/* A missing row and a wrong token land here together, and say the same
-            thing — which is the whole point. */}
-        {claim && !booking.isPending && !booking.isError && !booking.data && (
-          <p className="mt-4 text-muted-foreground">
-            We couldn't find that booking. It may have been cancelled already.
-          </p>
-        )}
-
-        {booking.data && (
-          <Card className="mt-6 motion-enter">
-            <CardHeader>
-              <CardTitle>{booking.data.service}</CardTitle>
-              <CardDescription className="tabular-nums">
-                {booking.data.date} at {booking.data.time}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm text-muted-foreground">
-                  {booking.data.status === "cancelled" ? "Cancelled" : "Confirmed"}
-                </span>
-                {booking.data.status !== "cancelled" && (
-                  <div className="flex gap-2">
-                    {/* CHANGE SITS BEFORE CANCEL, and reads as the ordinary
-                        action, because moving an appointment is what somebody
-                        opening this link usually wants. Cancel stays
-                        destructive and second. */}
-                    <Button variant="outline" onClick={() => setMoving((v) => !v)}>
-                      {moving ? "Keep it" : "Change time"}
-                    </Button>
-                    <Button variant="destructive" onClick={onCancel} disabled={cancel.isPending}>
-                      {cancel.isPending ? "Cancelling…" : "Cancel booking"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {moving && booking.data.status !== "cancelled" && (
-                /* PRE-FILLED with what they already have, so moving by an hour
-                   is one field and not a re-entry of the whole booking. */
-                <form onSubmit={onMove} className="flex flex-wrap items-end gap-3 border-t pt-4">
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-muted-foreground">Date</span>
-                    <Input type="date" name="date" defaultValue={booking.data.date} required />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-muted-foreground">Time</span>
-                    <Input type="time" name="time" defaultValue={booking.data.time} required />
-                  </label>
-                  <Button type="submit" disabled={amend.isPending}>
-                    {amend.isPending ? "Moving…" : "Move booking"}
-                  </Button>
-                </form>
-              )}
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </SiteChrome>
-  );
-}
-`,
-  },
-  {
-    path: "account.tsx",
-    blurb: "MEMBERS — sign in, then read a table scoped to whoever signed in.",
-    source: `// Reference page — MEMBERS. A \`user\`, \`feed\` or \`admin\` table is scoped to the
-// visitor who is signed in, so reading or writing one WITHOUT a session is a
-// 401, and a page that shows an error instead of a sign-in form looks broken
-// rather than locked. That is the whole reason this page exists.
-//
-// One form, two buttons. Sign-up and sign-in take the same shape, so splitting
-// them into two pages doubles the code and halves the chance a visitor finds the
-// one they need.
-//
-// ONE ERROR FOR THE WHOLE FORM, never per field. Saying which of the address and
-// the password was wrong tells somebody whether that address has an account
-// here.
-//
-// The chrome wraps the page ONCE, with the three states switching inside it. A
-// component that returns early into a second copy of the layout is how a header
-// ends up on two of a page's three states.
-import { createFileRoute } from "@tanstack/react-router";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { toast } from "sonner";
-
-import {
-  useMember,
-  useLogin,
-  useSignup,
-  useLogout,
-  useRows,
-  useCreateRow,
-  type Row,
-} from "@/lib/rows";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DataList } from "@/components/ui/data-list";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { SiteChrome } from "@/components/ui/site-chrome";
-
-export const Route = createFileRoute("/account")({
-  // WHAT THIS PAGE IS, so a share of it does not preview as the home page.
-  // Without a \`head\` a route inherits the site's own title and description, so
-  // every address on the site showed one headline and one blurb — the booking
-  // page pasted into a message read as the front page. The root supplies
-  // \`og:url\`, the share image and the card type; a page supplies only these.
-  head: () => ({
-    meta: [
-      { title: "Your account — Sharp Fade Barbers" },
-      { property: "og:title", content: "Your account — Sharp Fade Barbers" },
-      { name: "description", content: "Sign in to see your past visits and the times you have booked." },
-      { property: "og:description", content: "Sign in to see your past visits and the times you have booked." },
-    ],
-  }),
-  component: Account,
-});
-
-type Profile = Row & { nickname: string | null };
-
-// The same facts on every page of the site. Written once per file rather than
-// once per return.
-const CHROME = {
-  name: "Cutler Row",
-  tagline: "Six chairs on Cutler Row. Walk in, or book one.",
-  links: [
-    { label: "Home", href: "/" },
-    { label: "Book", href: "/book" },
-    { label: "Account", href: "/account" },
-  ],
-  action: { label: "Book a chair", href: "/book" },
-  contact: {
-    phone: "0114 270 0000",
-    email: "hello@cutlerrow.co.uk",
-    address: "14 Cutler Row\\nSheffield S1 2AY",
-    hours: "Tue–Fri 9–6, Sat 8.30–5",
-  },
-  social: [
-    { network: "instagram", href: "https://instagram.com/cutlerrow" },
-    { network: "facebook", href: "https://facebook.com/cutlerrow" },
-  ],
-};
-
-const credentials = z.object({
-  email: z.string().email("That doesn't look like an email address"),
-  // 8 is the server's own minimum. Saying so here saves a round trip.
-  password: z.string().min(8, "At least 8 characters"),
-});
-
-type Credentials = z.infer<typeof credentials>;
-
-function Account() {
-  const member = useMember();
-  const login = useLogin();
-  const signup = useSignup();
-  const logout = useLogout();
-
-  const form = useForm<Credentials>({
-    resolver: zodResolver(credentials),
-    defaultValues: { email: "", password: "" },
-  });
-
-  // The callback's parameter is NOT annotated. TanStack's mutation callback is
-  // contravariant in four arguments and refuses any hand-written type for it.
-  const submit = (action: typeof login, values: Credentials) => {
-    action.mutate(values, {
-      onSuccess: (data) => {
-        // A second factor answers with \`pending\` and NO token, so "it returned
-        // 200" is not the same as "you are signed in".
-        if (data && typeof data === "object" && "pending" in data) {
-          toast.message("Check your authenticator app to finish signing in.");
-          return;
-        }
-        form.reset();
-      },
-      onError: () => toast.error("That email and password didn't match."),
-    });
-  };
-
-  return (
-    <SiteChrome {...CHROME}>
-      <div className="mx-auto max-w-md px-6 py-16">
-        {member.isPending && <p className="text-muted-foreground">Checking your sign-in…</p>}
-
-        {/* Member-scoped reads live BEHIND the sign-in check, never beside it.
-            Rendering this at all is the proof there is a session. */}
-        {member.data && <SignedIn name={member.data.name} onSignOut={() => logout.mutate()} />}
-
-        {!member.isPending && !member.data && (
-          <>
-            <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
-            <p className="mt-2 text-muted-foreground">
-              Sign in, or make an account to keep your details.
-            </p>
-
-            <Form {...form}>
-              <form
-                className="mt-8 grid gap-4"
-                onSubmit={form.handleSubmit((v) => submit(login, v))}
-              >
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input type="email" autoComplete="email" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input type="password" autoComplete="current-password" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="flex gap-3">
-                  <Button type="submit" className="motion-press" disabled={login.isPending}>
-                    {login.isPending ? "Signing in…" : "Sign in"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={signup.isPending}
-                    onClick={form.handleSubmit((v) => submit(signup, v))}
-                  >
-                    Create an account
-                  </Button>
-                </div>
-              </form>
-            </Form>
-          </>
-        )}
-      </div>
-    </SiteChrome>
-  );
-}
-
-function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
-  const profiles = useRows<Profile>("profiles");
-  const create = useCreateRow("profiles");
-
-  return (
-    <>
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
-        <Button variant="ghost" onClick={onSignOut}>
-          Sign out
-        </Button>
-      </div>
-
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle className="text-base">Your details</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {/* \`profiles\` is a \`user\` table, so this read returns THIS member's
-              rows and nobody else's — the scoping is the database's job, not a
-              filter written here. */}
-          <DataList
-            query={profiles}
-            className="grid gap-2"
-            skeleton={1}
-            empty={{ title: "Nothing saved yet" }}
-            error="Couldn't load your details."
-          >
-            {(p) => (
-              <p key={p.id} className="text-sm">
-                {p.nickname}
-              </p>
-            )}
-          </DataList>
-          <Button
-            className="mt-4"
-            disabled={create.isPending}
-            onClick={() => create.mutate({ nickname: name })}
-          >
-            Save my name
-          </Button>
-        </CardContent>
-      </Card>
-    </>
-  );
-}
-`,
-  },
-];
-
-/** The home page alone, which is what most briefs need. */
-export const REFERENCE_PAGE = REFERENCE_PAGES[0].source;
 
 /**
  * COMPONENTS THE RULES CITE IN THEIR OWN PROSE rather than in a reference page.
@@ -1825,15 +764,7 @@ export const RULE_CITED_COMPONENTS = [];
  * WHERE IT STOPS, and why here: coverage is 43.6% derived-only and 66.9% at this
  * size, and then about 250 tokens per 3 points after it. The knee is at 20.
  */
-export const ALWAYS_API_CORE = (() => {
-  const core = new Set(RULE_CITED_COMPONENTS);
-  for (const p of REFERENCE_PAGES) {
-    for (const m of String(p.source).matchAll(/from "@\/components\/ui\/([a-z0-9-]+)"/g)) core.add(m[1]);
-  }
-  for (const n of KIT_PALETTE.slice(0, 20)) core.add(n);
-  const real = new Set(UI_COMPONENTS);
-  return [...core].filter((n) => real.has(n));
-})();
+
 
 /**
  * THE SIGNATURES THIS SITE GETS, fresh, in the user turn.
@@ -1851,12 +782,23 @@ export const ALWAYS_API_CORE = (() => {
  * exactly the request it sent before this existed.
  */
 export function siteComponentApi(components) {
-  const core = new Set(ALWAYS_API_CORE);
-  const extra = (Array.isArray(components) ? components : []).filter((n) => !core.has(n));
-  const block = componentApiFor(extra);
+  // ── THE MANIFEST IS THE WHOLE SET (owner, 2026-08-29) ─────────────────────
+  //
+  // "it should be only 15, the 15 on the design step."
+  //
+  // This SUBTRACTED `ALWAYS_API_CORE` — thirty-one components whose props rode
+  // in the cached block on every build whether the designer named them or not,
+  // so the page writer could reach for up to forty-six. The subtraction was a
+  // caching optimisation (a component printed twice is paid for twice, at 1x
+  // rather than a cache read's 0.1x) and it quietly made the manifest
+  // ADVISORY: the design step said "these fifteen" and the page step was told
+  // "those, plus these thirty-one, use whichever you like".
+  //
+  // One decision, one place. What the designer names is what the writer gets.
+  const block = componentApiFor(Array.isArray(components) ? components : []);
   if (!block) return "";
-  return "THE COMPONENTS THIS SITE NEEDS — their exact props, checked against the same rule as the\n" +
-    "core above: a prop that does not exist is a compile error and costs the page.\n" + block;
+  return "THE COMPONENTS THIS SITE NEEDS — their exact props. A prop that does not exist is a\n" +
+    "compile error and costs the page.\n" + block;
 }
 
 
@@ -1892,12 +834,19 @@ or an access level — anything not in the schema below does not exist.
 3. THE KIT FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
    button, input, select, checkbox or dialog.
 
-   WHAT YOU MAY IMPORT IS NAMED FOR YOU, in two places and nowhere else: the
-   components with signatures below, which every site gets, and the block LATER IN
-   THIS MESSAGE listing the ones chosen for THIS site. There are ${UI_COMPONENTS.length.toLocaleString("en-GB")}
+   WHAT YOU MAY IMPORT IS NAMED FOR YOU, in the block LATER IN THIS MESSAGE
+   listing the components chosen for THIS site — and nowhere else. There are ${UI_COMPONENTS.length.toLocaleString("en-GB")}
    modules under that path and the step that designed this site has already picked
    from them for you — so a name in neither place is one you would be guessing at,
    and a module that does not exist is a compile error that costs the page.
+
+   THE ${(UI_COMPONENTS.length - Object.keys(UI_EXPORTS).length).toLocaleString("en-GB")} MODULES WITH NO SIGNATURE BELOW ARE THE STANDARD shadcn/ui
+   PRIMITIVES — button, input, select, checkbox, dialog, card, table, tabs and the
+   rest of that set — and they take the shadcn props you already know. They are
+   real, they are importable, and this rule's "never hand-roll a button" means
+   exactly them. Their props are typed as \`React.ComponentProps<typeof X>\`,
+   which the signature scan cannot read, so their absence below is a limit of the
+   scan and NOT a statement that they do not exist.
 
    THE EXPORT NAME IS THE FILE NAME IN PascalCase, EXACTLY — no embellishment.
    \`@/components/ui/faq\` exports \`Faq\`, not \`FaqAccordion\`; \`open-now\` exports
@@ -1912,12 +861,14 @@ or an access level — anything not in the schema below does not exist.
    and the whole site falls back to its data model. Where a type is a NAME
    (\`Row[]\`, \`Activity[]\`), hand it the rows a hook gave you and do not invent
    fields on it.
-   **The two places named at the top of this rule are the whole set: the handful
-   below, which every site gets, and the block LATER IN THIS MESSAGE chosen for THIS
-   site. Both give you full props. If you do reach past them for something you are
-   sure of, keep the call to \`children\` and \`className\` — every component in the kit
-   accepts those — because anything else would be a prop you have not been shown.**
-${componentApiFor(ALWAYS_API_CORE)}
+   **THE BLOCK LATER IN THIS MESSAGE IS THE WHOLE SET. It lists the components
+   chosen for THIS site, with full props, and there is no second list: a name that
+   is not in it is one you have not been shown. If you do reach past it for
+   something you are sure of, keep the call to \`children\` and \`className\` —
+   every component in the kit accepts those — because anything else would be a
+   prop you are guessing at, and a prop that does not exist is a compile error
+   that costs the page.**
+
 
    There is no "toast" or "use-toast" component — toasts come from \`import { toast } from "sonner"\`.
    The kit does not stop here: ${CHART_NAME_COUNT} chart components live under
@@ -2353,6 +1304,21 @@ const FRONTEND_RULE_2 = `2. NO FORM THAT PRETENDS TO SUBMIT. There is nowhere fo
  * than shipping a prompt it could not correct.
  */
 const FRONTEND_REPLACEMENTS = [
+  // ── THE ONE LINE THE DELETED `## What is not possible yet` SECTION OWNED ──
+  //
+  // Rule 2 is about FORMS. The section generalised past them — a search box over
+  // rows, a sign-in button, a basket are equally dead on a site with no
+  // database, and a model told only about forms will happily draw a search box.
+  // Appended here rather than left in a section of its own, because everything
+  // else that section said was already in the preamble, rule 1 and rule 2.
+  [
+    "If the brief asks for bookings, orders, enquiries or accounts, build the whole of the\n   rest of the site and say plainly in `notes` that it comes with the next step.",
+    "If the brief asks for bookings, orders, enquiries or accounts, build the whole of the\n   rest of the site and say plainly in `notes` that it comes with the next step.\n"
+    + "   THE SAME GOES FOR EVERY OTHER CONTROL WITH NOTHING BEHIND IT — a search box over\n"
+    + "   rows, a sign-in button, a filter, a basket, anything paid for. Never draw UI that\n"
+    + "   cannot work; a control that looks real and does nothing is the one thing here that\n"
+    + "   loses the business a customer.",
+  ],
   [
     "prop-driven — hand it `useRows(...)` data, never a copied array — and monochrome by rule,",
     "prop-driven — hand it a `const` array written into the page — and monochrome by rule,",
@@ -2386,12 +1352,28 @@ const FRONTEND_REPLACEMENTS = [
 ];
 
 /** What replaces `## What is not possible yet`, which is entirely about data. */
-const FRONTEND_NOT_POSSIBLE = `## What is not possible yet
-
-This site has no database, so none of these can be built here: a form that stores anything,
-a list that comes from data, customer accounts and signing in, a booking that holds a slot,
-search over rows, anything paid for. If the brief asks for one, build everything else and say
-plainly in \`notes\` what was left out and that it comes next. Never draw UI that cannot work.`;
+/**
+ * ── THE SECTION IS GONE, AND ITS ONE UNCOVERED LINE MOVED (2026-08-29) ───────
+ *
+ * Owner: "delete that, cuz the build step has no backend anyway."
+ *
+ * The frontend prompt said "this site has no database" FOUR times: the preamble
+ * states it, rule 1 names the exact imports that fail (`@/lib/rows`, `useRows`,
+ * `fetch`), rule 2 gives the form case and why it harms the business, and this
+ * section listed six features and said to mention them in `notes`. 2,351
+ * characters for one fact.
+ *
+ * RULE 2 ALREADY CARRIED MOST OF IT — the harm ("worse for the business than not
+ * having one"), and the instruction to say in `notes` that it comes with the
+ * next step. What only this section had was the GENERALISATION past forms — a
+ * search box, a sign-in button, a basket are equally dead — so that is appended
+ * to rule 2 rather than deleted with the rest.
+ *
+ * `FRONTEND_REPLACEMENTS` is where it goes because that table THROWS when a
+ * `from` no longer matches `PAGE_RULES`: a fold that silently stopped applying
+ * would take the line with it, and nothing would say so.
+ */
+const FRONTEND_NOT_POSSIBLE = null;
 
 /**
  * `PAGE_RULES` with the database taken out of it.
@@ -2415,7 +1397,7 @@ export function frontendRules(rules) {
     if (DATA_SECTIONS.includes(head)) {
       // Replaced in place rather than appended, so it keeps its position
       // relative to `## The gate` — which closes the prompt and must stay last.
-      if (head === "## What is not possible yet") out.push(FRONTEND_NOT_POSSIBLE);
+      if (head === "## What is not possible yet" && FRONTEND_NOT_POSSIBLE) out.push(FRONTEND_NOT_POSSIBLE);
       continue;
     }
     if (head === "## Hard rules") { out.push(hardRulesWithoutData(sec)); continue; }
@@ -2953,7 +1935,6 @@ export function briefWithLayout({ brief, plan, images } = {}) {
  * leads, what the body runs through, the failure this kind of site has, the page
  * set, the verb — written for THIS site rather than looked up for a trade.
  *
- * The four REFERENCE_PAGES above are NOT this and stay: they teach how to CALL
  * the API, are identical on every build, and ride in the cached block.
  */
 
@@ -4247,7 +3228,84 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "" } = {}) {
+/**
+ * ── THE CHART CATALOGUE, AND WHO ACTUALLY NEEDS IT ──────────────────────────
+ *
+ * Owner, 2026-08-29: *"let's get rid of unused stuff — remember that's why the
+ * design step is there, to not have everything on this step"*.
+ *
+ * The catalogue is 865 component names across 141 domain modules and it is
+ * **42% of the whole page prompt** (13,329 of 31,813 characters on a frontend
+ * build). Every barber shop, cafe and plumber is handed `HertzsprungRussell`,
+ * `RadiocarbonCalibration` and `VarroaLoad` before writing its first heading.
+ *
+ * MEASURED, NOT ASSUMED. Across the 100-site corpus — 324 real generated source
+ * files, all 324 importing from `@/components/ui` and using 279 distinct kit
+ * components — **not one file imports a chart**, and not one of the 141 modules
+ * appears. The control matters and it holds: the catalogue entered this prompt
+ * on 2026-08-08 and the chart kit landed on 08-13, both BEFORE the corpus was
+ * captured on 08-20. Those sites were generated with the catalogue live in front
+ * of the model and used none of it.
+ *
+ * SO IT IS GATED ON `kind`, WHICH THE DESIGN STEP ALREADY DECIDED. A `shopfront`
+ * — "nearly every brief", in the design step's own words — persuades a visitor;
+ * it has no readings to plot. A `tool` is a thing the business works IN, and a
+ * CRM or a tracker is exactly where a chart earns its place.
+ *
+ * THE DEFAULT IS TO KEEP IT, and that asymmetry is deliberate. Only the build
+ * path knows `kind`; the edit and addon rungs pass no plan, and a revise of a
+ * site whose pages already import a chart must still be told those modules
+ * exist. Cannot-tell reads as "keep everything", never as "shopfront" — the same
+ * rule `loadConfig` and `firstBuild` already keep.
+ */
+export function withoutCharts(rules) {
+  // RULE 5 GOES WITH IT. It tells the model which path to import a chart from,
+  // and with the catalogue gone there are no chart names in front of it — 508
+  // characters instructing a shopfront on components it was never shown. Left
+  // in, it is worse than waste: it invites a guess at a module name, and a
+  // module that does not exist is a compile error that costs the page.
+  //
+  // NUMBERING IS CLOSED UP AFTER IT, because a list that jumps 4 -> 6 reads as
+  // an instruction that went missing, and a model asked to follow seven rules it
+  // can only find six of has been handed a puzzle instead of a rule.
+  // AND THE POINTER INSIDE RULE 3, which promises the chart list is "printed
+  // below". With the catalogue gone that sentence is simply false, and a prompt
+  // that tells a model to look for something that is not there is worse than one
+  // that never mentioned it — this repo has paid twice for an instruction whose
+  // premise moved out from under it.
+  rules = (() => {
+    const at = rules.indexOf("The kit does not stop here:");
+    if (at < 0) return rules;
+    const end = rules.indexOf("this one is not.", at);
+    if (end < 0) return rules;
+    return rules.slice(0, at).replace(/\n\s*$/, "\n") + rules.slice(end + "this one is not.".length).replace(/^\n/, "");
+  })();
+  rules = (() => {
+    const at = rules.indexOf("\n5. A CHART COMES FROM");
+    if (at < 0) return rules;
+    const end = rules.indexOf("\n6. ", at);
+    if (end < 0) return rules;
+    const before = rules.slice(0, at);
+    const after = rules.slice(end).replace(/^\n6\. /, "\n5. ").replace(/\n7\. /, "\n6. ");
+    return before + after;
+  })();
+  const from = rules.indexOf("\n## Charts");
+  // BOTH LANDMARKS, PROVEN. `indexOf` answering -1 gives a slice that removes
+  // the wrong half or nothing at all, and either way the prompt still looks
+  // plausible — this repo's own vacuous-window trap, where the damage is silent.
+  if (from < 0) return rules;
+  const to = rules.indexOf("\n## ", from + 5);
+  if (to < 0) return rules;
+  return rules.slice(0, from) + rules.slice(to);
+}
+
+/** Which system block this build gets: by database, and by whether charts earn their place. */
+export function pageRulesFor(spec, kind = "") {
+  const rules = siteHasTables(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES;
+  return String(kind) === "shopfront" ? withoutCharts(rules) : rules;
+}
+
+export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "" } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -4285,7 +3343,13 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
     // TWO CACHED PREFIXES, and the split is by lane rather than by chance: every
     // first build reads one and every site with a database reads the other, so
     // both stay warm rather than one being an occasional cold miss.
-    system: [{ type: "text", text: siteHasTables(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES, cache_control: { type: "ephemeral" } }],
+    // FOUR CACHED PREFIXES NOW (database x kind), where there were two. Each is
+    // cold the first time it is used after a change to it, and that is
+    // affordable for the same reason the first split was: the variants are
+    // chosen by a FACT about the site rather than by chance, so each stays warm
+    // rather than being an occasional miss. Nearly every brief is a shopfront,
+    // so the small one is the hot one.
+    system: [{ type: "text", text: pageRulesFor(spec, kind), cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
   };
 }
@@ -4317,12 +3381,12 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
  * (the container has its own) is still a drop-in and nothing here has to know
  * which one it got.
  */
-export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel) {
+export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "") {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target });
+  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind });
   // Provider decided in ONE place — see callBuilderModel. It answers in
   // Anthropic's shape whichever one served it, so every line below this is
   // unchanged and cannot tell the difference.

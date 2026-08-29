@@ -369,8 +369,20 @@ test("the description is built from the brief and carries no worked example (202
 test("only the build route asks for the frontend tool, and it does so on a first build", () => {
   const src = bare(WORKER);
   const calls = [...src.matchAll(/designSiteSchema\(/g)];
-  // The declaration plus three call sites. A fourth would need a decision.
-  assert.equal(calls.length, 4, `designSiteSchema is named ${calls.length} times; the declaration plus three lanes`);
+  // The declaration plus two call sites — the build/revise route and the addon
+  // lane. Both really do re-DESIGN: they regenerate pages, so the whole design
+  // tool is what they need.
+  //
+  // IT WAS THREE UNTIL 2026-08-29, and the one that went is the change (owner:
+  // "it should be 2 separated path tho"). The `look` lane called this — the
+  // BUILD's designer, with the build's tool and the build's system text — to
+  // change one colour on a live site. It now runs the edit path
+  // (`builder/site-lanes.mjs`), which imports nothing from this file.
+  //
+  // A COUNT IS THE WEAK HALF OF THIS TEST and is here only to make a new call
+  // site a decision somebody makes on purpose; the two assertions below are the
+  // property, and they hold however many callers there are.
+  assert.equal(calls.length, 3, `designSiteSchema is named ${calls.length} times; the declaration plus the build route and the addon lane`);
 
   // The default is FALSE, which is what keeps the two edit lanes whole by
   // saying nothing — and what a fourth lane would inherit.

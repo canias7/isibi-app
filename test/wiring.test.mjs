@@ -19,7 +19,7 @@ import os from "node:os";
 import { budgetFor } from "../builder/site-images.mjs";
 import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote, EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
-import { UI_COMPONENTS, ALWAYS_API_CORE, PAGE_RULES, CHART_CATALOGUE, schemaDigest, lintPages } from "../builder/page-gen.mjs";
+import { UI_COMPONENTS, PAGE_RULES, CHART_CATALOGUE, schemaDigest, lintPages } from "../builder/page-gen.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, planFieldFor, PLAN_REQUIRED, KIT_PALETTE, COMPONENT_MENU, directiveFromPlan } from "../builder/site-plan.mjs";
 import { normalizeSeeds } from "../builder/site-seeds.mjs";
 
@@ -411,10 +411,14 @@ test("the DESIGNER's palette and the always-on core are all real components", ()
 
   const real = new Set(UI_COMPONENTS);
   for (const c of KIT_PALETTE) assert.ok(real.has(c), `${c} is offered to the designer and does not exist`);
-  for (const c of ALWAYS_API_CORE) assert.ok(real.has(c), `${c} is in the always-on core and does not exist`);
+  // DELETED 2026-08-29 — the four REFERENCE_PAGES and ALWAYS_API_CORE.
+  // Their last live use was seeding the always-on core, and the core's last use was
+  // the cached signature block the manifest replaced: "it should be only 15, the 15
+  // on the design step". 42.6k of example pages that reached no model. The prompt is
+  // byte-identical without them (13,151 chars), which is what proves they were dead.
   // Floors, so a list that emptied would pass this vacuously.
   assert.ok(KIT_PALETTE.length > 200, `the palette shrank to ${KIT_PALETTE.length}`);
-  assert.ok(ALWAYS_API_CORE.length >= 25, `the core shrank to ${ALWAYS_API_CORE.length}`);
+  assert.ok(UI_COMPONENTS.length >= 2000, `the kit shrank to ${UI_COMPONENTS.length}`);
 });
 
 test("the LINT knows all 2,112, so a real import is never refused", () => {
@@ -464,8 +468,15 @@ test("THE PAGE PROMPT DOES NOT NAME THE KIT — the designer already picked", ()
   assert.ok(i > 0, "rule 3 moved and this guard is reading nothing");
   const rule = PAGE_RULES.slice(i, PAGE_RULES.indexOf("4. FORMS ARE"));
   assert.ok(rule.length > 1000, "rule 3 collapsed — this guard is reading a fragment");
-  assert.match(rule, /in two places and nowhere else/,
-    "rule 3 no longer tells the model where the names it may import come from");
+  // ONE PLACE, NOT TWO (owner, 2026-08-29: "it should be only 15, the 15 on the
+  // design step"). This required rule 3 to say "in two places and nowhere else"
+  // — the always-on core AND this site's manifest. The core is gone, so the
+  // sentence would now be false: there is one place, and a name that is not in
+  // it is one the writer has not been shown.
+  assert.match(rule, /and nowhere else/,
+    "rule 3 no longer bounds what the model may import at all");
+  assert.ok(!/in two places/.test(rule),
+    "rule 3 still promises a second list of components — the always-on core is gone");
   assert.match(rule, /LATER IN\s+THIS MESSAGE/,
     "rule 3 never points at this site's own manifest, so the per-site block is unreachable prose");
 
@@ -1472,8 +1483,27 @@ test("the translation calls are billed, and a refused language is reported", () 
   // rather than a preference: `pageCredits` is variadic precisely so several
   // calls land on ONE bill with ONE rounding, and billing separately down there
   // would round twice — the exact bug the addon lane had.
-  const ec = w.slice(w.indexOf("const eCharge = async ("), w.indexOf("const modelDown = ("));
-  assert.ok(ec.length > 100 && ec.length < 2500, "eCharge moved — rescope this");
+  // WINDOWED FROM `billParts`, NOT FROM `eCharge` (2026-08-29). The unwrapping
+  // moved into `billParts` when the edit route needed to REPORT the same list it
+  // bills — the look lane was assembling its `usage` separately and the router's
+  // call was counted twice. `eCharge` now calls `billParts` and prices it, so a
+  // window starting at `eCharge` sees two lines and none of the logic. The
+  // property is unchanged: one list, unwrapped once, priced once.
+  // BOTH LANDMARKS, PROVEN TO EXIST AND TO BE IN ORDER. `indexOf` answering -1
+  // gives `slice(-1, -1)` = "", which passes every assertion inside it — the
+  // vacuous-window trap this repo has recorded ten times over.
+  const ecFrom = w.indexOf("const billParts = (");
+  const ecTo = w.indexOf("const modelDown = (");
+  assert.ok(ecFrom > 0, "`billParts` is gone or was renamed — this window reads nothing");
+  assert.ok(ecTo > ecFrom, "`modelDown` no longer follows `billParts` — this window is inverted or empty");
+  const ec = w.slice(ecFrom, ecTo);
+  // NO BYTE CEILING. This read `ec.length < 2500` and went red when the billing
+  // code grew a comment explaining why the routing call is charged once per
+  // MESSAGE rather than once per rung — reporting that the code had "moved"
+  // when nothing had. Sizing a source window in bytes is this repo's single
+  // most-repeated own-goal: the reasoning lives in comments here, so any byte
+  // bound is outrun by the next one worth writing. Landmarks above, properties
+  // below, and nothing in between that measures length.
   assert.match(ec, /Array\.isArray\(p\.langUsage\)/, "eCharge no longer unwraps a publish result");
   assert.match(ec, /parts\.push\(\.\.\.p\.langUsage\.filter\(Boolean\)\)/, "the language usage is detected and dropped");
   assert.match(ec, /pageCredits\(\.\.\.parts\)/, "the parts are no longer priced together, so the rounding is charged twice");

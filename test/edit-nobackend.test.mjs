@@ -113,6 +113,19 @@ async function withSite(run, { hasDb = false } = {}) {
  * A MINIMAL, HONEST TOOL ANSWER: one `tool_use` block carrying only `css`, which
  * is what a colour change really returns — every other field omitted, which is
  * the edit contract's own "absent means unchanged".
+ *
+ * ── AND IT ANSWERS THE TOOL IT WAS ACTUALLY ASKED FOR (2026-08-29) ──────────
+ *
+ * The edit path is two calls now — `pick_lanes` names which part of the site
+ * the message is about, then `edit_site` changes it — and this stub answered
+ * BOTH with a `design_schema` block carrying `css`. The router read that for a
+ * `fields` array, found none, and every case here escalated `no-lane`: a stub
+ * more capable in one direction and useless in another, which is precisely the
+ * fixture-in-a-different-shape trap this file already carries a paragraph about.
+ *
+ * So the branch is on `tool_choice.name` off the REQUEST — the real producer —
+ * rather than on a guess about call order. Order is what changed underneath it
+ * once already.
  */
 async function withModel(run, { hasDb = false, owned = true } = {}) {
   const real = globalThis.fetch;
@@ -133,9 +146,16 @@ async function withModel(run, { hasDb = false, owned = true } = {}) {
         { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.includes("/v1/messages")) {
+      // WHICH TOOL WAS ASKED FOR, read off the request rather than assumed.
+      const asked = (() => {
+        try { return JSON.parse(String(init && init.body) || "{}").tool_choice?.name || ""; } catch { return ""; }
+      })();
+      const input = asked === "pick_lanes"
+        ? { fields: ["css"] }
+        : { css: "footer{background-color:#0b3d2e}" };
       return new Response(JSON.stringify({
         stop_reason: "tool_use",
-        content: [{ type: "tool_use", name: "design_schema", input: { css: "footer{background-color:#0b3d2e}" } }],
+        content: [{ type: "tool_use", name: asked || "edit_site", input }],
         usage: { input_tokens: 10, output_tokens: 5 },
       }), { status: 200, headers: { "content-type": "application/json" } });
     }
@@ -169,12 +189,18 @@ test("a look edit on a site with NO database is not refused for having none", as
     const { body } = await edit("paperless-look", "look", "make the footer dark green");
     assert.ok(body, "the lane answered nothing at all");
     // ASSERTED POSITIVELY, because every negative here would also be satisfied
-    // by the lane falling over somewhere earlier. `error: "design"` is the model
-    // call — the step immediately AFTER the gate — so reaching it is proof the
+    // by the lane falling over somewhere earlier. `error: "send"` is the MODEL
+    // CALL — the step immediately AFTER the gate — so reaching it is proof the
     // gate was passed, the stored config was read, and the thin-look check let
-    // it through. The design call then fails only because this env has no model
-    // key, which is what keeps the test free.
-    assert.equal(body.error, "design",
+    // it through. The call then fails only because this env has no model key,
+    // which is what keeps the test free.
+    //
+    // IT WAS `"design"` UNTIL 2026-08-29 and the rename is the change itself:
+    // the step after the gate is no longer the BUILD's designer but the edit
+    // path's own router, which reports through `modelDown` like every other
+    // cheap lane. The property — "it got as far as needing a model" — is
+    // unchanged; only which model call it is has moved.
+    assert.equal(body.error, "send",
       "the look lane did not reach its model call on a databaseless site — it stopped somewhere before: "
         + JSON.stringify(body));
     // And neither refusal is what came back — including the one the gate turns
@@ -230,7 +256,18 @@ test("the proof is not vacuous: the same lane still refuses a site with no store
   // worth recording: given a real connection the lane queries `_meta` over the
   // network, so in a unit environment it always fails at the schema read and
   // escalates `no-meta`. It measured the absence of Postgres, not the fix.
-  await withSite(async () => {
+  // THE MODEL HAS TO ANSWER FOR THIS ONE, since 2026-08-29. `pick_lanes` is the
+  // front door and runs BEFORE any layer's own gates — it has to, because which
+  // layer runs is what it decides — so on the model-less `withSite` stub this
+  // case now dies at the router with `error: "send"` and never reaches the
+  // check it exists to make. `withModel` answers the router, which lets the
+  // look lane run far enough to refuse for its own reason.
+  //
+  // THE ORDERING CHANGE IS A REAL ONE AND IT IS AN IMPROVEMENT: a message about
+  // a PHOTOGRAPH on a site with no stored look used to be refused `no-look` by
+  // a lane that was never going to handle it. It is now dispatched to the
+  // `picture` layer, which does not need a look at all.
+  await withModel(async () => {
     const bare = bucket("paperless-bare");
     bare.store.set(CONFIG_KEY("paperless-bare"), JSON.stringify({}));
     const { body } = await edit("paperless-bare", "look", "make the footer dark green", { store: bare });

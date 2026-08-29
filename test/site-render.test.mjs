@@ -533,7 +533,11 @@ test("EVERY EDIT LANE FORWARDS THE RENDER REPORT it paid for", () => {
   // file. (The live on/off lane returns the spine's whole result and needs no
   // per-field forward — it has no `const X = await` capture, so the loop
   // correctly skips it.)
-  const sites = [...w.matchAll(/const (\w+) = await recompileAndPublish\(env/g)].map((m) => m[1]);
+  // `publishStep` since 2026-08-29 — the edit route's branches hand their pages
+  // to a deferring wrapper so the spine runs ONCE per message (owner: "if the
+  // act was 2 things then 1 publish"). The property is unchanged: this branch
+  // still hands its pages to the publish path.
+  const sites = [...w.matchAll(/const (\w+) = await publishStep\(env/g)].map((m) => m[1]);
   assert.ok(sites.length >= 6, "the spine's call sites moved — rescope this");
   for (const v of new Set(sites)) {
     assert.ok(new RegExp("render: " + v + "\\.render").test(w),

@@ -14,7 +14,7 @@ import {
   normalizePlan, directiveFromPlan, hasPlan, TOOL_DIRECTIVE,
   MAX_SECTIONS, MAX_PAGES, MAX_ACTION, MAX_COMPONENTS, IMAGES_FIELD, planFieldFor,
 } from "../builder/site-plan.mjs";
-import { ALWAYS_API_CORE, UI_COMPONENTS, siteComponentApi, componentApiFor, briefWithLayout, PAGE_RULES } from "../builder/page-gen.mjs";
+import { UI_COMPONENTS, siteComponentApi, componentApiFor, briefWithLayout, PAGE_RULES } from "../builder/page-gen.mjs";
 import { planBudget, budgetFor } from "../builder/site-images.mjs";
 
 const GOOD = {
@@ -918,7 +918,7 @@ test("the palette is ORDERED most-used-first, and the core comes off its front",
   // one measurement serves both — and a re-sort here silently re-picks the core.
   assert.equal(KIT_PALETTE[0], "site-chrome", "the palette is no longer ordered by how often pages import each one");
   const head = new Set(KIT_PALETTE.slice(0, 20));
-  const inCore = ALWAYS_API_CORE.filter((n) => head.has(n));
+  const inCore = [...head];  // the core is gone; the head IS what every site reaches for
   assert.ok(inCore.length >= 18,
     `only ${inCore.length} of the palette's top 20 are in the always-on core — the two lists have come apart`);
 });

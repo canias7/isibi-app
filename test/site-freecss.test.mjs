@@ -427,7 +427,20 @@ test("A REVISE IS SHOWN THE SHEET, and told to hand it back with the change made
   assert.match(worker, /const storedCss = cfg\.ok \? cfg\.config\.css : ""/,
     "the build route never reads the sheet for the designer");
   assert.match(worker, /css: storedCss,/, "the build route reads the sheet and does not hand it over");
-  assert.match(worker, /css: priorCss,/, "the look lane reads the sheet and does not hand it over");
+  // THE LOOK LANE HANDS IT OVER DIFFERENTLY SINCE 2026-08-29, and the property
+  // is the same one: the model that edits the stylesheet must SEE the stored
+  // stylesheet. It read `css: priorCss,` while the lane called the build's
+  // designer with the whole current state; the edit path is separate now
+  // (owner: "it should be 2 separated path tho"), so each lane is handed its
+  // OWN field's value and `css` is the one that gets the sheet.
+  //
+  // ANCHORED ON THE EXPRESSION THAT CARRIES IT, and this is the weaker half:
+  // `test/edit-path.test.mjs` drives the real route and asserts the STORED
+  // BYTES arrive in the request the css lane actually sends, which is the
+  // check that cannot be satisfied by a source pattern that stopped being wired
+  // to anything.
+  assert.match(worker, /value: field === "css" \? priorCss :/,
+    "the look lane reads the sheet and does not hand it to the lane that edits it");
 });
 
 test("AN UNUSABLE ANSWER KEEPS WHAT IS STORED — on both lanes", () => {
