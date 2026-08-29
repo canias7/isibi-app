@@ -6185,20 +6185,19 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .gf-reel-frame{position:absolute;top:0;left:0;border:0;pointer-events:none;
   width:var(--fw);height:calc(var(--fw) * 10 / 16);
   transform:scale(var(--sc));transform-origin:top left}
-/* The WHOLE card is the link, not a chip in its corner (owner: "make sure they
-   are clickable around"). It can cover the frame because the iframe below it is
-   pointer-events:none — without that the frame would swallow every click and
-   the card would look clickable and do nothing. The strip pauses under the
-   pointer, so there is time to aim at it. */
-.mkt-crt .gf-reel-open{position:absolute;inset:0;z-index:4;display:flex;
-  align-items:flex-end;justify-content:flex-end;padding:.85rem;text-decoration:none}
-.mkt-crt .gf-reel-tag{position:relative;font-size:.94rem;color:var(--graphite);
-  background:var(--paper);border-radius:8px;padding:.18rem .68rem;opacity:0;
-  transition:opacity .3s,transform .18s}
-.mkt-crt .gf-reel-tag::before{content:"";position:absolute;inset:0;border-radius:inherit;
-  border:1.4px solid var(--graphite);filter:url(#pencilRough2)}
-.mkt-crt .gf-reel-slide:hover .gf-reel-tag,
-.mkt-crt .gf-reel-open:focus-visible .gf-reel-tag{opacity:1;transform:translateY(-2px)}
+/* The whole card IS the link, and it says so by being one — no chip, no label
+   (owner: "don't do the open thing, just let it be clickable there while it's
+   moving"). It can cover the frame because the iframe below it is
+   pointer-events:none; without that the frame swallows every click and the
+   card looks clickable while doing nothing.
+
+   With no text inside it, the anchor carries an aria-label instead — an empty
+   link announces as nothing at all, and there is no longer any visible word to
+   read out. */
+.mkt-crt .gf-reel-open{position:absolute;inset:0;z-index:4;text-decoration:none;
+  border-radius:inherit}
+/* keyboard users get the outline the pointer does not need */
+.mkt-crt .gf-reel-open:focus-visible{outline:2px solid var(--graphite);outline-offset:3px}
 
 /* ---- The phone one (owner 2026-08-29): "on the ones that look like mobile,
    delete the background, and just put like the phone."
