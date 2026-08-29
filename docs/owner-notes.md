@@ -148,6 +148,24 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ## Open — waiting on you
 
+**0. The edit step is split; the ADDON step is not, and DELETE is parked.**
+Your drawing is saved at **`docs/architecture.md`** — the site at the centre, one
+BUILD step making it, then EDIT / ADDON / DELETE acting on it and each publishing
+back through the one spine. **EDIT is done** (2026-08-29): its own module, its own
+tools, no `design_schema`, 4,012 chars of tool where it was 84,817, still 1
+credit. **ADDON has the identical defect** — it still calls the build's designer
+with the whole 84.8k tool to add one page — and is the obvious next one.
+**DELETE is parked at your word** (*"we are gonna worry about delete later"*).
+
+Two things on the edit step I want you to push back on if I read you wrong:
+- **8 of the 17 lanes actually act.** The other 9 hand off for free. They are
+  inputs to page *generation* that the container never reads, so storing one
+  would report success and change nothing a visitor sees. Making all 17 act is a
+  much bigger job — the container has to start reading a stored plan.
+- **Every prompt in there is a placeholder**, marked as such, waiting on your
+  wording (*"i will tell you the prompt later"*). One `hint` and one `edit`
+  string per lane, all in one table.
+
 **1. The model account is at 18 credits — under the price of one build.**
 Five shipped features have never run on a real site and all five ride the same
 build: the model-drawn favicon, the drawn wordmark, the composed share card, the

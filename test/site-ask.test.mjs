@@ -721,7 +721,17 @@ test("the route passes the round through, and requires a real boolean", () => {
 
 test("the BUILD route folds the answers in, and does it in one place", () => {
   const w = worker();
-  assert.match(w, /import \{ routeMessage, clarifiedBrief \}/, "the build route cannot compose the brief");
+  // THE PROPERTY IS THAT BOTH NAMES ARRIVE, not that they arrive alone. Pinned
+  // to the exact two-name list, this went red the moment an honest third import
+  // (`siteDigest`, 2026-08-29) joined them — reporting that the build route
+  // could no longer compose the brief, which was never true. The single most
+  // repeated own-goal in this repo: assert the property, not the spelling.
+  const askImport = (w.match(/^import \{([^}]*)\} from "\.\/builder\/site-ask\.mjs";$/m) || [])[1];
+  assert.ok(askImport, "nothing is imported from site-ask.mjs at all — this scan has lost its subject");
+  for (const name of ["routeMessage", "clarifiedBrief"]) {
+    assert.ok(askImport.split(",").map((s) => s.trim()).includes(name),
+      "the build route cannot compose the brief — `" + name + "` is no longer imported");
+  }
   const i = w.indexOf("const brief = clarifiedBrief(");
   assert.ok(i > 0, "the build route no longer folds the answers into the brief");
   // TO THE CALL'S OWN CLOSE, not `i + 300` — and the guard directly above this

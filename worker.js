@@ -98,7 +98,11 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
+import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs";
+// THE EDIT PATH — its own module, its own tools, its own wording. It imports
+// nothing from this file, which is what makes "two separated paths" (owner,
+// 2026-08-29) a fact about the code rather than a claim about it.
+import { pickLanes, runLane, laneElsewhere } from "./builder/site-lanes.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -17670,34 +17674,36 @@ async function handleRequest(request, env, ctx) {
               // reached that line to be saved by it. A guard watching the layer
               // below the break, which is this repo's own recorded trap.
               const edb = await siteBackendBySlug(env, ownerSlug);
-              let priorLook = null, eSchema = null;
+              let priorLook = null;
               // THE WHOLE DESIGN, since 2026-08-23. This lane is the cheap rung a
               // colour change lands on, and with `tokens`/`style`/`seeds` off the
               // tool there is nothing else for it to move.
               let priorCss = "";
               try {
-                // TWO READS BECAUSE THEY ARE TWO FACTS. The look is config for
-                // the compiled output and lives in R2 beside it; the schema
-                // describes a database and stays where the database is.
+                // ONE READ, AND IT IS R2. The look and the stylesheet are config
+                // for the compiled output and live in the bucket beside it.
+                //
+                // ── AND THE SCHEMA READ WENT ON 2026-08-29 ──────────────────
+                //
+                // A `SELECT v FROM _meta WHERE k = 'schema'` sat here, guarded
+                // by `if (edb)`, to hand the DESIGNER a `tables:` list. With the
+                // edit path split off the build path there is no designer on
+                // this lane: `pickLanes` names the part of the site, the acting
+                // lane is shown that part's own value, and no lane here has ever
+                // had a use for a table name. So it was a Postgres round-trip on
+                // every look edit, feeding a parameter that no longer exists.
+                //
+                // WHAT THAT SETTLES: this lane is now databaseless in fact and
+                // not merely by permission. The `if (!edb) return
+                // escalate("no-backend")` removed on 2026-08-28 was refusing
+                // most of the platform over a dependency the lane barely had;
+                // it now has none at all, and `edb` survives only to be passed
+                // to `readSiteConfig`/`patchSiteConfig`, both of which guard it
+                // themselves for a legacy `_meta` fallback.
                 const cfg = await readSiteConfig(env, ownerSlug, edb);
                 if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
                 priorLook = cfg.config.look;
                 priorCss = cfg.config.css;
-                // THE ONE READ HERE THAT REALLY NEEDS THE DATABASE, so it is
-                // asked for only when there is one. Without this guard, relaxing
-                // the gate above would trade a wrong refusal for a
-                // `sqlQuery(null, …)` throw that this very catch turns into
-                // `no-meta` — the same escalation wearing a different name, and
-                // the whole fix would measure as no change at all.
-                //
-                // `eSchema` staying null is CORRECT for a site with no database:
-                // the designer is handed `tables: []`, which is the truth about
-                // a frontend-only site rather than a missing answer.
-                if (edb) {
-                  const rows = await sqlQuery(edb, "SELECT v FROM _meta WHERE k = 'schema'");
-                  const row = (rows || [])[0];
-                  if (row && row.v) eSchema = JSON.parse(row.v);
-                }
               } catch (e) { console.error("edit look read failed:", ownerSlug, e && e.message); return escalate("no-meta"); }
               // ── A SITE MAY HAVE A STYLESHEET AND A THIN LOOK ───────────────
               //
@@ -17710,40 +17716,118 @@ async function handleRequest(request, env, ctx) {
               // from the same stylesheet and changes nothing.
               if (!priorLook && !priorCss) return escalate("no-look");
 
-              // The designer, told what the site is now and told to return ONLY
-              // what this change moves. Same call the build uses, same edit
-              // rule — there is no second designer for edits.
-              let designed = null, dUsage = null;
-              try {
-                const d = await designSiteSchema(env, eInstruction, modelsFor(eb && eb.picker).design, {
-                  ...(priorLook || {}),
-                  // THE SHEET IT HAS TO EDIT. `css` is REPLACED rather than
-                  // merged, so a designer that cannot see the current one can
-                  // only answer with a fresh design — which on "make the
-                  // background yellow" is a different site. `currentStateNote`
-                  // prints it in full and `EDIT_RULE` says what to do with it.
-                  css: priorCss,
-                  tables: ((eSchema && eSchema.tables) || []).map((t) => t && t.name).filter(Boolean),
-                });
-                designed = liftBackend(d.input); dUsage = d.usage;
-              } catch (e) {
-                // The model is down or unpaid. Our fault, our cost — and the
-                // rung above will fail the same way, so this is reported rather
-                // than escalated into a second bill for the same outage. The
-                // SAME `upstreamKind` shape the build route answers with: a
-                // billing failure is the one nothing retries past, and telling
-                // somebody to try again spends their evening on it.
-                console.error("edit design failed:", ownerSlug, e && e.message);
-                const eKind = upstreamKind(e && e.detail);
-                return Response.json({
-                  ok: false, error: "design", cost: 0,
-                  msg: eKind.billing
-                    ? "The site builder is temporarily unavailable — this is on us, not your change."
-                    : "The designer is busy — try again in a moment.",
-                  upstream: (e && e.status) || null,
-                  upstreamType: eKind.type,
-                  billing: eKind.billing || undefined,
-                }, { status: 503 });
+              // ── THE EDIT PATH, WHICH IS NOT THE BUILD PATH ────────────────
+              //
+              // Owner, 2026-08-29: "it should be 2 separated path tho, idk why
+              // you are mixing the build with the edit path" — and on what this
+              // path IS: "customer says edit this, and booom you go edit it".
+              //
+              // THIS CALLED `designSiteSchema` UNTIL TODAY: the build's
+              // function, the build's tool, the build's system text. Changing
+              // one colour on a live site ran the site DESIGNER — 84.8k of
+              // instructions for inventing a business from nothing, eleven
+              // sentences about which access level a table should have, and
+              // nineteen properties of which eighteen were doors this change had
+              // no business opening. `EDIT_REQUIRED` and `EDIT_RULE` stopped the
+              // other eighteen being ANSWERED; they were on the wire regardless.
+              //
+              // And the two framings then fought, which is the half that cost
+              // real money: the build's `css` description opens "ONLY WHEN
+              // ASKED … OMIT this field entirely unless", which a customer's
+              // edit reads as "do not touch the stylesheet", so `EDIT_RULE` had
+              // to name that clause and overrule it in prose. Two paths means
+              // the edit path never sends the sentence it then argues with.
+              //
+              // TWO CALLS NOW, AND BOTH ARE SMALLER THAN THE ONE THEY REPLACE.
+              // `pickLanes` (Haiku, ~2.8k) says which part of the site the
+              // message is about; each acting lane (~1.2k for css) is handed
+              // that part's CURRENT VALUE and the customer's sentence, and has
+              // one property to answer with. Measured: 4.0k of tool against
+              // 84.8k, and `pageCredits` is variadic and rounds ONCE with a
+              // floor of 1, so the second call adds no credit — a one-lane edit
+              // bills exactly what it billed before.
+              let designed = null;
+              // EVERY USAGE, IN ONE BILL. `eCharge` unwraps `langUsage` into
+              // `pageCredits`' variadic parts, so this rides the existing shape
+              // rather than adding a second place a lane's spend is priced —
+              // and rounds once, where summing two calls rounds twice. That is
+              // the bug the addon lane had.
+              const laneUsages = [];
+              const dUsage = { langUsage: laneUsages };
+              // WHICH PARTS OF THE SITE THIS TOUCHED, carried out to the reply.
+              // A lane that cannot say what it did is this file's single
+              // most-repeated failure — `moved` names look FIELDS and a css edit
+              // moves none of them, so without this a two-lane edit and a
+              // one-lane edit are the same response.
+              let ranLanes = [];
+              {
+                const picked = await pickLanes(
+                  { send: (req) => anthropicMessages(env, req) },
+                  {
+                    message: eInstruction,
+                    // WHAT THE SITE IS, IN ONE LINE. Deliberately thin — the
+                    // router is the small call and handing it the state the
+                    // ACTING call needs would make it the expensive one twice.
+                    current: siteDigest({ name: (priorLook && priorLook.brand) || "", pages: eSrc.map((p) => routeOf(p.path)) }),
+                  },
+                );
+                if (picked.usage) laneUsages.push(picked.usage);
+                if (picked.failed) return modelDown(picked.error, "The editor is busy — try again in a moment.");
+                // NOT A ROUTE WE CAN TAKE. Both of these fall through to the
+                // rung above by contract, and both name themselves rather than
+                // sharing one sentence — a read-refusal and a killed container
+                // wearing one message cost two live runs on 2026-08-29.
+                if (!picked.fields.length) return escalate("no-lane");
+                const handed = picked.fields.map((f) => [f, laneElsewhere(f)]).filter(([, r]) => r);
+                // ── REFUSED AT THE DOOR, BEFORE A CALL IS BOUGHT ────────────
+                //
+                // A plan axis (`kind`, `purpose`, `pages`, `components`,
+                // `shape`, `images`, `action`) is an input to page GENERATION
+                // and nothing downstream of a cheap edit reads one — the
+                // container is handed the pages, the theme and the stylesheet,
+                // never the plan. Storing a new one changes nothing a visitor
+                // can see while reporting success. `needsPages` below is the
+                // same refusal one layer down and arrives only AFTER a model
+                // call; this one is free and says which rung can do the work.
+                if (handed.length) return escalate("wrong-rung", { moved: handed.map(([f]) => f), rung: handed[0][1] });
+                ranLanes = picked.fields;
+
+                // ONE CALL PER LANE, IN TURN (owner's call, asked which way a
+                // two-part message should go: "run both lanes in turn"). They
+                // do not depend on each other — each is shown its OWN stored
+                // value and answers only its own field — so this is a loop
+                // rather than a pipeline, and one publish covers all of them.
+                const answers = {};
+                for (const field of picked.fields) {
+                  const ran = await runLane(
+                    { send: (req) => anthropicMessages(env, req) },
+                    {
+                      field,
+                      message: eInstruction,
+                      // WHERE THE FIELD LIVES, IN ONE EXPRESSION. `css` is the
+                      // stylesheet in R2; every other acting lane is a key on
+                      // the stored look — and all seven of those are on
+                      // `EDIT_FIELDS`, which is what `mergeLook` reads below, so
+                      // what is read here and what is written there cannot
+                      // disagree about where a field lives.
+                      value: field === "css" ? priorCss : (priorLook || {})[field],
+                      model: modelsFor(eb && eb.picker).design,
+                    },
+                  );
+                  if (ran.usage) laneUsages.push(ran.usage);
+                  // THE MODEL IS DOWN OR UNPAID. Our fault, our cost — and the
+                  // rung above calls the same provider and would fail the same
+                  // way, so this is reported rather than escalated into a
+                  // second bill for the same outage. A lane that already
+                  // answered is discarded with it: half a change published is
+                  // worse than none, because nothing says which half.
+                  if (ran.failed) return modelDown(ran.error, "The editor is busy — try again in a moment.");
+                  if (ran.value !== undefined) answers[field] = ran.value;
+                }
+                // NULL WHEN NOTHING ANSWERED, not `{}` — `hasValue` below reads
+                // an empty object as "the model named nothing", which is the
+                // `no-change` escalation, and that is exactly what happened.
+                designed = Object.keys(answers).length ? answers : null;
               }
 
               // ── WHOSE LOOK IS THIS? ─────────────────────────────────────
@@ -17846,7 +17930,7 @@ async function handleRequest(request, env, ctx) {
                   // from the lists, and an empty list plus this note reads as
                   // "nothing to do" rather than as a change that failed.
                   lookNote: "Your site already looks like that — nothing to change.",
-                  cost: await eCharge(dUsage), usage: dUsage,
+                  lanes: ranLanes, cost: await eCharge(dUsage), usage: dUsage,
                 });
               }
 
@@ -17939,6 +18023,12 @@ async function handleRequest(request, env, ctx) {
                   msg: compileMsg(pub, restored
                     ? "That look didn't compile, so your site is untouched."
                     : "That look didn't compile. Your site is still live and unchanged, but the new look is saved — ask for it again and I'll try to apply it."),
+                  // WHAT WAS ATTEMPTED, on the failure path too. A change that
+                  // can name itself only when it works is one nobody can
+                  // diagnose when it does not — and this is the branch where
+                  // knowing whether one lane or three were in flight decides
+                  // whether the rollback above put everything back.
+                  lanes: ranLanes,
                   detail: pub.detail,
                 }, { status: 422 });
               }
@@ -17964,6 +18054,12 @@ async function handleRequest(request, env, ctx) {
                 // we store. Every one of those is invisible from the page: the
                 // browser falls back or drops the rule and nothing says why.
                 cssNote: cssNote(cssAsk) || undefined,
+                // WHICH PARTS OF THE SITE WERE EDITED, by name. `moved` lists
+                // the look FIELDS that changed value and a css edit moves none
+                // of them, so on the commonest edit there is it is empty — and
+                // an edit that ran two lanes was, until now, indistinguishable
+                // from one that ran one.
+                lanes: ranLanes,
                 renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: dUsage,
               });
             }

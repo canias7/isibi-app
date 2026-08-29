@@ -17,6 +17,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeSchema, sqlIdent, looksLikeTable, refusedFields, TOOL_TABLE_FIELDS, liftBackend, BACKEND_FIELDS } from "../site-schema.mjs";
 import { resolveAccess } from "../site-access.mjs";
+import { ACTING_LANES } from "../builder/site-lanes.mjs";
 import fs from "node:fs";
 
 const one = (def) => normalizeSchema({ tables: [{ name: "t", ...def }] }).tables[0];
@@ -828,8 +829,24 @@ test("BOTH designer answers are lifted before anything reads them", async () => 
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const assigns = [...src.matchAll(/^\s*designed = (.+?);/gm)].map((m) => m[1]);
   const fromModel = assigns.filter((a) => /\b(dz|d)\b.*\.input/.test(a));
-  assert.ok(fromModel.length >= 2, `expected both designer assignments, found ${fromModel.length}`);
+  // AN OBSERVER THAT IS ALIVE, and no more than that. A floor of ONE since
+  // 2026-08-29: the `look` lane's assignment was the second, and it is gone
+  // because the edit path is now separate from the build path (owner: "it
+  // should be 2 separated path tho"). A floor of two would report a designer
+  // answer as unlifted when what really happened is that it stopped being a
+  // designer answer — the check going red for the change rather than for a bug.
+  assert.ok(fromModel.length >= 1, `no designer assignment found at all — this scan is looking at the wrong thing`);
   for (const a of fromModel) {
     assert.match(a, /liftBackend\(/, `a designer answer reaches the readers unlifted: ${a}`);
   }
+
+  // AND THE LANE THAT REPLACED IT CANNOT NEED LIFTING, which is why dropping the
+  // floor is safe rather than merely convenient. `liftBackend` exists to fold a
+  // nested `backend` block up to the top level; the edit path never produces
+  // one, because `backend` is not a lane that acts — it hands off to the rung
+  // that reads and enforces rows. Asserted against the module, so a lane list
+  // that later let `backend` act would fail HERE rather than seeding nothing
+  // silently, which is the exact failure this test is written for.
+  assert.ok(!ACTING_LANES.includes("backend"),
+    "the edit path can now answer `backend`, so its answers need lifting like a designer's do");
 });

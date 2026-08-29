@@ -248,7 +248,7 @@ express the change. Cheapest first:
 | `text` | words in the page source | 0 credits |
 | `data` | rows, and a list's ORDER | ~0.3 |
 | `rules` | schema features enforced in Postgres or read from `_meta` | ~0.3 |
-| `look` | theme, colours, the 29 style axes, fonts, language | ~0.3 |
+| `look` | the EDIT PATH — 17 lanes, 8 of which act (see below) | 1 |
 | `picture` | swap or reframe a photograph (matched on its alt text) | ~0.3 |
 | `logo` | the header logo — the attachment IS which picture | 0 |
 | `nav` | menu, header button, footer contact/social/legal, in-body links | ~0.3 |
@@ -258,31 +258,87 @@ express the change. Cheapest first:
 **`sameProse` is the guarantee the page layer cannot make**: a tweak that moved
 the words is thrown away. Measured 0 false alarms over 1,640 real tweaks.
 
-**`look` IS the CSS editor**, and it is the only layer that touches the
-stylesheet — `text` and `picture` edit the page SOURCE, so a wording change never
-opens the sheet. On an edit the model is handed the site's current stylesheet
-(`currentStateNote`) and `css` is **REPLACED, not merged**, which is why the
-editor's contract lives in `EDIT_RULE` rather than in the cached tool.
+---
 
-**The contract is two opposite halves and they must arrive together** (owner,
-2026-08-28: *"it's free css — the model can edit anything on the page… but when
-they ask one thing, you only edit one thing"*):
+### THE EDIT PATH IS ITS OWN PATH (2026-08-29)
+
+**Read `docs/architecture.md` first** — the owner's own drawing of the whole
+system: one BUILD step makes the site, then EDIT / ADDON / DELETE act on it and
+each publishes back through the one spine. **The site is the centre, not the
+paths.**
+
+Owner: *"it should be 2 separated path tho, idk why you are mixing the build with
+the edit path"*, and on what the edit step IS: *"customer says edit this, and
+booom you go edit it"* — pure action, no design round.
+
+**`look` used to call `designSiteSchema`** — the BUILD's function, the build's
+tool, the build's system text — to change one colour on a live site. 84,817
+characters of instructions for inventing a business from nothing, nineteen
+properties of which eighteen the change had no business opening. **And the two
+framings fought**: the build's `css` description opens "ONLY WHEN ASKED… OMIT
+this field entirely unless", which a customer's edit reads as *don't touch the
+stylesheet*, so `EDIT_RULE` had to name that clause and overrule it in prose.
+
+Now: **`builder/site-lanes.mjs`, which imports nothing from `worker.js`.**
+
+```
+customer ──► pick_lanes ──► edit_site ──► publish
+             haiku          one per lane   ONCE
+             2,811 chars    1 property     however many ran
+             17 names       0 required
+```
+
+**Seventeen lanes; eight act.** `css theme brand description wordmark favicon
+lang langs` act — every one a plain string, an enum or a list of short strings,
+which is why this module owns its own shapes and shares none. The other nine
+(the seven `PLAN_KEYS`, plus `backend` and `slug`) **hand off at the door, before
+a call is bought**, and name the rung that can do the work: nothing downstream of
+a cheap edit reads a plan axis, so storing one reports success and changes
+nothing a visitor sees. `needsPages` was the same refusal one layer down, arriving
+only *after* a model call.
+
+**The name sets are asserted in BOTH directions** (`test/edit-lanes.test.mjs`) —
+a field added to the build with no lane is a part of a site nobody can change
+again; a lane for a field the build stopped producing edits nothing.
+
+**The wall, not the rule.** A `css` lane cannot re-theme or rename a site because
+its tool has one property and there is nowhere to put the answer. A rule in prose
+is one a model eventually reads past.
+
+**The contract is still two opposite halves and they must arrive together**
+(owner, 2026-08-28: *"it's free css — the model can edit anything on the page…
+but when they ask one thing, you only edit one thing"*) — now in `EDIT_SYSTEM`
+and each lane's own description, with no build framing to overrule:
 
 - **Unlimited in WHAT.** The sheet is the whole look and it is the model's to
-  edit; nothing on the page is out of reach. This says so explicitly *because the
-  cached `css` description is written for a first build* ("ONLY WHEN ASKED",
-  "OMIT this field entirely unless…") and is shared by both lanes — so the edit
-  lane names the framing it overrides, or the model reconciles two of them alone.
+  edit; nothing on the page is out of reach.
 - **Strict in HOW MUCH.** As many edits as there were asks and **never more**;
   each **only as wide as it was asked** — a rule on a control, not a new value
   for a token every component repaints from; and **nothing unasked-for moves.**
 
 Either half alone misleads: permission without a ceiling invites a redesign, a
-ceiling without permission reads as "don't touch anything". The width rule is the
-one with teeth — "make this button darker" reads equally as one rule or one
-token, and only one of them is the edit the customer asked for. Stated as the
+ceiling without permission reads as "don't touch anything". Stated as the
 mechanism, never as a ban-list: a list covers tonight's control and the next
 request is always a different one.
+
+**Two asks run two lanes in turn** (owner: *"run both lanes in turn"*), each shown
+only its own field's stored value, and **one publish** covers the message.
+Measured: **4,012 chars of tool against 84,817**, still **1 credit** —
+`pageCredits` is variadic and rounds once with a floor of 1.
+
+**Every prompt in there is a PLACEHOLDER** and marked so (owner: *"i will tell you
+the prompt later"*). One `hint` and one `edit` string per lane in the `LANES`
+table; swapping the wording in is a find-and-replace.
+
+**The look lane is now databaseless in fact, not by permission.** Its
+`SELECT v FROM _meta` fed the designer a `tables:` list; with no designer there is
+nothing to feed, so the query is gone. `test/site-apply.test.mjs` asserts the
+lane issues no SQL at all.
+
+**Still mixed, and next: the ADDON step**, which calls `designSiteSchema` with the
+same 84.8k build tool to add one page. **DELETE deferred** (owner's call).
+
+---
 
 Every cheap edit republishes through `recompileAndPublish` — the shared spine.
 **Anything a build bakes must be sent by that spine too**, or a typo fix silently
@@ -518,6 +574,33 @@ address the same complaint, one of them is dead; find out which.
 
 **Vacuous ordering.** `indexOf(a) < indexOf(b)` passes when `a` is the thing
 deleted (-1 < anything). Prove both anchors exist first.
+
+**One prompt written for two jobs, where the second has to argue with the first.**
+`design_schema` was shared by the build and the `look` edit, so a customer's
+colour change was sent "ONLY WHEN ASKED… OMIT this field entirely unless" — the
+right instruction for a first build and, on an edit, a plain "don't touch the
+stylesheet". The fix at the time was to make `EDIT_RULE` **name that clause and
+overrule it**, which works and is a tell: a prompt that has to quote and reverse
+another prompt in the same call is two jobs wearing one tool. Split them.
+Measured when they were: 84,817 characters of tool down to 4,012, and the
+overruling paragraph simply deleted. **When two callers need opposite framings of
+the same field, the field is not what they share — the SHAPE is.**
+
+**A guard that goes red for the change rather than for a bug.** Four fired at
+once on this split, all of them pinned to a spelling rather than a property: an
+import list asserted as exactly two names (an honest third arrived), a count of
+`designSiteSchema(` call sites, a floor of "two designer assignments" when one
+stopped being a designer's, and `css: priorCss,` as the only shape a stored sheet
+may reach a model in. Each reported a feature as broken that was working. The
+tell is that the failure message describes something nobody did — re-anchor,
+don't appease, and **say in the comment which spelling moved and why**, or the
+next session re-pins it.
+
+**A read whose only consumer went, and the query stayed.** The look lane kept
+`SELECT v FROM _meta WHERE k = 'schema'` to hand the DESIGNER a table list; when
+the designer left, the round-trip stayed — on every colour change, feeding a
+parameter that no longer existed. Nothing fails, nothing logs, the bill is a
+Postgres call per edit. **When you delete a consumer, grep for what fed it.**
 
 ---
 
