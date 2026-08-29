@@ -183,10 +183,8 @@ jobs:
           # inputs are empty, so `mode` falls to `build` and the hardcoded brief
           # below runs exactly as it always has. The edit path reads OWNER_SLUG
           # and OWNER_INSTRUCTION and ignores the brief entirely.
-          # TEMPORARY (2026-08-29): the live look edit, now that the spine
-          # serves a databaseless site. Reverted next commit.
-          OWNER_MODE: ${{ github.event.inputs.mode || 'edit' }}
-          OWNER_INSTRUCTION: ${{ github.event.inputs.instruction || 'Make the footer background dark green.' }}
+          OWNER_MODE: ${{ github.event.inputs.mode || 'build' }}
+          OWNER_INSTRUCTION: ${{ github.event.inputs.instruction || '' }}
           OWNER_LAYER: ${{ github.event.inputs.layer || 'look' }}
           # A FRESH SLUG AGAIN. Runs 3 and 4 both died at the wall on THIS
           # brief and each left a claimed slug plus a live Neon project behind
