@@ -137,20 +137,20 @@ refunds if it refuses.
 
 ## What the design call decides
 
-`design_schema` is one tool, **91,232 characters**, in the cached block. Property
-order IS generation order. **22 properties, 15 required**; a first build sends 21
+`design_schema` is one tool, **93,852 characters**, in the cached block. Property
+order IS generation order. **24 properties, 15 required**; a first build sends 23
 of them (14 required).
 
 **The order, measured by evaluating the tool rather than reading it** — the list
 below drifted twice before, so re-derive it, don't trust this line:
 
 > `brand` · `slug` · `description` · `kind` · `purpose` · `pages` · `components` ·
-> `tsx` · `theme` · `wordmark` · `favicon` · `shape` · `images` · `css` ·
-> `backend` · `action` · `lang` · `langs` · `three` · `behavior` · `needsWeb` ·
-> `webQueries`
+> `tsx` · `theme` · `wordmark` · `favicon` · `gif` · `shape` · `images` · `qr` ·
+> `css` · `backend` · `action` · `lang` · `langs` · `three` · `behavior` ·
+> `needsWeb` · `webQueries`
 
-Only `tsx`, `css`, `lang`, `langs`, `three`, `needsWeb` and `webQueries` are
-optional.
+Only `tsx`, `gif`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
+`webQueries` are optional.
 **`seeds` and `share` are NOT fields** — `seeds` came off on 2026-08-23 and
 `share` never existed (the share image is chosen at publish time, not designed).
 
@@ -216,6 +216,31 @@ optional.
   **The spine re-sends them on every publish** (`source/<slug>/parts.json`), which
   is not an optimisation: a page importing a component that is not sent does not
   compile, so without it the first typo fix after a build takes the site down.
+- **`gif`** (2026-08-29, owner: *"gif maker as optional too… just like a svg
+  step, a gif step to generate gif"*) — **an animated mark, drawn by the model as
+  one SVG document with its animation inside it.** Sits with `wordmark` and
+  `favicon` because it is the same job: one document, replaced whole, validated
+  by the same scanner. `cleanMark` now takes its tag/attr sets as PARAMETERS and
+  has three callers; `GIF_ATTRS` is derived from `FAVICON_ATTRS` so the two
+  cannot diverge. **The one new risk is indirection**: `<animate
+  attributeName="href">` names its target in a VALUE, so a document that cannot
+  *write* `href` could animate one in — `attributeName` is therefore checked
+  against the same set the scanner admits. `animateMotion` is refused outright
+  (its child is `<mpath href>`). **It produces an animated SVG, not a `.gif`
+  binary** — smaller, sharper, and it themes with the page; a real encoder buys
+  nothing unless these ever have to be shared OFF the site.
+- **`qr`** (2026-08-29, owner: *"qr code maker as optional"*) — `{ points, label
+  }`, both required. **We draw it, the model never does**: a QR is Reed-Solomon
+  over a spec with 40 sizes and 8 masks, and its failure mode is a code that
+  looks perfect and does not scan — unfalsifiable by every instrument here except
+  a phone. `qrcode-generator` (one file, no deps) is bundled into the Worker;
+  `qrSvg` emits ONE `<path>` merging horizontal runs (**4,206 chars vs the
+  library's 8,464** for a real URL). Generated at build time from the two stored
+  strings, never stored as a picture — a stored SVG would be a second copy of
+  `points` that can disagree with it. `test/site-marks.test.mjs` re-derives the
+  module set from the emitted path and compares it against the library's own
+  `isDark`, which is the only ground truth available without a camera. The
+  payload is held to real business schemes; `javascript:` and `data:` are refused.
 - **`three`** — a 3D/WebGL element, optional the way `css` is, absent on nearly
   every site. **Decided and stored; it does NOT yet reach the page writer** — see
   the backlog.
@@ -235,7 +260,7 @@ optional.
 - **`backend`** (tables, functions, apis, jobs) — the ONLY property dropped from
   a first build. `FRONTEND_SCHEMA_TOOL` derives itself by destructuring `backend`
   out and filtering it from `required`, so the two can never disagree. It is
-  **29,189 of the 91,232 — 32.0%** off the wire on every first build.
+  **29,189 of the 93,852 — 31.1%** off the wire on every first build.
 
 **Every design decision is anchored on a revise.** `EDIT_FIELDS` + `mergeLook`:
 absent means unchanged, so a colour change cannot re-roll the theme.
@@ -329,18 +354,18 @@ customer ──► pick_lanes ──► edit_site ──► publish
              17 names       0 required
 ```
 
-**Twenty lanes and ALL BUT ONE act** (owner, 2026-08-29: *"i need all the 17
+**Twenty-two lanes and ALL BUT ONE act** (owner, 2026-08-29: *"i need all the 17
 lanes acting"* — seventeen then, nineteen now that `three` and `behavior` have
 arrived). `pick_lanes` runs ABOVE the layer dispatch, so it is the front door for
-all twenty and what it names decides which layer runs.
+all twenty-two and what it names decides which layer runs.
 
 **"Acting" is a group name, not a verdict.** `ACTING_LANES` in the code means
 *the ones this module edits itself*; the dispatched, verb and escalate lanes all
-do real work too, just on another rung. **19 of 20 act in the plain sense — only
+do real work too, just on another rung. **21 of 22 act in the plain sense — only
 `slug` does nothing.**
 
-- **9 act here** — `css theme brand description wordmark favicon lang langs
-  behavior`. The first eight are a plain string, enum or short list, which is why
+- **11 act here** — `css theme brand description wordmark favicon gif qr lang
+  langs behavior`. The first eight are a plain string, enum or short list, which is why
   this module owns its own shapes; `behavior` is the one exception and shares
   `BEHAVIOR_ITEM` from `site-plan.mjs`, the only module both paths may read.
   **Every one but `css` is a key on the stored look and must be on `EDIT_FIELDS`**

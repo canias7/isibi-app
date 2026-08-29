@@ -364,10 +364,24 @@ test("the wordmark rides every hop the favicon rides", () => {
   assert.ok(at > theme && at < fav, "the wordmark is not drawn between the theme and the favicon");
   // Both payloads and the build args, derived from the same icon hops the
   // favicon guard uses.
+  // ── WINDOWED LANDMARK TO LANDMARK, NOT BY BYTES (2026-08-29) ──────────────
+  //
+  // This was `slice(h.index, h.index + 1200)` and it went red the day two honest
+  // fields (`gif`, `qr`) joined the same payloads and pushed `wordmark:` past
+  // 1,200 characters — reporting that a payload had stopped carrying the
+  // wordmark, which nobody had touched. This repo's most-repeated trap, in a
+  // test written to catch a different one: any byte window is outrun by the next
+  // thing inserted above what it is looking for.
+  //
+  // The closing landmark is the NEXT hop, so anything added between two hops
+  // lands INSIDE the window rather than escaping it, and the last hop runs to
+  // the end of the file.
   const hops = [...w.matchAll(/icon: icon \|\| "",/g)];
   assert.ok(hops.length >= 2);
-  for (const h of hops) {
-    assert.match(w.slice(h.index, h.index + 1200), /wordmark: /,
+  for (let i = 0; i < hops.length; i++) {
+    const from = hops[i].index;
+    const to = i + 1 < hops.length ? hops[i + 1].index : w.length;
+    assert.match(w.slice(from, to), /wordmark: /,
       "a container payload carries the favicon and not the wordmark");
   }
   const args = w.indexOf("favicon: look.favicon,");

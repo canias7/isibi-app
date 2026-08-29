@@ -61,6 +61,11 @@ const STORED = {
   // loops measure the merge under test, and a shape it would refuse produces a
   // phantom "nothing moved".
   tsx: [{ name: "chair-turner", does: "the chair, turnable by dragging", props: "model: string, compact?: boolean" }],
+  // A REAL animated mark and a REAL QR, for the reason the theme and the favicon
+  // above are real: `FIELD_KEEPS`/`hasValue` judge these, and a shape the merge
+  // would refuse turns every "nothing moved" loop into a phantom.
+  gif: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60"><circle cx="30" cy="30" r="12" fill="#b44a2e"><animate attributeName="r" values="12;18;12" dur="2s" repeatCount="indefinite"/></circle></svg>',
+  qr: { points: "https://sharp-fade.gofarther.app/prices", label: "Prices" },
 };
 
 /* ── absent means unchanged ─────────────────────────────────────────────── */
@@ -355,6 +360,12 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
     // alone would pass while the sentence the model has to hand back unchanged
     // was never shown.
     tsx: [{ name: "a-part", does: "value-of-tsx", props: "rows: Row[]" }],
+    // The note prints the animated mark RAW and whole, like the favicon, so a
+    // bare marker exercises it exactly as `favicon` does.
+    gif: "value-of-gif",
+    // The marker sits in `points` because that is the half a re-answer invents,
+    // and the note prints label and destination together.
+    qr: { points: "value-of-qr", label: "Scan me" },
   };
   assert.deepEqual(Object.keys(SAMPLE).sort(), [...EDIT_FIELDS].sort(),
     "a field was added to EDIT_FIELDS without a sample of its shape — this guard would stop exercising it");

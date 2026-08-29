@@ -113,7 +113,7 @@ import { cleanFavicon, readWordmark } from "./site-favicon.mjs";
 // declaration was made once, for this site, and a revise that is not shown it
 // has every reason to answer afresh, which here means forgetting a hand-written
 // component the page still imports.
-export const EDIT_FIELDS = ["brand", "description", "theme", "wordmark", "favicon", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs", "behavior", "three", "tsx"];
+export const EDIT_FIELDS = ["brand", "description", "theme", "wordmark", "favicon", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs", "behavior", "three", "tsx", "gif", "qr"];
 
 /**
  * Nothing is required of an EDIT.
@@ -337,6 +337,24 @@ export function currentStateNote(current) {
       .filter(([name, does]) => name && does)
       .map(([name, does]) => name + " — " + does);
     if (built.length) lines.push("components written for this site (its pages import these by name): " + built.join(" | ").slice(0, 700));
+  }
+  // THE ANIMATED MARK, WHOLE AND UNCAPPED — the favicon's argument exactly: it is
+  // REPLACED rather than merged, so the only way a revise can change the timing
+  // without redrawing the whole thing is to hand the current document back with
+  // that one change made. A `.slice()` here would have the model return the
+  // truncated document, which then replaces the stored one.
+  const anim = str(c.gif);
+  if (anim) {
+    lines.push("its animated mark (an SVG you drew — to change it, return `gif` as a whole new document; " +
+      "to keep it, omit `gif`):\n" + anim);
+  }
+  // AND THE QR, BOTH HALVES. Shown together because they are stored together and
+  // replaced together: a model told only the caption re-answers `points` from
+  // nothing, and a QR pointing at an invented URL is the one failure on this
+  // whole list a visitor cannot see coming — they point a camera and trust it.
+  const q = c.qr && typeof c.qr === "object" && !Array.isArray(c.qr) ? c.qr : null;
+  if (q && str(q.points)) {
+    lines.push("its QR code: \"" + str(q.label).slice(0, 60) + "\" pointing at " + str(q.points).slice(0, 200));
   }
   const tables = Array.isArray(c.tables) ? c.tables.map(str).filter(Boolean).slice(0, 24) : [];
   if (tables.length) lines.push("tables it already has: " + tables.join(", "));

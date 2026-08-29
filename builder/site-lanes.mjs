@@ -435,6 +435,64 @@ const LANES = {
     },
   },
 
+  // ── THE ANIMATED MARK ──────────────────────────────────────────────────
+  //
+  // ACTS HERE, beside `favicon` and `wordmark`, because it is the same KIND of
+  // value they are: one SVG document, stored whole, replaced whole, validated by
+  // the same scanner. A customer asking to change what it does is asking for a
+  // redraw, and a redraw is one cheap call.
+  gif: {
+    hint: "THE ANIMATED MARK — the small looping graphic: what it shows, how it moves, how fast, or taking it off the site.",
+    shape: { type: "string" },
+    edit: {
+      is: "The site's animated mark, as one complete SVG document, as it should be after their change.",
+      yours:
+        "THE WHOLE DRAWING IS YOURS TO REDRAW. Any shape, any colour, any timing — whatever they asked to " +
+        "look or move differently, draw it. You are handed the document the site is wearing; return it with " +
+        "their change made.",
+      wide:
+        "THE ASK IS THE EDIT, AND A REDRAW IS NOT ONE. Asked to slow it down, change the duration — do not " +
+        "take the opportunity to redraw the shapes, restyle the colours, or make it 'better'. This field is " +
+        "replaced WHOLE, so anything you do not carry across is gone from their site.",
+      keep:
+        "EVERY SHAPE, COLOUR AND TIMING THEY DID NOT ASK ABOUT COMES BACK EXACTLY AS IT WAS. A mark that " +
+        "quietly becomes a different mark is the site changing on its own, and it is the one change nobody " +
+        "asked for that a visitor is guaranteed to notice, because it moves.",
+    },
+  },
+
+  // ── THE QR CODE ────────────────────────────────────────────────────────
+  //
+  // ACTS HERE, and the shape is why: what is stored is a DESTINATION and a
+  // CAPTION, not a picture. The code itself is generated from those at build
+  // time, so changing where it points is changing two short strings — which is
+  // the cheapest kind of edit there is, and would be absurd as a page rewrite.
+  qr: {
+    hint: "THE QR CODE — where scanning it takes you, or what the words beside it say. Also taking it off the site.",
+    shape: {
+      type: "object",
+      properties: {
+        points: { type: "string", description: "What scanning it does — a full URL, or `tel:`, `mailto:`, `WIFI:`, or plain text." },
+        label: { type: "string", description: "The few words printed beside it." },
+      },
+      required: ["points", "label"],
+    },
+    edit: {
+      is: "Where the site's QR code points and what it is called, as they should be after their change.",
+      yours:
+        "BOTH HALVES ARE YOURS TO CHANGE. Point it somewhere else, reword the caption, or both — whatever " +
+        "they asked for. The code itself is drawn for you from these two values; you never draw one.",
+      wide:
+        "NEVER INVENT A DESTINATION. This is the one field where a plausible guess is worse than a refusal: " +
+        "a QR is the one thing on a page a visitor cannot read before acting on it, so a made-up URL is a " +
+        "customer sending people somewhere that does not exist. If they asked to reword the caption, change " +
+        "the caption and hand `points` back exactly as it was.",
+      keep:
+        "THE HALF THEY DID NOT MENTION COMES BACK UNCHANGED, character for character. A reworded caption " +
+        "must not quietly re-point the code, and a re-pointed code must not quietly reword the caption.",
+    },
+  },
+
   /* ---- the six that act on another layer ---- */
   purpose: { hint: "What the page is organised around — what it leads with and what everything else supports.", elsewhere: "plan" },
   components: { hint: "Which building blocks the page is made of — the manifest it is written from.", elsewhere: "plan" },

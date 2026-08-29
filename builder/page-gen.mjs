@@ -1936,7 +1936,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images, tsx } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx, gif, qr } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -1973,8 +1973,47 @@ export function briefWithLayout({ brief, plan, images, tsx } = {}) {
   // so they are read together or the second reads as unrelated.
   const built = tsxDirective(tsx);
   if (built) parts.push(built);
+  // AND THE TWO GENERATED MARKS. Without this block the container writes
+  // `public/animated.svg` and `public/qr.svg` on every build and no page ever
+  // references them — a file served to nobody, which from outside is
+  // indistinguishable from the design step never having answered.
+  const marks = marksDirective({ gif, qr });
+  if (marks) parts.push(marks);
   if (images != null) parts.push(imageDirective(images));
   return parts.join("\n\n");
+}
+
+/**
+ * THE ANIMATED MARK AND THE QR, AS THINGS THE PAGE MAY PUT ON ITSELF.
+ *
+ * Both are written into `public/` by the container and exposed as bindings on
+ * `@/site-brand`, so what the page writer needs is not the artwork — it is to
+ * know they EXIST and what they are called. This is that.
+ *
+ * THE BINDINGS ARE NAMED EXACTLY, because they are generated: a page that
+ * guesses `SITE_GIF` does not compile, and the failure blames the page.
+ *
+ * EMPTY STRING WHEN THERE IS NEITHER, so the overwhelming majority of builds
+ * send exactly the request they sent before this existed.
+ */
+export function marksDirective({ gif, qr } = {}) {
+  const lines = [];
+  if (typeof gif === "string" && gif.trim()) {
+    lines.push(
+      "- An ANIMATED MARK is on this site, at `SITE_ANIMATED` from `@/site-brand` — a path to an SVG, or an",
+      "  empty string. Render it with `<img src={SITE_ANIMATED} alt=\"\" />` where the plan calls for it, and",
+      "  guard it: `{SITE_ANIMATED && …}`. It is decoration, so it takes an EMPTY alt and never carries meaning",
+      "  the words do not already carry.");
+  }
+  if (qr && typeof qr === "object" && typeof qr.label === "string") {
+    lines.push(
+      "- A QR CODE is on this site, at `SITE_QR` with its caption at `SITE_QR_LABEL` (both from",
+      "  `@/site-brand`). Show them TOGETHER — the code with the caption printed beside or beneath it — and",
+      "  guard on `SITE_QR`. Give the image `alt={SITE_QR_LABEL}`. Print it no smaller than about 120px:",
+      "  a QR below that does not scan, which is a failure nobody sees until somebody tries it in a room.");
+  }
+  if (!lines.length) return "";
+  return ["## Marks this site already has", "", ...lines].join("\n");
 }
 
 /**

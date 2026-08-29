@@ -44,7 +44,7 @@ import { dirFor, initialsMark, normalizeLang, siteIconFrom } from "./site-identi
 // the Worker's merge, on the tokensPage rule: the Worker and the container are
 // two layers, version skew and hand-written payloads reach this one directly,
 // and the mark is an SVG document served from the site's own origin.
-import { cleanFavicon, readWordmark } from "./site-favicon.mjs";
+import { cleanFavicon, readWordmark, cleanGif } from "./site-favicon.mjs";
 import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { runStep } from "./run-step.mjs";
@@ -380,9 +380,19 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon, wordmark, theme, tokens }) {
+function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon, wordmark, theme, tokens, gif, qr }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
+  // ── THE ANIMATED MARK AND THE QR (2026-08-29) ─────────────────────────────
+  //
+  // DELETED FIRST, EVERY BUILD, exactly like the icon above and the logo below,
+  // and for the reason those two say: this container is long-lived and shared,
+  // so a file left behind is one site's artwork appearing in another's. The
+  // delete is unconditional and the write is not — a site that stopped having an
+  // animated mark must actually stop having one.
+  const gifPath = path.join(APP, "public", "animated.svg");
+  const qrPath = path.join(APP, "public", "qr.svg");
+  for (const p of [gifPath, qrPath]) { try { fs.rmSync(p, { force: true }); } catch {} }
   // The drawn logo's file, deleted per build for the reason the icon's is one
   // line up: this container is long-lived and a stale one is one site's
   // wordmark in another's header.
@@ -512,6 +522,38 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
     prefix: l.prefix,
     label: langLabel(l.tag, l.prefix),
   }));
+  // ── AND THE TWO NEW MARKS, VALIDATED AGAIN HERE ───────────────────────────
+  //
+  // The Worker's merge already refused junk; this route also takes hand-written
+  // payloads and survives version skew, and what it writes is an SVG document
+  // served from the site's own origin. Same argument as the favicon and the
+  // wordmark above, and the same refuse-whole outcome: a site with a bad mark
+  // has no mark, never a broken one.
+  //
+  // THE QR IS NOT RE-VALIDATED AS A DRAWING because it is not one the model
+  // drew — the Worker GENERATED it from two strings, so there is no untrusted
+  // document here. What is checked is that it looks like the thing we generate.
+  let gifValue = "";
+  if (typeof gif === "string" && gif.trim()) {
+    try {
+      const g = cleanGif(gif);
+      if (!g.svg) console.error("animated mark refused:", g.why);
+      else {
+        fs.mkdirSync(path.dirname(gifPath), { recursive: true });
+        fs.writeFileSync(gifPath, g.svg);
+        gifValue = "/animated.svg";
+      }
+    } catch (e) { console.error("animated mark failed:", e && e.message); }
+  }
+  let qrValue = "", qrLabel = "";
+  if (qr && typeof qr === "object" && typeof qr.svg === "string" && /^<svg[\s>]/.test(qr.svg.trim())) {
+    try {
+      fs.mkdirSync(path.dirname(qrPath), { recursive: true });
+      fs.writeFileSync(qrPath, qr.svg);
+      qrValue = "/qr.svg";
+      qrLabel = typeof qr.label === "string" ? qr.label.slice(0, 80) : "";
+    } catch (e) { console.error("qr write failed:", e && e.message); }
+  }
   const titleValue = typeof title === "string" && title.trim() ? title.trim().slice(0, 120) : "App";
   // THE SLUG IS THE ONE VALUE HERE THAT IS NOT DECORATION. `siteSlug()` reads it
   // off the head on a custom domain, where there is no `/s/<slug>/` path to learn
@@ -564,6 +606,19 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
     "// Generated per build by build-server.mjs. Do not edit.\n" +
       "export const SITE_SLUG = " + JSON.stringify(slugValue) + ";\n" +
       "export const SITE_LOGO = " + JSON.stringify(logoValue) + ";\n" +
+      // ── THE ANIMATED MARK AND THE QR, AS PATHS THE PAGE CAN USE ───────────
+      //
+      // WRITTEN AS EMPTY STRINGS WHEN THERE ARE NONE, never omitted. The pages
+      // import these bindings, so a name that is sometimes absent is a page that
+      // sometimes does not compile — the `SITE_LOGO` rule one line up, which was
+      // learned the same way.
+      //
+      // The QR's CAPTION rides beside its path because the two are one thing: a
+      // QR with no caption is a black square nobody points a camera at, and a
+      // page that has to invent the words would invent different ones each build.
+      "export const SITE_ANIMATED = " + JSON.stringify(gifValue) + ";\n" +
+      "export const SITE_QR = " + JSON.stringify(qrValue) + ";\n" +
+      "export const SITE_QR_LABEL = " + JSON.stringify(qrLabel) + ";\n" +
       "export const SITE_LANG = " + JSON.stringify(langValue) + ";\n" +
       // ANNOTATED for the reason `SITE_PAGE_TRANSITION` below is: an unannotated const has
       // the LITERAL type of whichever value was written, so a comparison against
@@ -1652,7 +1707,7 @@ const server = http.createServer((req, res) => {
       // once, passed to both, and `parseStyle` is idempotent so `applyStyle`
       // re-reading it downstream cannot change the answer.
       const styleUsed = parseStyle(payload.style, { max: MAX_STYLE_BUILD }).style;
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, wordmark: payload.wordmark, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition, theme: payload.theme, tokens: payload.tokens });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, wordmark: payload.wordmark, gif: payload.gif, qr: payload.qr, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition, theme: payload.theme, tokens: payload.tokens });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts, payload.cssFonts);
       // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
       // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly

@@ -32,7 +32,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
  */
 export async function readSchemaTool() {
   const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  const [fonts, plan, tokens, style, authored, registry, favicon] = await Promise.all([
+  const [fonts, plan, tokens, style, authored, registry, favicon, qr] = await Promise.all([
     import(path.join(ROOT, "builder", "site-fonts.mjs")),
     import(path.join(ROOT, "builder", "site-plan.mjs")),
     import(path.join(ROOT, "builder", "site-tokens.mjs")),
@@ -40,6 +40,7 @@ export async function readSchemaTool() {
     import(path.join(ROOT, "builder", "site-authored.mjs")),
     import(path.join(ROOT, "builder", "site-theme-registry.mjs")),
     import(path.join(ROOT, "builder", "site-favicon.mjs")),
+    import(path.join(ROOT, "builder", "site-qr.mjs")),
   ]);
   const scope = {
     SITE_FONT_IDS: fonts.SHORTLIST.map((f) => f.id),
@@ -68,6 +69,10 @@ export async function readSchemaTool() {
     // The designer-drawn tab icon (2026-08-28) — the real field, never a stub,
     // for the reason this function's own header gives.
     FAVICON_FIELD: favicon.FAVICON_FIELD,
+    // The animated mark and the QR (2026-08-29) — real fields, never stubs, for
+    // the reason this function's header gives.
+    GIF_FIELD: favicon.GIF_FIELD,
+    QR_FIELD: qr.QR_FIELD,
     WORDMARK_FIELD: favicon.WORDMARK_FIELD,
     PLAN_REQUIRED: plan.PLAN_REQUIRED,
     SITE_TOKEN_NAMES: tokens.ASKABLE,

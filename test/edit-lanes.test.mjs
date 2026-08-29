@@ -57,7 +57,9 @@ test("the two paths cover the same EIGHTEEN fields — asserted both ways", asyn
   // build with no lane is a part of a site the customer can never change again,
   // and a lane for a field the build stopped producing edits nothing. Neither
   // announces itself, so both directions are named.
-  // TWENTY SINCE 2026-08-29 — `three` that morning ("we are adding more tools,
+  // TWENTY-TWO SINCE 2026-08-29, and `gif` + `qr` were the last two that day
+  // ("qr code maker as optional, also gif maker as optional too, in the design
+  // step"). Before them: `three` that morning ("we are adding more tools,
   // as optional — three.js and webgl"), `behavior` after it ("update only the
   // frontend design step to plan behavior"), and `tsx` last ("what if customer
   // wants something that we dont have in our library… a tsx step that generates
@@ -67,8 +69,8 @@ test("the two paths cover the same EIGHTEEN fields — asserted both ways", asyn
   // somebody makes on purpose; the two loops below are the property, and they
   // are what caught this one — a field with no lane is a part of a site the
   // customer could never change again.
-  assert.equal(designed.length, 20, "the design tool no longer yields twenty editable fields: " + designed.join(","));
-  assert.equal(LANE_FIELDS.length, 20, "the edit path no longer has twenty lanes: " + LANE_FIELDS.join(","));
+  assert.equal(designed.length, 22, "the design tool no longer yields twenty-two editable fields: " + designed.join(","));
+  assert.equal(LANE_FIELDS.length, 22, "the edit path no longer has twenty-two lanes: " + LANE_FIELDS.join(","));
   for (const k of designed) {
     assert.ok(LANE_FIELDS.includes(k), "the build can produce `" + k + "` and the edit path has no lane for it");
   }

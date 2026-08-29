@@ -116,7 +116,8 @@ import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTIO
 // The designer-drawn tab icon (2026-08-28, owner's call). The FIELD is the ask;
 // `cleanFavicon` itself runs at the merge (`FIELD_KEEPS.favicon`) and again in
 // the container at the write — this file only carries the answer through.
-import { FAVICON_FIELD, WORDMARK_FIELD } from "./builder/site-favicon.mjs";
+import { FAVICON_FIELD, WORDMARK_FIELD, GIF_FIELD } from "./builder/site-favicon.mjs";
+import { QR_FIELD, qrSvg } from "./builder/site-qr.mjs";
 // THE 500 THEMES, BACK IN THE PRODUCT (2026-08-27, owner's call). The tool's
 // enum is `THEME_SHORTLIST` — 100 of the 500, the owner's second call the same
 // day ("do only 100 and keep the otherones there") — `themeFontPair` is where
@@ -4005,6 +4006,18 @@ const SITE_SCHEMA_TOOL = {
       // uploaded logo still beats either.
       wordmark: WORDMARK_FIELD,
       favicon: FAVICON_FIELD,
+      // ── AND THE ANIMATED ONE, BESIDE THE TWO STILL MARKS ────────────────
+      //
+      // Owner, 2026-08-29: "gif maker as optional too, in the design step…
+      // just like a svg step, a gif step to generate gif". So it sits with the
+      // drawn marks rather than with the page content: it is the same job as
+      // the wordmark and the tab icon — the model draws one document, the same
+      // scanner validates it, the site keeps nothing if it is refused.
+      //
+      // AFTER the two still marks, because an animated mark on a site that has
+      // one is usually a moving version of that identity, and the model has
+      // just drawn it.
+      gif: GIF_FIELD,
       shape: SHAPE_FIELD,
       // AND THE PHOTOGRAPHS LAST OF ALL (owner's call, 2026-08-23 — "lets move
       // image generator to the designer").
@@ -4020,6 +4033,14 @@ const SITE_SCHEMA_TOOL = {
       // the verb is fixed, the manifest is picked and every band is arranged.
       // "The hero on /" is a slot this model just placed. See IMAGES_FIELD.
       images: IMAGES_FIELD,
+      // ── THE QR CODE, AFTER THE PAGES IT MIGHT POINT AT ──────────────────
+      //
+      // Owner, 2026-08-29: "qr code maker as optional". Placed here rather than
+      // with the drawn marks because it is not drawn — WE generate it — and
+      // because what it points at is very often a page of this same site, which
+      // the model has only just decided. Answered before `css`, which is the
+      // layer that would style the block it sits in.
+      qr: QR_FIELD,
       // ── THE SITE'S WHOLE STYLESHEET, WRITTEN BY THE MODEL ────────────────
       //
       // Owner's call, 2026-08-23: "for the look, the css, we are gonna delete
@@ -8357,6 +8378,33 @@ async function loadSiteSource(env, slug) {
  * standing rule ("anything a build bakes must be sent by that spine too") in its
  * sharpest form: here the omission is not a stripped feature, it is a red build.
  */
+/**
+ * THE QR, AS THE CONTAINER WANTS IT: the drawn code and its caption.
+ *
+ * ONE FUNCTION FOR BOTH PAYLOADS, and that is the point rather than tidiness.
+ * The build path and the publish spine each send this, and the two have drifted
+ * before — the tab icon was read on one and never put on the wire, so every
+ * cheap edit silently took a site's drawn mark off. Two call sites computing a
+ * QR two ways would fail the same way and be twice as hard to see.
+ *
+ * DRAWN HERE RATHER THAN STORED, because a QR is a pure function of its payload:
+ * storing the SVG would be a second copy of `points` that can disagree with it,
+ * and the one thing worse than no QR is a QR pointing at the previous URL.
+ *
+ * A REFUSED PAYLOAD YIELDS `undefined`, so the site simply has no QR — the same
+ * refuse-whole contract every drawn mark here has. `qrSvg` already refuses a
+ * scheme a QR must never carry, an over-long payload and one that will not fit.
+ */
+function qrPayload(qr) {
+  if (!qr || typeof qr !== "object" || Array.isArray(qr)) return undefined;
+  const points = typeof qr.points === "string" ? qr.points : "";
+  const label = typeof qr.label === "string" ? qr.label.trim().slice(0, 80) : "";
+  if (!points || !label) return undefined;
+  const drawn = qrSvg(points);
+  if (!drawn.svg) { console.warn("qr refused:", drawn.why); return undefined; }
+  return { svg: drawn.svg, label };
+}
+
 const PARTS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/parts.json";
 
 async function saveSiteParts(env, slug, parts) {
@@ -9303,6 +9351,18 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // does not carry the stored mark takes it off and the site falls
           // back to initials because somebody corrected a typo.
           favicon: (look && look.favicon) || undefined,
+          // THE ANIMATED MARK AND THE QR, on the spine as well as the build —
+          // this file's standing rule, and both fail the same way without it:
+          // the container deletes and rewrites `public/` on every build, so a
+          // publish that does not send them takes them OFF the site. That is the
+          // tab-icon bug two fields up, which was read here and never put on the
+          // wire, arriving twice more.
+          //
+          // THE QR IS DRAWN HERE, from the two stored strings, because the code
+          // is a pure function of its payload — there is nothing to store and
+          // nothing for the container to compute.
+          gif: (look && look.gif) || undefined,
+          qr: qrPayload(look && look.qr),
           wordmark: (look && look.wordmark) || undefined,
           // THE DESCRIPTION, ON THE SPINE TOO — the container re-composes the
           // share card on EVERY publish, so a text fix that does not carry it
@@ -9571,7 +9631,7 @@ async function siteOgImage(env, slug, dist) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
   // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
   // runs the compile dep TWICE — one page swapped for a stub — and a cache that
   // lived inside the dep would pay a second Haiku call for strings answered
@@ -9776,7 +9836,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         // zero imports across the 100-site corpus. Only this call site knows it;
         // the edit and addon rungs pass no plan, and their `kind: ""` keeps the
         // catalogue, which is the safe direction.
-        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
+        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
       } catch (e) {
         // THE SENTINEL IS READ BEFORE ANY FAILURE HANDLING, which is not
         // tidiness: `retryHere` would read this as a failure that spent nothing
@@ -9929,6 +9989,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // merge and AGAIN in the container — version skew and hand-written
           // payloads are why the second reading exists.
           favicon: favicon || undefined,
+          // Same pair as the spine, off the merged look this build just wrote.
+          gif: gif || undefined,
+          qr: qrPayload(qr),
           // And the header logo choice — `text` or a drawn SVG — under the
           // owner's uploaded logo the same way.
           wordmark: wordmark || undefined,
@@ -12654,6 +12717,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             // above it — `favicon` is on `EDIT_FIELDS`, so a revise that does
             // not mention the mark keeps it and a fresh answer replaces it.
             favicon: look.favicon,
+            // The animated mark and the QR, off the same merged look as the
+            // favicon beside them — so a revise that mentions neither keeps both.
+            gif: look.gif,
+            qr: look.qr,
             wordmark: look.wordmark,
             // AND THE SEARCH-CONSOLE TAG, for the reason the icon and the logo
             // are here: the sidecar is rewritten whole on every publish, so a

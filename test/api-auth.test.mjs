@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 // the shape check below, never stubbed — see `REAL` there for why.
 import { SEEDS_FIELD } from "../builder/site-seeds.mjs";
 import { PLAN_FIELDS, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD } from "../builder/site-plan.mjs";
+import { GIF_FIELD } from "../builder/site-favicon.mjs";
+import { QR_FIELD } from "../builder/site-qr.mjs";
 import { FAVICON_FIELD, WORDMARK_FIELD } from "../builder/site-favicon.mjs";
 import { AUTHORED_AXES, ASKABLE as STYLE_AXES } from "../builder/site-style.mjs";
 import { authoredFieldSchema, AXIS_DECLS } from "../builder/site-authored.mjs";
@@ -422,7 +424,7 @@ test("every tool the model is given is a schema the API will accept", () => {
   // named trap and it fails in the safe direction (loudly, with "needs a type")
   // rather than silently, which is the only reason it is still two lists.
   const REAL = {
-    SEEDS_FIELD, PLAN_FIELDS, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, FAVICON_FIELD, WORDMARK_FIELD,
+    SEEDS_FIELD, PLAN_FIELDS, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, FAVICON_FIELD, WORDMARK_FIELD, GIF_FIELD, QR_FIELD,
     SITE_STYLE_AXES: STYLE_AXES, SITE_AUTHORED_AXES: AUTHORED_AXES,
     siteAuthoredSchema: authoredFieldSchema,
     SITE_AUTHORED_IMAGE: Object.entries(AXIS_DECLS).filter(([, v]) => v.image).map(([k]) => k),

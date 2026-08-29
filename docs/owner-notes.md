@@ -183,6 +183,39 @@ nothing for it. Cap of three, and the wording tells the model to search the kit
 first and say what it searched for — a component we build that the kit already
 had is the expensive mistake here.
 
+**0c. DONE 2026-08-29: a QR code and an animated mark, both optional** (owner:
+*"qr code maker as optional, also gif maker as optional too, in the design
+step"*, and on the second: *"just like a svg step, a gif step to generate gif"*).
+
+**The QR.** You chose "a QR code ON the site" — a menu, a booking link, a wifi
+network — rather than a generator the visitor drives. The design step says what
+it points at and what the words beside it are; **we draw the code**, at build
+time, so it costs a visitor nothing to load. The model never draws one, and that
+is deliberate: a QR is real error-correcting maths, and a subtly wrong one looks
+exactly like a working QR and simply does not scan. Nothing we have could catch
+that — not a build, not a screenshot, only a phone in somebody's hand. So the
+code comes from a proper library, and there is a test that checks our drawing
+against that library square by square. Two rules the model is held to: it may
+never invent a destination (a QR is the one thing on a page somebody can't read
+before trusting it), and a code with no caption is a black square nobody scans,
+so both are required together.
+
+**The animated mark.** Built exactly as you said — the same step as the SVG one.
+The model draws one document, the same validator checks it, and a bad one is
+refused whole and the site simply has none. **What it produces is an animated
+SVG rather than a `.gif` file**, and I want to be straight about that rather than
+let the name imply otherwise: for a small loop on a website the SVG is better on
+every count that matters — a few hundred bytes instead of a few hundred
+kilobytes, sharp at any size, and it picks up the site's colours because it is
+part of the page. A real `.gif` needs an encoder and a frame renderer in the
+build container and buys nothing for a site; worth doing only if you ever want
+these shared *off* the site, and it is written down as that.
+
+One thing I had to add for it: animation lets a drawing change an attribute
+rather than write it, so a mark that isn't allowed to contain a link could have
+*animated* one into existence. It can only animate something it was already
+allowed to write.
+
 **0a. DONE 2026-08-29: three.js and WebGL as OPTIONAL design fields** (owner:
 *"we are adding more tools, as optional — three.js and webgl"*). Shipped, then
 found to be **stored nowhere** and fixed the next day — see the bug entry below.

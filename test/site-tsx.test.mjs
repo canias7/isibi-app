@@ -88,7 +88,20 @@ test("THE CHAIN, END TO END — every hop between declaring a component and writ
   const w = bare(worker);
   assert.match(w, /tsx: Array\.isArray\(look\.tsx\) \? look\.tsx : undefined/,
     "hop 3: the stored declarations never leave the look — the page writer is never told");
-  assert.match(w, /briefWithLayout\(\{ brief, plan, tsx, images: imgBrief \}\)/,
+  // ANCHORED ON THE PROPERTY, NOT THE ARGUMENT LIST (re-anchored 2026-08-29,
+  // hours after being written). This pinned the exact call `briefWithLayout({
+  // brief, plan, tsx, images: imgBrief })` and went red the moment two honest
+  // arguments joined it — reporting that the page directive had stopped being
+  // given `tsx`, which nobody had done. Written as a guard against the wiring
+  // trap and immediately committing this repo's OTHER most-repeated one; the
+  // lesson is that "assert the property, not the spelling" applies hardest to
+  // the guards you write for yourself.
+  //
+  // The property: the page directive is built by a call that is handed `tsx`.
+  const callAt = w.indexOf("briefWithLayout({");
+  assert.ok(callAt > 0, "hop 3: nothing builds the page directive at all");
+  const call = w.slice(callAt, w.indexOf(")", callAt));
+  assert.match(call, /\btsx\b/,
     "hop 3: the payload carries `tsx` and the page directive is built without it");
 
   // ── 4. `buildAndPublishPages` actually destructures it
