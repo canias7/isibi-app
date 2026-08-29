@@ -154,7 +154,18 @@ jobs:
               | node -e 'let s="";process.stdin.on("data",(c)=>s+=c).on("end",()=>{const d=JSON.parse(s);const r=(d.workflow_runs||[])[0];console.log(r?r.status+"/"+r.conclusion:"none");})') || state=err
             echo "deploy: $state (poll $i)"
             case "$state" in
-              completed/success) exit 0 ;;
+              # LET IT SETTLE. "deploy completed" is the Worker being replaced,
+              # not the CONTAINER being ready to serve — and the edit lane
+              # recompiles in the container, so firing the instant the deploy
+              # lands answers `error: compile` with "our build service was
+              # restarting". Measured 2026-08-29: an edit at +0s after a deploy
+              # failed exactly that way at zero cost, and the run before it, on
+              # an already-settled Worker, reached the container fine.
+              #
+              # `edit smoke` recorded this same lesson from the other side — 90
+              # seconds of sleep testing a Worker mid-replacement, and reading
+              # infrastructure churn as the code being wrong.
+              completed/success) echo "deploy landed; letting the container settle"; sleep 90; exit 0 ;;
               completed/*) echo "the deploy failed — building against it proves nothing"; exit 1 ;;
             esac
             sleep 15
@@ -172,8 +183,10 @@ jobs:
           # inputs are empty, so `mode` falls to `build` and the hardcoded brief
           # below runs exactly as it always has. The edit path reads OWNER_SLUG
           # and OWNER_INSTRUCTION and ignores the brief entirely.
-          OWNER_MODE: ${{ github.event.inputs.mode || 'build' }}
-          OWNER_INSTRUCTION: ${{ github.event.inputs.instruction || '' }}
+          # TEMPORARY (2026-08-29): retry of the live look edit, now that the
+          # deploy-wait above lets the container settle. Reverted next commit.
+          OWNER_MODE: ${{ github.event.inputs.mode || 'edit' }}
+          OWNER_INSTRUCTION: ${{ github.event.inputs.instruction || 'Make the footer background dark green.' }}
           OWNER_LAYER: ${{ github.event.inputs.layer || 'look' }}
           # A FRESH SLUG AGAIN. Runs 3 and 4 both died at the wall on THIS
           # brief and each left a claimed slug plus a live Neon project behind
