@@ -265,6 +265,22 @@ test("every call in the message is on one bill", async () => {
       // AND EACH PART CARRIES ITS OWN MODEL, or `pageCredits` prices the
       // acting call at the router's rate. Priced from one table, per part.
       for (const p of parts) assert.ok(p && p.model, "a billed part has no model to price it at: " + JSON.stringify(p));
+
+      // ── THE MERGE DECIDES A KEY; A RUNG MAY NOT OVERWRITE IT ─────────────
+      //
+      // The merge copies through anything a rung reports that it does not
+      // model itself, so a lane's own diagnostics are not silently lost. That
+      // copy is guarded by `Object.hasOwn(merged, k)` — without it the LAST
+      // rung's value wins over the merge's, so `cost` would become one step's
+      // bill instead of the sum, and `layer` would name one rung instead of the
+      // run. A sweep dropped that guard and nothing noticed.
+      //
+      // `renamed` IS THE OBSERVABLE ONE and needs no container: this rung
+      // reports `renamed: 0`, the merge computes `0 || undefined`, and JSON
+      // omits an undefined key. So the field's PRESENCE is exactly the bug.
+      assert.ok(!Object.hasOwn(body, "renamed"),
+        "a rung's own value overwrote one the merge had already decided — `renamed` came back as "
+          + JSON.stringify(body.renamed));
       assert.ok(new Set(parts.map((p) => p.model)).size === 2,
         "both calls were billed at the same model — the router is haiku and the lane is not");
     },
