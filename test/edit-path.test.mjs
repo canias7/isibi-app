@@ -754,3 +754,39 @@ test("`pages` move really changes the address", async () => {
     );
   } finally { c.uninstall(); }
 });
+
+test("a verb aimed at a page the site does not have is refused, not honoured", async () => {
+  // ALSO FOUND BY A SWEEP. Cutting the check against the real route list
+  // survived: nothing asked what happens when the router names a page nobody
+  // has. It is not a hypothetical — the router reads a customer's sentence, and
+  // "delete the old pricing page" on a site with no pricing page is an ordinary
+  // Tuesday.
+  //
+  // WHY IT MATTERS MOST FOR `remove`: unchecked, the verb reaches the page rung
+  // with a target it cannot find. The rung answers "nothing to change" and the
+  // customer is told their deletion happened — the report-success-having-done-
+  // nothing failure, on the one verb where the customer will not go back and
+  // check.
+  //
+  // AND IT IS AN ADDON, correctly identified without asking a model twice: a
+  // page that does not exist cannot be edited, and the rung above can make one.
+  const c = installCompiler();
+  try {
+    for (const verb of ["remove", "move"]) {
+      await withWire(
+        { pick_lanes: { fields: ["pages"], pageVerb: verb, pageName: "/nope", pageTo: "/work" } },
+        async (calls) => {
+          const { body } = await edit("verb-ghost-" + verb, verb + " the pricing page", { store: twoPageBucket("verb-ghost-" + verb) });
+          assert.equal(body && body.reason, "no-page",
+            "a " + verb + " aimed at a page the site does not have was not refused: " + JSON.stringify(body));
+          assert.equal(body && body.page, "/nope", "the refusal does not name the page it could not find");
+          assert.equal(body && body.cost, 0, "a free refusal charged for something");
+          assert.deepEqual(toolsOf(calls), ["pick_lanes"], "work was bought for a page nobody has");
+          // AND NOTHING WAS PUBLISHED. A refusal that still compiles has already
+          // touched the site, whatever it says.
+          assert.equal(c.calls.length, 0, "a refused verb still published: " + c.calls.length + " compiles");
+        },
+      );
+    }
+  } finally { c.uninstall(); }
+});
