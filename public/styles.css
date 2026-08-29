@@ -6330,7 +6330,18 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    from the stations because it does not know where they are. ---- */
 .mkt-crt .gf-reel-row{display:flex;align-items:flex-start;
   gap:clamp(1rem,2.5vw,2.2rem);width:100%}
+/* The pipe is now much taller than the showcase — twenty models against a
+   459px panel left 574px of blank paper beside the lower half. The showcase
+   rides along instead: it sticks while the model list scrolls past it, so the
+   right side is never empty and the two halves are read together rather than
+   one after the other.
+   Only where there is room for it. On a short viewport a sticky block taller
+   than the screen can never fully scroll into view, which is worse than the
+   gap it fixes. */
 .mkt-crt .gf-reel-right{flex:1 1 auto;min-width:0}
+@media (min-height:720px){
+  .mkt-crt .gf-reel-right{position:sticky;top:clamp(1rem,5vh,2.6rem);align-self:flex-start}
+}
 .mkt-crt .gf-pipe{flex:0 0 clamp(280px,31%,420px);position:relative;
   padding-top:.5rem}
 .mkt-crt .gf-pipe-h{font-family:'Caveat','Patrick Hand',cursive;font-weight:700;
@@ -6349,7 +6360,7 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   border-top:2.6px solid var(--graphite);border-bottom:2.6px solid var(--graphite);
   filter:url(#pencilRough2)}
 .mkt-crt .gf-pipe-step{position:relative;z-index:2;display:flex;align-items:center;
-  gap:.85rem;min-height:clamp(52px,6.4vh,64px)}
+  gap:.85rem;min-height:clamp(46px,5.4vh,56px)}
 .mkt-crt .gf-pipe-valve{flex:0 0 58px;color:var(--graphite);display:block;
   margin-left:-1px;filter:url(#pencilRough2)}
 .mkt-crt .gf-pipe-valve svg{display:block;width:58px;height:34px}

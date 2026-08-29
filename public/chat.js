@@ -9452,33 +9452,33 @@ function initCrtStage() {
 //
 // This does two things: decide WHEN the frames become real pages, and run the
 // Video / App switch.
-// The landing's pipeline lists what the platform actually runs on, and it reads
-// the SAME records the AI-models dropdown does. Picked BY LABEL, because a
-// label is the public identity of a model here — LLM_MODELS carries no ids at
-// all — and because a pick that no longer matches anything is dropped rather
-// than rendered. That is the point of looking them up instead of retyping
-// them: a model taken out of MODEL_LISTS stops being advertised here, and a
-// renamed one is renamed in both places at once.
+// The landing's pipeline lists EVERY model the platform runs, read straight out
+// of the records that fill the AI-models dropdown. There is no curated subset
+// any more and deliberately so: a hand-picked list is a second copy that goes
+// stale silently, whereas this cannot disagree with the menu because it IS the
+// menu's data. Add a model there and it appears on the landing; drop one and it
+// stops being advertised.
 //
-// Ids are used to find the logo and are NEVER emitted, which is the same rule
-// fillModelsMenu is held to.
-const PIPE_PICKS = [
-  'Claude Sonnet 5', 'Veo 3.1', 'Seedance 2.0', 'Kling o3 Pro',
-  'Nano Banana Pro', 'GPT Image 2', 'ElevenLabs v3',
-];
+// Group order follows MODELS_ORDER for the same reason — one ordering, not two.
+// Grok is appended beside the LLMs: it is the builder's own engine, has no
+// record in the media lists, and belongs next to the other model that writes
+// sites rather than at the end of the audio ones.
+//
+// Ids are used to find the logo and are NEVER emitted, which is the rule
+// fillModelsMenu is already held to — an id is `fal-ai/veo3.1`, and naming the
+// provider is the one thing the director prompt forbids outright.
 function initPipeModels() {
   const host = document.getElementById('gfPipe');
   if (!host) return;
-  const all = [].concat(LLM_MODELS, MODEL_LISTS.video, MODEL_LISTS.image, MODEL_LISTS.audio);
-  const rows = PIPE_PICKS
-    .map((label) => all.filter((m) => m.label === label)[0])
-    .filter(Boolean)
-    .map((m) => ({ label: m.label, note: m.note || '', brand: providerOf(m.id || m.label) }));
-  // Grok is the builder's own engine and has no record in the media lists, so
-  // it is named here rather than looked up. It is the one exception and stays
-  // beside the others so the strip reads as one set.
-  rows.splice(1, 0, { label: 'Grok 4.6', note: 'xAI · builds your site',
-                      brand: providerOf('grok') });
+  const rows = [];
+  for (const key of MODELS_ORDER) {
+    const g = MODELS_TAB[key];
+    for (const m of (g && g.list()) || []) {
+      if (!m || !m.label) continue;
+      rows.push({ label: m.label, note: m.note || '', brand: providerOf(m.id || m.label) });
+    }
+    if (key === 'llm') rows.push({ label: 'Grok 4.6', note: 'xAI · builds your site', brand: providerOf('grok') });
+  }
   host.innerHTML = rows.map((r) =>
     '<li class="gf-pipe-step">' +
       '<span class="gf-pipe-valve" aria-hidden="true">' +
