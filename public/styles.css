@@ -6364,3 +6364,35 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   .mkt-crt .gf-reel-row{flex-direction:column}
   .mkt-crt .gf-pipe{flex:1 1 auto;width:100%;max-width:420px}
 }
+
+/* ---- Which model runs at which step (owner 2026-08-29). Read out of the
+   code, not decided here: Route is claude-haiku-4-5 in worker.js, and Design
+   and Generate are BUILD_MODELS[picker], which is grok-4.6 by default.
+
+   Only three of the eight steps call a model at all — compiling, checking,
+   salvaging and publishing are a container and a bucket. The gaps are the
+   honest part of this drawing and are worth leaving visible.
+
+   The marks are the providers' own files from /logos, which are monochrome, so
+   they are painted with a MASK rather than an <img>: the artwork becomes the
+   alpha and currentColor supplies the graphite. An <img> would drop a white
+   logo onto paper and vanish. ---- */
+.mkt-crt .gf-pipe-model{display:inline-flex;align-items:center;gap:.34rem;
+  margin-left:.5rem;padding:.08rem .48rem .1rem;border-radius:999px;
+  font-size:.76rem;line-height:1.5;color:var(--graphite-2);white-space:nowrap;
+  position:relative}
+.mkt-crt .gf-pipe-model::before{content:"";position:absolute;inset:0;
+  border-radius:inherit;border:1.2px solid var(--graphite-3);opacity:.85;
+  filter:url(#pencilRough2)}
+.mkt-crt .gf-pipe-model i{width:12px;height:12px;flex:0 0 auto;
+  background:currentColor;display:block}
+.mkt-crt .gf-m-grok i{
+  -webkit-mask:url(/logos/grok.svg) center/contain no-repeat;
+  mask:url(/logos/grok.svg) center/contain no-repeat}
+/* Claude's mark was missing from /logos and is now fetched from the same place
+   the other thirteen came from — @lobehub/icons-static-svg. Proven rather than
+   assumed: upstream grok.svg has byte-identical path data to ours and differs
+   only in the fill, so this is the same set, not a lookalike. */
+.mkt-crt .gf-m-anthropic i{
+  -webkit-mask:url(/logos/claude.svg) center/contain no-repeat;
+  mask:url(/logos/claude.svg) center/contain no-repeat}
