@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
+import { readSchemaTool } from "./integration/schema-tool.mjs";
 import { pagesRequest, pageRulesFor, withoutCharts, PAGE_RULES, FRONTEND_PAGE_RULES } from "../builder/page-gen.mjs";
 
 const SPEC_NO_DB = { tables: [], seed: {} };
@@ -183,4 +184,35 @@ test("the WITH-DATABASE variant keeps its own section — this was a frontend cu
     "the database variant lost a section that was never redundant there");
   assert.ok(PAGE_RULES.length > FRONTEND_PAGE_RULES.length,
     "the two variants have converged — the frontend cut is being applied to both");
+});
+
+test("3D is installed, offered optionally, and reachable from the edit path", async () => {
+  // Owner, 2026-08-29: "we are adding more tools, as optional — three.js and
+  // webgl… make sure it is only optional and also add it in the edit step".
+  //
+  // THREE THINGS HAVE TO BE TRUE TOGETHER or the feature is worse than absent:
+  // the libraries must really be dependencies (the page prompt's own rule is
+  // "import nothing that is not already a dependency", and the compile gate has
+  // no second attempt); the design field must be OPTIONAL, because nearly every
+  // site is a barber shop; and a field the build can produce must have an edit
+  // lane, or it is a part of a site nobody can ever change again.
+  const pkg = JSON.parse(fs.readFileSync(
+    new URL("../builder/lovable/template/package.json", import.meta.url), "utf8"));
+  for (const dep of ["three", "@react-three/fiber"]) {
+    assert.ok(pkg.dependencies[dep], dep + " is named to the model but is not a dependency — every 3D page would fail the gate");
+  }
+
+  const { tool } = await readSchemaTool();
+  assert.ok(tool.input_schema.properties.three, "the design step can no longer ask for a scene");
+  assert.ok(!tool.input_schema.required.includes("three"),
+    "`three` is REQUIRED — every barber shop would be asked to design a canvas");
+
+  // AND THE PAGE WRITER IS TOLD THEY EXIST. Named in the design step but not
+  // here, the model would describe a scene nobody could import — the
+  // wiring-layer failure this repo records a dozen times.
+  const t = pagesRequest({ brief: "b", spec: SPEC_NO_DB, brand: "B", model: "x", kind: "shopfront" }).system[0].text;
+  assert.match(t, /@react-three\/fiber/, "the page writer is not told the 3D libraries exist");
+  // …WITH ITS CEILING. Permission with no ceiling is how a canvas ends up behind
+  // a headline on a plumber's site.
+  assert.match(t, /almost never right/i, "3D is offered to the page writer with no ceiling on it");
 });

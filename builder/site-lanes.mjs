@@ -140,6 +140,12 @@ export const LANE_LAYER = {
   plan: "page",
   backend: "rules",
   images: "picture",
+  // A SCENE IS PAGE SOURCE. The `<Canvas>` and everything in it is written into
+  // the .tsx by the step that writes pages — there is no stored value a recompile
+  // could re-read, the way the theme and the stylesheet are re-read. So changing
+  // it is a page rewrite, exactly as `shape` and `components` are, and for the
+  // same reason: nothing downstream of a cheap edit reads a scene.
+  three: "page",
   action: "nav",
 };
 
@@ -380,6 +386,11 @@ const LANES = {
   images: { hint: "A PHOTOGRAPH on the site: swapping one for another, adding one, taking one off, or changing which part of it you see.", elsewhere: "images" },
   action: { hint: "The site's primary button — what it says and where it points.", elsewhere: "action" },
   backend: { hint: "What the site STORES — its tables, the rows in them, who may read or add one, and what it refuses.", elsewhere: "backend" },
+
+  three: {
+    hint: "The 3D or WebGL element on the page — what the scene shows, how it moves, whether there is one at all.",
+    elsewhere: "three",
+  },
 
   /* ---- the three that are still their own work ---- */
   kind: { hint: "Whether this is a shopfront that persuades a visitor, or a tool the business works in — changing it makes a different site.", escalate: "build" },

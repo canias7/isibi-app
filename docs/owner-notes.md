@@ -148,6 +148,31 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ## Open — waiting on you
 
+**0a. NEXT: three.js and WebGL as OPTIONAL design fields** (owner, 2026-08-29:
+*"we are adding more tools, as optional — three.js and webgl"*). Not started.
+Two things will bite whoever picks this up, both learned today:
+
+- **A new design field MUST get an edit lane.** `test/edit-lanes.test.mjs`
+  asserts the design tool's fields and the edit path's lanes match **in both
+  directions** — a field the build can produce with no lane is a part of a site
+  the customer can never change again. Adding two fields makes it 19 lanes, and
+  each needs its four-part rule (`is` · `yours` · `wide` · `keep`) or
+  `laneRule` throws at module load. Decide early whether they ACT (edit the
+  stored value), DISPATCH (another rung does it) or ESCALATE.
+- **The library has to actually be installed, or every build fails.** The page
+  prompt says *"Import nothing that is not already a dependency"* and, of
+  animation, *"there is NO animation library installed and none is needed — add
+  one and the build fails."* So this is a template change (`builder/lovable/
+  template`) before it is a prompt change, and the container image has to roll —
+  15–20 minutes after a push that touches `builder/`.
+
+Worth deciding at the same time: whether a WebGL site is a third `kind`
+alongside `shopfront` and `tool`. `kind` is answered before the plan and every
+later answer follows from it, so if these sites are shaped differently that is
+where it belongs — and `kind` already gates the chart catalogue, so the
+machinery for "this kind gets different instructions" exists.
+
+
 **0. The edit step is finished except `slug`; ADDON is untouched.**
 Your drawing is at **`docs/architecture.md`**. **EDIT** now: 17 lanes, all
 addressable — 8 edited in the edit path itself, 6 dispatched to the rung that

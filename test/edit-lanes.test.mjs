@@ -43,7 +43,7 @@ const bare = (src) => src.replace(/^\s*(?:\/\/|\*|\/\*)[^\n]*$/gm, (m) => " ".re
 // property of a build and nothing a customer asks to change afterwards.
 const WEB = ["needsWeb", "webQueries"];
 
-test("the two paths cover the same seventeen fields — asserted both ways", async () => {
+test("the two paths cover the same EIGHTEEN fields — asserted both ways", async () => {
   const { tool } = await readSchemaTool();
   const all = Object.keys(tool.input_schema.properties);
   const designed = all.filter((k) => !WEB.includes(k));
@@ -56,8 +56,14 @@ test("the two paths cover the same seventeen fields — asserted both ways", asy
   // build with no lane is a part of a site the customer can never change again,
   // and a lane for a field the build stopped producing edits nothing. Neither
   // announces itself, so both directions are named.
-  assert.equal(designed.length, 17, "the design tool no longer yields seventeen editable fields: " + designed.join(","));
-  assert.equal(LANE_FIELDS.length, 17, "the edit path no longer has seventeen lanes: " + LANE_FIELDS.join(","));
+  // EIGHTEEN SINCE 2026-08-29, when `three` was added as an optional design
+  // field (owner: "we are adding more tools, as optional — three.js and webgl").
+  // The COUNT is the weaker half and is here only so a new field is a decision
+  // somebody makes on purpose; the two loops below are the property, and they
+  // are what caught this one — a field with no lane is a part of a site the
+  // customer could never change again.
+  assert.equal(designed.length, 18, "the design tool no longer yields eighteen editable fields: " + designed.join(","));
+  assert.equal(LANE_FIELDS.length, 18, "the edit path no longer has eighteen lanes: " + LANE_FIELDS.join(","));
   for (const k of designed) {
     assert.ok(LANE_FIELDS.includes(k), "the build can produce `" + k + "` and the edit path has no lane for it");
   }
@@ -216,7 +222,7 @@ test("a lane's tool is one property and nothing required — the wall, not the r
   }
 });
 
-test("EVERY lane acts — and the partition over all seventeen is total and disjoint", () => {
+test("EVERY lane acts — and the partition over all eighteen is total and disjoint", () => {
   // Owner, 2026-08-29: "i need all the 17 lanes acting". Nine lanes were
   // refused at the door — named, priced at zero, sent up the ladder — which was
   // honest about this module and wrong about the customer, who asked for a
@@ -237,11 +243,11 @@ test("EVERY lane acts — and the partition over all seventeen is total and disj
   // and "nothing does this" are four different sentences to a customer.
   const groups = [ACTING_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES];
   assert.equal(groups.reduce((n, g) => n + g.length, 0), LANE_FIELDS.length,
-    "the three groups do not add up to the seventeen lanes");
+    "the five groups do not add up to the lanes there are");
   for (const f of LANE_FIELDS) {
     assert.equal(groups.filter((g) => g.includes(f)).length, 1, "`" + f + "` is in more than one group, or none");
   }
-  assert.ok(DISPATCHED_LANES.length >= 6, "fewer dispatched lanes than there were — this loop may be scanning almost nothing");
+  assert.ok(DISPATCHED_LANES.length >= 7, "fewer dispatched lanes than there were — this loop may be scanning almost nothing");
 
   // ── THE VERB LANE ────────────────────────────────────────────────────────
   // `pages` is three capabilities behind one field, each on a different rung.
@@ -316,6 +322,11 @@ test("EVERY lane acts — and the partition over all seventeen is total and disj
   const MAPPING = {
     images: "picture", action: "nav", backend: "rules",
     shape: "page", components: "page", purpose: "page",
+    // A SCENE IS PAGE SOURCE (2026-08-29). The `<Canvas>` is written into the
+    // .tsx by the step that writes pages; there is no stored value a recompile
+    // could re-read, the way the theme and the stylesheet are re-read. So it is
+    // the page rung, for the same reason `shape` and `components` are.
+    three: "page",
   };
   for (const [field, layer] of Object.entries(MAPPING)) {
     assert.equal(laneLayer(field), layer,
