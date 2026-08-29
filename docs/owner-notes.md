@@ -185,6 +185,16 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **Fixed 2026-08-28: every colour change cost ~17 credits instead of under one.**
+  The cheap CSS editor refused to run on any site without a database — and a new
+  site doesn't get one unless it needs to store something, so this was most of
+  your sites. The change got bumped up to the full page rewrite every time. The
+  logo swap had the identical fault, and that rung is supposed to be free. Found
+  by running a real edit on `shoeroom-1`: "make the footer black" worked, looked
+  right, and quietly cost 17. Neither lane ever used the database it was asking
+  for — the stylesheet and the logo live in file storage. *Fixed, with guards and
+  a mutation sweep; not yet proven on a live site (needs credits).*
+
 - **Fixed same day, never reached a site: the canonical was malformed on every
   page but the home page.** The head tags shipped 28 August glued the site's
   address (which ends in a slash) to the page's path (which starts with one), so

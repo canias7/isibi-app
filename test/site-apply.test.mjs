@@ -592,6 +592,45 @@ test("everything the lane cannot do escalates with a 200, not a refusal", () => 
   }
 });
 
+test("the CSS and logo lanes serve a site with NO database — the default kind", () => {
+  // 2026-08-28. Both lanes opened with `if (!xdb) return escalate("no-backend")`
+  // and a first build has provisioned no database since the frontend-first
+  // change, so MOST sites hit it: every colour change and every logo swap went
+  // up the ladder to the full page rewrite. Measured on `shoeroom-1` — "make
+  // the footer black" cost 17 credits, and the logo lane is meant to cost NONE.
+  //
+  // `editBlock()` blanks comments length-preservingly, which this assertion
+  // depends on: the fix's own comments quote the refusal they removed, so a
+  // scan of the raw source would find the string and pass on the prose.
+  const b = editBlock();
+
+  // THE PROPERTY: no lane refuses over the connection it never queries. Derived
+  // from the declarations rather than a list of today's variable names, so a
+  // renamed connection cannot slip a new refusal past this.
+  for (const v of ["edb", "ldb"]) {
+    assert.match(b, new RegExp("const " + v + " = await siteBackendBySlug"),
+      "the " + v + " lane no longer reads the connection at all — this guard has lost its subject");
+    assert.ok(!new RegExp("if \\(!" + v + "\\) return escalate").test(b),
+      "the " + v + " lane refuses a site with no database again — that is most sites, at ~17 credits each");
+  }
+
+  // AND THE SECOND HALF, which is what makes the first half real. The look lane
+  // reads `_meta` for the schema, and that genuinely needs a database: left
+  // unguarded, `sqlQuery(null, …)` throws into the catch and escalates as
+  // `no-meta` — the same refusal wearing a different name, and the fix would
+  // measure as no change at all.
+  assert.match(b, /if \(edb\) \{\s*\n\s*const rows = await sqlQuery\(edb, "SELECT v FROM _meta/,
+    "the schema read is not gated on there being a database — a frontend-only site throws instead");
+
+  // THE LANES THAT REALLY DO NEED ONE STILL ASK. `data` reads rows and `rules`
+  // enforces them in Postgres; a fix that relaxed those would be a wrong answer
+  // in the other direction, so the negative above is paired with a positive.
+  for (const v of ["ddb", "rdb"]) {
+    assert.match(b, new RegExp("if \\(!" + v + "\\) return escalate\\(\"no-backend\"\\)"),
+      "the " + v + " lane stopped requiring a database it actually queries");
+  }
+});
+
 test("a LAYOUT change is escalated, never silently stored", () => {
   // The container is handed theme, tokens and fonts — those really do change a
   // recompiled site. The AUTHORED PLAN is what the PAGES were written against

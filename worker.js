@@ -17469,8 +17469,15 @@ async function handleRequest(request, env, ctx) {
               // container run, and it rewrites no page: the URL is read at
               // COMPILE time out of `_meta`, so every page gets the logo
               // without a line of page source changing.
+              // AND A NULL ONE IS ORDINARY HERE TOO (2026-08-28), for the same
+              // reason as the look lane and with a sharper cost. This is the
+              // ZERO-credit rung — the attachment IS the instruction and no
+              // model writes a line — so refusing it to a frontend-only site
+              // turned a free operation into a ~17-credit page rewrite. The
+              // connection is passed to `patchSiteConfig` and nowhere else in
+              // this branch; `configDeps` guards it with `if (db)` and reads the
+              // logo out of R2 regardless. There is no query here to need it.
               const ldb = await siteBackendBySlug(env, ownerSlug);
-              if (!ldb) return escalate("no-backend");
               // UP TO 3 ARRIVE AND ONLY THE FIRST IS USED — the composer allows
               // three, and a business has one logo. Taking the first is the only
               // non-arbitrary choice; asking which would be a question about
@@ -17593,8 +17600,30 @@ async function handleRequest(request, env, ctx) {
             if (eLayer === "look") {
               // The connection STRING, used directly — see recompileAndPublish,
               // where reading a `.conn` off it silently disabled the whole look.
+              //
+              // ── AND NOT HAVING ONE IS ORDINARY, NOT A REFUSAL (2026-08-28) ──
+              //
+              // This read was followed by `if (!edb) return escalate("no-backend")`,
+              // which refused the entire cheap lane to every FRONTEND-ONLY site.
+              // That is the DEFAULT since a first build stopped provisioning a
+              // database, so it was most of the sites on the platform: every
+              // colour change on one went up the ladder to the full page rewrite
+              // and cost ~17 credits where this lane costs well under one.
+              // Measured on `shoeroom-1` — "make the footer black" spent 17.
+              //
+              // THE LANE NEVER NEEDED THE DATABASE. The stylesheet it edits
+              // lives in R2: `configDeps` reads the look and the css out of
+              // `SITES_BUCKET` and reaches for the connection only to fill a
+              // LEGACY `_meta` fallback, which it already guards with `if (db)`.
+              // `text`, `picture` and `nav` republish through the same spine and
+              // none of them asks for a backend at all — this lane was alone.
+              //
+              // AND THE GATE MADE ITS OWN FIX UNREACHABLE. `!priorLook &&
+              // !priorCss` below exists precisely so a site with a thin look and
+              // a real stylesheet is NOT escalated; no frontend-only site ever
+              // reached that line to be saved by it. A guard watching the layer
+              // below the break, which is this repo's own recorded trap.
               const edb = await siteBackendBySlug(env, ownerSlug);
-              if (!edb) return escalate("no-backend");
               let priorLook = null, eSchema = null;
               // THE WHOLE DESIGN, since 2026-08-23. This lane is the cheap rung a
               // colour change lands on, and with `tokens`/`style`/`seeds` off the
@@ -17608,9 +17637,21 @@ async function handleRequest(request, env, ctx) {
                 if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
                 priorLook = cfg.config.look;
                 priorCss = cfg.config.css;
-                const rows = await sqlQuery(edb, "SELECT v FROM _meta WHERE k = 'schema'");
-                const row = (rows || [])[0];
-                if (row && row.v) eSchema = JSON.parse(row.v);
+                // THE ONE READ HERE THAT REALLY NEEDS THE DATABASE, so it is
+                // asked for only when there is one. Without this guard, relaxing
+                // the gate above would trade a wrong refusal for a
+                // `sqlQuery(null, …)` throw that this very catch turns into
+                // `no-meta` — the same escalation wearing a different name, and
+                // the whole fix would measure as no change at all.
+                //
+                // `eSchema` staying null is CORRECT for a site with no database:
+                // the designer is handed `tables: []`, which is the truth about
+                // a frontend-only site rather than a missing answer.
+                if (edb) {
+                  const rows = await sqlQuery(edb, "SELECT v FROM _meta WHERE k = 'schema'");
+                  const row = (rows || [])[0];
+                  if (row && row.v) eSchema = JSON.parse(row.v);
+                }
               } catch (e) { console.error("edit look read failed:", ownerSlug, e && e.message); return escalate("no-meta"); }
               // ── A SITE MAY HAVE A STYLESHEET AND A THIN LOOK ───────────────
               //

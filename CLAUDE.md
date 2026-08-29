@@ -288,6 +288,19 @@ Every cheap edit republishes through `recompileAndPublish` — the shared spine.
 **Anything a build bakes must be sent by that spine too**, or a typo fix silently
 strips it.
 
+**A lane may only refuse over a database it actually QUERIES.** `data` and
+`rules` read and enforce rows, so they require one. `look` and `logo` do not:
+the stylesheet, the look and the logo all live in R2, and `configDeps` reaches
+for the connection only to fill a legacy `_meta` fallback it already guards. Both
+lanes nevertheless opened with `if (!xdb) return escalate("no-backend")` — and
+since a first build provisions no database, that refused **most sites on the
+platform**, sending every colour change and every logo swap up to the full page
+rewrite: ~17 credits measured on `shoeroom-1`, on a rung meant to cost under one
+and, for `logo`, nothing at all. Fixed 2026-08-28. The look lane's `_meta` read
+is the one thing there that truly needs a connection, so it is gated on `if (edb)`
+— **without that, relaxing the gate only trades a wrong refusal for a
+`sqlQuery(null, …)` throw the same catch escalates as `no-meta`.**
+
 ---
 
 ## Data, auth, payments, mail
@@ -469,6 +482,16 @@ invisible to a source read. `site build` is the strongest free signal here.
 
 **A guard watching the layer below the break.** It asserts the plumbing and not
 the connection: "the query selects the column" while nothing carries it onward.
+
+**A gate that outlives its reason, guarding a dependency the code no longer has.**
+The `look`/`logo` lanes refused any site without a database long after the
+stylesheet moved to R2 and first builds stopped provisioning one — so the gate
+protected nothing and disqualified the majority case. Two tells, both present:
+the requirement was never *used* (the connection was passed only to a function
+that guards it), and **the fix for the very same symptom sat unreachable below
+it** — `!priorLook && !priorCss` exists so a thin-look site is not escalated, and
+no databaseless site ever got that far. When a gate and a later accommodation
+address the same complaint, one of them is dead; find out which.
 
 **Vacuous ordering.** `indexOf(a) < indexOf(b)` passes when `a` is the thing
 deleted (-1 < anything). Prove both anchors exist first.
