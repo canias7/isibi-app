@@ -8906,11 +8906,38 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     // of the published meta, and one wrong property access put it straight back,
     // worse. Every other caller in this file uses the return value directly.
     db = await siteBackendBySlug(env, slug);
-    // NO BACKEND IS A REFUSAL, NOT A DEFAULT. Falling through with look=null
-    // publishes the site stripped of its theme, brand, colours and logo —
-    // reported as success, and archived to version history — for a site that
-    // is deleted or unresolvable. Same rule as the catch below.
-    if (!db) return { ok: false, error: "read", ours: true, detail: "no backend recorded for " + slug + " — the stored look could not be read" };
+    // ── NO CONNECTION IS NOT NO SITE (2026-08-29, owner's call) ─────────────
+    //
+    // "The model should be able to edit anything whether it has a db or not."
+    //
+    // This asked `if (!db)` and refused, which was the same question as "is this
+    // site gone" only while every site was provisioned a database. Since a first
+    // build stopped provisioning one, 20 of 47 sites answer null here — their
+    // `site_backends` row exists with `neon_db` empty — and EVERY cheap edit on
+    // them died in this line. `text`, `nav`, `picture`, `logo`, `look` and
+    // `data` all publish through this spine and the edit block has no other
+    // publish path, so the whole ladder was unreachable for those sites and each
+    // lane reported it as its own kind of failure. Measured on `shoeroom-1`:
+    // two live look edits, both refused here, both after the lanes' own gates
+    // had already been fixed — the traffic simply reached the next one.
+    //
+    // WHAT THE REFUSAL IS ACTUALLY FOR is a slug nobody owns: a deleted or
+    // unresolvable site, which would publish stripped of its theme, brand and
+    // logo and be ARCHIVED TO VERSION HISTORY as a success. That is a question
+    // about the SITE, so it is asked of the owner lookup — the fact this guard
+    // was always reaching for, through a proxy that stopped standing for it.
+    //
+    // ONLY ASKED WHEN THERE IS NO CONNECTION, so a site with a database pays no
+    // extra round trip; memoized for the same five minutes as the connection,
+    // and the delete path already clears that cache by slug.
+    //
+    // A LOOKUP THAT FAILS ALSO ANSWERS null, and here that is the right outcome
+    // rather than the hazard it would be elsewhere: this refusal is `ours: true`,
+    // so a Supabase blip is reported as our side, retryable, and never charged —
+    // it can never read as the customer's change being at fault.
+    if (!db && !(await siteOwnerBySlug(slug, env))) {
+      return { ok: false, error: "read", ours: true, detail: "no site recorded for " + slug + " — the stored look could not be read" };
+    }
     // OUT OF R2, with `_meta` as the read-only fallback for a site built before
     // the move. Every one of the six is read HERE and for one shared reason: the
     // container rewrites the stylesheet, `site-brand.ts` and the meta sidecar

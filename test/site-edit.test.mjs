@@ -961,9 +961,24 @@ test("A FAILED LOOK READ FAILS THE EDIT — never a stripped publish reported as
   const i = worker.indexOf("async function recompileAndPublish(env, {");
   assert.ok(i > 0, "the shared spine is gone");
   const block = worker.slice(i, worker.indexOf("\nasync function siteOgImage(", i));
-  // A null backend refuses — a deleted site's edit must not publish stripped.
-  assert.match(block, /if \(!db\) return \{ ok: false, error: "read", ours: true/,
-    "a null backend proceeds to a stripped publish");
+  // A SITE THAT CANNOT BE SHOWN TO EXIST REFUSES — a deleted site's edit must
+  // not publish stripped. That is the property; it used to be spelled
+  // `if (!db) return …`, and this assertion was pinned to that spelling.
+  //
+  // THE SPELLING WENT WRONG UNDERNEATH IT (2026-08-29). A connection stood for
+  // "the site exists" only while every site was provisioned a database; since a
+  // first build stopped doing that, 20 of 47 sites have a row and no connection,
+  // and the line refused every cheap edit on all of them. So the guard is
+  // re-anchored on what must be TRUE, in both directions: the refusal is still
+  // here and still ours, it is no longer conditioned on the connection alone,
+  // and the question actually asked is whether the SITE is known.
+  assert.match(block, /error: "read", ours: true, detail: "no site recorded/,
+    "the spine no longer refuses a site it cannot find — a deleted site publishes stripped");
+  assert.ok(!/if \(!db\) return \{ ok: false, error: "read"/.test(block),
+    "the spine refuses on the connection alone again — that is every databaseless site, "
+      + "and it shuts the whole cheap-edit ladder for them");
+  assert.match(block, /siteOwnerBySlug\(slug, env\)/,
+    "the spine does not ask whether the site exists, so its refusal is guessing again");
   // The look-read catch refuses rather than falling through. Landmark-bounded
   // to the catch's own end (`resolvePair` is the first statement after it),
   // never a byte count.

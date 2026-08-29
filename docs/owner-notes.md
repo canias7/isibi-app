@@ -185,6 +185,15 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **Fixed 2026-08-29 (the second half): the same refusal was in the shared
+  publish step.** The first fix opened the two lanes and the change then hit the
+  same wall one level down — the step every cheap edit publishes through asked
+  for a database too. So *nothing* cheap worked on a site without one: not a
+  wording fix, not a menu change, not a photo swap. **20 of your 47 sites** are
+  in that state; the older ones (the-lido-cafe and its era) have databases and
+  were fine, which is why this never showed up before. Now it asks whether the
+  site *exists* rather than whether it has a database. Proven by driving the real
+  route; not yet proven on a live site.
 - **Fixed 2026-08-28: every colour change cost ~17 credits instead of under one.**
   The cheap CSS editor refused to run on any site without a database — and a new
   site doesn't get one unless it needs to store something, so this was most of

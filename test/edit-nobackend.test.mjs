@@ -98,12 +98,60 @@ async function withSite(run, { hasDb = false } = {}) {
   try { return await run(seen); } finally { globalThis.fetch = real; }
 }
 
-async function edit(slug, layer, instruction, { store = null } = {}) {
+/**
+ * THE SAME SITE, WITH THE MODEL ANSWERING — so the lane runs past its own gate
+ * and reaches the PUBLISH SPINE, which is where the second copy of this bug
+ * lived and where the tests above cannot see.
+ *
+ * Everything above lets the design call fail on a missing key, which proves the
+ * lane's gate is gone and stops one step too early to notice that
+ * `recompileAndPublish` refused the same site for the same reason. That gap is
+ * why the fix was reported as complete when the ladder was still shut: two live
+ * edits on `shoeroom-1` died in the spine after the lane gates were removed.
+ *
+ * A MINIMAL, HONEST TOOL ANSWER: one `tool_use` block carrying only `css`, which
+ * is what a colour change really returns — every other field omitted, which is
+ * the edit contract's own "absent means unchanged".
+ */
+async function withModel(run, { hasDb = false, owned = true } = {}) {
+  const real = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String((input && input.url) || input || "");
+    seen.push(url);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify(USER), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/rest/v1/site_project")) {
+      return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/rest/v1/site_backends")) {
+      // `owned:false` is a slug NOBODY owns — the deleted-site case the refusal
+      // genuinely exists for, and the control that keeps the fix bounded.
+      return new Response(JSON.stringify(owned ? [{ uid: USER.id, brief: "", ...(hasDb ? { neon_db: "sitedb" } : {}) }] : []),
+        { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/v1/messages")) {
+      return new Response(JSON.stringify({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", name: "design_schema", input: { css: "footer{background-color:#0b3d2e}" } }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("unavailable", { status: 503 });
+  };
+  try { return await run(seen); } finally { globalThis.fetch = real; }
+}
+
+/** The spine's existence check — `select=uid&limit=1`, which ONLY it issues. */
+const askedIfSiteExists = (seen) => seen.some((u) => u.includes("select=uid") && u.includes("limit=1"));
+
+async function edit(slug, layer, instruction, { store = null, picker = "" } = {}) {
   const worker = await loadWorker();
   const req = new Request(`https://gofarther.dev/api/site/${slug}/edit`, {
     method: "POST",
     headers: { "content-type": "application/json", Authorization: TOKEN },
-    body: JSON.stringify({ layer, page: "", remove: false, rename: "", tab: false, instruction }),
+    body: JSON.stringify({ layer, page: "", remove: false, rename: "", tab: false, instruction, ...(picker ? { picker } : {}) }),
   });
   const res = await worker.fetch(req, {
     SITES_BUCKET: store || bucket(slug),
@@ -190,4 +238,49 @@ test("the proof is not vacuous: the same lane still refuses a site with no store
       "a site with no look and no stylesheet was not refused — the lane answers the same thing to everything: "
         + JSON.stringify(body));
   });
+});
+
+/* ── the PUBLISH SPINE, one layer below the lanes ─────────────────────────── */
+
+test("the publish spine serves a databaseless site too — the layer the lane tests cannot see", async () => {
+  // `recompileAndPublish` carried its own `if (!db) return refuse`, and every
+  // publishing lane goes through it, so removing the lanes' gates only moved
+  // the refusal one level down. This drives the lane far enough to reach it.
+  //
+  // THE DISCRIMINATOR IS THE EXISTENCE LOOKUP, not the outer error: the lane
+  // relabels every publish failure as `compile`, so a spine refusal and a real
+  // container failure answer identically from outside — the very thing that
+  // made this bug take two live runs to find. `select=uid&limit=1` is issued by
+  // nothing but the spine's new check, and it runs only when there is no
+  // connection, so seeing it means execution got past the old refusal.
+  await withModel(async (seen) => {
+    await edit("spine-nodb", "look", "make the footer dark green", { picker: "sonnet" });
+    assert.ok(askedIfSiteExists(seen),
+      "the spine never asked whether the site exists — it still refuses on the connection alone, "
+        + "so every cheap edit on a databaseless site is dead");
+  });
+});
+
+test("…and a slug nobody owns never reaches the spine at all", async () => {
+  // THE BOUND, asserted where it actually lives. Relaxing the connection check
+  // must not let a deleted site publish stripped of its theme and archive that
+  // as a success — the failure the original guard was written against.
+  //
+  // On THIS path that protection is upstream and older: the route's ownership
+  // check answers 404 "no such site" before a lane runs, so the spine is never
+  // asked. Which means the connection test it used to make was protecting
+  // nothing here — the edit path was already covered, and the check only cost
+  // the 20 databaseless sites their whole edit ladder.
+  //
+  // The spine's own existence check still earns its place for the OTHER caller:
+  // the platform `rebuild` path takes slugs from `site_rebuilds` and verifies no
+  // ownership, so there it is the only thing standing between a vanished site
+  // and a stripped publish. Asserted here as the property that matters — this
+  // request is refused and no publish is attempted.
+  await withModel(async (seen) => {
+    const { status, body } = await edit("spine-orphan", "look", "make the footer dark green", { picker: "sonnet" });
+    assert.equal(status, 404, "an unowned slug was not refused: " + JSON.stringify(body));
+    assert.ok(!askedIfSiteExists(seen),
+      "the request reached the publish spine despite the site being unowned — the ownership check above it is gone");
+  }, { owned: false });
 });

@@ -288,6 +288,21 @@ Every cheap edit republishes through `recompileAndPublish` — the shared spine.
 **Anything a build bakes must be sent by that spine too**, or a typo fix silently
 strips it.
 
+**And the same refusal sat in the SPINE, one layer below the lanes** — fixing the
+two lane gates only moved the traffic onto a third. `recompileAndPublish` opened
+with `if (!db)` too, and **every publishing lane goes through it** (`text`, `nav`,
+`picture`, `logo`, `look`, `data`; the edit block has no other publish path), so
+the whole cheap ladder was shut for **20 of 47 sites** — their `site_backends`
+row exists with `neon_db` empty, so `siteBackendBySlug` answers null. The refusal
+is real but was asking the wrong question: what it guards is a **deleted** site
+publishing stripped and being archived as a success, which is a question about
+the SITE, so it now asks `siteOwnerBySlug` and only when there is no connection.
+On the edit path the route's ownership check already answers 404 first; the
+spine's check earns its place for the platform `rebuild` caller, which verifies
+no ownership. **A lane that reports every publish failure as `compile` hides
+this**: a read-refusal and a killed container wore one sentence ("our build
+service was restarting"), which cost two live runs and a wrong diagnosis.
+
 **A lane may only refuse over a database it actually QUERIES.** `data` and
 `rules` read and enforce rows, so they require one. `look` and `logo` do not:
 the stylesheet, the look and the logo all live in R2, and `configDeps` reaches
