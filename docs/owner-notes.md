@@ -174,6 +174,17 @@ Those three are real work, not wiring — say which you want:
 wording (*"i will tell you the prompt later"*). One `hint` and one `edit` string
 per lane, all in one table.
 
+**0b. One billing gap on the edit path has no test watching it — stated, not
+papered over.** When several rungs run for one message, the routing call must be
+charged ONCE for the message, not once per rung. The code does that; nothing
+proves it, because proving it needs two rungs to both SUCCEED in a test, and
+every publishing rung needs the build container, which the routing harness
+deliberately refuses to fake. A sweep confirmed it: the mutant that bills per
+rung survives the whole suite. The cost of being wrong is small (the credit floor
+is 1, so most messages round to the same number) but it is real and it is
+somebody's money. Fixing it means an opt-in container stub in
+`test/fixtures/cf-containers.mjs` — worth doing, not done.
+
 **1. The model account is at 18 credits — under the price of one build.**
 Five shipped features have never run on a real site and all five ride the same
 build: the model-drawn favicon, the drawn wordmark, the composed share card, the
