@@ -9612,7 +9612,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       const call = resumeCall
         || (canFire ? containerPagesFire(env, slug, genPath) : containerPagesCall(env, slug, genPath));
       try {
-        return await generateSitePages(env, briefWithLayout({ brief, plan, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call);
+        // `plan.kind` RIDES ALONG so the page prompt can drop the chart
+        // catalogue for a shopfront — 13,329 characters, 42% of the prompt, and
+        // zero imports across the 100-site corpus. Only this call site knows it;
+        // the edit and addon rungs pass no plan, and their `kind: ""` keeps the
+        // catalogue, which is the safe direction.
+        return await generateSitePages(env, briefWithLayout({ brief, plan, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
       } catch (e) {
         // THE SENTINEL IS READ BEFORE ANY FAILURE HANDLING, which is not
         // tidiness: `retryHere` would read this as a failure that spent nothing

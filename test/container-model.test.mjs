@@ -158,7 +158,13 @@ test("THE BUILD'S PAGE GENERATION IS MADE IN THE CONTAINER, and the edit lanes a
   const build = calls.filter((c) => /briefWithLayout\(\{ brief, plan/.test(c));
   assert.equal(build.length, 1,
     `${build.length} generation calls are the build's own — expected exactly one`);
-  assert.match(build[0], /,\s*call\)/,
+  // PASSED, NOT LAST. This read `/,\s*call\)/` — the caller as the final
+  // argument — and went red the moment an honest one arrived after it
+  // (`plan && plan.kind`, 2026-08-29, so the page prompt can drop the chart
+  // catalogue for a shopfront). It reported the build as making its own request
+  // from the Worker, which was never true. Assert the property: the caller is
+  // handed over.
+  assert.match(build[0], /,\s*call\s*[,)]/,
     "the build's generation is handed no caller, so it makes its own request from the Worker");
 
   // AND THE VARIABLE RESOLVES TO A CONTAINER CALLER ON BOTH LIVE PATHS. Asserted

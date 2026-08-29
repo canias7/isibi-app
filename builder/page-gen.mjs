@@ -4247,7 +4247,54 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "" } = {}) {
+/**
+ * ── THE CHART CATALOGUE, AND WHO ACTUALLY NEEDS IT ──────────────────────────
+ *
+ * Owner, 2026-08-29: *"let's get rid of unused stuff — remember that's why the
+ * design step is there, to not have everything on this step"*.
+ *
+ * The catalogue is 865 component names across 141 domain modules and it is
+ * **42% of the whole page prompt** (13,329 of 31,813 characters on a frontend
+ * build). Every barber shop, cafe and plumber is handed `HertzsprungRussell`,
+ * `RadiocarbonCalibration` and `VarroaLoad` before writing its first heading.
+ *
+ * MEASURED, NOT ASSUMED. Across the 100-site corpus — 324 real generated source
+ * files, all 324 importing from `@/components/ui` and using 279 distinct kit
+ * components — **not one file imports a chart**, and not one of the 141 modules
+ * appears. The control matters and it holds: the catalogue entered this prompt
+ * on 2026-08-08 and the chart kit landed on 08-13, both BEFORE the corpus was
+ * captured on 08-20. Those sites were generated with the catalogue live in front
+ * of the model and used none of it.
+ *
+ * SO IT IS GATED ON `kind`, WHICH THE DESIGN STEP ALREADY DECIDED. A `shopfront`
+ * — "nearly every brief", in the design step's own words — persuades a visitor;
+ * it has no readings to plot. A `tool` is a thing the business works IN, and a
+ * CRM or a tracker is exactly where a chart earns its place.
+ *
+ * THE DEFAULT IS TO KEEP IT, and that asymmetry is deliberate. Only the build
+ * path knows `kind`; the edit and addon rungs pass no plan, and a revise of a
+ * site whose pages already import a chart must still be told those modules
+ * exist. Cannot-tell reads as "keep everything", never as "shopfront" — the same
+ * rule `loadConfig` and `firstBuild` already keep.
+ */
+export function withoutCharts(rules) {
+  const from = rules.indexOf("\n## Charts");
+  // BOTH LANDMARKS, PROVEN. `indexOf` answering -1 gives a slice that removes
+  // the wrong half or nothing at all, and either way the prompt still looks
+  // plausible — this repo's own vacuous-window trap, where the damage is silent.
+  if (from < 0) return rules;
+  const to = rules.indexOf("\n## ", from + 5);
+  if (to < 0) return rules;
+  return rules.slice(0, from) + rules.slice(to);
+}
+
+/** Which system block this build gets: by database, and by whether charts earn their place. */
+export function pageRulesFor(spec, kind = "") {
+  const rules = siteHasTables(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES;
+  return String(kind) === "shopfront" ? withoutCharts(rules) : rules;
+}
+
+export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "" } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -4285,7 +4332,13 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
     // TWO CACHED PREFIXES, and the split is by lane rather than by chance: every
     // first build reads one and every site with a database reads the other, so
     // both stay warm rather than one being an occasional cold miss.
-    system: [{ type: "text", text: siteHasTables(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES, cache_control: { type: "ephemeral" } }],
+    // FOUR CACHED PREFIXES NOW (database x kind), where there were two. Each is
+    // cold the first time it is used after a change to it, and that is
+    // affordable for the same reason the first split was: the variants are
+    // chosen by a FACT about the site rather than by chance, so each stays warm
+    // rather than being an occasional miss. Nearly every brief is a shopfront,
+    // so the small one is the hot one.
+    system: [{ type: "text", text: pageRulesFor(spec, kind), cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
   };
 }
@@ -4317,12 +4370,12 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
  * (the container has its own) is still a drop-in and nothing here has to know
  * which one it got.
  */
-export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel) {
+export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "") {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target });
+  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind });
   // Provider decided in ONE place — see callBuilderModel. It answers in
   // Anthropic's shape whichever one served it, so every line below this is
   // unchanged and cannot tell the difference.
