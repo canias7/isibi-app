@@ -1899,6 +1899,14 @@ or an access level — anything not in the schema below does not exist.
    from them for you — so a name in neither place is one you would be guessing at,
    and a module that does not exist is a compile error that costs the page.
 
+   THE ${(UI_COMPONENTS.length - Object.keys(UI_EXPORTS).length).toLocaleString("en-GB")} MODULES WITH NO SIGNATURE BELOW ARE THE STANDARD shadcn/ui
+   PRIMITIVES — button, input, select, checkbox, dialog, card, table, tabs and the
+   rest of that set — and they take the shadcn props you already know. They are
+   real, they are importable, and this rule's "never hand-roll a button" means
+   exactly them. Their props are typed as \`React.ComponentProps<typeof X>\`,
+   which the signature scan cannot read, so their absence below is a limit of the
+   scan and NOT a statement that they do not exist.
+
    THE EXPORT NAME IS THE FILE NAME IN PascalCase, EXACTLY — no embellishment.
    \`@/components/ui/faq\` exports \`Faq\`, not \`FaqAccordion\`; \`open-now\` exports
    \`OpenNow\`. That holds for ${(Object.keys(UI_EXPORTS).length - UI_EXPORT_EXCEPTIONS.length).toLocaleString("en-GB")} of the ${Object.keys(UI_EXPORTS).length.toLocaleString("en-GB")} modules, and guessing a longer,
@@ -4278,6 +4286,36 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * rule `loadConfig` and `firstBuild` already keep.
  */
 export function withoutCharts(rules) {
+  // RULE 5 GOES WITH IT. It tells the model which path to import a chart from,
+  // and with the catalogue gone there are no chart names in front of it — 508
+  // characters instructing a shopfront on components it was never shown. Left
+  // in, it is worse than waste: it invites a guess at a module name, and a
+  // module that does not exist is a compile error that costs the page.
+  //
+  // NUMBERING IS CLOSED UP AFTER IT, because a list that jumps 4 -> 6 reads as
+  // an instruction that went missing, and a model asked to follow seven rules it
+  // can only find six of has been handed a puzzle instead of a rule.
+  // AND THE POINTER INSIDE RULE 3, which promises the chart list is "printed
+  // below". With the catalogue gone that sentence is simply false, and a prompt
+  // that tells a model to look for something that is not there is worse than one
+  // that never mentioned it — this repo has paid twice for an instruction whose
+  // premise moved out from under it.
+  rules = (() => {
+    const at = rules.indexOf("The kit does not stop here:");
+    if (at < 0) return rules;
+    const end = rules.indexOf("this one is not.", at);
+    if (end < 0) return rules;
+    return rules.slice(0, at).replace(/\n\s*$/, "\n") + rules.slice(end + "this one is not.".length).replace(/^\n/, "");
+  })();
+  rules = (() => {
+    const at = rules.indexOf("\n5. A CHART COMES FROM");
+    if (at < 0) return rules;
+    const end = rules.indexOf("\n6. ", at);
+    if (end < 0) return rules;
+    const before = rules.slice(0, at);
+    const after = rules.slice(end).replace(/^\n6\. /, "\n5. ").replace(/\n7\. /, "\n6. ");
+    return before + after;
+  })();
   const from = rules.indexOf("\n## Charts");
   // BOTH LANDMARKS, PROVEN. `indexOf` answering -1 gives a slice that removes
   // the wrong half or nothing at all, and either way the prompt still looks

@@ -101,3 +101,49 @@ test("both database variants are gated, so the saving is not frontend-only", () 
   assert.ok(toolDb.length > pageRulesFor(SPEC_NO_DB, "tool").length,
     "the database variant is not larger — `siteHasTables` is not deciding");
 });
+
+test("a shopfront is left with no dangling reference to charts at all", () => {
+  // THREE PLACES NAMED CHARTS, not one. Removing the catalogue alone left rule 5
+  // explaining which path to import a chart from, and a sentence inside rule 3
+  // promising the list "ARE listed in full below, by name" — both now false, and
+  // a prompt that sends a model looking for something that is not there is worse
+  // than one that never mentioned it: it invites a guess at a module name, and a
+  // module that does not exist is a compile error that costs the page.
+  const shop = pagesRequest({ brief: "b", spec: SPEC_NO_DB, brand: "B", model: "x", kind: "shopfront" }).system[0].text;
+  for (const re of [/charts\/lib/, /chart component/i, /## Charts/, /A CHART COMES FROM/]) {
+    assert.ok(!re.test(shop), "a shopfront still refers to charts: " + re);
+  }
+  // AND THE TOOL KEEPS ALL THREE, or this is a deletion rather than a gate.
+  const tool = pagesRequest({ brief: "b", spec: SPEC_NO_DB, brand: "B", model: "x", kind: "tool" }).system[0].text;
+  for (const re of [/charts\/lib/, /## Charts/, /A CHART COMES FROM/]) {
+    assert.ok(re.test(tool), "a tool lost its chart guidance: " + re);
+  }
+});
+
+test("the rules stay numbered 1..N with no gap, on both variants", () => {
+  // A list that jumps 4 -> 6 reads as an instruction that went missing, and a
+  // model asked to follow seven rules it can only find six of has been handed a
+  // puzzle instead of a rule.
+  for (const kind of ["shopfront", "tool"]) {
+    const t = pagesRequest({ brief: "b", spec: SPEC_NO_DB, brand: "B", model: "x", kind }).system[0].text;
+    const ns = [...t.matchAll(/^(\d+)\. [A-Z]/gm)].map((m) => Number(m[1]));
+    assert.ok(ns.length >= 6, kind + ": found only " + ns.length + " numbered rules — this scan lost its subject");
+    assert.deepEqual(ns, ns.map((_, i) => i + 1), kind + ": the numbering has a gap — " + ns.join(","));
+  }
+});
+
+test("the 72 modules with no signature are named as real, not left unexplained", () => {
+  // Rule 3 forbids hand-rolling "a button, input, select, checkbox or dialog"
+  // AND says a name in neither list "is one you would be guessing at". Those
+  // five are shadcn primitives whose props are typed as
+  // `React.ComponentProps<typeof X>`, which the signature scan cannot read — so
+  // they had no signature and the two sentences contradicted each other.
+  // Measured on the corpus: 9 such modules imported 81 times, every one a guess
+  // the prompt had told the model not to make.
+  const t = pagesRequest({ brief: "b", spec: SPEC_NO_DB, brand: "B", model: "x", kind: "shopfront" }).system[0].text;
+  assert.match(t, /standard shadcn\/ui/i, "the modules with no signature are no longer explained as real");
+  assert.match(t, /ComponentProps/, "the prompt no longer says WHY they have no signature, so their absence still reads as absence");
+  for (const n of ["button", "input", "select", "checkbox", "dialog"]) {
+    assert.ok(t.includes(n), "`" + n + "` is forbidden to hand-roll and never named as available");
+  }
+});
