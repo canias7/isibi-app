@@ -8901,6 +8901,14 @@ async function translateStrings(env, tag, strings) {
   }
 }
 
+// THE SPINE UNDER ITS OWN NAME, so a caller that SHADOWS `recompileAndPublish`
+// can still reach the real one. The edit route does exactly that: it binds a
+// deferring wrapper of the same name so its eight layer branches keep their code
+// unchanged, and calls this to publish once at the end. Taking the alias inside
+// that block instead is a temporal-dead-zone throw — the shadow hides the
+// original from its own initialiser.
+const publishSpine = (...a) => recompileAndPublish(...a);
+
 async function recompileAndPublish(env, { slug, pages, label, renamed = null }) {
   let look = null, logo = "", icon = ""
   let verify = null, langStrings = null;
@@ -17040,8 +17048,71 @@ async function handleRequest(request, env, ctx) {
             // THE STORED SOURCE IS THE WHOLE PREMISE. Without it there is
             // nothing to edit — a site built before the source was kept — and
             // the rung above regenerates from scratch, which is exactly right.
-            const eSrc = await loadSiteSource(env, ownerSlug);
+            let eSrc = await loadSiteSource(env, ownerSlug);
             if (!eSrc || !eSrc.length) return escalate("no-source");
+
+            // ── ONE PUBLISH PER MESSAGE ───────────────────────────────────
+            //
+            // Owner, 2026-08-29: *"for the publish is per act — if the act was 2
+            // things then 1 publish; if the act was 2 things but one thing first
+            // then the other, then is 2 publish"*. One message is one act.
+            //
+            // Several rungs can run for one message now, and each of them ends
+            // by calling the publish spine — so a two-part ask compiled twice,
+            // wrote two version entries, archived two builds, and the customer
+            // watched their site change twice for one sentence.
+            //
+            // ONE NAME THE BRANCHES CALL, `publishStep`, and it does not
+            // publish. Each of the eight layer branches ends by handing its
+            // pages over; this collects them and the real spine runs once below
+            // the loop.
+            //
+            // NAMED RATHER THAN SHADOWING `recompileAndPublish`, which is what
+            // this was first: a block-scoped const of the same name let every
+            // branch keep its code untouched, and cost two real problems. The
+            // alias had to be taken at module scope or the shadow hid the
+            // original from its own initialiser (a temporal-dead-zone throw),
+            // and the out-of-scope lint then reported the module-level spine's
+            // own callers as ReferenceErrors — a false alarm, which this repo
+            // holds to be worse than a miss. A distinct name costs ten call
+            // sites once and nothing afterwards.
+            //
+            // AND THE SOURCE CARRIES FORWARD. Each branch computes its pages
+            // from `eSrc` and hands them here; storing them back into `eSrc` is
+            // what makes the SECOND rung start from what the first one wrote
+            // rather than from the original — without it, one publish would ship
+            // whichever step happened to run last and silently drop the others.
+            // That is why `eSrc` is a `let`.
+            // WHAT THE SITE'S CONFIG WAS BEFORE ANY RUNG TOUCHED IT, so a
+            // failed publish can put it back. Read once, cheaply, and only used
+            // on the failure path — several rungs each write their own field, so
+            // the alternative is N snapshots and an unwind order.
+            //
+            // A READ THAT FAILS IS `null`, WHICH IS NOT A SNAPSHOT. Restoring
+            // from it would blank the look and the stylesheet on a site whose
+            // config we merely could not read — cannot-tell must never read as
+            // nothing-there, which is the rule `loadConfig` already keeps.
+            let preEditConfig = null;
+            try {
+              const snap = await readSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug));
+              if (snap.ok) preEditConfig = { look: snap.config.look, css: snap.config.css };
+            } catch { preEditConfig = null; }
+
+            let pendingPublish = null;
+            const publishStep = async (e, args) => {
+              if (Array.isArray(args && args.pages) && args.pages.length) eSrc = args.pages;
+              // `renamed` ACCUMULATES rather than replaces: two rungs can each
+              // rename something, and the spine takes one map. A later key wins,
+              // which is the same rule the merge below uses for everything else.
+              const renamed = { ...((pendingPublish && pendingPublish.renamed) || {}), ...((args && args.renamed) || {}) };
+              pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null };
+              // A DEFERRED PUBLISH REPORTS SUCCESS, because from the branch's
+              // point of view its work IS done — it has stored what it changed
+              // and handed over the pages. `files` and `render` are absent until
+              // the real publish happens; the merged reply fills them in from
+              // it, which is the only place they can honestly come from.
+              return { ok: true, deferred: true };
+            };
 
             // Charged only when the change actually PUBLISHED, the same rule
             // `publishPages` follows: a lane that failed and left the site
@@ -17415,7 +17486,7 @@ async function handleRequest(request, env, ctx) {
               // ordinary data edit.
               let dPub = null;
               if (dOut.sortPages) {
-                dPub = await recompileAndPublish(env, {
+                dPub = await publishStep(env, {
                   slug: ownerSlug, pages: dOut.sortPages,
                   label: versionLabel({ revise: true, changeNote: eInstruction }),
                 });
@@ -17565,7 +17636,7 @@ async function handleRequest(request, env, ctx) {
                 }
                 return escalate(nOut.reason);
               }
-              const nPub = await recompileAndPublish(env, {
+              const nPub = await publishStep(env, {
                 slug: ownerSlug, pages: nOut.pages,
                 label: versionLabel({ revise: true, changeNote: eInstruction }),
               });
@@ -17674,7 +17745,7 @@ async function handleRequest(request, env, ctx) {
                 // layer behaves exactly as it did.
                 return escalate(pOut.reason, pOut.layer ? { layer: pOut.layer, page: pOut.page } : undefined);
               }
-              const pPub = await recompileAndPublish(env, {
+              const pPub = await publishStep(env, {
                 slug: ownerSlug, pages: pOut.pages,
                 label: versionLabel({ revise: true, changeNote: eInstruction }),
               });
@@ -17767,7 +17838,7 @@ async function handleRequest(request, env, ctx) {
                   // The lane's own catch turns this into its refusal.
                   if (!w.ok) throw new Error(w.error);
                 },
-                publish: () => recompileAndPublish(env, {
+                publish: () => publishStep(env, {
                   slug: ownerSlug, pages: eSrc,
                   label: versionLabel({ revise: true, changeNote: eInstruction }),
                 }),
@@ -17815,7 +17886,7 @@ async function handleRequest(request, env, ctx) {
                 }
                 return escalate(out.reason);
               }
-              const pub = await recompileAndPublish(env, {
+              const pub = await publishStep(env, {
                 slug: ownerSlug, pages: out.pages,
                 label: versionLabel({ revise: true, changeNote: eInstruction }),
               });
@@ -18171,7 +18242,7 @@ async function handleRequest(request, env, ctx) {
               // already does exactly this for a revise; a second labeller here
               // would be a second thing that can disagree about what to call a
               // build.
-              const pub = await recompileAndPublish(env, {
+              const pub = await publishStep(env, {
                 slug: ownerSlug, pages: eSrcOut,
                 label: versionLabel({ revise: true, changeNote: eInstruction }),
               });
@@ -18317,7 +18388,7 @@ async function handleRequest(request, env, ctx) {
                   if (cut.msg) return Response.json({ ok: false, error: cut.reason, cost: 0, msg: cut.msg.trim() }, { status: 422 });
                   return escalate(cut.reason, { page: wantRoute });
                 }
-                const cutPub = await recompileAndPublish(env, {
+                const cutPub = await publishStep(env, {
                   slug: ownerSlug, pages: cut.pages,
                   label: versionLabel({ revise: true, changeNote: eInstruction }),
                 });
@@ -18363,7 +18434,7 @@ async function handleRequest(request, env, ctx) {
                 // explicit pair the publish sees a delete plus an add and 301s
                 // the old address to the HOME page, so every indexed link and
                 // every share lands on the wrong page rather than the moved one.
-                const mvPub = await recompileAndPublish(env, {
+                const mvPub = await publishStep(env, {
                   slug: ownerSlug, pages: rn.pages, renamed: rn.redirect,
                   label: versionLabel({ revise: true, changeNote: eInstruction }),
                 });
@@ -18409,7 +18480,7 @@ async function handleRequest(request, env, ctx) {
               });
               if (tw.ok) {
                 const twPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: tw.source } : p));
-                const twPub = await recompileAndPublish(env, {
+                const twPub = await publishStep(env, {
                   slug: ownerSlug, pages: twPages,
                   label: versionLabel({ revise: true, changeNote: eInstruction }),
                 });
@@ -18532,7 +18603,7 @@ async function handleRequest(request, env, ctx) {
               }
               const pPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: wrote.source } : p));
 
-              const pPub = await recompileAndPublish(env, {
+              const pPub = await publishStep(env, {
                 slug: ownerSlug, pages: pPages,
                 label: versionLabel({ revise: true, changeNote: eInstruction }),
               });
@@ -18611,6 +18682,51 @@ async function handleRequest(request, env, ctx) {
               // right way round for a failure that is usually ours.
             }
 
+            // ── AND NOW THE ONE PUBLISH ───────────────────────────────────
+            //
+            // Every rung that wanted to publish handed its pages to the
+            // shadowed spine above; this is where they actually ship, once, with
+            // the source every step contributed to.
+            //
+            // ONLY WHEN SOMETHING SUCCEEDED. A message whose every rung failed
+            // has nothing to publish, and compiling anyway would spend a build
+            // on a site that is not changing.
+            let finalPub = null;
+            if (pendingPublish && done.some((d) => !d.failed)) {
+              finalPub = await publishSpine(env, pendingPublish);
+              if (!finalPub.ok) {
+                // THE SITE IS UNTOUCHED — nothing was published — but the STORED
+                // state is not: each rung wrote its change before handing over
+                // the pages. Left there it applies silently on the customer's
+                // next unrelated edit, under a version label naming only that
+                // one. The look lane has carried that exact note for weeks; with
+                // several rungs it is several changes, so the config is put back
+                // to the snapshot taken before any of them ran.
+                let restored = true;
+                try {
+                  if (!preEditConfig) throw new Error("no snapshot to restore from");
+                  const back = await patchSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug), preEditConfig);
+                  if (!back.ok) throw new Error(back.error);
+                } catch (e) {
+                  restored = false;
+                  console.error("edit rollback failed:", ownerSlug, e && e.message);
+                }
+                return Response.json({
+                  ok: false, error: "compile", cost: 0,
+                  msg: compileMsg(finalPub, restored
+                    ? "That didn't compile, so your site is untouched."
+                    : "That didn't compile. Your site is still live and unchanged, but the change is saved — ask again and I'll try to apply it."),
+                  lanes: done.flatMap((d) => d.step.fields),
+                  // WHAT WE COULD NOT DO SURVIVES THE FAILURE PATH TOO. Dropped
+                  // here, an unbuilt ask is invisible whenever the publish also
+                  // fails — the same dropped-ask bug this whole change is about,
+                  // arriving through the one branch nobody looks at.
+                  notBuilt: notBuilt.length ? notBuilt.map(([f, needs]) => ({ field: f, needs })) : undefined,
+                  detail: finalPub.detail,
+                }, { status: 422 });
+              }
+            }
+
             const ranOk = done.filter((d) => !d.failed);
             const failures = done.filter((d) => d.failed);
             // ONE STEP, AND IT FAILED — hand back that rung's own answer, whole.
@@ -18646,9 +18762,13 @@ async function handleRequest(request, env, ctx) {
               // THE LAST PUBLISH'S FILES AND RENDER, because each step publishes
               // the whole site — so the last one is the site as it now stands,
               // and an earlier one's numbers describe a version already replaced.
-              files: last && last.body.files,
-              render: last && last.body.render,
-              renderNote: last && last.body.renderNote,
+              // FROM THE ONE PUBLISH, not from a step. A deferred publish
+              // answers before any of these exist, so reading them off a step's
+              // body would report `undefined` on every multi-rung message —
+              // the works-but-cannot-say-so shape, arriving through the fix.
+              files: finalPub ? finalPub.files : (last && last.body.files),
+              render: finalPub ? finalPub.render : (last && last.body.render),
+              renderNote: finalPub ? finalPub.renderNote : (last && last.body.renderNote),
               cost: done.reduce((n, d) => n + (Number(d.body && d.body.cost) || 0), 0),
               // WHAT WAS BILLED, from the one list `eCharge` appends to — so the
               // receipt is assembled from what was charged rather than rebuilt

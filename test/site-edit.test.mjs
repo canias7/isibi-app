@@ -942,6 +942,11 @@ test("a text edit keeps the site's name, description and preview image", () => {
   assert.match(block, /image: await siteOgImage\(env, slug, built\.files\)/,
     "a text edit strips the site's link-preview image again");
   // …and the text route has to reach it, or the spine is correct and unused.
+  // STILL `recompileAndPublish`, and deliberately: this is the FREE TEXT route,
+  // not the layer chain. The eight edit-layer branches call `publishStep` since
+  // 2026-08-29 — a deferring wrapper that collects pages so the spine runs once
+  // per message — and this route is not one of them, so it publishes directly.
+  // Renaming it here was wrong and the guard caught it.
   assert.match(worker, /recompileAndPublish\(env, \{\s*\n?\s*slug: ownerSlug, pages: ed\.pages/,
     "the text route no longer publishes through the shared spine");
   // The look it reads has to be the one that CARRIES those, or all three read

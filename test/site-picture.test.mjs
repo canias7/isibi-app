@@ -357,7 +357,11 @@ test("THE PICTURE BRANCH PUBLISHES, and prices a made picture before making it",
   assert.ok(from > 0, "the picture branch is gone or moved");
   const rest = [...w.matchAll(/if \(eLayer === "[a-z]+"\) \{/g)].map((m) => m.index).filter((i) => i > from);
   const block = w.slice(from, rest.length ? rest[0] : from + 6000);
-  assert.match(block, /recompileAndPublish\(env, \{/, "a swap that is never published is a change the owner cannot see");
+  // `publishStep` since 2026-08-29 — the edit route's branches hand their pages
+  // to a deferring wrapper so the spine runs ONCE per message (owner: "if the
+  // act was 2 things then 1 publish"). The property is unchanged: this branch
+  // still hands its pages to the publish path.
+  assert.match(block, /publishStep\(env, \{/, "a swap that is never published is a change the owner cannot see");
   assert.match(block, /imagesAffordable\(1, \{ balance/, "a made picture must be priced against the real balance first");
   // AGAINST THE WHOLE FILE, not the branch — the import is at the top, and
   // asserting it inside a window that starts at the branch can only ever fail.

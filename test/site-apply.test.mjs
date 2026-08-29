@@ -430,7 +430,7 @@ test("the route exists, is dispatched, and reaches the module", () => {
     "the edit matcher is not in the ownerSlug list, so it would read another route's slug");
   const b = editBlock();
   assert.match(b, /runTextEdit\(/, "the text layer is not wired to the module");
-  assert.match(b, /recompileAndPublish\(/, "the lane never publishes");
+  assert.match(b, /(?:recompileAndPublish|publishStep)\(/, "the lane never publishes");  // the edit route's branches call `publishStep` since 2026-08-29 — the deferring wrapper that collects pages so the spine runs ONCE per message (owner: "if the act was 2 things then 1 publish"). The property is unchanged: the branch hands its pages to the publish path.
   assert.match(b, /assertOwner\(/, "the edit lane is not ownership-gated");
 });
 
@@ -483,7 +483,7 @@ test("the edit handler CANNOT reach the schema, the seeder or the page generator
   // AND IT PUBLISHES NOTHING, which is what makes it a rung below `look` rather
   // than a variant of `addon`. Asserted as an absence between its own
   // boundaries, exactly as the data layer's is.
-  assert.ok(!rBlock.includes("recompileAndPublish("),
+  assert.ok(!rBlock.includes("recompileAndPublish(") && !rBlock.includes("publishStep("),
     "a rule is enforced in Postgres and on the request path — no page changes, so nothing is republished");
   // AND THE GENERATION IT DOES DO IS BOUNDED. Without the mode and the target it
   // is an ordinary revise wearing an edit's name — every page re-emitted, at the
@@ -515,7 +515,7 @@ test("the charge comes AFTER the publish, on every layer", () => {
   // layer, whose defining property is that it publishes nothing at all. Rows are
   // read at runtime, so the change is live the moment it commits.
   for (const at of calls) {
-    const published = b.lastIndexOf("recompileAndPublish(", at);
+    const published = Math.max(b.lastIndexOf("recompileAndPublish(", at), b.lastIndexOf("publishStep(", at));
     const wroteRows = b.lastIndexOf("runDataEdit(", at);
     assert.ok(published > 0 || wroteRows > 0,
       "a charge at offset " + at + " runs before any work was done");
@@ -531,7 +531,7 @@ test("the charge comes AFTER the publish, on every layer", () => {
   // for every price change on every site.
   const dBlock = layerBranch(b, "data");
   assert.match(dBlock, /runDataEdit\(/);
-  const pubs = [...dBlock.matchAll(/recompileAndPublish\(/g)].map((m) => m.index);
+  const pubs = [...dBlock.matchAll(/(?:recompileAndPublish|publishStep)\(/g)].map((m) => m.index);
   assert.ok(pubs.length <= 1, "the data layer publishes in at most one place, found " + pubs.length);
   if (pubs.length) {
     // The gate is the nearest `if` above it and it must ask about the reorder.

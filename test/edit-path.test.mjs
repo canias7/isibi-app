@@ -29,6 +29,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
+import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { LANE_FIELDS, ACTING_LANES, laneLayer, laneUnbuilt } from "../builder/site-lanes.mjs";
 // THE PAGE LAYER'S TOOL NAME, TAKEN FROM THE MODULE THAT DEFINES IT. Typed by
@@ -500,4 +501,116 @@ test("an unbuilt ask does not sink the asks that CAN run", async () => {
         "the reply does not say which ask was not carried out: " + JSON.stringify(body));
     },
   );
+});
+
+/* ── ONE ACT, ONE PUBLISH ────────────────────────────────────────────────── */
+
+test("two asks in one message compile and publish ONCE", async () => {
+  // Owner, 2026-08-29: "for the publish is per act — if the act was 2 things
+  // then 1 publish; if the act was 2 things but one thing first then the other,
+  // then is 2 publish". One message is one act.
+  //
+  // Every rung ends by calling the publish path, and several rungs run for one
+  // message now — so a two-part ask compiled twice, wrote two version entries,
+  // archived two builds, and the customer watched their site change twice for
+  // one sentence.
+  //
+  // THIS NEEDS A PUBLISH THAT SUCCEEDS, which is why the container fixture grew
+  // an opt-in compiler. Counting compiles is the only way to see the difference:
+  // one publish and two publishes both end with the site correct, and only the
+  // build history says which happened.
+  const c = installCompiler();
+  try {
+    await withWire(
+      { pick_lanes: { fields: ["brand", "css"] }, edit_site: { brand: "Northwind", css: "footer{color:#fff}" } },
+      async (calls) => {
+        const { body } = await edit("pub-one", "call us Northwind and make the footer text white");
+        assert.equal(body && body.ok, true, "the message did not go through: " + JSON.stringify(body));
+        // TWO ACTING CALLS, ONE COMPILE. The lanes really did both run — without
+        // that this would pass by doing half the work once.
+        assert.equal(calls.filter((x) => x.tool === "edit_site").length, 2,
+          "both lanes did not run: " + JSON.stringify(toolsOf(calls)));
+        assert.equal(c.calls.length, 1,
+          "one message compiled " + c.calls.length + " times — the act published more than once");
+        assert.deepEqual([...body.lanes].sort(), ["brand", "css"], "the reply does not name both lanes: " + JSON.stringify(body.lanes));
+      },
+    );
+  } finally { c.uninstall(); }
+});
+
+test("a stylesheet ask and a photo ask — two rungs, still ONE publish", async () => {
+  // The harder half: two DIFFERENT rungs, not two lanes on one rung. Each rung
+  // has its own publish call, so this is where "one publish per act" is really
+  // decided.
+  const c = installCompiler();
+  try {
+    await withWire(
+      { pick_lanes: { fields: ["css", "images"] }, edit_site: { css: "footer{color:#0b3d2e}" } },
+      async () => {
+        await edit("pub-two", "darker footer and show more of the shop photo");
+        assert.ok(c.calls.length <= 1,
+          "two rungs compiled " + c.calls.length + " times for one message — the act published more than once");
+      },
+    );
+  } finally { c.uninstall(); }
+});
+
+test("the second rung sees what the first one wrote", async () => {
+  // ONE PUBLISH IS ONLY CORRECT IF THE SOURCE CARRIES FORWARD. Each rung
+  // computes its pages from the stored source; if the second starts from the
+  // ORIGINAL rather than from what the first produced, the single publish ships
+  // whichever step happened to run last and the other is silently lost — which
+  // is the dropped-ask bug again, arriving through the fix for it.
+  const c = installCompiler();
+  try {
+    await withWire(
+      { pick_lanes: { fields: ["brand"] }, edit_site: { brand: "Northwind" } },
+      async () => {
+        await edit("pub-carry", "call us Northwind");
+        assert.equal(c.calls.length, 1, "expected exactly one compile");
+        const sent = c.calls[0].body || {};
+        // FILES ARE A PATH->SOURCE MAP, which is what the spine really sends.
+        assert.ok(sent.files && Object.keys(sent.files).length,
+          "the compile was handed no files at all: " + JSON.stringify(sent).slice(0, 200));
+        // AND THE RUNG'S CHANGE IS IN IT. The brand lane stored "Northwind"
+        // before handing its pages over; the single publish must carry that
+        // rather than the name the site had when the message arrived — which is
+        // exactly what breaks if the deferred publish keeps the original state.
+        assert.equal(sent.title, "Northwind",
+          "the one publish did not carry the rung's change: title was " + JSON.stringify(sent.title));
+      },
+    );
+  } finally { c.uninstall(); }
+});
+
+test("the billing is per MESSAGE, not per rung — measured against the ledger", async () => {
+  // The survivor a sweep found and nothing watched: `pick_lanes` runs before any
+  // layer is chosen and every rung folds it into its own bill, so a two-lane
+  // message charged for the routing call twice. Watched here against what was
+  // actually asked of the ledger, because a reply's `cost` is our own arithmetic
+  // and this is the number the customer's balance moves by.
+  const c = installCompiler();
+  const billed = [];
+  try {
+    await withWire(
+      { pick_lanes: { fields: ["brand", "css"] }, edit_site: { brand: "Northwind", css: "footer{color:#fff}" } },
+      async () => {
+        const { body } = await edit("pub-bill", "call us Northwind and make the footer white");
+        assert.equal(body && body.ok, true, "the message did not go through: " + JSON.stringify(body));
+        // ONE CHARGE FOR ONE MESSAGE. Several would mean several roundings, and
+        // `pageCredits` has a floor of 1 — so two charges is two credits for a
+        // message that costs one.
+        assert.equal(billed.length, 1,
+          "one message hit the ledger " + billed.length + " times: " + JSON.stringify(billed));
+        // AND THE ROUTING CALL IS IN IT EXACTLY ONCE. Three parts on the bill —
+        // the router plus the two lanes — not four.
+        const parts = (body.usage && body.usage.langUsage) || [];
+        assert.equal(parts.length, 3,
+          "the bill carries " + parts.length + " calls; expected the router plus two lanes: " + JSON.stringify(parts));
+        assert.equal(parts.filter((p) => p.model === "claude-haiku-4-5").length, 1,
+          "the routing call is on the bill more than once: " + JSON.stringify(parts));
+      },
+      { billed },
+    );
+  } finally { c.uninstall(); }
 });
