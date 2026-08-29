@@ -6209,28 +6209,35 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    around it falls outside the crop. The chrome bar is dropped too: a browser
    window drawn around a phone was the thing that looked wrong.
 
-   THE OFFSETS ARE MEASURED, and they are only valid at the iframe size pinned
-   below. The page centres itself with min-h-screen, so the phone MOVES when the
-   frame is resized — which is why the frame is a fixed 1200x1400 here rather
-   than inheriting --fw like the browser slides. At that exact size the phone
-   body sits at x414 y317 and is 372x790, read off a real render. The first
-   pass used 376x780 from y315 and sliced the bottom bezel clean off — it
-   looked like a rendering fault and was a wrong number. Change the frame
-   size and all four are wrong: re-measure, do not scale them. */
-.mkt-crt .gf-reel-slide.gf-phone{width:221.4px;border-radius:32px;background:none;
+   THE OFFSETS ARE READ FROM THE PAGE, not guessed at pixels. /mkt/demo4/ is a
+   whole page with a phone standing in it; the frame is positioned so the
+   device fills the slide and everything around it falls outside the crop.
+
+   The numbers came from asking the page: the device is `.phone`, a fixed
+   380x800 in the demo's own CSS, and at a 1200x1400 frame its
+   getBoundingClientRect is x=745 y=139. Three pixel-measuring attempts before
+   that all disagreed with each other and with the CSS — the page's headline,
+   its section text and the screen's own 42px corner radius each defeated a
+   different threshold. An element that knows its own box should be asked for
+   it.
+
+   Still size-bound: the page centres itself, so the device MOVES if the frame
+   is resized. That is why the frame is pinned at 1200x1400 rather than
+   inheriting --fw like the browser slides. Re-read the rect if either moves;
+   do not scale these. */
+.mkt-crt .gf-reel-slide.gf-phone{width:223.25px;border-radius:32px;background:none;
   box-shadow:0 16px 36px -22px rgba(51,49,61,.6)}
 .mkt-crt .gf-reel-slide.gf-phone::before{border-radius:34px;border-width:1.7px}
-.mkt-crt .gf-phone .gf-reel-body{aspect-ratio:372 / 790;background:none}
+.mkt-crt .gf-phone .gf-reel-body{aspect-ratio:380 / 800;background:none}
 .mkt-crt .gf-phone .gf-reel-frame{
   width:1200px;
   height:1400px;
   /* translate first, then scale: the phone's top-left corner lands on the
-     slide's. .595 is not a taste: 790 x .595 = 470, and 470 is the MEASURED
+     slide's. .5875 is not a taste: 800 x .5875 = 470, and 470 is the measured
      height of a browser card in this strip — chrome plus a 16:10 body, read
-     off the laid-out page, not worked out on paper. The width follows from it
-     (372 x .595 = 221.4). Recompute both if either the card or the crop moves;
-     the first attempt guessed 463 and the phone stood 7px short of the rest. */
-  transform:scale(.595) translate(-414px,-317px)}
+     off the laid-out page. The width follows from it (380 x .5875 = 223.25).
+     Recompute both if the card or the device moves. */
+  transform:scale(.5875) translate(-745px,-139px)}
 .mkt-crt .gf-phone .gf-reel-open{right:.5rem;bottom:.9rem}
 
 /* ---- The Video / App switch (owner 2026-08-29): "on top of this thing make
