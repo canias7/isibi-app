@@ -102,7 +102,7 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, ACTING_LANES } from "./builder/site-lanes.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -17093,6 +17093,23 @@ async function handleRequest(request, env, ctx) {
             //
             // Now there is one list and both callers read it, so what is
             // charged and what is reported cannot disagree.
+            //
+            // ── AND ONCE PER MESSAGE, NOT ONCE PER STEP (2026-08-29) ─────
+            //
+            // Several rungs now run for one message, and each calls `eCharge`.
+            // Folding `pickUsage` in every time bills the ONE routing call once
+            // per lane the customer named — the same double-count a sweep caught
+            // here, multiplied. `billParts` is read by the reporting half too,
+            // so this is also what keeps `usage` on the reply equal to `cost`.
+            // `billParts` STAYS PURE — same answer however often it is asked.
+            // It was briefly the place the once-only rule lived, and that made
+            // the two halves fight: the object literal `{ cost: await
+            // eCharge(u), usage: billParts(u) }` evaluates `cost` first, so the
+            // billing call consumed the router's usage and the REPORTING call
+            // then found it gone. The bill was right and the receipt was short
+            // by one call — which is the shape nobody can dispute, because the
+            // number and its accounting disagree with no way to tell which is
+            // wrong. The once-only rule belongs to charging alone.
             const billParts = (usage, ...more) => {
               const parts = [];
               for (const p of [pickUsage, usage, ...more]) {
@@ -17102,9 +17119,27 @@ async function handleRequest(request, env, ctx) {
               }
               return parts;
             };
+            // EVERYTHING ACTUALLY CHARGED FOR THIS MESSAGE, in one list. Several
+            // rungs can run now, each charging its own; this is what the merged
+            // reply reports, so the receipt is assembled from what was billed
+            // rather than rebuilt beside it. Two lists of the same thing drift,
+            // and here the drift would be somebody's money.
+            let pickBilled = false;
+            const billedAll = [];
             const eCharge = async (usage, ...more) => {
-              const parts = billParts(usage, ...more);
+              const parts = billParts(usage, ...more).filter((p) => {
+                // THE ROUTING CALL IS BILLED ONCE PER MESSAGE, not once per
+                // rung. `pick_lanes` runs before any layer is chosen, and every
+                // rung that follows folds it in — so a two-lane edit charged for
+                // it twice. Identity, not shape: two calls can legitimately
+                // report the same token counts.
+                if (p !== pickUsage) return true;
+                if (pickBilled) return false;
+                pickBilled = true;
+                return true;
+              });
               if (!parts.length) return 0;
+              billedAll.push(...parts);
               try { return await collectCredits(eAuth, pageCredits(...parts)); } catch { return 0; }
             };
 
@@ -17171,8 +17206,46 @@ async function handleRequest(request, env, ctx) {
             // overlapping-window trap, and the version of it that bites is
             // always the one you introduce yourself. One boolean, and the
             // lane's own condition stays unique in the file.
-            const eLooking = eLayer === "look";
+            // ── EVERY LANE THEY NAMED RUNS. NONE IS DROPPED ────────────────
+            //
+            // Owner, 2026-08-29: *"if a customer wants CSS to be changed and
+            // also wants another of the seventeen one being changed, it could do
+            // it too… it could do two steps at the same time, or three or four,
+            // depending on how many the user wants"* — and, standing over all of
+            // it, *"only change whatever the customer wants, don't change what
+            // customer hasn't asked for"*.
+            //
+            // THIS TOOK THE FIRST DISPATCHED LANE AND THREW THE REST AWAY:
+            //
+            //     const send = pickedFields.map(laneLayer).find(Boolean);
+            //     if (send) eLayer = send;
+            //
+            // So "darker footer and swap the shop photo" repointed the whole
+            // route at `picture` and the stylesheet ask VANISHED — silently,
+            // with the customer told the change was made. The reasoning at the
+            // time was that a dispatched lane is a whole rung with its own model
+            // call and its own publish, so running two would charge twice; that
+            // is true and it is the wrong trade. Doing LESS than they asked and
+            // reporting success is the failure this whole file is written to
+            // avoid, and it is worse than publishing twice.
+            //
+            // A PLAN, THEN — one step per rung, in `LANE_FIELDS` order:
+            //   * the eight that act here batch into ONE `look` step, because
+            //     they already run in turn on one publish;
+            //   * each dispatched lane is its own step on its own rung;
+            //   * a lane that is not built yet is REPORTED rather than allowed
+            //     to sink the steps that can run.
+            const steps = [];
+            let notBuilt = [];
             let pickedFields = [];
+            // `eLooking`, NOT A SECOND `eLayer === "look"`. Four guards window
+            // the look LANE by finding that exact condition and slicing to the
+            // next branch; a second copy up here moves all four windows onto
+            // this block, so each spans the whole dispatch chain and a mutation
+            // in the wrong half passes. The overlapping-window trap, and the
+            // version that bites is always the one you add yourself — this is
+            // the SECOND time in one session it has been added back here.
+            const eLooking = eLayer === "look";
             if (eLooking) {
               const picked = await pickLanes(
                 { send: (req) => anthropicMessages(env, req) },
@@ -17189,42 +17262,45 @@ async function handleRequest(request, env, ctx) {
               if (!picked.fields.length) return escalate("no-lane");
               pickedFields = picked.fields;
 
-              // WHERE THE WORK REALLY HAPPENS, decided by the FIRST named lane.
-              //
-              // The first, not all of them, and the asymmetry is deliberate: the
-              // eight this module edits itself really do run in turn on one
-              // publish, because each writes a different stored field and none
-              // of them regenerates a page. A dispatched lane is a whole other
-              // rung with its own model call, its own publish and its own price,
-              // so running two of those for one sentence would charge twice and
-              // publish twice. The rest ride out on `alsoAsked`, which is the
-              // one-change-per-turn note the router already writes.
-              const send = pickedFields.map((f) => laneLayer(f)).find(Boolean);
-              if (send) {
-                // A PAGE-SHAPED LANE NEEDS A PAGE, and a dispatched one carries
-                // no `eb.page`. The site's only page is the answer when it has
-                // one — which is most sites, since the PLAN caps a new build at
-                // one — and otherwise the home page, which is where a request
-                // that named no page means. `routeOf` is the same function the
-                // page layer resolves with, so there is no second opinion about
-                // what a file is called.
-                if (send === "page" && !ePage) {
-                  const routes = eSrc.map((p) => routeOf(p.path)).filter(Boolean);
-                  ePage = routes.length === 1 ? routes[0] : (routes.includes("/") ? "/" : routes[0] || "");
-                }
-                eLayer = send;
-              } else {
-                // NOT BUILT YET, AND IT SAYS WHICH — three different jobs that
-                // must never share one word. `kind` is a rebuild by definition,
-                // `pages` is three capabilities behind one field (add, remove,
-                // move), `slug` is an address change. Escalated, so the customer
-                // still gets the change from the rung above; named, so the next
-                // session knows which is which.
-                const stuck = pickedFields.map((f) => [f, laneUnbuilt(f)]).find(([, r]) => r);
-                if (stuck) return escalate("unbuilt", { field: stuck[0], needs: stuck[1] });
+              // A PAGE-SHAPED LANE NEEDS A PAGE, and a dispatched one carries no
+              // `eb.page`. The site's only page is the answer when it has one —
+              // most sites, since the PLAN caps a new build at one — otherwise
+              // the home page, which is where a request naming no page means.
+              // `routeOf` is the same function the page layer resolves with, so
+              // there is no second opinion about what a file is called.
+              const routes = eSrc.map((p) => routeOf(p.path)).filter(Boolean);
+              const fallbackPage = ePage || (routes.length === 1 ? routes[0] : (routes.includes("/") ? "/" : routes[0] || ""));
+
+              const acting = pickedFields.filter((f) => ACTING_LANES.includes(f));
+              if (acting.length) steps.push({ layer: "look", page: ePage, fields: acting });
+              for (const f of pickedFields) {
+                const to = laneLayer(f);
+                if (to) steps.push({ layer: to, page: to === "page" ? fallbackPage : ePage, fields: [f] });
               }
+              // NOT BUILT YET, AND IT SAYS WHICH — three different jobs that must
+              // never share one word. `kind` is a rebuild by definition, `pages`
+              // is three capabilities behind one field (add, remove, move),
+              // `slug` is an address change.
+              notBuilt = pickedFields.map((f) => [f, laneUnbuilt(f)]).filter(([, r]) => r);
+              // ONLY WHEN NOTHING ELSE CAN RUN. An unbuilt lane beside a workable
+              // one used to escalate the WHOLE message, so "make the footer
+              // darker and change our web address" did neither — the same
+              // dropped-ask failure wearing the other face.
+              if (!steps.length) {
+                if (notBuilt.length) return escalate("unbuilt", { field: notBuilt[0][0], needs: notBuilt[0][1] });
+                return escalate("no-lane");
+              }
+            } else {
+              // EVERY OTHER LAYER IS THE ROUTER'S OWN DECISION, made with the
+              // whole message in front of it. One step, exactly as before.
+              steps.push({ layer: eLayer, page: ePage, fields: [] });
             }
 
+            // THE DISPATCH CHAIN, AS A CALLABLE. Its parameters are named
+            // exactly as the variables the branches already read, so the eight
+            // layers below are untouched by the change that lets several of them
+            // run for one message.
+            const runLayer = async (eLayer, ePage, pickedFields) => {
             if (eLayer === "data") {
               // ── THE CONTENT THE SITE STORES ─────────────────────────────
               //
@@ -18501,7 +18577,123 @@ async function handleRequest(request, env, ctx) {
             // A LAYER NOBODY IMPLEMENTS escalates rather than pretending, so the
             // change still happens — one rung up, at the price of a rung up.
             return escalate("layer");
+            };
+
+            // ── RUN EVERY STEP IN TURN, AND ANSWER ONCE ───────────────────
+            //
+            // Owner: *"it could do two steps at the same time, or three or four,
+            // depending on how many the user wants"*. In turn rather than at
+            // once, because each rung reads the site's stored state and writes
+            // it back — two running concurrently would race over the same
+            // config and the same page source.
+            //
+            // THE ORDER IS `LANE_FIELDS`, which puts the eight that act here
+            // first. That is deliberate and not cosmetic: they change stored
+            // VALUES (a colour, a name, a tab icon), while the dispatched rungs
+            // rewrite page SOURCE. Doing the values first means the page rungs
+            // recompile from the design the customer just asked for, rather than
+            // from the one it is replacing.
+            const done = [];
+            for (const step of steps) {
+              const res = await runLayer(step.layer, step.page, step.fields);
+              const body = await res.clone().json().catch(() => null);
+              done.push({ step, res, body, failed: !body || body.ok !== true });
+              // NO `break`. A RUNG THAT FAILED DOES NOT CANCEL THE OTHERS.
+              //
+              // It did, and that was the same dropped-ask bug one level up:
+              // "darker footer and swap the shop photo" would run the footer,
+              // fail to compile, and the photograph — a separate, independent
+              // piece of work on a different rung — was abandoned without the
+              // customer being told it had ever been understood.
+              //
+              // A failed step charges nothing (`cost: 0` on every failure path),
+              // so carrying on spends OUR money and not theirs, which is the
+              // right way round for a failure that is usually ours.
+            }
+
+            const ranOk = done.filter((d) => !d.failed);
+            const failures = done.filter((d) => d.failed);
+            // ONE STEP, AND IT FAILED — hand back that rung's own answer, whole.
+            // Its status, its reason, its `detail`: a merged "ok: false" with a
+            // sentence assembled here would be the failure-that-cannot-name-
+            // itself shape, and this file has paid for that seven times.
+            //
+            // ONLY WHEN THERE WAS ONE. With several steps this shortcut returned
+            // the FIRST failure and silently discarded the rest — so a message
+            // whose two asks both failed reported one of them, and the other was
+            // indistinguishable from never having been understood. That is the
+            // dropped-ask bug again, arriving through the failure path. Several
+            // steps go through the merge below, where `partial` names every one.
+            if (done.length === 1 && failures.length && !notBuilt.length) return failures[0].res;
+
+            const flat = (k) => ranOk.flatMap((d) => (Array.isArray(d.body[k]) ? d.body[k] : []));
+            const last = ranOk[ranOk.length - 1];
+            const merged = {
+              ok: ranOk.length > 0,
+              // THE LAYER THAT DID THE WORK, for a client that still reads one.
+              // `layers` beside it is the truth when several ran.
+              layer: ranOk.length === 1 ? ranOk[0].body.layer : "look",
+              layers: ranOk.map((d) => d.body.layer),
+              // WHICH OF THE SEVENTEEN THIS MESSAGE TOUCHED — including the ones
+              // that failed, because "we tried and it did not compile" and "we
+              // never understood you" are different things and must read
+              // differently.
+              lanes: [...new Set([...flat("lanes"), ...done.flatMap((d) => d.step.fields)])],
+              moved: flat("moved"),
+              changed: flat("changed"),
+              css: ranOk.some((d) => d.body.css) || undefined,
+              renamed: ranOk.reduce((n, d) => n + (Number(d.body.renamed) || 0), 0) || undefined,
+              // THE LAST PUBLISH'S FILES AND RENDER, because each step publishes
+              // the whole site — so the last one is the site as it now stands,
+              // and an earlier one's numbers describe a version already replaced.
+              files: last && last.body.files,
+              render: last && last.body.render,
+              renderNote: last && last.body.renderNote,
+              cost: done.reduce((n, d) => n + (Number(d.body && d.body.cost) || 0), 0),
+              // WHAT WAS BILLED, from the one list `eCharge` appends to — so the
+              // receipt is assembled from what was charged rather than rebuilt
+              // beside it. Two lists of the same thing drift, and the drift here
+              // would be somebody's money.
+              usage: { langUsage: billedAll },
+              // A LANE THAT FOUND NOTHING TO DO SAYS SO IN ITS OWN WORDS, and
+              // that has to survive the merge — an empty `moved` with no note
+              // reads as a change that silently failed.
+              lookNote: ranOk.map((d) => d.body.lookNote).filter(Boolean).join(" ") || undefined,
+              cssNote: ranOk.map((d) => d.body.cssNote).filter(Boolean).join(" ") || undefined,
+              // ── WHAT WE DID NOT DO, SAID OUT LOUD ────────────────────────
+              //
+              // The whole point of this change: an ask that could not run is
+              // REPORTED, never dropped. `notBuilt` is a lane with no
+              // implementation yet; `partial` is a rung that tried and failed.
+              // Both name the LANE, in the customer's own terms, so they can see
+              // which half of their message is still outstanding.
+              notBuilt: notBuilt.length ? notBuilt.map(([f, needs]) => ({ field: f, needs })) : undefined,
+              partial: failures.length
+                ? failures.map((d) => ({ layer: d.step.layer, lanes: d.step.fields, error: d.body && d.body.error, msg: d.body && d.body.msg }))
+                : undefined,
+            };
+            // ── AND ANYTHING A RUNG REPORTS THAT THIS MERGE DOES NOT MODEL ──
+            //
+            // Eight rungs answer here and each has diagnostics of its own — a
+            // stale phone number the text lane spotted, a typeface the
+            // stylesheet cannot host. Naming them one by one means editing this
+            // merge every time a rung learns to say something new, and the
+            // failure is silent: the field is simply gone from the reply.
+            //
+            // AFTER the literal rather than spread inside it, because reading
+            // `merged` in its own initialiser is a temporal-dead-zone throw —
+            // and `Object.hasOwn` is what makes "only where the merge has not
+            // already decided" true, so nothing above can be overwritten by a
+            // rung's own idea of the same key.
+            for (const d of ranOk) {
+              for (const [k, v] of Object.entries(d.body || {})) {
+                if (v === undefined || Object.hasOwn(merged, k)) continue;
+                merged[k] = v;
+              }
+            }
+            return Response.json(merged);
           }
+
           if (ad) {
             // ── THE ADDON LANE ────────────────────────────────────────────
             //

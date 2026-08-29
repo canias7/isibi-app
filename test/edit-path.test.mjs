@@ -416,3 +416,72 @@ test("every acting lane can actually be reached through the route", async () => 
     );
   }
 });
+
+test("a stylesheet ask BESIDE a dispatched ask — both run, neither is dropped", async () => {
+  // Owner, 2026-08-29: "if a customer wants CSS to be changed and also wants
+  // another of the seventeen one being changed, it could do it too… it could do
+  // two steps at the same time, or three or four, depending on how many the user
+  // wants."
+  //
+  // THE BUG THIS REPLACES. The front door took the FIRST dispatched lane and
+  // repointed the whole route at it:
+  //
+  //     const send = pickedFields.map(laneLayer).find(Boolean);
+  //     if (send) eLayer = send;
+  //
+  // So "darker footer and swap the shop photo" ran the photo and the STYLESHEET
+  // ASK VANISHED — silently, with the customer told the change was made. Doing
+  // less than they asked and reporting success is worse than publishing twice,
+  // which was the cost the old shape was avoiding.
+  await withWire(
+    {
+      pick_lanes: { fields: ["css", "images"] },
+      edit_site: { css: "footer{background-color:#0b3d2e}" },
+      pick_picture: { alt: "the shop front", action: "reframe", focus: "center" },
+    },
+    async (calls) => {
+      const { body } = await edit("wire-both", "darker footer and show more of the shop photo");
+      const tools = toolsOf(calls);
+
+      // BOTH RUNGS RAN. The router first, then the stylesheet editor, then
+      // whatever the picture rung asks for — asserted as "the acting call
+      // happened AND something after it did", because the picture rung's own
+      // tool is its business and not this test's.
+      assert.equal(tools[0], "pick_lanes", "the front door did not route first: " + JSON.stringify(tools));
+      assert.ok(tools.includes("edit_site"),
+        "the stylesheet ask was DROPPED when a dispatched lane was named alongside it: " + JSON.stringify(tools));
+      // THE SECOND RUNG RAN TOO — but not every rung makes a model call (the
+      // picture rung matches on alt text and can answer without one), so the
+      // evidence is the REPLY, not the call count. Asserting `tools.length >= 3`
+      // measured a rung's implementation rather than whether it was reached.
+      assert.ok(Array.isArray(body && body.lanes) && body.lanes.includes("images"),
+        "the photograph ask was never attempted — only the stylesheet ran: " + JSON.stringify(body));
+
+      // AND THE REPLY SAYS BOTH. A customer who asked for two things and is
+      // told about one cannot tell whether the other was done, refused, or
+      // never understood — which is the same as it having been dropped.
+      assert.ok(Array.isArray(body && body.lanes), "the reply names no lanes at all: " + JSON.stringify(body));
+      assert.ok(body.lanes.includes("css"), "the reply does not report the stylesheet lane: " + JSON.stringify(body.lanes));
+      assert.ok(body.lanes.includes("images"), "the reply does not report the photograph lane: " + JSON.stringify(body.lanes));
+    },
+  );
+});
+
+test("an unbuilt ask does not sink the asks that CAN run", async () => {
+  // "make the footer darker and change our web address" — `slug` is not built,
+  // and escalating the whole message used to mean the footer change did not
+  // happen either. The same dropped-ask failure wearing the other face.
+  await withWire(
+    { pick_lanes: { fields: ["css", "slug"] }, edit_site: { css: "footer{color:#fff}" } },
+    async (calls) => {
+      const { body } = await edit("wire-mixed", "darker footer, and move us to a new address");
+      assert.notEqual(body && body.reason, "unbuilt",
+        "one unbuilt lane escalated the whole message, so the workable ask was dropped: " + JSON.stringify(body));
+      assert.ok(toolsOf(calls).includes("edit_site"), "the stylesheet ask never ran: " + JSON.stringify(toolsOf(calls)));
+      // AND WHAT WE DID NOT DO IS SAID OUT LOUD, by name. Silence about the
+      // half we cannot do is indistinguishable from not having understood it.
+      assert.ok(Array.isArray(body && body.notBuilt) && body.notBuilt.some((n) => n.field === "slug"),
+        "the reply does not say which ask was not carried out: " + JSON.stringify(body));
+    },
+  );
+});

@@ -1478,8 +1478,21 @@ test("the translation calls are billed, and a refused language is reported", () 
   // call was counted twice. `eCharge` now calls `billParts` and prices it, so a
   // window starting at `eCharge` sees two lines and none of the logic. The
   // property is unchanged: one list, unwrapped once, priced once.
-  const ec = w.slice(w.indexOf("const billParts = ("), w.indexOf("const modelDown = ("));
-  assert.ok(ec.length > 100 && ec.length < 2500, "billParts/eCharge moved — rescope this");
+  // BOTH LANDMARKS, PROVEN TO EXIST AND TO BE IN ORDER. `indexOf` answering -1
+  // gives `slice(-1, -1)` = "", which passes every assertion inside it — the
+  // vacuous-window trap this repo has recorded ten times over.
+  const ecFrom = w.indexOf("const billParts = (");
+  const ecTo = w.indexOf("const modelDown = (");
+  assert.ok(ecFrom > 0, "`billParts` is gone or was renamed — this window reads nothing");
+  assert.ok(ecTo > ecFrom, "`modelDown` no longer follows `billParts` — this window is inverted or empty");
+  const ec = w.slice(ecFrom, ecTo);
+  // NO BYTE CEILING. This read `ec.length < 2500` and went red when the billing
+  // code grew a comment explaining why the routing call is charged once per
+  // MESSAGE rather than once per rung — reporting that the code had "moved"
+  // when nothing had. Sizing a source window in bytes is this repo's single
+  // most-repeated own-goal: the reasoning lives in comments here, so any byte
+  // bound is outrun by the next one worth writing. Landmarks above, properties
+  // below, and nothing in between that measures length.
   assert.match(ec, /Array\.isArray\(p\.langUsage\)/, "eCharge no longer unwraps a publish result");
   assert.match(ec, /parts\.push\(\.\.\.p\.langUsage\.filter\(Boolean\)\)/, "the language usage is detected and dropped");
   assert.match(ec, /pageCredits\(\.\.\.parts\)/, "the parts are no longer priced together, so the rounding is charged twice");
