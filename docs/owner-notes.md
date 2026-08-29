@@ -148,42 +148,25 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ## Open — waiting on you
 
-**0. The edit step is split, all 17 lanes act; ADDON is not, and DELETE is parked.**
-Your drawing is saved at **`docs/architecture.md`** — the site at the centre, one
-BUILD step making it, then EDIT / ADDON / DELETE acting on it and each publishing
-back through the one spine. **EDIT is done** (2026-08-29): its own module, its own
-tools, no `design_schema`, 4,012 chars of tool where it was 84,817, still 1
-credit. **ADDON has the identical defect** — it still calls the build's designer
-with the whole 84.8k tool to add one page — and is the obvious next one.
-**DELETE is parked at your word** (*"we are gonna worry about delete later"*).
+**0. The edit step is finished except `slug`; ADDON is untouched.**
+Your drawing is at **`docs/architecture.md`**. **EDIT** now: 17 lanes, all
+addressable — 8 edited in the edit path itself, 6 dispatched to the rung that
+already does that work, `pages` acting through three verbs (add/remove/move),
+`kind` escalating to the build rung, and **`slug` the one genuinely unbuilt lane**
+(a real address change: republish under a new name, redirect the old, keep custom
+domains pointing at it). Every lane has a four-part rule with a per-field ceiling.
+Every lane the customer names runs — none is dropped — and **one message is one
+publish**.
 
-**All 17 lanes act**, your call (*"i need all the 17 lanes acting"*): 8 in the
-edit path itself, 6 by dispatching to the layer that really does that work
-(`images`→picture, `action`→nav, `backend`→rules, `shape`/`components`/`purpose`
-→page), and **3 that are genuinely not built** and escalate under their own name.
-Those three are real work, not wiring — say which you want:
-- **`kind`** — shopfront ⇄ tool. A rebuild by definition; every planning answer
-  follows from it.
-- **`pages`** — three capabilities behind one field: add (addon), remove (`page`
-  + `remove`), move (`renameRoute`). The router has to say WHICH before a lane
-  can pick.
-- **`slug`** — the site's address. Republish under a new name, redirect the old
-  one, and keep every custom domain pointing at it.
+**ADDON still calls the build's designer** with the whole 84.8k tool to add one
+page. Identical defect to the one the edit step had, and the obvious next job.
+**DELETE parked at your word.**
 
-**Every prompt in there is a placeholder**, marked as such, waiting on your
-wording (*"i will tell you the prompt later"*). One `hint` and one `edit` string
-per lane, all in one table.
-
-**0b. One billing gap on the edit path has no test watching it — stated, not
-papered over.** When several rungs run for one message, the routing call must be
-charged ONCE for the message, not once per rung. The code does that; nothing
-proves it, because proving it needs two rungs to both SUCCEED in a test, and
-every publishing rung needs the build container, which the routing harness
-deliberately refuses to fake. A sweep confirmed it: the mutant that bills per
-rung survives the whole suite. The cost of being wrong is small (the credit floor
-is 1, so most messages round to the same number) but it is real and it is
-somebody's money. Fixing it means an opt-in container stub in
-`test/fixtures/cf-containers.mjs` — worth doing, not done.
+Two things I want you to push back on if I read you wrong:
+- **Every prompt is still a placeholder** (7.8k of my wording), waiting on yours.
+  One `hint` and four rule parts per lane, all in one table.
+- **Nothing has run on a real site.** 4,467 tests, zero live edits, balance 0.
+  Every claim above is "tested", never "proven live".
 
 **1. The model account is at 18 credits — under the price of one build.**
 Five shipped features have never run on a real site and all five ride the same

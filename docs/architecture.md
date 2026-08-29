@@ -78,19 +78,34 @@ Its own module. **It imports nothing from `worker.js`**, which is what makes the
 separation a fact about the code rather than a claim about it.
 
 ```
-  customer ──► pick_lanes ──┬──► edit_site ──► publish     8 lanes, here
-               haiku        │    one per lane   ONCE
-               2,811 chars  │    1 property
-               17 names     │    0 required
-                            ├──► picture / nav / rules / page    6 lanes
-                            │    the layer that really does it
-                            └──► escalate, by its own name       3 lanes
-                                 rebuild · page-set · move
+  customer ──► pick_lanes ──┬──► edit_site ──┐        8 lanes, here
+               haiku        │   one per lane │
+               ~3.5k        │   1 property   │
+               17 names     │   0 required   │
+               + a verb     │                │
+                            ├──► picture / nav / rules / page       6 lanes
+                            │                │
+                            ├──► page (remove | move) · addon (add) 1 verb lane
+                            │                │
+                            ├──► escalate to `build`                1 lane (kind)
+                            └──► escalate, unbuilt                  1 lane (slug)
+                                             ▼
+                                        ONE PUBLISH
+                                     per message, always
 ```
 
-Two asks run two lanes **in turn** (owner: *"run both lanes in turn"*), each shown
-only its own field's stored value, so they cannot collide — and one publish
-covers the message, not one per lane.
+**Every lane the customer named runs.** Two asks run two lanes in turn (owner:
+*"run both lanes in turn"*), each shown only its own field's stored value so they
+cannot collide. A lane whose work lives on another rung dispatches there; the
+front door took the FIRST dispatched lane and dropped the rest until 2026-08-29,
+so "darker footer and swap the shop photo" silently lost the footer.
+
+**ONE PUBLISH PER MESSAGE** (owner: *"for the publish is per act — if the act was
+2 things then 1 publish; if the act was 2 things but one thing first then the
+other, then is 2 publish"*). The eight branches call `publishStep`, which collects
+pages and answers success; the real spine runs once below the loop, with the
+source every step contributed to. `eSrc` carries forward between rungs, or the
+single publish would ship whichever step ran last.
 
 ### The seventeen lanes — ALL of them act (owner, 2026-08-29)
 
@@ -103,11 +118,13 @@ had cheap, shipping implementations one lane over. Nothing was missing but the
 wire. So **`pick_lanes` moved above the layer dispatch** and is the front door
 for all seventeen; what it names decides which layer runs.
 
-| | lanes | cost |
+| | lanes | where the work happens |
 |---|---|---|
-| **8 act here** | `css` `theme` `brand` `description` `wordmark` `favicon` `lang` `langs` | 1 |
-| **6 act elsewhere** | `images`→`picture` · `action`→`nav` · `backend`→`rules` · `shape` `components` `purpose`→`page` | 0.3–3 |
-| **3 not built** | `kind`→rebuild · `pages`→page-set · `slug`→move | escalate, each by its own name |
+| **8 act here** | `css` `theme` `brand` `description` `wordmark` `favicon` `lang` `langs` | one tool, one property, 1 credit |
+| **6 dispatch** | `images`→`picture` · `action`→`nav` · `backend`→`rules` · `shape` `components` `purpose`→`page` | that rung's own price, 0.3–3 |
+| **1 verb lane** | `pages` — `remove`/`move`→`page`, `add`→`addon` | the router answers WHICH of the three |
+| **1 escalates** | `kind`→`build` | a rebuild is what it is; the rung above does it |
+| **1 unbuilt** | `slug` | a real address change — redirects, custom domains |
 
 The eight are plain strings, enums or lists of short strings — which is why this
 module owns its own shapes and shares none. The six **dispatch** because a stored
@@ -141,10 +158,23 @@ itself.
    whose `_meta` could not be read, because cannot-tell must never read as
    nothing-there.
 
-**The three unbuilt ones are real work, not wiring.** `kind` is a rebuild by
-definition. `pages` is three capabilities behind one field — add (addon), remove
-(`page` + `remove`), move (`renameRoute`) — and the router must say *which* before
-a lane can pick. `slug` is an address change with redirects and custom domains.
+**Two of the three "unbuilt" lanes were not missing capabilities — they were
+missing a word.** `pages` add/remove/move all already existed, on three different
+rungs; the lane simply could not say which, so it escalated under one name for
+three jobs. The router now answers a VERB beside the lane. **No default**: an
+unreadable verb refuses, and this is the one place in the edit path where the
+bias inverts — everywhere else an unclear answer resolves to work, because a
+wrong action costs a change the customer can see and undo; here it can cost them
+a page. A verb aimed at a page the site does not have is `no-page`, checked
+against the real route list.
+
+`kind` **escalates to `build`** rather than dispatching, because `build` is not
+an edit layer — the guard asserting every dispatch target appears in
+`EDIT_LAYERS` caught the first attempt to make it one, and a lane pointing at a
+rung no dispatch matches is a request that vanishes.
+
+**`slug` alone is genuinely unbuilt**: claim the new name, republish the Worker
+under it, redirect the old address, keep every custom domain pointing at it.
 
 ### The wall, not the rule
 

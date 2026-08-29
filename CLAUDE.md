@@ -295,18 +295,43 @@ door for all seventeen and what it names decides which layer runs:
 - **8 act here** — `css theme brand description wordmark favicon lang langs`,
   every one a plain string, enum or short list, which is why this module owns its
   own shapes and shares none.
-- **6 act elsewhere** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
+- **6 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
   `shape`/`components`/`purpose`→`page`. Nothing reads a STORED plan (the
   container gets the pages, the theme and the stylesheet), so `shape` is not a
   value to save, it is a job for the rung that rewrites pages. All six already
   had cheap shipping implementations; nothing was missing but the wire.
-- **3 are not built** — `kind` (a rebuild by definition), `pages` (three
-  capabilities behind one field: add/remove/move), `slug` (an address change).
-  Each escalates under **its own name** so three jobs never share one word.
+- **1 verb lane** — `pages`, which is three capabilities behind one field:
+  `remove` and `move` are the `page` rung, `add` is the addon route. The router
+  answers a VERB beside the lane. **No default** — an unreadable verb refuses,
+  and this is the ONE place in the edit path where the bias inverts, because a
+  wrong guess here takes a page off somebody's site. A verb aimed at a page the
+  site does not have is `no-page`, checked against the real route list.
+- **1 escalates** — `kind`→`build`. A rebuild is what it IS, the capability
+  exists one rung up, and it is NOT a dispatch: `build` is not an edit layer, and
+  the guard asserting every dispatch target appears in `EDIT_LAYERS` is what
+  caught the first attempt to make it one.
+- **1 unbuilt** — `slug`, a real address change: claim the new name, republish
+  the Worker under it, redirect the old one, keep custom domains pointing at it.
 
-The three groups are a **total, disjoint partition**, asserted in
-`test/edit-lanes.test.mjs`. A dispatched lane must never target `look` — that is
-the door it came through, and the ask lands back where it started.
+The five groups are a **total, disjoint partition**, asserted in
+`test/edit-lanes.test.mjs` — and each is a different sentence to a customer, so
+collapsing any two loses a real distinction. A dispatched lane must never target
+`look` — that is the door it came through, and the ask lands back where it
+started.
+
+**A RULE PER LANE, IN FOUR NAMED PARTS** (owner: *"i want a rule per everysingle
+one of them, just like we did for css"*). `is` · `yours` · `wide` · `keep`, and
+only `wide` is genuinely per-field: it names how THIS field gets over-answered.
+`css` gets a token where a rule was asked for; `brand` gets a name improved
+instead of copied; `lang` gets the site TRANSLATED; `langs` gets the list
+replaced when one was being added. Structural, not prose — `laneRule` throws if a
+part is missing, so a lane cannot ship as a description with no ceiling.
+
+**ONE PUBLISH PER MESSAGE** (owner: *"if the act was 2 things then 1 publish"*).
+The eight branches call `publishStep`, which collects pages and answers success;
+the spine runs once below the loop. `eSrc` carries forward between rungs, or the
+single publish ships whichever step ran last. A config snapshot taken before any
+rung runs is restored if that publish fails.
 
 **The name sets are asserted in BOTH directions** (`test/edit-lanes.test.mjs`) —
 a field added to the build with no lane is a part of a site nobody can change
@@ -334,8 +359,10 @@ request is always a different one.
 
 **Two asks run two lanes in turn** (owner: *"run both lanes in turn"*), each shown
 only its own field's stored value, and **one publish** covers the message.
-Measured: **4,012 chars of tool against 84,817**, still **1 credit** —
-`pageCredits` is variadic and rounds once with a floor of 1.
+Measured: **~4.7k of tool against 84,817**, still **1 credit** — `pageCredits` is
+variadic and rounds once with a floor of 1, and the routing call is billed once
+per MESSAGE rather than once per rung (a sweep caught that double-count; it is
+now watched against the ledger, not against our own arithmetic).
 
 **Every prompt in there is a PLACEHOLDER** and marked so (owner: *"i will tell you
 the prompt later"*). One `hint` and one `edit` string per lane in the `LANES`
