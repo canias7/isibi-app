@@ -681,3 +681,76 @@ test("a `pages` ask with no readable verb refuses rather than guessing", async (
     },
   );
 });
+
+/* ── THE VERB TAKES EFFECT, not merely routes ────────────────────────────── */
+
+/** A two-page site: the home page cannot be removed or moved, by design. */
+function twoPageBucket(slug) {
+  const pages = [
+    { path: "src/routes/index.tsx", source: "export default function Home(){return null}" },
+    { path: "src/routes/gallery.tsx", source: "export default function Gallery(){return null}" },
+  ];
+  const store = new Map([
+    ["source/" + slug + "/pages.json", JSON.stringify(pages)],
+    [CONFIG_KEY(slug), JSON.stringify({ look: { ...STORED_LOOK }, css: STORED_CSS })],
+  ]);
+  return {
+    store,
+    async get(k) { const v = store.get(k); return v === undefined ? null : { text: async () => v }; },
+    async put(k, v) { store.set(k, String(v)); },
+    async delete(k) { store.delete(k); },
+    async list() { return { objects: [], truncated: false }; },
+  };
+}
+
+test("`pages` remove really deletes the page — not just routes to the rung", async () => {
+  // A SWEEP FOUND THIS ONE. Cutting `if (pv.verb === "remove") eRemove = true;`
+  // survived the whole suite: every guard checked that the ask ROUTED to the
+  // page rung and none checked that the page went. That is a guard watching the
+  // layer below the break — the plumbing asserted, the connection not.
+  //
+  // WHAT THE CUSTOMER ASKED FOR IS THE ASSERTION: the page is gone from what
+  // gets published. Read off the ONE compile, which is the last thing that
+  // happens and the only place the answer really exists.
+  const c = installCompiler();
+  try {
+    await withWire(
+      { pick_lanes: { fields: ["pages"], pageVerb: "remove", pageName: "/gallery" } },
+      async (calls) => {
+        const { body } = await edit("verb-remove", "delete the gallery page", { store: twoPageBucket("verb-remove") });
+        assert.equal(body && body.ok, true, "the removal did not go through: " + JSON.stringify(body));
+        assert.equal(c.calls.length, 1, "expected exactly one compile, got " + c.calls.length);
+        const files = Object.keys((c.calls[0].body && c.calls[0].body.files) || {});
+        assert.ok(files.length, "the compile was handed no files at all");
+        assert.ok(!files.some((f) => /gallery/.test(f)),
+          "the gallery page was still published — the removal routed but never happened: " + JSON.stringify(files));
+        assert.ok(files.some((f) => /index/.test(f)), "the home page went too — the removal took more than it was asked for");
+        // AND IT COSTS NOTHING. A deletion needs no page generation at all,
+        // which is the whole reason it belongs on this rung.
+        assert.equal(toolsOf(calls).filter((t) => t === TWEAK_TOOL.name).length, 0,
+          "a deletion bought a page-generation call: " + JSON.stringify(toolsOf(calls)));
+      },
+    );
+  } finally { c.uninstall(); }
+});
+
+test("`pages` move really changes the address", async () => {
+  // The mirror of the case above, and it survived the same sweep for the same
+  // reason: `eRename` was set and nothing asserted the page had actually moved.
+  const c = installCompiler();
+  try {
+    await withWire(
+      { pick_lanes: { fields: ["pages"], pageVerb: "move", pageName: "/gallery", pageTo: "/work" } },
+      async () => {
+        const { body } = await edit("verb-move", "move the gallery to /work", { store: twoPageBucket("verb-move") });
+        assert.equal(body && body.ok, true, "the move did not go through: " + JSON.stringify(body));
+        assert.equal(c.calls.length, 1, "expected exactly one compile, got " + c.calls.length);
+        const files = Object.keys((c.calls[0].body && c.calls[0].body.files) || {});
+        assert.ok(files.some((f) => /work/.test(f)),
+          "nothing was published at the new address — the move routed but never happened: " + JSON.stringify(files));
+        assert.ok(!files.some((f) => /gallery/.test(f)),
+          "the page is published at BOTH addresses — a move left the old one behind: " + JSON.stringify(files));
+      },
+    );
+  } finally { c.uninstall(); }
+});
