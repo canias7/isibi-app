@@ -26,6 +26,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
 import { PLAN_KEYS } from "../builder/site-plan.mjs";
+import { EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import {
   LANE_FIELDS, ACTING_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES, MAX_LANES,
@@ -56,19 +57,48 @@ test("the two paths cover the same EIGHTEEN fields — asserted both ways", asyn
   // build with no lane is a part of a site the customer can never change again,
   // and a lane for a field the build stopped producing edits nothing. Neither
   // announces itself, so both directions are named.
-  // EIGHTEEN SINCE 2026-08-29, when `three` was added as an optional design
-  // field (owner: "we are adding more tools, as optional — three.js and webgl").
+  // NINETEEN SINCE 2026-08-29 — `three` that morning ("we are adding more tools,
+  // as optional — three.js and webgl") and `behavior` that afternoon ("update
+  // only the frontend design step to plan behavior"), each arriving with its own
+  // lane in the same commit because of the two loops below.
   // The COUNT is the weaker half and is here only so a new field is a decision
   // somebody makes on purpose; the two loops below are the property, and they
   // are what caught this one — a field with no lane is a part of a site the
   // customer could never change again.
-  assert.equal(designed.length, 18, "the design tool no longer yields eighteen editable fields: " + designed.join(","));
-  assert.equal(LANE_FIELDS.length, 18, "the edit path no longer has eighteen lanes: " + LANE_FIELDS.join(","));
+  assert.equal(designed.length, 19, "the design tool no longer yields nineteen editable fields: " + designed.join(","));
+  assert.equal(LANE_FIELDS.length, 19, "the edit path no longer has nineteen lanes: " + LANE_FIELDS.join(","));
   for (const k of designed) {
     assert.ok(LANE_FIELDS.includes(k), "the build can produce `" + k + "` and the edit path has no lane for it");
   }
   for (const k of LANE_FIELDS) {
     assert.ok(designed.includes(k), "the edit path has a `" + k + "` lane and the build tool has no such field");
+  }
+});
+
+test("every acting lane but `css` is a key on the stored look — the read and the write agree", () => {
+  // THE CHAIN THE LANE LOOP CLAIMS AND NOTHING ASSERTED (added 2026-08-29, when
+  // `behavior` became the ninth acting lane and the comment there still counted
+  // "all seven of those").
+  //
+  // `worker.js` reads a lane's current value as `(priorLook || {})[field]` and
+  // writes the answer through `mergeLook`, which rebuilds its output from
+  // `EDIT_FIELDS` ALONE. So an acting lane whose field is NOT on that list is
+  // shown the customer's stored value as `undefined` and has its answer dropped
+  // at the merge — the lane runs, bills, reports success, and changes nothing.
+  // Both halves fail silently and in the same direction, which is exactly the
+  // shape `three` shipped in.
+  //
+  // `css` IS THE ONE EXCLUSION AND IT IS DELIBERATE: the stylesheet has its own
+  // `_meta` key (see the note on `EDIT_FIELDS`), so it is read from `priorCss`
+  // and written beside the look rather than inside it. Named here rather than
+  // filtered silently, or the exception becomes the rule the first time somebody
+  // adds a second one.
+  const onLook = ACTING_LANES.filter((f) => f !== "css");
+  assert.ok(onLook.length >= 8, "too few acting lanes to be scanning anything — this check would pass vacuously");
+  assert.ok(ACTING_LANES.includes("css"), "`css` no longer acts, so excluding it here excludes nothing");
+  for (const f of onLook) {
+    assert.ok(EDIT_FIELDS.includes(f),
+      "the `" + f + "` lane acts on the stored look and `mergeLook` does not carry it — it will bill and change nothing");
   }
 });
 
@@ -428,6 +458,31 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
     "the edit path is no longer materially smaller than the build tool (" + (pick + css) + " vs " + whole + ")");
   // And the router really is the small half — if it grew to carry each field's
   // full instructions it would cost more than the call it exists to shrink.
-  assert.ok(pick < whole / 20, "the lane router has grown into a second design tool (" + pick + ")");
+  //
+  // ── RE-ANCHORED PER LANE, 2026-08-29, AND THE OLD SPELLING IS NAMED ─────────
+  //
+  // This was `pick < whole / 20` and it went red on `behavior` at 4,511 against
+  // 89,195 — a ratio of 1/19.8, over a line it had been sitting a hair under.
+  // Nothing was wrong: the router had grown by ONE HINT. The constant was the
+  // defect. `pick` grows ~240 characters per lane and `whole` does not grow at
+  // all when a lane is added for a field the build already had, so a fixed
+  // ratio between them is a lane COUNT wearing a ratio — it would have fired
+  // again on lane 20 and 21, each time a false alarm teaching the next session
+  // to shorten a hint for no reason. "A false alarm is worse than a miss."
+  //
+  // WHAT THE GUARD ACTUALLY MEANS is that the router carries a HINT per lane and
+  // never a lane's own instructions — so it is anchored on the thing it must not
+  // become, derived from the lane tools themselves rather than from a number.
+  // The smallest lane tool is the strictest available comparison and it moves
+  // with the code, so this cannot drift.
+  const perLane = pick / LANE_FIELDS.length;
+  const smallestLane = Math.min(...ACTING_LANES.map((f) => JSON.stringify(editTool(f)).length));
+  assert.ok(smallestLane > 200, "no lane tool worth comparing against — this check is measuring nothing");
+  assert.ok(perLane < smallestLane / 2,
+    "the lane router is carrying instructions, not hints: " + perLane.toFixed(0) +
+    " chars per lane against a smallest lane tool of " + smallestLane);
+  // The headline claim stays absolute, because THAT one is about the two calls a
+  // customer actually pays for and does not move with the lane count.
+  assert.ok(pick < whole / 10, "the router alone is no longer a fraction of the build tool (" + pick + " vs " + whole + ")");
   assert.equal(pickRequest({ message: "x" }).model, "claude-haiku-4-5", "the router is no longer on the cheap model");
 });

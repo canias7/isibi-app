@@ -112,7 +112,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, normalizePlan } from "./builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 // The designer-drawn tab icon (2026-08-28, owner's call). The FIELD is the ask;
 // `cleanFavicon` itself runs at the merge (`FIELD_KEEPS.favicon`) and again in
 // the container at the write — this file only carries the answer through.
@@ -4931,6 +4931,23 @@ const SITE_SCHEMA_TOOL = {
           "NEVER FOR TEXT, A LOGO OR A BACKGROUND EFFECT. Those are the stylesheet's job and they work for everyone; " +
           "a canvas that fails to start leaves a hole where the words should have been.",
       },
+      // ── WHAT EACH INTERACTIVE THING DOES ────────────────────────────────
+      //
+      // LAST OF THE DESIGN FIELDS AND THAT IS THE WHOLE PLACEMENT ARGUMENT. A
+      // tool's property order is its generation order, so behaviour is decided
+      // once every element that could exist HAS been: the pages, the component
+      // manifest, the shape, the pictures, the primary action and the 3D scene
+      // are all above it. Answered any earlier, the model would be describing
+      // what controls it intends to invent rather than what the page has.
+      //
+      // The `needsWeb` pair below is not a design field — it is the search gate,
+      // build machinery that rides on this call — so behaviour is the last thing
+      // the designer actually designs.
+      //
+      // THE SHAPE IS IN builder/site-plan.mjs, NOT HERE, and the reason is the
+      // edit path: the `behavior` lane answers the same items and may not import
+      // from this file. See `BEHAVIOR_ITEM` there.
+      behavior: BEHAVIOR_FIELD,
       // THE WEB-SEARCH GATE, RIDING ON A CALL THAT ALREADY HAPPENS. Searching
       // costs real money per search and is worth it on a small minority of
       // briefs, so it has to be gated — and the obvious way to gate it, a small
@@ -5009,7 +5026,22 @@ const SITE_SCHEMA_TOOL = {
     // not a design choice, it is the name-hash initials wearing one. Required
     // on a BUILD only — a revise swaps in `EDIT_REQUIRED`, so a stored mark is
     // kept by omission the way everything else on the look is.
-    required: ["brand", "slug", "backend", "description", "theme", "wordmark", "favicon", ...PLAN_REQUIRED],
+    // `behavior` IS COMPELLED, and the argument is the owner's own ("the design
+    // output MUST specify") plus the one this whole file keeps re-learning: a
+    // field the description merely asks for is a field the model answers when it
+    // feels like it. An unanswered behaviour list is not "this page has no
+    // controls" — it is a page whose controls nobody decided, which is exactly
+    // the state `northgroup-17` shipped in, where the stage filters and every
+    // deal row were `<a href="#pipeline">` inside the pipeline section.
+    //
+    // AN EMPTY LIST IS A LEGAL AND REAL ANSWER, which is what keeps this from
+    // being a quota: a static one-page brochure answers `[]` and is right. What
+    // required buys is that the model has to ANSWER the question, not that it
+    // has to find controls.
+    //
+    // On a REVISE this is swapped out with everything else — `EDIT_REQUIRED` is
+    // empty, so a stored behaviour list is kept by omission like the rest.
+    required: ["brand", "slug", "backend", "description", "theme", "wordmark", "favicon", "behavior", ...PLAN_REQUIRED],
   },
 };
 
@@ -18159,10 +18191,16 @@ async function handleRequest(request, env, ctx) {
                       message: eInstruction,
                       // WHERE THE FIELD LIVES, IN ONE EXPRESSION. `css` is the
                       // stylesheet in R2; every other acting lane is a key on
-                      // the stored look — and all seven of those are on
+                      // the stored look — and every one of those is on
                       // `EDIT_FIELDS`, which is what `mergeLook` reads below, so
                       // what is read here and what is written there cannot
                       // disagree about where a field lives.
+                      //
+                      // COUNTED IN PROSE UNTIL 2026-08-29 ("all seven of those"),
+                      // which went stale the moment `behavior` began acting and
+                      // said nothing about it. A count of a derived set is a
+                      // second copy of that set; the property is that they are
+                      // ALL on `EDIT_FIELDS`, and that is what is written now.
                       value: field === "css" ? priorCss : (priorLook || {})[field],
                       model: modelsFor(eb && eb.picker).design,
                     },

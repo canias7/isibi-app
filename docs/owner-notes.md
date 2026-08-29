@@ -148,9 +148,30 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ## Open — waiting on you
 
-**0a. NEXT: three.js and WebGL as OPTIONAL design fields** (owner, 2026-08-29:
-*"we are adding more tools, as optional — three.js and webgl"*). Not started.
-Two things will bite whoever picks this up, both learned today:
+**0b. NEXT: a TSX step that GENERATES a component the kit has not got** (owner,
+2026-08-29: *"what if customer wants something that we dont have in our library,
+make a step for that, a tsx step that generates stuff, put it as optional, and
+its gotta be after the components step… i know is expensive but well"*). Not
+started. The kit is 2,112 components and the `components` field is a manifest
+picked from it; this is the escape hatch for the site that needs something the
+kit cannot express. **Optional, and immediately after `components`** — your call
+on the position, and it is also the right one, since the field only means
+anything once the model has tried to find what it needs and failed.
+
+The open question, and it changes the size of the job: does the design step
+**declare** the missing component (name, what it does, its props) and leave the
+page-writing step to author it, or does it **write the TSX source itself**?
+"Generates stuff" and "I know it's expensive" both read as the second. That is
+the stronger feature — a real file in the kit, importable, compiled, and there
+for later edits — and it is the one that needs care, because the design call's
+output grows a lot and `tsc` has to compile whatever comes back. Salvage already
+replaces a page that will not compile; a component that will not compile is a new
+case.
+
+**0a. DONE 2026-08-29: three.js and WebGL as OPTIONAL design fields** (owner:
+*"we are adding more tools, as optional — three.js and webgl"*). Shipped, then
+found to be **stored nowhere** and fixed the next day — see the bug entry below.
+The two things that bit, both worth keeping:
 
 - **A new design field MUST get an edit lane.** `test/edit-lanes.test.mjs`
   asserts the design tool's fields and the edit path's lanes match **in both
@@ -171,6 +192,35 @@ alongside `shopfront` and `tool`. `kind` is answered before the plan and every
 later answer follows from it, so if these sites are shaped differently that is
 where it belongs — and `kind` already gates the chart catalogue, so the
 machinery for "this kind gets different instructions" exists.
+
+**0a-2. DONE 2026-08-29: the design step now plans BEHAVIOUR** (owner: *"update
+only the frontend design step to plan behavior… for every interactive component
+the design output must specify what triggers it, what it does, what it affects or
+opens, what result the user should see, and whether the behavior is built into
+the selected TSX component or requires custom behavior"*).
+
+Every button, link, form, tab, filter, menu and carousel now gets an entry with
+those five answers plus the name of the control itself, so an entry can be found
+again later. **Any behaviour at all** — there is no list to choose from, which
+was your instruction and is also the only version that survives contact with real
+briefs. It is answered **last** of the design fields, because a control cannot be
+described before the page that holds it exists.
+
+**It decides and records; nothing generates from it yet** — your call, and it is
+written into the code and the guards so nobody reads the empty hop as a bug. The
+matching edit lane **acts** rather than dispatching (*"try and make it more
+universal, whatever the user asks, like we been doing it"*), so changing what a
+control does is one cheap call, not a page rewrite. One consequence to know: until
+behaviour is generated, editing it changes the record and the visitor sees no
+difference.
+
+**What this was really about.** `northgroup-17` shipped with its stage filters,
+its "New deal" button and every deal row all pointing at the section they were
+already sitting in — dead controls, while the reply claimed the filters worked.
+I checked the other 100 sites before agreeing on a fix: only 31 in-page links
+across the whole corpus and 6 self-referential ones, so `northgroup-17` is an
+outlier rather than the platform. The honest diagnosis was never "the model
+ignored a rule" — **there was no rule anywhere.** Now there is a field.
 
 
 **0. The edit step is finished except `slug`; ADDON is untouched.**
@@ -230,6 +280,17 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **Found and fixed 2026-08-29: the 3D step shipped dead the same day it shipped.**
+  You asked for three.js/WebGL as an optional tool that morning, and it went in
+  with its lane, its guards and a green suite. It was never *stored*. The design
+  step asked the model for a 3D scene on every build, the model answered, and the
+  answer was thrown away one step later — so no site could ever have got a scene,
+  and nothing anywhere would have said so. Found the next day by tracing every one
+  of the 21 design fields to whatever actually consumes it. My miss, and it is the
+  same miss this codebase has now made a dozen times: the piece was written
+  correctly and one wire was left off. The scene is stored now. **It still does
+  not reach the step that writes pages** — that is a second wire, and it is
+  written down rather than quietly assumed. *Not proven on a live site.*
 - **Fixed 2026-08-29 (the second half): the same refusal was in the shared
   publish step.** The first fix opened the two lanes and the change then hit the
   same wall one level down — the step every cheap edit publishes through asked

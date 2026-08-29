@@ -66,7 +66,13 @@
 // never a shape, because those are precisely what the two paths are separate
 // about.
 
-import { PLAN_KEYS } from "./site-plan.mjs";
+// THE SHAPE ONLY, NEVER THE BUILD'S WORDING. `BEHAVIOR_ITEM` is the six
+// properties one entry carries; the build tool and this lane ask for the same
+// items and describe the JOB completely differently, which is the whole split.
+// It lives in site-plan.mjs because that is the one module both paths may read —
+// this one is forbidden to import from worker.js, so the alternative was a
+// second copy of the shape, and two copies of one shape drift in silence.
+import { PLAN_KEYS, BEHAVIOR_ITEM, MAX_BEHAVIOR } from "./site-plan.mjs";
 import { THEME_SHORTLIST } from "./site-theme-registry.mjs";
 
 /** Haiku. Naming which part of a site a sentence is about is routing, not work. */
@@ -227,7 +233,7 @@ export const PAGE_VERB_LAYER = { add: "addon", remove: "page", move: "page" };
  * `shape` — this path's own. Not borrowed and not derived; see the header.
  */
 const LANES = {
-  /* ---- the eight that act ---- */
+  /* ---- the nine that act in this module ---- */
   css: {
     hint: "THE STYLESHEET — any change to how something LOOKS that is not a change of theme: a colour, a size, spacing, corners, a typeface, one control, one section, dark or light. The ordinary answer for a look change.",
     shape: { type: "string" },
@@ -376,6 +382,50 @@ const LANES = {
       keep:
         "THE LANGUAGE THE PAGES ARE WRITTEN IN IS NOT ON THIS LIST — it is its own field, and repeating it here " +
         "offers the site in its own language twice.",
+    },
+  },
+
+  // ── WHAT THINGS DO, AND IT ACTS HERE (owner, 2026-08-29: "for edit, try and
+  // make it more universal, whatever the user asks, like we been doing it") ──
+  //
+  // THE `css` CONTRACT, ON BEHAVIOUR INSTEAD OF LOOK. Unlimited in WHAT — there
+  // is no list of behaviours to choose from, and a control may do anything a
+  // control can do. Strict in HOW MUCH — one control asked about is one control
+  // changed. Either half alone misleads, which is why both are stated: freedom
+  // with no ceiling buys a page where every button was "improved", and a ceiling
+  // with no freedom reads as "do not touch anything".
+  //
+  // IT ACTS HERE RATHER THAN DISPATCHING TO `page`, and that is the owner's call
+  // above. The dispatch would have been defensible — behaviour becomes page
+  // source eventually — but it prices a wording change at a page rewrite, and
+  // right now there is no source to rewrite: nothing generates from this field.
+  // What a customer changes today is the RECORD, which is what this step is for.
+  //
+  // AND THE HONEST LIMIT, SO NOBODY REDISCOVERS IT AS A BUG: because nothing
+  // consumes `behavior` yet, an edit here republishes a page that looks and
+  // behaves identically. That is correct while this is a recording step and
+  // becomes wrong the day behaviour is generated — on that day this lane needs
+  // to reach the `page` rung as well. Named in CLAUDE.md's backlog.
+  behavior: {
+    hint: "What something on the page DOES when someone uses it — a button, a link, a form, a tab, a filter, a menu, a carousel. What it opens, what it changes, what you see happen.",
+    shape: { type: "array", items: BEHAVIOR_ITEM },
+    edit: {
+      is: "Everything on this page that DOES something, as it should be after their change.",
+      yours:
+        "ANY BEHAVIOUR AT ALL, AND ALL OF IT IS YOURS TO EDIT. There is no list of behaviours to pick from — " +
+        "whatever they asked a control to do, write it: opening, closing, filtering, sorting, switching, " +
+        "stepping, submitting, copying, playing, revealing, or something no other site does. Any element on " +
+        "the page, any trigger, any result. Say for each one whether the component already does it or whether " +
+        "it needs behaviour written.",
+      wide:
+        "ONE CONTROL ASKED ABOUT IS ONE CONTROL CHANGED. A request about the filter chips is an answer about " +
+        "the filter chips, not a page where every button now does something richer. Do not improve a control " +
+        "that already works, and do not answer for an element the page has not got: the entries you were " +
+        "given ARE the page.",
+      keep:
+        "EVERY OTHER ENTRY COMES BACK EXACTLY AS IT WAS GIVEN, in the order it was given. Not a trigger you " +
+        "would have worded differently, not a result you think reads better. A control that changes on its " +
+        `own is the site breaking, to the person using it. At most ${MAX_BEHAVIOR} entries in all.`,
     },
   },
 

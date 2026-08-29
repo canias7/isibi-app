@@ -137,20 +137,20 @@ refunds if it refuses.
 
 ## What the design call decides
 
-`design_schema` is one tool, **84.8k characters**, in the cached block. Property
-order IS generation order. **19 properties, 14 required**; a first build sends 18
-of them (13 required).
+`design_schema` is one tool, **89,195 characters**, in the cached block. Property
+order IS generation order. **21 properties, 15 required**; a first build sends 20
+of them (14 required).
 
 **The order, measured by evaluating the tool rather than reading it** — the list
 below drifted twice before, so re-derive it, don't trust this line:
 
 > `brand` · `slug` · `description` · `kind` · `purpose` · `pages` · `components` ·
 > `theme` · `wordmark` · `favicon` · `shape` · `images` · `css` · `backend` ·
-> `action` · `lang` · `langs` · `needsWeb` · `webQueries`
+> `action` · `lang` · `langs` · `three` · `behavior` · `needsWeb` · `webQueries`
 
-Only `css`, `lang`, `langs`, `needsWeb` and `webQueries` are optional. **`seeds`
-and `share` are NOT fields** — `seeds` came off on 2026-08-23 and `share` never
-existed (the share image is chosen at publish time, not designed).
+Only `css`, `lang`, `langs`, `three`, `needsWeb` and `webQueries` are optional.
+**`seeds` and `share` are NOT fields** — `seeds` came off on 2026-08-23 and
+`share` never existed (the share image is chosen at publish time, not designed).
 
 - **`brand`, `slug`, `description`** — answered FIRST, before anything about the
   look. `brand` is the site's name and therefore its `<title>` and `og:title`;
@@ -191,10 +191,26 @@ existed (the share image is chosen at publish time, not designed).
   language the site is also offered in. **`needsWeb` / `webQueries`** — whether
   writing this site's copy needs facts the model may not have, and the 1–3
   searches to run if so.
+- **`three`** — a 3D/WebGL element, optional the way `css` is, absent on nearly
+  every site. **Decided and stored; it does NOT yet reach the page writer** — see
+  the backlog.
+- **`behavior`** (2026-08-29, owner: *"update only the frontend design step to
+  plan behavior"*) — **what every interactive thing on the page DOES.** One entry
+  per control, six required properties: `control` (which element, as it reads on
+  the page) · `on` (what triggers it) · `does` · `affects` (what changes or
+  opens) · `result` (what the visitor sees) · `source` (`component | custom` —
+  does the kit component already do this, or must behaviour be written).
+  **Answered LAST of the design fields**, because a control cannot be described
+  before the page that holds it exists; the web pair below it is the search gate,
+  not a design field. **Compelled**, with `[]` a real answer and `MAX_BEHAVIOR`
+  (12) a ceiling with no floor. The item shape lives in `site-plan.mjs` as
+  `BEHAVIOR_ITEM` because the edit lane answers the SAME items and may not import
+  from `worker.js` — one object, never two copies. **It decides and RECORDS;
+  nothing generates from it yet** (owner: *"do not implement the behavior yet"*).
 - **`backend`** (tables, functions, apis, jobs) — the ONLY property dropped from
   a first build. `FRONTEND_SCHEMA_TOOL` derives itself by destructuring `backend`
   out and filtering it from `required`, so the two can never disagree. It is
-  **29.2k of the 84.8k — 34.4%** off the wire on every first build.
+  **29,189 of the 89,195 — 32.7%** off the wire on every first build.
 
 **Every design decision is anchored on a revise.** `EDIT_FIELDS` + `mergeLook`:
 absent means unchanged, so a colour change cannot re-roll the theme.
@@ -288,17 +304,29 @@ customer ──► pick_lanes ──► edit_site ──► publish
              17 names       0 required
 ```
 
-**Seventeen lanes and ALL of them act** (owner, 2026-08-29: *"i need all the 17
-lanes acting"*). `pick_lanes` runs ABOVE the layer dispatch, so it is the front
-door for all seventeen and what it names decides which layer runs:
+**Nineteen lanes and ALL BUT ONE act** (owner, 2026-08-29: *"i need all the 17
+lanes acting"* — seventeen then, nineteen now that `three` and `behavior` have
+arrived). `pick_lanes` runs ABOVE the layer dispatch, so it is the front door for
+all nineteen and what it names decides which layer runs.
 
-- **8 act here** — `css theme brand description wordmark favicon lang langs`,
-  every one a plain string, enum or short list, which is why this module owns its
-  own shapes and shares none.
-- **6 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
-  `shape`/`components`/`purpose`→`page`. Nothing reads a STORED plan (the
+**"Acting" is a group name, not a verdict.** `ACTING_LANES` in the code means
+*the ones this module edits itself*; the dispatched, verb and escalate lanes all
+do real work too, just on another rung. **18 of 19 act in the plain sense — only
+`slug` does nothing.**
+
+- **9 act here** — `css theme brand description wordmark favicon lang langs
+  behavior`. The first eight are a plain string, enum or short list, which is why
+  this module owns its own shapes; `behavior` is the one exception and shares
+  `BEHAVIOR_ITEM` from `site-plan.mjs`, the only module both paths may read.
+  **Every one but `css` is a key on the stored look and must be on `EDIT_FIELDS`**
+  — the lane reads `priorLook[field]` and writes through `mergeLook`, so a lane
+  missing from that list bills and changes nothing, silently, at both ends.
+  Asserted in `test/edit-lanes.test.mjs`; `css` is excluded by name because the
+  stylesheet has its own `_meta` key.
+- **7 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
+  `shape`/`components`/`purpose`/`three`→`page`. Nothing reads a STORED plan (the
   container gets the pages, the theme and the stylesheet), so `shape` is not a
-  value to save, it is a job for the rung that rewrites pages. All six already
+  value to save, it is a job for the rung that rewrites pages. All of them already
   had cheap shipping implementations; nothing was missing but the wire.
 - **1 verb lane** — `pages`, which is three capabilities behind one field:
   `remove` and `move` are the `page` rung, `add` is the addon route. The router
@@ -359,7 +387,8 @@ request is always a different one.
 
 **Two asks run two lanes in turn** (owner: *"run both lanes in turn"*), each shown
 only its own field's stored value, and **one publish** covers the message.
-Measured: **~4.7k of tool against 84,817**, still **1 credit** — `pageCredits` is
+Measured: **5,606 of tool for a colour change (router + `css` lane), 7,476 for a
+behaviour change, against 89,195**, still **1 credit** — `pageCredits` is
 variadic and rounds once with a floor of 1, and the routing call is billed once
 per MESSAGE rather than once per rung (a sweep caught that double-count; it is
 now watched against the ledger, not against our own arithmetic).
@@ -505,6 +534,20 @@ outside, "the model did not set it" and "we did not forward it" are the same
 `undefined`. **Before rewording a prompt because a field came back empty, check
 that the field can arrive.** Assert the CHAIN, end to end, and derive it from the
 producer rather than listing today's hops.
+
+**Latest, and it is the purest instance yet: `three`, shipped dead 2026-08-29 and
+found the next day.** A design field added with its lane, its guards and a green
+suite — and left off `EDIT_FIELDS`. `mergeLook` rebuilds its output from that
+array ALONE, so the model designed a 3D scene on every build and the answer was
+discarded before anything could store or read it. Nothing failed and nothing
+logged. **The one-command check that finds this class in seconds:** for every
+design field, count consumer references — but count them the way the value really
+travels. A dotted `designed.<field>` scan answers 0 for `purpose`, `pages`,
+`shape`, `images`, `action` and `backend`, all of which are perfectly wired, because
+they travel as a DERIVED walk over `PLAN_KEYS`. So the honest test is membership:
+**a design field must be in `PLAN_KEYS`, or on `EDIT_FIELDS`, or have a named
+per-field hop (`readCss` is the model for that) — a field in none of the three is
+dead.** `three` was in none of the three; `behavior` is on `EDIT_FIELDS`.
 
 **Assert the property, not the spelling.** The single most repeated own-goal here.
 A guard pinned to `foo(a, b)` goes red the moment an honest third argument

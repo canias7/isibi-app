@@ -1096,6 +1096,111 @@ export const IMAGES_FIELD = {
 };
 
 /**
+ * WHAT EVERY INTERACTIVE THING ON THE PAGE DOES (owner's call, 2026-08-29:
+ * "update only the frontend design step to plan behavior").
+ *
+ * NOT A PLAN KEY, AND IT LIVES HERE ANYWAY — read that as deliberate. The shape
+ * has TWO readers that are forbidden to see each other: `design_schema` in
+ * worker.js splices `BEHAVIOR_FIELD` in, and the edit path's `behavior` lane
+ * answers the same items in its own wording. `builder/site-lanes.mjs` may not
+ * import from worker.js — that separation IS the edit-path split and is
+ * asserted both ways — so a shape defined beside the build tool would have to be
+ * COPIED into the lane, and two copies of one shape is this repo's "two lists of
+ * the same thing", which drift silently. This file is the one both already read.
+ *
+ * THE FIVE QUESTIONS ARE THE OWNER'S ("what triggers it, what it does, what it
+ * affects or opens, what result the user should see, whether the component
+ * already does it") and they are PROPERTIES rather than prose for the reason
+ * `kind` is an enum: a model asked in one sentence to cover five things answers
+ * two of them and the other three are silence indistinguishable from "none".
+ * `control` is the sixth and is not decoration — without it an entry names no
+ * element, and nothing downstream can ever find the control it describes.
+ *
+ * `source` IS AN ENUM BECAUSE CODE WILL READ IT. The whole point of asking is
+ * that "the kit component already does this" and "this needs behaviour written"
+ * are different amounts of work; a free-text answer to that is a sentence
+ * somebody has to parse later.
+ *
+ * IT DECIDES AND RECORDS; IT DOES NOT GENERATE (owner: "do not implement the
+ * behavior yet"). Nothing reads these entries at build time. What makes that
+ * survivable rather than the usual own-goal is that `behavior` is on
+ * `EDIT_FIELDS`, so the answer is STORED and is here when something finally
+ * generates from it — the alternative is `three`, which shipped the day before
+ * this and answered into `mergeLook`, which builds from `EDIT_FIELDS` alone and
+ * dropped it on every build.
+ */
+export const MAX_BEHAVIOR = 12;
+
+/**
+ * ONE ENTRY — shared by the build tool and the edit lane, defined once.
+ * All six required: a partial entry is a control nobody has fully decided, and
+ * five of six answered reads exactly like six.
+ */
+export const BEHAVIOR_ITEM = {
+  type: "object",
+  properties: {
+    control: {
+      type: "string",
+      description:
+        "WHICH element this is about, named as it reads on the page — the words on the button, the label on " +
+        "the tab, what the form is for. Name the thing, not where it sits: this is how the entry is found " +
+        "again when somebody asks to change it.",
+    },
+    on: {
+      type: "string",
+      description:
+        "What TRIGGERS it: pressing it, typing in it, submitting it, choosing from it, dragging it, the page " +
+        "opening. The gesture a person makes, never the code that runs.",
+    },
+    does: {
+      type: "string",
+      description:
+        "What it DOES, in the site's own terms — filters, sorts, opens, closes, switches, steps, sends, " +
+        "copies, plays, reveals, whatever it really is. There is NO list to choose from here; write the thing " +
+        "this control actually does, however ordinary or however unusual.",
+    },
+    affects: {
+      type: "string",
+      description:
+        "What it CHANGES or OPENS — which part of the page answers it, named the same way. A control that " +
+        "affects nothing does nothing: if you cannot say what moves, the control does not belong on the page.",
+    },
+    result: {
+      type: "string",
+      description:
+        "What the VISITOR SEES happen — the proof it worked, in a few words. The rows drop to four. The panel " +
+        "slides in from the right. The button reads Sent and stops being pressable.",
+    },
+    source: {
+      type: "string",
+      enum: ["component", "custom"],
+      description:
+        '"component": the kit component you named in `components` already does this and nothing has to be ' +
+        'written for it. "custom": it needs behaviour written. Answer honestly — a wrong "component" is a ' +
+        "control that ships doing nothing at all.",
+    },
+  },
+  required: ["control", "on", "does", "affects", "result", "source"],
+};
+
+export const BEHAVIOR_FIELD = {
+  type: "array",
+  items: BEHAVIOR_ITEM,
+  description:
+    "EVERYTHING ON THIS SITE THAT DOES SOMETHING WHEN SOMEBODY USES IT — every button, link, form, tab, " +
+    "filter, menu, carousel, toggle, step, field, anything at all. One entry each, and this list is the WHOLE " +
+    "set: an interactive element with no entry here is one whose behaviour nobody has decided.\n" +
+    "ANY BEHAVIOUR, NEVER A MENU OF THEM. Nothing here limits what a control may do. Describe what THIS " +
+    "site's controls do, and if the right answer is something no other site would have, that is the right " +
+    "answer.\n" +
+    "A LINK THAT ONLY GOES SOMEWHERE IS STILL AN ENTRY, and saying WHERE is what stops it pointing at the " +
+    "band it already sits inside — a control that leads back to itself is dead on the page and reads to a " +
+    "visitor as the site being broken.\n" +
+    `At most ${MAX_BEHAVIOR} entries. A page with nothing interactive on it answers an empty list, and that ` +
+    "is a real answer rather than a gap — this is a ceiling, never a number to reach.",
+};
+
+/**
  * The schema fragment for a plan key, wherever it happens to live.
  *
  * ONE READER OF THE SPLIT. Four of the five are in `PLAN_FIELDS` and `shape` is

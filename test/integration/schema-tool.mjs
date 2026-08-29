@@ -59,6 +59,10 @@ export async function readSchemaTool() {
     SHAPE_FIELD: plan.SHAPE_FIELD,
     IMAGES_FIELD: plan.IMAGES_FIELD,
     ACTION_FIELD: plan.ACTION_FIELD,
+    // What each interactive thing on the page DOES (2026-08-29). Same rule as
+    // its three siblings above and the same reason they are not stubbed: the
+    // items ARE the field, so a stub measures a tool asking for something else.
+    BEHAVIOR_FIELD: plan.BEHAVIOR_FIELD,
     // The designer-drawn tab icon (2026-08-28) — the real field, never a stub,
     // for the reason this function's own header gives.
     FAVICON_FIELD: favicon.FAVICON_FIELD,

@@ -199,7 +199,23 @@ test("the tool asks: after the theme, before the shape, compelled on a build", (
   assert.ok(at > theme && at < shape, "the favicon is not drawn between the theme and the shape");
   // Compelled on a BUILD — an unanswered mark is the name-hash initials — and
   // the required list is the build tool's, which a revise swaps out whole.
-  assert.match(w, /required: \["brand", "slug", "backend", "description", "theme", "wordmark", "favicon", \.\.\.PLAN_REQUIRED\]/);
+  //
+  // ── ANCHORED ON THE PROPERTY, NOT ON THE WHOLE LIST (2026-08-29) ────────────
+  //
+  // This was a regex pinning the required array verbatim, member for member, and
+  // it went red the moment an honest `"behavior"` joined it — reporting that the
+  // favicon had stopped being compelled, which is not something anybody did.
+  // Every other member of that list is some other test's business; what THIS one
+  // is about is that the mark is compelled and that the plan axes are still
+  // derived rather than re-listed. Landmark to landmark, both asserted before
+  // the slice, because `indexOf` answering -1 gives a window that passes
+  // everything inside it.
+  const spread = w.indexOf("...PLAN_REQUIRED]");
+  assert.ok(spread > 0, "the design tool's required list no longer spreads the plan axes");
+  const open = w.lastIndexOf("required: [", spread);
+  assert.ok(open > 0 && open < spread, "the opening of the design tool's required list is gone");
+  const req = w.slice(open, spread);
+  assert.match(req, /"favicon"/, "the favicon is no longer compelled on a build");
 });
 
 test("both container payloads carry the mark — derived from the icon hops", () => {
