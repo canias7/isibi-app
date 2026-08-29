@@ -6128,7 +6128,52 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    An animation is handed to the compositor and paused by the browser for free.
    ---- */
 .mkt-crt .gf-reel-sec{flex:0 0 auto;
-  padding:clamp(3rem,8vh,5.5rem) 0 clamp(3rem,7vh,4.5rem);overflow:hidden}
+  padding:clamp(2.4rem,6vh,4rem) clamp(1rem,3vw,2.4rem) clamp(3rem,7vh,4.5rem)}
+
+/* ---- The panel (owner 2026-08-29): "put it in a background, with moving CSS
+   in the background, just something light, nothing too crazy, same background
+   colour as we have now… make it look like it's separate, with shadows in the
+   borders so it looks like it's not from there, and make the background move."
+
+   Same paper as the page, deliberately — what separates it is the LIGHT, not a
+   different colour: a lifted drop shadow underneath, a bright top edge, and a
+   soft darkening around the inside of the border so the sheet reads as sitting
+   on the page rather than being part of it.
+
+   The movement is one pseudo-element carrying two soft washes, drifting on a
+   40s loop. It is transform-only, so it composites and costs nothing per
+   frame; animating background-position would repaint the whole panel instead.
+   It sits at z-index 0 with the content above it, and is inert to the pointer,
+   so it cannot come between a visitor and a card. ---- */
+.mkt-crt .gf-reel-panel{position:relative;isolation:isolate;overflow:hidden;
+  border-radius:clamp(18px,2vw,30px);
+  background:var(--paper);
+  padding:clamp(2rem,5vh,3.2rem) 0 clamp(2.2rem,5vh,3rem);
+  box-shadow:
+    0 38px 80px -54px rgba(51,49,61,.62),
+    0 3px 10px -6px rgba(51,49,61,.18),
+    inset 0 1px 0 rgba(255,255,255,.7),
+    inset 0 0 60px -14px rgba(51,49,61,.16)}
+.mkt-crt .gf-reel-panel::before{content:"";position:absolute;inset:-25%;z-index:0;
+  pointer-events:none;
+  background:
+    radial-gradient(38% 44% at 26% 30%,rgba(120,112,150,.16),transparent 66%),
+    radial-gradient(34% 40% at 74% 66%,rgba(168,140,110,.16),transparent 64%),
+    radial-gradient(30% 34% at 58% 14%,rgba(96,110,140,.10),transparent 68%);
+  animation:gf-panel-drift 40s ease-in-out infinite}
+@keyframes gf-panel-drift{
+  0%,100%{transform:translate3d(-2.5%,-1.5%,0) scale(1.04)}
+  50%    {transform:translate3d(2.5%,1.5%,0) scale(1.12)}
+}
+@media (prefers-reduced-motion:reduce){
+  .mkt-crt .gf-reel-panel::before{animation:none}
+}
+/* the panel's own grain, so it is the same sheet and not a flat plate */
+.mkt-crt .gf-reel-panel::after{content:"";position:absolute;inset:0;z-index:0;
+  pointer-events:none;mix-blend-mode:multiply;opacity:.5;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)' opacity='.5'/%3E%3C/svg%3E")}
+/* everything real sits above the wash */
+.mkt-crt .gf-reel-head,.mkt-crt .gf-reel-swwrap,.mkt-crt .gf-reel{position:relative;z-index:1}
 .mkt-crt .gf-reel-head{max-width:1000px;margin:0 auto;padding:0 clamp(1.1rem,4vw,3rem);
   display:flex;flex-direction:column;align-items:center}
 .mkt-crt .gf-reel-h{font-family:'Caveat','Patrick Hand',cursive;font-weight:700;
@@ -6182,22 +6227,19 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .gf-reel .mkt-chrome i{width:30px}
 .mkt-crt .gf-reel-body{position:relative;width:100%;aspect-ratio:16/10;overflow:hidden;
   background:var(--paper)}
-.mkt-crt .gf-reel-frame{position:absolute;top:0;left:0;border:0;pointer-events:none;
+.mkt-crt .gf-reel-frame{position:absolute;top:0;left:0;border:0;
   width:var(--fw);height:calc(var(--fw) * 10 / 16);
   transform:scale(var(--sc));transform-origin:top left}
-/* The whole card IS the link, and it says so by being one — no chip, no label
-   (owner: "don't do the open thing, just let it be clickable there while it's
-   moving"). It can cover the frame because the iframe below it is
-   pointer-events:none; without that the frame swallows every click and the
-   card looks clickable while doing nothing.
+/* THE FRAMES ARE LIVE (owner: "when I meant clickable I meant don't open that
+   Chrome app, just let me click it right where it is"). There is no overlay
+   link any more — a full-card anchor is exactly what was launching the site in
+   its own window. The iframe takes the pointer itself, so the site inside is
+   used in place: its nav, its filters, its cart, all of it, in the strip.
 
-   With no text inside it, the anchor carries an aria-label instead — an empty
-   link announces as nothing at all, and there is no longer any visible word to
-   read out. */
-.mkt-crt .gf-reel-open{position:absolute;inset:0;z-index:4;text-decoration:none;
-  border-radius:inherit}
-/* keyboard users get the outline the pointer does not need */
-.mkt-crt .gf-reel-open:focus-visible{outline:2px solid var(--graphite);outline-offset:3px}
+   This is the reason the hover pause below is now load-bearing rather than a
+   nicety. You cannot use a control that is sliding out from under the cursor
+   at 56px/s, so the strip stops while the pointer is on it. */
+.mkt-crt .gf-reel-frame{pointer-events:auto}
 
 /* ---- The phone one (owner 2026-08-29): "on the ones that look like mobile,
    delete the background, and just put like the phone."
@@ -6237,7 +6279,6 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
      off the laid-out page. The width follows from it (380 x .5875 = 223.25).
      Recompute both if the card or the device moves. */
   transform:scale(.5875) translate(-745px,-139px)}
-.mkt-crt .gf-phone .gf-reel-open{right:.5rem;bottom:.9rem}
 
 /* ---- The Video / App switch (owner 2026-08-29): "on top of this thing make
    like a switch to switch from video to app type thing."
