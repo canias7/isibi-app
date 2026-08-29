@@ -6143,7 +6143,7 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
 .mkt-crt .gf-reel-track{display:flex;align-items:center;width:max-content;
   gap:clamp(1.4rem,3vw,2.4rem);
-  animation:gf-reel-drift 64s linear infinite;will-change:transform}
+  animation:gf-reel-drift 32s linear infinite;will-change:transform}
 /* the gap is part of the pass, so the wrap lands mid-gap and stays even */
 @keyframes gf-reel-drift{
   from{transform:translateX(0)}
@@ -6185,3 +6185,31 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .gf-reel-slide:hover .gf-reel-open,
 .mkt-crt .gf-reel-open:focus-visible{opacity:1}
 .mkt-crt .gf-reel-open:hover{transform:translateY(-2px)}
+
+/* ---- The phone one (owner 2026-08-29): "on the ones that look like mobile,
+   delete the background, and just put like the phone."
+
+   /mkt/demo4/ is a whole dark page with a phone mockup standing in the middle
+   of it. Nothing is hidden here and the page is not touched — the frame is
+   simply positioned so the phone's own body fills the slide, and the page
+   around it falls outside the crop. The chrome bar is dropped too: a browser
+   window drawn around a phone was the thing that looked wrong.
+
+   THE OFFSETS ARE MEASURED, and they are only valid at the iframe size pinned
+   below. The page centres itself with min-h-screen, so the phone MOVES when the
+   frame is resized — which is why the frame is a fixed 1200x1400 here rather
+   than inheriting --fw like the browser slides. At that exact size the phone
+   body sits at x414 y317 and is 372x790, read off a real render. The first
+   pass used 376x780 from y315 and sliced the bottom bezel clean off — it
+   looked like a rendering fault and was a wrong number. Change the frame
+   size and all four are wrong: re-measure, do not scale them. */
+.mkt-crt .gf-reel-slide.gf-phone{width:232.5px;border-radius:34px;background:none}
+.mkt-crt .gf-reel-slide.gf-phone::before{border-radius:34px;border-width:1.7px}
+.mkt-crt .gf-phone .gf-reel-body{aspect-ratio:372 / 790;background:none}
+.mkt-crt .gf-phone .gf-reel-frame{
+  width:1200px;
+  height:1400px;
+  /* translate first, then scale: the phone's top-left corner lands on the
+     slide's, and .625 * 372 is exactly the 232.5px the slide is wide */
+  transform:scale(.625) translate(-414px,-317px)}
+.mkt-crt .gf-phone .gf-reel-open{right:.5rem;bottom:.9rem}
