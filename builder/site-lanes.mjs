@@ -104,22 +104,61 @@ export const MAX_LANES = 4;
 /* ------------------------------------------------------------------ the lanes */
 
 /**
- * WHERE A LANE THAT CANNOT ACT SENDS THE CUSTOMER.
+ * ── EVERY LANE ACTS. NINE OF THEM ACT SOMEWHERE ELSE ────────────────────────
  *
- * A reason, not a refusal. Every one of these is a real request that a real rung
- * can do — the point is that it is not THIS rung, and saying so at the door
- * costs nothing where discovering it after a model call costs a call.
+ * Owner, 2026-08-29: *"i need all the 17 lanes acting"*.
  *
- * `plan` is derived from `PLAN_KEYS` rather than listed, so a seventh plan axis
- * lands here by existing. It read `kind`/`purpose` as two literal names once and
- * five more arrived without it; that is this repo's "two lists of the same
- * thing" trap, and the direction it fails in is a lane silently pretending.
+ * These nine were REFUSED at the door until then — named, priced at zero, and
+ * sent up the ladder with a reason. That was honest about the eight fields this
+ * module can edit and wrong about the customer, who asked for a change and got a
+ * fall-through. The refusal was also unnecessary: for six of the nine the work
+ * already exists and is already CHEAP, on a lane that has been shipping for
+ * weeks. Nothing was missing but the wire.
+ *
+ * SO A LANE NAMES AN EDIT LAYER, AND THAT LAYER RUNS. Not an escalation, not a
+ * reason — the customer's message is dispatched to the rung that really does
+ * this, at that rung's own price. `pick_lanes` is the front door for all
+ * seventeen; where it points is an implementation detail of the door.
+ *
+ *   images      → `picture`  swap, replace or re-crop a photograph   (~0.3, free to reframe)
+ *   action      → `nav`      the primary button: its words and where it goes  (~0.3)
+ *   backend     → `rules`    what the site stores and what it enforces        (~0.3)
+ *   shape       → `page`     where the sections sit, via a minimal patch      (~1–3)
+ *   components  → `page`     which blocks the page is built from             (~1–3)
+ *   purpose     → `page`     what the page leads with                        (~1–3)
+ *
+ * EVERY TARGET IS A LAYER THAT EXISTS, and `EDIT_LAYERS` in `site-ask.mjs` is
+ * the list of those — asserted against it, both directions, by the guard. A
+ * lane pointing at a layer nobody dispatches is a request that vanishes.
+ *
+ * `plan` IS DERIVED FROM `PLAN_KEYS` rather than listed. It read `kind`/`purpose`
+ * as two literal names once and five more arrived without it — this repo's "two
+ * lists of the same thing" trap, failing in the direction of a lane that
+ * silently pretends.
  */
-export const LANE_ELSEWHERE = {
+export const LANE_LAYER = {
   plan: "page",
   backend: "rules",
-  slug: "move",
+  images: "picture",
+  action: "nav",
 };
+
+/**
+ * The three that are still their own work, and what each honestly needs.
+ *
+ * NOT A CATEGORY OF FAILURE — a category of NOT BUILT YET, which is a different
+ * sentence and has to read as one. Each is escalated with its own name so the
+ * next session knows which is which rather than finding one word for three jobs.
+ *
+ *   kind   shopfront ⇄ tool. Every planning answer follows from it, so changing
+ *          it is a rebuild by definition and there is no cheap version.
+ *   pages  adding one is the addon route, removing one is `page` + `remove`,
+ *          moving one is `renameRoute`. Three real capabilities behind one
+ *          field, and the router has to say WHICH before a lane can pick.
+ *   slug   the site's address. A move: republish under a new name, redirect the
+ *          old one, and every custom domain has to keep pointing at it.
+ */
+export const LANE_UNBUILT = { kind: "rebuild", pages: "page-set", slug: "move" };
 
 /**
  * ── PLACEHOLDER WORDING (owner, 2026-08-29: "i will tell you the prompt
@@ -225,53 +264,79 @@ const LANES = {
       "Send an empty list to say it is offered in one language only.",
   },
 
-  /* ---- the nine that answer for free ---- */
-  kind: { hint: "Whether this is a shopfront that persuades a visitor, or a tool the business works in.", elsewhere: "plan" },
+  /* ---- the six that act on another layer ---- */
   purpose: { hint: "What the page is organised around — what it leads with and what everything else supports.", elsewhere: "plan" },
-  pages: { hint: "Which pages the site has and what each one is for.", elsewhere: "plan" },
   components: { hint: "Which building blocks the page is made of — the manifest it is written from.", elsewhere: "plan" },
-  shape: { hint: "Where the sections go on the page and in what order.", elsewhere: "plan" },
-  images: { hint: "Which photographs the site has, and what they are of.", elsewhere: "plan" },
-  action: { hint: "The site's primary button — the one thing it most wants done, in the words the button says.", elsewhere: "plan" },
-  backend: { hint: "What the site STORES — its tables, the rows in them, and anything that acts on them.", elsewhere: "backend" },
-  slug: { hint: "The site's web address — the word in <name>.gofarther.app.", elsewhere: "slug" },
+  shape: { hint: "Where the sections go on the page and in what order — moving a band up or down, taking one out.", elsewhere: "plan" },
+  images: { hint: "A PHOTOGRAPH on the site: swapping one for another, adding one, taking one off, or changing which part of it you see.", elsewhere: "images" },
+  action: { hint: "The site's primary button — what it says and where it points.", elsewhere: "action" },
+  backend: { hint: "What the site STORES — its tables, the rows in them, who may read or add one, and what it refuses.", elsewhere: "backend" },
+
+  /* ---- the three that are still their own work ---- */
+  kind: { hint: "Whether this is a shopfront that persuades a visitor, or a tool the business works in. Changing it rebuilds the site.", unbuilt: true },
+  pages: { hint: "Which pages the site has — adding one, taking one away, or moving one to a new address.", unbuilt: true },
+  slug: { hint: "The site's web address — the word in <name>.gofarther.app.", unbuilt: true },
 };
 
 /** Every lane, in one order, and it is the order they RUN in — see `readLanes`. */
 export const LANE_FIELDS = Object.keys(LANES);
 
-/** The eight that act. Derived, so a lane cannot be acting-but-unreachable. */
-export const ACTING_LANES = LANE_FIELDS.filter((f) => !LANES[f].elsewhere);
+/** The eight this module edits itself. Derived, so a lane cannot be acting-but-unreachable. */
+export const ACTING_LANES = LANE_FIELDS.filter((f) => !LANES[f].elsewhere && !LANES[f].unbuilt);
+
+/** The six that act on another edit layer. */
+export const DISPATCHED_LANES = LANE_FIELDS.filter((f) => LANES[f].elsewhere);
+
+/** The three not built yet — named, so three jobs never share one word. */
+export const UNBUILT_LANES = LANE_FIELDS.filter((f) => LANES[f].unbuilt);
 
 /**
- * Where a non-acting lane sends the customer, or `null` for one that acts.
+ * The edit layer this lane's work really happens on, or `null` when this module
+ * does the work itself.
  *
  * `Object.hasOwn`, never truthiness: `LANES["constructor"]` is a function and
  * would sail through a `!LANES[f]` check. Shipped once already in the Stripe
  * plan lookup and nearly again three times since.
  */
-export function laneElsewhere(field) {
+export function laneLayer(field) {
   if (typeof field !== "string" || !Object.hasOwn(LANES, field)) return null;
   const key = LANES[field].elsewhere;
-  return key ? LANE_ELSEWHERE[key] || null : null;
+  return key ? LANE_LAYER[key] || null : null;
+}
+
+/** Why a lane cannot run yet, by its own name — or `null` when it can. */
+export function laneUnbuilt(field) {
+  if (typeof field !== "string" || !Object.hasOwn(LANES, field)) return null;
+  return LANES[field].unbuilt ? LANE_UNBUILT[field] || "unbuilt" : null;
 }
 
 /**
  * THE PLAN LANES ARE `PLAN_KEYS`, ASSERTED HERE RATHER THAN HOPED FOR.
  *
  * Both directions, at module load, because the failure is silent in both: a plan
- * axis with no `elsewhere` becomes a lane that stores a value nothing reads and
- * reports success, and an `elsewhere: "plan"` on a field that stopped being a
- * plan axis is a change refused for a reason that expired. This repo's record is
- * that a rule true because of a layer below it expires when that layer moves and
- * nothing announces it — so this announces it, loudly, at the earliest moment.
+ * axis that neither dispatches nor declares itself unbuilt becomes a lane that
+ * stores a value nothing reads and reports success, and a plan mapping on a
+ * field that stopped being a plan axis is work sent somewhere for a reason that
+ * expired. This repo's record is that a rule true because of a layer below it
+ * expires when that layer moves and nothing announces it — so this announces it,
+ * loudly, at the earliest moment.
+ *
+ * A PLAN AXIS MAY BE EITHER, and that is the change of 2026-08-29: `shape`,
+ * `components` and `purpose` dispatch to the page rung; `images` and `action`
+ * have cheaper rungs of their own; `kind` and `pages` are named unbuilt. What
+ * must never happen is a plan axis quietly ACTING here, because nothing
+ * downstream of this module reads a plan.
  */
-const planLanes = LANE_FIELDS.filter((f) => LANES[f].elsewhere === "plan");
 for (const k of PLAN_KEYS) {
-  if (!planLanes.includes(k)) throw new Error("site-lanes: `" + k + "` is a plan axis with no plan lane");
+  if (ACTING_LANES.includes(k)) throw new Error("site-lanes: `" + k + "` is a plan axis and must not be edited here — nothing reads a stored plan");
+  if (!Object.hasOwn(LANES, k)) throw new Error("site-lanes: `" + k + "` is a plan axis with no lane at all");
 }
-for (const k of planLanes) {
-  if (!PLAN_KEYS.includes(k)) throw new Error("site-lanes: `" + k + "` is sent to the page rung but is not a plan axis");
+for (const k of LANE_FIELDS) {
+  if (LANES[k].elsewhere === "plan" && !PLAN_KEYS.includes(k)) {
+    throw new Error("site-lanes: `" + k + "` is sent to the page rung but is not a plan axis");
+  }
+  if (LANES[k].elsewhere && !laneLayer(k)) throw new Error("site-lanes: `" + k + "` dispatches nowhere");
+  if (LANES[k].unbuilt && !laneUnbuilt(k)) throw new Error("site-lanes: `" + k + "` is unbuilt with no reason of its own");
 }
 
 /* --------------------------------------------------------------- the router */
@@ -432,9 +497,10 @@ export function editTool(field) {
   if (typeof field !== "string" || !Object.hasOwn(LANES, field)) throw new Error("editTool: no lane for: " + field);
   const lane = LANES[field];
   // A LANE THAT DOES NOT ACT HAS NO TOOL, and asking for one is a caller that
-  // skipped `laneElsewhere` — refused here rather than answered with an empty
+  // skipped `laneLayer` — refused here rather than answered with an empty
   // schema the model would fill with something.
-  if (lane.elsewhere) throw new Error("editTool: `" + field + "` does not act — it belongs to the " + laneElsewhere(field) + " rung");
+  if (lane.elsewhere) throw new Error("editTool: `" + field + "` does not act here — it runs on the " + laneLayer(field) + " layer");
+  if (lane.unbuilt) throw new Error("editTool: `" + field + "` does not act here — it needs " + laneUnbuilt(field));
   return {
     name: "edit_site",
     description: "Make the one change they asked for to this part of their site.",

@@ -288,14 +288,25 @@ customer ──► pick_lanes ──► edit_site ──► publish
              17 names       0 required
 ```
 
-**Seventeen lanes; eight act.** `css theme brand description wordmark favicon
-lang langs` act — every one a plain string, an enum or a list of short strings,
-which is why this module owns its own shapes and shares none. The other nine
-(the seven `PLAN_KEYS`, plus `backend` and `slug`) **hand off at the door, before
-a call is bought**, and name the rung that can do the work: nothing downstream of
-a cheap edit reads a plan axis, so storing one reports success and changes
-nothing a visitor sees. `needsPages` was the same refusal one layer down, arriving
-only *after* a model call.
+**Seventeen lanes and ALL of them act** (owner, 2026-08-29: *"i need all the 17
+lanes acting"*). `pick_lanes` runs ABOVE the layer dispatch, so it is the front
+door for all seventeen and what it names decides which layer runs:
+
+- **8 act here** — `css theme brand description wordmark favicon lang langs`,
+  every one a plain string, enum or short list, which is why this module owns its
+  own shapes and shares none.
+- **6 act elsewhere** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
+  `shape`/`components`/`purpose`→`page`. Nothing reads a STORED plan (the
+  container gets the pages, the theme and the stylesheet), so `shape` is not a
+  value to save, it is a job for the rung that rewrites pages. All six already
+  had cheap shipping implementations; nothing was missing but the wire.
+- **3 are not built** — `kind` (a rebuild by definition), `pages` (three
+  capabilities behind one field: add/remove/move), `slug` (an address change).
+  Each escalates under **its own name** so three jobs never share one word.
+
+The three groups are a **total, disjoint partition**, asserted in
+`test/edit-lanes.test.mjs`. A dispatched lane must never target `look` — that is
+the door it came through, and the ask lands back where it started.
 
 **The name sets are asserted in BOTH directions** (`test/edit-lanes.test.mjs`) —
 a field added to the build with no lane is a part of a site nobody can change
@@ -334,6 +345,13 @@ table; swapping the wording in is a find-and-replace.
 `SELECT v FROM _meta` fed the designer a `tables:` list; with no designer there is
 nothing to feed, so the query is gone. `test/site-apply.test.mjs` asserts the
 lane issues no SQL at all.
+
+**And the `page` lane had the same dead gate, found only because three lanes now
+dispatch to it.** Its `_meta` read was ungated, so on a frontend-only site
+`sqlQuery(null, …)` threw and it escalated `no-meta` — the rewrite half dead on
+the majority of the platform. `{ tables: [] }` is the truth about such a site;
+`null` is kept for a site that HAS a database whose `_meta` could not be read,
+because cannot-tell must never read as nothing-there.
 
 **Still mixed, and next: the ADDON step**, which calls `designSiteSchema` with the
 same 84.8k build tool to add one page. **DELETE deferred** (owner's call).

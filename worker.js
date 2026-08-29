@@ -102,7 +102,7 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneElsewhere } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt } from "./builder/site-lanes.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -17018,7 +17018,17 @@ async function handleRequest(request, env, ctx) {
             if (g.error) return Response.json(g.error.body, { status: g.error.status });
 
             const eb = await request.json().catch(() => ({}));
-            const eLayer = String((eb && eb.layer) || "");
+            // BOTH ARE `let` BECAUSE THE LANE ROUTER MAY REPOINT THEM. See the
+            // hoisted `pick_lanes` block below: a message about a photograph is
+            // the `picture` layer's work however it arrived, and the door that
+            // knows which of the seventeen parts of a site this is about is the
+            // one place that can say so.
+            let eLayer = String((eb && eb.layer) || "");
+            // WHICH PAGE, read through one name so the router can supply one.
+            // The `page` layer took this straight off the body, which was right
+            // while the client was its only caller; a lane dispatched here has
+            // no `eb.page` to offer and would find nothing to edit.
+            let ePage = String((eb && eb.page) || "");
             const eInstruction = String((eb && eb.instruction) || "").trim().slice(0, 2000);
             const eAuth = request.headers.get("Authorization") || "";
             // ONE shape for every "I cannot do this, try the rung above".
@@ -17061,9 +17071,18 @@ async function handleRequest(request, env, ctx) {
             //
             // A publish that translated nothing contributes nothing, so a
             // monolingual site and a cached bilingual one are unchanged.
+            // THE LANE ROUTER'S OWN SPEND, billed wherever the work lands.
+            //
+            // `pick_lanes` runs BEFORE the layer is decided, so the layer that
+            // ends up doing the work does not know the call happened — and
+            // every lane prices its spend through `eCharge` and nothing else.
+            // Folded in here rather than added at each of the eight call sites:
+            // one place, and `pageCredits` still rounds ONCE over all the parts,
+            // where summing per lane would round twice.
+            let pickUsage = null;
             const eCharge = async (usage, ...more) => {
               const parts = [];
-              for (const p of [usage, ...more]) {
+              for (const p of [pickUsage, usage, ...more]) {
                 if (!p) continue;
                 if (Array.isArray(p.langUsage)) parts.push(...p.langUsage.filter(Boolean));
                 else parts.push(p);
@@ -17099,6 +17118,95 @@ async function handleRequest(request, env, ctx) {
                 kind: String((e && e.name) || "Error").slice(0, 40),
               }, { status: 503 });
             };
+
+            // ── THE SEVENTEEN LANES ARE THE FRONT DOOR ────────────────────
+            //
+            // Owner, 2026-08-29: *"i need all the 17 lanes acting"*.
+            //
+            // `pick_lanes` used to sit INSIDE the look lane, so it could only
+            // ever choose among the eight fields that lane edits itself; the
+            // other nine were named, priced at zero and sent up the ladder. That
+            // was honest about this module and wrong about the customer, who
+            // asked for a change and got a fall-through — and unnecessary, since
+            // six of the nine already had cheap, shipping implementations one
+            // lane over. Nothing was missing but the wire.
+            //
+            // SO IT RUNS HERE, above the dispatch, and what it names decides
+            // WHICH LAYER RUNS. A message about a photograph is the `picture`
+            // layer's work however it arrived; about the primary button, `nav`;
+            // about what the site stores, `rules`; about where the sections sit,
+            // `page`. Each at that layer's own price, not at a rewrite's.
+            //
+            // ONLY WHEN THE ROUTER SAID `look`. Every other layer is a decision
+            // `/api/site/route` already made with the whole message in front of
+            // it, and overruling it here would be a second opinion with less to
+            // go on — the "two lists of the same thing" shape, applied to
+            // routing. `look` is the one answer that means "somewhere in the
+            // site's design", which is exactly the question these lanes answer.
+            //
+            // ── AND IT IS `eLooking`, NOT A SECOND `eLayer === "look"` ──────
+            //
+            // Four guards window the LOOK LANE by finding `if (eLayer ===
+            // "look")` and slicing to the next branch. A second copy of that
+            // exact condition up here silently moves all four windows to this
+            // block, so each then spans the whole dispatch chain — and a
+            // mutation in the wrong half passes. That is this repo's recorded
+            // overlapping-window trap, and the version of it that bites is
+            // always the one you introduce yourself. One boolean, and the
+            // lane's own condition stays unique in the file.
+            const eLooking = eLayer === "look";
+            let pickedFields = [];
+            if (eLooking) {
+              const picked = await pickLanes(
+                { send: (req) => anthropicMessages(env, req) },
+                {
+                  message: eInstruction,
+                  // WHAT THE SITE IS, IN ONE LINE. Deliberately thin — this is
+                  // the small call, and handing it the state an ACTING lane
+                  // needs would make it the expensive one twice over.
+                  current: siteDigest({ pages: eSrc.map((p) => routeOf(p.path)) }),
+                },
+              );
+              pickUsage = picked.usage;
+              if (picked.failed) return modelDown(picked.error, "The editor is busy — try again in a moment.");
+              if (!picked.fields.length) return escalate("no-lane");
+              pickedFields = picked.fields;
+
+              // WHERE THE WORK REALLY HAPPENS, decided by the FIRST named lane.
+              //
+              // The first, not all of them, and the asymmetry is deliberate: the
+              // eight this module edits itself really do run in turn on one
+              // publish, because each writes a different stored field and none
+              // of them regenerates a page. A dispatched lane is a whole other
+              // rung with its own model call, its own publish and its own price,
+              // so running two of those for one sentence would charge twice and
+              // publish twice. The rest ride out on `alsoAsked`, which is the
+              // one-change-per-turn note the router already writes.
+              const send = pickedFields.map((f) => laneLayer(f)).find(Boolean);
+              if (send) {
+                // A PAGE-SHAPED LANE NEEDS A PAGE, and a dispatched one carries
+                // no `eb.page`. The site's only page is the answer when it has
+                // one — which is most sites, since the PLAN caps a new build at
+                // one — and otherwise the home page, which is where a request
+                // that named no page means. `routeOf` is the same function the
+                // page layer resolves with, so there is no second opinion about
+                // what a file is called.
+                if (send === "page" && !ePage) {
+                  const routes = eSrc.map((p) => routeOf(p.path)).filter(Boolean);
+                  ePage = routes.length === 1 ? routes[0] : (routes.includes("/") ? "/" : routes[0] || "");
+                }
+                eLayer = send;
+              } else {
+                // NOT BUILT YET, AND IT SAYS WHICH — three different jobs that
+                // must never share one word. `kind` is a rebuild by definition,
+                // `pages` is three capabilities behind one field (add, remove,
+                // move), `slug` is an address change. Escalated, so the customer
+                // still gets the change from the rung above; named, so the next
+                // session knows which is which.
+                const stuck = pickedFields.map((f) => [f, laneUnbuilt(f)]).find(([, r]) => r);
+                if (stuck) return escalate("unbuilt", { field: stuck[0], needs: stuck[1] });
+              }
+            }
 
             if (eLayer === "data") {
               // ── THE CONTENT THE SITE STORES ─────────────────────────────
@@ -17752,7 +17860,15 @@ async function handleRequest(request, env, ctx) {
               // rather than adding a second place a lane's spend is priced —
               // and rounds once, where summing two calls rounds twice. That is
               // the bug the addon lane had.
-              const laneUsages = [];
+              // THE ROUTER'S CALL IS PART OF THIS MESSAGE'S SPEND, and it is
+              // seeded here as well as folded into `eCharge` — because what is
+              // BILLED and what is REPORTED must be the same list. `eCharge`
+              // adds `pickUsage` for every layer, including the ones this lane
+              // dispatches to, which have no `dUsage` of their own; here it is
+              // also what makes `usage` on the reply add up to the `cost` beside
+              // it. Two numbers that disagree about one message is a bug report
+              // nobody can act on.
+              const laneUsages = pickUsage ? [pickUsage] : [];
               const dUsage = { langUsage: laneUsages };
               // WHICH PARTS OF THE SITE THIS TOUCHED, carried out to the reply.
               // A lane that cannot say what it did is this file's single
@@ -17761,36 +17877,27 @@ async function handleRequest(request, env, ctx) {
               // one-lane edit are the same response.
               let ranLanes = [];
               {
-                const picked = await pickLanes(
-                  { send: (req) => anthropicMessages(env, req) },
-                  {
-                    message: eInstruction,
-                    // WHAT THE SITE IS, IN ONE LINE. Deliberately thin — the
-                    // router is the small call and handing it the state the
-                    // ACTING call needs would make it the expensive one twice.
-                    current: siteDigest({ name: (priorLook && priorLook.brand) || "", pages: eSrc.map((p) => routeOf(p.path)) }),
-                  },
-                );
-                if (picked.usage) laneUsages.push(picked.usage);
-                if (picked.failed) return modelDown(picked.error, "The editor is busy — try again in a moment.");
-                // NOT A ROUTE WE CAN TAKE. Both of these fall through to the
-                // rung above by contract, and both name themselves rather than
-                // sharing one sentence — a read-refusal and a killed container
-                // wearing one message cost two live runs on 2026-08-29.
-                if (!picked.fields.length) return escalate("no-lane");
-                const handed = picked.fields.map((f) => [f, laneElsewhere(f)]).filter(([, r]) => r);
-                // ── REFUSED AT THE DOOR, BEFORE A CALL IS BOUGHT ────────────
+                // THE LANES WERE PICKED AT THE DOOR, not here. `pick_lanes` runs
+                // above the layer dispatch so that what it names can decide
+                // WHICH LAYER runs — a photograph is `picture`'s work, the
+                // primary button is `nav`'s — and reaching this branch at all
+                // means every field it named is one this lane edits itself.
                 //
-                // A plan axis (`kind`, `purpose`, `pages`, `components`,
-                // `shape`, `images`, `action`) is an input to page GENERATION
-                // and nothing downstream of a cheap edit reads one — the
-                // container is handed the pages, the theme and the stylesheet,
-                // never the plan. Storing a new one changes nothing a visitor
-                // can see while reporting success. `needsPages` below is the
-                // same refusal one layer down and arrives only AFTER a model
-                // call; this one is free and says which rung can do the work.
-                if (handed.length) return escalate("wrong-rung", { moved: handed.map(([f]) => f), rung: handed[0][1] });
-                ranLanes = picked.fields;
+                // AND THAT IS A PROOF, NOT A HOPE, which is why there is no
+                // check here. Getting this far requires no field to dispatch
+                // (or `eLayer` would have moved) and none to be unbuilt (or the
+                // door escalated), and the three groups are a total, disjoint
+                // partition of the seventeen — asserted in
+                // `test/edit-lanes.test.mjs`, derived from the same table this
+                // reads. So the survivors are exactly `ACTING_LANES`.
+                //
+                // A `stray` guard stood here until a sweep proved it could
+                // never fire: every field that can reach this line is already an
+                // acting one, so it was a check watching nothing. Removed on the
+                // owner's standing rule — if we are not using it, it does not
+                // live in the code — and the partition test is what would
+                // actually catch the drift it was written for.
+                ranLanes = pickedFields;
 
                 // ONE CALL PER LANE, IN TURN (owner's call, asked which way a
                 // two-part message should go: "run both lanes in turn"). They
@@ -17798,7 +17905,7 @@ async function handleRequest(request, env, ctx) {
                 // value and answers only its own field — so this is a loop
                 // rather than a pipeline, and one publish covers all of them.
                 const answers = {};
-                for (const field of picked.fields) {
+                for (const field of pickedFields) {
                   const ran = await runLane(
                     { send: (req) => anthropicMessages(env, req) },
                     {
@@ -18075,7 +18182,11 @@ async function handleRequest(request, env, ctx) {
               // lane uses to name a route — rather than a second path-to-route
               // mapping here, which is two things that can disagree about what
               // `src/routes/shop/index.tsx` is called.
-              const wantRoute = String((eb && eb.page) || "").trim().toLowerCase();
+              // `ePage`, NOT `eb.page` — one name, so a lane dispatched here by
+              // the front door can supply the page a shape or component change
+              // lands on. Read straight off the body, this branch found nothing
+              // to edit for every such message and escalated.
+              const wantRoute = ePage.trim().toLowerCase();
               const target = eSrc.find((p) => p && routeOf(p.path) === wantRoute);
               // The router checks this against the digest already; it can still
               // be wrong about a site whose digest carried no pages. A page we
@@ -18240,9 +18351,38 @@ async function handleRequest(request, env, ctx) {
                 const cfg = await readSiteConfig(env, ownerSlug, eDb);
                 if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
                 eLook2 = cfg.config.look;
-                const rows = await sqlQuery(eDb, "SELECT v FROM _meta WHERE k = 'schema'");
-                const row = (rows || [])[0];
-                if (row && row.v) eSpec = JSON.parse(row.v);
+                // ── A SITE WITH NO DATABASE HAS NO TABLES, WHICH IS AN ANSWER
+                //    AND NOT A FAILURE (2026-08-29) ────────────────────────────
+                //
+                // This read was unguarded, so on a frontend-only site
+                // `sqlQuery(null, …)` threw, the catch below logged it, `eSpec`
+                // stayed null and the lane escalated `no-meta` — for EVERY such
+                // site, which is the DEFAULT since a first build stopped
+                // provisioning a database. The cheap `tweak` above still ran, so
+                // the lane was not wholly dead; what was dead is the rewrite it
+                // falls back to, on the majority of the platform.
+                //
+                // The same shape as the `look` and `logo` gates removed on
+                // 2026-08-28, one rung up and missed then: a requirement the
+                // code has outgrown, refusing the case it was never about. It
+                // surfaced because `shape`, `components` and `purpose` now
+                // DISPATCH here, so a lane that refuses most sites is a lane
+                // that does not act.
+                //
+                // `{ tables: [] }` IS THE TRUTH about a frontend-only site, and
+                // it is what the page generator wants — the same value the build
+                // path hands it. NULL IS KEPT FOR A SITE THAT HAS A DATABASE and
+                // whose `_meta` could not be read, because cannot-tell must
+                // never read as nothing-there: rewriting those pages against an
+                // empty schema would silently drop every control that reads a
+                // row. Same reasoning as `loadConfig`, one layer down.
+                if (eDb) {
+                  const rows = await sqlQuery(eDb, "SELECT v FROM _meta WHERE k = 'schema'");
+                  const row = (rows || [])[0];
+                  if (row && row.v) eSpec = JSON.parse(row.v);
+                } else {
+                  eSpec = { tables: [] };
+                }
               } catch (e) { console.error("page edit meta read failed:", ownerSlug, e && e.message); }
               if (!eSpec || !eLook2) return escalate("no-meta");
 

@@ -27,9 +27,15 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
-import { LANE_FIELDS, ACTING_LANES, laneElsewhere } from "../builder/site-lanes.mjs";
+import { LANE_FIELDS, ACTING_LANES, laneLayer, laneUnbuilt } from "../builder/site-lanes.mjs";
+// THE PAGE LAYER'S TOOL NAME, TAKEN FROM THE MODULE THAT DEFINES IT. Typed by
+// hand it was wrong, the stub never matched, the call 503d, and the billing
+// assertion below "failed" for a reason that had nothing to do with billing.
+// A hand-typed constant is a second copy of a name, and two copies drift.
+import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
 
 const USER = { id: "u-editpath-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
@@ -69,13 +75,23 @@ function bucket(slug) {
  * capable than the real thing hides bugs exactly like one that is less, and this
  * file's whole job is to see which calls really happen.
  */
-function withWire(answers, run, { owned = true } = {}) {
+function withWire(answers, run, { owned = true, usage = null, billed = null } = {}) {
   const real = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (input, init) => {
     const url = String((input && input.url) || input || "");
     if (url.includes("/auth/v1/user")) {
       return new Response(JSON.stringify(USER), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    // THE LEDGER, WHEN A TEST IS WATCHING IT. Left unstubbed this 503s,
+    // `eCharge` swallows it and every reply reads `cost: 0` — so a bill can be
+    // wrong by a whole call and no test here would see it. `billed` collects
+    // what was actually asked for.
+    if (billed && url.includes("/rpc/use_credits")) {
+      let want = 0;
+      try { want = Number(JSON.parse(String(init && init.body) || "{}").cost) || 0; } catch { want = 0; }
+      billed.push(want);
+      return new Response(String(want), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.includes("/rest/v1/site_project")) {
       return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
@@ -95,7 +111,12 @@ function withWire(answers, run, { owned = true } = {}) {
       return new Response(JSON.stringify({
         stop_reason: "tool_use",
         content: [{ type: "tool_use", name: tool, input: answers[tool] }],
-        usage: { input_tokens: 10, output_tokens: 5 },
+        // SIZED BY THE TEST WHEN IT CARES. The default is deliberately tiny;
+        // `pageCredits` has a floor of 1, so at this size one call and two
+        // round to the same credit and a bill missing a whole call is
+        // invisible. A test about billing has to spend enough to cross the
+        // boundary — see the dispatched-bill case.
+        usage: (usage && usage[tool]) || { input_tokens: 10, output_tokens: 5 },
       }), { status: 200, headers: { "content-type": "application/json" } });
     }
     return new Response("unavailable", { status: 503 });
@@ -250,24 +271,103 @@ test("every call in the message is on one bill", async () => {
   );
 });
 
-test("a part this rung cannot change is refused before a single call is bought", async () => {
-  // A plan axis is an input to page GENERATION and nothing downstream of a
-  // cheap edit reads one — the container is handed the pages, the theme and the
-  // stylesheet, never the plan. Storing a new one changes nothing a visitor can
-  // see while reporting success. `needsPages` is the same refusal one layer
-  // down and arrives only AFTER a model call has been paid for.
+test("a lane whose work lives on another layer DISPATCHES there — it is not refused", async () => {
+  // Owner, 2026-08-29: "i need all the 17 lanes acting".
+  //
+  // `shape` was refused here: named, priced at zero, sent up the ladder. That
+  // was honest about what this module edits and wrong about the customer, who
+  // asked to move a section and got a fall-through — while the `page` layer,
+  // which really does move sections with a minimal patch, had been shipping for
+  // weeks one branch away. Nothing was missing but the wire.
+  //
+  // WHAT PROVES IT IS THE TOOL ON THE SECOND CALL. A dispatch that silently did
+  // nothing and a dispatch that worked both answer "not an escalation" from
+  // outside; the page layer asks for its OWN tool, so seeing that tool go out
+  // is seeing the work begin.
   await withWire(
-    { pick_lanes: { fields: ["shape"] }, edit_site: { css: "never{used:1}" } },
+    { pick_lanes: { fields: ["shape"] }, [TWEAK_TOOL.name]: { source: "export default function Home(){return null}" } },
     async (calls) => {
-      const { body } = await edit("wire-rung", "move the gallery above the prices");
-      assert.equal(body && body.reason, "wrong-rung", "a plan-axis ask was not refused by name: " + JSON.stringify(body));
-      assert.equal(body && body.cost, 0, "a free refusal charged for something");
-      assert.deepEqual(toolsOf(calls), ["pick_lanes"], "an acting call was bought for a lane that cannot act");
-      // AND IT SAYS WHICH RUNG CAN. A failure that cannot name itself is seven-
-      // plus recorded instances here; the last one cost two live runs.
-      assert.equal(body.rung, laneElsewhere("shape"), "the refusal does not name the rung that can do the work");
+      const { body } = await edit("wire-dispatch", "move the gallery above the prices");
+      assert.notEqual(body && body.reason, "wrong-rung", "a dispatched lane is still being refused: " + JSON.stringify(body));
+      assert.notEqual(body && body.reason, "unbuilt", "`shape` is being reported as not built, but the page layer does this");
+      const tools = toolsOf(calls);
+      assert.equal(tools[0], "pick_lanes", "the front door did not route first: " + JSON.stringify(tools));
+      assert.ok(tools.length >= 2,
+        "the shape lane was routed and then nothing ran — the dispatch reaches no layer: " + JSON.stringify(tools));
+      // AND IT IS NOT THIS MODULE'S OWN TOOL. Repointing at a layer that then
+      // falls through to the acting lane would look like success and edit the
+      // wrong thing.
+      assert.ok(!tools.includes("edit_site"), "a dispatched lane was answered by the css/brand editor: " + JSON.stringify(tools));
     },
   );
+});
+
+test("the router's call is billed on the layer it dispatched to", async () => {
+  // FOUND BY A SURVIVING MUTANT, 2026-08-29, and it is the one that costs money.
+  //
+  // `pick_lanes` runs at the door, BEFORE the layer is chosen, so the layer that
+  // ends up doing the work never sees that call — it prices `eCharge(out.usage,
+  // pub)` and nothing else. On the acting lane the router's usage is also seeded
+  // into `dUsage`, so dropping it from `eCharge` changes nothing there; on a
+  // DISPATCHED layer it is the only thing carrying it, and the customer is
+  // billed for the work but not for the routing.
+  //
+  // THE FLOOR OF 1 CREDIT IS WHY THIS NEEDS BIG NUMBERS. At the default stub
+  // size one call and two both round to 1, so the missing call is invisible —
+  // which is exactly why the mutant survived a suite that already had billing
+  // tests. Each call here is sized to be worth more than a credit on its own.
+  // ── WHY THIS ONE IS READ AND NOT DRIVEN, WHICH IS A CONCESSION ───────────
+  //
+  // Every other check in this file drives `worker.fetch`. This one cannot, and
+  // the reason is worth stating rather than hiding: a bill is only observable
+  // where a lane REACHES one, and every dispatched layer reaches its bill after
+  // a publish (the container) or a schema read (a real Neon connection). A
+  // routing test has neither, so each of them answers `cost: 0` on an
+  // escalation long before `eCharge` is called.
+  //
+  // AND THE FLOOR HIDES IT EVEN THEN: `pageCredits` rounds up from 1, so at any
+  // usage a stub produces, one call and two bill the same credit. That is
+  // exactly why the mutant survived a suite that already had two billing tests.
+  //
+  // So the property is asserted at the one place it is decidable — that the
+  // router's usage is in `eCharge`'s parts, which is what makes it reach a
+  // dispatched layer at all. Anchored on `pickUsage` being IN the list rather
+  // than on the list's exact spelling, and paired below with the fact that
+  // nothing else could carry it.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
+    .replace(/^\s*\/\/[^\n]*$/gm, (m) => " ".repeat(m.length));
+  const at = src.indexOf("const eCharge = async (usage, ...more) => {");
+  assert.ok(at > 0, "eCharge is gone or was renamed — this scan has no subject");
+  const block = src.slice(at, src.indexOf("\n            };", at));
+  assert.ok(block.length > 100, "the eCharge window closed immediately — rescope this");
+  assert.match(block, /for \(const p of \[pickUsage,/,
+    "the router's call is not in eCharge's parts, so a dispatched layer bills the work and not the routing");
+  // AND NOTHING ELSE CARRIES IT THERE. `dUsage` seeds `pickUsage` too, which is
+  // what keeps the ACTING lane's reported usage and its cost in step — but that
+  // object exists only inside the look lane, so it cannot reach `nav`,
+  // `picture`, `rules` or `page`. If that ever became the only carrier, this
+  // check would still pass while every dispatched edit under-billed.
+  assert.ok(!/dUsage/.test(block), "eCharge now depends on the look lane's own usage object, which no dispatched layer has");
+});
+
+test("a lane that is genuinely not built yet says WHICH job is missing", async () => {
+  // THREE JOBS, THREE NAMES. `kind` is a rebuild by definition, `pages` is three
+  // capabilities behind one field, `slug` is an address move. One word for all
+  // three is the failure-that-cannot-name-itself shape this repo has recorded
+  // seven times over — the last one cost two live runs.
+  for (const field of ["kind", "pages", "slug"]) {
+    await withWire(
+      { pick_lanes: { fields: [field] }, edit_site: { css: "never{used:1}" } },
+      async (calls) => {
+        const { body } = await edit("wire-unbuilt-" + field, "change the " + field);
+        assert.equal(body && body.reason, "unbuilt", field + " did not escalate as unbuilt: " + JSON.stringify(body));
+        assert.equal(body && body.field, field, "the escalation does not name which lane is missing");
+        assert.equal(body && body.needs, laneUnbuilt(field), "the escalation does not name the job that is missing");
+        assert.equal(body && body.cost, 0, "a free escalation charged for something");
+        assert.deepEqual(toolsOf(calls), ["pick_lanes"], "work was bought for a lane that cannot run");
+      },
+    );
+  }
 });
 
 test("a router that names nothing escalates rather than guessing", async () => {

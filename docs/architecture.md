@@ -32,16 +32,23 @@
         │  2026-08-29│    │  CALLS THE │    │  STEP AT    │
         │           │    │  BUILD'S   │    │  ALL        │
         │ pick_lanes│    │  DESIGNER  │    │             │
-        │     ↓     │    │            │    │ it's a flag │
-        │ edit_site │    │ design_    │    │ (remove:    │
-        │ 1 field   │    │  schema    │    │  true) on   │
-        │ 4.0k      │    │  84.8k     │    │ page + logo │
+        │  = THE    │    │            │    │ it's a flag │
+        │  FRONT    │    │ design_    │    │ (remove:    │
+        │  DOOR for │    │  schema    │    │  true) on   │
+        │  all 17   │    │  84.8k     │    │ page + logo │
+        │     ↓     │    │            │    │             │
+        │ 8 act here│    │            │    │             │
+        │ 6 dispatch│    │            │    │             │
+        │ 3 unbuilt │    │            │    │             │
         └───────────┘    └────────────┘    └─────────────┘
 ```
 
-**Status of the split (2026-08-29).** `EDIT` is done. `ADDON` is next and has the
-identical defect the edit step had. `DELETE` is deferred — owner's call: *"we are
-gonna worry about delete later"*.
+**Status of the split (2026-08-29).** `EDIT` is done, and all seventeen of its
+lanes now act — eight in the edit path itself, six by dispatching to the layer
+that really does that work, three escalating under their own name because they
+are genuinely not built. `ADDON` is next and has the identical defect the edit
+step had. `DELETE` is deferred — owner's call: *"we are gonna worry about delete
+later"*.
 
 ---
 
@@ -71,44 +78,73 @@ Its own module. **It imports nothing from `worker.js`**, which is what makes the
 separation a fact about the code rather than a claim about it.
 
 ```
-  customer  ──►  pick_lanes  ──►  edit_site  ──►  publish
-                 haiku            one per lane     ONCE
-                 2,811 chars      1,201 (css)      however many ran
-                 17 names         1 property
-                                  0 required
+  customer ──► pick_lanes ──┬──► edit_site ──► publish     8 lanes, here
+               haiku        │    one per lane   ONCE
+               2,811 chars  │    1 property
+               17 names     │    0 required
+                            ├──► picture / nav / rules / page    6 lanes
+                            │    the layer that really does it
+                            └──► escalate, by its own name       3 lanes
+                                 rebuild · page-set · move
 ```
 
 Two asks run two lanes **in turn** (owner: *"run both lanes in turn"*), each shown
 only its own field's stored value, so they cannot collide — and one publish
 covers the message, not one per lane.
 
-### The seventeen lanes: 8 act, 9 hand off
+### The seventeen lanes — ALL of them act (owner, 2026-08-29)
 
-| acts here | | hands off | |
-|---|---|---|---|
-| `css` | the stylesheet — any colour, size, spacing, corner, typeface, one control | `kind` | → page rung |
-| `theme` | the whole visual world, by name | `purpose` | → page rung |
-| `brand` | the site's name | `pages` | → page rung |
-| `description` | the line under the name in a search result | `components` | → page rung |
-| `wordmark` | the header logo | `shape` | → page rung |
-| `favicon` | the tab icon | `images` | → page rung |
-| `lang` | the declared language | `action` | → page rung |
-| `langs` | every other language offered | `backend` | → rules rung |
-| | | `slug` | → a move, not an edit |
+> *"i need all the 17 lanes acting"*
+
+Nine were refused at the door: named, priced at zero, sent up the ladder. Honest
+about what this module edits, **wrong about the customer**, who asked for a
+change and got a fall-through — and unnecessary, because six of the nine already
+had cheap, shipping implementations one lane over. Nothing was missing but the
+wire. So **`pick_lanes` moved above the layer dispatch** and is the front door
+for all seventeen; what it names decides which layer runs.
+
+| | lanes | cost |
+|---|---|---|
+| **8 act here** | `css` `theme` `brand` `description` `wordmark` `favicon` `lang` `langs` | 1 |
+| **6 act elsewhere** | `images`→`picture` · `action`→`nav` · `backend`→`rules` · `shape` `components` `purpose`→`page` | 0.3–3 |
+| **3 not built** | `kind`→rebuild · `pages`→page-set · `slug`→move | escalate, each by its own name |
+
+The eight are plain strings, enums or lists of short strings — which is why this
+module owns its own shapes and shares none. The six **dispatch** because a stored
+plan is read by nothing: the container gets the pages, the theme and the
+stylesheet, never the plan. `shape` is not a value to save, it is a job for the
+rung that rewrites pages. The three groups are a **total, disjoint partition**,
+asserted in `test/edit-lanes.test.mjs` — a lane in no group is a request that
+falls out of the door; a lane in two behaves differently depending on which check
+runs first.
 
 **Every field the design tool can produce has a lane**, so no part of a site
-becomes unreachable — asserted in BOTH directions by `test/edit-lanes.test.mjs`,
-because a field added to the build with no lane is a part of a site the customer
-can never change again, and a lane for a field the build stopped producing edits
-nothing. Neither announces itself.
+becomes unreachable — asserted in BOTH directions, because a field added to the
+build with no lane is a part of a site the customer can never change again, and a
+lane for a field the build stopped producing edits nothing. Neither announces
+itself.
 
-**But only eight are values this rung can honestly change.** The nine on the
-right are `PLAN_KEYS` plus `backend` and `slug`: inputs to page GENERATION that
-nothing downstream of a cheap edit reads — the container is handed the pages, the
-theme and the stylesheet, never the plan. Storing a new one changes nothing a
-visitor can see while reporting success. `worker.js` always refused them
-(`needsPages`); what is new is that they are refused **by name, at the door,
-before a model call is bought**, and the refusal says which rung can do the work.
+**Three things the wiring exposed:**
+
+1. **A photo edit no longer needs a stored look.** The door runs before each
+   layer's own gates, so "swap the shop photo" on a look-less site goes to
+   `picture` instead of being refused `no-look` by a lane that was never going to
+   handle it.
+2. **A dispatched lane carries no page.** `shape`/`components` had nothing to
+   edit until `ePage` defaulted to the site's only page — most sites, since the
+   plan caps a new build at one — or home.
+3. **The `page` lane was dead on every frontend-only site.** Its `_meta` read was
+   ungated, so `sqlQuery(null, …)` threw and it escalated `no-meta`: the same gate
+   class as `look`/`logo` (fixed 2026-08-28), one rung up and missed then. It
+   surfaced only because three lanes now dispatch there. `{ tables: [] }` is the
+   truth about a frontend-only site; `null` is kept for a site that HAS a database
+   whose `_meta` could not be read, because cannot-tell must never read as
+   nothing-there.
+
+**The three unbuilt ones are real work, not wiring.** `kind` is a rebuild by
+definition. `pages` is three capabilities behind one field — add (addon), remove
+(`page` + `remove`), move (`renameRoute`) — and the router must say *which* before
+a lane can pick. `slug` is an address change with redirects and custom domains.
 
 ### The wall, not the rule
 

@@ -256,7 +256,18 @@ test("the proof is not vacuous: the same lane still refuses a site with no store
   // worth recording: given a real connection the lane queries `_meta` over the
   // network, so in a unit environment it always fails at the schema read and
   // escalates `no-meta`. It measured the absence of Postgres, not the fix.
-  await withSite(async () => {
+  // THE MODEL HAS TO ANSWER FOR THIS ONE, since 2026-08-29. `pick_lanes` is the
+  // front door and runs BEFORE any layer's own gates — it has to, because which
+  // layer runs is what it decides — so on the model-less `withSite` stub this
+  // case now dies at the router with `error: "send"` and never reaches the
+  // check it exists to make. `withModel` answers the router, which lets the
+  // look lane run far enough to refuse for its own reason.
+  //
+  // THE ORDERING CHANGE IS A REAL ONE AND IT IS AN IMPROVEMENT: a message about
+  // a PHOTOGRAPH on a site with no stored look used to be refused `no-look` by
+  // a lane that was never going to handle it. It is now dispatched to the
+  // `picture` layer, which does not need a look at all.
+  await withModel(async () => {
     const bare = bucket("paperless-bare");
     bare.store.set(CONFIG_KEY("paperless-bare"), JSON.stringify({}));
     const { body } = await edit("paperless-bare", "look", "make the footer dark green", { store: bare });
