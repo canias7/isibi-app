@@ -254,10 +254,30 @@ test("the publish spine serves a databaseless site too — the layer the lane te
   // nothing but the spine's new check, and it runs only when there is no
   // connection, so seeing it means execution got past the old refusal.
   await withModel(async (seen) => {
-    await edit("spine-nodb", "look", "make the footer dark green", { picker: "sonnet" });
+    const { body } = await edit("spine-nodb", "look", "make the footer dark green", { picker: "sonnet" });
+
+    // THE BEHAVIOUR, NOT THE QUESTION. Asserting only that the existence lookup
+    // HAPPENED is satisfied by a spine that asks and then does the opposite with
+    // the answer: a mutation sweep inverted the condition — refusing exactly the
+    // sites this fix exists to serve — and that assertion passed, because the
+    // lookup sits inside the condition either way. What must be true is that the
+    // request got THROUGH.
+    //
+    // `detail` says so in its own words. Past the gate the spine runs on to the
+    // container, which a routing test does not have, and the failure names
+    // itself: "this request reached a real build". A spine that refused would
+    // answer the read-refusal instead, and `ours: true` would route the message
+    // to "our build service was restarting" — the sentence the live runs got.
+    assert.match(String(body && body.detail || ""), /reached a real build/,
+      "the spine did not get past its own gate — a databaseless site still cannot publish: "
+        + JSON.stringify(body));
+    assert.doesNotMatch(String(body && body.msg || ""), /build service was restarting/,
+      "the spine answered its own refusal, wearing the message that cost two live runs to see through");
+
+    // And the question really was asked — kept as the secondary check, since the
+    // primary above proves what was done with the answer.
     assert.ok(askedIfSiteExists(seen),
-      "the spine never asked whether the site exists — it still refuses on the connection alone, "
-        + "so every cheap edit on a databaseless site is dead");
+      "the spine never asked whether the site exists, so it is guessing rather than checking");
   });
 });
 
