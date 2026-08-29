@@ -291,6 +291,36 @@ function safeRoute(rel) {
   return bare;
 }
 
+/**
+ * WHERE A COMPONENT WRITTEN FOR THIS SITE GOES.
+ *
+ * A NAME IN, A PATH OUT — never a path in, which is the whole reason this is its
+ * own function rather than a loosening of `safeRoute`. That regex requires the
+ * first character to be `[a-z0-9_$]`, so `-parts/seat-map.tsx` is refused and the
+ * file would be SKIPPED IN SILENCE (the loop `continue`s on a null). Relaxing it
+ * to admit a leading `-` would admit every other `-` path the model could invent
+ * along with it; taking only a bare kebab-case NAME leaves no traversal surface
+ * to reason about at all.
+ *
+ * `-parts/` FOR TWO INDEPENDENT REASONS, and both have to hold:
+ *
+ *   • It is UNDER `src/routes`, which is the only directory `resetRoutes` wipes
+ *     between builds. This container is long-lived and shared, so a component
+ *     written anywhere else is in every later customer's site — the leak this
+ *     file's own `startSiteServerForCheck` comment already names.
+ *   • It starts with `-`, which `routeFileIgnorePrefix` makes invisible to the
+ *     route generator, so a component is not published as a page. That is pinned
+ *     in our vite config rather than inherited from the generator's default.
+ *
+ * Returns null for anything that is not a plain kebab-case name, so a junk entry
+ * is refused rather than written somewhere surprising.
+ */
+function safePart(name) {
+  const n = String(name || "").trim().toLowerCase();
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(n)) return null;
+  return path.join("-parts", n + ".tsx");
+}
+
 function resetRoutes() {
   try { fs.rmSync(ROUTES, { recursive: true, force: true }); } catch {}
   fs.mkdirSync(ROUTES, { recursive: true });
@@ -1651,6 +1681,29 @@ const server = http.createServer((req, res) => {
         wrote++;
       }
       if (!wrote) return send(res, 400, { ok: false, error: "no valid route files written" });
+
+      // ── AND THE COMPONENTS WRITTEN FOR THIS SITE ────────────────────────
+      //
+      // AFTER the route files and counted apart, because they are not routes and
+      // must never satisfy the `!wrote` check above: a build that returned three
+      // components and no page has no site, and folding them into one counter
+      // would let it publish as though it did.
+      //
+      // A REFUSED NAME IS COUNTED, not skipped in silence. The pages loop above
+      // `continue`s past a bad path because a page that fails to arrive shows up
+      // immediately — the site is missing a page — while a component that fails
+      // to arrive shows up as a page importing a module that is not there, which
+      // is a typecheck error blaming the PAGE. The count is on the response so
+      // the honest cause is on the wire.
+      let partsWrote = 0, partsRefused = 0;
+      for (const p of Array.isArray(payload.parts) ? payload.parts : []) {
+        const rel = p && typeof p === "object" ? safePart(p.name) : null;
+        if (!rel || typeof p.source !== "string" || !p.source) { partsRefused++; continue; }
+        const full = path.join(ROUTES, rel);
+        fs.mkdirSync(path.dirname(full), { recursive: true });
+        fs.writeFileSync(full, p.source);
+        partsWrote++;
+      }
 
       // `tsr generate` first: main.tsx imports src/routeTree.gen.ts, so without it
       // the typecheck fails on the template rather than on the generated pages.

@@ -112,7 +112,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, normalizePlan } from "./builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 // The designer-drawn tab icon (2026-08-28, owner's call). The FIELD is the ask;
 // `cleanFavicon` itself runs at the merge (`FIELD_KEEPS.favicon`) and again in
 // the container at the write — this file only carries the answer through.
@@ -3888,6 +3888,21 @@ const SITE_SCHEMA_TOOL = {
       // ORDER MATTERS AND IS ASSERTED: `components` is LAST of these four, so
       // it is picked after the page list above it has been written.
       ...PLAN_FIELDS,
+      // ── AND WHAT THE KIT HAS NOT GOT ────────────────────────────────────
+      //
+      // IMMEDIATELY AFTER `components`, which is the last key of the spread
+      // above — the owner's own placement ("its gotta be after the components
+      // step, if the component step didn't find the component you generate
+      // it"), and the placement the ordering argument gives anyway. A tool's
+      // property order is its generation order, so this is answered by a model
+      // that has JUST searched a 2,112-component kit and come up short. Earlier
+      // and it is a wish list written before the search.
+      //
+      // ITS POSITION IS THEREFORE LOAD-BEARING AND IS ASSERTED, not left to the
+      // accident of sitting between two literals: `components` is pinned last
+      // inside `PLAN_FIELDS` for its own reasons, and a field inserted there
+      // later would silently come between them.
+      tsx: TSX_FIELD,
       // `mode` IS GONE — LIGHT OR DARK IS A COLOUR, AND COLOUR IS `css`
       // (owner's call, 2026-08-23). Kept as an ABSENCE rather than only
       // deleted, on the precedent that replaced the repair-pass tests with
@@ -8324,6 +8339,56 @@ async function loadSiteSource(env, slug) {
   } catch (e) { console.error("source read failed:", slug, e && e.message); return null; }
 }
 
+/**
+ * AND THE COMPONENTS WRITTEN FOR THIS SITE, which the kit does not have.
+ *
+ * A SECOND KEY RATHER THAN A SECOND FIELD IN `pages.json`, and that is about the
+ * 47 sites that already exist. `loadSiteSource` reads that file as a flat ARRAY;
+ * turning it into `{ pages, parts }` would make every stored site's source
+ * unreadable on its next edit — a whole platform's revise anchor gone to buy
+ * tidiness. A key nobody has yet reads as "none", which is exactly right for
+ * every site built before today.
+ *
+ * WHY THIS HAS TO EXIST AT ALL, stated plainly because it is the difference
+ * between a feature and a live bug: `recompileAndPublish` rebuilds a site from
+ * its STORED source on every cheap edit. A page importing `@/routes/-parts/x`
+ * with no `x` sent does not compile — so without this, the first typo fix after
+ * a build that wrote a component takes the site down. That is this repo's own
+ * standing rule ("anything a build bakes must be sent by that spine too") in its
+ * sharpest form: here the omission is not a stripped feature, it is a red build.
+ */
+const PARTS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/parts.json";
+
+async function saveSiteParts(env, slug, parts) {
+  if (!env.SITES_BUCKET) return false;
+  const list = (Array.isArray(parts) ? parts : [])
+    .filter((p) => p && typeof p.name === "string" && typeof p.source === "string" && p.name && p.source)
+    .map((p) => ({ name: p.name, source: p.source }));
+  // AN EMPTY LIST IS WRITTEN, NOT SKIPPED, and that is the opposite of
+  // `saveSiteSource`'s `if (!list.length) return false` one function up — which
+  // is right THERE (a build with no pages is a failed build, and blanking the
+  // anchor would destroy the site's only source record) and wrong here. A revise
+  // that legitimately removes the last hand-written component must be able to say
+  // so; skipping the write would leave the old parts stored and re-sent forever,
+  // and the customer's deleted component would keep coming back.
+  try {
+    await env.SITES_BUCKET.put(PARTS_KEY(slug), JSON.stringify(list), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    return true;
+  } catch (e) { console.error("parts save failed:", slug, e && e.message); return false; }
+}
+
+async function loadSiteParts(env, slug) {
+  if (!env.SITES_BUCKET) return null;
+  try {
+    const o = await env.SITES_BUCKET.get(PARTS_KEY(slug));
+    if (!o) return null;
+    const v = JSON.parse(await o.text());
+    return Array.isArray(v) && v.length ? v : null;
+  } catch (e) { console.error("parts read failed:", slug, e && e.message); return null; }
+}
+
 function versionDeps(env) {
   return {
     list: async (prefix) => {
@@ -9085,6 +9150,20 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   const fontFiles = await fetchSiteFonts(cssRead.fonts || []);
   const files = {};
   for (const p of pages || []) files[p.path] = p.source;
+  // ── AND THE COMPONENTS THE KIT DOES NOT HAVE ────────────────────────────────
+  //
+  // READ HERE ON EVERY PUBLISH, not passed in, and that is deliberate: every
+  // cheap edit comes through this function and none of them knows or cares that
+  // the site has hand-written components. A parameter would be one more thing
+  // six call sites have to remember, and the one that forgot would not fail —
+  // it would publish a page importing a module that was never written, which
+  // `tsc` refuses, so a customer's typo fix would come back as "the build
+  // failed" with nothing to say why.
+  //
+  // `null` FOR EVERY SITE BUILT BEFORE TODAY, which is every site: the key does
+  // not exist, the read answers null, and the payload carries `undefined` —
+  // byte-for-byte the request this function sent before parts existed.
+  const siteParts = await loadSiteParts(env, slug);
 
   // ── THE SITE'S OTHER LANGUAGES ──────────────────────────────────────────────
   //
@@ -9184,6 +9263,20 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // a colour change cannot quietly drop a language the site has — the
           // same reason `lang`, `mode` and the logo are read here.
           langs: extraLangs.length ? { extra: extraLangs, routes: primaryRoutes } : undefined,
+          // THE COMPONENTS THE KIT DOES NOT HAVE, re-sent on EVERY publish.
+          //
+          // This is the half that makes the feature survivable rather than a
+          // time bomb: every cheap edit rebuilds the site from its stored source,
+          // and a page importing `@/routes/-parts/x` with no `x` in the payload
+          // does not compile. So a build that wrote a component and a spine that
+          // does not re-send it means the customer's NEXT typo fix takes the site
+          // down — the same shape as the tab icon below, which was read here and
+          // never put on the wire, except that this one fails the build instead
+          // of quietly dropping a mark.
+          //
+          // `undefined` for every site that has none, which is every site built
+          // before 2026-08-29 — byte-identical to the request this sent before.
+          parts: siteParts || undefined,
           logo,
           // THE TAB ICON, for the same reason as `logo` one line up — and it
           // was read here and never put on the wire.
@@ -9478,13 +9571,16 @@ async function siteOgImage(env, slug, dist) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
   // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
   // runs the compile dep TWICE — one page swapped for a stub — and a cache that
   // lived inside the dep would pay a second Haiku call for strings answered
   // seconds earlier. Keyed by the English string, so the second call finds
   // everything but the stub's own words already there.
   const langCache = langStrings && typeof langStrings === "object" ? { ...langStrings } : {};
+  // THE COMPONENTS THIS BUILD WROTE, filled in by the compile dep and read by the
+  // publish below it. Empty is the honest default and the ordinary case.
+  let partsBuilt = [];
   // ── THE FAMILIES THE MODEL'S OWN STYLESHEET NAMES ──────────────────────────
   //
   // A face that is not one of the 24 installed is DOWNLOADED here, before any
@@ -9680,7 +9776,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         // zero imports across the 100-site corpus. Only this call site knows it;
         // the edit and addon rungs pass no plan, and their `kind: ""` keeps the
         // catalogue, which is the safe direction.
-        return await generateSitePages(env, briefWithLayout({ brief, plan, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
+        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
       } catch (e) {
         // THE SENTINEL IS READ BEFORE ANY FAILURE HANDLING, which is not
         // tidiness: `retryHere` would read this as a failure that spent nothing
@@ -9718,7 +9814,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       try { mark?.("img", { viaContainer: genPath.via === "container" ? 1 : 0 }); } catch { /* a trace must never break a build */ }
       return buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve, clock: budget });
     },
-    compile: async (pages) => {
+    compile: async (pages, builtParts) => {
+      // REMEMBERED FOR THE STORE BELOW. The publish path writes these to R2 so
+      // the spine can re-send them forever; it cannot reach into this closure, so
+      // the last thing actually sent to the container is captured here. Assigned
+      // on EVERY call, including a salvage retry, so what is stored is what was
+      // compiled rather than what the first attempt tried.
+      partsBuilt = Array.isArray(builtParts) ? builtParts : [];
       // THE CONTAINER'S TURN IS BEGINNING — see the `gen` mark. `compileWithRetry`
       // can call this dep twice and salvage a third time, so this mark moves; that
       // is the point rather than a defect, since a build that sat at `compile` for
@@ -9796,6 +9898,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ files, slug, title: brand,
+          // THE COMPONENTS THE MODEL JUST WROTE, straight off the `write_pages`
+          // answer. NOT read from R2 here, which is the difference between this
+          // call and the spine's: on a first build nothing is stored yet, and on
+          // a revise the model has just been handed the stored declarations and
+          // returned the components for them. R2 is where they go AFTER this
+          // compiles, so the spine can re-send them on every later publish.
+          parts: (builtParts && builtParts.length) ? builtParts : undefined,
           // WHAT LANGUAGE THE PAGES ARE IN, from the designer's reading of the
           // brief. `<html lang>` was hardcoded `en` on every site the platform
           // has ever published; the container refuses anything that is not a
@@ -10003,6 +10112,17 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // next revise its anchor", which is accurate about the consequence and
       // gave the caller no way to know.
       sourceStored = await saveSiteSource(env, slug, pages);
+      // AND THE COMPONENTS WRITTEN FOR THIS SITE, beside the pages and for the
+      // same reason one line up — except that losing THESE does not cost the next
+      // edit its anchor, it breaks the site: `recompileAndPublish` re-sends what
+      // is stored here on every cheap edit, and a page importing a component that
+      // is not sent does not compile. Written unconditionally, including an empty
+      // list, so a revise that removed the last one is recorded as having removed
+      // it rather than resurrecting it forever.
+      //
+      // AFTER the publish and never allowed to fail it, exactly as the source
+      // store above: the site is already live at this point.
+      await saveSiteParts(env, slug, partsBuilt);
       // AND THE SITE'S OWN WORKER, LAST — after the files it serves are all in
       // R2. See `putSiteWorker`: the dispatch answers ahead of the static read,
       // so a script that lands first renders a document naming assets that have
@@ -12497,6 +12617,23 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             // concept the platform no longer has is one somebody eventually
             // reads as still meaning something.
             plan: normalizePlan(Object.fromEntries(PLAN_KEYS.map((k) => [k, look[k]]))),
+            // ── THE COMPONENTS THE KIT HAD NOT GOT ──────────────────────────
+            //
+            // A NAMED HOP AND NOT A PLAN KEY, deliberately, and the reasoning is
+            // worth keeping because the plan set is the obvious home and is
+            // wrong. `PLAN_REQUIRED` is `PLAN_KEYS` itself — every plan axis is
+            // compelled, because every one is a line of the directive — and
+            // `tsx` is OPTIONAL by the owner's call ("put it as optional"), so
+            // joining that set would compel a model to declare missing
+            // components on every build, which is a quota, and this field's
+            // whole worth is that the ordinary answer is none.
+            //
+            // WHICH MEANS THIS IS EXACTLY THE HOP THE COMMENT ABOVE WARNS
+            // ABOUT, so it is asserted end to end rather than trusted: see
+            // `test/site-tsx.test.mjs`, which walks design field → stored look →
+            // this payload → the page directive → `write_pages`. `three` is what
+            // this looks like when nobody writes that test.
+            tsx: Array.isArray(look.tsx) ? look.tsx : undefined,
             // Out of the same merged look as the other five, so a revise that
             // does not mention the language keeps it — the field is on
             // `EDIT_FIELDS`, which is what makes "absent means unchanged" true

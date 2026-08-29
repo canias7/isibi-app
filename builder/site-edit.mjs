@@ -108,7 +108,12 @@ import { cleanFavicon, readWordmark } from "./site-favicon.mjs";
 // makes the answer survive; it does NOT yet make a canvas appear on a page, and
 // that second hop (the page writer is handed the plan, and `three` is not a plan
 // key) is still missing and is named in CLAUDE.md's backlog.
-export const EDIT_FIELDS = ["brand", "description", "theme", "wordmark", "favicon", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs", "behavior", "three"];
+// …and `tsx` (2026-08-29, same day): the components the kit had not got and this
+// site had written for it. Stored for the reason every plan axis is — the
+// declaration was made once, for this site, and a revise that is not shown it
+// has every reason to answer afresh, which here means forgetting a hand-written
+// component the page still imports.
+export const EDIT_FIELDS = ["brand", "description", "theme", "wordmark", "favicon", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs", "behavior", "three", "tsx"];
 
 /**
  * Nothing is required of an EDIT.
@@ -314,6 +319,25 @@ export function currentStateNote(current) {
   // is here at all because `three` joined `EDIT_FIELDS` the same day, which is
   // what makes it storable and therefore what makes it re-answerable.
   add("3D scene", c.three);
+  // ── AND THE COMPONENTS WRITTEN FOR THIS SITE ────────────────────────────────
+  //
+  // The sharpest case on this whole list, because a re-answer here does not
+  // merely churn: the pages IMPORT these by name. A designer not shown that the
+  // site has a `chair-turner` re-answers `tsx` without it, the declaration is
+  // replaced, the component stops being written — and the page that imports it
+  // stops compiling. A `layout:` line going stale costs taste; this costs the
+  // build.
+  //
+  // NAME AND WHAT IT IS, never a count, for the reason the photographs are
+  // spelled out: the sentences are the only thing a model can hand back.
+  if (Array.isArray(c.tsx) && c.tsx.length) {
+    const built = c.tsx
+      .filter((t) => t && typeof t === "object" && !Array.isArray(t))
+      .map((t) => [str(t.name), str(t.does)])
+      .filter(([name, does]) => name && does)
+      .map(([name, does]) => name + " — " + does);
+    if (built.length) lines.push("components written for this site (its pages import these by name): " + built.join(" | ").slice(0, 700));
+  }
   const tables = Array.isArray(c.tables) ? c.tables.map(str).filter(Boolean).slice(0, 24) : [];
   if (tables.length) lines.push("tables it already has: " + tables.join(", "));
   // A FIRST BUILD ADDS NOTHING AT ALL, which is why this is decided AFTER the

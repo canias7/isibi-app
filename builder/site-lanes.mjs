@@ -152,6 +152,12 @@ export const LANE_LAYER = {
   // it is a page rewrite, exactly as `shape` and `components` are, and for the
   // same reason: nothing downstream of a cheap edit reads a scene.
   three: "page",
+  // A COMPONENT WRITTEN FOR THIS SITE IS SOURCE, exactly as a scene is, so
+  // changing one is a page rewrite. Its OWN entry rather than `elsewhere:
+  // "plan"` — the module refuses that at load time for anything outside
+  // `PLAN_KEYS`, and `tsx` is deliberately outside it: every plan axis is
+  // compelled, and this field's whole worth is that the ordinary answer is none.
+  tsx: "page",
   action: "nav",
 };
 
@@ -440,6 +446,21 @@ const LANES = {
   three: {
     hint: "The 3D or WebGL element on the page — what the scene shows, how it moves, whether there is one at all.",
     elsewhere: "three",
+  },
+
+  // A COMPONENT WRITTEN FOR THIS SITE, so changing it is changing CODE — the
+  // `page` rung, exactly as `components` and `shape` are, and for the same
+  // reason: what a customer wants changed is the thing on the page, and the
+  // thing on the page is source. There is no stored value a recompile could
+  // re-read into a different component.
+  //
+  // THE DECLARATION IS STILL STORED (`EDIT_FIELDS`), which is not a
+  // contradiction: the rung that acts is `page`, and what the stored list buys
+  // is that a revise about a phone number cannot make the site forget it had a
+  // hand-written seat map.
+  tsx: {
+    hint: "A part of the page that was BUILT for this site rather than picked from the kit — changing what it does, what it shows, or taking it out.",
+    elsewhere: "tsx",
   },
 
   /* ---- the three that are still their own work ---- */

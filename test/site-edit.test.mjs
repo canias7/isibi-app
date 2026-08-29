@@ -56,6 +56,11 @@ const STORED = {
   // ordinary answer for a site that HAS one — a string, which is the only shape
   // the field has.
   three: "a slowly turning wireframe of the chair behind the opening headline",
+  // The components the kit had not got. A real entry rather than markers, for
+  // the reason the theme and the favicon are real registry/valid values: these
+  // loops measure the merge under test, and a shape it would refuse produces a
+  // phantom "nothing moved".
+  tsx: [{ name: "chair-turner", does: "the chair, turnable by dragging", props: "model: string, compact?: boolean" }],
 };
 
 /* ── absent means unchanged ─────────────────────────────────────────────── */
@@ -345,6 +350,11 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
     behavior: [{ control: "a control", on: "pressing it", does: "value-of-behavior", affects: "the list", result: "rows drop to four", source: "custom" }],
     // A plain string, so a bare marker exercises it exactly as `brand` does.
     three: "value-of-three",
+    // The marker sits in `does` for the same reason it does for `behavior` and
+    // `images` above: the note prints `name — does`, so a marker in the name
+    // alone would pass while the sentence the model has to hand back unchanged
+    // was never shown.
+    tsx: [{ name: "a-part", does: "value-of-tsx", props: "rows: Row[]" }],
   };
   assert.deepEqual(Object.keys(SAMPLE).sort(), [...EDIT_FIELDS].sort(),
     "a field was added to EDIT_FIELDS without a sample of its shape — this guard would stop exercising it");

@@ -1507,6 +1507,53 @@ export const SITE_PAGES_TOOL = {
           required: ["path", "source"],
         },
       },
+      // ── COMPONENTS, NOT ROUTES, AND THE SEPARATION IS THE WHOLE POINT ──────
+      //
+      // These could have ridden in `pages` — the container writes both under
+      // `src/routes/` — and that would have been wrong in four places at once,
+      // all of them silent: `validatePages` caps the page count, the nav
+      // manifest is built from the page list, `sitemap.xml` publishes it, and
+      // salvage stubs a page that will not compile. A component landing in any
+      // of those is a component in the customer's navigation and in Google.
+      //
+      // THE `-` PREFIX IS WHAT MAKES THEM NOT ROUTES, and it is pinned in our own
+      // vite config rather than borrowed: `routeFileIgnorePrefix` defaults to
+      // "-" in @tanstack/router-generator, and a default in somebody else's
+      // package is a rule that can move without telling us. Set explicitly, a
+      // rename upstream is a build failure instead of a component published as a
+      // public page.
+      //
+      // AND `src/routes/` IS WHERE THEY MUST LIVE for a reason that has nothing
+      // to do with routing: `resetRoutes` in the container wipes `src/routes` and
+      // NOTHING ELSE between builds. This container is long-lived and shared, so
+      // a component written to `src/components` would be in every later
+      // customer's build — its own comment says exactly that.
+      parts: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description:
+                "The component's kebab-case name, exactly as it was given to you in \"Components to build\" — " +
+                "the page imports it by that name, so a different one here is a page that does not compile.",
+            },
+            source: {
+              type: "string",
+              description:
+                "The complete .tsx source for the component, with a default export. Stay under " + MAX_PAGE_CHARS +
+                " characters.",
+            },
+          },
+          required: ["name", "source"],
+        },
+        description:
+          "THE COMPONENTS THE KIT DOES NOT HAVE, written for this site. Return one entry for every component " +
+          "listed under \"Components to build\" and none that was not — this is not a place to add parts you " +
+          "thought of yourself; a component nothing imports is dead weight in the bundle.\n" +
+          "Leave this out entirely when nothing was asked for, which is nearly every build.",
+      },
       remove: {
         type: "array",
         items: { type: "string" },
@@ -1889,7 +1936,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -1921,8 +1968,52 @@ export function briefWithLayout({ brief, plan, images } = {}) {
   // before this existed.
   const api = siteComponentApi(plan && plan.components);
   if (api) parts.push(api);
+  // AND THE COMPONENTS THE KIT HAD NOT GOT, directly after the kit's own
+  // signatures — the two blocks answer one question ("what may I build from"),
+  // so they are read together or the second reads as unrelated.
+  const built = tsxDirective(tsx);
+  if (built) parts.push(built);
   if (images != null) parts.push(imageDirective(images));
   return parts.join("\n\n");
+}
+
+/**
+ * THE COMPONENTS THIS SITE HAS TO HAVE WRITTEN FOR IT.
+ *
+ * The design step declared them (`TSX_FIELD`) after searching the kit and coming
+ * up short; this is the block that turns a declaration into an instruction, and
+ * without it the field is decided and nothing happens — the `three` shape.
+ *
+ * IT STATES THE IMPORT PATH RATHER THAN LEAVING IT TO BE INFERRED. The files land
+ * in `src/routes/-parts/`, which is not where any kit component lives, and a
+ * model that guesses `@/components/ui/<name>` writes a page that does not
+ * compile. The `-` prefix is what keeps them from becoming ROUTES — see the note
+ * on `parts` in `SITE_PAGES_TOOL`.
+ *
+ * EMPTY STRING WHEN THERE ARE NONE, so a build that declared nothing sends
+ * exactly the request it sent before this existed. That is the overwhelming
+ * majority of builds.
+ */
+export function tsxDirective(tsx) {
+  const list = Array.isArray(tsx) ? tsx : [];
+  const rows = list
+    .filter((t) => t && typeof t === "object" && !Array.isArray(t))
+    .map((t) => [String(t.name || "").trim(), String(t.does || "").trim(), String(t.props || "").trim()])
+    .filter(([name, does]) => name && does);
+  if (!rows.length) return "";
+  return [
+    "## Components to build",
+    "",
+    "The kit does not have these and this site needs them, so you write them. Return each one in `parts`,",
+    "not in `pages` — a file in `parts` is a component, never a route.",
+    "",
+    ...rows.map(([name, does, props]) =>
+      `- **${name}** — ${does}${props ? `\n  Props: ${props}` : ""}\n  Import it as \`@/routes/-parts/${name}\`.`),
+    "",
+    "Each is a normal React component in TypeScript. Paint with the same kit tokens every other component",
+    "uses so it belongs to the theme, import nothing that is not already a dependency, and export it as the",
+    "default. A component you list here and never import from a page is one nobody will ever see.",
+  ].join("\n");
 }
 
 /* THE PER-TRADE EXEMPLAR IS GONE (owner's call, 2026-08-20).
@@ -2313,7 +2404,39 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
   }
 
   const notes = (input && typeof input.notes === "string") ? input.notes.trim().slice(0, 600) : "";
-  return { pages, notes, problems };
+  // ── THE COMPONENTS THE KIT DOES NOT HAVE ────────────────────────────────────
+  //
+  // VALIDATED HERE AND RETURNED APART FROM `pages`, never folded into them. They
+  // are not routes: the page cap above them does not apply, `index.tsx` is not
+  // required of them, the dead-href scan is not about them, and salvage must not
+  // stub one. Folding them in would have made all four wrong at once, silently.
+  //
+  // THE NAME IS THE WHOLE VALIDATION SURFACE, because the container turns a name
+  // into a path and never takes one. Anything that is not a plain kebab-case
+  // name is refused HERE with a problem the customer can read, rather than in
+  // the container where the only symptom is a page importing a module that was
+  // never written.
+  const parts = [];
+  const partSeen = new Set();
+  for (const t of (input && Array.isArray(input.parts)) ? input.parts : []) {
+    const name = t && typeof t.name === "string" ? t.name.trim().toLowerCase() : "";
+    const source = t && typeof t.source === "string" ? t.source : "";
+    if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) {
+      problems.push('"' + String((t && t.name) || "?").slice(0, 60) + '" is not a usable component name, so it was not written.');
+      continue;
+    }
+    // AN EMPTY ONE IS A PROBLEM, NOT A SKIP — the `pages` lesson four screens up,
+    // and it bites harder here: a page importing the component still compiles
+    // against nothing and the build dies blaming the page.
+    if (!source.trim()) {
+      problems.push('The component "' + name + '" was written with no code in it.');
+      continue;
+    }
+    if (partSeen.has(name)) { problems.push('The component "' + name + '" was written twice; the second was ignored.'); continue; }
+    partSeen.add(name);
+    parts.push({ name, source });
+  }
+  return { pages, notes, problems, parts };
 }
 
 // Reads the generated source for the mistakes that compile cleanly and then fail

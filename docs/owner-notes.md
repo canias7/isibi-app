@@ -148,7 +148,7 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ## Open — waiting on you
 
-**0b. NEXT: a TSX step that GENERATES a component the kit has not got** (owner,
+**0b. DONE 2026-08-29: a TSX step that generates a component the kit has not got** (owner,
 2026-08-29: *"what if customer wants something that we dont have in our library,
 make a step for that, a tsx step that generates stuff, put it as optional, and
 its gotta be after the components step… i know is expensive but well"*). Not
@@ -158,15 +158,30 @@ kit cannot express. **Optional, and immediately after `components`** — your ca
 on the position, and it is also the right one, since the field only means
 anything once the model has tried to find what it needs and failed.
 
-The open question, and it changes the size of the job: does the design step
-**declare** the missing component (name, what it does, its props) and leave the
-page-writing step to author it, or does it **write the TSX source itself**?
-"Generates stuff" and "I know it's expensive" both read as the second. That is
-the stronger feature — a real file in the kit, importable, compiled, and there
-for later edits — and it is the one that needs care, because the design call's
-output grows a lot and `tsc` has to compile whatever comes back. Salvage already
-replaces a page that will not compile; a component that will not compile is a new
-case.
+**You chose: the design step declares it, the page step writes it.** Same split as
+the photographs — the design decides the site needs one and what it is, another
+step makes it. Cheaper too: the design call answers 22 fields under a ten-minute
+cap, while the page call streams and has no clock, and the default builder model
+is Grok, which is about three times slower writing code.
+
+**Two things I found before building, both of which would have bitten:**
+
+- **The build container is shared between customers.** It wipes one directory
+  between builds — the pages — and nothing else. So the obvious version of this,
+  dropping the new component into the kit folder, would have left one customer's
+  component sitting in everybody else's site. The components go somewhere that
+  *is* wiped, and are named so the site never publishes them as a page.
+- **Your cheap edits rebuild the site from what is stored.** A page that imports a
+  component the rebuild does not send does not compile — so without storing them,
+  the first typo fix after a build would have taken the site down. They are stored
+  and re-sent on every publish. The end-to-end test caught a missing piece of
+  exactly this while I was writing it.
+
+**What it costs:** the design call goes from 89,195 to 91,232 characters, and the
+field is optional and absent on almost every site, so an ordinary build pays
+nothing for it. Cap of three, and the wording tells the model to search the kit
+first and say what it searched for — a component we build that the kit already
+had is the expensive mistake here.
 
 **0a. DONE 2026-08-29: three.js and WebGL as OPTIONAL design fields** (owner:
 *"we are adding more tools, as optional — three.js and webgl"*). Shipped, then

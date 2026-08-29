@@ -455,7 +455,23 @@ test("THE BUILD PATH TRANSLATES, AND ONLY THEN SENDS THE LANGUAGES", () => {
   // `langs` but the PAIRING: the translated pages join `files` and `langs`
   // joins the payload in the same request, or neither.
   const build = worker.slice(worker.indexOf("async function buildAndPublishPages"));
-  const dep = build.slice(build.indexOf("compile: async (pages)"), build.indexOf("http://build/build"));
+  // ── BOTH LANDMARKS ASSERTED BEFORE THE SLICE (2026-08-29) ───────────────────
+  //
+  // This anchored on the literal `compile: async (pages)` and went red the day an
+  // honest second argument arrived (`builtParts`, the components the kit does not
+  // have). `indexOf` answered -1, `slice(-1, …)` gave `""`, and every assertion
+  // below passed over an empty window while reporting that the build path had
+  // stopped resolving languages — which nobody had touched. Two of this repo's
+  // recorded traps in one line: a guard pinned to a SPELLING, and a window whose
+  // landmark can silently go missing.
+  //
+  // Anchored on the property instead: the dep exists and takes the pages. An
+  // argument added after that is somebody else's business.
+  const depAt = build.indexOf("compile: async (pages");
+  const reqAt = build.indexOf("http://build/build");
+  assert.ok(depAt > 0, "the build path's compile dep is gone, so this window would scan nothing");
+  assert.ok(reqAt > depAt, "the container request no longer follows the compile dep — the window is inside out");
+  const dep = build.slice(depAt, reqAt);
   // The translation runs BEFORE the request is built — same resolvers as the
   // spine, into the same `files` map the payload carries.
   assert.match(dep, /resolveLangs\(lang \|\| "en", extraLangs/,

@@ -649,6 +649,12 @@ export function salvageNote(stubbed) {
  */
 export async function publishPages(deps, { spec, slug, priorUsage, livePages } = {}) {
   const out = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
+  // THE COMPONENTS THE KIT DOES NOT HAVE, filled in when the tool answer is
+  // validated below and read by `compile` above it. Declared HERE, at the top of
+  // the function, because `compile` is defined before `validatePages` runs and
+  // closes over this — an empty list until there is an answer, which is exactly
+  // right for the placeholder path, where there is no answer and never will be.
+  let sitePartsForBuild = [];
 
   // WHAT THE REPAIR PASS SPENT, collected here so it reaches the ONE
   // `pageCredits` call that prices this build. It is variadic precisely so
@@ -735,7 +741,11 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     out.builds = (out.builds || 0) + 1;
     const t0 = Date.now();
     let bd;
-    try { bd = await deps.compile(pages); }
+    // THE COMPONENTS RIDE BESIDE THE PAGES AND NEVER INSIDE THEM. Constant
+    // across a retry and across salvage — a stubbed page does not change which
+    // components the site has — so they are read off `v` rather than threaded
+    // through every caller.
+    try { bd = await deps.compile(pages, sitePartsForBuild); }
     catch (e) { bd = { ok: false, stage: "build", error: "the build service is unreachable: " + String((e && e.message) || e).slice(0, 200) }; }
     out.buildMs += Date.now() - t0;
     // THE CONTAINER'S OWN SPLIT, carried through rather than discarded. `buildMs`
@@ -995,6 +1005,10 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
   };
 
   const v = validatePages(gen.input);
+  // BEFORE THE `!v.pages.length` REFUSAL BELOW, so a build that is about to fail
+  // still carries what it wrote — the refusal returns, but `out.problems` is the
+  // only record of a badly-named component and this keeps the two in one place.
+  sitePartsForBuild = v.parts || [];
   if (!v.pages.length) {
     // THE ONE BRANCH THAT THREW ITS REASONS AWAY. `validatePages` works out
     // exactly why each page was refused — a bad path, a duplicate, an empty

@@ -1096,6 +1096,84 @@ export const IMAGES_FIELD = {
 };
 
 /**
+ * WHAT THE KIT HAS NOT GOT (owner's call, 2026-08-29: "what if customer wants
+ * something that we dont have in our library, make a step for that, a tsx step
+ * that generates stuff, put it as optional, and its gotta be after the
+ * components step — if the component step didn't find the component you generate
+ * it. i know is expensive but well").
+ *
+ * THE ESCAPE HATCH FOR A 2,112-COMPONENT KIT. `components` is a manifest picked
+ * FROM the kit, so until now a brief needing something the kit cannot express had
+ * exactly two outcomes, both silent: the nearest component wearing the wrong job,
+ * or the page writer inventing markup inline where nothing can reuse or edit it.
+ *
+ * IT DECLARES; IT DOES NOT WRITE THE SOURCE (owner's call, asked directly). The
+ * same division as `images`: this decides that a component is needed and what it
+ * is, and the step that writes code writes it. Three reasons it is the better
+ * half of that fork, and they are all about WHICH CALL: the design call answers
+ * 21 fields in one shot under a ten-minute cap, the page call streams and has no
+ * clock, and the default builder model is Grok — chosen for cost, ~3x slower
+ * writing code. Component source in the design call is the one place all three
+ * meet.
+ *
+ * IMMEDIATELY AFTER `components`, AND THAT IS THE OWNER'S POSITION AND ALSO THE
+ * RIGHT ONE. Property order is generation order, so this field is answered by a
+ * model that has just tried to find what it needs in the kit and failed. Put it
+ * earlier and it is a wish list written before the search; later and the plan has
+ * already been arranged around components that do not exist.
+ *
+ * OPTIONAL, AND ABSENT IS THE ORDINARY ANSWER. The kit covers the overwhelming
+ * majority of small-business sites, and a build that answers nothing here behaves
+ * exactly as the platform did before this field existed.
+ */
+export const MAX_TSX = 3;
+
+export const TSX_ITEM = {
+  type: "object",
+  properties: {
+    name: {
+      type: "string",
+      description:
+        "A kebab-case name for the component, as a file would be called: \"seat-map\", \"tide-clock\", " +
+        "\"bin-collection-calendar\". It must NOT be the name of a component that already exists in the kit — " +
+        "if the kit has it, name it in `components` instead and leave it out of here.",
+    },
+    does: {
+      type: "string",
+      description:
+        "What this component IS and what it shows, in one or two sentences, and — briefly — what the kit " +
+        "could not do. The second half is the part that matters: \"a data-table with a date column\" is a " +
+        "component the kit already has, and saying so out loud is how you catch that before it is built.",
+    },
+    props: {
+      type: "string",
+      description:
+        "The props it takes and their types, as one line: \"rows: Booking[], onPick(id: string), " +
+        "compact?: boolean\". The step that writes the page reads THIS to call the component, so a prop " +
+        "missing here is one the page cannot pass.",
+    },
+  },
+  required: ["name", "does", "props"],
+};
+
+export const TSX_FIELD = {
+  type: "array",
+  items: TSX_ITEM,
+  description:
+    "COMPONENTS THE KIT HAS NOT GOT AND THIS SITE NEEDS. You have just picked from the kit; anything the brief " +
+    "asks for that you could NOT find a component for goes here, and it will be written for this site.\n" +
+    "OMIT THIS FIELD ENTIRELY unless the kit genuinely fell short — that is the right answer for nearly every " +
+    "site, and a kit component you have to bend slightly is still the better answer than a new one. Each entry " +
+    "is real code somebody has to write, compile and maintain.\n" +
+    "SEARCH FIRST AND SAY WHAT YOU SEARCHED FOR. The kit is 2,112 components and its names are not always the " +
+    "obvious ones — a \"seat picker\" may be there as a grid, a \"price ladder\" as a tier table. An entry for " +
+    "something the kit already has is the most expensive mistake available here: it is paid for, written, and " +
+    "worse than the component it duplicates.\n" +
+    `At most ${MAX_TSX}. This is a ceiling and not a number to reach; one is already unusual, and a site asking ` +
+    "for three is a site whose brief should probably have been read as something else.",
+};
+
+/**
  * WHAT EVERY INTERACTIVE THING ON THE PAGE DOES (owner's call, 2026-08-29:
  * "update only the frontend design step to plan behavior").
  *

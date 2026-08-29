@@ -137,18 +137,20 @@ refunds if it refuses.
 
 ## What the design call decides
 
-`design_schema` is one tool, **89,195 characters**, in the cached block. Property
-order IS generation order. **21 properties, 15 required**; a first build sends 20
+`design_schema` is one tool, **91,232 characters**, in the cached block. Property
+order IS generation order. **22 properties, 15 required**; a first build sends 21
 of them (14 required).
 
 **The order, measured by evaluating the tool rather than reading it** — the list
 below drifted twice before, so re-derive it, don't trust this line:
 
 > `brand` · `slug` · `description` · `kind` · `purpose` · `pages` · `components` ·
-> `theme` · `wordmark` · `favicon` · `shape` · `images` · `css` · `backend` ·
-> `action` · `lang` · `langs` · `three` · `behavior` · `needsWeb` · `webQueries`
+> `tsx` · `theme` · `wordmark` · `favicon` · `shape` · `images` · `css` ·
+> `backend` · `action` · `lang` · `langs` · `three` · `behavior` · `needsWeb` ·
+> `webQueries`
 
-Only `css`, `lang`, `langs`, `three`, `needsWeb` and `webQueries` are optional.
+Only `tsx`, `css`, `lang`, `langs`, `three`, `needsWeb` and `webQueries` are
+optional.
 **`seeds` and `share` are NOT fields** — `seeds` came off on 2026-08-23 and
 `share` never existed (the share image is chosen at publish time, not designed).
 
@@ -191,6 +193,29 @@ Only `css`, `lang`, `langs`, `three`, `needsWeb` and `webQueries` are optional.
   language the site is also offered in. **`needsWeb` / `webQueries`** — whether
   writing this site's copy needs facts the model may not have, and the 1–3
   searches to run if so.
+- **`tsx`** (2026-08-29, owner: *"what if customer wants something that we dont
+  have in our library… a tsx step that generates stuff… its gotta be after the
+  components step"*) — **the escape hatch for the 2,112-component kit.** Answered
+  IMMEDIATELY after `components`, by a model that has just searched the kit and
+  come up short. **Optional; absent is the ordinary answer.** Each entry is
+  `name` · `does` (and what the kit could not do) · `props`.
+  **It DECLARES; the page step writes the source** — the owner's call when asked
+  directly, and the `images` division: the design call answers 22 fields under a
+  ten-minute cap, the page call streams and has no clock, and the default builder
+  model is Grok, ~3× slower writing code.
+  **The files land in `src/routes/-parts/<name>.tsx`, and both halves of that are
+  load-bearing.** Under `src/routes` because `resetRoutes` wipes that directory
+  and *nothing else* between builds, and the container is long-lived and shared —
+  anywhere else is in the next customer's site. Prefixed `-` because that is what
+  keeps a component from being published as a route, **pinned as
+  `routeFileIgnorePrefix` in our own vite config** rather than inherited from
+  @tanstack/router-generator's default.
+  `write_pages` returns them in **`parts`, never in `pages`** — a component in the
+  page list would be counted against the page cap, put in the nav manifest,
+  published in `sitemap.xml`, and stubbed by salvage.
+  **The spine re-sends them on every publish** (`source/<slug>/parts.json`), which
+  is not an optimisation: a page importing a component that is not sent does not
+  compile, so without it the first typo fix after a build takes the site down.
 - **`three`** — a 3D/WebGL element, optional the way `css` is, absent on nearly
   every site. **Decided and stored; it does NOT yet reach the page writer** — see
   the backlog.
@@ -210,7 +235,7 @@ Only `css`, `lang`, `langs`, `three`, `needsWeb` and `webQueries` are optional.
 - **`backend`** (tables, functions, apis, jobs) — the ONLY property dropped from
   a first build. `FRONTEND_SCHEMA_TOOL` derives itself by destructuring `backend`
   out and filtering it from `required`, so the two can never disagree. It is
-  **29,189 of the 89,195 — 32.7%** off the wire on every first build.
+  **29,189 of the 91,232 — 32.0%** off the wire on every first build.
 
 **Every design decision is anchored on a revise.** `EDIT_FIELDS` + `mergeLook`:
 absent means unchanged, so a colour change cannot re-roll the theme.
@@ -304,14 +329,14 @@ customer ──► pick_lanes ──► edit_site ──► publish
              17 names       0 required
 ```
 
-**Nineteen lanes and ALL BUT ONE act** (owner, 2026-08-29: *"i need all the 17
+**Twenty lanes and ALL BUT ONE act** (owner, 2026-08-29: *"i need all the 17
 lanes acting"* — seventeen then, nineteen now that `three` and `behavior` have
 arrived). `pick_lanes` runs ABOVE the layer dispatch, so it is the front door for
-all nineteen and what it names decides which layer runs.
+all twenty and what it names decides which layer runs.
 
 **"Acting" is a group name, not a verdict.** `ACTING_LANES` in the code means
 *the ones this module edits itself*; the dispatched, verb and escalate lanes all
-do real work too, just on another rung. **18 of 19 act in the plain sense — only
+do real work too, just on another rung. **19 of 20 act in the plain sense — only
 `slug` does nothing.**
 
 - **9 act here** — `css theme brand description wordmark favicon lang langs
@@ -323,8 +348,8 @@ do real work too, just on another rung. **18 of 19 act in the plain sense — on
   missing from that list bills and changes nothing, silently, at both ends.
   Asserted in `test/edit-lanes.test.mjs`; `css` is excluded by name because the
   stylesheet has its own `_meta` key.
-- **7 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
-  `shape`/`components`/`purpose`/`three`→`page`. Nothing reads a STORED plan (the
+- **8 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
+  `shape`/`components`/`purpose`/`three`/`tsx`→`page`. Nothing reads a STORED plan (the
   container gets the pages, the theme and the stylesheet), so `shape` is not a
   value to save, it is a job for the rung that rewrites pages. All of them already
   had cheap shipping implementations; nothing was missing but the wire.

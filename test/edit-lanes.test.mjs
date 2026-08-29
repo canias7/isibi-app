@@ -57,16 +57,18 @@ test("the two paths cover the same EIGHTEEN fields — asserted both ways", asyn
   // build with no lane is a part of a site the customer can never change again,
   // and a lane for a field the build stopped producing edits nothing. Neither
   // announces itself, so both directions are named.
-  // NINETEEN SINCE 2026-08-29 — `three` that morning ("we are adding more tools,
-  // as optional — three.js and webgl") and `behavior` that afternoon ("update
-  // only the frontend design step to plan behavior"), each arriving with its own
-  // lane in the same commit because of the two loops below.
+  // TWENTY SINCE 2026-08-29 — `three` that morning ("we are adding more tools,
+  // as optional — three.js and webgl"), `behavior` after it ("update only the
+  // frontend design step to plan behavior"), and `tsx` last ("what if customer
+  // wants something that we dont have in our library… a tsx step that generates
+  // stuff"). Each arrived with its own lane in the same commit, and it is the
+  // two loops below that made that non-optional rather than anyone remembering.
   // The COUNT is the weaker half and is here only so a new field is a decision
   // somebody makes on purpose; the two loops below are the property, and they
   // are what caught this one — a field with no lane is a part of a site the
   // customer could never change again.
-  assert.equal(designed.length, 19, "the design tool no longer yields nineteen editable fields: " + designed.join(","));
-  assert.equal(LANE_FIELDS.length, 19, "the edit path no longer has nineteen lanes: " + LANE_FIELDS.join(","));
+  assert.equal(designed.length, 20, "the design tool no longer yields twenty editable fields: " + designed.join(","));
+  assert.equal(LANE_FIELDS.length, 20, "the edit path no longer has twenty lanes: " + LANE_FIELDS.join(","));
   for (const k of designed) {
     assert.ok(LANE_FIELDS.includes(k), "the build can produce `" + k + "` and the edit path has no lane for it");
   }
@@ -357,6 +359,13 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
     // could re-read, the way the theme and the stylesheet are re-read. So it is
     // the page rung, for the same reason `shape` and `components` are.
     three: "page",
+    // A COMPONENT WRITTEN FOR THIS SITE IS SOURCE TOO (2026-08-29), so the same
+    // argument lands it on the same rung. It is NOT `elsewhere: "plan"` even
+    // though `page` is where the plan axes go: the module refuses that for
+    // anything outside `PLAN_KEYS` at load time, and `tsx` is outside it on
+    // purpose — every plan axis is compelled, and this field's whole worth is
+    // that the ordinary answer is none.
+    tsx: "page",
   };
   for (const [field, layer] of Object.entries(MAPPING)) {
     assert.equal(laneLayer(field), layer,
