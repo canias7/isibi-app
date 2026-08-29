@@ -6146,9 +6146,9 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    It sits at z-index 0 with the content above it, and is inert to the pointer,
    so it cannot come between a visitor and a card. ---- */
 .mkt-crt .gf-reel-panel{position:relative;isolation:isolate;overflow:hidden;
-  /* two thirds of the page, held to the right edge — the box is the thing that
-     is 2/3 now, and the strip simply fills it */
-  width:66%;margin-left:auto;margin-right:0;
+  /* the row's right column is already the two thirds, with the pipeline in the
+     third beside it — so the panel simply fills its column */
+  width:100%;
   border-radius:clamp(16px,1.6vw,24px);
   background:var(--paper);
   padding:clamp(1.1rem,2.6vh,1.7rem) 0;
@@ -6177,7 +6177,7 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)' opacity='.5'/%3E%3C/svg%3E")}
 /* everything real sits above the wash */
 .mkt-crt .gf-reel-head,.mkt-crt .gf-reel-swwrap,.mkt-crt .gf-reel{position:relative;z-index:1}
-.mkt-crt .gf-reel-head{max-width:1000px;margin:0 auto;padding:0 clamp(1.1rem,4vw,3rem);
+.mkt-crt .gf-reel-head{width:100%;margin:0 0 .2rem;padding:0;
   display:flex;flex-direction:column;align-items:center}
 .mkt-crt .gf-reel-h{font-family:'Caveat','Patrick Hand',cursive;font-weight:700;
   font-size:clamp(2rem,3.6vw,3.1rem);line-height:1.1;margin:0 0 .35rem;
@@ -6292,8 +6292,7 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    /mkt/reel1.mp4 and this becomes a strip like the other side. ---- */
 /* the switch sits over the STRIP, not over the page — same 66% box, same edge,
    so it stays with the thing it controls however wide the window is */
-.mkt-crt .gf-reel-swwrap{width:66%;margin-left:auto;margin-right:0;
-  display:flex;justify-content:center}
+.mkt-crt .gf-reel-swwrap{width:100%;display:flex;justify-content:center}
 .mkt-crt .gf-reel-switch{display:flex;align-items:center;gap:.35rem;margin:0 0 1.4rem;
   padding:.28rem;border-radius:999px;position:relative;width:max-content}
 .mkt-crt .gf-reel-switch::before{content:"";position:absolute;inset:0;border-radius:999px;
@@ -6319,3 +6318,49 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .gf-film .gf-reel-body{aspect-ratio:1728 / 720}
 .mkt-crt .gf-reel-vid{position:absolute;inset:0;width:100%;height:100%;
   object-fit:cover;border:0;display:block}
+
+/* ---- The pipeline (owner 2026-08-29, picked option A): a literal pipe drawn
+   down the left of the showcase, a valve at every stage, explaining how a site
+   actually gets built.
+
+   THE PIPE WALLS ARE ONE ELEMENT behind the whole list; each step draws only
+   its valve. The obvious way round — stations at fixed coordinates in one SVG
+   and labels at matching offsets in HTML — is two lists of the same positions,
+   and they drift the moment a line of text wraps. Here the wall cannot drift
+   from the stations because it does not know where they are. ---- */
+.mkt-crt .gf-reel-row{display:flex;align-items:flex-start;
+  gap:clamp(1rem,2.5vw,2.2rem);width:100%}
+.mkt-crt .gf-reel-right{flex:1 1 auto;min-width:0}
+.mkt-crt .gf-pipe{flex:0 0 clamp(280px,31%,420px);position:relative;
+  padding-top:.5rem}
+.mkt-crt .gf-pipe-h{font-family:'Caveat','Patrick Hand',cursive;font-weight:700;
+  font-size:clamp(1.5rem,2.2vw,2rem);line-height:1.1;margin:0 0 1.1rem .2rem;
+  color:var(--graphite)}
+.mkt-crt .gf-pipe-list{list-style:none;margin:0;padding:0;position:relative}
+/* the pipe itself: two ruled walls with graphite wash between them, running the
+   full height of however many steps there are */
+.mkt-crt .gf-pipe-list::before{content:"";position:absolute;z-index:0;
+  left:9px;top:6px;bottom:6px;width:40px;
+  border-left:2.2px solid var(--graphite);border-right:2.2px solid var(--graphite);
+  background:var(--gr-tint);filter:url(#pencilRough)}
+/* capped top and bottom, so it reads as a length of pipe and not a stray rule */
+.mkt-crt .gf-pipe-list::after{content:"";position:absolute;z-index:1;
+  left:2px;right:auto;top:0;width:54px;height:100%;pointer-events:none;
+  border-top:2.6px solid var(--graphite);border-bottom:2.6px solid var(--graphite);
+  filter:url(#pencilRough2)}
+.mkt-crt .gf-pipe-step{position:relative;z-index:2;display:flex;align-items:center;
+  gap:.85rem;min-height:clamp(52px,6.4vh,64px)}
+.mkt-crt .gf-pipe-valve{flex:0 0 58px;color:var(--graphite);display:block;
+  margin-left:-1px;filter:url(#pencilRough2)}
+.mkt-crt .gf-pipe-valve svg{display:block;width:58px;height:34px}
+.mkt-crt .gf-pipe-txt{min-width:0}
+.mkt-crt .gf-pipe-txt b{display:flex;align-items:baseline;gap:.5rem;
+  font-weight:400;font-size:1.06rem;color:var(--graphite);line-height:1.2}
+.mkt-crt .gf-pipe-txt b i{font-family:'Caveat','Patrick Hand',cursive;font-style:normal;
+  font-weight:700;font-size:1.15rem;color:var(--graphite-2);min-width:.9em}
+.mkt-crt .gf-pipe-txt small{display:block;font-size:.88rem;line-height:1.35;
+  color:var(--graphite-3);margin-top:.05rem}
+@media (max-width:900px){
+  .mkt-crt .gf-reel-row{flex-direction:column}
+  .mkt-crt .gf-pipe{flex:1 1 auto;width:100%;max-width:420px}
+}
