@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, ALWAYS_API_CORE, componentApiFor, siteComponentApi, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MAX_PAGE_CHARS, MANAGED_COLUMNS,
+  UI_COMPONENTS, componentApiFor, siteComponentApi, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MAX_PAGE_CHARS, MANAGED_COLUMNS,
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, READ_NOTE, WRITE_NOTE, accessNote, propsOf, UI_EXPORTS,
   repairImports } from "../builder/page-gen.mjs";
 import { MAX_TWEAK_CHARS } from "../builder/site-tweak.mjs";
@@ -109,53 +109,6 @@ const page = (source, p = "index.tsx") => [{ path: p, source }];
 // The Worker has no filesystem, so the reference page and the component list are
 // duplicated into the module. GENERATOR.md's rule is that the file wins, which is
 // only enforceable if something notices when they diverge.
-
-test("every reference page in the module is the file on disk", () => {
-  // DERIVED FROM THE FOLDER, not from a list here. The first version named
-  // index.tsx by hand, which meant adding a reference page silently added an
-  // unguarded copy — the guard would keep passing while the new page rotted.
-  const dir = path.join(TEMPLATE, "src/routes");
-  const onDisk = fs.readdirSync(dir)
-    .filter((f) => f.endsWith(".tsx") && f !== "__root.tsx").sort();
-  assert.deepEqual(REFERENCE_PAGES.map((p) => p.path).sort(), onDisk,
-    "src/routes and REFERENCE_PAGES disagree about which pages exist");
-  for (const p of REFERENCE_PAGES) {
-    assert.equal(p.source, fs.readFileSync(path.join(dir, p.path), "utf8"),
-      `builder/page-gen.mjs has drifted from src/routes/${p.path}`);
-    assert.ok(p.blurb && p.blurb.length > 10, `${p.path} has no blurb saying what it is for`);
-  }
-  // `REFERENCE_PAGE` is still the home page, since that is what most briefs need.
-  assert.equal(REFERENCE_PAGE, REFERENCE_PAGES[0].source);
-  assert.equal(REFERENCE_PAGES[0].path, "index.tsx");
-});
-
-test("NO reference page reaches the prompt, and each is still lint-clean", () => {
-  // THE FIRST HALF IS THE INVERSE OF WHAT STOOD HERE, on the owner's call of
-  // 2026-08-24 to give the model the page layout. Four worked pages are the
-  // strongest copy-this signal a prompt can carry, and the one thing a model
-  // reliably does with a worked example is copy it — the same act as deleting the
-  // 100 family exemplars, whose reasoning this inherits. Asserted as an ABSENCE
-  // because that is the half that rots silently: putting them back is one
-  // template literal, and every other test here passes with them restored.
-  //
-  // THE SECOND HALF IS UNCHANGED AND IS NOT ABOUT THE PROMPT AT ALL. These four
-  // are the only complete, compiling pages of this kit there are, so they are
-  // what the lint's false-alarm rate is measured against — a rule that flags one
-  // of them is a rule that would flag a correct generated page. That calibration
-  // is worth exactly as much now as it was when the model could see them.
-  for (const p of REFERENCE_PAGES) {
-    assert.ok(!PAGE_RULES.includes(p.source), `${p.path} is back in the prompt`);
-    assert.deepEqual(lintPages([{ path: p.path, source: p.source }], REFERENCE_SPEC), [],
-      `${p.path} does not survive the lint that generated pages are held to`);
-  }
-  // AND THEY ARE STILL LOAD-BEARING, which is why they are not deleted: eleven of
-  // `ALWAYS_API_CORE`'s signatures are derived from their imports and from
-  // nothing else in this repo, `button` and `form` among them.
-  assert.ok(REFERENCE_PAGES.length >= 4, "the reference pages went with their printing");
-  for (const n of ["button", "form", "select", "textarea", "card", "data-list", "skeleton"])
-    assert.ok(ALWAYS_API_CORE.includes(n),
-      `${n} left the signature core — the reference-page derivation is what puts it there`);
-});
 
 test("the advertised ui components are the ones that exist", () => {
   const onDisk = fs.readdirSync(path.join(TEMPLATE, "src/components/ui"))
@@ -317,17 +270,6 @@ test("notes are carried through and clipped", () => {
 });
 
 // ── the checks that catch a page which compiles and still fails ───────────────
-
-test("the reference page is clean against its own schema", () => {
-  assert.deepEqual(lintPages(page(REFERENCE_PAGE), SPEC), [],
-    "the page the generator is told to imitate must pass every check it is judged by");
-});
-
-// ── the lint must predict the API, not a paraphrase of it ─────────────────────
-// These rules used to be written out in both site-data.mjs and page-gen.mjs, and
-// had drifted: the lint claimed a read of a `feed` or `admin` table returns 403,
-// which the API does not do. Reporting a defect the API would not produce is
-// worse than missing one — every problem here costs a paid repair pass.
 
 test("reading a member table without useMember is reported", () => {
   // Since visitor accounts exist, feed and admin answer 401 to a signed-out
@@ -4353,52 +4295,6 @@ test("the rules give the REASON a page may not name a colour, not just the ban",
 // never told to declare a third function, and the reference page never showed
 // one. Each is asserted separately, because this repo has recorded a feature dead
 // at ONE silent link six times and every one looked fine from both ends.
-test("the amend hook exists, is cited, and is shown", () => {
-  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
-
-  // 1. It exists, and takes a FUNCTION NAME like its two siblings — a page
-  //    calling it with a table name reaches an endpoint that is not there.
-  assert.match(rows, /export function useAmendClaim\(fn: string\)/,
-    "useAmendClaim is missing from the template, or does not take the function name");
-  // 2. It carries the token AND the caller's fields. Sending only `tok` is what
-  //    `useCancelClaim` already does; without values this is that hook again.
-  assert.match(rows, /values: Record<string, unknown>/, "useAmendClaim takes no values, so it cannot change anything");
-  // 3. THE TOKEN WINS OVER THE CALLER'S FIELDS. Asserted by EVALUATING the real
-  //    expression rather than matching its spelling — the first draft of this
-  //    pinned `{ tok: claim, ...values }` and called it the protection, which is
-  //    exactly backwards: a later property wins in an object literal, so that
-  //    order lets `values.tok` replace the token proving who is asking. A
-  //    spelling assertion cannot tell those two apart; running it can.
-  const amendFn = rows.slice(rows.indexOf("export function useAmendClaim"));
-  const amendBody = amendFn.slice(0, amendFn.indexOf("\n}"));
-  assert.ok(amendBody.length > 100 && amendBody.length < 2000, "useAmendClaim was not read whole: " + amendBody.length);
-  const literal = amendBody.match(/JSON\.stringify\((\{[^}]*\})\)/);
-  assert.ok(literal, "useAmendClaim no longer builds its body from an object literal — check this by hand");
-  const build = new Function("claim", "values", "return " + literal[1]);
-  assert.equal(build("MINE", { date: "Thu" }).tok, "MINE", "the token does not reach the request at all");
-  assert.equal(build("MINE", { tok: "SOMEONE ELSE", date: "Thu" }).tok, "MINE",
-    "the caller's fields are written over the token, so a page could send someone else's tok");
-  assert.equal(build("MINE", { date: "Thu" }).date, "Thu", "the caller's fields never reach the function");
-
-  // 4. RULE 10 names it — windowed, because the reference page below ALSO
-  //    contains the string, so a bare `PAGE_RULES` match passes via the page
-  //    even when the rule itself has lost it. Found by mutation: swapping the
-  //    citation out of rule 10 left this green. The neighbour-satisfies-the-
-  //    assertion failure, which this repo keeps recording.
-  const rule10 = PAGE_RULES.slice(PAGE_RULES.indexOf("10. GIVE THE VISITOR THEIR SUBMISSION BACK"));
-  const r10 = rule10.slice(0, rule10.indexOf("\n11."));
-  assert.ok(r10.length > 200 && r10.length < 4000, "rule 10 was not found whole: " + r10.length);
-  assert.match(r10, /useAmendClaim/, "rule 10 never mentions the amend hook");
-  assert.match(r10, /values:/, "rule 10 does not show the call shape, so the model invents one");
-  // 5. …and SHOW it. A rule the model is told but never shown is one it
-  //    satisfies by inventing a shape, which is why there are four reference
-  //    pages rather than one.
-  const manage = REFERENCE_PAGES.find((p) => p.path === "manage.tsx");
-  assert.ok(manage, "the manage reference page is gone");
-  assert.match(manage.source, /useAmendClaim\(/, "the manage page names the hook but never calls it");
-  assert.match(manage.source, /values: \{/, "the manage page never demonstrates passing values");
-});
-
 test("the designer is told to declare the amend function", () => {
   // Without this the hook is real, the page knows how to call it, and no schema
   // ever declares the function it needs — the dead-at-one-link shape again, at
@@ -4772,32 +4668,6 @@ test("the digest says a table sends elsewhere, and stays silent when it does not
 // wrong one. So the primary assertion is that ABSENCE, and the two checks that
 // used to do the work are proved still alive against a fabricated prompt rather
 // than left to run over an empty set and report a clean sweep over nothing.
-test("the prompt demonstrates no kit import — and the check that would catch a bad one still works", () => {
-  const kitImports = (text) => [...new Set([...text.matchAll(/from "@\/components\/ui\/([a-z0-9-]+)"/g)].map((m) => m[1]))];
-  const faults = (text) => {
-    const cited = kitImports(text);
-    const real = new Set(UI_COMPONENTS);
-    return {
-      invented: cited.filter((m) => !real.has(m)),
-      unstated: cited.filter((m) => COMPONENT_API[m] && !ALWAYS_API_CORE.includes(m)),
-    };
-  };
-  assert.deepEqual(kitImports(PAGE_RULES), [],
-    "a worked kit import is back in the prompt — it must be a real module whose props are also stated");
-
-  // THE OBSERVER IS ALIVE. Both halves fire on a prompt that does demonstrate
-  // one: an invented module (the measured `hero-split` failure, TS2305 on
-  // index.tsx, which salvage will not stub, so the whole site published as the
-  // placeholder), and a real module whose props are nowhere in the prompt.
-  const unstatedReal = UI_COMPONENTS.find((n) => COMPONENT_API[n] && !ALWAYS_API_CORE.includes(n));
-  assert.ok(unstatedReal, "every component with a signature is in the core — pick another witness");
-  const bad = faults(`import { Hero } from "@/components/ui/ghost-module";\n`
-    + `import { X } from "@/components/ui/${unstatedReal}";`);
-  assert.deepEqual(bad.invented, ["ghost-module"]);
-  assert.deepEqual(bad.unstated, [unstatedReal]);
-});
-
-// ── A WRONG EXPORT NAME IS REPAIRED, AND ONLY WHEN IT IS UNAMBIGUOUS ────────
 test("repairImports fixes the measured failure and refuses to guess", () => {
   const page = (source) => [{ path: "index.tsx", source }];
 

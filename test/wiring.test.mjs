@@ -19,7 +19,7 @@ import os from "node:os";
 import { budgetFor } from "../builder/site-images.mjs";
 import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote, EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
-import { UI_COMPONENTS, ALWAYS_API_CORE, PAGE_RULES, CHART_CATALOGUE, schemaDigest, lintPages } from "../builder/page-gen.mjs";
+import { UI_COMPONENTS, PAGE_RULES, CHART_CATALOGUE, schemaDigest, lintPages } from "../builder/page-gen.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, planFieldFor, PLAN_REQUIRED, KIT_PALETTE, COMPONENT_MENU, directiveFromPlan } from "../builder/site-plan.mjs";
 import { normalizeSeeds } from "../builder/site-seeds.mjs";
 
@@ -411,10 +411,14 @@ test("the DESIGNER's palette and the always-on core are all real components", ()
 
   const real = new Set(UI_COMPONENTS);
   for (const c of KIT_PALETTE) assert.ok(real.has(c), `${c} is offered to the designer and does not exist`);
-  for (const c of ALWAYS_API_CORE) assert.ok(real.has(c), `${c} is in the always-on core and does not exist`);
+  // DELETED 2026-08-29 — the four REFERENCE_PAGES and ALWAYS_API_CORE.
+  // Their last live use was seeding the always-on core, and the core's last use was
+  // the cached signature block the manifest replaced: "it should be only 15, the 15
+  // on the design step". 42.6k of example pages that reached no model. The prompt is
+  // byte-identical without them (13,151 chars), which is what proves they were dead.
   // Floors, so a list that emptied would pass this vacuously.
   assert.ok(KIT_PALETTE.length > 200, `the palette shrank to ${KIT_PALETTE.length}`);
-  assert.ok(ALWAYS_API_CORE.length >= 25, `the core shrank to ${ALWAYS_API_CORE.length}`);
+  assert.ok(UI_COMPONENTS.length >= 2000, `the kit shrank to ${UI_COMPONENTS.length}`);
 });
 
 test("the LINT knows all 2,112, so a real import is never refused", () => {
