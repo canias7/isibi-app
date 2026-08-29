@@ -6142,9 +6142,9 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    the box instead of off the page edge — which is what stopped it reading as
    content running out of the window on the right. The edges are faded so it
    arrives and leaves rather than being chopped at a hard line. */
-.mkt-crt .gf-reel{position:relative;width:66%;margin-inline:auto;overflow:hidden;padding:.6rem 0;
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);
-  mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
+.mkt-crt .gf-reel{position:relative;width:66%;margin-left:auto;margin-right:0;overflow:hidden;padding:.6rem 0;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 100%);
+  mask-image:linear-gradient(90deg,transparent,#000 14%,#000 100%)}
 .mkt-crt .gf-reel-track{display:flex;align-items:center;width:max-content;
   gap:clamp(1.4rem,3vw,2.4rem);
   animation:gf-reel-drift 32s linear infinite;will-change:transform}
@@ -6160,8 +6160,14 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 /* One declaration per line, deliberately: landing-models.test.mjs collects
    defined tokens with a LINE-ANCHORED regex, so a token declared mid-line is
    invisible to it and reads as undefined. */
+/* Every item is the SAME HEIGHT — 470px, measured — and that is the reason the
+   strip stopped looking like a pile of odds and ends. A browser card is
+   chrome + a 16:10 body; the phone is 372x790 of page cropped to that same
+   470, which decides its width and its scale rather than the other way round.
+   Change one and recompute the other, or they go back to not lining up. */
 .mkt-crt .gf-reel-slide{position:relative;flex:0 0 auto;width:min(680px,72vw);
   border-radius:14px;overflow:hidden;background:rgba(255,253,247,.7);
+  box-shadow:0 14px 34px -22px rgba(51,49,61,.55);
   --fw:1088px;
   --sc:.625}
 .mkt-crt .gf-reel-slide::before{content:"";position:absolute;inset:0;z-index:3;
@@ -6179,16 +6185,20 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .gf-reel-frame{position:absolute;top:0;left:0;border:0;pointer-events:none;
   width:var(--fw);height:calc(var(--fw) * 10 / 16);
   transform:scale(var(--sc));transform-origin:top left}
-/* the whole strip pauses under the pointer, so the link is reachable */
-.mkt-crt .gf-reel-open{position:absolute;right:.8rem;bottom:.8rem;z-index:4;
-  font-size:.94rem;color:var(--graphite);background:var(--paper);border-radius:8px;
-  padding:.18rem .68rem;text-decoration:none;opacity:0;
+/* The WHOLE card is the link, not a chip in its corner (owner: "make sure they
+   are clickable around"). It can cover the frame because the iframe below it is
+   pointer-events:none — without that the frame would swallow every click and
+   the card would look clickable and do nothing. The strip pauses under the
+   pointer, so there is time to aim at it. */
+.mkt-crt .gf-reel-open{position:absolute;inset:0;z-index:4;display:flex;
+  align-items:flex-end;justify-content:flex-end;padding:.85rem;text-decoration:none}
+.mkt-crt .gf-reel-tag{position:relative;font-size:.94rem;color:var(--graphite);
+  background:var(--paper);border-radius:8px;padding:.18rem .68rem;opacity:0;
   transition:opacity .3s,transform .18s}
-.mkt-crt .gf-reel-open::before{content:"";position:absolute;inset:0;border-radius:inherit;
+.mkt-crt .gf-reel-tag::before{content:"";position:absolute;inset:0;border-radius:inherit;
   border:1.4px solid var(--graphite);filter:url(#pencilRough2)}
-.mkt-crt .gf-reel-slide:hover .gf-reel-open,
-.mkt-crt .gf-reel-open:focus-visible{opacity:1}
-.mkt-crt .gf-reel-open:hover{transform:translateY(-2px)}
+.mkt-crt .gf-reel-slide:hover .gf-reel-tag,
+.mkt-crt .gf-reel-open:focus-visible .gf-reel-tag{opacity:1;transform:translateY(-2px)}
 
 /* ---- The phone one (owner 2026-08-29): "on the ones that look like mobile,
    delete the background, and just put like the phone."
@@ -6207,13 +6217,56 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    pass used 376x780 from y315 and sliced the bottom bezel clean off — it
    looked like a rendering fault and was a wrong number. Change the frame
    size and all four are wrong: re-measure, do not scale them. */
-.mkt-crt .gf-reel-slide.gf-phone{width:232.5px;border-radius:34px;background:none}
+.mkt-crt .gf-reel-slide.gf-phone{width:221.4px;border-radius:32px;background:none;
+  box-shadow:0 16px 36px -22px rgba(51,49,61,.6)}
 .mkt-crt .gf-reel-slide.gf-phone::before{border-radius:34px;border-width:1.7px}
 .mkt-crt .gf-phone .gf-reel-body{aspect-ratio:372 / 790;background:none}
 .mkt-crt .gf-phone .gf-reel-frame{
   width:1200px;
   height:1400px;
   /* translate first, then scale: the phone's top-left corner lands on the
-     slide's, and .625 * 372 is exactly the 232.5px the slide is wide */
-  transform:scale(.625) translate(-414px,-317px)}
+     slide's. .595 is not a taste: 790 x .595 = 470, and 470 is the MEASURED
+     height of a browser card in this strip — chrome plus a 16:10 body, read
+     off the laid-out page, not worked out on paper. The width follows from it
+     (372 x .595 = 221.4). Recompute both if either the card or the crop moves;
+     the first attempt guessed 463 and the phone stood 7px short of the rest. */
+  transform:scale(.595) translate(-414px,-317px)}
 .mkt-crt .gf-phone .gf-reel-open{right:.5rem;bottom:.9rem}
+
+/* ---- The Video / App switch (owner 2026-08-29): "on top of this thing make
+   like a switch to switch from video to app type thing."
+
+   App is the drifting strip of built sites. Video is ONE screen, not a strip:
+   there is exactly one real reel in the repo, and looping a marquee over a
+   single clip would show the same fourteen seconds twice side by side and read
+   as a bug. One asset gets presented as one thing. Drop more mp4s beside
+   /mkt/reel1.mp4 and this becomes a strip like the other side. ---- */
+/* the switch sits over the STRIP, not over the page — same 66% box, same edge,
+   so it stays with the thing it controls however wide the window is */
+.mkt-crt .gf-reel-swwrap{width:66%;margin-left:auto;margin-right:0;
+  display:flex;justify-content:center}
+.mkt-crt .gf-reel-switch{display:flex;align-items:center;gap:.35rem;margin:0 0 1.4rem;
+  padding:.28rem;border-radius:999px;position:relative;width:max-content}
+.mkt-crt .gf-reel-switch::before{content:"";position:absolute;inset:0;border-radius:999px;
+  border:1.6px solid var(--graphite-2);filter:url(#pencilRough2);pointer-events:none}
+.mkt-crt .gf-sw{position:relative;border:0;background:none;cursor:pointer;font:inherit;
+  font-size:1rem;color:var(--graphite-2);padding:.34rem 1.15rem;border-radius:999px;
+  transition:color .2s}
+.mkt-crt .gf-sw:hover{color:var(--graphite)}
+.mkt-crt .gf-sw.on{color:var(--paper)}
+/* the selected half is filled with pencil, the same shading the buttons use */
+.mkt-crt .gf-sw.on::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:999px;
+  background:var(--gr-fill);background-color:#2a2833}
+.mkt-crt .gf-sw.on::before{content:"";position:absolute;inset:-1px;z-index:-1;border-radius:999px;
+  border:1.6px solid var(--graphite);filter:url(#pencilRough)}
+.mkt-crt .gf-sw{isolation:isolate}
+/* the two panes share one box, so switching cannot jolt the page height */
+.mkt-crt .gf-reel{min-height:494px}
+.mkt-crt .gf-reel-video{display:flex;align-items:center;height:100%}
+.mkt-crt .gf-reel-video[hidden],.mkt-crt .gf-reel-track[hidden]{display:none}
+/* the reel is 1728x720 — a 2.4:1 screen, so it is framed at its own shape
+   rather than cropped square to match a browser card */
+.mkt-crt .gf-film{width:min(900px,100%);border-radius:14px;background:var(--paper)}
+.mkt-crt .gf-film .gf-reel-body{aspect-ratio:1728 / 720}
+.mkt-crt .gf-reel-vid{position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;border:0;display:block}

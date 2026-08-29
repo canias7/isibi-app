@@ -9449,25 +9449,51 @@ function initCrtStage() {
 // it goes on running when nobody is looking; a CSS animation is handed to the
 // compositor and paused by the browser for free.
 //
-// All this does is decide WHEN the ten frames become real pages. They are ten
-// live documents, so loading them at boot would cost a visitor who never
-// scrolls that far; they load when the strip is approached, once.
+// This does two things: decide WHEN the frames become real pages, and run the
+// Video / App switch.
 function initReel() {
   const reel = document.querySelector('.gf-reel-sec');
   if (!reel) return;
-  const frames = Array.prototype.slice.call(reel.querySelectorAll('.gf-reel-frame[data-src]'));
-  if (!frames.length) return;
-  const load = () => frames.forEach((f) => {
-    const u = f.getAttribute('data-src');
-    if (!u) return;
-    f.removeAttribute('data-src');
-    f.src = u;
-  });
-  if (!('IntersectionObserver' in window)) return load();
+
+  // ---- lazy loading. The frames are real documents and the reel is a real
+  // video, so none of it is fetched until the strip is approached.
+  const wake = (root) => {
+    (root || reel).querySelectorAll('[data-src]').forEach((el) => {
+      const u = el.getAttribute('data-src');
+      if (!u) return;
+      el.removeAttribute('data-src');
+      el.src = u;
+      if (el.tagName === 'VIDEO') { el.load(); const p = el.play(); if (p && p.catch) p.catch(() => {}); }
+    });
+  };
+
+  // ---- the switch. Each pane is addressed by data-mode, so adding a third
+  // mode is a button and a pane and no change here.
+  const panes = Array.prototype.slice.call(reel.querySelectorAll('[data-mode]'))
+    .filter((el) => !el.classList.contains('gf-sw'));
+  const tabs = Array.prototype.slice.call(reel.querySelectorAll('.gf-sw'));
+  const vid = reel.querySelector('.gf-reel-vid');
+  const pick = (mode) => {
+    panes.forEach((p) => { p.hidden = p.getAttribute('data-mode') !== mode; });
+    tabs.forEach((t) => {
+      const on = t.getAttribute('data-mode') === mode;
+      t.classList.toggle('on', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    // a video nobody is looking at should not be decoding frames
+    if (vid) {
+      if (mode === 'video') { wake(reel.querySelector('.gf-reel-video')); const p = vid.play(); if (p && p.catch) p.catch(() => {}); }
+      else vid.pause();
+    }
+  };
+  tabs.forEach((t) => t.addEventListener('click', () => pick(t.getAttribute('data-mode'))));
+
+  const track = reel.querySelector('.gf-reel-track');
+  if (!('IntersectionObserver' in window)) return wake(track);
   const io = new IntersectionObserver((es) => es.forEach((e) => {
     if (!e.isIntersecting) return;
-    load();
-    io.disconnect();   // once they are real pages there is nothing left to watch
+    wake(track);          // only the visible pane; the video waits for its tab
+    io.disconnect();
   }), { root: document.getElementById('marketing'), rootMargin: '400px' });
   io.observe(reel);
 }
