@@ -9444,10 +9444,27 @@ function initCrtStage() {
   slots.forEach((s, n) => { const g = s.querySelector('.mb-grab'); if (g) g.addEventListener('click', () => { front = n; layoutWeb(); }); });
   layoutWeb();
 }
+// The showcase frames are REAL pages, so eight of them eagerly is eight page
+// loads before a visitor has scrolled anywhere near the grid. Each one loads
+// when it approaches the viewport, once, and the observer lets it go after.
+// The root is #marketing, not the viewport: the landing scrolls inside itself,
+// so an element scrolled out of the grid is still where the viewport thinks it
+// is, and a viewport-rooted observer would fire the whole set at once.
+function initMadeGrid() {
+  const frames = Array.prototype.slice.call(document.querySelectorAll('.gf-card-frame[data-src]'));
+  if (!frames.length) return;
+  const load = (f) => { const u = f.getAttribute('data-src'); if (u) { f.removeAttribute('data-src'); f.src = u; } };
+  if (!('IntersectionObserver' in window)) { frames.forEach(load); return; }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) { load(e.target); io.unobserve(e.target); } });
+  }, { root: document.getElementById('marketing'), rootMargin: '400px' });
+  frames.forEach((f) => io.observe(f));
+}
 function initCrt() {
   const menu = document.getElementById('crtMenu');
   if (!menu) return;
   initCrtStage();
+  initMadeGrid();
   const mkt = document.getElementById('marketing');
   // click a channel → tune it, then act (live → sign-up, soon → NO SIGNAL)
   menu.querySelectorAll('.crt-opt').forEach((opt, i) => {
