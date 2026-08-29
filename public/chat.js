@@ -9228,6 +9228,63 @@ function initMktCord() {
 // rest flash a NO SIGNAL / COMING SOON state. The VHF knob turns with the
 // channel. State lives on module-level crtSel; wiring is one-time in initCrt().
 let crtSel = 0;
+// ── The landing's prompt line writes itself (owner 2026-08-29): one example at
+// a time, letters in and letters out. They alternate between something to
+// GENERATE and something to BUILD, so a visitor sees both halves of the product
+// within a few seconds and without a word of caption explaining it.
+//
+// This array is the only place the examples live. paintCrt() used to carry its
+// own copy of the first line; it now asks for the typing instead, so there is
+// exactly ONE writer for that attribute and no second list to drift out of step.
+const LAND_PROMPTS = [
+  'a neon tiger prowling a rainy Tokyo alley, cinematic',
+  'a booking page for my barber shop — prices, hours, and a contact form',
+  'a slow drone shot over a foggy pine forest at sunrise',
+  'a one-page site for a wedding photographer, with a gallery',
+  'a paper-craft hummingbird, lit like a studio portrait',
+  'an app that tracks my gym sets and charts the week',
+  'read this warmly: "we open at seven — come hungry"',
+  'a menu site for a ramen shop, with a map and opening times',
+  'a 90s VHS advert for a lemonade stand, handheld and grainy',
+  'a landing page for my plumbing business that takes callbacks',
+];
+let landTypeTimer = null, landTypeAt = 0, landTypeEl = null;
+function landTypeStop() {
+  if (landTypeTimer) { clearTimeout(landTypeTimer); landTypeTimer = null; }
+  landTypeEl = null;
+}
+function landTypeStart(inp) {
+  if (!inp) return;
+  if (landTypeEl === inp && landTypeTimer) return;  // already running on this box
+  landTypeStop();
+  landTypeEl = inp;
+  // Asking for less motion should not mean an empty box: show a whole line and
+  // leave it alone.
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    inp.placeholder = LAND_PROMPTS[0];
+    return;
+  }
+  landTypeAt = 0;
+  landTypeStep(0, false);
+}
+function landTypeStep(chars, erasing) {
+  landTypeTimer = null;
+  const inp = landTypeEl;
+  const mkt = document.getElementById('marketing');
+  // Stop dead once the box is gone or the landing is behind the app. A timer
+  // that outlives its element keeps the whole landing alive after enterApp(),
+  // and goes on writing to a placeholder nobody can see.
+  if (!inp || !inp.isConnected || !mkt || mkt.style.display === 'none') { landTypeEl = null; return; }
+  // While the visitor is typing, their words cover the placeholder anyway —
+  // hold position rather than animating underneath them.
+  if (inp.value) { landTypeTimer = setTimeout(function () { landTypeStep(chars, erasing); }, 700); return; }
+  const full = LAND_PROMPTS[landTypeAt % LAND_PROMPTS.length];
+  inp.placeholder = full.slice(0, chars);
+  if (!erasing && chars < full.length) landTypeTimer = setTimeout(function () { landTypeStep(chars + 1, false); }, 42);
+  else if (!erasing) landTypeTimer = setTimeout(function () { landTypeStep(chars, true); }, 2100);
+  else if (chars > 0) landTypeTimer = setTimeout(function () { landTypeStep(chars - 1, true); }, 22);
+  else { landTypeAt++; landTypeTimer = setTimeout(function () { landTypeStep(0, false); }, 320); }
+}
 function paintCrt() {
   const opts = Array.prototype.slice.call(document.querySelectorAll('#crtMenu .crt-opt'));
   opts.forEach((o, i) => {
@@ -9251,13 +9308,18 @@ function paintCrt() {
   const live = !sel || sel.dataset.live === '1';
   const active = live || builder;
   if (box) box.classList.toggle('crt-chatbox-soon', !active);
-  if (inp) inp.placeholder = kind === 'game'
-    ? 'Describe a game — press Enter and Go Farther builds it →'
-    : kind === 'website'
-      ? 'Describe a website or app — press Enter and Go Farther builds it →'
-      : live
-        ? 'a neon tiger prowling a rainy Tokyo alley, cinematic'
-        : 'Coming soon — pick Video / Image / Voice to create';
+  // ONE writer for the placeholder. A channel with something fixed to say stops
+  // the typing and says it; the default channel hands the attribute over to the
+  // typing and never touches it again, so the two cannot race for it.
+  if (inp) {
+    const fixed = kind === 'game'
+      ? 'Describe a game — press Enter and Go Farther builds it →'
+      : kind === 'website'
+        ? 'Describe a website or app — press Enter and Go Farther builds it →'
+        : live ? null : 'Coming soon — pick Video / Image / Voice to create';
+    if (fixed) { landTypeStop(); inp.placeholder = fixed; }
+    else landTypeStart(inp);
+  }
 }
 // swap the visible preview panel; lazy-load the website iframes on first show
 function crtShowPanel(panel) {
