@@ -6354,10 +6354,16 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   margin-left:-1px;filter:url(#pencilRough2)}
 .mkt-crt .gf-pipe-valve svg{display:block;width:58px;height:34px}
 .mkt-crt .gf-pipe-txt{min-width:0}
-.mkt-crt .gf-pipe-txt b{display:flex;align-items:baseline;gap:.5rem;
+.mkt-crt .gf-pipe-txt b{display:flex;align-items:center;gap:.5rem;
   font-weight:400;font-size:1.06rem;color:var(--graphite);line-height:1.2}
-.mkt-crt .gf-pipe-txt b i{font-family:'Caveat','Patrick Hand',cursive;font-style:normal;
-  font-weight:700;font-size:1.15rem;color:var(--graphite-2);min-width:.9em}
+/* the provider's own mark sits where the step number used to. Painted as a
+   MASK, not an <img>: everything in /logos is monochrome white and would
+   disappear on cream paper, whereas a mask takes currentColor and comes out in
+   graphite like the rest of the drawing. */
+.mkt-crt .gf-pipe-mark{width:15px;height:15px;flex:0 0 auto;background:currentColor;
+  display:block;-webkit-mask-position:center;mask-position:center;
+  -webkit-mask-size:contain;mask-size:contain;
+  -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
 .mkt-crt .gf-pipe-txt small{display:block;font-size:.88rem;line-height:1.35;
   color:var(--graphite-3);margin-top:.05rem}
 @media (max-width:900px){

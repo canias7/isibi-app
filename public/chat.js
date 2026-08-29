@@ -2126,7 +2126,8 @@ function providerOf(id) {
   if (/seedance|seedream|bytedance/.test(id)) return { logo: '/logos/bytedance.svg', name: 'ByteDance', tint: '#3c8cff' };
   if (/kling/.test(id)) return { logo: '/logos/kling.svg', name: 'Kling', tint: '#ff6a2b' };
   if (/hailuo|minimax/.test(id)) return { logo: '/logos/hailuo.svg', name: 'MiniMax', tint: '#6a5bff' };
-  if (/grok|^xai\//.test(id)) return { logo: '/logos/grok.svg', name: 'xAI', tint: '#c9ccd4' };
+  if (/claude|anthropic/i.test(id)) return { logo: '/logos/claude.svg', name: 'Anthropic', tint: '#d97757' };
+  if (/grok|^xai\//i.test(id)) return { logo: '/logos/grok.svg', name: 'xAI', tint: '#c9ccd4' };
   if (/elevenlabs/.test(id)) return { logo: '/logos/elevenlabs.svg', name: 'ElevenLabs', tint: '#a6b0c0' };
   if (/flux/.test(id)) return { logo: '/logos/flux.svg', name: 'Black Forest Labs', tint: '#f0585d' };
   if (/recraft/.test(id)) return { logo: '/logos/recraft.svg', name: 'Recraft', tint: '#7b6bff' };
@@ -9451,6 +9452,50 @@ function initCrtStage() {
 //
 // This does two things: decide WHEN the frames become real pages, and run the
 // Video / App switch.
+// The landing's pipeline lists what the platform actually runs on, and it reads
+// the SAME records the AI-models dropdown does. Picked BY LABEL, because a
+// label is the public identity of a model here — LLM_MODELS carries no ids at
+// all — and because a pick that no longer matches anything is dropped rather
+// than rendered. That is the point of looking them up instead of retyping
+// them: a model taken out of MODEL_LISTS stops being advertised here, and a
+// renamed one is renamed in both places at once.
+//
+// Ids are used to find the logo and are NEVER emitted, which is the same rule
+// fillModelsMenu is held to.
+const PIPE_PICKS = [
+  'Claude Sonnet 5', 'Veo 3.1', 'Seedance 2.0', 'Kling o3 Pro',
+  'Nano Banana Pro', 'GPT Image 2', 'ElevenLabs v3',
+];
+function initPipeModels() {
+  const host = document.getElementById('gfPipe');
+  if (!host) return;
+  const all = [].concat(LLM_MODELS, MODEL_LISTS.video, MODEL_LISTS.image, MODEL_LISTS.audio);
+  const rows = PIPE_PICKS
+    .map((label) => all.filter((m) => m.label === label)[0])
+    .filter(Boolean)
+    .map((m) => ({ label: m.label, note: m.note || '', brand: providerOf(m.id || m.label) }));
+  // Grok is the builder's own engine and has no record in the media lists, so
+  // it is named here rather than looked up. It is the one exception and stays
+  // beside the others so the strip reads as one set.
+  rows.splice(1, 0, { label: 'Grok 4.6', note: 'xAI · builds your site',
+                      brand: providerOf('grok') });
+  host.innerHTML = rows.map((r) =>
+    '<li class="gf-pipe-step">' +
+      '<span class="gf-pipe-valve" aria-hidden="true">' +
+        '<svg viewBox="0 0 76 44"><g fill="none" stroke="currentColor" stroke-linecap="round">' +
+          '<g stroke-width="2.4"><line x1="8" y1="14" x2="68" y2="14"/><line x1="8" y1="30" x2="68" y2="30"/></g>' +
+          '<g stroke-width="2.1"><circle cx="38" cy="22" r="12"/><line x1="26" y1="22" x2="50" y2="22"/>' +
+          '<line x1="38" y1="10" x2="38" y2="34"/></g>' +
+        '</g></svg>' +
+      '</span>' +
+      '<span class="gf-pipe-txt">' +
+        '<b>' + (r.brand.logo
+          ? '<i class="gf-pipe-mark" style="-webkit-mask-image:url(' + r.brand.logo + ');mask-image:url(' + r.brand.logo + ')"></i>'
+          : '') + r.label + '</b>' +
+        (r.note ? '<small>' + r.note + '</small>' : '') +
+      '</span>' +
+    '</li>').join('');
+}
 function initReel() {
   const reel = document.querySelector('.gf-reel-sec');
   if (!reel) return;
@@ -9502,6 +9547,7 @@ function initCrt() {
   if (!menu) return;
   initCrtStage();
   initReel();
+  initPipeModels();
   const mkt = document.getElementById('marketing');
   // click a channel → tune it, then act (live → sign-up, soon → NO SIGNAL)
   menu.querySelectorAll('.crt-opt').forEach((opt, i) => {
