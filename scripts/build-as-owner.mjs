@@ -240,6 +240,13 @@ if (IS_EDIT) {
     if (e.cssNote) log(`step 5 — css note: ${e.cssNote}`);
     if (e.render || e.renderNote) log(`step 5 — render: ${JSON.stringify(e.render || e.renderNote)}`);
     if (e.error) log(`step 5 — error: ${e.error}`);
+    // THE DETAIL, WHICH THIS DID NOT PRINT AND SHOULD HAVE. Two live runs were
+    // spent diagnosing a refusal from its customer-facing sentence alone, while
+    // `detail` — "no site recorded for <slug>" — was sitting on the same
+    // response unread. A harness that hides the diagnostic half of an answer
+    // turns every failure into a guess.
+    if (e.detail) log(`step 5 — detail: ${e.detail}`);
+    if (e.reason) log(`step 5 — reason: ${e.reason}`);
   }
 
   const eAfter = await fetch(`${BASE}/api/credits`, { headers: auth }).then((r) => r.json()).catch(() => null);

@@ -23,6 +23,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 
@@ -303,4 +304,44 @@ test("…and a slug nobody owns never reaches the spine at all", async () => {
     assert.ok(!askedIfSiteExists(seen),
       "the request reached the publish spine despite the site being unowned — the ownership check above it is gone");
   }, { owned: false });
+});
+
+/* ── the two "our fault" failures must stay tellable apart ────────────────── */
+
+test("a read-refusal and a killed container do not wear the same sentence", async () => {
+  // FOUR CAUSES, ONE SENTENCE was what made this bug take two live runs. The
+  // spine refused a databaseless site, the lane relabelled it `compile`, and
+  // `compileMsg` answered "our build service was restarting" — so the diagnosis
+  // went to container churn and the next change was a settle delay that fixed
+  // nothing, because nothing had restarted.
+  //
+  // DRIVEN THROUGH THE REAL FUNCTION, not read: the module is loaded and
+  // `compileMsg` is exercised with the two shapes the spine actually returns, so
+  // this holds the BEHAVIOUR rather than the presence of a branch.
+  const { loadWorkerModule } = await import("./fixtures/worker-harness.mjs");
+  const mod = await loadWorkerModule();
+  const compileMsg = mod.compileMsg || mod.default?.compileMsg;
+  if (typeof compileMsg !== "function") {
+    // Not exported — hold the property on the source instead, and say so rather
+    // than passing quietly, which would be a guard that tests nothing.
+    const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+    const i = src.indexOf("function compileMsg(");
+    assert.ok(i > 0, "compileMsg is gone");
+    const body = src.slice(i, src.indexOf("\n}", i));
+    assert.match(body, /pub\.error === "read"/,
+      "compileMsg no longer splits a read-refusal from a compile failure — they answer identically again");
+    assert.match(body, /couldn't read your site's saved design/,
+      "the read-refusal has no sentence of its own");
+    assert.match(body, /build service was restarting/,
+      "the container-restart sentence is gone, so a real restart now reports as something else");
+    return;
+  }
+  const read = compileMsg({ ours: true, error: "read" }, "theirs");
+  const compile = compileMsg({ ours: true, error: "compile" }, "theirs");
+  assert.notEqual(read, compile,
+    "a read-refusal and a killed container answer identically — the failure cannot name itself");
+  assert.match(compile, /restarting/, "the container failure lost its own sentence");
+  assert.doesNotMatch(read, /restarting/, "a read-refusal still claims the build service restarted");
+  assert.equal(compileMsg({ ours: false, error: "compile" }, "theirs"), "theirs",
+    "a failure that is NOT ours stopped deferring to the lane's own wording");
 });

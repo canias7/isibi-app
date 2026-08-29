@@ -8841,9 +8841,28 @@ async function fetchSiteFonts(families = []) {
  * that the process never got to judge the code at all.
  */
 function compileMsg(pub, theirs) {
-  return (pub && pub.ours)
-    ? "That didn't go through — our build service was restarting. Try again in a moment; nothing was charged."
-    : theirs;
+  if (!pub || !pub.ours) return theirs;
+  // ── OUR FAULT IS TWO DIFFERENT FAULTS (2026-08-29) ──────────────────────
+  //
+  // `ours` is set by a COMPILE that never judged the code (the container killed
+  // twice) and by a READ that never got the site's stored design — and both
+  // answered "our build service was restarting", which is true of one of them.
+  //
+  // It cost two live runs. A databaseless site was refused by the spine's own
+  // `!db` gate, reported as `error: "compile"` with the restarting sentence, and
+  // read as container churn: the next move was a settle delay that fixed nothing,
+  // because nothing had restarted. Four causes wearing one sentence is this
+  // repo's own recorded trap, and this is the sentence.
+  //
+  // SPLIT ON THE KIND THE SPINE ALREADY REPORTS. `pub.error` is "read" or
+  // "compile" at the point it is decided, and every lane forwards `pub.detail`
+  // beside it — so the honest half was always on the wire and only the sentence
+  // collapsed it. Both still say our side, try again, nothing charged: the
+  // difference is whether a retry is waiting for a build service or for a read
+  // that is not going to start working on its own.
+  return pub.error === "read"
+    ? "That didn't go through — we couldn't read your site's saved design, so nothing was changed. Nothing was charged."
+    : "That didn't go through — our build service was restarting. Try again in a moment; nothing was charged.";
 }
 
 /**

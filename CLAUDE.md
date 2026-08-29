@@ -376,7 +376,7 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 301/301** against the real container; the unit suite is 4,437.
+- **`site build` is 301/301** against the real container; the unit suite is 4,438.
   **Run it with nothing else of its own already running.** It binds a fixed port,
   so a leftover `build-server.mjs` from an earlier run makes the new one's
   `listen` throw and every streaming leg report "0 reports arrived" — six red
@@ -478,9 +478,17 @@ the model — and the next session — away from something that works. Any new l
 measures its false-alarm rate against the real corpus and must reach ZERO before
 it ships.
 
-**A failure that cannot name itself.** Six-plus instances: four different causes
+**A failure that cannot name itself.** Seven-plus instances: four different causes
 wearing one sentence, a status with no reason, a report that died with the socket.
 When two failures need opposite fixes, they must be distinguishable from outside.
+**Latest, 2026-08-29:** `compileMsg` answered "our build service was restarting"
+for BOTH a killed container and a read that never got the site's design, so a
+databaseless site's refusal read as container churn — the next move was a settle
+delay that fixed nothing, because nothing had restarted. The honest half was on
+the wire the whole time (`pub.error`, and `detail` beside it); only the sentence
+collapsed it, and the harness printing that answer did not log `detail`. **A
+harness that hides the diagnostic half of a response turns every failure into a
+guess** — cost two live runs.
 
 **`pgrep -f` / `pkill -f` match your own shell.** Ten-plus instances — the harness
 wraps the command in a shell whose command line contains the pattern, so
