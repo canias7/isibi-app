@@ -2373,6 +2373,21 @@ const FRONTEND_RULE_2 = `2. NO FORM THAT PRETENDS TO SUBMIT. There is nowhere fo
  * than shipping a prompt it could not correct.
  */
 const FRONTEND_REPLACEMENTS = [
+  // ── THE ONE LINE THE DELETED `## What is not possible yet` SECTION OWNED ──
+  //
+  // Rule 2 is about FORMS. The section generalised past them — a search box over
+  // rows, a sign-in button, a basket are equally dead on a site with no
+  // database, and a model told only about forms will happily draw a search box.
+  // Appended here rather than left in a section of its own, because everything
+  // else that section said was already in the preamble, rule 1 and rule 2.
+  [
+    "If the brief asks for bookings, orders, enquiries or accounts, build the whole of the\n   rest of the site and say plainly in `notes` that it comes with the next step.",
+    "If the brief asks for bookings, orders, enquiries or accounts, build the whole of the\n   rest of the site and say plainly in `notes` that it comes with the next step.\n"
+    + "   THE SAME GOES FOR EVERY OTHER CONTROL WITH NOTHING BEHIND IT — a search box over\n"
+    + "   rows, a sign-in button, a filter, a basket, anything paid for. Never draw UI that\n"
+    + "   cannot work; a control that looks real and does nothing is the one thing here that\n"
+    + "   loses the business a customer.",
+  ],
   [
     "prop-driven — hand it `useRows(...)` data, never a copied array — and monochrome by rule,",
     "prop-driven — hand it a `const` array written into the page — and monochrome by rule,",
@@ -2406,12 +2421,28 @@ const FRONTEND_REPLACEMENTS = [
 ];
 
 /** What replaces `## What is not possible yet`, which is entirely about data. */
-const FRONTEND_NOT_POSSIBLE = `## What is not possible yet
-
-This site has no database, so none of these can be built here: a form that stores anything,
-a list that comes from data, customer accounts and signing in, a booking that holds a slot,
-search over rows, anything paid for. If the brief asks for one, build everything else and say
-plainly in \`notes\` what was left out and that it comes next. Never draw UI that cannot work.`;
+/**
+ * ── THE SECTION IS GONE, AND ITS ONE UNCOVERED LINE MOVED (2026-08-29) ───────
+ *
+ * Owner: "delete that, cuz the build step has no backend anyway."
+ *
+ * The frontend prompt said "this site has no database" FOUR times: the preamble
+ * states it, rule 1 names the exact imports that fail (`@/lib/rows`, `useRows`,
+ * `fetch`), rule 2 gives the form case and why it harms the business, and this
+ * section listed six features and said to mention them in `notes`. 2,351
+ * characters for one fact.
+ *
+ * RULE 2 ALREADY CARRIED MOST OF IT — the harm ("worse for the business than not
+ * having one"), and the instruction to say in `notes` that it comes with the
+ * next step. What only this section had was the GENERALISATION past forms — a
+ * search box, a sign-in button, a basket are equally dead — so that is appended
+ * to rule 2 rather than deleted with the rest.
+ *
+ * `FRONTEND_REPLACEMENTS` is where it goes because that table THROWS when a
+ * `from` no longer matches `PAGE_RULES`: a fold that silently stopped applying
+ * would take the line with it, and nothing would say so.
+ */
+const FRONTEND_NOT_POSSIBLE = null;
 
 /**
  * `PAGE_RULES` with the database taken out of it.
@@ -2435,7 +2466,7 @@ export function frontendRules(rules) {
     if (DATA_SECTIONS.includes(head)) {
       // Replaced in place rather than appended, so it keeps its position
       // relative to `## The gate` — which closes the prompt and must stay last.
-      if (head === "## What is not possible yet") out.push(FRONTEND_NOT_POSSIBLE);
+      if (head === "## What is not possible yet" && FRONTEND_NOT_POSSIBLE) out.push(FRONTEND_NOT_POSSIBLE);
       continue;
     }
     if (head === "## Hard rules") { out.push(hardRulesWithoutData(sec)); continue; }

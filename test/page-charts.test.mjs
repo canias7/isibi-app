@@ -147,3 +147,40 @@ test("the 72 modules with no signature are named as real, not left unexplained",
     assert.ok(t.includes(n), "`" + n + "` is forbidden to hand-roll and never named as available");
   }
 });
+
+test("the frontend prompt says \"no database\" once per purpose, not four times", () => {
+  // Owner, 2026-08-29: "delete that, cuz the build step has no backend anyway."
+  //
+  // The frontend variant said it FOUR times — the preamble states the fact, rule
+  // 1 names the exact imports that fail, rule 2 gives the form case and the harm,
+  // and a `## What is not possible yet` section listed six features and told the
+  // model to mention them in `notes`. 2,351 characters for one fact, and the
+  // section was the weakest: rule 2 already carried the harm AND the `notes`
+  // route.
+  const fe = FRONTEND_PAGE_RULES;
+  assert.ok(!/## What is not possible yet/.test(fe), "the redundant section is back in the frontend prompt");
+
+  // THE THREE THAT REMAIN EACH DO SOMETHING THE OTHERS DO NOT, which is why this
+  // is a de-duplication and not a deletion. Asserted so a later tidy cannot take
+  // the concrete half and leave the abstract one.
+  assert.match(fe, /THIS SITE HAS NO DATABASE/, "the preamble no longer states the fact");
+  assert.match(fe, /@\/lib\/rows/, "rule 1 no longer names the imports that fail — the concrete half");
+  assert.match(fe, /believes they are booked/, "rule 2 no longer says what a dead form costs the business");
+
+  // AND THE ONE LINE THE SECTION OWNED SURVIVED. Rule 2 is about FORMS; only the
+  // section generalised past them, and a model told only about forms will draw a
+  // search box over rows it does not have.
+  assert.match(fe, /Never draw UI that\s+cannot work/, "the generalisation past forms was lost with the section");
+  assert.match(fe, /a search box over\s+rows/, "the other dead controls are no longer named");
+  assert.match(fe, /`notes`/, "the model is no longer told to say what it left out");
+});
+
+test("the WITH-DATABASE variant keeps its own section — this was a frontend cut", () => {
+  // `## What is not possible yet` means something different on a site that HAS a
+  // database (what members may edit, whose rows), and that variant is untouched.
+  // Deleting by heading rather than by variant would have taken it too.
+  assert.match(PAGE_RULES, /## What is not possible yet/,
+    "the database variant lost a section that was never redundant there");
+  assert.ok(PAGE_RULES.length > FRONTEND_PAGE_RULES.length,
+    "the two variants have converged — the frontend cut is being applied to both");
+});
