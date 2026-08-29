@@ -6351,13 +6351,14 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 /* the pipe itself: two ruled walls with graphite wash between them, running the
    full height of however many steps there are */
 .mkt-crt .gf-pipe-list::before{content:"";position:absolute;z-index:0;
-  left:9px;top:6px;bottom:6px;width:40px;
+  left:9px;top:6px;bottom:0;width:40px;
   border-left:2.2px solid var(--graphite);border-right:2.2px solid var(--graphite);
   background:var(--gr-tint);filter:url(#pencilRough)}
-/* capped top and bottom, so it reads as a length of pipe and not a stray rule */
+/* capped at the top only: the bottom is where the run elbows away, so a cap
+   there would weld the pipe shut and then carry on out of it anyway */
 .mkt-crt .gf-pipe-list::after{content:"";position:absolute;z-index:1;
   left:2px;right:auto;top:0;width:54px;height:100%;pointer-events:none;
-  border-top:2.6px solid var(--graphite);border-bottom:2.6px solid var(--graphite);
+  border-top:2.6px solid var(--graphite);
   filter:url(#pencilRough2)}
 .mkt-crt .gf-pipe-step{position:relative;z-index:2;display:flex;align-items:center;
   gap:.85rem;min-height:clamp(46px,5.4vh,56px)}
@@ -6413,3 +6414,50 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .gf-m-anthropic i{
   -webkit-mask:url(/logos/claude.svg) center/contain no-repeat;
   mask:url(/logos/claude.svg) center/contain no-repeat}
+
+/* ---- The horizontal run (owner 2026-08-29: "on the very bottom of the
+   pipeline, make a horizontal one attached to that one, make that one covers
+   most of the page horizontally"). Option A of the four rendered: the vertical
+   pipe's own valve vocabulary turned on its side, five stations, five words.
+
+   The corner is the only part drawn in SVG, because a CSS box cannot turn.
+   Its two arcs are CONCENTRIC BY CONSTRUCTION rather than by eye — they share
+   one centre and their radii differ by exactly the bore, so the walls cannot
+   drift apart round the bend. Every number in that path is the CENTRELINE of a
+   wall this stylesheet already draws: the vertical pipe is left:9px width:40px
+   with 2.2px borders, so its wall centrelines are 10.1 and 47.9, and the band
+   below repeats that box on its side (top:56px height:40px, centrelines 57.1
+   and 94.9). Change the pipe's box and the elbow must be re-derived with it.
+
+   The run is a sibling of .gf-reel-row, not a child of the aside: the aside is
+   a third of the width and the run has to cross the whole page. Both sit in
+   .gf-reel-sec's padding box, so x=0 is the same x=0 for each and the elbow
+   lands on the pipe without a magic offset. ---- */
+.mkt-crt .gf-run{position:relative;height:150px;margin:0;color:var(--graphite)}
+.mkt-crt .gf-run-elbow{position:absolute;left:0;top:0;display:block;
+  filter:url(#pencilRough)}
+/* the straight length. It starts UNDER the elbow's flat tails (which run to
+   x=106) by more than the roughen filter's 3.4px throw, so the join cannot
+   open up on a wobble. */
+.mkt-crt .gf-run-pipe{position:absolute;left:96px;right:0;top:56px;height:40px;
+  border-top:2.2px solid var(--graphite);border-bottom:2.2px solid var(--graphite);
+  background:var(--gr-tint);filter:url(#pencilRough)}
+.mkt-crt .gf-run-list{position:absolute;left:106px;right:0;top:56px;height:40px;
+  margin:0;padding:0;list-style:none;
+  display:flex;align-items:center;justify-content:space-around}
+.mkt-crt .gf-run-step{position:relative;display:block}
+.mkt-crt .gf-run-valve{display:block;color:var(--graphite);filter:url(#pencilRough2)}
+/* the same 76x44 valve the vertical steps draw, transposed: two flange lines
+   across the flow and a handwheel on the centreline. It overhangs the 40px
+   bore by ~9px each side exactly as the vertical one overhangs the pipe's
+   width, which is what makes the two read as one drawing. */
+.mkt-crt .gf-run-valve svg{display:block;width:34px;height:58px}
+.mkt-crt .gf-run-txt{position:absolute;left:50%;top:calc(100% + 12px);
+  transform:translateX(-50%);white-space:nowrap;
+  font-weight:400;font-size:1.02rem;line-height:1.2;color:var(--graphite)}
+/* Below 900px the row stacks, so the pipe's bottom is no longer the row's
+   bottom and the elbow would hang off nothing. Desktop-first here as
+   everywhere else on this page: drop the run rather than draw it detached. */
+@media (max-width:900px){
+  .mkt-crt .gf-run{display:none}
+}

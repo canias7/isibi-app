@@ -53,6 +53,7 @@
         <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="4" seed="41" result="n" />
         <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" />
       </filter>
+      <defs><pattern id="pencilTint" width="6.5" height="6.5" patternUnits="userSpaceOnUse" patternTransform="rotate(-56)"><line x1="0" y1="0" x2="0" y2="6.5" stroke="#4a4656" stroke-opacity=".14" stroke-width="1.2" /></pattern></defs>
       <defs><g id="gfMark" fill="none" stroke="currentColor"><g stroke-width="34"><path d="M425.7 362.7A201.5 201.5 0 0 1 288.9 454.2" /><path d="M220.7 454.2A201.5 201.5 0 0 1 75.9 163.2" /><path d="M92 137.2A201.5 201.5 0 0 1 438.4 339.2" /></g><g stroke-width="16.5"><circle cx="167.5" cy="239" r="22.8" /><circle cx="255" cy="168.5" r="23.5" /><circle cx="342.5" cy="239" r="22.8" /></g><g stroke-width="20" stroke-linecap="round" stroke-linejoin="round"><path d="M255 200V465" /><path d="M167.5 262v63.5L210.5 370v92" /><path d="M342.5 262v63.5L299.5 370v92" /></g></g></defs>
     </svg>
 
@@ -235,6 +236,30 @@
       </div>
       </div>
         </div>
+      </div>
+      <!-- The horizontal run (owner 2026-08-29: "on the very bottom of the
+           pipeline, make a horizontal one attached to that one, make that one
+           covers most of the page horizontally"), option A of four: the
+           vertical pipe's own valve vocabulary turned on its side. Static
+           markup rather than JS — the vertical list is generated because it
+           mirrors the model table, this is five fixed words and generating it
+           would only give it a way to ship dead. -->
+      <div class="gf-run">
+        <svg class="gf-run-elbow" viewBox="0 0 106 106" width="106" height="106" aria-hidden="true">
+          <path fill="url(#pencilTint)" stroke="none" d="M10.1 0 V39.1 A55.8 55.8 0 0 0 65.9 94.9 H106 V57.1 H65.9 A18 18 0 0 1 47.9 39.1 V0 Z" />
+          <g fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M10.1 0 V39.1 A55.8 55.8 0 0 0 65.9 94.9 H106" />
+            <path d="M47.9 0 V39.1 A18 18 0 0 0 65.9 57.1 H106" />
+          </g>
+        </svg>
+        <div class="gf-run-pipe" aria-hidden="true"></div>
+        <ol class="gf-run-list">
+          <li class="gf-run-step"><span class="gf-run-valve" aria-hidden="true"><svg viewBox="0 0 44 76"><g fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="2.4"><line x1="14" y1="8" x2="14" y2="68"/><line x1="30" y1="8" x2="30" y2="68"/></g><g stroke-width="2.1"><circle cx="22" cy="38" r="12"/><line x1="10" y1="38" x2="34" y2="38"/><line x1="22" y1="26" x2="22" y2="50"/></g></g></svg></span><b class="gf-run-txt">you describe it</b></li>
+          <li class="gf-run-step"><span class="gf-run-valve" aria-hidden="true"><svg viewBox="0 0 44 76"><g fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="2.4"><line x1="14" y1="8" x2="14" y2="68"/><line x1="30" y1="8" x2="30" y2="68"/></g><g stroke-width="2.1"><circle cx="22" cy="38" r="12"/><line x1="10" y1="38" x2="34" y2="38"/><line x1="22" y1="26" x2="22" y2="50"/></g></g></svg></span><b class="gf-run-txt">it gets built</b></li>
+          <li class="gf-run-step"><span class="gf-run-valve" aria-hidden="true"><svg viewBox="0 0 44 76"><g fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="2.4"><line x1="14" y1="8" x2="14" y2="68"/><line x1="30" y1="8" x2="30" y2="68"/></g><g stroke-width="2.1"><circle cx="22" cy="38" r="12"/><line x1="10" y1="38" x2="34" y2="38"/><line x1="22" y1="26" x2="22" y2="50"/></g></g></svg></span><b class="gf-run-txt">it goes live</b></li>
+          <li class="gf-run-step"><span class="gf-run-valve" aria-hidden="true"><svg viewBox="0 0 44 76"><g fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="2.4"><line x1="14" y1="8" x2="14" y2="68"/><line x1="30" y1="8" x2="30" y2="68"/></g><g stroke-width="2.1"><circle cx="22" cy="38" r="12"/><line x1="10" y1="38" x2="34" y2="38"/><line x1="22" y1="26" x2="22" y2="50"/></g></g></svg></span><b class="gf-run-txt">you keep editing it</b></li>
+          <li class="gf-run-step"><span class="gf-run-valve" aria-hidden="true"><svg viewBox="0 0 44 76"><g fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="2.4"><line x1="14" y1="8" x2="14" y2="68"/><line x1="30" y1="8" x2="30" y2="68"/></g><g stroke-width="2.1"><circle cx="22" cy="38" r="12"/><line x1="10" y1="38" x2="34" y2="38"/><line x1="22" y1="26" x2="22" y2="50"/></g></g></svg></span><b class="gf-run-txt">it stays yours</b></li>
+        </ol>
       </div>
     </section>
     <footer class="mkt-foot">
