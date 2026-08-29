@@ -6234,16 +6234,15 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .gf-reel-frame{position:absolute;top:0;left:0;border:0;
   width:var(--fw);height:calc(var(--fw) * 10 / 16);
   transform:scale(var(--sc));transform-origin:top left}
-/* THE FRAMES ARE LIVE (owner: "when I meant clickable I meant don't open that
-   Chrome app, just let me click it right where it is"). There is no overlay
-   link any more — a full-card anchor is exactly what was launching the site in
-   its own window. The iframe takes the pointer itself, so the site inside is
-   used in place: its nav, its filters, its cart, all of it, in the strip.
+/* The frames are INERT (owner 2026-08-29: "don't allow clicking in the demo
+   sites, nvm"). They are moving pictures of real pages — nothing in them takes
+   a click, a wheel or a focus, so the wheel passes straight through to the page
+   and a visitor can never end up interacting with a site inside a strip that is
+   sliding past them.
 
-   This is the reason the hover pause below is now load-bearing rather than a
-   nicety. You cannot use a control that is sliding out from under the cursor
-   at 56px/s, so the strip stops while the pointer is on it. */
-.mkt-crt .gf-reel-frame{pointer-events:auto}
+   This also means the crops cannot drift: nothing can scroll a framed page, so
+   the phone's pixel-measured crop holds without any guard inside the demo. */
+.mkt-crt .gf-reel-frame{pointer-events:none}
 
 /* ---- The phone one (owner 2026-08-29): "on the ones that look like mobile,
    delete the background, and just put like the phone."
