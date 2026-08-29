@@ -786,7 +786,13 @@ export const PLAN_FIELDS = {
     items: { type: "string" },
     description:
       `At most ${MAX_COMPONENTS} components from the kit — what this one page needs, and no more. ` +
-      "THIS IS A MANIFEST, NOT A SHORTLIST: the step that writes the page is shown the exact props of the " +
+      "THIS IS A MANIFEST, NOT A SHORTLIST, AND IT IS THE WHOLE SET (2026-08-29): the page writer is shown " +
+      "the props of what you name here AND NOTHING ELSE, so one you leave out is one it cannot use at all. " +
+      "NAME THE FRAME — `site-chrome` is the header and the footer, and each page renders its own; leave it " +
+      "out and the site has no navigation and no footer, on any page. " +
+      "The old wording said a missing name was one the writer would have to GUESS the props of, which was true " +
+      "while thirty-one components rode in the cached block whether you named them or not. They no longer do: " +
+      "the step that writes the page is shown the exact props of the " +
       "components you name here, so one you leave out is one it has to guess the props of — and a wrong guess " +
       "costs the page. You have just arranged the page above; name what its bands need, the ordinary " +
       "parts as well as the distinctive ones. A booking band wants availability-grid and week-strip, a menu " +

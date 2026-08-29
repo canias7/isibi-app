@@ -430,7 +430,7 @@ test("the route exists, is dispatched, and reaches the module", () => {
     "the edit matcher is not in the ownerSlug list, so it would read another route's slug");
   const b = editBlock();
   assert.match(b, /runTextEdit\(/, "the text layer is not wired to the module");
-  assert.match(b, /recompileAndPublish\(/, "the lane never publishes");
+  assert.match(b, /(?:recompileAndPublish|publishStep)\(/, "the lane never publishes");  // the edit route's branches call `publishStep` since 2026-08-29 — the deferring wrapper that collects pages so the spine runs ONCE per message (owner: "if the act was 2 things then 1 publish"). The property is unchanged: the branch hands its pages to the publish path.
   assert.match(b, /assertOwner\(/, "the edit lane is not ownership-gated");
 });
 
@@ -483,7 +483,7 @@ test("the edit handler CANNOT reach the schema, the seeder or the page generator
   // AND IT PUBLISHES NOTHING, which is what makes it a rung below `look` rather
   // than a variant of `addon`. Asserted as an absence between its own
   // boundaries, exactly as the data layer's is.
-  assert.ok(!rBlock.includes("recompileAndPublish("),
+  assert.ok(!rBlock.includes("recompileAndPublish(") && !rBlock.includes("publishStep("),
     "a rule is enforced in Postgres and on the request path — no page changes, so nothing is republished");
   // AND THE GENERATION IT DOES DO IS BOUNDED. Without the mode and the target it
   // is an ordinary revise wearing an edit's name — every page re-emitted, at the
@@ -515,7 +515,7 @@ test("the charge comes AFTER the publish, on every layer", () => {
   // layer, whose defining property is that it publishes nothing at all. Rows are
   // read at runtime, so the change is live the moment it commits.
   for (const at of calls) {
-    const published = b.lastIndexOf("recompileAndPublish(", at);
+    const published = Math.max(b.lastIndexOf("recompileAndPublish(", at), b.lastIndexOf("publishStep(", at));
     const wroteRows = b.lastIndexOf("runDataEdit(", at);
     assert.ok(published > 0 || wroteRows > 0,
       "a charge at offset " + at + " runs before any work was done");
@@ -531,7 +531,7 @@ test("the charge comes AFTER the publish, on every layer", () => {
   // for every price change on every site.
   const dBlock = layerBranch(b, "data");
   assert.match(dBlock, /runDataEdit\(/);
-  const pubs = [...dBlock.matchAll(/recompileAndPublish\(/g)].map((m) => m.index);
+  const pubs = [...dBlock.matchAll(/(?:recompileAndPublish|publishStep)\(/g)].map((m) => m.index);
   assert.ok(pubs.length <= 1, "the data layer publishes in at most one place, found " + pubs.length);
   if (pubs.length) {
     // The gate is the nearest `if` above it and it must ask about the reorder.
@@ -614,13 +614,31 @@ test("the CSS and logo lanes serve a site with NO database — the default kind"
       "the " + v + " lane refuses a site with no database again — that is most sites, at ~17 credits each");
   }
 
-  // AND THE SECOND HALF, which is what makes the first half real. The look lane
-  // reads `_meta` for the schema, and that genuinely needs a database: left
-  // unguarded, `sqlQuery(null, …)` throws into the catch and escalates as
-  // `no-meta` — the same refusal wearing a different name, and the fix would
-  // measure as no change at all.
-  assert.match(b, /if \(edb\) \{\s*\n\s*const rows = await sqlQuery\(edb, "SELECT v FROM _meta/,
-    "the schema read is not gated on there being a database — a frontend-only site throws instead");
+  // AND THE SECOND HALF, WHICH IS WHAT MAKES THE FIRST HALF REAL — now in its
+  // strongest form. Until 2026-08-29 the look lane read `_meta` for the schema
+  // to hand the DESIGNER a `tables:` list, and that read genuinely needed a
+  // database: left unguarded, `sqlQuery(null, …)` throws into the catch and
+  // escalates as `no-meta` — the same refusal wearing a different name, and the
+  // whole fix would have measured as no change at all. So this asserted the
+  // `if (edb)` guard around it.
+  //
+  // THE READ IS GONE ENTIRELY. With the edit path split off the build path
+  // (owner: "it should be 2 separated path tho") there is no designer on this
+  // lane to hand a table list to, and no lane here has ever had a use for one.
+  // So the guard is no longer "the sql is gated" but "there is no sql" — which
+  // cannot be got wrong by omission the way a gate can.
+  //
+  // WINDOWED LANDMARK TO LANDMARK, never by byte count: this repo puts its
+  // reasoning in comments and any byte window is outrun by the next one. The
+  // closing landmark is the NEXT lane, so anything inserted between them is
+  // inside the window rather than swallowed.
+  const lookAt = b.indexOf('if (eLayer === "look")');
+  const nextAt = b.indexOf('if (eLayer === "page")');
+  assert.ok(lookAt > 0, "the look lane is gone or was renamed — this scan has no subject");
+  assert.ok(nextAt > lookAt, "the page lane no longer follows the look lane — this window has no end");
+  const lookLane = b.slice(lookAt, nextAt);
+  assert.ok(!/sqlQuery\(/.test(lookLane),
+    "the look lane queries Postgres again — it is meant to be databaseless in fact, not merely by permission");
 
   // THE LANES THAT REALLY DO NEED ONE STILL ASK. `data` reads rows and `rules`
   // enforces them in Postgres; a fix that relaxed those would be a wrong answer

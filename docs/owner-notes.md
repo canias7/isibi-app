@@ -148,6 +148,26 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ## Open — waiting on you
 
+**0. The edit step is finished except `slug`; ADDON is untouched.**
+Your drawing is at **`docs/architecture.md`**. **EDIT** now: 17 lanes, all
+addressable — 8 edited in the edit path itself, 6 dispatched to the rung that
+already does that work, `pages` acting through three verbs (add/remove/move),
+`kind` escalating to the build rung, and **`slug` the one genuinely unbuilt lane**
+(a real address change: republish under a new name, redirect the old, keep custom
+domains pointing at it). Every lane has a four-part rule with a per-field ceiling.
+Every lane the customer names runs — none is dropped — and **one message is one
+publish**.
+
+**ADDON still calls the build's designer** with the whole 84.8k tool to add one
+page. Identical defect to the one the edit step had, and the obvious next job.
+**DELETE parked at your word.**
+
+Two things I want you to push back on if I read you wrong:
+- **Every prompt is still a placeholder** (7.8k of my wording), waiting on yours.
+  One `hint` and four rule parts per lane, all in one table.
+- **Nothing has run on a real site.** 4,467 tests, zero live edits, balance 0.
+  Every claim above is "tested", never "proven live".
+
 **1. The model account is at 18 credits — under the price of one build.**
 Five shipped features have never run on a real site and all five ride the same
 build: the model-drawn favicon, the drawn wordmark, the composed share card, the

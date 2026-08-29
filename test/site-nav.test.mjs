@@ -478,7 +478,11 @@ test("the worker dispatches the nav layer and imports the module", () => {
   assert.match(window, /eSrc\.map\(\(p\) => routeOf\(p\.path\)\)/);
   // It republishes through the one spine, so a nav edit gets the render check,
   // the version archive and the redirect map like every other cheap edit.
-  assert.match(window, /await recompileAndPublish\(env, \{/);
+  // `publishStep` since 2026-08-29 — the edit route's branches hand their pages
+  // to a deferring wrapper so the spine runs ONCE per message (owner: "if the
+  // act was 2 things then 1 publish"). The property is unchanged: this branch
+  // still hands its pages to the publish path.
+  assert.match(window, /await publishStep\(env, \{/);
 });
 
 // ── THE CORPUS, WHICH IS WHAT DECIDES WHETHER THIS CAN EXIST ────────────────
