@@ -229,6 +229,26 @@ jobs:
     # buying. What is unproven is the JUDGEMENT: whether the design step reaches
     # for these fields when a brief calls for them.
     #
+    # ── RUN 85: THE SAME SITE, WITH THE COMPONENT NAMED ──────────────────────
+    #
+    # Owner asked for the re-run. `washhouse-1` exists and is serving its
+    # placeholder, so this is a REVISE — roughly 17 rather than 45, because the
+    # design is already stored and the decide-everything half does not re-run.
+    #
+    # AND THAT MATTERS MORE THAN THE PRICE HERE: run 84 already proved the design
+    # step ASKS for a QR on this brief, so re-deciding is not what is wanted. The
+    # stored design carries the QR; what failed was the page written from it.
+    # A revise rewrites exactly that.
+    #
+    # FIRED AFTER A WORKER DEPLOY, NOT AN IMAGE ROLL, and the distinction is
+    # worth stating because the standing rule ("a push touching builder/ waits
+    # 15-20 minutes") would have said otherwise. The fix is in
+    # `builder/page-gen.mjs`, which is NOT in the Dockerfile's COPY list and is
+    # imported by nothing in the container — the prompt is assembled in the
+    # Worker and sent over the wire. So the Worker deploy carries it and there is
+    # no image to wait for. Checked rather than assumed: the rule is a heuristic
+    # about a path, and this file is one of the paths it is wrong about.
+    #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #
     # Owner: "we gonna delete any timeout there is anywhere, pls, just let the
