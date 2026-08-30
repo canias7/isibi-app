@@ -80,6 +80,10 @@ on:
         description: 'Model override (e.g. grok, sonnet). Blank uses the Worker default.'
         required: false
         default: ''
+      brief:
+        description: 'build only: the business, in the customer''s own words. Blank uses the stock shoe-shop brief.'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -740,7 +744,19 @@ jobs:
           # the fresh slug and picker below. The brief is build-only and stays.
           OWNER_SLUG: ${{ github.event.inputs.slug || 'shoeroom-1' }}
           OWNER_PICKER: ${{ github.event.inputs.picker || 'grok' }}
-          OWNER_BRIEF: "An online shoe shop that sells every kind of shoe - trainers, boots, formal shoes, sandals, kids' shoes and slippers. Shoppers browse what is in stock, filter by kind and by size, and see each pair with its picture, its price and which sizes are left. They open a pair to read what it is made of and pick their size. They add pairs to a basket and pay by card. There is also a page about the shop, which has been on the same street for forty years, and how returns work. It should feel like a proper shop rather than a warehouse - the shoes are the thing you see first, prices plain, and nothing in the way of buying."
+          # ── THE BRIEF IS AN INPUT NOW (2026-08-30) ────────────────────────
+          #
+          # `slug`, `instruction`, `layer` and `picker` were all dispatchable and
+          # the brief was not, so every owner build made the same shoe shop. That
+          # is fine for a regression check and useless for exercising a NEW design
+          # field: `qr`, `gif` and `three` are optional and absent is the right
+          # answer for a shoe shop, so the stock brief can never reach them.
+          #
+          # The default is the old string verbatim, so a dispatch that names no
+          # brief — and the push path, which names none — behaves exactly as
+          # before.
+          OWNER_BRIEF: ${{ github.event.inputs.brief || '' }}
+          OWNER_BRIEF_DEFAULT: "An online shoe shop that sells every kind of shoe - trainers, boots, formal shoes, sandals, kids' shoes and slippers. Shoppers browse what is in stock, filter by kind and by size, and see each pair with its picture, its price and which sizes are left. They open a pair to read what it is made of and pick their size. They add pairs to a basket and pay by card. There is also a page about the shop, which has been on the same street for forty years, and how returns work. It should feel like a proper shop rather than a warehouse - the shoes are the thing you see first, prices plain, and nothing in the way of buying."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()

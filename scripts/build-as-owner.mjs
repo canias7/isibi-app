@@ -109,7 +109,11 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqcnFkbW10Y3B0dmltYXpsaG9tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODUyNTUsImV4cCI6MjA5NDM2MTI1NX0.F-af9iC-BWTZN2hQ5cD1Keke8qXARhqPwxOgSHhNLK4";
 const BASE = process.env.OWNER_BASE_URL || "https://gofarther.dev";
 const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
-const BRIEF = process.env.OWNER_BRIEF || "";
+// THE DISPATCHED BRIEF WINS, THE STOCK ONE IS THE FALLBACK (2026-08-30). The
+// workflow could vary the slug, the instruction, the layer and the model but not
+// the business — so every owner build was the same shoe shop, which can never
+// reach an optional design field it has no use for.
+const BRIEF = String(process.env.OWNER_BRIEF || "").trim() || process.env.OWNER_BRIEF_DEFAULT || "";
 const SLUG = String(process.env.OWNER_SLUG || "").trim().toLowerCase();
 // Which model builds. Unset sends nothing and the Worker uses its own default,
 // so a run that does not care is byte-identical to what this script always sent.
