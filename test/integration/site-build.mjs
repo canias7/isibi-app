@@ -332,6 +332,117 @@ function Team() {
 `;
 
 // The same page with one wrong type. tsc must refuse it; vite alone would not.
+// ── EVERY PACKAGE THE PAGE RULES PROMISE, COMPILED ──────────────────────────
+//
+// THE BUILD THAT PAID FOR THIS: run 80, `ashgrove-1`, 2026-08-30, 45 credits.
+// The page rules tell the model "lucide-react icons, date-fns, recharts" and
+// "`three` and `@react-three/fiber` are real dependencies", and a model finally
+// took the 3D offer up. It wrote `import type { Group } from "three"` — the
+// obvious thing when you hold a ref to a three object — and `tsc` refused:
+// `three` ships NO type declarations and nothing had installed `@types/three`.
+// The build died at typecheck and the site kept its placeholder.
+//
+// THE CAUSE WAS NOT THE MISSING TYPES. It was that FIVE packages were advertised
+// in a prompt and NONE of them was ever compiled by anything:
+//
+//   fixtures importing them, before this ...... 0 of 5
+//   real generated pages importing them ....... 0 of 324 (the 08-20 corpus)
+//
+// So all five were promises nobody had checked, and `three` simply happened to
+// be the first one a model reached for. The other four are no better proven —
+// they are just still unused. A package-list guard in the unit suite cannot
+// close this: it checks that names appear in package.json, and the failure was
+// a package that WAS in package.json and still could not be imported. Only a
+// real `tsc` against the real template can tell the difference, which is what
+// this harness is for.
+//
+// DELIBERATELY THE UNCOMFORTABLE IMPORTS: a TYPE from `three` (the exact line
+// that failed), a `<Canvas>` with r3f's JSX intrinsics, a `recharts` chart, a
+// `date-fns` call and a `lucide-react` icon. If any of the five ever loses its
+// types or its install, this fails here — free, in CI — instead of on a
+// customer's build at ~45 credits a time.
+const PROMISED_PAGE = `import { createFileRoute } from "@tanstack/react-router";
+import { useRef } from "react";
+import type { Group } from "three";
+import { Canvas } from "@react-three/fiber";
+import { LineChart, Line, XAxis } from "recharts";
+import { format } from "date-fns";
+import { Hammer } from "lucide-react";
+
+export const Route = createFileRoute("/promised")({ component: Promised });
+
+const SALES = [{ m: "Jan", n: 4 }, { m: "Feb", n: 7 }];
+
+function Promised() {
+  const chair = useRef<Group>(null);
+  return (
+    <main className="mx-auto max-w-4xl px-6 py-16 space-y-6">
+      <h1 className="text-3xl">Every promise the page rules make</h1>
+      <p className="text-muted-foreground">Made on {format(new Date(2026, 7, 30), "d MMMM yyyy")}</p>
+      <Hammer className="size-5" aria-hidden />
+      <div className="h-64">
+        <Canvas>
+          <ambientLight intensity={0.6} />
+          <group ref={chair}>
+            <mesh>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial color="#8a6f4e" />
+            </mesh>
+          </group>
+        </Canvas>
+      </div>
+      <LineChart width={320} height={160} data={SALES}>
+        <XAxis dataKey="m" />
+        <Line dataKey="n" />
+      </LineChart>
+    </main>
+  );
+}
+`;
+
+// ── A PAGE WITH REQUIRED SEARCH PARAMS MUST NOT BREAK THE KIT ───────────────
+//
+// THE BUILD THAT PAID FOR THIS: run 82, `ashgrove-1`, 2026-08-30, 10 credits.
+//
+//   src/lib/error-page.tsx(44,14): error TS2741: Property 'search' is missing
+//   in type '{ children: string; to: "/" }' but required in
+//   MakeRequiredSearchParams<... Route<..., "/", "/">>
+//
+// The generated page was a configurator and put its timber and finish in the
+// URL — `validateSearch` with REQUIRED fields on "/". TanStack then requires a
+// `search` prop on every `<Link to="/">` in the whole app, INCLUDING two links
+// in the kit that the model never saw and could not have fixed. The build died
+// in a foreign file and salvage rightly refused to stub it: "the error is in a
+// file the build didn't write".
+//
+// So a perfectly reasonable page could take the whole site down through a file
+// it has no knowledge of. Both kit links are plain `href`s now, which do not
+// participate in a route's search contract at all.
+//
+// THIS FIXTURE IS THE PROOF. It declares exactly that contract and asserts the
+// build still succeeds — so if a `Link to="/"` ever returns to the kit, it
+// fails here, free, instead of on a customer's build.
+const SEARCHY_INDEX = `import { createFileRoute } from "@tanstack/react-router";
+
+export const Route = createFileRoute("/")({
+  component: Chair,
+  validateSearch: (s: Record<string, unknown>): { timber: string; finish: string } => ({
+    timber: String(s.timber ?? "oak"),
+    finish: String(s.finish ?? "oil"),
+  }),
+});
+
+function Chair() {
+  const { timber, finish } = Route.useSearch();
+  return (
+    <main className="mx-auto max-w-4xl px-6 py-16">
+      <h1 className="text-3xl">The Ashgrove</h1>
+      <p className="text-muted-foreground">{timber}, {finish}</p>
+    </main>
+  );
+}
+`;
+
 const BROKEN = INDEX.replace(
   'const drinks = useRows<Drink>("drinks", { order: "price", dir: "asc", limit: 20 });',
   'const drinks: number = useRows<Drink>("drinks", { order: "price", dir: "asc", limit: 20 });',
@@ -2182,6 +2293,56 @@ function Home() {
     // (0,1,0) wherever each lands, so the rule ships and never wins.
     "[data-slot=site-chrome]{display:grid;grid-template-columns:13.5rem 1fr}",
   ].join("\n");
+  // THE FIVE PROMISED PACKAGES, compiled by the real container before anything
+  // else in this block — see PROMISED_PAGE for the build that paid for it.
+  {
+    // ITS OWN index.tsx, LINKING NOWHERE. The first cut paired PROMISED_PAGE
+    // with the shared `INDEX`, which links to `/menu` — a file this payload does
+    // not send — so the generated route union rejected the link and the build
+    // failed on ROUTING, saying nothing at all about the five packages. A
+    // fixture that fails for a reason other than the one it is testing is worse
+    // than no fixture: it reports a red that sends the next reader elsewhere.
+    const promised = await post({
+      files: {
+        "index.tsx": `import { createFileRoute } from "@tanstack/react-router";
+export const Route = createFileRoute("/")({ component: H });
+function H() { return <main><h1>Promised imports</h1></main>; }
+`,
+        "promised.tsx": PROMISED_PAGE,
+      },
+      slug: "promised-imports", ...themeAsSeeds("broadsheet"),
+    });
+    ok("every package the page rules promise actually compiles", promised.ok === true,
+      "stage=" + promised.stage + " error=" + String(promised.error || "").slice(0, 400));
+    // AND THE FAILURE IS NAMED WHEN IT COMES. A bare `ok === false` on this
+    // build would send the next session hunting through five packages; the
+    // typecheck error names the one that broke, so it is surfaced rather than
+    // collapsed into "the promised imports failed".
+    if (!promised.ok) {
+      ok("…and the promised-import failure names which package broke",
+        /three|recharts|date-fns|lucide|fiber/.test(String(promised.error || "")),
+        String(promised.error || "").slice(0, 400));
+    }
+  }
+
+  // A page whose route REQUIRES search params — run 82's killer. See SEARCHY_INDEX.
+  {
+    const searchy = await post({
+      files: { "index.tsx": SEARCHY_INDEX },
+      slug: "required-search", ...themeAsSeeds("broadsheet"),
+    });
+    ok("a page with REQUIRED search params does not break the kit's own links",
+      searchy.ok === true,
+      "stage=" + searchy.stage + " error=" + String(searchy.error || "").slice(0, 300));
+    // NAMED WHEN IT BREAKS. The whole cost of run 82 was that the error pointed
+    // at a file nobody had touched, so the useful half is WHICH file failed.
+    if (!searchy.ok) {
+      ok("…and it says the failure is in a kit file rather than the page",
+        /error-page|book\.tsx|src\/lib|src\/components/.test(String(searchy.error || "")),
+        String(searchy.error || "").slice(0, 300));
+    }
+  }
+
   const sheetBuild = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU, "desk.tsx": CTA_PAGE },
     slug: "fold-coffee", ...themeAsSeeds("broadsheet"), style: HOUSE_STYLE,
