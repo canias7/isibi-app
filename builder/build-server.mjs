@@ -1788,12 +1788,44 @@ const server = http.createServer((req, res) => {
         return send(res, 200, { ok: false, stage: "routes", error: exitReason("tsr generate", gen).slice(0, 4000), ms: Date.now() - t0, ...times });
       }
 
+      // ── THE TYPECHECK REPORTS; IT NO LONGER REFUSES (2026-08-30, owner) ─────
+      //
+      // Owner: "I want it to ship as it is, dont matter if its anything broken,
+      // even after is reviewed by the compiler" — the standing rule in
+      // owner-notes, applied to the one gate that was still enforcing the
+      // opposite: "The whole site can't not go live if one step breaks — if one
+      // step breaks it's gotta ship like that, however it is."
+      //
+      // THE LOAD-BEARING FACT, MEASURED RATHER THAN ASSUMED. `tsc --noEmit` is a
+      // gate WE impose. Vite strips types with esbuild and never checks them, so
+      // a tree tsc refuses usually bundles and runs. Proved on the exact page
+      // that killed runs 84 and 85:
+      //
+      //     tsc --noEmit  → exit 2, TS2322 (`children` on a component without it)
+      //     vite build    → exit 0, 2186 modules transformed, 6.95s
+      //
+      // Four paid builds died at this line today — runs 80, 82, 84 and 85, all
+      // TYPE errors, none of which stop the bundler — and every one of them left
+      // a customer on a placeholder having been charged. That is the outcome the
+      // owner's rule exists to forbid.
+      //
+      // WHAT STILL REFUSES, and the distinction is the whole design: `vite build`
+      // below. A type error is a claim about types; a vite failure is the code
+      // genuinely not becoming a bundle — a missing import, a syntax error, a
+      // module that will not resolve. There is nothing to ship in that case, so
+      // that gate stays exactly as it was.
+      //
+      // THE ERRORS ARE NOT SWALLOWED. They ride out on `typeErrors` so the reply
+      // can tell the customer what is shaky, the trace keeps the diagnosis, and
+      // nothing about the old failure becomes invisible — it stops being FATAL,
+      // which is a different thing from stopping being reported.
       const tsc = await timed("tscMs", "npx", ["tsc", "--noEmit"]);
-      if (tsc.code !== 0) {
-        // tsc reports on stdout; keep the first errors, which are the causes —
-        // the tail is usually the same mistake echoed through the tree.
-        return send(res, 200, { ok: false, stage: "typecheck", error: exitReason("tsc", tsc, { stdoutFirst: true }).slice(0, 6000), ms: Date.now() - t0, ...times });
-      }
+      // tsc reports on stdout; keep the first errors, which are the causes — the
+      // tail is usually the same mistake echoed through the tree.
+      const typeErrors = tsc.code !== 0
+        ? exitReason("tsc", tsc, { stdoutFirst: true }).slice(0, 6000)
+        : "";
+      if (typeErrors) console.warn("typecheck failed, shipping anyway:", typeErrors.slice(0, 300));
 
       const build = await timed("viteMs", "npx", ["vite", "build", "--logLevel", "warn"]);
       if (build.code !== 0) {
@@ -1998,7 +2030,14 @@ const server = http.createServer((req, res) => {
       // because "we thought this was sandboxed" is a worse position than knowing
       // it is not, and the one thing a check like this must not do is report a
       // confinement that is not there.
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
+      // THE TYPECHECK'S VERDICT RIDES OUT ON A SUCCESS (`...typeErrors` below).
+      // It stopped being a gate above; if it did not also stop being SILENT the
+      // site would ship with nobody told it is shaky, which is this repo's own
+      // wiring trap committed inside the fix for it. Spread, so a clean build
+      // sends exactly what it sent before — and kept on ONE line, because three
+      // guards match this literal as a line and a comment in the middle of it
+      // makes them report a working response as broken.
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, ...(typeErrors ? { typeErrors } : {}), fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

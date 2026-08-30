@@ -118,8 +118,21 @@ test("every failure that reports a child process goes through it", () => {
   assert.match(src, /const timed = async \(key, cmd, args, fn\)/,
     "the in-process form is gone — if every step is a subprocess again, simplify this back");
 
+  // TWO, NOT THREE, SINCE 2026-08-30. The typecheck stopped being a failing
+  // stage: `tsc` reports and the build ships anyway (owner: "I want it to ship
+  // as it is … even after is reviewed by the compiler"), so `ok: false, stage:
+  // "typecheck"` no longer exists to be scanned. The floor moved with the real
+  // number rather than the assertion being dropped — it is still an
+  // observer-alive check, and a scan that finds ONE has stopped working.
   const stages = [...src.matchAll(/ok: false, stage: "(\w+)", error: (.+?), ms:/g)];
-  assert.ok(stages.length >= 3, `only ${stages.length} failing stages found — the scan stopped working`);
+  assert.ok(stages.length >= 2, `only ${stages.length} failing stages found — the scan stopped working`);
+  // AND THE TWO THAT REMAIN ARE THE RIGHT ONES, named rather than counted: a
+  // build that cannot generate its routes and a build that cannot bundle both
+  // have nothing to ship, which is what still earns a refusal.
+  assert.deepEqual([...new Set(stages.map((m) => m[1]))].sort(), ["build", "routes"],
+    "the failing stages are no longer routes+build — if a third KIND has come back, decide whether it should " +
+    "refuse a build or merely report on it. DISTINCT names, because `build` legitimately fails in several " +
+    "places and counting occurrences would pin this to a refactor rather than to the property.");
 
   // Blank string literals before looking for an identifier, or `"vite build"`
   // reads as a use of the variable `build`. Blanked, not removed, so nothing
@@ -153,7 +166,12 @@ test("every failure that reports a child process goes through it", () => {
   const reportsAChild = ([, , expr]) => names.some((n) => new RegExp("\\b" + n + "\\b").test(bare(expr)));
 
   const relevant = stages.filter(reportsAChild);
-  assert.ok(relevant.length >= 3,
+  // TWO SINCE 2026-08-30, for the reason given at the stage floor above: the
+  // typecheck was the third, and it no longer refuses — `tsc` reports and the
+  // build ships regardless. Lowered with the real number rather than deleted,
+  // because the point of the floor is that a scan which stops finding its
+  // subjects must go red instead of certifying nothing.
+  assert.ok(relevant.length >= 2,
     `only ${relevant.length} failures reference a subprocess — the identifier scan stopped working`);
   const handRolled = relevant.filter(([, , expr]) => !/exitReason\(/.test(expr));
   assert.deepEqual(handRolled.map(([, stage]) => stage), [],

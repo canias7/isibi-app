@@ -126,7 +126,15 @@ auth-gated, idempotent, a slug claimed by whoever builds it first (409).
    tables or the site already has one**. A first build is frontend-only by
    default, so most sites never get a database.
 4. **Generate** (`write_pages`) — ONE model call, no repair pass.
-5. **Compile** — `tsc --noEmit` then `vite build` in the container.
+5. **Compile** — `tsc --noEmit` then `vite build` in the container. **The
+   typecheck REPORTS; only `vite build` refuses** (owner, 2026-08-30: *"I want
+   it to ship as it is, dont matter if its anything broken, even after is
+   reviewed by the compiler"*). `tsc` is a gate we impose — Vite strips types
+   with esbuild and never checks them — so a tree tsc refuses still bundles,
+   measured on the page that killed runs 84/85: **tsc exit 2, vite exit 0,
+   2,186 modules, 6.95s**. The errors ride out as `typeErrors` and reach the
+   customer as a `problems` line. A vite failure still refuses: there is
+   genuinely nothing to ship.
 6. **Render check** — a real Chromium opens every route at two widths.
 7. **Salvage** — a page that will not compile is replaced by a stub, never a live
    page (`livePages`), and the build publishes.
@@ -809,6 +817,23 @@ exactly the `chairs` table it built. A QR on the page would have been the site
 linking to itself. Worth remembering before reading a missing optional field as
 a dead wire: **`qr` and `gif` are offered on every build** (`FRONTEND_SCHEMA_TOOL`
 destructures out `backend` and nothing else), so absence is a judgement, not a gap.
+
+**FOUR PAID BUILDS DIED ON A GATE THAT DID NOT HAVE TO EXIST (2026-08-30).**
+Runs 80, 82, 84 and 85 all ended `page=placeholder` at `stage: typecheck`, every
+one of them a TYPE error, every one leaving a charged customer with nothing. The
+whole time, **the bundler did not care**: `tsc --noEmit` is a gate WE impose and
+Vite strips types with esbuild without checking them. Measured on the exact page
+that killed 84 and 85 — `tsc` exit 2 with TS2322, `vite build` exit 0, 2,186
+modules in 6.95s. **The sites would all have shipped.**
+The typecheck reports now and only `vite build` refuses, which is the honest
+split: a type error is a claim about types, a vite failure is code that will not
+become a bundle. **The general shape: before hardening a gate, check whether the
+layer below it needs the gate at all** — four builds were spent teaching a
+checker to pass when nothing downstream was asking it to.
+Its corollary is that `salvage` now has nothing to do on the build path (it keys
+on `stage: "typecheck"`, which no longer exists), on top of already being
+unreachable for one-page sites. Left in place rather than deleted: it is the
+answer if a refusing stage ever returns.
 
 **SALVAGE CANNOT FIRE ON A NEW BUILD, AND HAS NOT SINCE `MAX_PAGES` BECAME 1
 (found 2026-08-30 by run 84).** `site-plan.mjs` plans **one** page and that page

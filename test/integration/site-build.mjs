@@ -1514,11 +1514,34 @@ try {
       "the drawn-wordmark path through the compose did not land a card");
   }
 
+  // ── A TYPE ERROR SHIPS NOW (2026-08-30, owner) ─────────────────────────────
+  //
+  // Owner: "I want it to ship as it is, dont matter if its anything broken, even
+  // after is reviewed by the compiler" — the standing rule applied to the last
+  // gate still enforcing the opposite.
+  //
+  // THE FACT THAT MAKES IT SAFE, measured rather than assumed: `tsc --noEmit` is
+  // a gate WE impose. Vite strips types with esbuild and never checks them, so a
+  // tree tsc refuses still bundles. Proved on the exact page that killed runs 84
+  // and 85 — tsc exit 2 (TS2322), vite exit 0, 2186 modules, 6.95s.
+  //
+  // FOUR PAID BUILDS DIED HERE IN ONE DAY (runs 80, 82, 84, 85), every one a
+  // TYPE error, every one leaving a charged customer on a placeholder. This case
+  // is the one that would have caught that, and it was asserting the behaviour
+  // that caused it.
   console.log("\nbuilding a page with a type error…");
   const broken = await post({ files: { "index.tsx": BROKEN }, slug: "fold-coffee" });
-  ok("a type error fails the build", broken.ok === false, JSON.stringify(broken).slice(0, 200));
-  ok("and it is reported as a typecheck failure", broken.stage === "typecheck", broken.stage);
-  ok("with the error a repair pass can act on", /is not assignable to type 'number'/.test(broken.error || ""), (broken.error || "").slice(0, 300));
+  ok("A TYPE ERROR NO LONGER STOPS THE SITE — it builds and ships", broken.ok === true,
+    "stage=" + broken.stage + " error=" + String(broken.error || "").slice(0, 300));
+  // AND IT IS NOT SWALLOWED, which is the other half and the one a wiring trap
+  // eats: the site shipping while nobody is told it is shaky is not the outcome
+  // asked for.
+  ok("…and the typecheck's verdict rides out on the response",
+    /is not assignable to type 'number'/.test(broken.typeErrors || ""),
+    (broken.typeErrors || "(no typeErrors field)").slice(0, 300));
+  ok("…and the build really produced a bundle rather than an empty pass",
+    Object.keys(broken.files || {}).some((n) => n.endsWith(".js")),
+    Object.keys(broken.files || {}).slice(0, 6).join(", ") || "(no files)");
 
   // tsconfig EXCLUDES src/components/charts, because it is a catalogue rather
   // than application code and typechecking all 70 on every build cost 3s a site.
@@ -1554,10 +1577,15 @@ try {
     slug: "fold-coffee",
   });
   fs.writeFileSync(chartAbs, chartWas);
-  ok("a type error inside an EXCLUDED but imported file still fails the build",
-    importsExcluded.ok === false, JSON.stringify(importsExcluded).slice(0, 200));
+  // TYPE ERRORS STOPPED FAILING THE BUILD (2026-08-30) — they ride out on
+  // `typeErrors` beside `ok: true`. The property here is UNCHANGED and still
+  // worth asserting: this code does not typecheck, and the compiler names the
+  // right thing. Only the field it is read from moved. Re-anchored rather than
+  // deleted, because "the build failed" was the INSTRUMENT, never the point.
+  ok("a type error inside an EXCLUDED but imported file is still REPORTED",
+    !!importsExcluded.typeErrors, JSON.stringify(importsExcluded).slice(0, 200));
   ok("and it is blamed on the excluded file, not the page",
-    /chart-bar-label/.test(importsExcluded.error || ""), (importsExcluded.error || "").slice(0, 300));
+    /chart-bar-label/.test(importsExcluded.typeErrors || ""), (importsExcluded.typeErrors || "").slice(0, 300));
 
   // ── the empty state, written the way the model actually writes it ───────────
   //
@@ -2886,8 +2914,36 @@ function H() { return <main><h1>Promised imports</h1></main>; }
   console.log("\nrejecting what must never be written…");
   const root = await post({ files: { "__root.tsx": "export const x = 1;" } });
   ok("the root layout cannot be overwritten", root.ok === false && /no valid route files/.test(root.error || ""), JSON.stringify(root).slice(0, 200));
-  const esc = await post({ files: { "../../../etc/passwd.tsx": "export const x = 1;" } });
-  ok("a path escaping src/routes is refused", esc.ok === false, JSON.stringify(esc).slice(0, 200));
+  // ── THIS TEST WAS NEVER MEASURING WHAT ITS NAME SAID (found 2026-08-30) ────
+  //
+  // It asserted `ok === false` and passed for years — but NOT because the path
+  // was refused. `safeRoute("../../../etc/passwd.tsx")` returns
+  // `"etc/passwd.tsx"`: it STRIPS the traversal rather than rejecting it, so the
+  // file was written INSIDE `src/routes` and the build then failed at the
+  // TYPECHECK, because `export const x = 1;` is not a route module. The old
+  // assertion was reading a type error and calling it a path refusal.
+  //
+  // Removing the typecheck gate is what exposed it, which is the useful half:
+  // a test whose verdict comes from a layer it does not name will keep passing
+  // long after the thing it claims to guard has moved.
+  //
+  // THE REAL PROPERTY IS CONTAINMENT, and it holds: nothing reaches outside
+  // `src/routes`, whatever the model names its file. That is what is asserted
+  // now — directly, on the published output, rather than inferred from a
+  // failure somewhere else.
+  // A REAL index.tsx BESIDE IT, so the build actually runs and there is a
+  // published file list to inspect. Without one `!wrote` short-circuits and the
+  // containment claim is never exercised — the assertion would pass over nothing.
+  const esc = await post({ files: {
+    "../../../etc/passwd.tsx": "export const x = 1;",
+    "index.tsx": `import { createFileRoute } from "@tanstack/react-router";
+export const Route = createFileRoute("/")({ component: H });
+function H() { return <main><h1>Contained</h1></main>; }
+`,
+  } });
+  const escaped = Object.keys(esc.files || {}).filter((n) => /(^|\/)etc\//.test(n) || n.includes(".."));
+  ok("a path escaping src/routes cannot reach outside it", escaped.length === 0,
+    escaped.slice(0, 4).join(", ") || JSON.stringify(esc).slice(0, 160));
   ok("nothing was written outside the sandbox", !fs.existsSync("/etc/passwd.tsx"));
 
   console.log("\nrebuilding to prove the routes are reset…");
@@ -3576,10 +3632,10 @@ function Home() {
       files: Object.fromEntries(raw.map((p) => [p.path, p.source])),
       slug: "dangling-before", title: "Dangling",
     });
-    ok("the unfixed pages really do fail to compile", before.ok === false && before.stage === "typecheck",
-      `${before.stage || "ok"}: ${String(before.error || "").slice(0, 200)}`);
+    ok("the unfixed pages really do fail to typecheck", !!before.typeErrors,
+      `${before.stage || "ok"}: ${String(before.typeErrors || "").slice(0, 200)}`);
     ok("and it fails on the link, not on something else",
-      /account/.test(String(before.error || "")), String(before.error || "").slice(0, 200));
+      /account/.test(String(before.typeErrors || "")), String(before.typeErrors || "").slice(0, 200));
 
     // …then the same pages through validatePages, which is what production does.
     const v = validatePages({ pages: raw.map((p) => ({ ...p })) });
@@ -3637,8 +3693,8 @@ function Home() {
       slug: "rowtype-loose", title: "Row",
     });
     ok("and an undeclared column is still a union, not `any`",
-      loose.ok === false && loose.stage === "typecheck",
-      `${loose.stage || "ok"}: ${String(loose.error || "").slice(0, 240)}`);
+      !!loose.typeErrors,
+      `${loose.stage || "ok"}: ${String(loose.typeErrors || "").slice(0, 240)}`);
   }
 
   // ── the two shapes an edit can be written in ────────────────────────────────
@@ -3679,9 +3735,9 @@ function P() {
     // error this fix is about: `values` is a legitimate key now, and a nested
     // object anywhere else is still not a row value.
     const bogus = await post({ files: { "index.tsx": editPage('update.mutate({ id: 1, stage: { nested: "x" } })') }, slug: "edit-bogus", title: "Edit" });
-    ok("…while an object in a column is still refused",
-      bogus.ok === false && bogus.stage === "typecheck",
-      `${bogus.stage || "ok"}: ${String(bogus.error || "").slice(0, 240)}`);
+    ok("…while an object in a column is still refused by the types",
+      !!bogus.typeErrors,
+      `${bogus.stage || "ok"}: ${String(bogus.typeErrors || "").slice(0, 240)}`);
   }
 
   // ── the salvage stub ────────────────────────────────────────────────────────
@@ -3711,12 +3767,11 @@ function P() {
       },
       slug: "salvage-before", title: "Salvage",
     });
-    ok("a site with one bad page fails outright before the stub",
-      broken.ok === false && broken.stage === "typecheck",
-      `${broken.stage || "ok"}: ${String(broken.error || "").slice(0, 240)}`);
-    ok("and the failure names the page, which is what salvagePlan reads",
-      /menu\.tsx\(\d+,\d+\)/.test(String(broken.error || "")),
-      String(broken.error || "").slice(0, 240));
+    ok("a site with one bad page still reports the type error", !!broken.typeErrors,
+      `${broken.stage || "ok"}: ${String(broken.typeErrors || "").slice(0, 240)}`);
+    ok("and the report names the page, which is the shape salvagePlan reads",
+      /menu\.tsx\(\d+,\d+\)/.test(String(broken.typeErrors || "")),
+      String(broken.typeErrors || "").slice(0, 240));
 
     const salvaged = await post({
       files: { "index.tsx": INDEX, "menu.tsx": stubPage("menu.tsx") },

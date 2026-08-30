@@ -414,6 +414,22 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
     three of today's four paid builds ended on the placeholder because of it.
     **Not fixed, because it is your call**: should a site whose only page is broken
     go live as an apology page, or keep the placeholder? I lean to the placeholder.
+- **Fixed 2026-08-30, your call: a broken page SHIPS now.** You said it plainly —
+  *"I want it to ship as it is, dont matter if its anything broken, even after is
+  reviewed by the compiler"* — and there was one gate still doing the opposite.
+  - **Four paid builds died on it today** (runs 80, 82, 84, 85), every one of them
+    a *type* error, every one leaving you charged with a placeholder site.
+  - **And none of them had to.** The typecheck is a check *we* run; the thing that
+    actually builds the site ignores types completely. I proved it on the exact
+    page that killed two of those runs: the typechecker refused it, the builder
+    produced the whole site in seven seconds. **All four would have gone live.**
+  - So the typecheck now *reports* instead of refusing. The site ships, and the
+    reply tells you which bit is shaky and to send it again. The only thing that
+    still stops a build is the site genuinely failing to build — a missing file, a
+    syntax error — where there is nothing to publish at all.
+  - **The lesson worth keeping**: before spending money hardening a gate, check
+    whether the step below it needs the gate. Four builds went on teaching a
+    checker to pass when nothing downstream was asking.
 - **Run 83 PUBLISHED (2026-08-30): `ashgrove-1` is live at
   https://ashgrove-1.gofarther.app/ — 17 credits.** Third attempt, first success,
   and it cost a third of what the failed first build did: a revise anchors to the

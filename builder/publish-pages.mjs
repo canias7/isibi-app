@@ -1318,6 +1318,27 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
   // sending it again rather than us paying to guess twice.
   out.files = v.pages.map((p) => "src/routes/" + p.path);
   out.problems = problems;
+  // ── THE TYPECHECK'S VERDICT, ON A BUILD THAT SHIPPED ANYWAY (2026-08-30) ───
+  //
+  // The container stopped REFUSING on a type error (owner: "I want it to ship as
+  // it is, dont matter if its anything broken, even after is reviewed by the
+  // compiler"), and it now returns `typeErrors` beside `ok: true`. Without this
+  // hop the site ships and nobody is told it is shaky — the exact wiring trap
+  // this repo has recorded a dozen times, which would have been committed inside
+  // the fix for it.
+  //
+  // FIRST LINE ONLY, and phrased for the person reading the chat rather than the
+  // person reading a compiler. `tsc` echoes one mistake through the tree, so the
+  // head is the cause and the tail is noise; the full text stays on the response
+  // for anyone diagnosing.
+  if (built && built.ok && built.typeErrors) {
+    const first = String(built.typeErrors).split("\n").find((l) => /error TS/.test(l)) || "";
+    out.typeErrors = String(built.typeErrors).slice(0, 2000);
+    out.problems = out.problems.concat(
+      "the site published, but part of it did not typecheck and may not behave" +
+      (first ? " — " + first.trim().slice(0, 220) : "") +
+      ". Send it again and it will be rewritten.");
+  }
   // THE MODEL'S OWN WORDS TO THE CUSTOMER. This field has always been written
   // and always been thrown away — `notes` was returned on the response and
   // nothing in the client rendered it, so every build has paid for a few dozen
