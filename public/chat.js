@@ -9440,6 +9440,41 @@ function initPipeModels() {
       '</span>' +
     '</li>').join('');
 }
+// The horizontal run at the foot of the pipeline is the AGENTS one (owner
+// 2026-08-30: "each one is its own, so do agents in the first horizontal one").
+// More runs are coming below it, each its own subject.
+//
+// ONE ENTRY PER VALVE, and the list is what the strip says the platform has —
+// so it says only what the platform HAS. The Media Agent is the one that
+// ships: Instagram and YouTube through Composio, reads live and comment
+// auto-reply live. Anything added here is a claim on a public page, so it goes
+// in when it goes live, not before.
+const RUN_AGENTS = [
+  { name: 'Media Agent', note: 'Instagram + YouTube' },
+];
+
+// Same valve the vertical pipe draws, turned on its side: two flange lines
+// across the flow and a handwheel on the centreline. Kept here beside the list
+// rather than in the markup because the stations are now data.
+const RUN_VALVE =
+  '<span class="gf-run-valve" aria-hidden="true"><svg viewBox="0 0 44 76">' +
+    '<g fill="none" stroke="currentColor" stroke-linecap="round">' +
+      '<g stroke-width="2.4"><line x1="14" y1="8" x2="14" y2="68"/><line x1="30" y1="8" x2="30" y2="68"/></g>' +
+      '<g stroke-width="2.1"><circle cx="22" cy="38" r="12"/><line x1="10" y1="38" x2="34" y2="38"/>' +
+      '<line x1="22" y1="26" x2="22" y2="50"/></g>' +
+    '</g></svg></span>';
+
+function initRunAgents() {
+  const host = document.getElementById('gfRun');
+  if (!host) return;
+  host.innerHTML = RUN_AGENTS.map((a) =>
+    '<li class="gf-run-step">' + RUN_VALVE +
+      '<b class="gf-run-txt">' + a.name +
+        (a.note ? '<small>' + a.note + '</small>' : '') +
+      '</b>' +
+    '</li>').join('');
+}
+
 // The clips behind the Video tab. ONE ENTRY PER RECTANGLE, and the shape is
 // the card's: 'wide' 16:9, 'sq' 1:1, 'tall' 9:16. Every card is the same
 // HEIGHT and takes its width from that shape, which is the rule the app strip
@@ -9533,6 +9568,7 @@ function initCrt() {
   initCrtStage();
   initReel();
   initPipeModels();
+  initRunAgents();
   const mkt = document.getElementById('marketing');
   // click a channel → tune it, then act (live → sign-up, soon → NO SIGNAL)
   menu.querySelectorAll('.crt-opt').forEach((opt, i) => {

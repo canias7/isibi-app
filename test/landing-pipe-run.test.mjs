@@ -21,6 +21,7 @@ import path from "node:path";
 
 const HTML = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "index.html"), "utf8");
 const CSS = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "styles.css"), "utf8");
+const CHAT_RAW = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "chat.js"), "utf8");
 
 // Prose in this repo argues about the things it forbids — the comment above
 // this pipe explains why there is no bottom cap and therefore says "cap", and
@@ -36,6 +37,9 @@ const decomment = (s, ...pairs) => {
 };
 const CSS_CODE = decomment(CSS, ["/\\*", "\\*/"]);
 const HTML_CODE = decomment(HTML, ["<!--", "-->"]);
+// JavaScript has two comment forms and this file's comments argue about the
+// very markup they sit above, so both are blanked before anything is scanned.
+const CHAT = decomment(CHAT_RAW, ["/\\*", "\\*/"]).replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
 
 // A rule's body, from its selector to the brace that closes it. Landmark to
 // landmark: a byte window would be outrun by the next comment.
@@ -182,32 +186,59 @@ test("the pipe's bottom is open, because the run leaves through it", () => {
     "the bottom is a turn, not an end — a cap across it welds the pipe shut");
 });
 
-test("every station on the run is a valve AND a word", () => {
-  const i = HTML_CODE.indexOf('class="gf-run-list"');
-  assert.ok(i >= 0, "the run's station list must exist");
-  const j = HTML_CODE.indexOf("</ol>", i);
-  assert.ok(j > i, "the run's station list must be closed");
-  const list = HTML_CODE.slice(i, j);
-  const steps = (list.match(/class="gf-run-step"/g) || []).length;
-  assert.ok(steps >= 3, "a run with " + steps + " stations is not a run");
-  assert.equal((list.match(/class="gf-run-valve"/g) || []).length, steps,
-    "a station without a valve is a word floating under a pipe");
-  const words = [...list.matchAll(/class="gf-run-txt">([^<]+)</g)].map((m) => m[1].trim());
-  assert.equal(words.length, steps, "a valve without a word says nothing");
-  for (const w of words) assert.ok(w.length > 0, "a station's word cannot be blank");
+test("every station on the run is a valve AND a name", () => {
+  // The stations moved out of index.html and into RUN_AGENTS on 2026-08-30, so
+  // this scans the RENDERER, not the markup. Anchoring it on the old <li>s
+  // reported the run as empty the moment it became data — a guard going red for
+  // the change rather than for a bug.
+  const i = CHAT.indexOf("const RUN_AGENTS = [");
+  assert.ok(i >= 0, "RUN_AGENTS must exist — the run's stations come from it");
+  const j = CHAT.indexOf("\n];", i);
+  assert.ok(j > i, "RUN_AGENTS must be closed");
+  const agents = eval(CHAT.slice(CHAT.indexOf("[", i), j + 2));
+  assert.ok(agents.length >= 1, "a run with no stations is a bare pipe");
+  for (const a of agents) {
+    assert.ok(a.name && a.name.trim().length > 0, "every station needs a name");
+    assert.equal(typeof (a.note ?? ""), "string", "a note, when present, is text");
+  }
+  const r = CHAT.slice(CHAT.indexOf("function initRunAgents"));
+  const body = r.slice(0, r.indexOf("\n}"));
+  assert.match(body, /RUN_AGENTS\.map\(/, "the stations must be rendered from the list, not restated");
+  assert.match(body, /gf-run-step/, "each entry must render a station");
+  assert.match(body, /RUN_VALVE/, "each station must carry a valve");
+  assert.match(body, /a\.name/, "each station must print its name");
 });
 
 test("the run's valve is the pipe's valve, transposed", () => {
   // The two are one drawing or they are two drawings that happen to be near
   // each other. Same handwheel, same flange pair, box swapped — asserted as the
   // transpose so a redrawn vertical valve cannot silently orphan this one.
-  const chat = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "chat.js"), "utf8");
-  const vb = /viewBox="0 0 (\d+) (\d+)"/.exec(chat.slice(chat.indexOf('class="gf-pipe-valve"')));
+  const vb = /viewBox="0 0 (\d+) (\d+)"/.exec(CHAT.slice(CHAT.indexOf('class="gf-pipe-valve"')));
   assert.ok(vb, "the vertical step's valve must declare a viewBox");
-  const run = /viewBox="0 0 (\d+) (\d+)"/.exec(HTML_CODE.slice(HTML_CODE.indexOf('class="gf-run-valve"')));
+  const run = /viewBox="0 0 (\d+) (\d+)"/.exec(CHAT.slice(CHAT.indexOf("const RUN_VALVE")));
   assert.ok(run, "the run's valve must declare a viewBox");
   assert.deepEqual([run[1], run[2]], [vb[2], vb[1]],
     "the run's valve must be the vertical one's box turned on its side");
+});
+
+test("every landing list the script fills is a list the page has", () => {
+  // THE WIRING LAYER, which is this repo's most repeated own-goal: the module
+  // is perfect and one hop is cut. Rename #gfRun in index.html and
+  // initRunAgents finds nothing, returns, and the pipe renders as a bare length
+  // of pipe with no valves — no error, no log, and from outside it looks
+  // exactly like a list somebody emptied on purpose. A mutation sweep found
+  // this gap by renaming the id and watching every other guard stay green.
+  //
+  // Derived from the CONSUMER rather than listing today's hosts: any id the
+  // landing's scripts reach for must be an id the landing declares. The gf-
+  // prefix is the landing's own namespace, so this grows by itself.
+  const wanted = [...new Set([...CHAT.matchAll(/getElementById\('(gf[A-Za-z]*)'\)/g)].map((m) => m[1]))];
+  assert.ok(wanted.length >= 3,
+    "expected the landing's render hosts, found " + wanted.length + " — has the namespace changed?");
+  for (const id of wanted) {
+    assert.ok(HTML_CODE.includes('id="' + id + '"'),
+      "chat.js fills #" + id + " but index.html has no such element — the render is dead");
+  }
 });
 
 test("the run crosses the page, not the aside", () => {

@@ -6441,8 +6441,12 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    width, which is what makes the two read as one drawing. */
 .mkt-crt .gf-run-valve svg{display:block;width:34px;height:58px}
 .mkt-crt .gf-run-txt{position:absolute;left:50%;top:calc(100% + 12px);
-  transform:translateX(-50%);white-space:nowrap;
+  transform:translateX(-50%);white-space:nowrap;text-align:center;
   font-weight:400;font-size:1.02rem;line-height:1.2;color:var(--graphite)}
+/* the note under an agent's name, the same second line the vertical pipe's
+   steps carry — one weight down and one shade back, so the name reads first */
+.mkt-crt .gf-run-txt small{display:block;margin-top:.15rem;
+  font-size:.88rem;line-height:1.35;color:var(--graphite-3)}
 /* Below 900px the row stacks, so the pipe's bottom is no longer the row's
    bottom and the elbow would hang off nothing. Desktop-first here as
    everywhere else on this page: drop the run rather than draw it detached. */
