@@ -6421,7 +6421,7 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    the content arrives it goes after .gf-run and this margin becomes the gap
    above it. */
 .mkt-crt .gf-run{position:relative;height:150px;color:var(--graphite);
-  margin:0 0 clamp(180px,26vh,300px)}
+  margin:0 0 clamp(380px,55vh,620px)}
 .mkt-crt .gf-run-elbow{position:absolute;left:0;top:0;display:block;
   filter:url(#pencilRough)}
 /* the straight length. It starts UNDER the elbow's flat tails (which run to
