@@ -15,6 +15,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 // every Cloudflare custom-hostname call the platform made threw before it could
 // reach the API. Invisible until the line ran, which is the whole class of bug
 // `test/worker-imports.test.mjs` now covers.
+import { resolveAlias, cleanAlias, renameRows, aliasRefusal, renameRequest, readRename } from "./builder/site-alias.mjs";
 import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, isPublishedSiteRequest, siteHostSlug, siteHostFor, siteUrlFor, siteOrigin, claimRefusal, dnsInstructions, readStatus, mountRootFor, absolutizeAssets } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
@@ -102,7 +103,7 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, ACTING_LANES } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage } from "./builder/site-lanes.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -112,11 +113,12 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, normalizePlan } from "./builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 // The designer-drawn tab icon (2026-08-28, owner's call). The FIELD is the ask;
 // `cleanFavicon` itself runs at the merge (`FIELD_KEEPS.favicon`) and again in
 // the container at the write — this file only carries the answer through.
-import { FAVICON_FIELD, WORDMARK_FIELD } from "./builder/site-favicon.mjs";
+import { FAVICON_FIELD, WORDMARK_FIELD, GIF_FIELD } from "./builder/site-favicon.mjs";
+import { QR_FIELD, qrSvg } from "./builder/site-qr.mjs";
 // THE 500 THEMES, BACK IN THE PRODUCT (2026-08-27, owner's call). The tool's
 // enum is `THEME_SHORTLIST` — 100 of the 500, the owner's second call the same
 // day ("do only 100 and keep the otherones there") — `themeFontPair` is where
@@ -3888,6 +3890,21 @@ const SITE_SCHEMA_TOOL = {
       // ORDER MATTERS AND IS ASSERTED: `components` is LAST of these four, so
       // it is picked after the page list above it has been written.
       ...PLAN_FIELDS,
+      // ── AND WHAT THE KIT HAS NOT GOT ────────────────────────────────────
+      //
+      // IMMEDIATELY AFTER `components`, which is the last key of the spread
+      // above — the owner's own placement ("its gotta be after the components
+      // step, if the component step didn't find the component you generate
+      // it"), and the placement the ordering argument gives anyway. A tool's
+      // property order is its generation order, so this is answered by a model
+      // that has JUST searched a 2,112-component kit and come up short. Earlier
+      // and it is a wish list written before the search.
+      //
+      // ITS POSITION IS THEREFORE LOAD-BEARING AND IS ASSERTED, not left to the
+      // accident of sitting between two literals: `components` is pinned last
+      // inside `PLAN_FIELDS` for its own reasons, and a field inserted there
+      // later would silently come between them.
+      tsx: TSX_FIELD,
       // `mode` IS GONE — LIGHT OR DARK IS A COLOUR, AND COLOUR IS `css`
       // (owner's call, 2026-08-23). Kept as an ABSENCE rather than only
       // deleted, on the precedent that replaced the repair-pass tests with
@@ -3990,6 +4007,18 @@ const SITE_SCHEMA_TOOL = {
       // uploaded logo still beats either.
       wordmark: WORDMARK_FIELD,
       favicon: FAVICON_FIELD,
+      // ── AND THE ANIMATED ONE, BESIDE THE TWO STILL MARKS ────────────────
+      //
+      // Owner, 2026-08-29: "gif maker as optional too, in the design step…
+      // just like a svg step, a gif step to generate gif". So it sits with the
+      // drawn marks rather than with the page content: it is the same job as
+      // the wordmark and the tab icon — the model draws one document, the same
+      // scanner validates it, the site keeps nothing if it is refused.
+      //
+      // AFTER the two still marks, because an animated mark on a site that has
+      // one is usually a moving version of that identity, and the model has
+      // just drawn it.
+      gif: GIF_FIELD,
       shape: SHAPE_FIELD,
       // AND THE PHOTOGRAPHS LAST OF ALL (owner's call, 2026-08-23 — "lets move
       // image generator to the designer").
@@ -4005,6 +4034,14 @@ const SITE_SCHEMA_TOOL = {
       // the verb is fixed, the manifest is picked and every band is arranged.
       // "The hero on /" is a slot this model just placed. See IMAGES_FIELD.
       images: IMAGES_FIELD,
+      // ── THE QR CODE, AFTER THE PAGES IT MIGHT POINT AT ──────────────────
+      //
+      // Owner, 2026-08-29: "qr code maker as optional". Placed here rather than
+      // with the drawn marks because it is not drawn — WE generate it — and
+      // because what it points at is very often a page of this same site, which
+      // the model has only just decided. Answered before `css`, which is the
+      // layer that would style the block it sits in.
+      qr: QR_FIELD,
       // ── THE SITE'S WHOLE STYLESHEET, WRITTEN BY THE MODEL ────────────────
       //
       // Owner's call, 2026-08-23: "for the look, the css, we are gonna delete
@@ -4931,6 +4968,23 @@ const SITE_SCHEMA_TOOL = {
           "NEVER FOR TEXT, A LOGO OR A BACKGROUND EFFECT. Those are the stylesheet's job and they work for everyone; " +
           "a canvas that fails to start leaves a hole where the words should have been.",
       },
+      // ── WHAT EACH INTERACTIVE THING DOES ────────────────────────────────
+      //
+      // LAST OF THE DESIGN FIELDS AND THAT IS THE WHOLE PLACEMENT ARGUMENT. A
+      // tool's property order is its generation order, so behaviour is decided
+      // once every element that could exist HAS been: the pages, the component
+      // manifest, the shape, the pictures, the primary action and the 3D scene
+      // are all above it. Answered any earlier, the model would be describing
+      // what controls it intends to invent rather than what the page has.
+      //
+      // The `needsWeb` pair below is not a design field — it is the search gate,
+      // build machinery that rides on this call — so behaviour is the last thing
+      // the designer actually designs.
+      //
+      // THE SHAPE IS IN builder/site-plan.mjs, NOT HERE, and the reason is the
+      // edit path: the `behavior` lane answers the same items and may not import
+      // from this file. See `BEHAVIOR_ITEM` there.
+      behavior: BEHAVIOR_FIELD,
       // THE WEB-SEARCH GATE, RIDING ON A CALL THAT ALREADY HAPPENS. Searching
       // costs real money per search and is worth it on a small minority of
       // briefs, so it has to be gated — and the obvious way to gate it, a small
@@ -5009,7 +5063,22 @@ const SITE_SCHEMA_TOOL = {
     // not a design choice, it is the name-hash initials wearing one. Required
     // on a BUILD only — a revise swaps in `EDIT_REQUIRED`, so a stored mark is
     // kept by omission the way everything else on the look is.
-    required: ["brand", "slug", "backend", "description", "theme", "wordmark", "favicon", ...PLAN_REQUIRED],
+    // `behavior` IS COMPELLED, and the argument is the owner's own ("the design
+    // output MUST specify") plus the one this whole file keeps re-learning: a
+    // field the description merely asks for is a field the model answers when it
+    // feels like it. An unanswered behaviour list is not "this page has no
+    // controls" — it is a page whose controls nobody decided, which is exactly
+    // the state `northgroup-17` shipped in, where the stage filters and every
+    // deal row were `<a href="#pipeline">` inside the pipeline section.
+    //
+    // AN EMPTY LIST IS A LEGAL AND REAL ANSWER, which is what keeps this from
+    // being a quota: a static one-page brochure answers `[]` and is right. What
+    // required buys is that the model has to ANSWER the question, not that it
+    // has to find controls.
+    //
+    // On a REVISE this is swapped out with everything else — `EDIT_REQUIRED` is
+    // empty, so a stored behaviour list is kept by omission like the rest.
+    required: ["brand", "slug", "backend", "description", "theme", "wordmark", "favicon", "behavior", ...PLAN_REQUIRED],
   },
 };
 
@@ -7676,6 +7745,89 @@ async function cfHostname(env, method, path, body) {
 // visitor path of every request to every custom domain.
 const hostRoutes = makeCache({ ttlMs: 300_000, max: 2000 });
 
+// ── RENAMED SITES: a label → the site it really is ──────────────────────────
+//
+// FIVE MINUTES, like `hostRoutes` above, and on the same visitor path — but with
+// the OPPOSITE caching rule, which is the whole subtlety here.
+//
+// For a custom domain a MISS is rare and must not be cached ("a lookup failure
+// is not an absence"). For an alias the miss is the overwhelming majority: every
+// site that has never been renamed — all 47 of them today — resolves to "no row"
+// on every single request. Not caching that would put a Supabase round trip in
+// front of every page load on the platform to serve a feature almost nobody uses.
+//
+// So a miss IS cached, and the distinction the other cache draws still has to be
+// drawn: `NO_ALIAS` is the sentinel for "asked, and there is none", and a query
+// that FAILED stores nothing at all. Same rule, said with a value instead of an
+// absence, because here the two really are different answers.
+const NO_ALIAS = Object.freeze({ none: true });
+const aliasRoutes = makeCache({ ttlMs: 300_000, max: 4000 });
+/** slug → its current public name. Same rules, the other direction. */
+const aliasCurrent = makeCache({ ttlMs: 300_000, max: 4000 });
+
+/**
+ * The alias row for one label, or `NO_ALIAS`, or null when we could not ask.
+ */
+async function aliasRowFor(env, label) {
+  const l = typeof label === "string" ? label.toLowerCase() : "";
+  if (!l) return NO_ALIAS;
+  const hit = aliasRoutes.get(l);
+  if (hit) return hit;
+  if (!env.SUPABASE_SERVICE_KEY) return null;
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_aliases?alias=eq.${encodeURIComponent(l)}&select=slug,current&limit=1`,
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+    // A MISSING TABLE IS NOT A MISSING ALIAS, and this is the state the platform
+    // is in until the table is created by hand. PostgREST answers 404/400 for an
+    // unknown relation; treating that as "no alias" is exactly right — the
+    // feature is simply not installed — but it must not be cached as an answer,
+    // or installing the table later would take five minutes to take effect on
+    // every isolate. Answering null degrades to today's behaviour precisely.
+    if (!r.ok) return null;
+    const rows = await r.json().catch(() => null);
+    if (rows === null) return null;
+    const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+    const val = row && typeof row.slug === "string" ? { slug: row.slug.toLowerCase(), current: !!row.current } : NO_ALIAS;
+    aliasRoutes.set(l, val);
+    return val;
+  } catch { return null; }
+}
+
+/**
+ * WHAT A SITE IS CALLED NOW — its current public name, or its slug.
+ *
+ * THE SLUG IS THE HONEST FALLBACK, not a guess: a site with no alias row IS
+ * addressed by its slug, and a site whose row we could not read is one we cannot
+ * say a new name for. Both answer the slug, and both are right — the difference
+ * between them is invisible here and matters nowhere else.
+ */
+async function publicNameFor(env, slug) {
+  const s = typeof slug === "string" ? slug.toLowerCase() : "";
+  if (!s || !env.SUPABASE_SERVICE_KEY) return s;
+  const hit = aliasCurrent.get(s);
+  if (hit) return hit === NO_ALIAS ? s : hit;
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_aliases?slug=eq.${encodeURIComponent(s)}&current=is.true&select=alias&limit=1`,
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return s;
+    const rows = await r.json().catch(() => null);
+    if (rows === null) return s;
+    const name = Array.isArray(rows) && rows[0] && typeof rows[0].alias === "string" ? rows[0].alias.toLowerCase() : null;
+    aliasCurrent.set(s, name || NO_ALIAS);
+    return name || s;
+  } catch { return s; }
+}
+
+/** Forget both directions for one site — after a rename, in this isolate. */
+function forgetAlias(slug, ...labels) {
+  try {
+    aliasCurrent.delete(String(slug || "").toLowerCase());
+    for (const l of labels) if (l) aliasRoutes.delete(String(l).toLowerCase());
+  } catch { /* a cache that cannot forget still expires */ }
+}
+
 /**
  * Which site answers on this hostname?
  *
@@ -8290,6 +8442,83 @@ async function loadSiteSource(env, slug) {
     const v = JSON.parse(await o.text());
     return Array.isArray(v) && v.length ? v : null;
   } catch (e) { console.error("source read failed:", slug, e && e.message); return null; }
+}
+
+/**
+ * AND THE COMPONENTS WRITTEN FOR THIS SITE, which the kit does not have.
+ *
+ * A SECOND KEY RATHER THAN A SECOND FIELD IN `pages.json`, and that is about the
+ * 47 sites that already exist. `loadSiteSource` reads that file as a flat ARRAY;
+ * turning it into `{ pages, parts }` would make every stored site's source
+ * unreadable on its next edit — a whole platform's revise anchor gone to buy
+ * tidiness. A key nobody has yet reads as "none", which is exactly right for
+ * every site built before today.
+ *
+ * WHY THIS HAS TO EXIST AT ALL, stated plainly because it is the difference
+ * between a feature and a live bug: `recompileAndPublish` rebuilds a site from
+ * its STORED source on every cheap edit. A page importing `@/routes/-parts/x`
+ * with no `x` sent does not compile — so without this, the first typo fix after
+ * a build that wrote a component takes the site down. That is this repo's own
+ * standing rule ("anything a build bakes must be sent by that spine too") in its
+ * sharpest form: here the omission is not a stripped feature, it is a red build.
+ */
+/**
+ * THE QR, AS THE CONTAINER WANTS IT: the drawn code and its caption.
+ *
+ * ONE FUNCTION FOR BOTH PAYLOADS, and that is the point rather than tidiness.
+ * The build path and the publish spine each send this, and the two have drifted
+ * before — the tab icon was read on one and never put on the wire, so every
+ * cheap edit silently took a site's drawn mark off. Two call sites computing a
+ * QR two ways would fail the same way and be twice as hard to see.
+ *
+ * DRAWN HERE RATHER THAN STORED, because a QR is a pure function of its payload:
+ * storing the SVG would be a second copy of `points` that can disagree with it,
+ * and the one thing worse than no QR is a QR pointing at the previous URL.
+ *
+ * A REFUSED PAYLOAD YIELDS `undefined`, so the site simply has no QR — the same
+ * refuse-whole contract every drawn mark here has. `qrSvg` already refuses a
+ * scheme a QR must never carry, an over-long payload and one that will not fit.
+ */
+function qrPayload(qr) {
+  if (!qr || typeof qr !== "object" || Array.isArray(qr)) return undefined;
+  const points = typeof qr.points === "string" ? qr.points : "";
+  const label = typeof qr.label === "string" ? qr.label.trim().slice(0, 80) : "";
+  if (!points || !label) return undefined;
+  const drawn = qrSvg(points);
+  if (!drawn.svg) { console.warn("qr refused:", drawn.why); return undefined; }
+  return { svg: drawn.svg, label };
+}
+
+const PARTS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/parts.json";
+
+async function saveSiteParts(env, slug, parts) {
+  if (!env.SITES_BUCKET) return false;
+  const list = (Array.isArray(parts) ? parts : [])
+    .filter((p) => p && typeof p.name === "string" && typeof p.source === "string" && p.name && p.source)
+    .map((p) => ({ name: p.name, source: p.source }));
+  // AN EMPTY LIST IS WRITTEN, NOT SKIPPED, and that is the opposite of
+  // `saveSiteSource`'s `if (!list.length) return false` one function up — which
+  // is right THERE (a build with no pages is a failed build, and blanking the
+  // anchor would destroy the site's only source record) and wrong here. A revise
+  // that legitimately removes the last hand-written component must be able to say
+  // so; skipping the write would leave the old parts stored and re-sent forever,
+  // and the customer's deleted component would keep coming back.
+  try {
+    await env.SITES_BUCKET.put(PARTS_KEY(slug), JSON.stringify(list), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    return true;
+  } catch (e) { console.error("parts save failed:", slug, e && e.message); return false; }
+}
+
+async function loadSiteParts(env, slug) {
+  if (!env.SITES_BUCKET) return null;
+  try {
+    const o = await env.SITES_BUCKET.get(PARTS_KEY(slug));
+    if (!o) return null;
+    const v = JSON.parse(await o.text());
+    return Array.isArray(v) && v.length ? v : null;
+  } catch (e) { console.error("parts read failed:", slug, e && e.message); return null; }
 }
 
 function versionDeps(env) {
@@ -9053,6 +9282,20 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   const fontFiles = await fetchSiteFonts(cssRead.fonts || []);
   const files = {};
   for (const p of pages || []) files[p.path] = p.source;
+  // ── AND THE COMPONENTS THE KIT DOES NOT HAVE ────────────────────────────────
+  //
+  // READ HERE ON EVERY PUBLISH, not passed in, and that is deliberate: every
+  // cheap edit comes through this function and none of them knows or cares that
+  // the site has hand-written components. A parameter would be one more thing
+  // six call sites have to remember, and the one that forgot would not fail —
+  // it would publish a page importing a module that was never written, which
+  // `tsc` refuses, so a customer's typo fix would come back as "the build
+  // failed" with nothing to say why.
+  //
+  // `null` FOR EVERY SITE BUILT BEFORE TODAY, which is every site: the key does
+  // not exist, the read answers null, and the payload carries `undefined` —
+  // byte-for-byte the request this function sent before parts existed.
+  const siteParts = await loadSiteParts(env, slug);
 
   // ── THE SITE'S OTHER LANGUAGES ──────────────────────────────────────────────
   //
@@ -9152,6 +9395,20 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // a colour change cannot quietly drop a language the site has — the
           // same reason `lang`, `mode` and the logo are read here.
           langs: extraLangs.length ? { extra: extraLangs, routes: primaryRoutes } : undefined,
+          // THE COMPONENTS THE KIT DOES NOT HAVE, re-sent on EVERY publish.
+          //
+          // This is the half that makes the feature survivable rather than a
+          // time bomb: every cheap edit rebuilds the site from its stored source,
+          // and a page importing `@/routes/-parts/x` with no `x` in the payload
+          // does not compile. So a build that wrote a component and a spine that
+          // does not re-send it means the customer's NEXT typo fix takes the site
+          // down — the same shape as the tab icon below, which was read here and
+          // never put on the wire, except that this one fails the build instead
+          // of quietly dropping a mark.
+          //
+          // `undefined` for every site that has none, which is every site built
+          // before 2026-08-29 — byte-identical to the request this sent before.
+          parts: siteParts || undefined,
           logo,
           // THE TAB ICON, for the same reason as `logo` one line up — and it
           // was read here and never put on the wire.
@@ -9178,6 +9435,18 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // does not carry the stored mark takes it off and the site falls
           // back to initials because somebody corrected a typo.
           favicon: (look && look.favicon) || undefined,
+          // THE ANIMATED MARK AND THE QR, on the spine as well as the build —
+          // this file's standing rule, and both fail the same way without it:
+          // the container deletes and rewrites `public/` on every build, so a
+          // publish that does not send them takes them OFF the site. That is the
+          // tab-icon bug two fields up, which was read here and never put on the
+          // wire, arriving twice more.
+          //
+          // THE QR IS DRAWN HERE, from the two stored strings, because the code
+          // is a pure function of its payload — there is nothing to store and
+          // nothing for the container to compute.
+          gif: (look && look.gif) || undefined,
+          qr: qrPayload(look && look.qr),
           wordmark: (look && look.wordmark) || undefined,
           // THE DESCRIPTION, ON THE SPINE TOO — the container re-composes the
           // share card on EVERY publish, so a text fix that does not carry it
@@ -9446,13 +9715,16 @@ async function siteOgImage(env, slug, dist) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
   // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
   // runs the compile dep TWICE — one page swapped for a stub — and a cache that
   // lived inside the dep would pay a second Haiku call for strings answered
   // seconds earlier. Keyed by the English string, so the second call finds
   // everything but the stub's own words already there.
   const langCache = langStrings && typeof langStrings === "object" ? { ...langStrings } : {};
+  // THE COMPONENTS THIS BUILD WROTE, filled in by the compile dep and read by the
+  // publish below it. Empty is the honest default and the ordinary case.
+  let partsBuilt = [];
   // ── THE FAMILIES THE MODEL'S OWN STYLESHEET NAMES ──────────────────────────
   //
   // A face that is not one of the 24 installed is DOWNLOADED here, before any
@@ -9648,7 +9920,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         // zero imports across the 100-site corpus. Only this call site knows it;
         // the edit and addon rungs pass no plan, and their `kind: ""` keeps the
         // catalogue, which is the safe direction.
-        return await generateSitePages(env, briefWithLayout({ brief, plan, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
+        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
       } catch (e) {
         // THE SENTINEL IS READ BEFORE ANY FAILURE HANDLING, which is not
         // tidiness: `retryHere` would read this as a failure that spent nothing
@@ -9686,7 +9958,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       try { mark?.("img", { viaContainer: genPath.via === "container" ? 1 : 0 }); } catch { /* a trace must never break a build */ }
       return buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve, clock: budget });
     },
-    compile: async (pages) => {
+    compile: async (pages, builtParts) => {
+      // REMEMBERED FOR THE STORE BELOW. The publish path writes these to R2 so
+      // the spine can re-send them forever; it cannot reach into this closure, so
+      // the last thing actually sent to the container is captured here. Assigned
+      // on EVERY call, including a salvage retry, so what is stored is what was
+      // compiled rather than what the first attempt tried.
+      partsBuilt = Array.isArray(builtParts) ? builtParts : [];
       // THE CONTAINER'S TURN IS BEGINNING — see the `gen` mark. `compileWithRetry`
       // can call this dep twice and salvage a third time, so this mark moves; that
       // is the point rather than a defect, since a build that sat at `compile` for
@@ -9764,6 +10042,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ files, slug, title: brand,
+          // THE COMPONENTS THE MODEL JUST WROTE, straight off the `write_pages`
+          // answer. NOT read from R2 here, which is the difference between this
+          // call and the spine's: on a first build nothing is stored yet, and on
+          // a revise the model has just been handed the stored declarations and
+          // returned the components for them. R2 is where they go AFTER this
+          // compiles, so the spine can re-send them on every later publish.
+          parts: (builtParts && builtParts.length) ? builtParts : undefined,
           // WHAT LANGUAGE THE PAGES ARE IN, from the designer's reading of the
           // brief. `<html lang>` was hardcoded `en` on every site the platform
           // has ever published; the container refuses anything that is not a
@@ -9788,6 +10073,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // merge and AGAIN in the container — version skew and hand-written
           // payloads are why the second reading exists.
           favicon: favicon || undefined,
+          // Same pair as the spine, off the merged look this build just wrote.
+          gif: gif || undefined,
+          qr: qrPayload(qr),
           // And the header logo choice — `text` or a drawn SVG — under the
           // owner's uploaded logo the same way.
           wordmark: wordmark || undefined,
@@ -9971,6 +10259,17 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // next revise its anchor", which is accurate about the consequence and
       // gave the caller no way to know.
       sourceStored = await saveSiteSource(env, slug, pages);
+      // AND THE COMPONENTS WRITTEN FOR THIS SITE, beside the pages and for the
+      // same reason one line up — except that losing THESE does not cost the next
+      // edit its anchor, it breaks the site: `recompileAndPublish` re-sends what
+      // is stored here on every cheap edit, and a page importing a component that
+      // is not sent does not compile. Written unconditionally, including an empty
+      // list, so a revise that removed the last one is recorded as having removed
+      // it rather than resurrecting it forever.
+      //
+      // AFTER the publish and never allowed to fail it, exactly as the source
+      // store above: the site is already live at this point.
+      await saveSiteParts(env, slug, partsBuilt);
       // AND THE SITE'S OWN WORKER, LAST — after the files it serves are all in
       // R2. See `putSiteWorker`: the dispatch answers ahead of the static read,
       // so a script that lands first renders a document naming assets that have
@@ -12465,6 +12764,23 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             // concept the platform no longer has is one somebody eventually
             // reads as still meaning something.
             plan: normalizePlan(Object.fromEntries(PLAN_KEYS.map((k) => [k, look[k]]))),
+            // ── THE COMPONENTS THE KIT HAD NOT GOT ──────────────────────────
+            //
+            // A NAMED HOP AND NOT A PLAN KEY, deliberately, and the reasoning is
+            // worth keeping because the plan set is the obvious home and is
+            // wrong. `PLAN_REQUIRED` is `PLAN_KEYS` itself — every plan axis is
+            // compelled, because every one is a line of the directive — and
+            // `tsx` is OPTIONAL by the owner's call ("put it as optional"), so
+            // joining that set would compel a model to declare missing
+            // components on every build, which is a quota, and this field's
+            // whole worth is that the ordinary answer is none.
+            //
+            // WHICH MEANS THIS IS EXACTLY THE HOP THE COMMENT ABOVE WARNS
+            // ABOUT, so it is asserted end to end rather than trusted: see
+            // `test/site-tsx.test.mjs`, which walks design field → stored look →
+            // this payload → the page directive → `write_pages`. `three` is what
+            // this looks like when nobody writes that test.
+            tsx: Array.isArray(look.tsx) ? look.tsx : undefined,
             // Out of the same merged look as the other five, so a revise that
             // does not mention the language keeps it — the field is on
             // `EDIT_FIELDS`, which is what makes "absent means unchanged" true
@@ -12485,6 +12801,15 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             // above it — `favicon` is on `EDIT_FIELDS`, so a revise that does
             // not mention the mark keeps it and a fresh answer replaces it.
             favicon: look.favicon,
+            // The animated mark and the QR, off the same merged look as the
+            // favicon beside them — so a revise that mentions neither keeps both.
+            gif: look.gif,
+            qr: look.qr,
+            // THE SCENE, off the merged look like the two marks above it. This
+            // is the hop `three` shipped without: it reached storage on
+            // 2026-08-29 and reached the page writer never, so the design step
+            // decided a canvas on every build and no page could ever contain one.
+            three: look.three,
             wordmark: look.wordmark,
             // AND THE SEARCH-CONSOLE TAG, for the reason the icon and the logo
             // are here: the sidecar is rewritten whole on every publish, so a
@@ -13139,7 +13464,35 @@ async function handleRequest(request, env, ctx) {
       if (pretty) return Response.redirect("https://" + pretty + (sm2[2] || "/") + url.search, 301);
     }
 
-    const zoneSlug = siteHostSlug(url.hostname);
+    let zoneSlug = siteHostSlug(url.hostname);
+    // ── A RENAMED SITE ANSWERS AT BOTH ADDRESSES ────────────────────────────
+    //
+    // The label a visitor typed is the site's slug for every site that has never
+    // been renamed, which is the overwhelming majority and costs one cached
+    // lookup. For a renamed one it is either the site's CURRENT name (serve it,
+    // under its real storage slug) or a name it USED to have (301 to what it is
+    // called now, permanently, because that is what a rename means).
+    //
+    // BEFORE the path rewrite below, because the rewrite builds `/s/<slug>/` and
+    // the slug it needs is the STORAGE one — the alias is an address, never a key.
+    if (zoneSlug) {
+      const row = await aliasRowFor(env, zoneSlug);
+      // `null` is "we could not ask" and answers today's behaviour exactly: the
+      // label is the slug. `resolveAlias` treats a null row that way too, so the
+      // degraded path and the no-alias path are one line rather than two.
+      const seen = row === NO_ALIAS ? null : row;
+      const now = seen && !seen.current ? await publicNameFor(env, seen.slug) : null;
+      const out = resolveAlias(zoneSlug, seen, now);
+      if (out.redirect) {
+        const to = siteHostFor(out.redirect);
+        // 301 for the reason the `/s/` redirect above gives: the point of a
+        // rename is to tell crawlers which address is canonical, and a temporary
+        // redirect consolidates nothing. Skipped when the new name has no pretty
+        // host, which would be a redirect to nowhere.
+        if (to) return Response.redirect("https://" + to + url.pathname + url.search, 301);
+      }
+      if (out.slug) zoneSlug = out.slug;
+    }
     if (zoneSlug && !servedAtRoot(url.pathname)) {
       url.pathname = "/s/" + zoneSlug + (url.pathname === "/" ? "/" : url.pathname);
       request = new Request(url.toString(), request);
@@ -17385,7 +17738,7 @@ async function handleRequest(request, env, ctx) {
               const routes = eSrc.map((p) => routeOf(p.path)).filter(Boolean);
               const fallbackPage = ePage || (routes.length === 1 ? routes[0] : (routes.includes("/") ? "/" : routes[0] || ""));
 
-              const acting = pickedFields.filter((f) => ACTING_LANES.includes(f));
+              const acting = pickedFields.filter((f) => OWN_LANES.includes(f));
               if (acting.length) steps.push({ layer: "look", page: ePage, fields: acting });
               for (const f of pickedFields) {
                 const to = laneLayer(f);
@@ -17673,6 +18026,114 @@ async function handleRequest(request, env, ctx) {
               return Response.json({
                 ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [],
                 msg: rOut.msg, cost: await eCharge(rOut.usage), usage: rOut.usage,
+              });
+            }
+            if (eLayer === "rename") {
+              // ── THE SITE'S ADDRESS (2026-08-29, owner: "yeah do the alias one")
+              //
+              // NOTHING MOVES. The slug stays the key to every R2 prefix, every
+              // table and the dispatch script; what changes is the NAME the site
+              // answers to. See builder/site-alias.mjs for why a copy-and-delete
+              // was rejected — briefly: R2 has no rename, so the copy is a loop
+              // of PUTs with no transaction, and the alias record it would still
+              // need is the entire feature on its own.
+              const current = await publicNameFor(env, ownerSlug);
+
+              // NOTHING IS GUESSED. Every other lane biases toward acting,
+              // because a wrong edit is visible and undoable. This one is
+              // neither — the old address 301s forever after — so a message with
+              // no name in it is a refusal, not an attempt. Second place on the
+              // platform where the bias inverts, after the `pages` verb.
+              let rq;
+              try {
+                rq = await anthropicMessages(env, renameRequest({
+                  message: eInstruction, current, model: LANE_MODEL,
+                }));
+              } catch (e) {
+                return modelDown(e, "The editor is busy — try again in a moment.");
+              }
+              const wanted = readRename(rq);
+              const rUsage = laneUsage(rq, LANE_MODEL);
+              if (!wanted) {
+                return Response.json({
+                  ok: false, layer: "rename", cost: await eCharge(rUsage),
+                  msg: "Tell me what you would like the address to be — for example \u201Ccall it sunset-shoes\u201D — and I will move it.",
+                }, { status: 422 });
+              }
+
+              // ── IS IT FREE? THREE WAYS IT MIGHT NOT BE ────────────────────
+              //
+              // Checked before anything is written, and all three answer a
+              // DIFFERENT sentence: a customer told "that name is taken" for a
+              // name that is merely malformed goes looking for a conflict that
+              // does not exist. `aliasRefusal` owns the wording so the lane and
+              // the route cannot drift apart.
+              if (wanted === current) {
+                return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                  msg: aliasRefusal(wanted, { same: true }) }, { status: 422 });
+              }
+              // Reserved subdomains are refused by `siteHostFor` answering null,
+              // which is the same check the build path trusts.
+              if (!siteHostFor(wanted)) {
+                return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                  msg: aliasRefusal(wanted, { reserved: true }) }, { status: 422 });
+              }
+              // TAKEN MEANS EITHER: a site built under that slug, or a name
+              // another site has ever answered to. Both are real conflicts — the
+              // second is the whole reason old names stay claimed.
+              const takenBySite = await siteOwnerBySlug(wanted, env);
+              const takenByAlias = await aliasRowFor(env, wanted);
+              const aliasConflict = takenByAlias && takenByAlias !== NO_ALIAS && takenByAlias.slug !== ownerSlug;
+              // A LOOKUP WE COULD NOT MAKE IS NOT A FREE NAME. `aliasRowFor`
+              // answers null when it could not ask, and handing out a name on
+              // that basis is how two sites end up sharing an address.
+              if (takenBySite || aliasConflict || takenByAlias === null) {
+                return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                  msg: aliasRefusal(wanted, { taken: true }) }, { status: 422 });
+              }
+
+              const rows = renameRows({ slug: ownerSlug, uid: ou.id, from: current, to: wanted });
+              if (!rows) {
+                return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                  msg: aliasRefusal(wanted, {}) || "That name will not work as a web address." }, { status: 422 });
+              }
+              // THE OLD NAME FIRST, THE NEW ONE SECOND, and the ORDER is the
+              // recovery story rather than style — see `renameRows`. A failure
+              // between them leaves the site exactly where it started.
+              const putAlias = async (row) => {
+                const w = await fetch(`${SUPABASE_URL}/rest/v1/site_aliases`, {
+                  method: "POST",
+                  headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=merge-duplicates" }),
+                  body: JSON.stringify(row),
+                  signal: AbortSignal.timeout(15000),
+                });
+                return w.ok ? null : (await w.text().catch(() => "")).slice(0, 200);
+              };
+              const badOld = await putAlias(rows.demote);
+              if (badOld) return escalate("rename-store", { detail: badOld });
+              const badNew = await putAlias(rows.promote);
+              if (badNew) return escalate("rename-store", { detail: badNew });
+              forgetAlias(ownerSlug, current, wanted);
+
+              // ── AND REPUBLISH, WHICH IS NOT OPTIONAL ──────────────────────
+              //
+              // The canonical link and `og:url` are baked into the R2 sidecar at
+              // publish time. A renamed site whose sidecar still names the old
+              // address tells every crawler the old one is the real one — the
+              // "a wrong canonical is worse than none" case __root.tsx already
+              // argues, arriving through a new door. `recompileAndPublish` is the
+              // shared spine and recomputes it from the public name.
+              // THROUGH `publishStep`, NOT STRAIGHT TO THE SPINE. One publish
+              // per message is the law here (owner: "if the act was 2 things
+              // then 1 publish"), and a rename can arrive beside a colour change
+              // in the same sentence. The spine runs once below the loop; this
+              // hands it the pages and says the rung is done.
+              await publishStep(env, { slug: ownerSlug, pages: eSrc, label: "renamed to " + wanted });
+              const addr = siteHostFor(wanted);
+              return Response.json({
+                ok: true, layer: "rename", renamed: wanted, url: addr ? "https://" + addr + "/" : null,
+                cost: await eCharge(rUsage),
+                msg: "Done — your site is now at " + (addr || wanted) + ". The old address still works and sends people to the new one.",
               });
             }
             if (eLayer === "nav") {
@@ -18135,7 +18596,7 @@ async function handleRequest(request, env, ctx) {
                 // door escalated), and the three groups are a total, disjoint
                 // partition of the seventeen — asserted in
                 // `test/edit-lanes.test.mjs`, derived from the same table this
-                // reads. So the survivors are exactly `ACTING_LANES`.
+                // reads. So the survivors are exactly `OWN_LANES`.
                 //
                 // A `stray` guard stood here until a sweep proved it could
                 // never fire: every field that can reach this line is already an
@@ -18159,10 +18620,16 @@ async function handleRequest(request, env, ctx) {
                       message: eInstruction,
                       // WHERE THE FIELD LIVES, IN ONE EXPRESSION. `css` is the
                       // stylesheet in R2; every other acting lane is a key on
-                      // the stored look — and all seven of those are on
+                      // the stored look — and every one of those is on
                       // `EDIT_FIELDS`, which is what `mergeLook` reads below, so
                       // what is read here and what is written there cannot
                       // disagree about where a field lives.
+                      //
+                      // COUNTED IN PROSE UNTIL 2026-08-29 ("all seven of those"),
+                      // which went stale the moment `behavior` began acting and
+                      // said nothing about it. A count of a derived set is a
+                      // second copy of that set; the property is that they are
+                      // ALL on `EDIT_FIELDS`, and that is what is written now.
                       value: field === "css" ? priorCss : (priorLook || {})[field],
                       model: modelsFor(eb && eb.picker).design,
                     },

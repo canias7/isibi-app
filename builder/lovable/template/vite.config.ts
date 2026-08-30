@@ -24,7 +24,26 @@ export default defineConfig({
     // site is ONE vite build. Before this the container ran three: the client,
     // an SSR build for the prerender, and a third with its own config to produce
     // the Worker script.
-    tanstackStart({ start: { entry: "src/server.ts" } }),
+    // `routeFileIgnorePrefix` IS PINNED, NOT INHERITED (2026-08-29).
+    //
+    // Components written for a site that the kit has not got land in
+    // `src/routes/-parts/`, and `-` is the ONLY thing keeping them from becoming
+    // public routes. @tanstack/router-generator defaults it to "-"
+    // (`config.ts`: `routeFileIgnorePrefix: z.string().optional().default('-')`),
+    // and a default in somebody else's package is a rule that can move on a
+    // patch bump with nothing here to notice.
+    //
+    // WHY `src/routes/` AT ALL, when these are not routes: the container's
+    // `resetRoutes` wipes `src/routes` and nothing else between builds, and that
+    // container is long-lived and shared. A component written anywhere else
+    // survives into the next customer's site.
+    //
+    // Set explicitly, an upstream rename is a build failure. Inherited, it is a
+    // customer's half-finished component served at a public URL.
+    tanstackStart({
+      start: { entry: "src/server.ts" },
+      router: { routeFileIgnorePrefix: "-" },
+    }),
     react(),
     tailwindcss(),
     tsConfigPaths(),

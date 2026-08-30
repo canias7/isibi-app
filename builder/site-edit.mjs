@@ -89,7 +89,31 @@ import { cleanFavicon, readWordmark } from "./site-favicon.mjs";
 // …and `wordmark` beside it (same day, same call — "for the logo, either do
 // the text or an svg logo"): the header logo as the designer's own choice,
 // `text` or a drawn SVG, judged by `FIELD_KEEPS.wordmark`.
-export const EDIT_FIELDS = ["brand", "description", "theme", "wordmark", "favicon", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs"];
+//
+// ── `behavior` AND `three` (2026-08-29) — AND `three` IS A BUG BEING FIXED ────
+//
+// `behavior` is what each interactive thing on the page DOES (owner: "update
+// only the frontend design step to plan behavior"). Nothing generates from it
+// yet, by the owner's explicit call — which makes being on THIS list the entire
+// point rather than an afterthought: the step decides and RECORDS, and a record
+// that `mergeLook` drops is not a record.
+//
+// `three` was added the day before and NOT put here, which is the same own-goal
+// this file has now watched three times. It is the repo's wiring trap in its
+// purest form: `design_schema` asked for a 3D scene on every build, the model
+// answered one, and `mergeLook` — which rebuilds from this array ALONE — threw
+// it away before anything could store or read it. Nothing failed, nothing
+// logged, and from outside "the model declined to design a scene" and "we
+// dropped the answer" are one indistinguishable `undefined`. Listing it here
+// makes the answer survive; it does NOT yet make a canvas appear on a page, and
+// that second hop (the page writer is handed the plan, and `three` is not a plan
+// key) is still missing and is named in CLAUDE.md's backlog.
+// …and `tsx` (2026-08-29, same day): the components the kit had not got and this
+// site had written for it. Stored for the reason every plan axis is — the
+// declaration was made once, for this site, and a revise that is not shown it
+// has every reason to answer afresh, which here means forgetting a hand-written
+// component the page still imports.
+export const EDIT_FIELDS = ["brand", "description", "theme", "wordmark", "favicon", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs", "behavior", "three", "tsx", "gif", "qr"];
 
 /**
  * Nothing is required of an EDIT.
@@ -269,6 +293,68 @@ export function currentStateNote(current) {
   if (css) {
     lines.push("── ITS STYLESHEET (this is the whole look — to change any of it, return `css` " +
       "as this exact sheet with only the asked-for change made; to leave the look alone, omit `css`) ──\n" + css);
+  }
+  // ── WHAT EACH CONTROL ALREADY DOES (2026-08-29) ─────────────────────────────
+  //
+  // Same argument as the photographs two blocks up and with the same teeth: the
+  // entries were decided for THIS site, so a designer not shown them re-answers
+  // the whole list on a request about one button — and `behavior` is a REPLACED
+  // list, not a merged one, so a re-answer is the old list gone.
+  //
+  // THE CONTROL AND WHAT IT DOES, not a count. "6 controls" is nothing a model
+  // can hand back unchanged; the sentences are the only thing that keeps them.
+  // `source` rides along because it is the one field a re-answer gets wrong in a
+  // way nobody sees until the site is live: a control silently re-labelled
+  // "component" is one that ships doing nothing.
+  if (Array.isArray(c.behavior) && c.behavior.length) {
+    const acts = c.behavior
+      .filter((b) => b && typeof b === "object" && !Array.isArray(b))
+      .map((b) => [str(b.control), str(b.on), str(b.does), str(b.result), str(b.source)])
+      .filter(([control, , does]) => control && does)
+      .map(([control, on, does, result, source]) =>
+        control + ": " + [on, does, result].filter(Boolean).join(" → ") + (source ? " [" + source + "]" : ""));
+    if (acts.length) lines.push("what its controls already do: " + acts.join(" | ").slice(0, 900));
+  }
+  // AND THE SCENE, if it has one. A string, so it prints like the rest — and it
+  // is here at all because `three` joined `EDIT_FIELDS` the same day, which is
+  // what makes it storable and therefore what makes it re-answerable.
+  add("3D scene", c.three);
+  // ── AND THE COMPONENTS WRITTEN FOR THIS SITE ────────────────────────────────
+  //
+  // The sharpest case on this whole list, because a re-answer here does not
+  // merely churn: the pages IMPORT these by name. A designer not shown that the
+  // site has a `chair-turner` re-answers `tsx` without it, the declaration is
+  // replaced, the component stops being written — and the page that imports it
+  // stops compiling. A `layout:` line going stale costs taste; this costs the
+  // build.
+  //
+  // NAME AND WHAT IT IS, never a count, for the reason the photographs are
+  // spelled out: the sentences are the only thing a model can hand back.
+  if (Array.isArray(c.tsx) && c.tsx.length) {
+    const built = c.tsx
+      .filter((t) => t && typeof t === "object" && !Array.isArray(t))
+      .map((t) => [str(t.name), str(t.does)])
+      .filter(([name, does]) => name && does)
+      .map(([name, does]) => name + " — " + does);
+    if (built.length) lines.push("components written for this site (its pages import these by name): " + built.join(" | ").slice(0, 700));
+  }
+  // THE ANIMATED MARK, WHOLE AND UNCAPPED — the favicon's argument exactly: it is
+  // REPLACED rather than merged, so the only way a revise can change the timing
+  // without redrawing the whole thing is to hand the current document back with
+  // that one change made. A `.slice()` here would have the model return the
+  // truncated document, which then replaces the stored one.
+  const anim = str(c.gif);
+  if (anim) {
+    lines.push("its animated mark (an SVG you drew — to change it, return `gif` as a whole new document; " +
+      "to keep it, omit `gif`):\n" + anim);
+  }
+  // AND THE QR, BOTH HALVES. Shown together because they are stored together and
+  // replaced together: a model told only the caption re-answers `points` from
+  // nothing, and a QR pointing at an invented URL is the one failure on this
+  // whole list a visitor cannot see coming — they point a camera and trust it.
+  const q = c.qr && typeof c.qr === "object" && !Array.isArray(c.qr) ? c.qr : null;
+  if (q && str(q.points)) {
+    lines.push("its QR code: \"" + str(q.label).slice(0, 60) + "\" pointing at " + str(q.points).slice(0, 200));
   }
   const tables = Array.isArray(c.tables) ? c.tables.map(str).filter(Boolean).slice(0, 24) : [];
   if (tables.length) lines.push("tables it already has: " + tables.join(", "));

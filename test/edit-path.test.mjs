@@ -31,7 +31,7 @@ import fs from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
-import { LANE_FIELDS, ACTING_LANES, UNBUILT_LANES, laneLayer, laneUnbuilt, laneEscalate } from "../builder/site-lanes.mjs";
+import { LANE_FIELDS, OWN_LANES, UNBUILT_LANES, laneLayer, laneUnbuilt, laneEscalate } from "../builder/site-lanes.mjs";
 // THE PAGE LAYER'S TOOL NAME, TAKEN FROM THE MODULE THAT DEFINES IT. Typed by
 // hand it was wrong, the stub never matched, the call 503d, and the billing
 // assertion below "failed" for a reason that had nothing to do with billing.
@@ -422,8 +422,8 @@ test("every acting lane can actually be reached through the route", async () => 
   // from outside it looks like the model declining. So each of the eight is
   // driven for real, through `worker.fetch`, rather than trusted because its
   // tool builds.
-  assert.ok(ACTING_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
-  for (const field of ACTING_LANES) {
+  assert.ok(OWN_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
+  for (const field of OWN_LANES) {
     // A value of the field's own shape. `langs` is the one list among them.
     const value = field === "langs" ? ["cy"] : "x";
     await withWire(
@@ -489,21 +489,34 @@ test("a stylesheet ask BESIDE a dispatched ask — both run, neither is dropped"
   );
 });
 
-test("an unbuilt ask does not sink the asks that CAN run", async () => {
-  // "make the footer darker and change our web address" — `slug` is not built,
-  // and escalating the whole message used to mean the footer change did not
-  // happen either. The same dropped-ask failure wearing the other face.
+test("a DISPATCHED ask does not sink the ask that runs here", async () => {
+  // ── REWRITTEN 2026-08-29, BECAUSE ITS PREMISE WENT AWAY ───────────────────
+  //
+  // This drove `["css", "slug"]` when `slug` was the one unbuilt lane, and
+  // asserted the reply named it in `notBuilt`. `slug` is a real rename now and
+  // NOTHING is unbuilt, so the old assertion could only ever fail — and a test
+  // kept alive by relaxing it would be asserting a state the platform can no
+  // longer reach.
+  //
+  // WHAT SURVIVES IS THE PROPERTY IT WAS ACTUALLY FOR: a message naming two
+  // lanes must not let one of them swallow the other. That was the dropped-ask
+  // failure then and it is the same failure now — only the second lane has been
+  // promoted from "cannot" to "elsewhere", which is a stronger version of the
+  // same shape, because a dispatched lane really does move the request onto
+  // another rung.
   await withWire(
     { pick_lanes: { fields: ["css", "slug"] }, edit_site: { css: "footer{color:#fff}" } },
     async (calls) => {
       const { body } = await edit("wire-mixed", "darker footer, and move us to a new address");
       assert.notEqual(body && body.reason, "unbuilt",
-        "one unbuilt lane escalated the whole message, so the workable ask was dropped: " + JSON.stringify(body));
+        "a dispatched lane escalated the whole message as unbuilt: " + JSON.stringify(body));
       assert.ok(toolsOf(calls).includes("edit_site"), "the stylesheet ask never ran: " + JSON.stringify(toolsOf(calls)));
-      // AND WHAT WE DID NOT DO IS SAID OUT LOUD, by name. Silence about the
-      // half we cannot do is indistinguishable from not having understood it.
-      assert.ok(Array.isArray(body && body.notBuilt) && body.notBuilt.some((n) => n.field === "slug"),
-        "the reply does not say which ask was not carried out: " + JSON.stringify(body));
+      // AND BOTH LANES ARE STILL NAMED IN THE REPLY. Whatever became of the
+      // second ask, silence about it is indistinguishable from not having
+      // understood it — which is the half this test has always been about.
+      assert.ok(Array.isArray(body && body.lanes) && body.lanes.includes("slug"),
+        "the reply does not name the second ask at all: " + JSON.stringify(body));
+      assert.ok(body.lanes.includes("css"), "the reply lost the ask that ran here: " + JSON.stringify(body));
     },
   );
 });

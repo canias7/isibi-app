@@ -148,9 +148,143 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ## Open — waiting on you
 
-**0a. NEXT: three.js and WebGL as OPTIONAL design fields** (owner, 2026-08-29:
-*"we are adding more tools, as optional — three.js and webgl"*). Not started.
-Two things will bite whoever picks this up, both learned today:
+**0b. DONE 2026-08-29: a TSX step that generates a component the kit has not got** (owner,
+2026-08-29: *"what if customer wants something that we dont have in our library,
+make a step for that, a tsx step that generates stuff, put it as optional, and
+its gotta be after the components step… i know is expensive but well"*). Not
+started. The kit is 2,112 components and the `components` field is a manifest
+picked from it; this is the escape hatch for the site that needs something the
+kit cannot express. **Optional, and immediately after `components`** — your call
+on the position, and it is also the right one, since the field only means
+anything once the model has tried to find what it needs and failed.
+
+**You chose: the design step declares it, the page step writes it.** Same split as
+the photographs — the design decides the site needs one and what it is, another
+step makes it. Cheaper too: the design call answers 22 fields under a ten-minute
+cap, while the page call streams and has no clock, and the default builder model
+is Grok, which is about three times slower writing code.
+
+**Two things I found before building, both of which would have bitten:**
+
+- **The build container is shared between customers.** It wipes one directory
+  between builds — the pages — and nothing else. So the obvious version of this,
+  dropping the new component into the kit folder, would have left one customer's
+  component sitting in everybody else's site. The components go somewhere that
+  *is* wiped, and are named so the site never publishes them as a page.
+- **Your cheap edits rebuild the site from what is stored.** A page that imports a
+  component the rebuild does not send does not compile — so without storing them,
+  the first typo fix after a build would have taken the site down. They are stored
+  and re-sent on every publish. The end-to-end test caught a missing piece of
+  exactly this while I was writing it.
+
+**What it costs:** the design call goes from 89,195 to 91,232 characters, and the
+field is optional and absent on almost every site, so an ordinary build pays
+nothing for it. Cap of three, and the wording tells the model to search the kit
+first and say what it searched for — a component we build that the kit already
+had is the expensive mistake here.
+
+**0e. DONE 2026-08-30: the 3D scene actually gets built now.**
+
+You asked me to fix it and it is fixed. Worth being straight about what happened,
+because it is the same mistake twice on one small feature.
+
+When I added the 3D step I wired it to the design call and nowhere else. The model
+decided a scene on every build and the answer was thrown away before anything
+could use it. I found that a day later and fixed the storage half — and then
+reported it as "stored but not yet reaching the page", which was accurate and
+still left the feature worth nothing.
+
+This closes the second half: the scene the design step decided is now handed to
+the step that writes the page, so a canvas actually gets built.
+
+**The instruction never needed changing.** The page rules already said "write a
+canvas only where the design step asked for it" — a perfectly good rule, waiting
+on a message that was never sent. That is the thing I keep having to relearn here:
+when a feature comes back empty, check whether the answer can physically arrive
+before touching any wording.
+
+**0d. DONE 2026-08-29: renaming a site — the last unbuilt lane** (owner: "now the
+slug lane", then "yeah do the alias one").
+
+**Every lane on the platform now does something.** `slug` was the last one that
+did not.
+
+**Nothing moves when a site is renamed.** I looked at doing it "properly" —
+copying everything to a new name and deleting the old — and it is the wrong
+trade. A site's name is the key to five database tables, seven storage areas and
+its own Worker script, and there is no way to rename storage: you copy it item by
+item, and if that stops halfway the site is half at each address with no way
+back.
+
+And the safe version needs nothing extra. Either way we have to remember the old
+name belongs to that site, because **the old address has to keep working** —
+people print it, put it on vans, and as of today we put it on QR codes — and
+because the old name has to stay taken, or the next customer to ask for
+`shoeroom-1` takes over an address a live site is still sending people to. Once
+you have that record, the copying buys nothing.
+
+So: the site keeps its internal name, gets a new public one, and the old address
+permanently redirects. Reversible, and nothing can half-fail.
+
+**One thing to know, and it is permanent:** a site's storage name and its web
+address can now be different. That is fine and invisible to customers, but it
+means nothing in the code may assume they are the same — it is written into
+CLAUDE.md as a standing trap.
+
+**The table is made and it is live** (2026-08-30). I checked it works rather than
+assuming: the rule that a site can only have one current address is enforced by
+the database itself, and I proved it by trying to give one site two addresses and
+watching it get refused. Nothing else in the table, and only our own server can
+read it.
+
+So renaming works now. Worth knowing what a customer sees: they say "rename it to
+sunset shoes", the site answers at the new address immediately, and the old
+address keeps working and sends people to the new one — forever, so printed
+cards, links and QR codes all keep working.
+
+**It will not guess.** If they say "change our address" without saying what to, it
+asks rather than picking something. That is deliberate and it is the opposite of
+how every other edit behaves: everywhere else a wrong guess is visible and you can
+just tell me to change it back, but a redirect is permanent, so a guess here is a
+mistake nobody can undo.
+
+**0c. DONE 2026-08-29: a QR code and an animated mark, both optional** (owner:
+*"qr code maker as optional, also gif maker as optional too, in the design
+step"*, and on the second: *"just like a svg step, a gif step to generate gif"*).
+
+**The QR.** You chose "a QR code ON the site" — a menu, a booking link, a wifi
+network — rather than a generator the visitor drives. The design step says what
+it points at and what the words beside it are; **we draw the code**, at build
+time, so it costs a visitor nothing to load. The model never draws one, and that
+is deliberate: a QR is real error-correcting maths, and a subtly wrong one looks
+exactly like a working QR and simply does not scan. Nothing we have could catch
+that — not a build, not a screenshot, only a phone in somebody's hand. So the
+code comes from a proper library, and there is a test that checks our drawing
+against that library square by square. Two rules the model is held to: it may
+never invent a destination (a QR is the one thing on a page somebody can't read
+before trusting it), and a code with no caption is a black square nobody scans,
+so both are required together.
+
+**The animated mark.** Built exactly as you said — the same step as the SVG one.
+The model draws one document, the same validator checks it, and a bad one is
+refused whole and the site simply has none. **What it produces is an animated
+SVG rather than a `.gif` file**, and I want to be straight about that rather than
+let the name imply otherwise: for a small loop on a website the SVG is better on
+every count that matters — a few hundred bytes instead of a few hundred
+kilobytes, sharp at any size, and it picks up the site's colours because it is
+part of the page. A real `.gif` needs an encoder and a frame renderer in the
+build container and buys nothing for a site; worth doing only if you ever want
+these shared *off* the site, and it is written down as that.
+
+One thing I had to add for it: animation lets a drawing change an attribute
+rather than write it, so a mark that isn't allowed to contain a link could have
+*animated* one into existence. It can only animate something it was already
+allowed to write.
+
+**0a. DONE 2026-08-29: three.js and WebGL as OPTIONAL design fields** (owner:
+*"we are adding more tools, as optional — three.js and webgl"*). Shipped, then
+found to be **stored nowhere** and fixed the next day — see the bug entry below.
+The two things that bit, both worth keeping:
 
 - **A new design field MUST get an edit lane.** `test/edit-lanes.test.mjs`
   asserts the design tool's fields and the edit path's lanes match **in both
@@ -171,6 +305,35 @@ alongside `shopfront` and `tool`. `kind` is answered before the plan and every
 later answer follows from it, so if these sites are shaped differently that is
 where it belongs — and `kind` already gates the chart catalogue, so the
 machinery for "this kind gets different instructions" exists.
+
+**0a-2. DONE 2026-08-29: the design step now plans BEHAVIOUR** (owner: *"update
+only the frontend design step to plan behavior… for every interactive component
+the design output must specify what triggers it, what it does, what it affects or
+opens, what result the user should see, and whether the behavior is built into
+the selected TSX component or requires custom behavior"*).
+
+Every button, link, form, tab, filter, menu and carousel now gets an entry with
+those five answers plus the name of the control itself, so an entry can be found
+again later. **Any behaviour at all** — there is no list to choose from, which
+was your instruction and is also the only version that survives contact with real
+briefs. It is answered **last** of the design fields, because a control cannot be
+described before the page that holds it exists.
+
+**It decides and records; nothing generates from it yet** — your call, and it is
+written into the code and the guards so nobody reads the empty hop as a bug. The
+matching edit lane **acts** rather than dispatching (*"try and make it more
+universal, whatever the user asks, like we been doing it"*), so changing what a
+control does is one cheap call, not a page rewrite. One consequence to know: until
+behaviour is generated, editing it changes the record and the visitor sees no
+difference.
+
+**What this was really about.** `northgroup-17` shipped with its stage filters,
+its "New deal" button and every deal row all pointing at the section they were
+already sitting in — dead controls, while the reply claimed the filters worked.
+I checked the other 100 sites before agreeing on a fix: only 31 in-page links
+across the whole corpus and 6 self-referential ones, so `northgroup-17` is an
+outlier rather than the platform. The honest diagnosis was never "the model
+ignored a rule" — **there was no rule anywhere.** Now there is a field.
 
 
 **0. The edit step is finished except `slug`; ADDON is untouched.**
@@ -230,6 +393,17 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **Found and fixed 2026-08-29: the 3D step shipped dead the same day it shipped.**
+  You asked for three.js/WebGL as an optional tool that morning, and it went in
+  with its lane, its guards and a green suite. It was never *stored*. The design
+  step asked the model for a 3D scene on every build, the model answered, and the
+  answer was thrown away one step later — so no site could ever have got a scene,
+  and nothing anywhere would have said so. Found the next day by tracing every one
+  of the 21 design fields to whatever actually consumes it. My miss, and it is the
+  same miss this codebase has now made a dozen times: the piece was written
+  correctly and one wire was left off. The scene is stored now. **It still does
+  not reach the step that writes pages** — that is a second wire, and it is
+  written down rather than quietly assumed. *Not proven on a live site.*
 - **Fixed 2026-08-29 (the second half): the same refusal was in the shared
   publish step.** The first fix opened the two lanes and the change then hit the
   same wall one level down — the step every cheap edit publishes through asked

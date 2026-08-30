@@ -162,7 +162,12 @@ export function cleanFavicon(input) {
  * validator is one function and the marks differ only in `max` and in how the
  * emitted `width`/`height` are chosen.
  */
-function cleanMark(input, { max, size }) {
+// TAG AND ATTRIBUTE SETS ARE PARAMETERS (2026-08-29), because the animated mark
+// is a THIRD caller of this one scanner. `tagSet`/`attrSet` rather than
+// `tags`/`attrs`: the attribute loop below declares its own `const attrs = []`,
+// which would shadow a parameter of that name and turn the allow-list check into
+// `[].has(...)` — a TypeError on the first attribute of every mark.
+function cleanMark(input, { max, size, tagSet = FAVICON_TAGS, attrSet = FAVICON_ATTRS, animatable = null, what = "favicon shape" }) {
   if (typeof input !== "string") return refuse("not text");
   let s = input.trim().replace(/^<\?xml[^>]*\?>\s*/i, "");
   if (!s) return refuse("empty");
@@ -196,7 +201,7 @@ function cleanMark(input, { max, size }) {
     if (!m) return refuse("a malformed tag");
     const closing = m[1] === "/";
     const name = m[2];
-    if (!FAVICON_TAGS.has(name)) return refuse("<" + name + "> is not a favicon shape");
+    if (!tagSet.has(name)) return refuse("<" + name + "> is not a " + what);
 
     if (closing) {
       if (!/^<\/[A-Za-z][A-Za-z0-9]*\s*>$/.test(tag)) return refuse("a malformed closing tag");
@@ -236,8 +241,17 @@ function cleanMark(input, { max, size }) {
         // The one namespaced thing a mark may say, only on the root, only the
         // SVG namespace. `xmlns:xlink` and friends fail the allow-list below.
         if (!isRoot || av !== SVG_NS) return refuse("a namespace that is not SVG's");
-      } else if (!FAVICON_ATTRS.has(an)) {
+      } else if (!attrSet.has(an)) {
         return refuse("the attribute " + an);
+      }
+      // WHAT AN ANIMATION IS ALLOWED TO MOVE, and this is the whole extra risk
+      // an animated mark carries over a still one. `<animate>` names its target
+      // in `attributeName`, so without this an allow-list that refuses `href`
+      // and `style` as ATTRIBUTES still lets a mark animate one INTO existence.
+      // Checked against the same set the scanner admits, so the two can never
+      // disagree: a mark may only animate something it could have written.
+      if (animatable && an === "attributeName" && !animatable.has(decoded(av).trim())) {
+        return refuse("an animation of " + decoded(av).trim());
       }
       // No value may open a tag, name a script scheme, or reach outside the
       // document — `url(#…)` is a gradient or clip reference and is the only
@@ -336,6 +350,98 @@ export function readWordmark(v) {
  * fallback is stated too, so a refused answer is understood as "the site keeps
  * a plain initials mark" rather than as a build that broke.
  */
+/* ── THE ANIMATED MARK (2026-08-29) ─────────────────────────────────────────
+ *
+ * Owner: "gif maker as optional… just like a svg step, a gif step to generate
+ * gif".
+ *
+ * SO IT IS THE SVG STEP, WITH TIME. The model draws one document exactly as it
+ * draws the favicon, and the animation is declared inside it — the same scanner,
+ * the same refuse-whole contract, the same "we own the document element, the
+ * model owns the shapes".
+ *
+ * WHAT IT PRODUCES IS AN ANIMATED SVG, NOT A .gif FILE, and that is worth being
+ * plain about rather than letting the field's name imply otherwise. For the job
+ * a small looping graphic on a website actually does, the SVG is the better
+ * artefact by every measure that matters here — a few hundred bytes against a
+ * few hundred kilobytes, sharp at any size, and it themes with the page because
+ * it is the page. A real `.gif` needs an encoder (LZW, palette quantisation) and
+ * a frame renderer in the container image; it buys nothing for a site and is
+ * worth building only if these ever have to be shared OFF the site.
+ *
+ * THE ONE NEW RISK, AND IT IS THE REASON `animatable` EXISTS. A still mark's
+ * safety is an attribute allow-list: no `href`, no `style`, no `on*`. Animation
+ * breaks that by indirection — `<animate attributeName="href">` names its target
+ * in a VALUE, so a document that could not write `href` could animate one into
+ * being. `attributeName` is therefore checked against the same set the scanner
+ * admits: a mark may only animate something it could have written.
+ *
+ * `animateMotion` IS DELIBERATELY NOT ON THE LIST. Its child is `<mpath href>`,
+ * which is a href vector wearing a different tag name, and every motion a mark
+ * needs is expressible with `animateTransform`.
+ */
+export const GIF_TAGS = new Set([...FAVICON_TAGS, "animate", "animateTransform", "set"]);
+
+/**
+ * The timing attributes, on top of everything a still mark may carry.
+ *
+ * `begin` IS RESTRICTED TO A CLOCK VALUE by the scanner's own value rules plus
+ * this list — SMIL's `begin` also accepts event syntax (`someId.click`), which is
+ * not dangerous on its own but is a whole second grammar to reason about for a
+ * decorative loop that should simply start.
+ */
+export const GIF_ATTRS = new Set([...FAVICON_ATTRS,
+  "attributeName", "values", "dur", "repeatCount", "repeatDur", "from", "to",
+  "by", "begin", "end", "keyTimes", "keySplines", "calcMode", "type",
+  "additive", "accumulate", "restart",
+]);
+
+/**
+ * WHAT AN ANIMATION MAY MOVE — derived from the attribute set rather than listed,
+ * minus the ones that are structural rather than visual. `id` and `class` are
+ * excluded because animating an identity is a way to reach a rule that was
+ * written for something else; `attributeName` itself is excluded because an
+ * animation of an animation is not a thing a mark needs.
+ */
+export const GIF_ANIMATABLE = new Set([...FAVICON_ATTRS].filter(
+  (a) => !["id", "class", "role", "aria-label", "aria-hidden", "viewBox", "preserveAspectRatio"].includes(a)));
+
+/** Bigger than a favicon: frames of a loop cost more than one still shape. */
+export const MAX_GIF = 12000;
+
+/**
+ * Sized from its own viewBox, like the wordmark — an animated mark is placed on
+ * a page rather than in a fixed square slot, so its drawing decides its shape.
+ */
+export function cleanGif(input) {
+  return cleanMark(input, {
+    max: MAX_GIF,
+    size: wordmarkSize,
+    tagSet: GIF_TAGS,
+    attrSet: GIF_ATTRS,
+    animatable: GIF_ANIMATABLE,
+    what: "shape an animated mark may use",
+  });
+}
+
+export const GIF_FIELD = {
+  type: "string",
+  description:
+    "AN ANIMATED MARK for the page — a small looping graphic, drawn by you as one complete SVG document " +
+    "with its animation declared inside it. OMIT THIS FIELD ENTIRELY unless the brief asks for something " +
+    "that moves, or the business genuinely is motion; that is the right answer for nearly every site.\n" +
+    "WHAT IT IS FOR: a loop that says something the still page cannot — a process turning over, a signal " +
+    "pulsing, a mark drawing itself in. Not decoration, and never behind text.\n" +
+    "DRAW IT LIKE THE TAB ICON, with time added: plain shapes only, and `<animate>`, `<animateTransform>` " +
+    "or `<set>` for the movement. Give the animation `dur` and `repeatCount=\"indefinite\"` so it loops. " +
+    "You may only animate an attribute you could have written — a mark that animates `href` or `style` is " +
+    "refused whole. Wide or square as the drawing needs; under " + MAX_GIF + " characters.\n" +
+    "IT MUST READ WITH THE MOTION STOPPED. A visitor who has asked their system for less motion sees the " +
+    "first frame and nothing else, so a mark whose meaning is only in the movement is a blank space to them.\n" +
+    "A document that breaks any of these rules is refused WHOLE and the site simply has no animated mark, " +
+    "so keep it simple. On a revise, leave it out to keep the one the site has."
+};
+
 /**
  * The wordmark field. Directly after `theme` and before `favicon` — the big
  * identity is drawn first, in the world just decided, and the tab glyph after
