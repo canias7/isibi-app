@@ -199,7 +199,23 @@ test("the tool asks: after the theme, before the shape, compelled on a build", (
   assert.ok(at > theme && at < shape, "the favicon is not drawn between the theme and the shape");
   // Compelled on a BUILD — an unanswered mark is the name-hash initials — and
   // the required list is the build tool's, which a revise swaps out whole.
-  assert.match(w, /required: \["brand", "slug", "backend", "description", "theme", "wordmark", "favicon", \.\.\.PLAN_REQUIRED\]/);
+  //
+  // ── ANCHORED ON THE PROPERTY, NOT ON THE WHOLE LIST (2026-08-29) ────────────
+  //
+  // This was a regex pinning the required array verbatim, member for member, and
+  // it went red the moment an honest `"behavior"` joined it — reporting that the
+  // favicon had stopped being compelled, which is not something anybody did.
+  // Every other member of that list is some other test's business; what THIS one
+  // is about is that the mark is compelled and that the plan axes are still
+  // derived rather than re-listed. Landmark to landmark, both asserted before
+  // the slice, because `indexOf` answering -1 gives a window that passes
+  // everything inside it.
+  const spread = w.indexOf("...PLAN_REQUIRED]");
+  assert.ok(spread > 0, "the design tool's required list no longer spreads the plan axes");
+  const open = w.lastIndexOf("required: [", spread);
+  assert.ok(open > 0 && open < spread, "the opening of the design tool's required list is gone");
+  const req = w.slice(open, spread);
+  assert.match(req, /"favicon"/, "the favicon is no longer compelled on a build");
 });
 
 test("both container payloads carry the mark — derived from the icon hops", () => {
@@ -348,15 +364,42 @@ test("the wordmark rides every hop the favicon rides", () => {
   assert.ok(at > theme && at < fav, "the wordmark is not drawn between the theme and the favicon");
   // Both payloads and the build args, derived from the same icon hops the
   // favicon guard uses.
+  // ── WINDOWED LANDMARK TO LANDMARK, NOT BY BYTES (2026-08-29) ──────────────
+  //
+  // This was `slice(h.index, h.index + 1200)` and it went red the day two honest
+  // fields (`gif`, `qr`) joined the same payloads and pushed `wordmark:` past
+  // 1,200 characters — reporting that a payload had stopped carrying the
+  // wordmark, which nobody had touched. This repo's most-repeated trap, in a
+  // test written to catch a different one: any byte window is outrun by the next
+  // thing inserted above what it is looking for.
+  //
+  // The closing landmark is the NEXT hop, so anything added between two hops
+  // lands INSIDE the window rather than escaping it, and the last hop runs to
+  // the end of the file.
   const hops = [...w.matchAll(/icon: icon \|\| "",/g)];
   assert.ok(hops.length >= 2);
-  for (const h of hops) {
-    assert.match(w.slice(h.index, h.index + 1200), /wordmark: /,
+  for (let i = 0; i < hops.length; i++) {
+    const from = hops[i].index;
+    const to = i + 1 < hops.length ? hops[i + 1].index : w.length;
+    assert.match(w.slice(from, to), /wordmark: /,
       "a container payload carries the favicon and not the wordmark");
   }
+  // ── AND THIS ONE WINDOWED BY BYTES TOO (2026-08-30) ───────────────────────
+  //
+  // `slice(args, args + 300)`, and the third byte window in this file to be
+  // outrun by an honest insertion — `gif`, `qr` and then `three` all landed
+  // between the favicon and the wordmark in the same build args, each pushing
+  // the wordmark further out. It reported that the build path had stopped
+  // handing over the stored logo, which nobody had touched.
+  //
+  // Closed on the next sibling that is NOT a look field, so anything added to
+  // this object lands inside the window rather than escaping it.
   const args = w.indexOf("favicon: look.favicon,");
-  assert.ok(args > 0);
-  assert.match(w.slice(args, args + 300), /wordmark: look\.wordmark/);
+  assert.ok(args > 0, "the build args no longer read the mark off the stored look");
+  const argsEnd = w.indexOf("verify: priorVerify,", args);
+  assert.ok(argsEnd > args, "the build args' verification hop is gone — this window has no end");
+  assert.match(w.slice(args, argsEnd), /wordmark: look\.wordmark/,
+    "the build path does not hand the stored wordmark to the build");
 });
 
 test("the container: the owner's logo, then the drawn wordmark, then the name in type", () => {

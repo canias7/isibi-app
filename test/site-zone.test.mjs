@@ -190,9 +190,17 @@ test("the site zone is rewritten to /s/<slug>/ and root paths are left alone", (
   // time `/u/` was missing from that list, which broke every uploaded image on
   // every pretty hostname. Assert the property, not the spelling.
   const w = read("worker.js");
-  const i = w.indexOf("const zoneSlug = siteHostSlug(url.hostname);");
+  const i = w.indexOf("zoneSlug = siteHostSlug(url.hostname);");
   assert.ok(i > 0, "the site-zone rewrite is gone from worker.js");
-  const block = w.slice(i, i + 900);
+  // WINDOWED TO A LANDMARK, NOT BY BYTES (2026-08-29). This was `slice(i, i+900)`
+  // and the alias resolution — which has to sit between the lookup and the
+  // rewrite, because the rewrite needs the STORAGE slug — pushed the rewrite past
+  // it, reporting that a published bundle's same-origin API calls had stopped
+  // being excluded. Nobody had touched that. Closing landmark is the next
+  // sibling, so anything inserted between the two lands inside the window.
+  const end = w.indexOf("const mapped = await siteForHostname(env, url.hostname);", i);
+  assert.ok(end > i, "the custom-domain lookup no longer follows the rewrite — this window has no end");
+  const block = w.slice(i, end);
   assert.match(block, /if \(zoneSlug && !servedAtRoot\(url\.pathname\)\)/,
     "a published bundle calls its own API and loads its own uploads same-origin; rewriting either breaks them");
   assert.match(block, /url\.pathname = "\/s\/" \+ zoneSlug \+/);
@@ -209,7 +217,7 @@ test("the site zone's rewrite is decided BEFORE the custom-domain lookup", () =>
   // first: `indexOf(a) < indexOf(b)` passes vacuously when `a` is the thing
   // somebody deleted.
   const w = read("worker.js");
-  const a = w.indexOf("const zoneSlug = siteHostSlug(url.hostname);");
+  const a = w.indexOf("zoneSlug = siteHostSlug(url.hostname);");
   const b = w.indexOf("const mapped = await siteForHostname(env, url.hostname);");
   assert.ok(a > 0, "the site-zone rewrite is missing");
   assert.ok(b > 0, "the custom-domain lookup is missing");
@@ -308,7 +316,7 @@ test("/s/<slug>/ redirects to the pretty host, and cannot loop", () => {
   // alone, bounces every site-zone request back to itself forever.
   const w = read("worker.js");
   const redirect = w.indexOf("const sm2 = url.pathname.match(/^\\/s\\/");
-  const rewrite = w.indexOf("const zoneSlug = siteHostSlug(url.hostname);");
+  const rewrite = w.indexOf("zoneSlug = siteHostSlug(url.hostname);");
   const custom = w.indexOf("const mapped = await siteForHostname(env, url.hostname);");
   assert.ok(redirect > 0, "the one-address redirect is gone from worker.js");
   assert.ok(rewrite > 0, "the site-zone rewrite is gone");

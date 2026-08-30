@@ -27,6 +27,14 @@
 // From the bundle, so an R2 blip costs a link preview and never the site's data.
 export const SITE_SLUG = "";
 export const SITE_LOGO = "";
+// The animated mark and the QR code, both overwritten per build like the logo.
+// EMPTY IS THE ORDINARY VALUE and it is a real answer: a page renders neither
+// unless the site actually has one. They are declared here so a page that uses
+// them compiles in the template too — a binding that only exists after a build
+// is a page that builds on the platform and not on a developer's machine.
+export const SITE_ANIMATED = "";
+export const SITE_QR = "";
+export const SITE_QR_LABEL = "";
 // The document's language. A REFUSAL RATHER THAN A DEFAULT lives one layer up in
 // `normalizeLang` — a site whose language could not be established keeps
 // whatever it had, and the template's own answer is English.

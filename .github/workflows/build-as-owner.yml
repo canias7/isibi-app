@@ -51,7 +51,7 @@ on:
       - 'scripts/build-as-owner.mjs'
   # ── ON DEMAND, FOR THE EDIT LANE ──────────────────────────────────────────
   #
-  # A build is bought by the marker on a push, because it costs ~130 credits and
+  # A build is bought by the marker on a push, because it costs real credits and
   # a push is the deliberate act. An EDIT is ~0.3 and is the thing a customer
   # does dozens of times after their site exists, so it is dispatched by hand
   # with the site and the change as inputs — no commit, no marker, re-runnable.
@@ -78,6 +78,10 @@ on:
         default: 'look'
       picker:
         description: 'Model override (e.g. grok, sonnet). Blank uses the Worker default.'
+        required: false
+        default: ''
+      brief:
+        description: 'build only: the business, in the customer''s own words. Blank uses the stock shoe-shop brief.'
         required: false
         default: ''
 
@@ -108,6 +112,42 @@ jobs:
     # 30 rather than 20: the point of the cap is to stop a wedged runner billing
     # for an hour, not to bound a build we already know can take twelve minutes.
     # A build that outruns THIS is a real finding rather than a tight budget.
+    #
+    # ── WHAT A BUILD ACTUALLY COSTS, MEASURED (2026-08-30) ────────────────────
+    #
+    # This file said "~130 credits" for nine days. That was written in the Sonnet
+    # era and nothing has ever recorded a build's cost — `gen_charges` is
+    # Zephyr's image ledger and `site_builds` has no cost column — so the number
+    # was unfalsifiable, and it was WRONG for today's default.
+    #
+    # Run 80, `ashgrove-1`, picker grok, first build, one page:
+    #   cost 45 credits billed, 47 spent counting the routing call
+    #   usage in 9,874 / out 5,374 / cacheRead 512 on grok-4.6
+    #   2 photographs bought against a budget of 2
+    #   build step 13m55s, of which 5m36s was the deploy wait before it started
+    #
+    # So a Grok build is roughly a THIRD of the number this file carried. Stated
+    # as a measurement with its run named, so the next person can tell whether it
+    # is still true rather than inheriting another guess.
+    #
+    # ── RUN 81: THE SAME SITE, FINISHED ───────────────────────────────────────
+    #
+    # Run 80 failed at typecheck — `three` ships no type declarations and the
+    # template never installed `@types/three`, so the first page to import a
+    # three type took the build down. `ashgrove-1` was left claimed, serving its
+    # placeholder, 45 credits charged.
+    #
+    # This re-fires THE SAME SLUG rather than minting a fresh one, and that is
+    # the point: the builder's own reply told the customer "send it again to
+    # retry", so this run tests the recovery path the product actually promises
+    # instead of a clean-room build nobody would ever perform. It also finishes
+    # a real site rather than leaving a second husk beside the first.
+    #
+    # The design step will ANCHOR to what run 80 stored rather than deciding
+    # afresh — which is fine, because run 80 already proved the fresh decision:
+    # it answered `three`, and the page writer built the canvas. What is still
+    # unproven is whether that canvas COMPILES, and a revise rewrites the page
+    # either way, so it tests exactly the thing left open.
     #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #
@@ -738,9 +778,29 @@ jobs:
           # DISPATCH OVERRIDES, PUSH KEEPS THE DEFAULTS. An edit dispatch names
           # its own live site; a build dispatch or a marker push falls back to
           # the fresh slug and picker below. The brief is build-only and stays.
-          OWNER_SLUG: ${{ github.event.inputs.slug || 'shoeroom-1' }}
+          # ── A FRESH SLUG, NOT A LIVE SITE (2026-08-30) ────────────────────
+          #
+          # This defaulted to `shoeroom-1`, which is one of the owner's LIVE
+          # sites — so a marked push did not build anything, it REVISED a real
+          # site, and the difference is invisible from the workflow. A first
+          # build is also the only way to exercise the design step end to end:
+          # a revise anchors every field to what is stored, which is exactly
+          # what a new field must not be tested through.
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'ashgrove-1' }}
           OWNER_PICKER: ${{ github.event.inputs.picker || 'grok' }}
-          OWNER_BRIEF: "An online shoe shop that sells every kind of shoe - trainers, boots, formal shoes, sandals, kids' shoes and slippers. Shoppers browse what is in stock, filter by kind and by size, and see each pair with its picture, its price and which sizes are left. They open a pair to read what it is made of and pick their size. They add pairs to a basket and pay by card. There is also a page about the shop, which has been on the same street for forty years, and how returns work. It should feel like a proper shop rather than a warehouse - the shoes are the thing you see first, prices plain, and nothing in the way of buying."
+          # ── THE BRIEF IS AN INPUT NOW (2026-08-30) ────────────────────────
+          #
+          # `slug`, `instruction`, `layer` and `picker` were all dispatchable and
+          # the brief was not, so every owner build made the same shoe shop. That
+          # is fine for a regression check and useless for exercising a NEW design
+          # field: `qr`, `gif` and `three` are optional and absent is the right
+          # answer for a shoe shop, so the stock brief can never reach them.
+          #
+          # The default is the old string verbatim, so a dispatch that names no
+          # brief — and the push path, which names none — behaves exactly as
+          # before.
+          OWNER_BRIEF: ${{ github.event.inputs.brief || '' }}
+          OWNER_BRIEF_DEFAULT: "A small workshop in Bristol that makes one chair, the Ashgrove, by hand in oak or ash. People want to see the chair properly before they commit to one - turn it round, look at how the joints are cut, see it in both timbers. Every chair leaves with a card that has a code on it you scan to get the care guide and the name of the person who made it. On the site you pick your timber and your seat finish and the price changes as you go, then you ask us to make one. There is a short piece about the workshop and the four of us in it. Quiet and plain - the chair is the thing, not us."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()

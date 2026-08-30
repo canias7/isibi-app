@@ -5,7 +5,8 @@
   "dependencies": {
     "@cf-wasm/photon": "^0.3.6",
     "@cloudflare/containers": "^0.3.7",
-    "@neondatabase/serverless": "^1.0.2"
+    "@neondatabase/serverless": "^1.0.2",
+    "qrcode-generator": "^2.0.4"
   },
   "scripts": {
     "test": "node --test \"test/*.test.mjs\""

@@ -43,6 +43,29 @@ const STORED = {
   pages: [{ path: "/", role: "book a chair" }, { path: "/prices", role: "what each cut costs" }],
   components: ["availability-grid", "week-strip", "price-list"],
   images: [{ page: "/", describe: "the shop front at dusk, warm light through the window" }],
+  // WHAT THE CONTROLS DO, and the entry is a REAL one rather than a marker
+  // string for the reason the theme and the favicon above are real: the merge
+  // under test is what these loops measure, so a shape it would refuse produces
+  // a phantom "nothing moved" that proves nothing.
+  behavior: [{
+    control: "Book now", on: "pressing it", does: "opens the booking form",
+    affects: "the slot picker below", result: "the form slides in with today selected",
+    source: "component",
+  }],
+  // The scene: absent on nearly every real site, so the fixture carries the
+  // ordinary answer for a site that HAS one — a string, which is the only shape
+  // the field has.
+  three: "a slowly turning wireframe of the chair behind the opening headline",
+  // The components the kit had not got. A real entry rather than markers, for
+  // the reason the theme and the favicon are real registry/valid values: these
+  // loops measure the merge under test, and a shape it would refuse produces a
+  // phantom "nothing moved".
+  tsx: [{ name: "chair-turner", does: "the chair, turnable by dragging", props: "model: string, compact?: boolean" }],
+  // A REAL animated mark and a REAL QR, for the reason the theme and the favicon
+  // above are real: `FIELD_KEEPS`/`hasValue` judge these, and a shape the merge
+  // would refuse turns every "nothing moved" loop into a phantom.
+  gif: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60"><circle cx="30" cy="30" r="12" fill="#b44a2e"><animate attributeName="r" values="12;18;12" dur="2s" repeatCount="indefinite"/></circle></svg>',
+  qr: { points: "https://sharp-fade.gofarther.app/prices", label: "Prices" },
 };
 
 /* ── absent means unchanged ─────────────────────────────────────────────── */
@@ -323,6 +346,26 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
     // while the sentences — the only part a model can hand back unchanged —
     // were never shown at all.
     images: [{ page: "value-of-pages", describe: "value-of-images" }],
+    // WHAT EACH CONTROL DOES (2026-08-29). The marker sits in `does` rather than
+    // in `control`, and that placement is the same lesson `images` learned one
+    // block up: the note prints `control: on → does → result`, so a marker in
+    // the control alone would pass while the sentences — the only part a model
+    // can hand back unchanged — were never shown at all. `control` still has to
+    // be non-empty or the entry is filtered out before it reaches the note.
+    behavior: [{ control: "a control", on: "pressing it", does: "value-of-behavior", affects: "the list", result: "rows drop to four", source: "custom" }],
+    // A plain string, so a bare marker exercises it exactly as `brand` does.
+    three: "value-of-three",
+    // The marker sits in `does` for the same reason it does for `behavior` and
+    // `images` above: the note prints `name — does`, so a marker in the name
+    // alone would pass while the sentence the model has to hand back unchanged
+    // was never shown.
+    tsx: [{ name: "a-part", does: "value-of-tsx", props: "rows: Row[]" }],
+    // The note prints the animated mark RAW and whole, like the favicon, so a
+    // bare marker exercises it exactly as `favicon` does.
+    gif: "value-of-gif",
+    // The marker sits in `points` because that is the half a re-answer invents,
+    // and the note prints label and destination together.
+    qr: { points: "value-of-qr", label: "Scan me" },
   };
   assert.deepEqual(Object.keys(SAMPLE).sort(), [...EDIT_FIELDS].sort(),
     "a field was added to EDIT_FIELDS without a sample of its shape — this guard would stop exercising it");

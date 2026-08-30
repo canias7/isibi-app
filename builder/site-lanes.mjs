@@ -27,15 +27,30 @@
 // one. The value shapes are not borrowed either — they are not borrowable, which
 // is the observation the whole design rests on and is set out below.
 //
-// ── PURE ACTION: WHY THERE ARE EIGHT TOOLS AND NOT SEVENTEEN ─────────────────
+// ── "ACTS" MEANS TWO DIFFERENT THINGS AND THE NAMES NOW SAY WHICH ────────────
 //
-// The design tool has 19 properties; 17 of them are things a customer could ask
+// Owner, twice: *"i thought all of them were act?"* — and they were right both
+// times. `OWN_LANES` (renamed from `ACTING_LANES`, 2026-08-29) is a group name
+// for *the ones this module edits itself*. It is NOT a verdict on whether a lane
+// works. **21 of the 22 act**; only `slug` does nothing. The old name implied the
+// other eleven sat idle, which cost the same explanation twice.
+//
+// THE GROUPS SAY *WHERE* THE WORK HAPPENS, NEVER WHETHER IT HAPPENS:
+//   own       — this module's own tool, one cheap call
+//   dispatch  — a rung that already does this, at that rung's own price
+//   verb      — `pages`, where the router answers a verb and that picks the rung
+//   escalate  — `kind`, which is a rebuild by definition
+//   unbuilt   — `slug`, and it is the only one
+//
+// ── WHY THE OWN LANES CAN OWN THEIR SHAPES ───────────────────────────────────
+//
+// The design tool has 24 properties; 22 of them are things a customer could ask
 // to change (the web pair decides whether writing a site's COPY needs a search,
-// which is a fact about a build). All 17 are ADDRESSABLE here — the router can
+// which is a fact about a build). All 22 are ADDRESSABLE here — the router can
 // name any of them, and a message about any of them is understood.
 //
-// But only EIGHT of them are values the edit path can act on, and the split is
-// not a matter of taste. `kind`, `purpose`, `pages`, `components`, `shape`,
+// The split between own and dispatched is not a matter of taste. `kind`,
+// `purpose`, `pages`, `components`, `shape`,
 // `images` and `action` are `PLAN_KEYS`: inputs to page GENERATION. Nothing
 // downstream of a cheap edit reads them — the container is handed the pages, the
 // theme and the stylesheet, and never the plan — so storing a new one changes
@@ -49,16 +64,20 @@
 // and the `data` and `rules` rungs are the lanes that read and enforce rows.
 // `slug` is a site's ADDRESS — changing it is a move, not an edit.
 //
-// So: nine lanes answer "not me, and here is who" for free, and eight lanes act.
-// Every one of the eight is a plain string, an enum, or a list of short strings,
-// which is why this module can own its own shapes outright and share nothing.
-// THAT is what makes two separate paths possible rather than merely stated: the
-// values the edit path touches are simple enough to define twice on purpose,
-// and the ones that are not are the ones it was never allowed to touch.
+// So: eleven lanes are answered here and the rest are routed to the rung that
+// really does the work. Every one of the eleven is a plain string, an enum, a
+// short list or one drawn document — simple enough that this module can own its
+// own shapes outright. THAT is what makes two separate paths possible rather
+// than merely stated: the values the edit path touches are simple enough to
+// define twice on purpose, and the ones that are not are the ones it routes.
+//
+// `behavior` IS THE ONE EXCEPTION and it is deliberate: its item shape is shared
+// from `site-plan.mjs`, the one module both paths may read, because the same six
+// properties are answered on both sides and two copies would drift in silence.
 //
 // ── THE ONE THING STILL HELD TOGETHER, AND IT IS A TRIPWIRE, NOT A COUPLING ──
 //
-// The seventeen NAMES are asserted against the design tool's own properties, in
+// The twenty-two NAMES are asserted against the design tool's own properties, in
 // both directions, by `test/edit-lanes.test.mjs`. A field added to the build
 // tomorrow with no lane here is a part of a site the customer can never change
 // again, and a lane here for a field the build no longer produces is a lane that
@@ -66,7 +85,13 @@
 // never a shape, because those are precisely what the two paths are separate
 // about.
 
-import { PLAN_KEYS } from "./site-plan.mjs";
+// THE SHAPE ONLY, NEVER THE BUILD'S WORDING. `BEHAVIOR_ITEM` is the six
+// properties one entry carries; the build tool and this lane ask for the same
+// items and describe the JOB completely differently, which is the whole split.
+// It lives in site-plan.mjs because that is the one module both paths may read —
+// this one is forbidden to import from worker.js, so the alternative was a
+// second copy of the shape, and two copies of one shape drift in silence.
+import { PLAN_KEYS, BEHAVIOR_ITEM, MAX_BEHAVIOR } from "./site-plan.mjs";
 import { THEME_SHORTLIST } from "./site-theme-registry.mjs";
 
 /** Haiku. Naming which part of a site a sentence is about is routing, not work. */
@@ -104,7 +129,7 @@ export const MAX_LANES = 4;
 /* ------------------------------------------------------------------ the lanes */
 
 /**
- * ── EVERY LANE ACTS. NINE OF THEM ACT SOMEWHERE ELSE ────────────────────────
+ * ── EVERY LANE ACTS. EIGHT OF THEM ACT SOMEWHERE ELSE ───────────────────────
  *
  * Owner, 2026-08-29: *"i need all the 17 lanes acting"*.
  *
@@ -146,7 +171,30 @@ export const LANE_LAYER = {
   // it is a page rewrite, exactly as `shape` and `components` are, and for the
   // same reason: nothing downstream of a cheap edit reads a scene.
   three: "page",
+  // A COMPONENT WRITTEN FOR THIS SITE IS SOURCE, exactly as a scene is, so
+  // changing one is a page rewrite. Its OWN entry rather than `elsewhere:
+  // "plan"` — the module refuses that at load time for anything outside
+  // `PLAN_KEYS`, and `tsx` is deliberately outside it: every plan axis is
+  // compelled, and this field's whole worth is that the ordinary answer is none.
+  tsx: "page",
   action: "nav",
+  // ── A RENAME IS ITS OWN RUNG (2026-08-29) ────────────────────────────────
+  //
+  // NOT AN OWN LANE, and the reason is the invariant the own lanes rest on:
+  // every one of them but `css` is a KEY ON THE STORED LOOK, read with
+  // `priorLook[field]` and written through `mergeLook`. A site's ADDRESS is
+  // none of those things — it is a platform record — so an own lane would have
+  // its answer silently dropped at the merge, which is precisely the shape
+  // `three` shipped in and the guard above now watches for.
+  //
+  // It dispatches like `backend` does: the value is not ours, the work is one
+  // rung away, and the layer that does it owns the whole operation.
+  //
+  // KEYED BY THE GROUP NAME, NOT THE FIELD NAME — this map is `elsewhere` → the
+  // layer, so `images` maps to `picture` and `plan` maps to `page`. A `slug:`
+  // key here would be looked up by nothing and `laneLayer` would answer null,
+  // which the load-time check catches as "dispatches nowhere". It did.
+  rename: "rename",
 };
 
 /**
@@ -164,7 +212,13 @@ export const LANE_LAYER = {
  *   slug   the site's address. A move: republish under a new name, redirect the
  *          old one, and every custom domain has to keep pointing at it.
  */
-export const LANE_UNBUILT = { slug: "move" };
+// EMPTY SINCE 2026-08-29, AND THE EXPORT STAYS. `slug` was the last one, and it
+// is built now (owner: "yeah do the alias one"). The name, the group, the
+// `laneUnbuilt` reader and the partition slot all remain because the NEXT
+// capability somebody defers needs exactly this shape — and because a group
+// that is empty is a fact the partition test can assert, where a group that was
+// deleted is one nobody can.
+export const LANE_UNBUILT = {};
 
 /**
  * ── THE THREE THINGS `pages` MEANS, AND WHY THEY NEED A SECOND WORD ─────────
@@ -227,7 +281,7 @@ export const PAGE_VERB_LAYER = { add: "addon", remove: "page", move: "page" };
  * `shape` — this path's own. Not borrowed and not derived; see the header.
  */
 const LANES = {
-  /* ---- the eight that act ---- */
+  /* ---- the eleven this module answers itself ---- */
   css: {
     hint: "THE STYLESHEET — any change to how something LOOKS that is not a change of theme: a colour, a size, spacing, corners, a typeface, one control, one section, dark or light. The ordinary answer for a look change.",
     shape: { type: "string" },
@@ -379,6 +433,108 @@ const LANES = {
     },
   },
 
+  // ── WHAT THINGS DO, AND IT ACTS HERE (owner, 2026-08-29: "for edit, try and
+  // make it more universal, whatever the user asks, like we been doing it") ──
+  //
+  // THE `css` CONTRACT, ON BEHAVIOUR INSTEAD OF LOOK. Unlimited in WHAT — there
+  // is no list of behaviours to choose from, and a control may do anything a
+  // control can do. Strict in HOW MUCH — one control asked about is one control
+  // changed. Either half alone misleads, which is why both are stated: freedom
+  // with no ceiling buys a page where every button was "improved", and a ceiling
+  // with no freedom reads as "do not touch anything".
+  //
+  // IT ACTS HERE RATHER THAN DISPATCHING TO `page`, and that is the owner's call
+  // above. The dispatch would have been defensible — behaviour becomes page
+  // source eventually — but it prices a wording change at a page rewrite, and
+  // right now there is no source to rewrite: nothing generates from this field.
+  // What a customer changes today is the RECORD, which is what this step is for.
+  //
+  // AND THE HONEST LIMIT, SO NOBODY REDISCOVERS IT AS A BUG: because nothing
+  // consumes `behavior` yet, an edit here republishes a page that looks and
+  // behaves identically. That is correct while this is a recording step and
+  // becomes wrong the day behaviour is generated — on that day this lane needs
+  // to reach the `page` rung as well. Named in CLAUDE.md's backlog.
+  behavior: {
+    hint: "What something on the page DOES when someone uses it — a button, a link, a form, a tab, a filter, a menu, a carousel. What it opens, what it changes, what you see happen.",
+    shape: { type: "array", items: BEHAVIOR_ITEM },
+    edit: {
+      is: "Everything on this page that DOES something, as it should be after their change.",
+      yours:
+        "ANY BEHAVIOUR AT ALL, AND ALL OF IT IS YOURS TO EDIT. There is no list of behaviours to pick from — " +
+        "whatever they asked a control to do, write it: opening, closing, filtering, sorting, switching, " +
+        "stepping, submitting, copying, playing, revealing, or something no other site does. Any element on " +
+        "the page, any trigger, any result. Say for each one whether the component already does it or whether " +
+        "it needs behaviour written.",
+      wide:
+        "ONE CONTROL ASKED ABOUT IS ONE CONTROL CHANGED. A request about the filter chips is an answer about " +
+        "the filter chips, not a page where every button now does something richer. Do not improve a control " +
+        "that already works, and do not answer for an element the page has not got: the entries you were " +
+        "given ARE the page.",
+      keep:
+        "EVERY OTHER ENTRY COMES BACK EXACTLY AS IT WAS GIVEN, in the order it was given. Not a trigger you " +
+        "would have worded differently, not a result you think reads better. A control that changes on its " +
+        `own is the site breaking, to the person using it. At most ${MAX_BEHAVIOR} entries in all.`,
+    },
+  },
+
+  // ── THE ANIMATED MARK ──────────────────────────────────────────────────
+  //
+  // ACTS HERE, beside `favicon` and `wordmark`, because it is the same KIND of
+  // value they are: one SVG document, stored whole, replaced whole, validated by
+  // the same scanner. A customer asking to change what it does is asking for a
+  // redraw, and a redraw is one cheap call.
+  gif: {
+    hint: "THE ANIMATED MARK — the small looping graphic: what it shows, how it moves, how fast, or taking it off the site.",
+    shape: { type: "string" },
+    edit: {
+      is: "The site's animated mark, as one complete SVG document, as it should be after their change.",
+      yours:
+        "THE WHOLE DRAWING IS YOURS TO REDRAW. Any shape, any colour, any timing — whatever they asked to " +
+        "look or move differently, draw it. You are handed the document the site is wearing; return it with " +
+        "their change made.",
+      wide:
+        "THE ASK IS THE EDIT, AND A REDRAW IS NOT ONE. Asked to slow it down, change the duration — do not " +
+        "take the opportunity to redraw the shapes, restyle the colours, or make it 'better'. This field is " +
+        "replaced WHOLE, so anything you do not carry across is gone from their site.",
+      keep:
+        "EVERY SHAPE, COLOUR AND TIMING THEY DID NOT ASK ABOUT COMES BACK EXACTLY AS IT WAS. A mark that " +
+        "quietly becomes a different mark is the site changing on its own, and it is the one change nobody " +
+        "asked for that a visitor is guaranteed to notice, because it moves.",
+    },
+  },
+
+  // ── THE QR CODE ────────────────────────────────────────────────────────
+  //
+  // ACTS HERE, and the shape is why: what is stored is a DESTINATION and a
+  // CAPTION, not a picture. The code itself is generated from those at build
+  // time, so changing where it points is changing two short strings — which is
+  // the cheapest kind of edit there is, and would be absurd as a page rewrite.
+  qr: {
+    hint: "THE QR CODE — where scanning it takes you, or what the words beside it say. Also taking it off the site.",
+    shape: {
+      type: "object",
+      properties: {
+        points: { type: "string", description: "What scanning it does — a full URL, or `tel:`, `mailto:`, `WIFI:`, or plain text." },
+        label: { type: "string", description: "The few words printed beside it." },
+      },
+      required: ["points", "label"],
+    },
+    edit: {
+      is: "Where the site's QR code points and what it is called, as they should be after their change.",
+      yours:
+        "BOTH HALVES ARE YOURS TO CHANGE. Point it somewhere else, reword the caption, or both — whatever " +
+        "they asked for. The code itself is drawn for you from these two values; you never draw one.",
+      wide:
+        "NEVER INVENT A DESTINATION. This is the one field where a plausible guess is worse than a refusal: " +
+        "a QR is the one thing on a page a visitor cannot read before acting on it, so a made-up URL is a " +
+        "customer sending people somewhere that does not exist. If they asked to reword the caption, change " +
+        "the caption and hand `points` back exactly as it was.",
+      keep:
+        "THE HALF THEY DID NOT MENTION COMES BACK UNCHANGED, character for character. A reworded caption " +
+        "must not quietly re-point the code, and a re-pointed code must not quietly reword the caption.",
+    },
+  },
+
   /* ---- the six that act on another layer ---- */
   purpose: { hint: "What the page is organised around — what it leads with and what everything else supports.", elsewhere: "plan" },
   components: { hint: "Which building blocks the page is made of — the manifest it is written from.", elsewhere: "plan" },
@@ -392,17 +548,35 @@ const LANES = {
     elsewhere: "three",
   },
 
-  /* ---- the three that are still their own work ---- */
+  // A COMPONENT WRITTEN FOR THIS SITE, so changing it is changing CODE — the
+  // `page` rung, exactly as `components` and `shape` are, and for the same
+  // reason: what a customer wants changed is the thing on the page, and the
+  // thing on the page is source. There is no stored value a recompile could
+  // re-read into a different component.
+  //
+  // THE DECLARATION IS STILL STORED (`EDIT_FIELDS`), which is not a
+  // contradiction: the rung that acts is `page`, and what the stored list buys
+  // is that a revise about a phone number cannot make the site forget it had a
+  // hand-written seat map.
+  tsx: {
+    hint: "A part of the page that was BUILT for this site rather than picked from the kit — changing what it does, what it shows, or taking it out.",
+    elsewhere: "tsx",
+  },
+
+  /* ---- the three whose work is not a stored value ---- */
   kind: { hint: "Whether this is a shopfront that persuades a visitor, or a tool the business works in — changing it makes a different site.", escalate: "build" },
   pages: { hint: "Which pages the site HAS — adding one, taking one away, or moving one to a new address. Not what is ON a page.", verbs: true },
-  slug: { hint: "The site's web address — the word in <name>.gofarther.app.", unbuilt: true },
+  slug: {
+    hint: "THE SITE'S WEB ADDRESS — the word in <name>.gofarther.app. Renaming the site, or giving it a different address.",
+    elsewhere: "rename",
+  },
 };
 
 /** Every lane, in one order, and it is the order they RUN in — see `readLanes`. */
 export const LANE_FIELDS = Object.keys(LANES);
 
 /** The eight this module edits itself. Derived, so a lane cannot be acting-but-unreachable. */
-export const ACTING_LANES = LANE_FIELDS.filter(
+export const OWN_LANES = LANE_FIELDS.filter(
   (f) => !LANES[f].elsewhere && !LANES[f].unbuilt && !LANES[f].verbs && !LANES[f].escalate);
 
 /**
@@ -493,7 +667,7 @@ export function verbLayer(verb) {
  * downstream of this module reads a plan.
  */
 for (const k of PLAN_KEYS) {
-  if (ACTING_LANES.includes(k)) throw new Error("site-lanes: `" + k + "` is a plan axis and must not be edited here — nothing reads a stored plan");
+  if (OWN_LANES.includes(k)) throw new Error("site-lanes: `" + k + "` is a plan axis and must not be edited here — nothing reads a stored plan");
   if (!Object.hasOwn(LANES, k)) throw new Error("site-lanes: `" + k + "` is a plan axis with no lane at all");
 }
 for (const k of LANE_FIELDS) {

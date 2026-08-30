@@ -44,7 +44,7 @@ import { dirFor, initialsMark, normalizeLang, siteIconFrom } from "./site-identi
 // the Worker's merge, on the tokensPage rule: the Worker and the container are
 // two layers, version skew and hand-written payloads reach this one directly,
 // and the mark is an SVG document served from the site's own origin.
-import { cleanFavicon, readWordmark } from "./site-favicon.mjs";
+import { cleanFavicon, readWordmark, cleanGif } from "./site-favicon.mjs";
 import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { runStep } from "./run-step.mjs";
@@ -291,6 +291,36 @@ function safeRoute(rel) {
   return bare;
 }
 
+/**
+ * WHERE A COMPONENT WRITTEN FOR THIS SITE GOES.
+ *
+ * A NAME IN, A PATH OUT — never a path in, which is the whole reason this is its
+ * own function rather than a loosening of `safeRoute`. That regex requires the
+ * first character to be `[a-z0-9_$]`, so `-parts/seat-map.tsx` is refused and the
+ * file would be SKIPPED IN SILENCE (the loop `continue`s on a null). Relaxing it
+ * to admit a leading `-` would admit every other `-` path the model could invent
+ * along with it; taking only a bare kebab-case NAME leaves no traversal surface
+ * to reason about at all.
+ *
+ * `-parts/` FOR TWO INDEPENDENT REASONS, and both have to hold:
+ *
+ *   • It is UNDER `src/routes`, which is the only directory `resetRoutes` wipes
+ *     between builds. This container is long-lived and shared, so a component
+ *     written anywhere else is in every later customer's site — the leak this
+ *     file's own `startSiteServerForCheck` comment already names.
+ *   • It starts with `-`, which `routeFileIgnorePrefix` makes invisible to the
+ *     route generator, so a component is not published as a page. That is pinned
+ *     in our vite config rather than inherited from the generator's default.
+ *
+ * Returns null for anything that is not a plain kebab-case name, so a junk entry
+ * is refused rather than written somewhere surprising.
+ */
+function safePart(name) {
+  const n = String(name || "").trim().toLowerCase();
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(n)) return null;
+  return path.join("-parts", n + ".tsx");
+}
+
 function resetRoutes() {
   try { fs.rmSync(ROUTES, { recursive: true, force: true }); } catch {}
   fs.mkdirSync(ROUTES, { recursive: true });
@@ -350,9 +380,19 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon, wordmark, theme, tokens }) {
+function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon, wordmark, theme, tokens, gif, qr }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
+  // ── THE ANIMATED MARK AND THE QR (2026-08-29) ─────────────────────────────
+  //
+  // DELETED FIRST, EVERY BUILD, exactly like the icon above and the logo below,
+  // and for the reason those two say: this container is long-lived and shared,
+  // so a file left behind is one site's artwork appearing in another's. The
+  // delete is unconditional and the write is not — a site that stopped having an
+  // animated mark must actually stop having one.
+  const gifPath = path.join(APP, "public", "animated.svg");
+  const qrPath = path.join(APP, "public", "qr.svg");
+  for (const p of [gifPath, qrPath]) { try { fs.rmSync(p, { force: true }); } catch {} }
   // The drawn logo's file, deleted per build for the reason the icon's is one
   // line up: this container is long-lived and a stale one is one site's
   // wordmark in another's header.
@@ -482,6 +522,38 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
     prefix: l.prefix,
     label: langLabel(l.tag, l.prefix),
   }));
+  // ── AND THE TWO NEW MARKS, VALIDATED AGAIN HERE ───────────────────────────
+  //
+  // The Worker's merge already refused junk; this route also takes hand-written
+  // payloads and survives version skew, and what it writes is an SVG document
+  // served from the site's own origin. Same argument as the favicon and the
+  // wordmark above, and the same refuse-whole outcome: a site with a bad mark
+  // has no mark, never a broken one.
+  //
+  // THE QR IS NOT RE-VALIDATED AS A DRAWING because it is not one the model
+  // drew — the Worker GENERATED it from two strings, so there is no untrusted
+  // document here. What is checked is that it looks like the thing we generate.
+  let gifValue = "";
+  if (typeof gif === "string" && gif.trim()) {
+    try {
+      const g = cleanGif(gif);
+      if (!g.svg) console.error("animated mark refused:", g.why);
+      else {
+        fs.mkdirSync(path.dirname(gifPath), { recursive: true });
+        fs.writeFileSync(gifPath, g.svg);
+        gifValue = "/animated.svg";
+      }
+    } catch (e) { console.error("animated mark failed:", e && e.message); }
+  }
+  let qrValue = "", qrLabel = "";
+  if (qr && typeof qr === "object" && typeof qr.svg === "string" && /^<svg[\s>]/.test(qr.svg.trim())) {
+    try {
+      fs.mkdirSync(path.dirname(qrPath), { recursive: true });
+      fs.writeFileSync(qrPath, qr.svg);
+      qrValue = "/qr.svg";
+      qrLabel = typeof qr.label === "string" ? qr.label.slice(0, 80) : "";
+    } catch (e) { console.error("qr write failed:", e && e.message); }
+  }
   const titleValue = typeof title === "string" && title.trim() ? title.trim().slice(0, 120) : "App";
   // THE SLUG IS THE ONE VALUE HERE THAT IS NOT DECORATION. `siteSlug()` reads it
   // off the head on a custom domain, where there is no `/s/<slug>/` path to learn
@@ -534,6 +606,19 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
     "// Generated per build by build-server.mjs. Do not edit.\n" +
       "export const SITE_SLUG = " + JSON.stringify(slugValue) + ";\n" +
       "export const SITE_LOGO = " + JSON.stringify(logoValue) + ";\n" +
+      // ── THE ANIMATED MARK AND THE QR, AS PATHS THE PAGE CAN USE ───────────
+      //
+      // WRITTEN AS EMPTY STRINGS WHEN THERE ARE NONE, never omitted. The pages
+      // import these bindings, so a name that is sometimes absent is a page that
+      // sometimes does not compile — the `SITE_LOGO` rule one line up, which was
+      // learned the same way.
+      //
+      // The QR's CAPTION rides beside its path because the two are one thing: a
+      // QR with no caption is a black square nobody points a camera at, and a
+      // page that has to invent the words would invent different ones each build.
+      "export const SITE_ANIMATED = " + JSON.stringify(gifValue) + ";\n" +
+      "export const SITE_QR = " + JSON.stringify(qrValue) + ";\n" +
+      "export const SITE_QR_LABEL = " + JSON.stringify(qrLabel) + ";\n" +
       "export const SITE_LANG = " + JSON.stringify(langValue) + ";\n" +
       // ANNOTATED for the reason `SITE_PAGE_TRANSITION` below is: an unannotated const has
       // the LITERAL type of whichever value was written, so a comparison against
@@ -1622,7 +1707,7 @@ const server = http.createServer((req, res) => {
       // once, passed to both, and `parseStyle` is idempotent so `applyStyle`
       // re-reading it downstream cannot change the answer.
       const styleUsed = parseStyle(payload.style, { max: MAX_STYLE_BUILD }).style;
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, wordmark: payload.wordmark, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition, theme: payload.theme, tokens: payload.tokens });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, wordmark: payload.wordmark, gif: payload.gif, qr: payload.qr, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition, theme: payload.theme, tokens: payload.tokens });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts, payload.cssFonts);
       // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
       // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly
@@ -1651,6 +1736,29 @@ const server = http.createServer((req, res) => {
         wrote++;
       }
       if (!wrote) return send(res, 400, { ok: false, error: "no valid route files written" });
+
+      // ── AND THE COMPONENTS WRITTEN FOR THIS SITE ────────────────────────
+      //
+      // AFTER the route files and counted apart, because they are not routes and
+      // must never satisfy the `!wrote` check above: a build that returned three
+      // components and no page has no site, and folding them into one counter
+      // would let it publish as though it did.
+      //
+      // A REFUSED NAME IS COUNTED, not skipped in silence. The pages loop above
+      // `continue`s past a bad path because a page that fails to arrive shows up
+      // immediately — the site is missing a page — while a component that fails
+      // to arrive shows up as a page importing a module that is not there, which
+      // is a typecheck error blaming the PAGE. The count is on the response so
+      // the honest cause is on the wire.
+      let partsWrote = 0, partsRefused = 0;
+      for (const p of Array.isArray(payload.parts) ? payload.parts : []) {
+        const rel = p && typeof p === "object" ? safePart(p.name) : null;
+        if (!rel || typeof p.source !== "string" || !p.source) { partsRefused++; continue; }
+        const full = path.join(ROUTES, rel);
+        fs.mkdirSync(path.dirname(full), { recursive: true });
+        fs.writeFileSync(full, p.source);
+        partsWrote++;
+      }
 
       // `tsr generate` first: main.tsx imports src/routeTree.gen.ts, so without it
       // the typecheck fails on the template rather than on the generated pages.

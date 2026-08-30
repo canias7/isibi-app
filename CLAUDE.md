@@ -137,20 +137,22 @@ refunds if it refuses.
 
 ## What the design call decides
 
-`design_schema` is one tool, **84.8k characters**, in the cached block. Property
-order IS generation order. **19 properties, 14 required**; a first build sends 18
-of them (13 required).
+`design_schema` is one tool, **93,852 characters**, in the cached block. Property
+order IS generation order. **24 properties, 15 required**; a first build sends 23
+of them (14 required).
 
 **The order, measured by evaluating the tool rather than reading it** — the list
 below drifted twice before, so re-derive it, don't trust this line:
 
 > `brand` · `slug` · `description` · `kind` · `purpose` · `pages` · `components` ·
-> `theme` · `wordmark` · `favicon` · `shape` · `images` · `css` · `backend` ·
-> `action` · `lang` · `langs` · `needsWeb` · `webQueries`
+> `tsx` · `theme` · `wordmark` · `favicon` · `gif` · `shape` · `images` · `qr` ·
+> `css` · `backend` · `action` · `lang` · `langs` · `three` · `behavior` ·
+> `needsWeb` · `webQueries`
 
-Only `css`, `lang`, `langs`, `needsWeb` and `webQueries` are optional. **`seeds`
-and `share` are NOT fields** — `seeds` came off on 2026-08-23 and `share` never
-existed (the share image is chosen at publish time, not designed).
+Only `tsx`, `gif`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
+`webQueries` are optional.
+**`seeds` and `share` are NOT fields** — `seeds` came off on 2026-08-23 and
+`share` never existed (the share image is chosen at publish time, not designed).
 
 - **`brand`, `slug`, `description`** — answered FIRST, before anything about the
   look. `brand` is the site's name and therefore its `<title>` and `og:title`;
@@ -191,10 +193,80 @@ existed (the share image is chosen at publish time, not designed).
   language the site is also offered in. **`needsWeb` / `webQueries`** — whether
   writing this site's copy needs facts the model may not have, and the 1–3
   searches to run if so.
+- **`tsx`** (2026-08-29, owner: *"what if customer wants something that we dont
+  have in our library… a tsx step that generates stuff… its gotta be after the
+  components step"*) — **the escape hatch for the 2,112-component kit.** Answered
+  IMMEDIATELY after `components`, by a model that has just searched the kit and
+  come up short. **Optional; absent is the ordinary answer.** Each entry is
+  `name` · `does` (and what the kit could not do) · `props`.
+  **It DECLARES; the page step writes the source** — the owner's call when asked
+  directly, and the `images` division: the design call answers 22 fields under a
+  ten-minute cap, the page call streams and has no clock, and the default builder
+  model is Grok, ~3× slower writing code.
+  **The files land in `src/routes/-parts/<name>.tsx`, and both halves of that are
+  load-bearing.** Under `src/routes` because `resetRoutes` wipes that directory
+  and *nothing else* between builds, and the container is long-lived and shared —
+  anywhere else is in the next customer's site. Prefixed `-` because that is what
+  keeps a component from being published as a route, **pinned as
+  `routeFileIgnorePrefix` in our own vite config** rather than inherited from
+  @tanstack/router-generator's default.
+  `write_pages` returns them in **`parts`, never in `pages`** — a component in the
+  page list would be counted against the page cap, put in the nav manifest,
+  published in `sitemap.xml`, and stubbed by salvage.
+  **The spine re-sends them on every publish** (`source/<slug>/parts.json`), which
+  is not an optimisation: a page importing a component that is not sent does not
+  compile, so without it the first typo fix after a build takes the site down.
+- **`gif`** (2026-08-29, owner: *"gif maker as optional too… just like a svg
+  step, a gif step to generate gif"*) — **an animated mark, drawn by the model as
+  one SVG document with its animation inside it.** Sits with `wordmark` and
+  `favicon` because it is the same job: one document, replaced whole, validated
+  by the same scanner. `cleanMark` now takes its tag/attr sets as PARAMETERS and
+  has three callers; `GIF_ATTRS` is derived from `FAVICON_ATTRS` so the two
+  cannot diverge. **The one new risk is indirection**: `<animate
+  attributeName="href">` names its target in a VALUE, so a document that cannot
+  *write* `href` could animate one in — `attributeName` is therefore checked
+  against the same set the scanner admits. `animateMotion` is refused outright
+  (its child is `<mpath href>`). **It produces an animated SVG, not a `.gif`
+  binary** — smaller, sharper, and it themes with the page; a real encoder buys
+  nothing unless these ever have to be shared OFF the site.
+- **`qr`** (2026-08-29, owner: *"qr code maker as optional"*) — `{ points, label
+  }`, both required. **We draw it, the model never does**: a QR is Reed-Solomon
+  over a spec with 40 sizes and 8 masks, and its failure mode is a code that
+  looks perfect and does not scan — unfalsifiable by every instrument here except
+  a phone. `qrcode-generator` (one file, no deps) is bundled into the Worker;
+  `qrSvg` emits ONE `<path>` merging horizontal runs (**4,206 chars vs the
+  library's 8,464** for a real URL). Generated at build time from the two stored
+  strings, never stored as a picture — a stored SVG would be a second copy of
+  `points` that can disagree with it. `test/site-marks.test.mjs` re-derives the
+  module set from the emitted path and compares it against the library's own
+  `isDark`, which is the only ground truth available without a camera. The
+  payload is held to real business schemes; `javascript:` and `data:` are refused.
+- **`three`** — a 3D/WebGL element, optional the way `css` is, absent on nearly
+  every site. **Fully wired 2026-08-30**, and it took TWO hops because it shipped
+  needing both: onto `EDIT_FIELDS` so `mergeLook` stops discarding it, and into
+  the page directive (`sceneDirective`). The second is the instructive one — after
+  the storage fix the field stored, survived revises and showed in the
+  current-state note, so it read as working from every angle except the only one
+  that mattered. **The prompt needed no change**: the page rules already said a
+  canvas is written "ONLY where the design step asked for it in as many words",
+  which was a gate on a signal that had no way of reaching the gate.
+- **`behavior`** (2026-08-29, owner: *"update only the frontend design step to
+  plan behavior"*) — **what every interactive thing on the page DOES.** One entry
+  per control, six required properties: `control` (which element, as it reads on
+  the page) · `on` (what triggers it) · `does` · `affects` (what changes or
+  opens) · `result` (what the visitor sees) · `source` (`component | custom` —
+  does the kit component already do this, or must behaviour be written).
+  **Answered LAST of the design fields**, because a control cannot be described
+  before the page that holds it exists; the web pair below it is the search gate,
+  not a design field. **Compelled**, with `[]` a real answer and `MAX_BEHAVIOR`
+  (12) a ceiling with no floor. The item shape lives in `site-plan.mjs` as
+  `BEHAVIOR_ITEM` because the edit lane answers the SAME items and may not import
+  from `worker.js` — one object, never two copies. **It decides and RECORDS;
+  nothing generates from it yet** (owner: *"do not implement the behavior yet"*).
 - **`backend`** (tables, functions, apis, jobs) — the ONLY property dropped from
   a first build. `FRONTEND_SCHEMA_TOOL` derives itself by destructuring `backend`
   out and filtering it from `required`, so the two can never disagree. It is
-  **29.2k of the 84.8k — 34.4%** off the wire on every first build.
+  **29,189 of the 93,852 — 31.1%** off the wire on every first build.
 
 **Every design decision is anchored on a revise.** `EDIT_FIELDS` + `mergeLook`:
 absent means unchanged, so a colour change cannot re-roll the theme.
@@ -288,17 +360,30 @@ customer ──► pick_lanes ──► edit_site ──► publish
              17 names       0 required
 ```
 
-**Seventeen lanes and ALL of them act** (owner, 2026-08-29: *"i need all the 17
-lanes acting"*). `pick_lanes` runs ABOVE the layer dispatch, so it is the front
-door for all seventeen and what it names decides which layer runs:
+**Twenty-two lanes and ALL BUT ONE act** (owner, 2026-08-29: *"i need all the 17
+lanes acting"* — seventeen then, nineteen now that `three` and `behavior` have
+arrived). `pick_lanes` runs ABOVE the layer dispatch, so it is the front door for
+all twenty-two and what it names decides which layer runs.
 
-- **8 act here** — `css theme brand description wordmark favicon lang langs`,
-  every one a plain string, enum or short list, which is why this module owns its
-  own shapes and shares none.
-- **6 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
-  `shape`/`components`/`purpose`→`page`. Nothing reads a STORED plan (the
+**`OWN_LANES` is a group name, not a verdict** — renamed from `ACTING_LANES` on
+2026-08-29 after the owner asked *"i thought all of them were act?"* twice. It
+means *the ones this module edits itself*; the dispatched, verb and escalate lanes all
+do real work too, just on another rung. **21 of 22 act in the plain sense — only
+`slug` does nothing.**
+
+- **11 act here** — `css theme brand description wordmark favicon gif qr lang
+  langs behavior`. The first eight are a plain string, enum or short list, which is why
+  this module owns its own shapes; `behavior` is the one exception and shares
+  `BEHAVIOR_ITEM` from `site-plan.mjs`, the only module both paths may read.
+  **Every one but `css` is a key on the stored look and must be on `EDIT_FIELDS`**
+  — the lane reads `priorLook[field]` and writes through `mergeLook`, so a lane
+  missing from that list bills and changes nothing, silently, at both ends.
+  Asserted in `test/edit-lanes.test.mjs`; `css` is excluded by name because the
+  stylesheet has its own `_meta` key.
+- **8 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
+  `shape`/`components`/`purpose`/`three`/`tsx`→`page`. Nothing reads a STORED plan (the
   container gets the pages, the theme and the stylesheet), so `shape` is not a
-  value to save, it is a job for the rung that rewrites pages. All six already
+  value to save, it is a job for the rung that rewrites pages. All of them already
   had cheap shipping implementations; nothing was missing but the wire.
 - **1 verb lane** — `pages`, which is three capabilities behind one field:
   `remove` and `move` are the `page` rung, `add` is the addon route. The router
@@ -359,7 +444,8 @@ request is always a different one.
 
 **Two asks run two lanes in turn** (owner: *"run both lanes in turn"*), each shown
 only its own field's stored value, and **one publish** covers the message.
-Measured: **~4.7k of tool against 84,817**, still **1 credit** — `pageCredits` is
+Measured: **5,606 of tool for a colour change (router + `css` lane), 7,476 for a
+behaviour change, against 89,195**, still **1 credit** — `pageCredits` is
 variadic and rounds once with a floor of 1, and the routing call is billed once
 per MESSAGE rather than once per rung (a sweep caught that double-count; it is
 now watched against the ledger, not against our own arithmetic).
@@ -379,6 +465,58 @@ dispatch to it.** Its `_meta` read was ungated, so on a frontend-only site
 the majority of the platform. `{ tables: [] }` is the truth about such a site;
 `null` is kept for a site that HAS a database whose `_meta` could not be read,
 because cannot-tell must never read as nothing-there.
+
+### RENAMING A SITE IS AN ALIAS, NOT A MOVE (2026-08-29)
+
+`slug`→`rename`, and **nothing moves**. A slug keys five Supabase tables, seven
+R2 prefixes and one dispatch script; R2 has no rename, so a "real" move is a loop
+of PUTs with no transaction — a copy that dies halfway leaves the site half at
+each address with nothing to roll back to.
+
+**And the move needs everything the alias needs anyway.** Either way the platform
+must remember the old name belongs to this site: the old address has to keep
+working (customers print it, and we now generate **QR codes** pointing at it) and
+the old name has to stay CLAIMED, or the next build of `shoeroom-1` takes over an
+address a live site still redirects from. So the alias record IS the feature and
+the copy is pure added risk.
+
+**THE STORAGE SLUG AND THE PUBLIC ADDRESS CAN NOW DIFFER, and nothing may assume
+they are equal.** `slug` stays the storage key — every R2 prefix, every table,
+the dispatch script, and `SITE_SLUG` baked into the page (which addresses the
+site's own API, so it MUST stay the key). The one place the distinction is
+load-bearing is the canonical link and `og:url`: both are baked into the R2
+sidecar at publish time, so **a rename republishes** or the site tells every
+crawler its real address is the old one.
+
+`site_aliases (alias PK, slug, uid, current)`, with **one current name per site
+enforced by a partial unique index** rather than by us — two rows claiming to be
+a site's live address is a state no application check survives concurrency.
+
+**The cache rule INVERTS from `hostRoutes`.** There a miss is rare and must not be
+cached; here the miss is every site that has never been renamed, so not caching
+it would put a Supabase round trip in front of every page load on the platform.
+The miss is cached as `NO_ALIAS`; a lookup that FAILED caches nothing — including
+the failure that matters most, the table not existing yet.
+
+**The table is LIVE** (created by hand 2026-08-30, no migration runner here):
+`site_aliases`, RLS on with no policies — service-role only, the posture
+`user_site_project` has. The one-current-per-site index was proved by INSERTING a
+second current row and watching Postgres refuse it, not by reading `pg_indexes`.
+
+**The code still degrades cleanly if the table goes away**, and that path is worth
+keeping: `aliasRowFor` answers null on any read failure and `resolveAlias` reads a
+null row as "no alias", so the platform falls back to exactly its old behaviour
+rather than erroring. It is still a named gap in the live check, now for the
+second reason only — a live rename claims a real address that the
+old-name-stays-claimed rule then forbids ever releasing.
+
+**The bias inverts here, and it is the second place on the platform that happens**
+(after the `pages` verb): a message with no name in it is REFUSED, never guessed,
+because the old address 301s forever after. `cleanAlias` refuses rather than
+repairs for the same reason — the first draft turned "déjà vu café" into
+`dj-vu-caf`.
+
+---
 
 **Still mixed, and next: the ADDON step**, which calls `designSiteSchema` with the
 same 84.8k build tool to add one page. **DELETE deferred** (owner's call).
@@ -467,8 +605,15 @@ what the work cost.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 18 credits** (verified against the ledger 2026-08-28) — under one
-  build. The favicon, wordmark, share card, share picker and head pack are all
+- **Balance: 453 credits** (2026-08-30, after run 80). It was **0** on 08-29 and
+  this file said 18 — a stale number is worse than none here, because
+  `buildFloor` refuses before spending and the refusal reads as a broken build.
+  **Read the ledger, do not trust this line.**
+- **A GROK BUILD COSTS ~45 CREDITS, MEASURED** (run 80, `ashgrove-1`, one page, 2
+  photographs: 45 billed, 47 including the routing call). The workflow carried
+  "~130" for nine days — a Sonnet-era guess nothing could check, because
+  **nothing records what a build costs**: `gen_charges` is Zephyr's image ledger
+  and `site_builds` has no cost column. The favicon, wordmark, share card, share picker and head pack are all
   **NOT PROVEN LIVE** for want of a top-up.
 - **The building account is `aniascristian@gmail.com`, not the session's own
   address.** It owns every live site and holds that balance. Look at the wrong
@@ -505,6 +650,20 @@ outside, "the model did not set it" and "we did not forward it" are the same
 `undefined`. **Before rewording a prompt because a field came back empty, check
 that the field can arrive.** Assert the CHAIN, end to end, and derive it from the
 producer rather than listing today's hops.
+
+**Latest, and it is the purest instance yet: `three`, shipped dead 2026-08-29 and
+found the next day.** A design field added with its lane, its guards and a green
+suite — and left off `EDIT_FIELDS`. `mergeLook` rebuilds its output from that
+array ALONE, so the model designed a 3D scene on every build and the answer was
+discarded before anything could store or read it. Nothing failed and nothing
+logged. **The one-command check that finds this class in seconds:** for every
+design field, count consumer references — but count them the way the value really
+travels. A dotted `designed.<field>` scan answers 0 for `purpose`, `pages`,
+`shape`, `images`, `action` and `backend`, all of which are perfectly wired, because
+they travel as a DERIVED walk over `PLAN_KEYS`. So the honest test is membership:
+**a design field must be in `PLAN_KEYS`, or on `EDIT_FIELDS`, or have a named
+per-field hop (`readCss` is the model for that) — a field in none of the three is
+dead.** `three` was in none of the three; `behavior` is on `EDIT_FIELDS`.
 
 **Assert the property, not the spelling.** The single most repeated own-goal here.
 A guard pinned to `foo(a, b)` goes red the moment an honest third argument
@@ -596,6 +755,20 @@ wraps the command in a shell whose command line contains the pattern, so
 `pkill -f x` kills the thing running it (exit 144, empty log) and
 `until ! pgrep -f x` never exits. Kill by PID; watch a log's tail.
 
+**A CI STEP THAT DOES NOT INSTALL WHAT THE TESTS IMPORT — and five commits of
+red nobody looked at (2026-08-30).** `site-build.yml` ran two test files under
+"both modules are dependency-free, so no install is needed", which was TRUE when
+written and false the moment `site-qr.mjs` imported `qrcode-generator`. The step
+failed with "Cannot find package"; the same tests passed locally, where the
+dependency is installed. **The check and the thing it checks disagreed about the
+environment, which is the one disagreement a test cannot report on itself.**
+Two habits, both cheap: read CI after a push (five went unread), and never let a
+workflow assert a property about the code in a COMMENT — `test/workflow-deps.test.mjs`
+now asserts it. Its first draft walked the import graph and false-alarmed on
+`import` statements inside STRING fixtures; the shipped version is blunt (every
+`node --test` step installs first) because a check that flags correct code is
+worse than no check.
+
 **Re-run the thing the change is asserted by.** Appeasing a false alarm in one
 checker while never re-running the harness that actually proves the change has
 shipped red twice.
@@ -651,6 +824,7 @@ Postgres call per edit. **When you delete a consumer, grep for what fed it.**
 
 ## Backlog
 
+- **`three` is done** (2026-08-30) — the entry above records what it cost.
 - **The dead-control finding (open).** On `northgroup-17` the stage filters,
   "New deal" and the deal rows are all `<a href="#pipeline">`, and 15 of 24
   in-page links point at the section they already sit inside — dead by

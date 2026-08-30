@@ -26,9 +26,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
 import { PLAN_KEYS } from "../builder/site-plan.mjs";
+import { EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import {
-  LANE_FIELDS, ACTING_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES, MAX_LANES,
+  LANE_FIELDS, OWN_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES, MAX_LANES,
   laneEscalate, laneVerbs, verbLayer, readPageVerb, PAGE_VERBS,
   laneLayer, laneUnbuilt, laneRule, composeRule, RULE_PARTS, editTool, pickTool, readLanes, readLaneAnswer, editRequest, pickRequest,
 } from "../builder/site-lanes.mjs";
@@ -56,19 +57,52 @@ test("the two paths cover the same EIGHTEEN fields — asserted both ways", asyn
   // build with no lane is a part of a site the customer can never change again,
   // and a lane for a field the build stopped producing edits nothing. Neither
   // announces itself, so both directions are named.
-  // EIGHTEEN SINCE 2026-08-29, when `three` was added as an optional design
-  // field (owner: "we are adding more tools, as optional — three.js and webgl").
+  // TWENTY-TWO SINCE 2026-08-29, and `gif` + `qr` were the last two that day
+  // ("qr code maker as optional, also gif maker as optional too, in the design
+  // step"). Before them: `three` that morning ("we are adding more tools,
+  // as optional — three.js and webgl"), `behavior` after it ("update only the
+  // frontend design step to plan behavior"), and `tsx` last ("what if customer
+  // wants something that we dont have in our library… a tsx step that generates
+  // stuff"). Each arrived with its own lane in the same commit, and it is the
+  // two loops below that made that non-optional rather than anyone remembering.
   // The COUNT is the weaker half and is here only so a new field is a decision
   // somebody makes on purpose; the two loops below are the property, and they
   // are what caught this one — a field with no lane is a part of a site the
   // customer could never change again.
-  assert.equal(designed.length, 18, "the design tool no longer yields eighteen editable fields: " + designed.join(","));
-  assert.equal(LANE_FIELDS.length, 18, "the edit path no longer has eighteen lanes: " + LANE_FIELDS.join(","));
+  assert.equal(designed.length, 22, "the design tool no longer yields twenty-two editable fields: " + designed.join(","));
+  assert.equal(LANE_FIELDS.length, 22, "the edit path no longer has twenty-two lanes: " + LANE_FIELDS.join(","));
   for (const k of designed) {
     assert.ok(LANE_FIELDS.includes(k), "the build can produce `" + k + "` and the edit path has no lane for it");
   }
   for (const k of LANE_FIELDS) {
     assert.ok(designed.includes(k), "the edit path has a `" + k + "` lane and the build tool has no such field");
+  }
+});
+
+test("every acting lane but `css` is a key on the stored look — the read and the write agree", () => {
+  // THE CHAIN THE LANE LOOP CLAIMS AND NOTHING ASSERTED (added 2026-08-29, when
+  // `behavior` became the ninth acting lane and the comment there still counted
+  // "all seven of those").
+  //
+  // `worker.js` reads a lane's current value as `(priorLook || {})[field]` and
+  // writes the answer through `mergeLook`, which rebuilds its output from
+  // `EDIT_FIELDS` ALONE. So an acting lane whose field is NOT on that list is
+  // shown the customer's stored value as `undefined` and has its answer dropped
+  // at the merge — the lane runs, bills, reports success, and changes nothing.
+  // Both halves fail silently and in the same direction, which is exactly the
+  // shape `three` shipped in.
+  //
+  // `css` IS THE ONE EXCLUSION AND IT IS DELIBERATE: the stylesheet has its own
+  // `_meta` key (see the note on `EDIT_FIELDS`), so it is read from `priorCss`
+  // and written beside the look rather than inside it. Named here rather than
+  // filtered silently, or the exception becomes the rule the first time somebody
+  // adds a second one.
+  const onLook = OWN_LANES.filter((f) => f !== "css");
+  assert.ok(onLook.length >= 8, "too few acting lanes to be scanning anything — this check would pass vacuously");
+  assert.ok(OWN_LANES.includes("css"), "`css` no longer acts, so excluding it here excludes nothing");
+  for (const f of onLook) {
+    assert.ok(EDIT_FIELDS.includes(f),
+      "the `" + f + "` lane acts on the stored look and `mergeLook` does not carry it — it will bill and change nothing");
   }
 });
 
@@ -155,9 +189,9 @@ test("EVERY acting lane states all four parts of its rule — including the one 
   // owner's wording, and a guard pinned to my phrasing would go red for their
   // rewrite rather than for a missing ceiling.
   assert.deepEqual(RULE_PARTS, ["is", "yours", "wide", "keep"], "the parts of a lane's rule changed — this guard names them");
-  assert.ok(ACTING_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
+  assert.ok(OWN_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
 
-  for (const field of ACTING_LANES) {
+  for (const field of OWN_LANES) {
     const rule = laneRule(field);
     const lines = rule.split("\n");
     assert.equal(lines.length, RULE_PARTS.length,
@@ -204,8 +238,8 @@ test("EVERY acting lane states all four parts of its rule — including the one 
 });
 
 test("a lane's tool is one property and nothing required — the wall, not the rule", () => {
-  assert.ok(ACTING_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
-  for (const field of ACTING_LANES) {
+  assert.ok(OWN_LANES.length >= 8, "fewer acting lanes than there were — this loop may be scanning almost nothing");
+  for (const field of OWN_LANES) {
     const t = editTool(field);
     const props = Object.keys(t.input_schema.properties);
     assert.deepEqual(props, [field], "the " + field + " lane can reach fields that are not its own: " + props.join(","));
@@ -237,11 +271,14 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
   //   dispatched  another edit layer does the work
   //   verbs       which layer depends on a verb the router also answers
   //   escalate    a rung ABOVE this route does it (`kind` is a rebuild)
-  //   unbuilt     nobody does it yet (`slug` is an address move)
+  //   unbuilt     nobody does it yet — EMPTY since 2026-08-29, when `slug`
+  //               became a real rename. The group stays because a group that is
+  //               empty is a fact this test can assert, where a group that was
+  //               deleted is one nobody can.
   // Collapsing any two of them loses a real distinction: "the page rung does
   // this", "we cannot tell which of three you mean", "the build rung does this"
   // and "nothing does this" are four different sentences to a customer.
-  const groups = [ACTING_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES];
+  const groups = [OWN_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES];
   assert.equal(groups.reduce((n, g) => n + g.length, 0), LANE_FIELDS.length,
     "the five groups do not add up to the lanes there are");
   for (const f of LANE_FIELDS) {
@@ -327,6 +364,22 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
     // could re-read, the way the theme and the stylesheet are re-read. So it is
     // the page rung, for the same reason `shape` and `components` are.
     three: "page",
+    // A COMPONENT WRITTEN FOR THIS SITE IS SOURCE TOO (2026-08-29), so the same
+    // argument lands it on the same rung. It is NOT `elsewhere: "plan"` even
+    // though `page` is where the plan axes go: the module refuses that for
+    // anything outside `PLAN_KEYS` at load time, and `tsx` is outside it on
+    // purpose — every plan axis is compelled, and this field's whole worth is
+    // that the ordinary answer is none.
+    tsx: "page",
+    // ── THE ADDRESS (2026-08-29) ───────────────────────────────────────────
+    //
+    // `slug` was the one unbuilt lane on the platform and is a dispatched one
+    // now (owner: "yeah do the alias one"). It dispatches rather than acting
+    // here for the reason the own-lane guard states: every own lane but `css` is
+    // a KEY ON THE STORED LOOK, and an address is a platform record — an own
+    // lane would have its answer dropped at `mergeLook`, silently, which is
+    // exactly the shape `three` shipped in.
+    slug: "rename",
   };
   for (const [field, layer] of Object.entries(MAPPING)) {
     assert.equal(laneLayer(field), layer,
@@ -337,11 +390,25 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
   assert.deepEqual([...DISPATCHED_LANES].sort(), Object.keys(MAPPING).sort(),
     "the dispatched group changed without a decision about where the new lane's work goes");
 
-  // THE UNBUILT ONES EACH NAME THEIR OWN JOB. Three different pieces of work —
-  // a rebuild, a page-set change, an address move — and a single word for all
-  // three is the failure-that-cannot-name-itself shape this repo has recorded
-  // seven times over; the last one cost two live runs.
-  assert.ok(UNBUILT_LANES.length >= 1, "nothing is unbuilt — if that is true, say so here rather than leaving an empty loop");
+  // ── NOTHING IS UNBUILT, AND THAT IS SAID HERE RATHER THAN LEFT AS AN EMPTY
+  //    LOOP (2026-08-29) ────────────────────────────────────────────────────
+  //
+  // The floor used to be `>= 1` — a live-observer check, because a loop over an
+  // empty collection contributes no assertions and passes exactly like one that
+  // checked everything. It fired the day `slug` became a real rename, which is
+  // precisely what it was for: it refused to let the group empty out silently.
+  //
+  // So the assertion inverts rather than being deleted. Every lane on the
+  // platform now does something, and if a future capability is deferred it will
+  // land in this group and this line will fail until somebody writes down what
+  // it needs — which is the whole value of keeping the group alive and empty.
+  assert.equal(UNBUILT_LANES.length, 0,
+    "a lane is unbuilt again: " + UNBUILT_LANES.join(",") + " — name what each one needs, then update this");
+  // …and the reader still has to WORK, or a later unbuilt lane gets one word for
+  // a job that needs its own sentence. Driven with a fabricated lane rather than
+  // a real one, so it measures the function instead of today's roster.
+  assert.equal(laneUnbuilt("slug"), null, "`slug` still reports as unbuilt after being built");
+  assert.equal(laneUnbuilt("nope"), null, "the unbuilt reader answers for a lane that does not exist");
   assert.equal(new Set(UNBUILT_LANES.map(laneUnbuilt)).size, UNBUILT_LANES.length,
     "two unbuilt lanes share one reason, so nobody can tell which job is missing");
   for (const f of UNBUILT_LANES) {
@@ -363,7 +430,7 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
   // success — `needsPages` is the same rule one layer down, arriving only after
   // a model call has been bought.
   for (const k of PLAN_KEYS) {
-    assert.ok(!ACTING_LANES.includes(k), "`" + k + "` is a plan axis and is edited here — nothing reads a stored plan");
+    assert.ok(!OWN_LANES.includes(k), "`" + k + "` is a plan axis and is edited here — nothing reads a stored plan");
     assert.ok(LANE_FIELDS.includes(k), "`" + k + "` is a plan axis with no lane at all");
   }
 });
@@ -428,6 +495,31 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
     "the edit path is no longer materially smaller than the build tool (" + (pick + css) + " vs " + whole + ")");
   // And the router really is the small half — if it grew to carry each field's
   // full instructions it would cost more than the call it exists to shrink.
-  assert.ok(pick < whole / 20, "the lane router has grown into a second design tool (" + pick + ")");
+  //
+  // ── RE-ANCHORED PER LANE, 2026-08-29, AND THE OLD SPELLING IS NAMED ─────────
+  //
+  // This was `pick < whole / 20` and it went red on `behavior` at 4,511 against
+  // 89,195 — a ratio of 1/19.8, over a line it had been sitting a hair under.
+  // Nothing was wrong: the router had grown by ONE HINT. The constant was the
+  // defect. `pick` grows ~240 characters per lane and `whole` does not grow at
+  // all when a lane is added for a field the build already had, so a fixed
+  // ratio between them is a lane COUNT wearing a ratio — it would have fired
+  // again on lane 20 and 21, each time a false alarm teaching the next session
+  // to shorten a hint for no reason. "A false alarm is worse than a miss."
+  //
+  // WHAT THE GUARD ACTUALLY MEANS is that the router carries a HINT per lane and
+  // never a lane's own instructions — so it is anchored on the thing it must not
+  // become, derived from the lane tools themselves rather than from a number.
+  // The smallest lane tool is the strictest available comparison and it moves
+  // with the code, so this cannot drift.
+  const perLane = pick / LANE_FIELDS.length;
+  const smallestLane = Math.min(...OWN_LANES.map((f) => JSON.stringify(editTool(f)).length));
+  assert.ok(smallestLane > 200, "no lane tool worth comparing against — this check is measuring nothing");
+  assert.ok(perLane < smallestLane / 2,
+    "the lane router is carrying instructions, not hints: " + perLane.toFixed(0) +
+    " chars per lane against a smallest lane tool of " + smallestLane);
+  // The headline claim stays absolute, because THAT one is about the two calls a
+  // customer actually pays for and does not move with the lane count.
+  assert.ok(pick < whole / 10, "the router alone is no longer a fraction of the build tool (" + pick + " vs " + whole + ")");
   assert.equal(pickRequest({ message: "x" }).model, "claude-haiku-4-5", "the router is no longer on the cheap model");
 });
