@@ -133,6 +133,35 @@ export function qrSvg(text, { quiet = 4 } = {}) {
  * visitor has no reason to point a camera at — measured behaviour of every QR
  * anybody has ever ignored — so the label is not decoration, it is the half that
  * makes the other half work.
+ *
+ * ── WHY THE WORDING CHANGED (2026-08-30, after three paid declines) ─────────
+ *
+ * Runs 84, 85 and 86 all designed a site where a QR was the obvious answer and
+ * all three declined. Run 86 removed every excuse: the brief handed over real
+ * wifi credentials and said "put a code on the page they can scan to join it",
+ * both of this field's own triggers fired, and `readQrText`/`qrSvg` were checked
+ * to accept and draw that exact payload beforehand. The model used the
+ * credentials and printed them as text with copy buttons.
+ *
+ * THE NATURAL A/B IS `gif`, ON THE SAME BUILD. It is optional in the same way,
+ * offered in the same call, and it FIRED — the drum in the window is on the
+ * published page. So the difference is not the mechanism, the placement or the
+ * brief; it is the wording, and the two fields were measurably different:
+ *
+ *     gif   1,225 chars, 4 omit-ish phrases, and a "WHAT IT IS FOR" paragraph
+ *     qr      668 chars, 7 omit-ish phrases, and no positive case at all
+ *
+ * FOUR SEPARATE INSTRUCTIONS TO OMIT — "OMIT THIS FIELD ENTIRELY", "that is the
+ * right answer for most sites", "or it does not exist", and a fourth inside
+ * `points` — against one trigger buried mid-sentence between two of them. A
+ * model reading that answers the question it was asked four times and skips the
+ * one it was asked once.
+ *
+ * So this now has the shape that works on `gif`: the omit rule ONCE, then what
+ * the thing is FOR in concrete terms. The strictness is kept and not loosened —
+ * "never invent the destination" stays, stated once, in `points`, which is the
+ * property it actually governs. The owner's call when asked was to give the
+ * brief a real destination rather than relax that rule, and this respects it.
  */
 export const QR_FIELD = {
   type: "object",
@@ -140,10 +169,11 @@ export const QR_FIELD = {
     points: {
       type: "string",
       description:
-        "What scanning it does. A full URL (\"https://…\"), or `tel:`, `mailto:`, `WIFI:` for a network, " +
-        "or plain text. It must be something that is TRUE for this business — a made-up URL is a QR that " +
-        "leads nowhere, which is worse than no QR at all. If the brief does not give you a real destination, " +
-        "leave this whole field out.",
+        "What scanning it does, as the exact string the code carries. A full URL (\"https://…\"); " +
+        "`WIFI:T:WPA;S:<network>;P:<password>;;` to join a network; `tel:` a number; `mailto:` an address; " +
+        "`geo:lat,lng` a place. NEVER INVENT IT — a QR is the one thing on a page a visitor cannot read " +
+        "before acting on it, so it carries something the brief actually gives you, or this whole field is " +
+        "left out.",
     },
     label: {
       type: "string",
@@ -154,12 +184,14 @@ export const QR_FIELD = {
   },
   required: ["points", "label"],
   description:
-    "A QR CODE ON THE PAGE. OMIT THIS FIELD ENTIRELY unless the brief asks for one or the business plainly " +
-    "works that way — a café putting its menu on the table, a stall taking bookings, a venue sharing its " +
-    "wifi. That is the right answer for most sites.\n" +
-    "IT IS DRAWN FOR YOU. Say what it points at and what it is called; the code itself is generated at build " +
-    "time and placed on the page, so you never draw one and never need a library for it.\n" +
-    "NEVER INVENT THE DESTINATION. A QR is the one thing on a page a visitor cannot read before acting on " +
-    "it — they point a camera and trust what comes back — so it points at something the brief actually gives " +
-    "you, or it does not exist.",
+    "A QR CODE ON THE PAGE — a square a visitor points their phone at to get something they would " +
+    "otherwise have to type. OMIT THIS FIELD ENTIRELY unless the brief gives you a real destination for " +
+    "one; that is the right answer for most sites.\n" +
+    "WHAT IT IS FOR: the moment somebody is standing in front of the business, phone in hand, and the " +
+    "alternative is copying a password off a screen, keying a long address, or asking a person who is not " +
+    "there. A wifi network they can join by pointing a camera. A number they can ring without typing it. " +
+    "A place they can walk to. If the brief describes that moment, this field is the answer to it — the " +
+    "words the page prints beside it are what make somebody bother, so say those too.\n" +
+    "IT IS DRAWN FOR YOU. Say what it carries and what it is called; the code is generated at build time " +
+    "and placed on the page, so you never draw one and never need a library for it.",
 };

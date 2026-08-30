@@ -157,9 +157,16 @@ test("a QR points somewhere honest or nowhere at all", () => {
 test("the field refuses to invent a destination", () => {
   // The sharpest rule on this field, and it is about trust rather than syntax: a
   // QR is the one thing on a page a visitor CANNOT read before acting on it.
-  assert.match(QR_FIELD.properties.points.description, /leave this whole field out/,
-    "nothing tells the model to omit the QR rather than invent a URL");
-  assert.match(QR_FIELD.description, /NEVER INVENT THE DESTINATION/, "the field's own rule against inventing is gone");
+  // ANCHORED ON THE PROPERTY, NOT THE PHRASING. This pinned two exact sentences
+  // and both moved when the field was reshaped on 2026-08-30 — the rule survived
+  // intact, said once on the property it governs, and the test still went red.
+  // That is this repo's most repeated own-goal, so it now asks what must be TRUE:
+  // the destination rule is stated, and omitting is named as the alternative to
+  // inventing.
+  const pts = QR_FIELD.properties.points.description;
+  assert.match(pts, /NEVER INVENT/i, "the rule against inventing a destination is gone from `points`");
+  assert.match(pts, /(left out|leave[^.]*out|omit)/i,
+    "nothing tells the model to omit the QR rather than invent one — inventing is the failure this guards");
   assert.deepEqual([...QR_FIELD.required].sort(), ["label", "points"],
     "a QR may now be declared without its caption — a black square nobody scans");
 });
@@ -392,4 +399,62 @@ test("…and it is a WALL rather than a rule — the named component cannot be g
       "`" + comp + "` no longer takes children — a page told to render its own <img> and caption it " +
       "cannot use it, which is runs 84 and 85 exactly (TS2322, 22 credits)");
   }
+});
+
+// ── THE QR FIELD MUST NOT OUT-PROHIBIT THE ONE THAT WORKS ───────────────────
+//
+// THREE PAID DECLINES (runs 84, 85, 86) on sites where a QR was the obvious
+// answer. Run 86 removed every other explanation: the brief handed over real
+// wifi credentials AND said "put a code on the page they can scan to join it",
+// both of the field's own triggers fired, the payload was checked drawable
+// beforehand, and the container suite already proved a QR compiles, publishes
+// and reaches the page. The model used the credentials and printed them as text.
+//
+// `gif` IS THE CONTROL AND IT IS A REAL ONE. Same build, same call, same kind of
+// optional mark — and it FIRED; the drum is on the published page. So the thing
+// that differed was the wording, measurably:
+//
+//     gif   1,225 chars, a "WHAT IT IS FOR" paragraph, 4 omit-ish phrases
+//     qr      668 chars, no positive case at all,       7 omit-ish phrases
+//
+// DERIVED FROM `gif`, NOT PINNED TO A NUMBER. The claim is comparative — the
+// optional field that keeps being skipped may not be phrased more negatively
+// than the optional field that gets used — so it stays true if either is
+// rewritten, and it cannot rot into a magic constant nobody can re-derive.
+// A COUNT OF NEGATIVE PHRASES WAS TRIED HERE AND DELETED, which is worth saying
+// so nobody adds it back. The idea was to assert the QR field is not phrased more
+// negatively than `gif`, the optional mark models actually use. The regex counted
+// "you never draw one and never need a library" — two reassurances that the work
+// is done FOR the model — as prohibitions, so it scored a positive sentence as a
+// refusal and would have gone red on correct wording. A check that flags correct
+// code teaches the next session away from something that works, and this repo
+// holds that to be worse than the miss. The two properties below are the half of
+// the idea that can be stated honestly.
+
+test("…and it says what a QR is FOR, which is what the working field has and it did not", async () => {
+  const { QR_FIELD } = await import("../builder/site-qr.mjs");
+  const { GIF_FIELD } = await import("../builder/site-favicon.mjs");
+  // THE POSITIVE HALF, asserted as a property rather than a phrase: the field
+  // has to describe the situation it belongs in, not only the situations it does
+  // not. `gif` does this and is used; the QR did not and was not.
+  assert.match(GIF_FIELD.description, /WHAT IT IS FOR/,
+    "the gif field lost its positive case — it is the pattern this check is copied from, so fix that first");
+  assert.match(QR_FIELD.description, /WHAT IT IS FOR/,
+    "the QR field no longer says what a QR is for, only when to omit one — the shape that declined three " +
+    "times on briefs that plainly wanted one");
+});
+
+test("…and the destination rule survives, stated once, on the property it governs", async () => {
+  const { QR_FIELD } = await import("../builder/site-qr.mjs");
+  // NOT LOOSENED, and this is the half that must not drift. The owner's call when
+  // asked was to hand the brief a real destination rather than let a QR invent
+  // one, so the strictness is deliberate. What changed is that it is said ONCE,
+  // on `points`, which is the property that actually carries the destination —
+  // rather than three times across a field that also has to decide whether to
+  // exist at all.
+  assert.match(QR_FIELD.properties.points.description, /NEVER INVENT IT/,
+    "a QR may invent its destination now — that is a product decision and not a wording tidy-up");
+  assert.doesNotMatch(QR_FIELD.description, /NEVER INVENT/,
+    "the destination rule is back in the top-level description as well as on `points` — said twice, it is " +
+    "two of the four omit instructions that made this field unusable");
 });

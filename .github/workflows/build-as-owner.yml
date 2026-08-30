@@ -274,6 +274,32 @@ jobs:
     # past the full 20-minute roll. This commit touches only this workflow, so it
     # rolls nothing of its own.
     #
+    # ── RUN 87: THE QR FIELD, REPHRASED AFTER THREE DECLINES ─────────────────
+    #
+    # Owner: the BUILD step has to make the QR. Runs 84, 85 and 86 all declined
+    # on briefs that plainly wanted one, and run 86 removed every explanation but
+    # the wording — real credentials in the brief, an explicit instruction to put
+    # a scannable code on the page, both of the field's own triggers firing, and
+    # the payload checked drawable first. It printed the password as text.
+    #
+    # `gif` IS THE CONTROL AND IT FIRED ON THAT SAME BUILD. Same call, same kind
+    # of optional mark, and the drum is on the published page. So the difference
+    # was the phrasing: the QR field carried four separate instructions to omit
+    # against one trigger buried between two of them, and no positive case at
+    # all. It now has `gif`'s shape — the omit rule once, then what a QR is FOR
+    # in concrete terms.
+    #
+    # THE STRICTNESS IS KEPT, NOT TRADED AWAY. "Never invent the destination"
+    # survives, stated once, on `points`, which is the property that carries a
+    # destination. The owner's call when asked was to hand the brief a real one
+    # rather than relax the rule, and the brief still does.
+    #
+    # SAME SLUG, SAME BRIEF, ONE VARIABLE CHANGED. `washhouse-1` already
+    # published with the drum on it, so this is a revise (~13) and the only thing
+    # different from run 86 is the field's wording. If a QR appears, the wording
+    # was the cause; if it does not, the wording is exonerated and the next
+    # suspect is the field's position in the tool.
+    #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #
     # Owner: "we gonna delete any timeout there is anywhere, pls, just let the
