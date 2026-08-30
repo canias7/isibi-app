@@ -200,6 +200,35 @@ jobs:
     # is the thing to check before firing, every time, rather than counting
     # minutes from the most recent push.
     #
+    # ── RUN 84: A NEW SITE, TO SEE THE QR AND THE ANIMATED MARK CHOSEN ───────
+    #
+    # Asked for by the owner by name: "do one with qr code, to test it out".
+    #
+    # WHY A NEW SLUG AND NOT ANOTHER `ashgrove-1` REVISE, which would be a third
+    # of the price. A revise ANCHORS to the stored design, so the field this run
+    # exists to watch — the design step deciding, from the brief alone, that this
+    # site wants a QR — is exactly the half a revise does not re-run. Testing it
+    # on a revise would prove nothing about the thing being tested.
+    #
+    # AND WHY THE BRIEF CHANGED. Run 83's Ashgrove brief mentions a scannable
+    # code and correctly got NO QR: the code there is on a printed card that
+    # points AT the site, so the site's job was to resolve it, which it did with
+    # the chairs register. A QR on that page would have been the site linking to
+    # itself. So a brief that genuinely wants a code ON THE SCREEN was needed,
+    # and a wifi password is the honest everyday case — somebody standing outside
+    # with a phone, and nobody there to read it out.
+    #
+    # The drum in the window is there for the same reason on the other field: an
+    # animated mark that a real business would actually describe, rather than a
+    # request for one. Both fields stay OPTIONAL, so the model refusing either is
+    # a legitimate answer and a finding in its own right, not a failure.
+    #
+    # WHAT IS ALREADY PROVEN AND WHAT IS NOT. `test/integration/site-build.mjs`
+    # now builds a site carrying both marks and asserts they compile, publish and
+    # are referenced by the page — so the PLUMBING is no longer what this run is
+    # buying. What is unproven is the JUDGEMENT: whether the design step reaches
+    # for these fields when a brief calls for them.
+    #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #
     # Owner: "we gonna delete any timeout there is anywhere, pls, just let the
@@ -837,7 +866,7 @@ jobs:
           # build is also the only way to exercise the design step end to end:
           # a revise anchors every field to what is stored, which is exactly
           # what a new field must not be tested through.
-          OWNER_SLUG: ${{ github.event.inputs.slug || 'ashgrove-1' }}
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'washhouse-1' }}
           OWNER_PICKER: ${{ github.event.inputs.picker || 'grok' }}
           # ── THE BRIEF IS AN INPUT NOW (2026-08-30) ────────────────────────
           #
@@ -851,7 +880,7 @@ jobs:
           # brief — and the push path, which names none — behaves exactly as
           # before.
           OWNER_BRIEF: ${{ github.event.inputs.brief || '' }}
-          OWNER_BRIEF_DEFAULT: "A small workshop in Bristol that makes one chair, the Ashgrove, by hand in oak or ash. People want to see the chair properly before they commit to one - turn it round, look at how the joints are cut, see it in both timbers. Every chair leaves with a card that has a code on it you scan to get the care guide and the name of the person who made it. On the site you pick your timber and your seat finish and the price changes as you go, then you ask us to make one. There is a short piece about the workshop and the four of us in it. Quiet and plain - the chair is the thing, not us."
+          OWNER_BRIEF_DEFAULT: "A tiny laundrette in Leith called The Washhouse. Open all hours, and nobody behind the counter after six. It sits round the back of a close and people cannot find it. The machines take a card, not coins. What somebody standing outside on their phone needs is how to get in, the door code, which machine is which and what it costs, and the wifi - we are sick of reading the password out down the phone, we want folk to scan it off the screen and just be on. There is a wee sign in the window with the drum going round, and that is the whole look. Nothing fancy. Just the one page."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
