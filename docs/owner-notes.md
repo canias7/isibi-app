@@ -393,6 +393,31 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **Run 83 PUBLISHED (2026-08-30): `ashgrove-1` is live at
+  https://ashgrove-1.gofarther.app/ — 17 credits.** Third attempt, first success,
+  and it cost a third of what the failed first build did: a revise anchors to the
+  design already stored, so the expensive decide-everything half does not re-run.
+  **A first build is ~45, a revise is ~17** — worth knowing when you are pricing
+  this.
+  - **The 3D chair is real WebGL, not a picture.** three.js, modelled in code
+    from boxes and cylinders, two lights, and the drag-to-turn written by hand
+    because the off-the-shelf orbit control is not a dependency. It got
+    `setPointerCapture` and `touch-none` right unprompted, which is what makes it
+    work on a phone instead of fighting the scroll. **It costs 992 KB of
+    JavaScript**, and that lands on any site that asks for a scene — worth a
+    thought before this becomes common.
+  - **Also proven live for the first time**: the favicon, the wordmark, the head
+    tags, the share image picking your own upload over the generated card, and
+    the rule that a *tool* page buys zero photographs. The QR and the animated
+    mark are still unproven — the design step did not ask for either here, even
+    though the brief mentions a card you scan. Worth one look at why.
+  - **One visible bug on the live page.** The option list prices English oak at
+    **+£16.40** while the total underneath says **£1880.00** — same rows, one of
+    them divided by a hundred. The kit component wants pence and was handed
+    pounds. Not fixed; you have not asked, and it is a five-minute change
+    whenever you want it.
+  - **The raw hex colour again**, third run running. Reported every time, never
+    enforced, so it ships every time.
 - **Fixed 2026-08-30: two paid builds of `ashgrove-1` died at the last step, and
   neither failure was the model's fault.** You funded the build, it ran, and both
   times the site kept its placeholder. **63 credits between the two runs** (45 +
@@ -680,5 +705,5 @@ key can read them, which is the whole point for the connection-string table.
 
 **One accounting fact:** ✦300 was once added to the ledger by hand rather than
 bought through Stripe (the minting function needs a secret that lives in GitHub
-Actions). It has long since been spent; the balance today is 435 (topped up 100 + 400 on
-2026-08-30 to fund the `ashgrove-1` builds).
+Actions). It has long since been spent; the balance today is 418 (topped up 100 + 400 on
+2026-08-30 to fund the `ashgrove-1` builds; runs 80, 82 and 83 spent 80 of it).
