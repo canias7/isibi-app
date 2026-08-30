@@ -30,8 +30,17 @@ const read = (f) => fs.readFileSync(path.join(PUB, f), "utf8");
 // whitespace, so re-indenting a file is not a failure; the drawing is the
 // property.
 const geometryOf = (src, label) => {
+  // Two spellings carry the mark: the HTML documents wrap it in <g id="gfMark">,
+  // while logo.svg and favicon.svg wrap it in a plain stroked group (favicon's
+  // also carries a transform and a literal colour, because it sits on a plate).
+  // Anchor on the id when there is one and on the stroked group otherwise —
+  // matching one exact opening tag reported favicon.svg as having no mark at all.
   const at = src.indexOf('id="gfMark"');
-  const from = at >= 0 ? src.lastIndexOf("<g", at) : src.indexOf('<g fill="none" stroke="currentColor"');
+  const from = at >= 0 ? src.lastIndexOf("<g", at) : (() => {
+    const g = [...src.matchAll(/<g\b[^>]*fill="none"[^>]*>/g)];
+    assert.equal(g.length, 1, label + " should hold exactly one stroked mark group, saw " + g.length);
+    return g[0].index;
+  })();
   assert.ok(from >= 0, label + " must contain the mark");
   let i = src.indexOf(">", from) + 1, depth = 1, end = -1;
   while (i < src.length && depth > 0) {
@@ -64,10 +73,18 @@ test("every inline copy of the mark is the same drawing as logo.svg", () => {
   const canon = geometryOf(CANON, "public/logo.svg");
   // Derived from the tree, not a list typed here: a new page that inlines the
   // mark is covered the day it is added.
-  const pages = fs.readdirSync(PUB).filter((f) => f.endsWith(".html"));
-  const carriers = pages.filter((f) => read(f).includes('id="gfMark"'));
-  assert.ok(carriers.length >= 2,
-    "expected index.html and confirm.html to inline the mark, found " + carriers.join(", "));
+  // Every carrier in the tree, found rather than listed: the two HTML documents
+  // that inline the defs, and favicon.svg, which is a third copy of the same
+  // drawing on its own plate.
+  // A carrier is any page or asset that draws this exact artwork — probed with
+  // the mark's own first path, taken from the canonical file rather than typed
+  // here, so a file that starts carrying the mark is covered the day it does.
+  const probe = /d="([^"]+)"/.exec(CANON)[1];
+  const carriers = fs.readdirSync(PUB)
+    .filter((f) => /\.(html|svg)$/.test(f) && f !== "logo.svg")
+    .filter((f) => read(f).includes(probe));
+  assert.ok(carriers.length >= 3,
+    "expected index.html, confirm.html and favicon.svg to carry the mark, found " + carriers.join(", "));
   for (const f of carriers) {
     assert.equal(geometryOf(read(f), f), canon,
       f + " draws a different mark from public/logo.svg — one of them has been edited alone");
@@ -114,20 +131,23 @@ test("no page reaches for a raster copy of the logo any more", () => {
   }
 });
 
-test("the favicon survives a dark tab strip", () => {
-  // A tab strip follows the OS, not the site. The mark is near-black, so on a
-  // dark strip it was black-on-black — measured, it simply vanished. Adapting
-  // to that is one of the main reasons to serve an SVG favicon at all, and it
-  // costs one media query INSIDE the file, because a <link> cannot carry one.
-  assert.match(CANON, /prefers-color-scheme\s*:\s*dark/,
-    "public/logo.svg must declare a dark-scheme colour or it disappears on a dark tab strip");
-  const dark = /@media[^{]*prefers-color-scheme\s*:\s*dark[^{]*\{([^}]*\}[^}]*)\}/.exec(CANON);
-  assert.ok(dark, "the dark rule must be a real media block");
-  assert.match(dark[1], /color\s*:/, "the dark block must set a colour — currentColor is what the strokes read");
-  // and the light side must be declared too: relying on the initial value means
-  // the mark is whatever the renderer happens to default to.
-  assert.match(CANON.slice(0, CANON.indexOf("@media")), /:root\s*\{[^}]*color\s*:/,
-    "the light colour must be stated, not inherited from a renderer default");
+test("the favicon carries its own ground, and the mark does not", () => {
+  // A tab strip follows the OS, not the site, and the mark is one colour — so
+  // on a dark strip it was black on near-black and simply vanished (rendered,
+  // not guessed). The fix is a plate: an opaque ground under the drawing, which
+  // reads on any strip with nothing to get wrong at 16px.
+  const fav = read("favicon.svg");
+  assert.match(fav, /<rect[^>]*fill="#(fff|ffffff)"/i,
+    "favicon.svg needs an opaque plate or it disappears on a dark tab strip");
+  assert.match(fav, /stroke="#[0-9a-f]{6}"/i,
+    "on its own plate the mark must state a colour; currentColor would follow the renderer");
+
+  // And the exact opposite for logo.svg, for a reason that is easy to undo by
+  // accident: the in-app avatar MASKS it, and a mask reads alpha. Give this file
+  // a background and the avatar stops being a logo and becomes a filled square.
+  assert.equal(/<rect|<style|prefers-color-scheme/.test(CANON), false,
+    "public/logo.svg must stay a bare transparent mark — the avatar masks it, and a mask " +
+    "takes alpha, so any opaque background here renders as a solid block");
 });
 
 test("nothing paints logo.svg as an image onto a fixed-colour surface", () => {
@@ -152,8 +172,8 @@ test("the SVG favicon is offered first, and the raster ones still follow", () =>
   for (const f of fs.readdirSync(PUB).filter((x) => x.endsWith(".html"))) {
     const src = read(f);
     if (!src.includes('rel="icon"')) continue;
-    assert.match(src, /type="image\/svg\+xml" href="\/logo\.svg"/, f + " should offer the SVG icon");
-    assert.ok(src.indexOf("/logo.svg") < src.indexOf("favicon.ico"),
+    assert.match(src, /type="image\/svg\+xml" href="\/favicon\.svg"/, f + " should offer the SVG icon");
+    assert.ok(src.indexOf("/favicon.svg") < src.indexOf("favicon.ico"),
       f + " must list the SVG icon before the .ico, or the .ico wins");
     assert.ok(src.includes("favicon.ico"), f + " must keep a raster fallback");
   }
