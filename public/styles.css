@@ -6413,7 +6413,15 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    a third of the width and the run has to cross the whole page. Both sit in
    .gf-reel-sec's padding box, so x=0 is the same x=0 for each and the elbow
    lands on the pipe without a magic offset. ---- */
-.mkt-crt .gf-run{position:relative;height:150px;margin:0;color:var(--graphite)}
+/* The band under the run is deliberately empty for now (owner 2026-08-30:
+   "make a space under it") — whatever hangs off the horizontal pipeline goes
+   here. It is margin rather than an empty element on purpose: a placeholder div
+   with nothing in it is markup that reads as a feature somebody forgot to
+   finish, and it would sit in the DOM being announced to a screen reader. When
+   the content arrives it goes after .gf-run and this margin becomes the gap
+   above it. */
+.mkt-crt .gf-run{position:relative;height:150px;color:var(--graphite);
+  margin:0 0 clamp(180px,26vh,300px)}
 .mkt-crt .gf-run-elbow{position:absolute;left:0;top:0;display:block;
   filter:url(#pencilRough)}
 /* the straight length. It starts UNDER the elbow's flat tails (which run to
