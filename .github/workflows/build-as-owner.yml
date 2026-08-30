@@ -249,6 +249,31 @@ jobs:
     # no image to wait for. Checked rather than assumed: the rule is a heuristic
     # about a path, and this file is one of the paths it is wrong about.
     #
+    # ── RUN 86: A BRIEF THAT HANDS OVER THE DESTINATION ──────────────────────
+    #
+    # Owner's answer to why runs 84 and 85 produced no QR: "can you give it a
+    # destination?" — so the rule stays as written and the BRIEF changes.
+    #
+    # `QR_FIELD` says "NEVER INVENT THE DESTINATION … it points at something the
+    # brief actually gives you, or it does not exist", and on the previous brief
+    # that was the model being RIGHT: it had no real wifi password, so it printed
+    # one as text and flagged it for swapping. The brief now hands over the
+    # network and the password, which satisfies the rule honestly rather than
+    # relaxing it. Nothing about the QR field or its scanner has changed.
+    #
+    # VERIFIED DRAWABLE BEFORE SPENDING, because a brief the machinery would
+    # refuse is a run that buys nothing: `readQrText` accepts
+    # `WIFI:T:WPA;S:TheWashhouse;P:LeithDrum2024;;` and `qrSvg` draws it at 3,988
+    # characters. So if this run still produces no QR, the answer is the design
+    # step's judgement and not the payload.
+    #
+    # AND THE OTHER HALF HAD TO LAND FIRST. Runs 84 and 85 both died on `<Figure>`
+    # given children — nothing to do with the QR, but it would have killed this
+    # run too. `Figure` takes children now, which is in the TEMPLATE and therefore
+    # in the container image: deploy 38f8a302 finished 15:56:36Z and this fires
+    # past the full 20-minute roll. This commit touches only this workflow, so it
+    # rolls nothing of its own.
+    #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #
     # Owner: "we gonna delete any timeout there is anywhere, pls, just let the
@@ -900,7 +925,7 @@ jobs:
           # brief — and the push path, which names none — behaves exactly as
           # before.
           OWNER_BRIEF: ${{ github.event.inputs.brief || '' }}
-          OWNER_BRIEF_DEFAULT: "A tiny laundrette in Leith called The Washhouse. Open all hours, and nobody behind the counter after six. It sits round the back of a close and people cannot find it. The machines take a card, not coins. What somebody standing outside on their phone needs is how to get in, the door code, which machine is which and what it costs, and the wifi - we are sick of reading the password out down the phone, we want folk to scan it off the screen and just be on. There is a wee sign in the window with the drum going round, and that is the whole look. Nothing fancy. Just the one page."
+          OWNER_BRIEF_DEFAULT: "A tiny laundrette in Leith called The Washhouse. Open all hours, and nobody behind the counter after six. It sits round the back of a close and people cannot find it. The machines take a card, not coins. What somebody standing outside on their phone needs is how to get in, the door code, which machine is which and what it costs, and the wifi. The network is TheWashhouse and the password is LeithDrum2024 - put a code on the page they can scan to join it, because reading that out down the phone at eleven at night is how we lose people. There is a wee sign in the window with the drum going round, and that is the whole look. Nothing fancy. Just the one page."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
