@@ -1937,14 +1937,14 @@ test("every edit layer is driven by the live check, or is named as a known gap",
   // is the state this test exists to end.
   // ── `rename` JOINED THE GAP LIST 2026-08-29, AND IT IS WRITTEN DOWN ───────
   //
-  // Two reasons, and the first is decisive: the live check cannot drive a rename
-  // until `site_aliases` EXISTS, and this repo has no migration runner — tables
-  // are created by hand. Until somebody makes it, `aliasRowFor` answers null on
-  // every lookup, `resolveAlias` reads that as "no alias", and the platform
-  // behaves exactly as it did before the feature. That is a deliberate degrade,
-  // not an accident, and it means the code can ship ahead of the table safely.
+  // ONE REASON NOW. The first — that `site_aliases` did not exist — was retired
+  // on 2026-08-30 when the table was created by hand (there is no migration
+  // runner here). Kept in the history rather than deleted because the DEGRADE it
+  // describes is still live and still deliberate: `aliasRowFor` answers null on
+  // any read failure and `resolveAlias` reads a null row as "no alias", so the
+  // platform falls back to its pre-alias behaviour instead of erroring.
   //
-  // The second holds even after the table exists: a live rename CLAIMS a real
+  // The reason that remains: a live rename CLAIMS a real
   // address on the real platform and leaves a real site answering at a new name.
   // Every other layer's live check is undoable; this one would litter the
   // namespace with test names that can never be released, because releasing them

@@ -211,10 +211,22 @@ address can now be different. That is fine and invisible to customers, but it
 means nothing in the code may assume they are the same — it is written into
 CLAUDE.md as a standing trap.
 
-**It will not do anything until one database table is made.** There is no
-migration tool in this project, so tables get created by hand. Until that
-happens the code quietly behaves exactly as it does today — no errors, no
-change. Tell me when you want it created and I will do it.
+**The table is made and it is live** (2026-08-30). I checked it works rather than
+assuming: the rule that a site can only have one current address is enforced by
+the database itself, and I proved it by trying to give one site two addresses and
+watching it get refused. Nothing else in the table, and only our own server can
+read it.
+
+So renaming works now. Worth knowing what a customer sees: they say "rename it to
+sunset shoes", the site answers at the new address immediately, and the old
+address keeps working and sends people to the new one — forever, so printed
+cards, links and QR codes all keep working.
+
+**It will not guess.** If they say "change our address" without saying what to, it
+asks rather than picking something. That is deliberate and it is the opposite of
+how every other edit behaves: everywhere else a wrong guess is visible and you can
+just tell me to change it back, but a redirect is permanent, so a guess here is a
+mistake nobody can undo.
 
 **0c. DONE 2026-08-29: a QR code and an animated mark, both optional** (owner:
 *"qr code maker as optional, also gif maker as optional too, in the design

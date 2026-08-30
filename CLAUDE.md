@@ -492,10 +492,16 @@ it would put a Supabase round trip in front of every page load on the platform.
 The miss is cached as `NO_ALIAS`; a lookup that FAILED caches nothing — including
 the failure that matters most, the table not existing yet.
 
-**It ships before the table does, deliberately.** No migration runner here, so
-`site_aliases` is created by hand; until it is, `aliasRowFor` answers null and
-the platform behaves exactly as before. Named as a known gap in the live check
-for that reason, and because a live rename would claim a real address that the
+**The table is LIVE** (created by hand 2026-08-30, no migration runner here):
+`site_aliases`, RLS on with no policies — service-role only, the posture
+`user_site_project` has. The one-current-per-site index was proved by INSERTING a
+second current row and watching Postgres refuse it, not by reading `pg_indexes`.
+
+**The code still degrades cleanly if the table goes away**, and that path is worth
+keeping: `aliasRowFor` answers null on any read failure and `resolveAlias` reads a
+null row as "no alias", so the platform falls back to exactly its old behaviour
+rather than erroring. It is still a named gap in the live check, now for the
+second reason only — a live rename claims a real address that the
 old-name-stays-claimed rule then forbids ever releasing.
 
 **The bias inverts here, and it is the second place on the platform that happens**
