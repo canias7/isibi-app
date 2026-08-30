@@ -9445,12 +9445,14 @@ function initPipeModels() {
 // More runs are coming below it, each its own subject.
 //
 // ONE ENTRY PER VALVE, and the list is what the strip says the platform has —
-// so it says only what the platform HAS. The Media Agent is the one that
-// ships: Instagram and YouTube through Composio, reads live and comment
-// auto-reply live. Anything added here is a claim on a public page, so it goes
-// in when it goes live, not before.
+// so it says only what the platform HAS. One ships today: Instagram and
+// YouTube through Composio, reads live and comment auto-reply live. It is
+// called "Agent" here rather than by its internal name (owner 2026-08-30:
+// "not media agent, just agent") — the page names what a customer gets, not
+// what the code calls it. Anything added here is a claim on a public page, so
+// it goes in when it goes live, not before.
 const RUN_AGENTS = [
-  { name: 'Media Agent', note: 'Instagram + YouTube' },
+  { name: 'Agent', note: 'Instagram + YouTube' },
 ];
 
 // Same valve the vertical pipe draws, turned on its side: two flange lines
