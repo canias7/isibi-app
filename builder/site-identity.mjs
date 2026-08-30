@@ -131,7 +131,7 @@ export function dirFor(lang) {
 /**
  * The letters that stand for a business.
  *
- * TWO WORDS, NOT TWO LETTERS OF ONE. "Sharp Fade Barbers" is SF and "Zephyr" is
+ * TWO WORDS, NOT TWO LETTERS OF ONE. "Sharp Fade Barbers" is SF and "Zenith" is
  * Z — a single word gets one letter, because "ZE" reads as an abbreviation of
  * nothing while "Z" reads as a mark. The words that do not carry the name are
  * dropped (`&`, `and`, `the`, `of`), or "Forno & Co" would be F&.

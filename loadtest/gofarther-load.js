@@ -19,13 +19,13 @@
 //      console:  JSON.parse(localStorage.zephyr_session_v1).access_token
 //   3. Raise the file-descriptor limit for high VU counts:  ulimit -n 250000
 //   4. Run (safe defaults — page ramps to 1000, credits to 100):
-//        k6 run -e TOKEN=<paste-token> isibi-load.js
+//        k6 run -e TOKEN=<paste-token> gofarther-load.js
 //      Push the DB path harder once you trust it:
-//        k6 run -e TOKEN=<token> -e API_VUS=1000 -e PAGE_VUS=1000 isibi-load.js
+//        k6 run -e TOKEN=<token> -e API_VUS=1000 -e PAGE_VUS=1000 gofarther-load.js
 //      Static-only (no token, zero DB load):
-//        k6 run isibi-load.js
+//        k6 run gofarther-load.js
 //      Point at staging instead of prod:
-//        k6 run -e BASE_URL=https://staging.example.com -e TOKEN=<token> isibi-load.js
+//        k6 run -e BASE_URL=https://staging.example.com -e TOKEN=<token> gofarther-load.js
 // ---------------------------------------------------------------------------
 
 import http from 'k6/http';

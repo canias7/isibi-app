@@ -1,4 +1,4 @@
-# isibi-app
+# Go Farther
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -18,11 +18,15 @@
 
 ---
 
-## Two products, one Worker
+## Two halves, one Worker
 
-- **Zephyr** — an AI image/video/voice generator at **isibi.ai**. Live, has
-  paying customers, unrelated to the builder except that both run out of
-  `worker.js`.
+Both are **Go Farther** now — one brand, renamed 2026-08-30. They were "Zephyr"
+and "the builder"; the names below say what each half DOES, because that is the
+distinction that still exists once the branding does not.
+
+- **The media side** — an AI image/video/voice generator at **gofarther.dev**.
+  Live, has paying customers, unrelated to the builder except that both run out
+  of `worker.js`.
 - **The site builder** — a customer describes a business in chat and gets a
   published website at **`<slug>.gofarther.app`**. `gofarther.dev` is the tool
   they use; `.app` is theirs. The builder is the active work.
@@ -57,10 +61,10 @@
 
 ## Structure
 
-- **`public/`** — the Zephyr frontend, plain HTML/CSS/JS: `index.html` (the
+- **`public/`** — the media frontend, plain HTML/CSS/JS: `index.html` (the
   chatbox, the only page), `styles.css`, `chat.js` (which is also the builder's
   client), `auth.js` (Supabase email/password + email-code via GoTrue fetch).
-- **`worker.js`** — the Cloudflare Worker. Serves assets; Zephyr's
+- **`worker.js`** — the Cloudflare Worker. Serves assets; the media side's
   `/api/video|image|audio` (fal.ai queue, per-kind model allowlists),
   `/api/direct` (the director — effort-routed Haiku/Sonnet, tool-use for
   structured output, a `research` step on Sonnet + `web_search_20250305`),
@@ -82,12 +86,12 @@
 - **Media Agent** — Instagram/YouTube manager via Composio. Read + comment
   auto-reply live; DM auto-reply blocked on Meta App Review. Details in
   `docs/media-agent.md`.
-- **Universal memory** — auto-learned creative taste applied to every Zephyr
+- **Universal memory** — auto-learned creative taste applied to every media
   generation. Backend only, no UI, deliberately.
 
 ## Deploy
 
-Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → isibi.ai.
+Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → gofarther.dev.
 ~3–4 minutes, and **a push that touches `builder/` rolls the container image**:
 wait **15–20 minutes** before firing a build that must run the new code. An
 instance started seconds after "deploy completed" is still on the previous image.
@@ -612,7 +616,7 @@ what the work cost.
 - **A GROK BUILD COSTS ~45 CREDITS, MEASURED** (run 80, `ashgrove-1`, one page, 2
   photographs: 45 billed, 47 including the routing call). The workflow carried
   "~130" for nine days — a Sonnet-era guess nothing could check, because
-  **nothing records what a build costs**: `gen_charges` is Zephyr's image ledger
+  **nothing records what a build costs**: `gen_charges` is the media side's image ledger
   and `site_builds` has no cost column. The favicon, wordmark, share card, share picker and head pack are all
   **NOT PROVEN LIVE** for want of a top-up.
 - **The building account is `aniascristian@gmail.com`, not the session's own

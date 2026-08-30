@@ -3702,7 +3702,7 @@ async function downloadMedia(url, kind) {
   if (!/^(https?:|blob:|data:(?:image|video|audio)\/)/i.test(url || '') && !/^\/api\/m\//.test(url || '')) return;
   const known = url.split('?')[0].match(/\.(png|jpe?g|webp|gif|mp4|webm|mov|mp3|wav|ogg|m4a)$/i);
   const ext = known ? known[1].toLowerCase() : (kind === 'image' ? 'png' : kind === 'audio' ? 'mp3' : 'mp4');
-  const name = 'zephyr-' + Date.now() + '.' + ext;
+  const name = 'gofarther-' + Date.now() + '.' + ext;
   try {
     const res = await fetch(url);
     const blob = await res.blob();
@@ -6761,7 +6761,7 @@ function renderIntegrations() {
   view.innerHTML =
     '<div class="settings-page">' +
       '<div class="sp-title">Integrations</div>' +
-      '<div class="sp-sub">Connect your accounts so Zephyr can manage and publish to them. ' +
+      '<div class="sp-sub">Connect your accounts so Go Farther can manage and publish to them. ' +
         'Chat, DMs and publishing live on the <b>Media Agent</b> page once linked.</div>' +
       '<div class="ma-msg" id="igMsg" hidden></div>' +
       '<div class="sp-group">' +

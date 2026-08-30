@@ -70,7 +70,7 @@ test("a non-string is refused rather than stringified", () => {
 
 test("two words give two letters and one word gives one", () => {
   assert.equal(initials("Sharp Fade Barbers"), "SF");
-  assert.equal(initials("Zephyr"), "Z");
+  assert.equal(initials("Zenith"), "Z");
   assert.equal(initials("forno and co"), "FC");
 });
 
@@ -227,7 +227,7 @@ test("the font stack ends somewhere that certainly exists", () => {
 });
 
 test("one letter is set larger than two", () => {
-  const one = /font-size="(\d+)"/.exec(initialsMark("Zephyr"))[1];
+  const one = /font-size="(\d+)"/.exec(initialsMark("Zenith"))[1];
   const two = /font-size="(\d+)"/.exec(initialsMark("Sharp Fade"))[1];
   assert.ok(Number(one) > Number(two), "a single letter is not sized to fill the same box");
 });

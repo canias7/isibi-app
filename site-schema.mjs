@@ -1,4 +1,4 @@
-// The schema engine: an isibi.schema.json declaration becomes real Postgres
+// The schema engine: a gofarther.schema.json declaration becomes real Postgres
 // tables, indexes, constraints and triggers.
 //
 // This is where unique / noOverlap / sequence / trash actually live. NOTE
@@ -2107,13 +2107,17 @@ export function fillFromStored(t, prevT) {
 }
 
 export function parseSchemaSpec(files) {
-  const key = Object.keys(files).find((k) => /(^|\/)isibi\.schema\.json$/i.test(k));
+  // Either name. The file was `isibi.schema.json` before the 2026-08-30
+  // rename and is `gofarther.schema.json` after it; both are accepted so a
+  // build whose output still carries the old one is not silently read as
+  // having declared no database at all.
+  const key = Object.keys(files).find((k) => /(^|\/)(isibi|gofarther)\.schema\.json$/i.test(k));
   if (!key) return null;
   let spec = null; try { spec = JSON.parse(files[key]); } catch {}
   delete files[key];
   return spec;
 }
-// Pull declared edge functions out of a React build's `isibi.functions.json`
+// Pull declared edge functions out of a React build's `gofarther.functions.json`
 // (body `{"functions":[{"name":"x","steps":[…],"schedule":?,"verify":?}]}` or a
 // bare array). Strips the file (never ships as a static asset). Returns validated
 // [{name, spec}] ready for persistSiteFunctions.

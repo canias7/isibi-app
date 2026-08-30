@@ -117,7 +117,7 @@ jobs:
     #
     # This file said "~130 credits" for nine days. That was written in the Sonnet
     # era and nothing has ever recorded a build's cost — `gen_charges` is
-    # Zephyr's image ledger and `site_builds` has no cost column — so the number
+    # the media side's image ledger and `site_builds` has no cost column — so the number
     # was unfalsifiable, and it was WRONG for today's default.
     #
     # Run 80, `ashgrove-1`, picker grok, first build, one page:

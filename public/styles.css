@@ -135,7 +135,6 @@
       display: grid; place-items: center; font-size: .95rem; font-weight: 800; color: var(--text);
     }
     .tile.home { background: linear-gradient(135deg, #e2e8f0, #94a3b8); }
-    .tile.zephyr { background: linear-gradient(135deg, #34d399, #fbbf24); }
     .new-chat {
       margin-top: .35rem; display: flex; align-items: center; gap: .7rem;
       padding: .5rem .55rem; border-radius: 12px; cursor: pointer;

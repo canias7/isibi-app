@@ -1,6 +1,6 @@
-# Zephyr — Model Guide & Ratings
+# Go Farther — Model Guide & Ratings
 
-Reference for the models wired into Zephyr (video · image · voice): what each is
+Reference for the models wired into Go Farther (video · image · voice): what each is
 best at, and 1–10 ratings per capability.
 
 > Scores are calibrated estimates from each model family's known strengths and

@@ -1,4 +1,4 @@
-# Isibi / Zephyr — Build Backlog (1317 items across 31 domains)
+# Go Farther — Build Backlog (1317 items across 31 domains)
 
 A living roadmap of everything still worth building across the platform: the per-site backend
 primitives, the vertical software surfaces they compose into, the builder/frontend, and the

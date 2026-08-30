@@ -1,6 +1,6 @@
 {
-  "name": "isibi",
-  "short_name": "isibi",
+  "name": "Go Farther",
+  "short_name": "Go Farther",
   "description": "Create AI video, images, and voice.",
   "start_url": "/",
   "display": "standalone",

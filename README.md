@@ -1,4 +1,4 @@
-# isibi-app
+# Go Farther
 
 [![Deploy to Cloudflare](https://github.com/canias7/isibi-app/actions/workflows/deploy.yml/badge.svg)](https://github.com/canias7/isibi-app/actions/workflows/deploy.yml)
 

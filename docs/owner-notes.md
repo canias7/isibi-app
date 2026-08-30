@@ -102,7 +102,7 @@ owner signals one; move an item out of Open the moment it is resolved.
 - **No arbitrary HTML in the head.** Every website builder offers "paste anything
   into your head" and every one of them is a way to get a site hacked.
 
-**Zephyr — the media product (isibi.ai)**
+**The media product (gofarther.dev)**
 - **Never name the provider to a user.** "fal" is an implementation detail; error
   bodies and UI copy say what went wrong, never who we bought it from.
 - **The chatbox settings are authoritative** — *"the orchestrator has no power to
@@ -452,7 +452,7 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 - **A price change once failed with nothing applied**, on a table where a row
   could be removed and restored seconds later. Never diagnosed.
 
-**Zephyr (isibi.ai)**
+**The media side (gofarther.dev)**
 
 - **The landing filmstrip 404s on every view.** It draws cells from
   `/mkt/f1.jpg`…`f14.jpg` and none of those files exist — ~14 failed requests per
@@ -544,7 +544,7 @@ visitor's browser hit a problem.
 Members, Domains, Secrets, Backups (nightly, kept 7), Version history with a real
 restore, Security log, Errors, Analytics, and an on/off switch per scheduled job.
 
-**Zephyr, the media side.** The chatbox at isibi.ai generates images, video and
+**The media side.** The chatbox at gofarther.dev generates images, video and
 voice through a curated lineup of models, metered in credits at 1 credit =
 $0.008 of provider cost. An orchestrator writes the prompt from what you typed (and searches the web
 when the request needs current facts), but it never touches a setting you chose.

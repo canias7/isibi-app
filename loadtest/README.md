@@ -1,4 +1,4 @@
-# Load testing & scaling — isibi.ai
+# Load testing & scaling — gofarther.dev
 
 How to check whether the app survives a crowd, and what to do about the results.
 
@@ -16,7 +16,7 @@ How to check whether the app survives a crowd, and what to do about the results.
 
 ---
 
-## 1. Running the load test (`isibi-load.js`)
+## 1. Running the load test (`gofarther-load.js`)
 
 It exercises the paths that matter **without spending any generation money**
 (never touches `/api/video|image|audio` or the director):
@@ -28,26 +28,26 @@ It exercises the paths that matter **without spending any generation money**
 
 ### Setup
 1. Install k6 — <https://k6.io/docs/get-started/installation/> (`brew install k6`).
-2. Grab a token — signed in on isibi.ai, browser console:
+2. Grab a token — signed in on gofarther.dev, browser console:
    `JSON.parse(localStorage.zephyr_session_v1).access_token`
 3. Raise the socket limit for high VU counts: `ulimit -n 250000`
 
 ### Run
 ```bash
 # safe start — page ramps to 1000 VUs, DB path to 100
-k6 run -e TOKEN=<paste-token> isibi-load.js
+k6 run -e TOKEN=<paste-token> gofarther-load.js
 
 # push the DB path toward 1000 once you trust it
-k6 run -e TOKEN=<token> -e API_VUS=1000 isibi-load.js
+k6 run -e TOKEN=<token> -e API_VUS=1000 gofarther-load.js
 
 # static-only, zero DB load (no token needed)
-k6 run isibi-load.js
+k6 run gofarther-load.js
 
 # point at a staging deployment instead of prod
-k6 run -e BASE_URL=https://staging.example.com -e TOKEN=<token> isibi-load.js
+k6 run -e BASE_URL=https://staging.example.com -e TOKEN=<token> gofarther-load.js
 ```
 Env knobs: `PAGE_VUS` (default 1000), `API_VUS` (default 100), `RAMP` (default `1m`),
-`HOLD` (default `2m`), `BASE_URL` (default `https://isibi.ai`).
+`HOLD` (default `2m`), `BASE_URL` (default `https://gofarther.dev`).
 
 > ⚠️ This hits **production** and its live Supabase by default. It is read-only and
 > spends no fal/Anthropic money, but it *is* real DB load — start at the defaults

@@ -1049,7 +1049,7 @@ async function falUpload(dataUri, env) {
     const init = await fetch("https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3", {
       method: "POST",
       headers: { Authorization: `Key ${env.FAL_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ file_name: `isibi-input.${ext}`, content_type: mime }),
+      body: JSON.stringify({ file_name: `gofarther-input.${ext}`, content_type: mime }),
       signal: AbortSignal.timeout(15000),
     });
     if (!init.ok) return null;
@@ -1681,7 +1681,7 @@ function orchestratorCostMicros(step, effort) {
 
 // ── Composio (Media Agent social connections) ─────────────────────────────
 // Instagram/YouTube are linked per-user through Composio. The API key stays
-// server-side (env.COMPOSIO_API_KEY); each Zephyr user maps to a Composio
+// server-side (env.COMPOSIO_API_KEY); each Go Farther user maps to a Composio
 // user_id === their Supabase uid, so connections never cross accounts.
 const COMPOSIO_BASE = "https://backend.composio.dev/api/v3.1";
 const SOCIAL_TOOLKITS = { instagram: "instagram", youtube: "youtube" };
@@ -2376,7 +2376,7 @@ function agentSystemPrompt(connected) {
     for (const [slug, desc] of Object.entries(acts)) lines.push(`  • ${slug}: ${desc}`);
   }
   return [
-    "You are the Media Agent for Zephyr (gofarther.dev) — a helpful assistant that manages the user's Instagram and YouTube accounts.",
+    "You are the Media Agent for Go Farther (gofarther.dev) — a helpful assistant that manages the user's Instagram and YouTube accounts.",
     "You can inspect their accounts by calling run_action with one of the allowed action slugs and its arguments. All actions are READ-ONLY right now; you cannot post, upload, comment, or delete yet — if asked to, say that publishing is coming soon.",
     "Chain actions when needed (e.g. get the IG account id before listing media). Keep answers concise and concrete — cite real numbers you fetched. Format lists cleanly. Never invent metrics; if an action fails, say what happened.",
     "\nAllowed actions:", lines.join("\n"),
@@ -3795,7 +3795,7 @@ const _authExtrasDone = new Set();
 // being priced like a generation.
 const SITE_BUILD_FEE = 2;
 
-// A plain-English brief becomes an isibi.schema.json. Uses tool-use rather than
+// A plain-English brief becomes a gofarther.schema.json. Uses tool-use rather than
 // asking for JSON in prose: the model must return an object matching the schema
 // below, so there is nothing to parse out of a reply and nothing to repair.
 // `SITE_FONT_IDS` WENT WITH THE `fonts` FIELD (2026-08-23, owner's call). It was
@@ -3821,7 +3821,7 @@ const SITE_BUILD_FEE = 2;
 
 const SITE_SCHEMA_TOOL = {
   name: "design_schema",
-  description: "Design the database tables a site needs, as an isibi.schema.json.",
+  description: "Design the database tables a site needs, as a gofarther.schema.json.",
   input_schema: {
     type: "object",
     properties: {
@@ -7288,8 +7288,8 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
         // Gated on a request header so a public endpoint's normal response is
         // unchanged, and NAMES only — a session cookie and a JWT are both
         // credentials, and this reaches a public CI log.
-        ...(request.headers.get("x-isibi-debug") === "headers"
-          ? { "x-isibi-upstream": [...r.headers.keys()].join(",").slice(0, 500) } : {}),
+        ...(request.headers.get("x-gofarther-debug") === "headers"
+          ? { "x-gofarther-upstream": [...r.headers.keys()].join(",").slice(0, 500) } : {}),
         // THE SESSION COOKIE, RESCOPED — and without it member accounts cannot
         // work at all. Measured 2026-08-04 by asking the auth server what it
         // sends: SIGN-IN answers with `set-cookie` and nothing else, so Neon's
@@ -16951,7 +16951,7 @@ async function handleRequest(request, env, ctx) {
     // The caller's Neon project is created on first build, not at signup.
     // The builder's send path. `chat.js` already posts {brief} here and expects
     // {slug, url, backend, brand} back, so the contract is the frontend's, not
-    // a new one. A brief becomes an isibi.schema.json, which becomes real
+    // a new one. A brief becomes a gofarther.schema.json, which becomes real
     // Postgres tables in a database provisioned for the caller.
     //
     // This builds the DATA layer only — the page it publishes describes the
