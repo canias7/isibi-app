@@ -41,7 +41,19 @@ export function ErrorPage({ error, reset }: ErrorComponentProps) {
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <Button onClick={reset}>Try again</Button>
           <Button asChild variant="outline">
-            <Link to="/">Go home</Link>
+            {/* A PLAIN ANCHOR, NOT A ROUTER `Link` (2026-08-30, run 82).
+                A generated page may declare `validateSearch` with REQUIRED
+                fields on "/" — a configurator putting its timber and finish in
+                the URL does exactly that — and the moment it does, every
+                `<Link to="/">` in the KIT must supply `search` or stop
+                compiling. That killed a real build in a file the model never
+                saw and could not fix, and salvage rightly refused to stub it:
+                "the error is in a file the build didn't write".
+                An href does not participate in the route's search contract, so
+                no page can ever break it. This is an ERROR BOUNDARY besides —
+                the app is already in a bad state, and a full reload is the
+                safer way home than a client-side navigation. */}
+            <a href="/">Go home</a>
           </Button>
         </div>
         {import.meta.env.DEV && (

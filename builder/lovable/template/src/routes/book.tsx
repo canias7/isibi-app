@@ -190,7 +190,11 @@ function Book() {
             We'll call to confirm within the hour. Need to change it? Give us a ring.
           </p>
           <Button asChild variant="outline" className="mt-6">
-            <Link to="/">Back to the shop</Link>
+            {/* An href rather than a router `Link`, for the reason
+                error-page.tsx gives at length: a generated page that declares
+                required search params on "/" makes every kit `Link to="/"`
+                fail to typecheck, in a file the model cannot see. */}
+            <a href="/">Back to the shop</a>
           </Button>
         </div>
       </SiteChrome>
