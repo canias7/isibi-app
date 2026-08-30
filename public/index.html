@@ -32,23 +32,10 @@
          (measured), so keeping these defs inside the landing block worked; it
          also made the signed-in app's logo depend on the landing's markup still
          being there, which is not a dependency anybody would go looking for. The
-         pencil FILTERS stay in .pencil-defs — those really are landing-only.
+         The pencil FILTERS moved out with it on 2026-08-30, when the whole app
+         became the same sheet — they are no longer landing-only either.
          Geometry is public/logo.svg's, and test/brand-mark.test.mjs asserts every
          copy in the tree still matches that file. -->
-    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
-      <defs><g id="gfMark" fill="none" stroke="currentColor"><g stroke-width="34"><path d="M425.7 362.7A201.5 201.5 0 0 1 288.9 454.2" /><path d="M220.7 454.2A201.5 201.5 0 0 1 75.9 163.2" /><path d="M92 137.2A201.5 201.5 0 0 1 438.4 339.2" /></g><g stroke-width="16.5"><circle cx="167.5" cy="239" r="22.8" /><circle cx="255" cy="168.5" r="23.5" /><circle cx="342.5" cy="239" r="22.8" /></g><g stroke-width="20" stroke-linecap="round" stroke-linejoin="round"><path d="M255 200V465" /><path d="M167.5 262v63.5L210.5 370v92" /><path d="M342.5 262v63.5L299.5 370v92" /></g></g></defs>
-    </svg>
-
-  <!-- Public marketing landing — the first thing a logged-out visitor sees.
-       CTAs reveal the auth gate; after sign-in the app takes over.
-       Media slots: drop real output at /public/mkt/f1.jpg…f14.jpg (filmstrip)
-       and /public/mkt/p1.jpg…p8.jpg (preset cards) — placeholders show until then. -->
-  <div id="marketing" class="mkt mkt-crt" style="display:none">
-    <!-- Pencil landing: the two filters that roughen a drawn line. Fractal
-         noise through a displacement map is what turns a CSS border into a
-         stroke somebody made by hand; two seeds so no two edges on the page
-         wobble the same way. They are inline because Chrome will not resolve
-         filter: url() against an external document. -->
     <svg class="pencil-defs" width="0" height="0" aria-hidden="true" focusable="false">
       <filter id="pencilRough" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
         <feTurbulence type="fractalNoise" baseFrequency="0.038" numOctaves="3" seed="7" result="n" />
@@ -68,6 +55,21 @@
       </filter>
       <defs><pattern id="pencilTint" width="6.5" height="6.5" patternUnits="userSpaceOnUse" patternTransform="rotate(-56)"><line x1="0" y1="0" x2="0" y2="6.5" stroke="#4a4656" stroke-opacity=".14" stroke-width="1.2" /></pattern></defs>
     </svg>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <defs><g id="gfMark" fill="none" stroke="currentColor"><g stroke-width="34"><path d="M425.7 362.7A201.5 201.5 0 0 1 288.9 454.2" /><path d="M220.7 454.2A201.5 201.5 0 0 1 75.9 163.2" /><path d="M92 137.2A201.5 201.5 0 0 1 438.4 339.2" /></g><g stroke-width="16.5"><circle cx="167.5" cy="239" r="22.8" /><circle cx="255" cy="168.5" r="23.5" /><circle cx="342.5" cy="239" r="22.8" /></g><g stroke-width="20" stroke-linecap="round" stroke-linejoin="round"><path d="M255 200V465" /><path d="M167.5 262v63.5L210.5 370v92" /><path d="M342.5 262v63.5L299.5 370v92" /></g></g></defs>
+    </svg>
+
+  <!-- Public marketing landing — the first thing a logged-out visitor sees.
+       CTAs reveal the auth gate; after sign-in the app takes over.
+       Media slots: drop real output at /public/mkt/f1.jpg…f14.jpg (filmstrip)
+       and /public/mkt/p1.jpg…p8.jpg (preset cards) — placeholders show until then. -->
+  <div id="marketing" class="mkt mkt-crt" style="display:none">
+    <!-- Pencil landing: the two filters that roughen a drawn line. Fractal
+         noise through a displacement map is what turns a CSS border into a
+         stroke somebody made by hand; two seeds so no two edges on the page
+         wobble the same way. They are inline because Chrome will not resolve
+         filter: url() against an external document. -->
+
 
     <!-- The CRT is the landing — everything lives inside the screen: the nav on
          top, the channel list (↑↓ / click), and the chatbox at the bottom. Live
