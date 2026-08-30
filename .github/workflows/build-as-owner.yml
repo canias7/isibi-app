@@ -341,6 +341,34 @@ jobs:
     # The next push deployed cleanly at 18:16:45Z, so this is a straight retry
     # of the same first build on the same fresh slug.
     #
+    # ── RUN 89: THE FIRST BUILD THAT CANNOT DIE AT THE TYPECHECK ─────────────
+    #
+    # `washhouse-3`, because `washhouse-2` is claimed and rebuilding it would be
+    # a REVISE — and a revise carries EDIT_RULE ("return ONLY the fields this
+    # change actually asks you to alter"), which is what suppressed the QR on
+    # runs 85, 86 and 87. A fresh slug is the only shape that asks the design
+    # step to decide the field at all.
+    #
+    # WHAT IS DIFFERENT FROM EVERY EARLIER ATTEMPT, and it is not a prompt: the
+    # typecheck stopped refusing. Runs 80, 82, 84 and 85 all died there, every
+    # one a TYPE error, and `vite build` would have bundled all four — measured,
+    # tsc exit 2 against vite exit 0 on the page that killed 84/85. So the most
+    # common way this test has failed is now simply not a failure.
+    #
+    # THE TWO RISKS THAT REMAIN, stated so a bad outcome is read correctly:
+    #   • the container can be killed mid-build by a version rollout ("Runtime
+    #     signalled the container to exit due to a new version rollout", seen
+    #     three times at 20:53-20:54), which is what hung run 88. That is luck,
+    #     not the QR.
+    #   • fal is LOCKED (403 "User is locked. Reason: TOP_UP"), so every image is
+    #     a placeholder. Non-fatal — run 88 walked past it — but it means no
+    #     photograph on this site either.
+    #
+    # Fired past the image roll: 621005cc carries the ship-anyway change in
+    # `build-server.mjs`, which IS in the Dockerfile's COPY list, so this waits
+    # the full 20 minutes past its deploy (21:49:12Z) rather than the 4 that a
+    # Worker-only change needs.
+    #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #
     # Owner: "we gonna delete any timeout there is anywhere, pls, just let the
@@ -978,7 +1006,7 @@ jobs:
           # build is also the only way to exercise the design step end to end:
           # a revise anchors every field to what is stored, which is exactly
           # what a new field must not be tested through.
-          OWNER_SLUG: ${{ github.event.inputs.slug || 'washhouse-2' }}
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'washhouse-3' }}
           OWNER_PICKER: ${{ github.event.inputs.picker || 'grok' }}
           # ── THE BRIEF IS AN INPUT NOW (2026-08-30) ────────────────────────
           #
