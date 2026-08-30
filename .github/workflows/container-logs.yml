@@ -12,7 +12,16 @@
 # person. CI's own deploy token can ask; this is the asking.
 #
 # Each re-read is a nudge commit to this file — the read below is for
-# `washhouse-2` (2026-08-30). That build dispatched to the container at
+# `washhouse-2` (2026-08-30), SECOND read: no needle at all.
+#
+# The first read filtered on the slug and returned '166 (of 166 total)' —
+# every event in the window mentioned it, and not one was a container error.
+# That is either the whole truth or the wrong dataset, and those two look
+# identical through a filter. An unfiltered window separates them: if the
+# total is still ~166 Worker fetches then the container's stderr does not
+# reach here at all, and no amount of needle-tuning will find it.
+#
+# The build dispatched to the container at
 # 20:17:25Z and the `container` step NEVER STARTED: `compile` completed in
 # 283ms (it is only the dispatch — run 83's was 107ms) and then 27 minutes
 # of silence, against a whole-build budget of 13. Nothing else was building.
@@ -45,6 +54,6 @@ jobs:
           # needle is a substring of the log message, empty for everything.
           # 72h: run 44's two failure lines must stay inside the window however
           # long the token back-and-forth takes — the needle keeps it tiny.
-          LOG_HOURS: '2'
-          LOG_NEEDLE: 'washhouse-2'
+          LOG_HOURS: '3'
+          LOG_NEEDLE: ''
         run: node scripts/container-logs.mjs
