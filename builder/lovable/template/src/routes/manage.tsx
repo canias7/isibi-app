@@ -16,7 +16,9 @@
 // answer IDENTICALLY, which is deliberate: a distinct "bad link" would tell
 // somebody guessing which bookings exist.
 import { useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+// NO `Link`, DELIBERATELY — see the anchor below. A kit file that still imports
+// it is one casual edit away from the TS2741 that cost run 82.
+import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import { useClaimedRow, useCancelClaim, useAmendClaim, type Row } from "@/lib/rows";
@@ -125,9 +127,25 @@ function Manage() {
         {!claim && (
           <p className="mt-4 text-muted-foreground">
             This page needs the link from your confirmation.{" "}
-            <Link to="/book" className="underline">
+            {/*
+              A PLAIN ANCHOR, for the reason `error-page.tsx` and this file's
+              sibling `book.tsx` carry: a KIT file cannot know the search
+              contract of the route it points at. `resetRoutes` restores this
+              file into every build and then writes the model's pages OVER the
+              base routes, so a generated `book.tsx` that declares required
+              search params retypes `/book` and this `Link` — written months
+              earlier, against a route that no longer exists in that shape —
+              fails `tsc` with TS2741 and takes the whole build down at
+              typecheck. The customer keeps a placeholder and is charged.
+              Measured once on the `/` version of exactly this: run 82,
+              `ashgrove-1`, 18 credits.
+              An anchor does not participate in a route's search contract.
+              A generated page may still use `<Link to>` for its own routes —
+              it knows what it wrote.
+            */}
+            <a href="/book" className="underline">
               Book a chair
-            </Link>{" "}
+            </a>{" "}
             instead.
           </p>
         )}

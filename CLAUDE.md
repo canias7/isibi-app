@@ -609,7 +609,8 @@ what the work cost.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 453 credits** (2026-08-30, after run 80). It was **0** on 08-29 and
+- **Balance: 435 credits** (2026-08-30, after run 82 — 453 before it, so that
+  failed build cost 18). It was **0** on 08-29 and
   this file said 18 — a stale number is worse than none here, because
   `buildFloor` refuses before spending and the refusal reads as a broken build.
   **Read the ledger, do not trust this line.**
@@ -626,7 +627,7 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 301/301** against the real container; the unit suite is 4,438.
+- **`site build` is 303/303** against the real container; the unit suite is 4,571.
   **Run it with nothing else of its own already running.** It binds a fixed port,
   so a leftover `build-server.mjs` from an earlier run makes the new one's
   `listen` throw and every streaming leg report "0 reports arrived" — six red
@@ -758,6 +759,39 @@ guess** — cost two live runs.
 wraps the command in a shell whose command line contains the pattern, so
 `pkill -f x` kills the thing running it (exit 144, empty log) and
 `until ! pgrep -f x` never exits. Kill by PID; watch a log's tail.
+
+**A PROMISE TO THE MODEL THAT NOTHING EVER COMPILED (2026-08-30, two paid
+builds).** The page rules advertise five importable packages. **Fixtures
+importing them: 0 of 5. Real generated pages using them: 0 of 324.** All five
+were promises nobody had checked, and `three` was simply the first one a model
+reached for — it ships no type declarations, `@types/three` was never installed,
+and `tsc` refused. **A package-list guard cannot catch this**: `three` WAS in
+package.json, installed and present, and still unimportable. Only a real `tsc`
+against the real template tells DECLARED from USABLE. And the reachability half
+is the general lesson: the 3D field had been dead until that same day, so no page
+had ever imported it and the defect could not be hit. **Wiring a feature up is
+what makes its defects reachable — a feature that has never run has never been
+tested, however green the suite is.** `test/template-deps.test.mjs` and the
+`PROMISED_PAGE` fixture.
+
+**A GENERATED PAGE BROKE A KIT FILE IT HAD NEVER SEEN (2026-08-30, the second
+paid build).** A model wrote a configurator and declared `validateSearch` with
+REQUIRED fields on `/`. In TanStack a route's search contract is part of its
+TYPE, so that retyped `/` for the whole app and every `<Link to="/">` in the KIT
+stopped compiling — files the model cannot see and could not have fixed. Salvage
+rightly refused to stub a foreign file, so the whole build died at typecheck.
+**The property is LITERAL vs WIDENED, not `Link` vs anchor**: `to="/"` binds to
+that route's generated type, `to={to}` with `to: string` carries no contract —
+which is why `SiteLink` was fine in the same program and is correct code a
+blanket ban would have flagged. A kit file names a route with `<a href>` (`/` is
+the only mount a Start bundle is served at — `test/site-seo.test.mjs`) or with
+`SiteLink`. `test/template-links.test.mjs` + the `SEARCHY_INDEX` fixture.
+**Two sub-traps hit while writing that guard, both recorded ones**: its first
+draft banned both forms and so flagged `SiteLink`; and its comment-blanker
+tracked `'` as a string opener, which is right for JavaScript and WRONG for TSX —
+`<h1>This page didn't load</h1>` opened an apostrophe that swallowed the comment
+below it, so the guard false-alarmed on the three files it had just been written
+to certify. **JSX text is not JavaScript.**
 
 **A CI STEP THAT DOES NOT INSTALL WHAT THE TESTS IMPORT — and five commits of
 red nobody looked at (2026-08-30).** `site-build.yml` ran two test files under

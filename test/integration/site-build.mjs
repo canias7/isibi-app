@@ -360,7 +360,7 @@ function Team() {
 // that failed), a `<Canvas>` with r3f's JSX intrinsics, a `recharts` chart, a
 // `date-fns` call and a `lucide-react` icon. If any of the five ever loses its
 // types or its install, this fails here — free, in CI — instead of on a
-// customer's build at ~45 credits a time.
+// customer's build, at ~45 credits a time.
 const PROMISED_PAGE = `import { createFileRoute } from "@tanstack/react-router";
 import { useRef } from "react";
 import type { Group } from "three";
@@ -402,7 +402,8 @@ function Promised() {
 
 // ── A PAGE WITH REQUIRED SEARCH PARAMS MUST NOT BREAK THE KIT ───────────────
 //
-// THE BUILD THAT PAID FOR THIS: run 82, `ashgrove-1`, 2026-08-30, 10 credits.
+// THE BUILD THAT PAID FOR THIS: run 82, `ashgrove-1`, 2026-08-30, 18 credits
+// (453 before, 435 after; nothing records a build's cost, so this is the ledger).
 //
 //   src/lib/error-page.tsx(44,14): error TS2741: Property 'search' is missing
 //   in type '{ children: string; to: "/" }' but required in

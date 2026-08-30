@@ -4,7 +4,10 @@
 #
 # Fires only on a push touching its own two files AND whose commit message
 # carries `[owner build]` — OPT-IN, because a run spends the owner's real
-# credits (~130 on a cold build). The path filter alone was the whole gate at
+# credits (~45 on a Grok build; see the measurement further down — this line
+# said ~130 for nine days while the block below already carried the measured
+# number, so the file disagreed with itself and the header is what gets read
+# first). The path filter alone was the whole gate at
 # first, and it fired on the wrong thing immediately: the fix for run 2's
 # step-7 crash touches the script, so pushing it would have bought a third
 # build nobody asked for. A trigger that spends money is asked for by name,
@@ -148,6 +151,33 @@ jobs:
     # it answered `three`, and the page writer built the canvas. What is still
     # unproven is whether that canvas COMPILES, and a revise rewrites the page
     # either way, so it tests exactly the thing left open.
+    #
+    # ── RUN 82: THE TYPES WERE FIXED AND IT DIED SOMEWHERE ELSE ───────────────
+    #
+    # 18 credits (453 before, 435 after — nothing records a build's cost, so the
+    # balance IS the measurement). The `three` types were in, and the failure
+    # moved:
+    #
+    #   src/lib/error-page.tsx(44,14): error TS2741: Property 'search' is
+    #   missing in type '{ children: string; to: "/" }'
+    #
+    # The model wrote the configurator this brief asks for and put its state in
+    # the URL — `validateSearch` with REQUIRED fields on "/". That retypes "/"
+    # for the whole app, so `<Link to="/">` in two KIT files stopped compiling:
+    # files the model never saw and could not fix, which is why salvage rightly
+    # refused to stub them and the whole build died instead.
+    #
+    # THE BRIEF ABOVE IS WHY THIS KEEPS LANDING HERE, and it is a feature of the
+    # fixture rather than bad luck: "you pick your timber and your seat finish
+    # and the price changes as you go" is a request for URL state, "turn it
+    # round, look at how the joints are cut" asks for the 3D scene, and "a card
+    # that has a code on it you scan" asks for the QR. One brief exercising
+    # three of the newest features is exactly what a paid run should buy.
+    #
+    # Fixed for run 83: the kit's literal links are anchors, a third copy in
+    # `manage.tsx` was found and closed the same way, and both failures now
+    # reproduce for free — `test/template-links.test.mjs` and the `SEARCHY_INDEX`
+    # and `PROMISED_PAGE` fixtures in test/integration/site-build.mjs.
     #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #

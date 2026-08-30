@@ -8,7 +8,9 @@
 // component stayed silent the single most common production failure would produce no signal at all.
 
 import { useEffect } from "react";
-import { Link, type ErrorComponentProps } from "@tanstack/react-router";
+// NO `Link`, DELIBERATELY — see the anchor below. A kit file that still imports
+// it is one casual edit away from the TS2741 that cost run 82.
+import { type ErrorComponentProps } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { reportAppError } from "./error-reporting";
 

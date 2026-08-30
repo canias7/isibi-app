@@ -393,6 +393,35 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **Fixed 2026-08-30: two paid builds of `ashgrove-1` died at the last step, and
+  neither failure was the model's fault.** You funded the build, it ran, and both
+  times the site kept its placeholder. **63 credits between the two runs** (45 +
+  18, read off the balance — nothing records what a build costs, which is its own
+  small gap).
+  - **Run 80 — `three` ships no type declarations.** I wired the 3D step up the
+    day before and put `three` in the template's dependencies without
+    `@types/three`. The moment a model wrote the import the step invites, the
+    typecheck refused. **The instructive half is why nothing caught it: the field
+    had been DEAD until that same day**, so no page had ever imported `three` and
+    the missing declaration was unreachable. Wiring a feature up is what makes
+    its defects reachable — a feature that has never run has never been tested,
+    however green the suite is.
+  - **Run 82 — a reasonable page broke a file it had never seen.** The model
+    wrote a configurator and put its state in the URL (required search params on
+    `/`). In TanStack, that retypes `/` for the whole app, and two links in the
+    KIT — files the model cannot see and could not have fixed — stopped
+    compiling. Salvage rightly refused to stub a foreign file, so the whole build
+    died. **Any customer asking for anything with URL state would have hit this.**
+  - **What has changed**: the types are installed and pinned to the same minor
+    line; the kit's literal links are plain anchors; and there are now two
+    container fixtures — one importing every package the page rules advertise,
+    one declaring required search params — so both failures reproduce for free
+    instead of on your balance. I also found and fixed a **third** copy of the
+    same link defect (`manage.tsx`) that neither run had reached yet.
+  - **The uncomfortable finding behind run 80**: the page rules promise the model
+    five packages it may import, and **not one had ever been compiled** — 0 of 5
+    in fixtures, 0 of 324 real generated pages. All five were promises nobody had
+    checked. `three` was simply the first one a model reached for.
 - **Found and fixed 2026-08-29: the 3D step shipped dead the same day it shipped.**
   You asked for three.js/WebGL as an optional tool that morning, and it went in
   with its lane, its guards and a green suite. It was never *stored*. The design
@@ -651,4 +680,5 @@ key can read them, which is the whole point for the connection-string table.
 
 **One accounting fact:** ✦300 was once added to the ledger by hand rather than
 bought through Stripe (the minting function needs a secret that lives in GitHub
-Actions). It has long since been spent; the balance today is 18.
+Actions). It has long since been spent; the balance today is 435 (topped up 100 + 400 on
+2026-08-30 to fund the `ashgrove-1` builds).
