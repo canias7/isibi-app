@@ -423,6 +423,66 @@ function Promised() {
 // THIS FIXTURE IS THE PROOF. It declares exactly that contract and asserts the
 // build still succeeds — so if a `Link to="/"` ever returns to the kit, it
 // fails here, free, instead of on a customer's build.
+// ── THE ESCAPE HATCH NOTHING HAS EVER COMPILED ──────────────────────────────
+//
+// `tsx` is the way out of the 2,112-component kit: when the model searches it
+// and comes up short, it declares a component and writes the source itself.
+// Added 2026-08-29, fully wired — the Worker sends `parts`, the container writes
+// them through `safePart` — and NOTHING HAS EVER COMPILED ONE. An audit of the
+// container's 28 payload fields against everything this harness sends found
+// `parts` had never been exercised.
+//
+// That is the run-80 shape exactly: `three` was declared, installed, present and
+// correctly named in the prompt, and unimportable. Declared and usable are
+// different questions, and only a real build answers the second.
+//
+// FOUR THINGS ONLY A BUILD CAN ANSWER, and each is a real failure mode:
+//   • The file lands at `src/routes/-parts/<name>.tsx`. That directory does not
+//     exist in a checkout — it is created inside the container mid-build — so no
+//     local tsc has ever seen one.
+//   • A page imports it as `@/routes/-parts/<name>`, which is what the directive
+//     tells the model. If that alias does not resolve, every page using the
+//     hatch fails to compile and the error blames the page.
+//   • The `-` prefix is what stops it becoming a ROUTE, via
+//     `routeFileIgnorePrefix: "-"` pinned in our own vite config rather than
+//     inherited. If that ever stopped applying, a component would be published
+//     as a page at `/-parts/<name>`.
+//   • It must not be counted as a page. `parts` is a separate counter from
+//     `wrote` on purpose: folding them together would let a build that returned
+//     three components and no page publish as though it had a site.
+const PART_SOURCE = `export function RunTally({ label, runs }: { label: string; runs: number[] }) {
+  const total = runs.reduce((a, b) => a + b, 0);
+  return (
+    <div data-slot="run-tally" className="rounded-md border border-border p-4">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="text-2xl font-semibold tabular-nums">{total}</p>
+      <ul className="mt-2 flex gap-2 text-xs text-muted-foreground">
+        {runs.map((r, i) => <li key={i} className="tabular-nums">{r}</li>)}
+      </ul>
+    </div>
+  );
+}
+`;
+
+// IMPORTED THE WAY THE DIRECTIVE SAYS TO, verbatim: `@/routes/-parts/<name>`.
+// If `tsxDirective` ever changes that path this page stops compiling, which is
+// the failure a model would hit and is the reason it is spelled here rather
+// than resolved some other way.
+const PART_USER = `import { createFileRoute } from "@tanstack/react-router";
+import { RunTally } from "@/routes/-parts/run-tally";
+
+export const Route = createFileRoute("/")({ component: Home });
+
+function Home() {
+  return (
+    <main className="mx-auto max-w-3xl px-6 py-16">
+      <h1 className="text-3xl">The Washhouse</h1>
+      <RunTally label="Washes this week" runs={[12, 9, 14]} />
+    </main>
+  );
+}
+`;
+
 // ── THE TWO MARKS NOTHING HAS EVER BUILT ────────────────────────────────────
 //
 // `gif` and `qr` were added to the design step on 2026-08-29 with their
@@ -2400,6 +2460,47 @@ function H() { return <main><h1>Promised imports</h1></main>; }
       ok("…and the promised-import failure names which package broke",
         /three|recharts|date-fns|lucide|fiber/.test(String(promised.error || "")),
         String(promised.error || "").slice(0, 400));
+    }
+  }
+
+  // THE tsx ESCAPE HATCH, THROUGH A REAL BUILD. See PART_SOURCE for why none of
+  // this is answerable by reading the modules.
+  {
+    const parted = await post({
+      files: { "index.tsx": PART_USER },
+      parts: [{ name: "run-tally", source: PART_SOURCE }],
+      slug: "own-parts", ...themeAsSeeds("broadsheet"),
+    });
+    ok("A COMPONENT THE MODEL WROTE ITSELF COMPILES — `parts` had never been built",
+      parted.ok === true,
+      "stage=" + parted.stage + " error=" + String(parted.error || "").slice(0, 400));
+
+    if (parted.ok) {
+      const names = Object.keys(parted.files || {});
+      const js = Object.entries(parted.files || {})
+        .filter(([k]) => k.endsWith(".js")).map(([, v]) => v.t || "").join("\n");
+
+      // IT IS REALLY IN THE BUNDLE. The page could have compiled with the import
+      // shaken out if the component were unused, which would pass the first
+      // assertion while proving nothing about the hatch.
+      ok("…and the component's own markup reaches the bundle",
+        js.includes("run-tally") || js.includes("Washes this week"),
+        names.filter((n) => n.endsWith(".js")).join(", ").slice(0, 160) || "(no js)");
+
+      // AND IT IS NOT A ROUTE. This is what `routeFileIgnorePrefix: "-"` buys,
+      // pinned in our vite config rather than inherited — a component published
+      // at `/-parts/run-tally` would be a page the customer never asked for, in
+      // their nav and their sitemap.
+      const asRoute = names.filter((n) => /(^|\/)-?parts\//.test(n) || /run-tally/.test(n));
+      ok("…and it is NOT published as a route of its own", asRoute.length === 0,
+        asRoute.slice(0, 4).join(", ") || "(none — correct)");
+
+      // NOR IN THE SITEMAP, which is the same mistake one layer out: a component
+      // listed there is a URL we are telling crawlers to fetch.
+      const sm = Object.entries(parted.files || {})
+        .filter(([k]) => k.endsWith("sitemap.xml")).map(([, v]) => v.t || "").join("");
+      ok("…nor listed in sitemap.xml", !/run-tally|parts/.test(sm),
+        sm.slice(0, 200) || "(no sitemap emitted)");
     }
   }
 

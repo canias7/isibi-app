@@ -818,6 +818,20 @@ linking to itself. Worth remembering before reading a missing optional field as
 a dead wire: **`qr` and `gif` are offered on every build** (`FRONTEND_SCHEMA_TOOL`
 destructures out `backend` and nothing else), so absence is a judgement, not a gap.
 
+**AN AUDIT OF THE CONTAINER'S INPUTS FOUND THE NEXT `three` (2026-08-30).**
+The container reads 28 fields off a build payload. Comparing that list against
+everything `test/integration/site-build.mjs` has ever SENT found **`parts` had
+never been exercised** — the `tsx` escape hatch, the way out of the 2,112-piece
+kit, wired on 2026-08-29 and never once compiled. Exactly the shape that cost
+run 80. Closed the same day with a fixture proving four things a source read
+cannot: the component compiles, its markup reaches the bundle, it is NOT
+published as a route (what `routeFileIgnorePrefix: "-"` buys), and it is not in
+`sitemap.xml`. Green first run — it was correct all along, only unproven.
+**The audit itself is the reusable part**: derive the consumer's real input
+surface (`payload.<field>` in `build-server.mjs`), derive what the harness
+sends, and diff them. Still unexercised after this: `langs`, `fontFiles`,
+`pageTokens`, `description`.
+
 **FOUR PAID BUILDS DIED ON A GATE THAT DID NOT HAVE TO EXIST (2026-08-30).**
 Runs 80, 82, 84 and 85 all ended `page=placeholder` at `stage: typecheck`, every
 one of them a TYPE error, every one leaving a charged customer with nothing. The
