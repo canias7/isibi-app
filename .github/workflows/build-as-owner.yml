@@ -130,6 +130,25 @@ jobs:
     # as a measurement with its run named, so the next person can tell whether it
     # is still true rather than inheriting another guess.
     #
+    # ── RUN 81: THE SAME SITE, FINISHED ───────────────────────────────────────
+    #
+    # Run 80 failed at typecheck — `three` ships no type declarations and the
+    # template never installed `@types/three`, so the first page to import a
+    # three type took the build down. `ashgrove-1` was left claimed, serving its
+    # placeholder, 45 credits charged.
+    #
+    # This re-fires THE SAME SLUG rather than minting a fresh one, and that is
+    # the point: the builder's own reply told the customer "send it again to
+    # retry", so this run tests the recovery path the product actually promises
+    # instead of a clean-room build nobody would ever perform. It also finishes
+    # a real site rather than leaving a second husk beside the first.
+    #
+    # The design step will ANCHOR to what run 80 stored rather than deciding
+    # afresh — which is fine, because run 80 already proved the fresh decision:
+    # it answered `three`, and the page writer built the canvas. What is still
+    # unproven is whether that canvas COMPILES, and a revise rewrites the page
+    # either way, so it tests exactly the thing left open.
+    #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #
     # Owner: "we gonna delete any timeout there is anywhere, pls, just let the
