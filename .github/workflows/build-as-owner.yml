@@ -51,7 +51,7 @@ on:
       - 'scripts/build-as-owner.mjs'
   # ── ON DEMAND, FOR THE EDIT LANE ──────────────────────────────────────────
   #
-  # A build is bought by the marker on a push, because it costs ~130 credits and
+  # A build is bought by the marker on a push, because it costs real credits and
   # a push is the deliberate act. An EDIT is ~0.3 and is the thing a customer
   # does dozens of times after their site exists, so it is dispatched by hand
   # with the site and the change as inputs — no commit, no marker, re-runnable.
@@ -112,6 +112,23 @@ jobs:
     # 30 rather than 20: the point of the cap is to stop a wedged runner billing
     # for an hour, not to bound a build we already know can take twelve minutes.
     # A build that outruns THIS is a real finding rather than a tight budget.
+    #
+    # ── WHAT A BUILD ACTUALLY COSTS, MEASURED (2026-08-30) ────────────────────
+    #
+    # This file said "~130 credits" for nine days. That was written in the Sonnet
+    # era and nothing has ever recorded a build's cost — `gen_charges` is
+    # Zephyr's image ledger and `site_builds` has no cost column — so the number
+    # was unfalsifiable, and it was WRONG for today's default.
+    #
+    # Run 80, `ashgrove-1`, picker grok, first build, one page:
+    #   cost 45 credits billed, 47 spent counting the routing call
+    #   usage in 9,874 / out 5,374 / cacheRead 512 on grok-4.6
+    #   2 photographs bought against a budget of 2
+    #   build step 13m55s, of which 5m36s was the deploy wait before it started
+    #
+    # So a Grok build is roughly a THIRD of the number this file carried. Stated
+    # as a measurement with its run named, so the next person can tell whether it
+    # is still true rather than inheriting another guess.
     #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #

@@ -605,8 +605,15 @@ what the work cost.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 18 credits** (verified against the ledger 2026-08-28) — under one
-  build. The favicon, wordmark, share card, share picker and head pack are all
+- **Balance: 453 credits** (2026-08-30, after run 80). It was **0** on 08-29 and
+  this file said 18 — a stale number is worse than none here, because
+  `buildFloor` refuses before spending and the refusal reads as a broken build.
+  **Read the ledger, do not trust this line.**
+- **A GROK BUILD COSTS ~45 CREDITS, MEASURED** (run 80, `ashgrove-1`, one page, 2
+  photographs: 45 billed, 47 including the routing call). The workflow carried
+  "~130" for nine days — a Sonnet-era guess nothing could check, because
+  **nothing records what a build costs**: `gen_charges` is Zephyr's image ledger
+  and `site_builds` has no cost column. The favicon, wordmark, share card, share picker and head pack are all
   **NOT PROVEN LIVE** for want of a top-up.
 - **The building account is `aniascristian@gmail.com`, not the session's own
   address.** It owns every live site and holds that balance. Look at the wrong
