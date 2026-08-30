@@ -6088,7 +6088,26 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    frame; animating background-position would repaint the whole panel instead.
    It sits at z-index 0 with the content above it, and is inert to the pointer,
    so it cannot come between a visitor and a card. ---- */
+/* translateZ(0) is not a performance tweak — it is what makes the radius below
+   actually clip in Safari. Two children inside this box animate `transform`:
+   the ::before wash (inset:-25%, so half again the panel's size) and the
+   marquee track (which additionally declares will-change:transform). Safari
+   promotes both to their own layers and then clips them to this element's
+   RECTANGLE rather than its rounded rectangle, so the oversized wash paints
+   square corners straight over the rounded ones and the panel reads as a
+   rounded box with a pointy one on top of it. Promoting the PARENT makes the
+   rounded clip apply to the layers inside it.
+
+   A mask would also fix it and must not be used here: a mask clips the
+   element's own box-shadow too, and this panel's shadow is what lifts it off
+   the paper.
+
+   NOT REPRODUCIBLE IN CHROMIUM, which is the only engine available in this
+   environment — Chromium fixed this years ago. Diagnosed from the owner's
+   screenshot and from the fact that the configuration is exactly the known
+   Safari case; confirmed by them, not by a render here. */
 .mkt-crt .gf-reel-panel{position:relative;isolation:isolate;overflow:hidden;
+  transform:translateZ(0);
   /* the row's right column is already the two thirds, with the pipeline in the
      third beside it — so the panel simply fills its column */
   width:100%;
