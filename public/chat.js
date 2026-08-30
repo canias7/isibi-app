@@ -9451,8 +9451,12 @@ function initPipeModels() {
 // "not media agent, just agent") — the page names what a customer gets, not
 // what the code calls it. Anything added here is a claim on a public page, so
 // it goes in when it goes live, not before.
+//
+// `note` is optional and currently unused — the owner dropped the second line
+// on 2026-08-30. The renderer still honours one, so a station that needs a
+// qualifier can have it back without touching anything but this list.
 const RUN_AGENTS = [
-  { name: 'Agent', note: 'Instagram + YouTube' },
+  { name: 'Agent' },
 ];
 
 // Same valve the vertical pipe draws, turned on its side: two flange lines
