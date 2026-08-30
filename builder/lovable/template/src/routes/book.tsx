@@ -8,7 +8,9 @@
 // a VIEW the schema published for exactly that — the taken times and nothing
 // else. If the schema declares no view for a table, ship the ordinary form; a
 // visitor is told about a clash on submit instead of before it.
-import { createFileRoute, Link } from "@tanstack/react-router";
+// NO `Link`, DELIBERATELY — see the anchor further down. A kit file that still
+// imports it is one casual edit away from the TS2741 that cost run 82.
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";

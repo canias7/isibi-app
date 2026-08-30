@@ -1248,9 +1248,38 @@ test("driven over every page the generator learns from: not one false link", () 
   // Those degrade honestly: they can be matched by destination and not by name.
   const unnamed = slots.filter((s) => !s.label);
   assert.ok(unnamed.length < 20, "nearly every link has readable words: " + unnamed.length);
-  // AND THE TYPED FORM IS REALLY EXERCISED. Without one in the corpus the
-  // `typed` half of this is calibrated against fixtures alone.
-  assert.ok(slots.some((s) => s.typed), "the corpus carries a typed link");
+  // AND THE TYPED FORM IS REALLY EXERCISED. Without one in a real corpus the
+  // `typed` half of this is calibrated against hand-written fixtures alone.
+  //
+  // READ OFF THE GENERATOR'S PAGES RATHER THAN THE KIT'S, and the move is the
+  // point rather than a convenience. This walk covers `template/src/routes`,
+  // and until 2026-08-30 that is where the typed links came from — but a KIT
+  // file may no longer name a route with a literal `<Link to="…">` at all. A
+  // generated page that declares required search params retypes the route and
+  // breaks any such link in a file the model never saw, which killed a paid
+  // build (run 82; see test/template-links.test.mjs, which now forbids it).
+  //
+  // So the kit having none is the fix working, not the corpus thinning out.
+  // Typed links remain correct — and common — in a GENERATED page, which is
+  // told in as many words to link between its own pages with `<Link to="/menu">`
+  // and is the only author that knows its own search contract. That is where
+  // the `typed` branch is calibrated from now.
+  const genPages = [];
+  for (const site of fs.readdirSync(GENERATED_DIR)) {
+    const sd = path.join(GENERATED_DIR, site);
+    if (!fs.statSync(sd).isDirectory()) continue;
+    for (const f of fs.readdirSync(sd).filter((f) => f.endsWith(".tsx"))) {
+      genPages.push({ path: site + "/" + f, source: fs.readFileSync(path.join(sd, f), "utf8") });
+    }
+  }
+  const genSlots = linkSlots(genPages);
+  assert.ok(genSlots.length > 0, "no body links in the generated corpus — this scan has drifted and proves nothing");
+  assert.ok(genSlots.some((s) => s.typed), "the generated corpus carries a typed link");
+  // AND THE KIT REALLY HAS NONE, so the sentence above is a measurement rather
+  // than an excuse. If a literal link returns to the kit this says so here too,
+  // not only in template-links.test.mjs.
+  assert.ok(!slots.some((s) => s.typed),
+    "a kit page names a route with a typed link again — see test/template-links.test.mjs for what that costs");
 
   for (const s of slots) {
     // EVERY SLOT MUST BE A REAL WRITE POINT. The recorded offsets are what get
