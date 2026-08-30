@@ -742,7 +742,15 @@ jobs:
           # DISPATCH OVERRIDES, PUSH KEEPS THE DEFAULTS. An edit dispatch names
           # its own live site; a build dispatch or a marker push falls back to
           # the fresh slug and picker below. The brief is build-only and stays.
-          OWNER_SLUG: ${{ github.event.inputs.slug || 'shoeroom-1' }}
+          # ── A FRESH SLUG, NOT A LIVE SITE (2026-08-30) ────────────────────
+          #
+          # This defaulted to `shoeroom-1`, which is one of the owner's LIVE
+          # sites — so a marked push did not build anything, it REVISED a real
+          # site, and the difference is invisible from the workflow. A first
+          # build is also the only way to exercise the design step end to end:
+          # a revise anchors every field to what is stored, which is exactly
+          # what a new field must not be tested through.
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'ashgrove-1' }}
           OWNER_PICKER: ${{ github.event.inputs.picker || 'grok' }}
           # ── THE BRIEF IS AN INPUT NOW (2026-08-30) ────────────────────────
           #
@@ -756,7 +764,7 @@ jobs:
           # brief — and the push path, which names none — behaves exactly as
           # before.
           OWNER_BRIEF: ${{ github.event.inputs.brief || '' }}
-          OWNER_BRIEF_DEFAULT: "An online shoe shop that sells every kind of shoe - trainers, boots, formal shoes, sandals, kids' shoes and slippers. Shoppers browse what is in stock, filter by kind and by size, and see each pair with its picture, its price and which sizes are left. They open a pair to read what it is made of and pick their size. They add pairs to a basket and pay by card. There is also a page about the shop, which has been on the same street for forty years, and how returns work. It should feel like a proper shop rather than a warehouse - the shoes are the thing you see first, prices plain, and nothing in the way of buying."
+          OWNER_BRIEF_DEFAULT: "A small workshop in Bristol that makes one chair, the Ashgrove, by hand in oak or ash. People want to see the chair properly before they commit to one - turn it round, look at how the joints are cut, see it in both timbers. Every chair leaves with a card that has a code on it you scan to get the care guide and the name of the person who made it. On the site you pick your timber and your seat finish and the price changes as you go, then you ask us to make one. There is a short piece about the workshop and the four of us in it. Quiet and plain - the chair is the thing, not us."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
