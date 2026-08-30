@@ -408,9 +408,20 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
     thought before this becomes common.
   - **Also proven live for the first time**: the favicon, the wordmark, the head
     tags, the share image picking your own upload over the generated card, and
-    the rule that a *tool* page buys zero photographs. The QR and the animated
-    mark are still unproven — the design step did not ask for either here, even
-    though the brief mentions a card you scan. Worth one look at why.
+    the rule that a *tool* page buys zero photographs.
+  - **The QR and the animated mark: checked, and they work.** They did not appear
+    on this build, so I went looking for a cut wire and did not find one — they
+    are offered on every build and reach the page correctly. What I DID find is
+    that **nothing had ever actually built a site carrying either of them**; the
+    test that claimed to cover it was reading the code rather than running it,
+    which is the same miss that cost the first failed build. There is now a real
+    build in the test suite that ships both, and it passed first time.
+  - **Why this one had no QR is a judgement, not a bug, and I think it is right.**
+    Your brief says every chair leaves with a card carrying a code you scan. The
+    QR belongs on that printed card, pointing at the site — the site's job is to
+    *answer* the code, which is exactly the chair register it built (AG-0161,
+    Ruth Hale, ash, linseed). Putting a QR on the page would be the site linking
+    to itself.
   - **One visible bug on the live page.** The option list prices English oak at
     **+£16.40** while the total underneath says **£1880.00** — same rows, one of
     them divided by a hundred. The kit component wants pence and was handed

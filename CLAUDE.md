@@ -628,8 +628,8 @@ what the work cost.
   dependency), the favicon, the wordmark, the head pack (canonical and `og:url`
   agreeing, no `//`), `og:image` precedence choosing an owner upload over the
   composed card, and the `kind: tool` image arithmetic answering **0
-  photographs**. The QR and the animated mark are STILL unproven — the design
-  step did not ask for either on this brief, though it names a scannable code.
+  photographs**. The QR and the animated mark did NOT appear on this build and
+  are proven a different way — see below.
   **The three.js runtime is 992 KB of JavaScript**, which is the real price of
   the `three` field and lands on every site that asks for a scene.
 - **The building account is `aniascristian@gmail.com`, not the session's own
@@ -639,7 +639,7 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 303/303** against the real container; the unit suite is 4,574.
+- **`site build` is 310/310** against the real container; the unit suite is 4,574.
   **Run it with nothing else of its own already running.** It binds a fixed port,
   so a leftover `build-server.mjs` from an earlier run makes the new one's
   `listen` throw and every streaming leg report "0 reports arrived" — six red
@@ -771,6 +771,34 @@ guess** — cost two live runs.
 wraps the command in a shell whose command line contains the pattern, so
 `pkill -f x` kills the thing running it (exit 144, empty log) and
 `until ! pgrep -f x` never exits. Kill by PID; watch a log's tail.
+
+**A CHAIN TEST THAT READ THE MODULES INSTEAD OF RUNNING THEM (2026-08-30,
+found while checking why run 83 shipped no QR).** `test/site-marks.test.mjs`
+has a case literally called "THE CHAIN — both marks reach the site, and survive
+every later publish", and it is honest about what it reads — but it reads
+SOURCE. **Nothing had ever compiled a build carrying a `gif` or a `qr`.** Same
+shape as run 80: `three` was declared, installed, present, correctly named in
+the prompt, and unimportable. A chain asserted by reading is a chain asserted at
+the layer below the break.
+**Where the risk actually sat is not where a source read would look.**
+`writeSiteBrand` puts the artwork in `public/animated.svg` and `public/qr.svg`
+and only the PATH in the generated module — so there is no string-escaping
+hazard at all, and instead the live questions are whether Vite copies `public/`
+into `dist/client/` and whether the publish sweeps it. A build can compile
+perfectly and ship a page pointing at two 404s.
+Closed by a container case (`MARKS_INDEX`) that sends both, with the artwork
+DERIVED from `qrSvg` and `cleanGif` rather than hand-typed, and asserts four
+things a file listing alone cannot: the build succeeds, both files are in the
+published output, the built page references both paths, and the caption survives
+as alt text. Green first run — **both marks were correct all along, only
+unproven.**
+**And the reason run 83 had no QR was not a defect.** The brief says every chair
+leaves with a card carrying a code you scan; the QR belongs on the PRINTED CARD
+pointing at the site, and the site's job is to RESOLVE the code — which is
+exactly the `chairs` table it built. A QR on the page would have been the site
+linking to itself. Worth remembering before reading a missing optional field as
+a dead wire: **`qr` and `gif` are offered on every build** (`FRONTEND_SCHEMA_TOOL`
+destructures out `backend` and nothing else), so absence is a judgement, not a gap.
 
 **A UNIT CONVENTION STATED ONLY IN PROSE (2026-08-30, run 83, live on
 `ashgrove-1`).** `OptionPricedList` says in its own doc comment "All arithmetic

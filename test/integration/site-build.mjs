@@ -423,6 +423,55 @@ function Promised() {
 // THIS FIXTURE IS THE PROOF. It declares exactly that contract and asserts the
 // build still succeeds — so if a `Link to="/"` ever returns to the kit, it
 // fails here, free, instead of on a customer's build.
+// ── THE TWO MARKS NOTHING HAS EVER BUILT ────────────────────────────────────
+//
+// `gif` and `qr` were added to the design step on 2026-08-29 with their
+// scanners, their guards and a green suite. `test/site-marks.test.mjs` asserts
+// THE CHAIN — that both reach the site and survive a later publish — by reading
+// the modules. Nothing has ever COMPILED one.
+//
+// That is the exact gap that cost run 80. `three` was in package.json,
+// installed, present, named correctly in the prompt, and still unimportable,
+// because declared and usable are different questions and only a real `tsc`
+// against the real template can tell them apart. Run 83 published the 3D scene
+// and did NOT exercise either mark — the design step asked for neither — so
+// both are still on the unproven side of that line.
+//
+// WHAT COULD ACTUALLY BREAK HERE, none of which a source read can see:
+//   • `writeSiteBrand` writes the artwork to `public/animated.svg` and
+//     `public/qr.svg` and puts only the PATH in the generated module. Vite has
+//     to copy `public/` into `dist/client/`, and the publish has to sweep it.
+//   • The generated `site-brand.ts` must still typecheck with the values in it.
+//   • A page written the way `marksDirective` instructs must compile against
+//     the generated module rather than the checked-in stub.
+//
+// The page below is written exactly as the directive tells the model to write
+// it: `SITE_ANIMATED` guarded with an empty alt because it is decoration, the
+// QR shown WITH its caption and `alt={SITE_QR_LABEL}`. If the binding names
+// ever drift from what `writeSiteBrand` emits, this stops compiling — which is
+// the failure the directive's own comment warns about ("a page that guesses
+// `SITE_GIF` does not compile, and the failure blames the page").
+const MARKS_INDEX = `import { createFileRoute } from "@tanstack/react-router";
+import { SITE_ANIMATED, SITE_QR, SITE_QR_LABEL } from "@/site-brand";
+
+export const Route = createFileRoute("/")({ component: Marks });
+
+function Marks() {
+  return (
+    <main className="mx-auto max-w-3xl px-6 py-16">
+      <h1 className="text-3xl">Chairmakers</h1>
+      {SITE_ANIMATED && <img src={SITE_ANIMATED} alt="" className="h-16 w-16" />}
+      {SITE_QR && (
+        <figure className="mt-8">
+          <img src={SITE_QR} alt={SITE_QR_LABEL} className="h-40 w-40" />
+          <figcaption className="mt-2 text-sm text-muted-foreground">{SITE_QR_LABEL}</figcaption>
+        </figure>
+      )}
+    </main>
+  );
+}
+`;
+
 const SEARCHY_INDEX = `import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
@@ -2323,6 +2372,72 @@ function H() { return <main><h1>Promised imports</h1></main>; }
       ok("…and the promised-import failure names which package broke",
         /three|recharts|date-fns|lucide|fiber/.test(String(promised.error || "")),
         String(promised.error || "").slice(0, 400));
+    }
+  }
+
+  // BOTH MARKS, THROUGH A REAL BUILD. See MARKS_INDEX for why this is not
+  // covered by the source-level chain test in test/site-marks.test.mjs.
+  {
+    // DERIVED FROM THE REAL PRODUCERS, never hand-typed. `qrSvg` is the only
+    // thing that draws a QR here and `cleanGif` is the only thing that admits an
+    // animated mark, so a fixture written by hand would be a second copy of what
+    // their output looks like — and two copies drift in silence. That is this
+    // repo's fixture-shape trap, which has already shipped a wrong canonical URL
+    // for a day.
+    //
+    // The container takes the QR as `{ svg, label }` — which is what the Worker's
+    // `qrPayload` hands it after turning the designed `{ points, label }` into a
+    // drawing. Sending that shape is what makes this the Worker's real payload
+    // rather than a shape only this test produces.
+    const { qrSvg } = await import("../../builder/site-qr.mjs");
+    const { cleanGif } = await import("../../builder/site-favicon.mjs");
+    const drawn = qrSvg("https://ashgrove-1.gofarther.app/c/AG-0161");
+    const mark = cleanGif('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+      '<rect width="64" height="64" rx="8" fill="#2b2118"/>' +
+      '<g fill="none" stroke="#d8c9a8" stroke-width="4" stroke-linecap="round">' +
+      '<path d="M20 44V26h24v18"><animate attributeName="opacity" values="1;0.35;1" dur="2.4s" ' +
+      'repeatCount="indefinite"/></path><path d="M20 30h24"/></g></svg>');
+
+    // THE PRODUCERS THEMSELVES FIRST. If either refused, every assertion below
+    // would be testing a build that was sent nothing — passing while proving
+    // nothing, which is this repo's vacuous-assertion trap.
+    ok("the QR producer drew something to send", typeof drawn.svg === "string" && drawn.svg.length > 100,
+      "why=" + String(drawn.why || "-"));
+    ok("the animated mark was admitted by the real scanner", typeof mark.svg === "string" && mark.svg.length > 50,
+      "why=" + String(mark.why || "-"));
+
+    const marks = await post({
+      files: { "index.tsx": MARKS_INDEX },
+      slug: "both-marks", ...themeAsSeeds("broadsheet"),
+      gif: mark.svg,
+      qr: { svg: drawn.svg, label: "Scan for the care guide" },
+    });
+    ok("A SITE CARRYING AN ANIMATED MARK AND A QR BUILDS — neither had ever been compiled",
+      marks.ok === true,
+      "stage=" + marks.stage + " error=" + String(marks.error || "").slice(0, 400));
+
+    if (marks.ok) {
+      const names = Object.keys(marks.files || {});
+      // THE ARTWORK REACHES THE PUBLISHED OUTPUT. `writeSiteBrand` puts only a
+      // PATH in the generated module, so the files have to survive Vite's copy
+      // of `public/` and the publish sweep. A build that compiles and ships
+      // neither file is a page pointing at two 404s — which looks fine in every
+      // log and is broken on the screen.
+      ok("…and the animated mark is in the published files",
+        names.some((n) => n.endsWith("animated.svg")), names.filter((n) => n.endsWith(".svg")).join(", ") || "(no svg)");
+      ok("…and so is the QR", names.some((n) => n.endsWith("qr.svg")),
+        names.filter((n) => n.endsWith(".svg")).join(", ") || "(no svg)");
+
+      // AND THE PAGE REALLY REFERENCES THEM, which is the half a file listing
+      // cannot answer: the two could ship while the page that was supposed to
+      // show them compiled its guards away.
+      const js = Object.entries(marks.files || {})
+        .filter(([k]) => k.endsWith(".js")).map(([, v]) => v.t || "").join("\n");
+      ok("…and the built page points at both paths",
+        js.includes("/animated.svg") && js.includes("/qr.svg"),
+        "animated=" + js.includes("/animated.svg") + " qr=" + js.includes("/qr.svg"));
+      ok("…and the QR caption survived as the image's alt text",
+        js.includes("Scan for the care guide"), "caption not found in the bundle");
     }
   }
 
