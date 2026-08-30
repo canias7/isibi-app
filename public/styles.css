@@ -6114,8 +6114,17 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 @media (prefers-reduced-motion:reduce){
   .mkt-crt .gf-reel-panel::before{animation:none}
 }
-/* the panel's own grain, so it is the same sheet and not a flat plate */
+/* the panel's own grain, so it is the same sheet and not a flat plate.
+   border-radius:inherit is not decoration: this covers the panel's box EXACTLY
+   (inset:0) with a hard-edged fill, and mix-blend-mode composites it onto its
+   own layer. It was relying entirely on the parent's clip to get its corners,
+   and an overlay that exactly covers a rounded box should carry that box's
+   radius on its own — Safari clips a composited child to the RECTANGLE, so
+   there the grain's four square corners landed precisely on top of the four
+   rounded ones and the surface read as pointy and round at the same time.
+   Chromium clips it correctly, which is why nothing here ever showed it. */
 .mkt-crt .gf-reel-panel::after{content:"";position:absolute;inset:0;z-index:0;
+  border-radius:inherit;
   pointer-events:none;mix-blend-mode:multiply;opacity:.5;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)' opacity='.5'/%3E%3C/svg%3E")}
 /* everything real sits above the wash */
