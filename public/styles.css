@@ -6092,7 +6092,7 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   /* the row's right column is already the two thirds, with the pipeline in the
      third beside it — so the panel simply fills its column */
   width:100%;
-  border-radius:clamp(16px,1.6vw,24px);
+  border-radius:clamp(26px,3vw,44px);
   background:var(--paper);
   padding:clamp(1.1rem,2.6vh,1.7rem) 0;
   box-shadow:
