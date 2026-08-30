@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Go Farther · AI video, image &amp; voice</title>
+  <link rel="icon" type="image/svg+xml" href="/logo.svg" />
   <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
@@ -25,6 +26,18 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body data-agent="gofarther.dev">
+    <!-- The brand mark, once, at document level. The landing draws it, and so do
+         the auth card, the sidebar and the sites topbar — all of which live
+         OUTSIDE #marketing. A <use> does resolve into a display:none subtree
+         (measured), so keeping these defs inside the landing block worked; it
+         also made the signed-in app's logo depend on the landing's markup still
+         being there, which is not a dependency anybody would go looking for. The
+         pencil FILTERS stay in .pencil-defs — those really are landing-only.
+         Geometry is public/logo.svg's, and test/brand-mark.test.mjs asserts every
+         copy in the tree still matches that file. -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <defs><g id="gfMark" fill="none" stroke="currentColor"><g stroke-width="34"><path d="M425.7 362.7A201.5 201.5 0 0 1 288.9 454.2" /><path d="M220.7 454.2A201.5 201.5 0 0 1 75.9 163.2" /><path d="M92 137.2A201.5 201.5 0 0 1 438.4 339.2" /></g><g stroke-width="16.5"><circle cx="167.5" cy="239" r="22.8" /><circle cx="255" cy="168.5" r="23.5" /><circle cx="342.5" cy="239" r="22.8" /></g><g stroke-width="20" stroke-linecap="round" stroke-linejoin="round"><path d="M255 200V465" /><path d="M167.5 262v63.5L210.5 370v92" /><path d="M342.5 262v63.5L299.5 370v92" /></g></g></defs>
+    </svg>
 
   <!-- Public marketing landing — the first thing a logged-out visitor sees.
        CTAs reveal the auth gate; after sign-in the app takes over.
@@ -54,7 +67,6 @@
         <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" />
       </filter>
       <defs><pattern id="pencilTint" width="6.5" height="6.5" patternUnits="userSpaceOnUse" patternTransform="rotate(-56)"><line x1="0" y1="0" x2="0" y2="6.5" stroke="#4a4656" stroke-opacity=".14" stroke-width="1.2" /></pattern></defs>
-      <defs><g id="gfMark" fill="none" stroke="currentColor"><g stroke-width="34"><path d="M425.7 362.7A201.5 201.5 0 0 1 288.9 454.2" /><path d="M220.7 454.2A201.5 201.5 0 0 1 75.9 163.2" /><path d="M92 137.2A201.5 201.5 0 0 1 438.4 339.2" /></g><g stroke-width="16.5"><circle cx="167.5" cy="239" r="22.8" /><circle cx="255" cy="168.5" r="23.5" /><circle cx="342.5" cy="239" r="22.8" /></g><g stroke-width="20" stroke-linecap="round" stroke-linejoin="round"><path d="M255 200V465" /><path d="M167.5 262v63.5L210.5 370v92" /><path d="M342.5 262v63.5L299.5 370v92" /></g></g></defs>
     </svg>
 
     <!-- The CRT is the landing — everything lives inside the screen: the nav on
@@ -277,7 +289,7 @@
   <div id="authGate" class="auth-gate" style="display:none">
     <div class="auth-card">
       <button id="authHome" class="auth-home" type="button" aria-label="Close">✕</button>
-      <div class="auth-brand"><img class="logo-mark" src="/logo.png" alt="" /> Go Farther</div>
+      <div class="auth-brand"><svg class="logo-mark" viewBox="-6 -6 524 524" aria-hidden="true"><use href="#gfMark" /></svg> Go Farther</div>
       <h1 id="authTitle" class="auth-title">Sign in to gofarther.dev</h1>
       <p class="auth-sub" id="authSub">Create AI video, images, and voice.</p>
 
@@ -309,7 +321,7 @@
   <div class="shell" style="display:none">
     <aside class="sidebar" id="sideBar">
       <div class="side-top">
-        <div class="side-logo" data-act="landing" title="Back to the Go Farther home page"><img class="logo-mark" src="/logo.png" alt="" /><span>Go Farther</span></div>
+        <div class="side-logo" data-act="landing" title="Back to the Go Farther home page"><svg class="logo-mark" viewBox="-6 -6 524 524" aria-hidden="true"><use href="#gfMark" /></svg><span>Go Farther</span></div>
         <button class="side-collapse" id="sideCollapse" data-act="side-toggle" aria-label="Collapse sidebar" title="Collapse sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
       </div>
 
@@ -388,7 +400,7 @@
     <div class="top-nav" id="topNav" role="tablist" aria-label="Sections">
       <!-- Wordmark shown only in the Website Builder (where the tabs are hidden) —
            click to return to the landing. -->
-      <div class="st-home" data-act="landing" role="button" tabindex="0" title="Back to the Go Farther home page"><img class="logo-mark" src="/logo.png" alt="" /><span>Go Farther</span></div>
+      <div class="st-home" data-act="landing" role="button" tabindex="0" title="Back to the Go Farther home page"><svg class="logo-mark" viewBox="-6 -6 524 524" aria-hidden="true"><use href="#gfMark" /></svg><span>Go Farther</span></div>
       <button class="top-back" id="topBack" data-view="home" data-act="view" aria-label="Back to Builder" title="Back to Builder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg><span class="tt-label">Back</span></button>
       <button class="top-tab" role="tab" data-view="gallery" data-act="view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15.5 16 11 5 20"/></svg><span class="tt-label">Gallery</span></button>
       
