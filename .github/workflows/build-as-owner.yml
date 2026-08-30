@@ -1006,7 +1006,7 @@ jobs:
           # build is also the only way to exercise the design step end to end:
           # a revise anchors every field to what is stored, which is exactly
           # what a new field must not be tested through.
-          OWNER_SLUG: ${{ github.event.inputs.slug || 'washhouse-3' }}
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'coalhole-1' }}
           OWNER_PICKER: ${{ github.event.inputs.picker || 'grok' }}
           # ── THE BRIEF IS AN INPUT NOW (2026-08-30) ────────────────────────
           #
@@ -1020,7 +1020,7 @@ jobs:
           # brief — and the push path, which names none — behaves exactly as
           # before.
           OWNER_BRIEF: ${{ github.event.inputs.brief || '' }}
-          OWNER_BRIEF_DEFAULT: "A tiny laundrette in Leith called The Washhouse. Open all hours, and nobody behind the counter after six. It sits round the back of a close and people cannot find it. The machines take a card, not coins. What somebody standing outside on their phone needs is how to get in, the door code, which machine is which and what it costs, and the wifi. The network is TheWashhouse and the password is LeithDrum2024 - put a code on the page they can scan to join it, because reading that out down the phone at eleven at night is how we lose people. There is a wee sign in the window with the drum going round, and that is the whole look. Nothing fancy. Just the one page."
+          OWNER_BRIEF_DEFAULT: "A 48-seat theatre above a pub in Hackney called The Coalhole. Six rows of eight. The back two rows have a pillar that blocks part of the view and people ring up asking which seats those are, so we want them looking at the actual plan of the room and picking their own seat instead of us describing it down the phone. One price for everything. Four shows a week, and on cabaret nights we pull row A out for tables so the plan is different that night. Nothing glossy - it is a room above a pub."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
