@@ -11,9 +11,13 @@
 # nobody — a session holds no Cloudflare token, and the dashboard needs a
 # person. CI's own deploy token can ask; this is the asking.
 #
-# Each re-read is a nudge commit to this file — the read below is attempt 4,
-# after the observability scope was added to token 896904cf… (a USER token;
-# the first edit landed on a different one).
+# Each re-read is a nudge commit to this file — the read below is for
+# `washhouse-2` (2026-08-30). That build dispatched to the container at
+# 20:17:25Z and the `container` step NEVER STARTED: `compile` completed in
+# 283ms (it is only the dispatch — run 83's was 107ms) and then 27 minutes
+# of silence, against a whole-build budget of 13. Nothing else was building.
+# The container's own stderr is the only witness left, exactly as it was for
+# runs 41-44.
 name: container logs
 
 on:
@@ -41,6 +45,6 @@ jobs:
           # needle is a substring of the log message, empty for everything.
           # 72h: run 44's two failure lines must stay inside the window however
           # long the token back-and-forth takes — the needle keeps it tiny.
-          LOG_HOURS: '72'
-          LOG_NEEDLE: 'model call failed'
+          LOG_HOURS: '2'
+          LOG_NEEDLE: 'washhouse-2'
         run: node scripts/container-logs.mjs
