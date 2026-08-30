@@ -609,17 +609,29 @@ what the work cost.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 435 credits** (2026-08-30, after run 82 — 453 before it, so that
-  failed build cost 18). It was **0** on 08-29 and
-  this file said 18 — a stale number is worse than none here, because
-  `buildFloor` refuses before spending and the refusal reads as a broken build.
-  **Read the ledger, do not trust this line.**
-- **A GROK BUILD COSTS ~45 CREDITS, MEASURED** (run 80, `ashgrove-1`, one page, 2
-  photographs: 45 billed, 47 including the routing call). The workflow carried
-  "~130" for nine days — a Sonnet-era guess nothing could check, because
-  **nothing records what a build costs**: `gen_charges` is the media side's image ledger
-  and `site_builds` has no cost column. The favicon, wordmark, share card, share picker and head pack are all
-  **NOT PROVEN LIVE** for want of a top-up.
+- **Balance: 418 credits** (2026-08-30, after run 83). It was **0** on 08-29;
+  a stale number is worse than none here, because `buildFloor` refuses before
+  spending and the refusal reads as a broken build. **Read the ledger, do not
+  trust this line.**
+- **A BUILD AND A REVISE COST DIFFERENT MONEY, BOTH MEASURED.** A first build on
+  grok is **~45 credits** (run 80, `ashgrove-1`, one page, 2 photographs: 45
+  billed, 47 with the routing call). A REVISE of the same site is **17** (run 83:
+  9 billed for the build, 17 off the balance with routing) — it anchors to the
+  stored design, so the expensive fresh-decision half does not re-run. The
+  workflow carried "~130" for nine days, a Sonnet-era guess nothing could check,
+  because **nothing records what a build costs**: `gen_charges` is the media
+  side's image ledger and `site_builds` has no cost column. The balance before
+  and after IS the measurement.
+- **PROVEN LIVE 2026-08-30 by run 83 on `ashgrove-1`** — the 3D scene (real
+  three.js + @react-three/fiber, a chair modelled from `boxGeometry` and
+  `cylinderGeometry`, drag-to-turn hand-written because `drei` is not a
+  dependency), the favicon, the wordmark, the head pack (canonical and `og:url`
+  agreeing, no `//`), `og:image` precedence choosing an owner upload over the
+  composed card, and the `kind: tool` image arithmetic answering **0
+  photographs**. The QR and the animated mark are STILL unproven — the design
+  step did not ask for either on this brief, though it names a scannable code.
+  **The three.js runtime is 992 KB of JavaScript**, which is the real price of
+  the `three` field and lands on every site that asks for a scene.
 - **The building account is `aniascristian@gmail.com`, not the session's own
   address.** It owns every live site and holds that balance. Look at the wrong
   row and the balance reads as zero.
@@ -627,7 +639,7 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 303/303** against the real container; the unit suite is 4,571.
+- **`site build` is 303/303** against the real container; the unit suite is 4,574.
   **Run it with nothing else of its own already running.** It binds a fixed port,
   so a leftover `build-server.mjs` from an earlier run makes the new one's
   `listen` throw and every streaming leg report "0 reports arrived" — six red
@@ -760,6 +772,33 @@ wraps the command in a shell whose command line contains the pattern, so
 `pkill -f x` kills the thing running it (exit 144, empty log) and
 `until ! pgrep -f x` never exits. Kill by PID; watch a log's tail.
 
+**A UNIT CONVENTION STATED ONLY IN PROSE (2026-08-30, run 83, live on
+`ashgrove-1`).** `OptionPricedList` says in its own doc comment "All arithmetic
+in integer minor units". The generated page passed the database's `price` —
+`1640`, meaning £1640 — straight into `delta`, which wants pence, so the kit
+correctly drew **+£16.40** while the page's own total, treating the same rows as
+pounds, drew **£1880.00**. Both on screen, one above the other. Nothing failed:
+tsc passes, the render check passes, the numbers are all plausible. **A
+convention a model must READ is a convention a model will eventually read past**,
+and this one is invisible to every instrument we have because both renderings are
+well-formed. The fix shape is a type (a `Minor` branded number) or a prop name
+that carries the unit (`deltaMinor`), not a firmer sentence. Not fixed — the
+owner has not asked.
+
+**AN INSTRUMENT THAT REPORTS CORRECT CODE AS BROKEN — the screenshot version
+(2026-08-30).** A `fullPage: true` capture of a site using `animation-timeline:
+view()` shows every below-the-fold section BLANK, because Chromium expands the
+viewport for the capture and scroll-driven progress is computed against it: the
+sections sit at `opacity: 0` with their real height, so the page reads as
+enormous empty gaps. Scrolling first does not fix it — the animation is not
+sticky, it re-hides. I was one sentence from reporting a published site as
+broken. **Screenshot each section scrolled INTO VIEW and assert its computed
+opacity**, which is what proved all seven were fine. The general form is this
+repo's own rule pointed at itself: when the instrument and the thing disagree,
+suspect the instrument first, and this is the second time in one day that the
+harness rather than the product was the bug (the other was `compileMsg`
+collapsing two causes into one sentence).
+
 **A PROMISE TO THE MODEL THAT NOTHING EVER COMPILED (2026-08-30, two paid
 builds).** The page rules advertise five importable packages. **Fixtures
 importing them: 0 of 5. Real generated pages using them: 0 of 324.** All five
@@ -863,6 +902,14 @@ Postgres call per edit. **When you delete a consumer, grep for what fed it.**
 ## Backlog
 
 - **`three` is done** (2026-08-30) — the entry above records what it cost.
+- **The price-unit mismatch (open, live on `ashgrove-1`).** A kit component
+  documents "integer minor units"; the model feeds it major-unit database rows,
+  so one control says £16.40 and the total says £1880.00. See the trap entry.
+  A branded type or a `deltaMinor` prop name fixes the class; a firmer sentence
+  does not.
+- **The raw-hex-colour finding (open, THIRD run running).** Runs 80, 82 and 83
+  all reported it — run 83's was `index.tsx: writes the raw colour "#e7e3db"`.
+  Detected and reported on every build, never enforced, so it ships every time.
 - **The dead-control finding (open).** On `northgroup-17` the stage filters,
   "New deal" and the deal rows are all `<a href="#pipeline">`, and 15 of 24
   in-page links point at the section they already sit inside — dead by
