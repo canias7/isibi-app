@@ -30,36 +30,36 @@ jobs:
   smoke:
     # A failed deploy has nothing new to smoke-test.
     #
-    # `[skip smoke]` in the commit message ships a deploy WITHOUT the two real
-    # builds. For a change the smoke run cannot prove anything about — a mail
-    # provider swap, a comment, a workflow edit — those builds are two Sonnet
-    # calls, a Neon project and ~$0.40 spent to re-confirm a path nothing
-    # touched.
+    # OPT IN, NOT OUT (owner 2026-08-30: "flip them, don't spend any"). This run
+    # is two real builds — two model calls, a Neon project, ~$0.40 — and until
+    # today it happened on EVERY deploy unless the commit message said not to.
+    # A default of spend is a default that loses: in one session seven pushes
+    # went out without the marker and six of them bought a run, and FIVE of
+    # those were merge commits, whose message git writes itself and which can
+    # therefore never carry any marker at all.
     #
-    # DELIBERATELY NOT GitHub's own skip marker, which suppresses EVERY workflow
-    # for the push — including the deploy, so the change would not ship at all.
-    # That exact accident happened here on 2026-07-29: a commit message that
-    # merely EXPLAINED the marker contained it, and the merge landed on main
-    # with nothing deployed, nothing tested and a green tick. `[skip smoke]` is
-    # ours, means one thing, and is checked by test/deploy-secrets.test.mjs.
+    # So `[smoke]` in the message now turns it ON. Note that `[skip smoke]`,
+    # which is all over this repo's history, does not contain `[smoke]` — every
+    # old commit stays free, which is the point.
+    #
+    # THE COST OF THIS IS REAL AND IS THE OWNER'S CALL: nothing pays for a
+    # regression check by accident any more, so nothing catches one by accident
+    # either. `workflow_dispatch` is the answer — run it by hand before anything
+    # that matters, and it is never vetoable by a commit message.
     #
     # Read off the DEPLOY's head commit, because that is the commit this run
-    # would be testing. `workflow_dispatch` ignores it — asking for a run by
-    # hand is not something a commit message should be able to veto.
+    # would be testing.
     #
-    # SO THE MARKER MUST BE ON THE COMMIT THAT LANDS AS MAIN'S HEAD. On a
-    # fast-forward that is the branch commit; ON A MERGE IT IS THE MERGE COMMIT,
-    # and putting it on the branch commit alone does nothing. Learned by doing
-    # exactly that on 2026-08-09 and spending two builds on a test-only change.
-    # THIRD TIME 2026-08-19: a commit message EXPLAINING this marker contained
-    # it, and the run it was written to un-skip was skipped. The rule is not
-    # 'be careful' — it is: when writing about it, call it "the skip marker"
-    # and never spell it, in a commit message, a PR body, or anything else
-    # GitHub scans. The two earlier instances are recorded in CLAUDE.md and
-    # both were the same shape: prose about the rule, tripping the rule.
+    # DELIBERATELY NOT GitHub's own skip marker anywhere near this: that one
+    # suppresses EVERY workflow for the push, deploy included, so the change
+    # would not ship at all. It happened here on 2026-07-29 from a message that
+    # merely explained the marker, and again on 2026-08-16 from a merge message
+    # doing the same. When writing about it, call it "the skip marker" and never
+    # spell it. test/deploy-secrets.test.mjs holds the half that lives here.
     if: >-
-      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
-      && !contains(github.event.workflow_run.head_commit.message, '[skip smoke]')
+      github.event_name == 'workflow_dispatch'
+      || (github.event.workflow_run.conclusion == 'success'
+      && contains(github.event.workflow_run.head_commit.message, '[smoke]'))
     runs-on: ubuntu-latest
     # A build is now design → provision → generate → compile → publish, and the
     # build container may be cold. Ten minutes was sized for the schema alone.

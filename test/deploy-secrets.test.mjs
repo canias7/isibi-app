@@ -170,12 +170,13 @@ test("nothing the deploy SHIPS is a file the filter now ignores", () => {
   assert.deepEqual(inPublic, [], `public/ serves ${inPublic.join(", ")} — a docs-only commit would not redeploy it`);
 });
 
-// A DEPLOY WITHOUT THE TWO REAL BUILDS — and the marker that must not be GitHub's.
+// THE TWO REAL BUILDS ARE OPT-IN — and the marker that must not be GitHub's.
 //
 // `build smoke` spends two Sonnet calls, a Neon project and ~$0.40 every run.
-// For a change it cannot prove anything about (a mail provider swap, a comment,
-// a workflow edit) that is pure waste, so `[skip smoke]` in the commit message
-// ships the deploy and skips the builds.
+// It used to run on every deploy unless the message opted OUT, and that default
+// lost: in one session on 2026-08-30, seven pushes went out without the marker
+// and six bought a run — five of them merge commits, whose message git writes
+// itself and which can never carry a marker at all. `[smoke]` now opts IN.
 //
 // THE DANGER IS REACHING FOR GITHUB'S OWN MARKER INSTEAD. That one suppresses
 // EVERY workflow for the push — including the deploy — so the change would not
@@ -186,8 +187,10 @@ test("a deploy can skip the smoke builds, and not by suppressing the deploy", ()
 
   const gate = (y.match(/\n\s*if: >-\n([\s\S]*?)\n\s*steps:/) || [])[1];
   assert.ok(gate, "the smoke job's gate is gone or reshaped");
-  assert.match(gate, /!contains\(github\.event\.workflow_run\.head_commit\.message, '\[skip smoke\]'\)/,
-    "the skip marker is not read off the deploy's own head commit");
+  assert.match(gate, /contains\(github\.event\.workflow_run\.head_commit\.message, '\[smoke\]'\)/,
+    "the opt-in marker is not read off the deploy's own head commit");
+  assert.ok(!/!contains/.test(gate),
+    "this gate is OPT-IN now — a negated contains() puts the default back to spending");
   // The deploy-succeeded half must survive alongside it — a gate that only
   // checks the marker would smoke-test a FAILED deploy.
   assert.match(gate, /workflow_run\.conclusion == 'success'/,
@@ -195,12 +198,15 @@ test("a deploy can skip the smoke builds, and not by suppressing the deploy", ()
   // And a hand-triggered run must not be vetoable by a commit message.
   assert.match(gate, /workflow_dispatch/, "workflow_dispatch lost its exemption");
 
-  // WHERE THE MARKER HAS TO GO, stated in the workflow because getting it wrong
-  // is silent: the gate reads the DEPLOY's head commit, so on a merge that is
-  // the MERGE commit and not the branch commit it came from. Put it on the
-  // branch commit alone and the run happens anyway, at two real builds.
-  assert.match(y, /ON A MERGE IT IS THE MERGE COMMIT/,
-    "the note about where the marker must go is gone — it is the part that is easy to get wrong");
+  // AND `[skip smoke]` MUST NOT MATCH IT. That string is all over this repo's
+  // history and its own comments; if the opt-in marker were ever renamed to
+  // something it contains, every historical-style commit would start buying a
+  // run again and the flip would have quietly undone itself. Checked against
+  // the real string rather than by reading the gate.
+  const optIn = /contains\([^,]+, '(\[[^']+\])'\)/.exec(gate);
+  assert.ok(optIn, "the gate must opt in on a bracketed marker");
+  assert.ok(!"[skip smoke]".includes(optIn[1]),
+    `'[skip smoke]' contains ${optIn[1]} — every old commit would spend again`);
 
   // THE MARKER IS OURS. Every spelling GitHub itself recognises would take the
   // deploy down with the smoke run, which is the opposite of what this is for.
@@ -235,8 +241,10 @@ test("EVERY push-triggered paid workflow can be skipped, and reads the PUSH payl
   // is triggered by the push itself, where that path is undefined — so the
   // borrowed expression never matches and the guard reads as working while
   // every push pays.
-  assert.match(gate, /!contains\(github\.event\.head_commit\.message, '\[skip smoke\]'\)/,
-    f + ": the marker must be read off the PUSH's own head commit");
+  assert.match(gate, /contains\(github\.event\.head_commit\.message, '\[smoke\]'\)/,
+    f + ": the opt-in marker must be read off the PUSH's own head commit");
+  assert.ok(!/!contains/.test(gate),
+    f + ": this gate is OPT-IN now — a negated contains() puts the default back to spending");
   assert.ok(!/workflow_run/.test(gate),
     f + ": workflow_run has no meaning in a push-triggered workflow — this gate would never fire");
   assert.match(gate, /workflow_dispatch/, f + ": a hand-triggered run must not be vetoable by a commit message");
@@ -247,13 +255,12 @@ test("EVERY push-triggered paid workflow can be skipped, and reads the PUSH payl
   for (const github of GITHUB_MARKERS) {
     assert.ok(!gate.includes(github), f + `: the gate names ${github}, which would suppress the deploy too`);
   }
-  // AND THE GATE MUST NOT BE NEUTERED, which is the failure the assertions above
-  // cannot see: `workflow_dispatch || false && !contains(…)` keeps every string
-  // they match and skips the eval on EVERY push, so a paid quality check quietly
-  // stops running and nothing goes red. Found by mutation. Exactly two clauses,
-  // and no `false`.
+  // EXACTLY TWO CLAUSES AND NO EXTRA CONDITION. Under the old opt-OUT gate this
+  // guarded against the check being silently switched off; under opt-in that is
+  // the default and the risk runs the other way — an extra clause here is how a
+  // gate starts firing on pushes nobody asked to pay for.
   const clauses = gate.split("||").map((s) => s.trim()).filter(Boolean);
-  assert.equal(clauses.length, 2, "the gate should be exactly `dispatch || !contains(...)`: " + gate.replace(/\s+/g, " "));
+  assert.equal(clauses.length, 2, "the gate should be exactly `dispatch || contains(...)`: " + gate.replace(/\s+/g, " "));
   assert.ok(!/\bfalse\b|&&/.test(gate), f + ": an extra condition here can only ever skip runs that should happen");
   }
 });

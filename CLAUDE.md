@@ -46,9 +46,19 @@ distinction that still exists once the branding does not.
   tests, and there is no red run to notice. **Done twice, both times inside prose
   about the rule itself.** In prose call it "the skip-CI marker" and never spell
   it. `test/deploy-secrets.test.mjs` holds the half that lives in the tree.
-- **`[skip smoke]` in a commit message is OURS and is the ordinary case** — it
-  skips the paid workflows. The owner-build marker is spelled ONLY inside a
-  commit that is deliberately buying a build.
+- **The paid workflows are OPT-IN as of 2026-08-30** (owner: *"flip them, don't
+  spend any"*). `build smoke`, `edit smoke`, `page gen eval` and `schema gen
+  eval` run only when the commit message contains **`[smoke]`**, or when somebody
+  starts them by hand with `workflow_dispatch`. A push with no marker costs
+  nothing, which is the whole point: the old gate ran them unless you opted OUT,
+  and in one session seven pushes went out without the marker and six bought a
+  run — **five of those were merge commits**, whose message git writes itself and
+  which can therefore never carry any marker at all.
+  `[skip smoke]` still appears all over the history and is harmless: it does not
+  contain `[smoke]`, which `test/deploy-secrets.test.mjs` asserts against the
+  real string so a future rename cannot silently re-arm every old commit.
+  **The cost of this is that nothing catches a regression by accident any more.**
+  Run the smokes by hand before anything that matters.
 - **Never commit while a mutation sweep is running.** A killed sweep skips its
   `finally` and leaves a live mutant in the tree.
 - **Every change ships with**: guard tests, a mutation sweep from a verified-green

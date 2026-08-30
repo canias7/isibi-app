@@ -85,10 +85,27 @@ jobs:
     # that expression across would read `undefined` and never match.
     #
     # `workflow_dispatch` is deliberately exempt: asking for a run by hand is
-    # not something a commit message should be able to veto.
+    # OPT IN, NOT OUT (owner 2026-08-30: "flip them, don't spend any"). This is
+    # a real model call per run, and it watches worker.js — touched by most commits here for reasons that have nothing to do with the designer's prompt.
+    # It used to run on every push unless the message said not to; a default of
+    # spend is a default that loses, and merge commits — whose message git
+    # writes itself — could never carry the marker at all.
+    #
+    # `[smoke]` turns it on. `[skip smoke]`, which fills this repo's history,
+    # does not contain `[smoke]`, so every old commit stays free.
+    #
+    # Uniform across all four paid workflows on purpose: a marker that works on
+    # three of them is one somebody uses believing it covers the fourth.
+    #
+    # `github.event.head_commit.message`, NOT `workflow_run.head_commit` — this
+    # is triggered by the push itself, where that path is undefined, so the
+    # borrowed expression would never match and the gate would read as working
+    # while nothing ever ran.
+    #
+    # `workflow_dispatch` runs it by hand and is never vetoable by a message.
     if: >-
       github.event_name == 'workflow_dispatch'
-      || !contains(github.event.head_commit.message, '[skip smoke]')
+      || contains(github.event.head_commit.message, '[smoke]')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
