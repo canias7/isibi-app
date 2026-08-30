@@ -179,6 +179,27 @@ jobs:
     # reproduce for free — `test/template-links.test.mjs` and the `SEARCHY_INDEX`
     # and `PROMISED_PAGE` fixtures in test/integration/site-build.mjs.
     #
+    # ── RUN 83: THE SAME SITE, ON AN IMAGE THAT HAS BOTH FIXES ────────────────
+    #
+    # Asked for by the owner by name, not an auto-retry — the standing rule is
+    # that a failed build is never re-fired on our own initiative.
+    #
+    # WHAT IS DIFFERENT FROM 80 AND 82 is not only the two fixes; it is that both
+    # failures now have a free reproduction, so a third failure of either kind
+    # would have been caught before the money was spent. That is the whole
+    # difference between this run and the last two, which each bought a finding
+    # a fixture could have given away.
+    #
+    # AND IT IS FIRED AGAINST THE RIGHT IMAGE, which is the easy half to get
+    # wrong: a push touching `builder/` rolls the container image, and an
+    # instance started seconds after "deploy completed" is still on the previous
+    # one. The fixes landed in c797b5d1, whose deploy finished 12:37:17Z; this
+    # waits the full 20 minutes past that. Four commits landed in between
+    # (83d32f67, a72770b0, dbccebb0 and this one) and NOT ONE touches a builder
+    # file, so the clock still starts at c797b5d1 rather than resetting — which
+    # is the thing to check before firing, every time, rather than counting
+    # minutes from the most recent push.
+    #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #
     # Owner: "we gonna delete any timeout there is anywhere, pls, just let the
