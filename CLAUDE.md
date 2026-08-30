@@ -639,7 +639,7 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 310/310** against the real container; the unit suite is 4,574.
+- **`site build` is 310/310** against the real container; the unit suite is 4,576.
   **Run it with nothing else of its own already running.** It binds a fixed port,
   so a leftover `build-server.mjs` from an earlier run makes the new one's
   `listen` throw and every streaming leg report "0 reports arrived" — six red
@@ -799,6 +799,36 @@ exactly the `chairs` table it built. A QR on the page would have been the site
 linking to itself. Worth remembering before reading a missing optional field as
 a dead wire: **`qr` and `gif` are offered on every build** (`FRONTEND_SCHEMA_TOOL`
 destructures out `backend` and nothing else), so absence is a judgement, not a gap.
+
+**SALVAGE CANNOT FIRE ON A NEW BUILD, AND HAS NOT SINCE `MAX_PAGES` BECAME 1
+(found 2026-08-30 by run 84).** `site-plan.mjs` plans **one** page and that page
+is `index.tsx`; `publish-pages.mjs` refuses to stub when `index.tsx` is the page
+that failed. Both are correct in isolation and together they mean the only page
+a new build has is the one page salvage will not replace — so the whole mechanism
+is unreachable for every new site. It was right when a site had five pages
+(stubbing the home page while four work is worse than refusing) and became a
+no-op the moment the plan went 5→1. **Nothing announced it**, which is this
+repo's own "a rule true because of a layer below it expires when that layer
+moves" trap, caught only because three of four paid builds in one day ended
+`page=placeholder`. The early placeholder is still the real safety net and it
+works, so nobody gets nothing — but the SECOND net has been dead for weeks.
+Deliberately not fixed: whether a broken home page should ship as an apology stub
+or keep its placeholder is a product call, and the placeholder is arguably the
+better page. **Open, owner's call.**
+
+**TWO KIT COMPONENTS WHOSE NAMES DO NOT DISTINGUISH THEM (2026-08-30, run 84,
+8 credits).** `Figure` draws its own picture from a `src` prop and takes NO
+children; `MediaCaption` takes the picture as a child. Both are captioned
+figures. Told to render the QR as its own `<img src={SITE_QR}>` and show it with
+its caption, the model reached for the one whose NAME matched the job and the
+build died at typecheck with TS2322. **This is `marksDirective`'s own rule one
+level up** — it already says the bindings are named exactly "because they are
+generated: a page that guesses `SITE_GIF` does not compile". A page that guesses
+which figure holds children does not compile either. The directive now names the
+component, and `test/site-marks.test.mjs` reads that name OUT of the directive
+and checks the component really accepts children, so a rename cannot make the
+guard lie. **The general shape: when the kit has two components for one job, the
+prompt must pick, because a name is not a contract.**
 
 **A UNIT CONVENTION STATED ONLY IN PROSE (2026-08-30, run 83, live on
 `ashgrove-1`).** `OptionPricedList` says in its own doc comment "All arithmetic

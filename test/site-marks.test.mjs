@@ -316,3 +316,60 @@ test("THE 3D SCENE REACHES THE PAGE WRITER — the hop `three` shipped without, 
   assert.match(rules, /ONLY where the design step asked for it/,
     "the page rules no longer defer to the design step, so the scene brief lands on a prompt that ignores it");
 });
+
+// ── THE COMPONENT THE QR DIRECTIVE NAMES MUST TAKE THE QR ───────────────────
+//
+// RUN 84, `washhouse-1`, 8 credits, died at typecheck:
+//
+//   src/routes/index.tsx(176,14): error TS2322: Type '{ children: Element | null;
+//   alt: string; caption: string; ratio: string; }' is not assignable to
+//   'IntrinsicAttributes & { src?: string | null; alt?: string; caption?: ... }'
+//   Property 'children' does not exist
+//   cited: ["index.tsx:176: <Figure"]
+//
+// The directive tells the page to render the QR as its own `<img src={SITE_QR}>`
+// and to show it WITH its caption. The kit has two captioned figures and their
+// names do not distinguish them: `Figure` draws its own picture from a `src`
+// prop and takes no children, `MediaCaption` takes the picture as a child. The
+// model reached for the one whose NAME matched the job and guessed wrong.
+//
+// This is the directive's own rule applied one level up. It already says "THE
+// BINDINGS ARE NAMED EXACTLY, because they are generated: a page that guesses
+// `SITE_GIF` does not compile, and the failure blames the page." A page that
+// guesses which figure holds children does not compile either, and the failure
+// blames the page in exactly the same way.
+//
+// DERIVED, NOT PINNED. The assertion reads the component name OUT of the
+// directive and then checks that component really accepts children — so renaming
+// the component, or naming a different one, keeps this honest instead of going
+// red for the change. Pinning the spelling is this repo's most repeated own-goal.
+test("the component the QR directive names really accepts children", async () => {
+  const { marksDirective } = await import("../builder/page-gen.mjs");
+  const text = marksDirective({ qr: { label: "Scan for the wifi" } });
+  assert.ok(text, "the QR directive produced nothing — this guard is reading the wrong shape");
+
+  // The component is the one named as taking the image as its child.
+  const m = text.match(/the component is `([A-Z][A-Za-z]*)` from `@\/components\/ui\/([a-z-]+)`/);
+  assert.ok(m, "the QR directive no longer names a component for the caption:\n" + text);
+  const [, comp, file] = m;
+
+  const src = readFileSync(new URL("../builder/lovable/template/src/components/ui/" + file + ".tsx", import.meta.url).pathname, "utf8");
+  assert.match(src, new RegExp("export function " + comp + "\\b"),
+    "`" + comp + "` is not exported from " + file + ".tsx — the directive names a component that is not there");
+  // THE WHOLE POINT: it must take children. A captioned component that draws its
+  // own picture cannot hold a QR the page was told to render itself.
+  assert.match(src.slice(src.indexOf("export function " + comp)), /^[^}]*\bchildren\b/,
+    "`" + comp + "` does not take `children`, so the page cannot put the QR inside it — " +
+    "this is run 84's TS2322 exactly");
+});
+
+test("…and the figure that does NOT take children is warned against by name", () => {
+  // THE OTHER HALF, and it is not redundant: naming the right component does not
+  // stop a model reaching for the wrong one, and `Figure` is the name that reads
+  // like the job. The warning is what makes the choice explicit rather than
+  // leaving two similarly-named components and hoping.
+  const fig = readFileSync(new URL("../builder/lovable/template/src/components/ui/figure.tsx", import.meta.url).pathname, "utf8");
+  const sig = fig.slice(fig.indexOf("export function Figure"), fig.indexOf("return ("));
+  assert.doesNotMatch(sig, /\bchildren\b/,
+    "`Figure` takes children now — if that is deliberate the warning in marksDirective is stale and should go");
+});

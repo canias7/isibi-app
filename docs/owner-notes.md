@@ -393,6 +393,27 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **Run 84 FAILED (2026-08-30), and it failed ON the thing you asked me to test —
+  8 credits.** You asked for a build with a QR. I gave it a laundrette brief where
+  a code on the screen is the obvious answer (the wifi password). **The design step
+  DID ask for a QR** — that was the open question and it is answered. The page then
+  broke writing it.
+  - **Why**: the kit has two captioned picture components and their names do not
+    tell them apart. `Figure` draws its own picture and takes nothing inside it;
+    `MediaCaption` takes the picture inside it. The QR has to be put inside one.
+    The model picked the one whose name matched the job. Fixed by naming the right
+    component where the model is told about the QR, plus a check that keeps the two
+    honest with each other.
+  - **And a bigger thing fell out of it.** The rescue step that is supposed to save
+    a build when one page will not compile **cannot run on a new site at all**. A
+    new site is one page; that page is the home page; and the rescue step refuses
+    to replace the home page. Both halves are sensible on their own and together
+    they cancel out. It was fine when sites had five pages and quietly stopped
+    working when we moved to one. Your placeholder still goes up, so nobody ever
+    gets a blank site — but the second safety net has been dead for weeks and
+    three of today's four paid builds ended on the placeholder because of it.
+    **Not fixed, because it is your call**: should a site whose only page is broken
+    go live as an apology page, or keep the placeholder? I lean to the placeholder.
 - **Run 83 PUBLISHED (2026-08-30): `ashgrove-1` is live at
   https://ashgrove-1.gofarther.app/ — 17 credits.** Third attempt, first success,
   and it cost a third of what the failed first build did: a revise anchors to the

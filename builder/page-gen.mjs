@@ -2051,7 +2051,10 @@ export function marksDirective({ gif, qr } = {}) {
       "- A QR CODE is on this site, at `SITE_QR` with its caption at `SITE_QR_LABEL` (both from",
       "  `@/site-brand`). Show them TOGETHER — the code with the caption printed beside or beneath it — and",
       "  guard on `SITE_QR`. Give the image `alt={SITE_QR_LABEL}`. Print it no smaller than about 120px:",
-      "  a QR below that does not scan, which is a failure nobody sees until somebody tries it in a room.");
+      "  a QR below that does not scan, which is a failure nobody sees until somebody tries it in a room.",
+      "  To caption it, the component is `MediaCaption` from `@/components/ui/media-caption`, which takes",
+      "  the image as its CHILD: `<MediaCaption caption={SITE_QR_LABEL}><img src={SITE_QR} alt={SITE_QR_LABEL} /></MediaCaption>`.",
+      "  NOT `Figure` — that one draws its own picture from a `src` prop and accepts no children.");
   }
   if (!lines.length) return "";
   return ["## Marks this site already has", "", ...lines].join("\n");
