@@ -6142,7 +6142,18 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    the box instead of off the page edge — which is what stopped it reading as
    content running out of the window on the right. The edges are faded so it
    arrives and leaves rather than being chopped at a hard line. */
+/* THE RADIUS HAS TO BE HERE, not only on the panel. The track inside this box
+   animates transform and declares will-change, so WebKit composites it — and it
+   then clips a composited layer to the ancestor's RECTANGLE, not its rounded
+   rectangle. The card's straight top edge therefore ran out past the panel's
+   curve into the paper: the corner read as round with a pointy one poking
+   through it, at top-left and bottom-right, which is where a card happens to
+   sit. Clipping at the box that directly contains the track is what WebKit
+   honours. Reproduced and each candidate fix tested in real WebKit — promoting
+   the PANEL to its own layer (translateZ) does NOT fix it, which is why the
+   first attempt at this was wrong. */
 .mkt-crt .gf-reel{position:relative;width:100%;overflow:hidden;padding:0;
+  border-radius:inherit;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 88%,transparent);
   mask-image:linear-gradient(90deg,transparent,#000 14%,#000 88%,transparent)}
 /* min-height:inherit, so a track shorter than the box is CENTRED in it rather
