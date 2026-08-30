@@ -384,9 +384,22 @@ test("the wordmark rides every hop the favicon rides", () => {
     assert.match(w.slice(from, to), /wordmark: /,
       "a container payload carries the favicon and not the wordmark");
   }
+  // ── AND THIS ONE WINDOWED BY BYTES TOO (2026-08-30) ───────────────────────
+  //
+  // `slice(args, args + 300)`, and the third byte window in this file to be
+  // outrun by an honest insertion — `gif`, `qr` and then `three` all landed
+  // between the favicon and the wordmark in the same build args, each pushing
+  // the wordmark further out. It reported that the build path had stopped
+  // handing over the stored logo, which nobody had touched.
+  //
+  // Closed on the next sibling that is NOT a look field, so anything added to
+  // this object lands inside the window rather than escaping it.
   const args = w.indexOf("favicon: look.favicon,");
-  assert.ok(args > 0);
-  assert.match(w.slice(args, args + 300), /wordmark: look\.wordmark/);
+  assert.ok(args > 0, "the build args no longer read the mark off the stored look");
+  const argsEnd = w.indexOf("verify: priorVerify,", args);
+  assert.ok(argsEnd > args, "the build args' verification hop is gone — this window has no end");
+  assert.match(w.slice(args, argsEnd), /wordmark: look\.wordmark/,
+    "the build path does not hand the stored wordmark to the build");
 });
 
 test("the container: the owner's logo, then the drawn wordmark, then the name in type", () => {

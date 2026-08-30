@@ -242,8 +242,14 @@ Only `tsx`, `gif`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
   `isDark`, which is the only ground truth available without a camera. The
   payload is held to real business schemes; `javascript:` and `data:` are refused.
 - **`three`** — a 3D/WebGL element, optional the way `css` is, absent on nearly
-  every site. **Decided and stored; it does NOT yet reach the page writer** — see
-  the backlog.
+  every site. **Fully wired 2026-08-30**, and it took TWO hops because it shipped
+  needing both: onto `EDIT_FIELDS` so `mergeLook` stops discarding it, and into
+  the page directive (`sceneDirective`). The second is the instructive one — after
+  the storage fix the field stored, survived revises and showed in the
+  current-state note, so it read as working from every angle except the only one
+  that mattered. **The prompt needed no change**: the page rules already said a
+  canvas is written "ONLY where the design step asked for it in as many words",
+  which was a gate on a signal that had no way of reaching the gate.
 - **`behavior`** (2026-08-29, owner: *"update only the frontend design step to
   plan behavior"*) — **what every interactive thing on the page DOES.** One entry
   per control, six required properties: `control` (which element, as it reads on
@@ -797,6 +803,7 @@ Postgres call per edit. **When you delete a consumer, grep for what fed it.**
 
 ## Backlog
 
+- **`three` is done** (2026-08-30) — the entry above records what it cost.
 - **The dead-control finding (open).** On `northgroup-17` the stage filters,
   "New deal" and the deal rows are all `<a href="#pipeline">`, and 15 of 24
   in-page links point at the section they already sit inside — dead by

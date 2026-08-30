@@ -183,6 +183,26 @@ nothing for it. Cap of three, and the wording tells the model to search the kit
 first and say what it searched for — a component we build that the kit already
 had is the expensive mistake here.
 
+**0e. DONE 2026-08-30: the 3D scene actually gets built now.**
+
+You asked me to fix it and it is fixed. Worth being straight about what happened,
+because it is the same mistake twice on one small feature.
+
+When I added the 3D step I wired it to the design call and nowhere else. The model
+decided a scene on every build and the answer was thrown away before anything
+could use it. I found that a day later and fixed the storage half — and then
+reported it as "stored but not yet reaching the page", which was accurate and
+still left the feature worth nothing.
+
+This closes the second half: the scene the design step decided is now handed to
+the step that writes the page, so a canvas actually gets built.
+
+**The instruction never needed changing.** The page rules already said "write a
+canvas only where the design step asked for it" — a perfectly good rule, waiting
+on a message that was never sent. That is the thing I keep having to relearn here:
+when a feature comes back empty, check whether the answer can physically arrive
+before touching any wording.
+
 **0d. DONE 2026-08-29: renaming a site — the last unbuilt lane** (owner: "now the
 slug lane", then "yeah do the alias one").
 

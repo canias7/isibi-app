@@ -1936,7 +1936,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images, tsx, gif, qr } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx, gif, qr, three } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -1979,8 +1979,49 @@ export function briefWithLayout({ brief, plan, images, tsx, gif, qr } = {}) {
   // indistinguishable from the design step never having answered.
   const marks = marksDirective({ gif, qr });
   if (marks) parts.push(marks);
+  // AND THE SCENE. Without this the hard rule above — "write one ONLY where the
+  // design step asked for it in as many words" — is a gate on a signal that
+  // never arrives, so the answer is always no.
+  const scene = sceneDirective(three);
+  if (scene) parts.push(scene);
   if (images != null) parts.push(imageDirective(images));
   return parts.join("\n\n");
+}
+
+/**
+ * THE 3D SCENE THIS SITE ASKED FOR — the hop `three` shipped without.
+ *
+ * `three` was added on 2026-08-29 and was DEAD ON ARRIVAL in the purest form
+ * this repo has recorded: the design step asked for a scene on every build, the
+ * model answered one, and `mergeLook` — which rebuilds from `EDIT_FIELDS` alone
+ * — dropped it before anything could store or read it. Putting it on that list
+ * (2026-08-29) fixed the STORAGE half. This is the other half, and without it
+ * the field was still worth nothing: the page rules say a canvas is written
+ * "ONLY where the design step asked for it in as many words", which is a gate on
+ * a signal that had no way of reaching the gate. The answer was always no.
+ *
+ * SO THE PROMPT NEEDED NO CHANGE AT ALL — it was already correct and already
+ * deferring to this. That is worth saying plainly, because the instinct on
+ * finding an unbuilt feature is to reword the instruction, and this file's own
+ * standing rule is the opposite: "before rewording a prompt because a field came
+ * back empty, check that the field can arrive."
+ *
+ * THE BRIEF, VERBATIM, AND NOTHING ELSE. The design step decided WHAT the scene
+ * is and WHERE it sits; how to build it is the page writer's job, exactly as
+ * `images` decides which photographs exist and leaves the markup alone.
+ */
+export function sceneDirective(three) {
+  const t = typeof three === "string" ? three.trim() : "";
+  if (!t) return "";
+  return [
+    "## The 3D scene this site asked for",
+    "",
+    "- " + t.slice(0, 600),
+    "- Build it with `<Canvas>` from `@react-three/fiber` — both it and `three` are real dependencies, so it",
+    "  compiles. Give the canvas a FIXED HEIGHT and something visible behind it, so a canvas that fails to",
+    "  start leaves a considered space rather than a hole.",
+    "- This is the one place a canvas is right on this site. Everything else on the page is ordinary markup.",
+  ].join("\n");
 }
 
 /**

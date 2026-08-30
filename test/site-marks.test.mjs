@@ -16,7 +16,7 @@ import { cleanGif, cleanFavicon, GIF_TAGS, GIF_ATTRS, GIF_ANIMATABLE, MAX_GIF, G
 import { qrSvg, readQrText, QR_FIELD, MAX_QR_TEXT } from "../builder/site-qr.mjs";
 import { EDIT_FIELDS, currentStateNote, mergeLook } from "../builder/site-edit.mjs";
 import { OWN_LANES, LANE_FIELDS, editTool, laneRule } from "../builder/site-lanes.mjs";
-import { marksDirective, briefWithLayout } from "../builder/page-gen.mjs";
+import { marksDirective, briefWithLayout, sceneDirective, pageRulesFor } from "../builder/page-gen.mjs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
 import qrcode from "qrcode-generator";
 
@@ -265,4 +265,54 @@ test("the designer is shown both, whole", () => {
   // destination from nothing.
   assert.match(note, /https:\/\/x\.test\/menu/, "the designer is not shown where the QR points");
   assert.match(note, /Menu/, "the designer is not shown the QR's caption");
+});
+
+/* ── AND THE SCENE, which is the same hop and shipped without it ─────────── */
+
+test("THE 3D SCENE REACHES THE PAGE WRITER — the hop `three` shipped without, twice", async () => {
+  // `three` is this repo's purest recorded instance of the wiring trap, and it
+  // needed TWO hops, which is why it was fixed twice:
+  //
+  //   2026-08-29  put on `EDIT_FIELDS`, so `mergeLook` stops discarding it.
+  //               That fixed STORAGE and bought nothing on its own.
+  //   2026-08-30  forwarded into the page directive. Until this, the page rules
+  //               said a canvas is written "ONLY where the design step asked for
+  //               it in as many words" — a gate on a signal with no way of
+  //               reaching the gate, so the answer was always no.
+  //
+  // THE SECOND ONE IS THE INSTRUCTIVE HALF. After the storage fix the field
+  // stored, survived revises, showed in the current-state note and read as
+  // working from every angle except the only one that mattered.
+  const { tool } = await readSchemaTool();
+  assert.ok(tool.input_schema.properties.three, "hop 1: the design step no longer asks for a scene");
+  assert.ok(EDIT_FIELDS.includes("three"), "hop 2: the merge discards the scene again");
+  const m = mergeLook(null, { three: "the chair, turnable by dragging" }, null, {});
+  assert.equal(m.three, "the chair, turnable by dragging", "hop 2: a designed scene does not survive the merge");
+
+  // hop 3: it reaches the directive, and the directive reaches the brief.
+  const d = sceneDirective("a slowly turning wireframe of the shopfront");
+  assert.match(d, /wireframe of the shopfront/, "hop 3: the scene's own brief is not passed on");
+  assert.match(d, /@react-three\/fiber/, "hop 3: the writer is not told which dependency to reach for");
+  assert.equal(sceneDirective(""), "", "a site with no scene is told about one anyway");
+  const joined = briefWithLayout({ brief: "a furniture maker", three: "the chair, turnable by dragging" });
+  assert.match(joined, /turnable by dragging/, "hop 3: the directive is built and never joined into the brief");
+  assert.ok(!/3D scene this site asked for/.test(briefWithLayout({ brief: "a cafe" })),
+    "a site with no scene gets the scene section anyway");
+
+  // hop 4: the build passes it. Asserted as the PROPERTY — the call is handed
+  // `three` — rather than as an argument list, which is the spelling this repo
+  // keeps re-pinning and which broke two guards on 2026-08-29 alone.
+  const w = bare(worker);
+  const callAt = w.indexOf("briefWithLayout({");
+  assert.ok(callAt > 0, "hop 4: nothing builds the page directive");
+  assert.match(w.slice(callAt, w.indexOf(")", callAt)), /\bthree\b/,
+    "hop 4: the directive exists and the build never passes the scene to it");
+  assert.match(w, /three: look\.three/, "hop 4: the build args do not read the scene off the stored look");
+
+  // AND THE GATE IT UNBLOCKS IS STILL THERE. If the page rules ever stop
+  // deferring to the design step, this whole chain feeds an instruction nobody
+  // reads — so the sentence that makes the wiring worth anything is asserted too.
+  const rules = pageRulesFor({}, "shopfront");
+  assert.match(rules, /ONLY where the design step asked for it/,
+    "the page rules no longer defer to the design step, so the scene brief lands on a prompt that ignores it");
 });

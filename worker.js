@@ -9715,7 +9715,7 @@ async function siteOgImage(env, slug, dist) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
   // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
   // runs the compile dep TWICE — one page swapped for a stub — and a cache that
   // lived inside the dep would pay a second Haiku call for strings answered
@@ -9920,7 +9920,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         // zero imports across the 100-site corpus. Only this call site knows it;
         // the edit and addon rungs pass no plan, and their `kind: ""` keeps the
         // catalogue, which is the safe direction.
-        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
+        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
       } catch (e) {
         // THE SENTINEL IS READ BEFORE ANY FAILURE HANDLING, which is not
         // tidiness: `retryHere` would read this as a failure that spent nothing
@@ -12805,6 +12805,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             // favicon beside them — so a revise that mentions neither keeps both.
             gif: look.gif,
             qr: look.qr,
+            // THE SCENE, off the merged look like the two marks above it. This
+            // is the hop `three` shipped without: it reached storage on
+            // 2026-08-29 and reached the page writer never, so the design step
+            // decided a canvas on every build and no page could ever contain one.
+            three: look.three,
             wordmark: look.wordmark,
             // AND THE SEARCH-CONSOLE TAG, for the reason the icon and the logo
             // are here: the sidecar is rewritten whole on every publish, so a
