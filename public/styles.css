@@ -2831,7 +2831,9 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .msg-time.agent { align-self: flex-start; display: flex; align-items: center; }
 .msg-time.agent::before {
   content: ''; flex: 0 0 13px; width: 13px; height: 13px; border-radius: 50%;
-  margin-right: 6px; background: url('/logo.svg') center/contain no-repeat;
+  margin-right: 6px; background: currentColor;
+  -webkit-mask: url('/logo.svg') center/contain no-repeat;
+  mask: url('/logo.svg') center/contain no-repeat;
 }
 
 /* Space Grotesk on the wordmark + names, like the mockup. */

@@ -114,6 +114,38 @@ test("no page reaches for a raster copy of the logo any more", () => {
   }
 });
 
+test("the favicon survives a dark tab strip", () => {
+  // A tab strip follows the OS, not the site. The mark is near-black, so on a
+  // dark strip it was black-on-black — measured, it simply vanished. Adapting
+  // to that is one of the main reasons to serve an SVG favicon at all, and it
+  // costs one media query INSIDE the file, because a <link> cannot carry one.
+  assert.match(CANON, /prefers-color-scheme\s*:\s*dark/,
+    "public/logo.svg must declare a dark-scheme colour or it disappears on a dark tab strip");
+  const dark = /@media[^{]*prefers-color-scheme\s*:\s*dark[^{]*\{([^}]*\}[^}]*)\}/.exec(CANON);
+  assert.ok(dark, "the dark rule must be a real media block");
+  assert.match(dark[1], /color\s*:/, "the dark block must set a colour — currentColor is what the strokes read");
+  // and the light side must be declared too: relying on the initial value means
+  // the mark is whatever the renderer happens to default to.
+  assert.match(CANON.slice(0, CANON.indexOf("@media")), /:root\s*\{[^}]*color\s*:/,
+    "the light colour must be stated, not inherited from a renderer default");
+});
+
+test("nothing paints logo.svg as an image onto a fixed-colour surface", () => {
+  // The trap the media query above opens. This app is light-only by design, but
+  // an <img>/background-image of logo.svg obeys the BROWSER's scheme — so the
+  // agent avatar would have gone pale-on-white the moment a viewer's browser
+  // was in dark mode. A mask takes only the artwork's alpha, which is identical
+  // in both schemes, and currentColor supplies the app's own ink.
+  const css = read("styles.css");
+  const uses = [...css.matchAll(/[^;{}]*\/logo\.svg[^;{}]*/g)].map((m) => m[0]);
+  assert.ok(uses.length > 0, "styles.css should use the mark somewhere, or this check is vacuous");
+  for (const u of uses) {
+    assert.match(u, /mask\s*:/,
+      "logo.svg must be a mask here, not painted as an image — it carries its own light/dark " +
+      "colours now and this surface does not change with the browser: " + u.trim());
+  }
+});
+
 test("the SVG favicon is offered first, and the raster ones still follow", () => {
   // An SVG favicon is the scalable one, but Safari and older browsers ignore
   // it — dropping the .ico would take the tab icon away from them entirely.
