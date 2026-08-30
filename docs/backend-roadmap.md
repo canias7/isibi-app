@@ -1,7 +1,7 @@
 # Backend roadmap — built-app DB primitives (target: 93)
 
 The per-site backend (`/api/db/<slug>/…` + `/api/site/backend/…`) gives every generated
-app a ready backend layer, declared in `isibi.schema.json` and taught to the generator via
+app a ready backend layer, declared in `gofarther.schema.json` and taught to the generator via
 `BACKEND_RULES` (in `builder/react-gen.mjs`). Goal: ship the full ~93-item primitive set.
 
 > The original 100-item artifact (AI category parked → 93) was never committed. This file
@@ -95,7 +95,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 
 ### D. Comms / jobs
 - [x] Outbound webhooks (on:{insert} + fetch step) (Batch 57)
-- [x] Scheduled functions / cron (isibi.functions.json schedule) (Batch 50)
+- [x] Scheduled functions / cron (gofarther.functions.json schedule) (Batch 50)
 - [x] Email send (email function step) 🔑 (Batch 57)
 - [x] Web push (fetch step to a push provider) 🔑 (Batch 57)
 - [x] SMS (fetch step to Twilio) 🔑 (Batch 57)

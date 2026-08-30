@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 170 passed, 1 failed.
+Run against `https://gofarther.dev` · 170 passed, 1 failed.
 
 
 ## the site

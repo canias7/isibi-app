@@ -19,41 +19,58 @@ import { parseSchemaSpec } from "../site-schema.mjs";
 const ROOT = path.join(import.meta.dirname, "..");
 const read = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 
-// Each entry: the file, the exact string, and what breaks in the real world if
-// it changes. The "why" is the point of the test — a bare list of strings would
-// be re-deleted by the next person who reads it as leftovers.
-const LOAD_BEARING = [
-  ["site-meta.mjs", '<!--isibi:meta-->',
-    "the fence is already inside the HTML of every published customer site in R2; " +
-    "rename the reader and the platform can no longer find any existing site's metadata"],
-  ["site-rls.mjs", 'export const POLICY_PREFIX = "isibi_"',
-    "every RLS policy in every customer's live Neon database is named with this prefix; " +
-    "rename it and the next migration writes policies that do not replace the old ones"],
-  ["site-payments.mjs", "isibi_slug",
-    "Stripe PaymentIntents already in flight carry this metadata key; " +
-    "rename it and their webhooks can no longer be matched to an order"],
-  ["worker.js", 'sha256hex(ip + "|" + slug + "|isibi-analytics-v1")',
-    "this string is salt in a hash; change it and every returning visitor gets a new id, " +
-    "splitting the analytics of every site at the moment of the deploy"],
-  ["worker.js", '"Idempotency-Key": `isibi-${slug}-${table.name}-${orderId}`',
-    "Stripe deduplicates retries by this key; change it and a retried payment that was " +
-    "already taken is charged a second time"],
-  ["worker.js", '"isibi-sites"',
-    "the R2 bucket every published site is served out of; point at another name and " +
-    "every customer site 404s"],
-  ["wrangler.jsonc", '"name": "isibi-app"',
-    "the deployed Cloudflare Worker script's name; renaming it deploys a NEW worker and " +
-    "orphans the live one, with its routes, secrets and bindings"],
-  ["wrangler.jsonc", '"bucket_name": "isibi-sites"',
-    "same bucket, from the binding side"],
-];
+// The list is NOT here. It is docs/owner-notes.md's "Names that must not be
+// renamed" table — where a human actually looks before running a replace — and
+// this file reads it. A copy here would be a second list of the same thing,
+// which is the failure mode this codebase names most often: the two do not
+// disagree on the day they are written, they disagree the day somebody edits
+// one. Adding a row to that table is what puts a name under guard.
+const NOTES = read("docs/owner-notes.md");
+const PROTECTED = (() => {
+  const at = NOTES.indexOf("## Names that must not be renamed");
+  assert.ok(at > 0, "owner-notes must carry the do-not-rename section — it is the source of this test");
+  const end = NOTES.indexOf("\n## ", at + 1);
+  const section = NOTES.slice(at, end > at ? end : NOTES.length);
+  // first cell of every table row, unescaped
+  const names = [...section.matchAll(/^\| `([^`]+)` \|/gm)].map((m) => m[1].replace(/\\\|/g, "|"));
+  assert.ok(names.length >= 12,
+    "expected the protected-name table, parsed " + names.length + " rows — has the table's shape changed?");
+  return names;
+})();
 
-for (const [file, token, why] of LOAD_BEARING) {
-  test(`${file} keeps ${token.slice(0, 42)}… — ${why.slice(0, 58)}…`, () => {
-    assert.ok(read(file).includes(token),
-      `${file} no longer contains ${JSON.stringify(token)}.\n\n` +
-      `This was NOT left behind by accident. ${why}.\n\n` +
-      `If the rename really has to reach this string, it needs a migration, not an edit.`);
+// Where the names live. Derived by SEARCHING rather than by listing files
+// beside each name, so this cannot go stale against a refactor that moves one.
+const SOURCES = (() => {
+  const out = [];
+  const walk = (dir, rel) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (["node_modules", ".git", "dist", "docs", "test", "public"].includes(e.name)) continue;
+      const full = path.join(dir, e.name), r = rel ? rel + "/" + e.name : e.name;
+      if (e.isDirectory()) { walk(full, r); continue; }
+      if (!/\.(js|mjs|jsonc|json|ts|tsx|css|yml)$/.test(e.name)) continue;
+      if (e.name === "package-lock.json") continue;
+      out.push([r, fs.readFileSync(full, "utf8")]);
+    }
+  };
+  walk(ROOT, "");
+  // public/ is excluded above because it is customer-facing and must be clean;
+  // the storage keys are the one thing there that must NOT be — add them back.
+  for (const f of fs.readdirSync(path.join(ROOT, "public")).filter((x) => x.endsWith(".js"))) {
+    out.push(["public/" + f, read("public/" + f)]);
+  }
+  assert.ok(out.length > 20, "expected the platform's source, found " + out.length + " files");
+  return out;
+})();
+
+for (const name of PROTECTED) {
+  test(`the tree still contains ${name}`, () => {
+    const where = SOURCES.filter(([, src]) => src.includes(name)).map(([f]) => f);
+    assert.ok(where.length > 0,
+      JSON.stringify(name) + " is gone from the source.\n\n" +
+      "It was NOT left behind by accident — docs/owner-notes.md, \"Names that must not be\n" +
+      "renamed\", says what it is for and what breaks without it. If the rename really\n" +
+      "has to reach this string, it needs a migration, not an edit; and if the string\n" +
+      "is genuinely retired, take its row out of that table and this test goes with it.");
   });
 }
 
@@ -127,22 +144,4 @@ test("nothing a customer reads still says isibi or Zephyr", () => {
   }
 });
 
-test("the browser storage keys are still the old ones", () => {
-  // The other half of the rename that must NOT happen. These name state sitting
-  // in a live user's browser right now — their session, their chats, their
-  // memory, their saved avatars. Renaming the keys does not migrate that state,
-  // it orphans it: every signed-in customer is signed out and their history
-  // looks deleted.
-  // Read across every script that owns one: the session key lives in auth.js
-  // and confirm.js, not chat.js, and looking in one file reported a key that
-  // is right there as deleted.
-  const scripts = fs.readdirSync(path.join(ROOT, "public"))
-    .filter((f) => f.endsWith(".js"))
-    .map((f) => read("public/" + f)).join("\n");
-  for (const key of ["zephyr_session_v1", "zephyr_chats_v1", "zephyr_memory_v1",
-                     "zephyr_avatars_v1", "zephyr_owner_v1"]) {
-    assert.ok(scripts.includes(key),
-      key + " is gone. If that was a rename, every existing user has just been signed " +
-      "out and had their history orphaned — it needs a read-old-write-new migration first.");
-  }
-});
+

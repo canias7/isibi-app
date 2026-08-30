@@ -22,7 +22,7 @@ on every build and cost far more than the pages it saved.
 ## Where it sits
 
 ```
-brief ──► designSiteSchema ──► isibi.schema.json ──► real Postgres tables   ✅ live
+brief ──► designSiteSchema ──► gofarther.schema.json ──► real Postgres tables   ✅ live
                      │
                      └──────► generateSitePages ──► route files ──► vite build ──► R2
                                     ▲                                   ▲
@@ -133,7 +133,7 @@ something was imported that should not have been.
 - **Changing a `display` table's content FROM A PAGE.** Writes to `display` are
   403 for every caller on the public API, and that has not changed — a visitor
   must never edit the menu. What changed on 2026-07-28 is that the *owner* can,
-  through their own door (`/api/site/<slug>/rows/...`, an isibi session rather
+  through their own door (`/api/site/<slug>/rows/...`, a Go Farther session rather
   than a site one) and its panel in the builder. So a café corrects a price
   without rebuilding — but **not from a generated page**, and never from a page
   a visitor can reach. Keep generating `display` tables as read-only.

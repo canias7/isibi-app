@@ -576,9 +576,41 @@ the free `rum report` check.
 
 ## Names that must not be renamed
 
-These are load-bearing strings, not branding. Renaming any of them breaks
-something live: `isibi:meta`, `$isibi$`, `isibi-analytics-v1`, `isibi-<slug>`,
-`isibi-app`, `isibi-sites`, `isibi-user-*`, `isibi.schema.json`.
+The brand became **Go Farther** on 2026-08-30 and everything a person reads was
+renamed with it. The strings below were NOT, and must not be: they are not
+branding, they are identifiers something outside this repo already wrote down.
+`test/brand-rename.test.mjs` reads this very list and fails if one goes missing,
+so adding a name here is what puts it under guard.
+
+| Name | What breaks if it is renamed |
+|---|---|
+| `isibi:meta` | the fence is already inside the HTML of every published site in R2 — rename the reader and no existing site's metadata can be found |
+| `$isibi$` | the Postgres dollar-quote tag wrapping model-written function bodies |
+| `isibi_` | the RLS policy name prefix on every table in every customer's Neon database |
+| `isibi_slug` | metadata on Stripe intents already in flight; rename it and their webhooks cannot be matched to an order |
+| `isibi-analytics-v1` | salt in a hash — change it and every returning visitor gets a new id, splitting every site's analytics at the deploy |
+| `isibi-${slug}` | the Stripe idempotency key; change it and a retried payment that was already taken is charged twice |
+| `isibi-app` | the deployed Worker script; renaming deploys a NEW one and orphans the live script with its routes, secrets and bindings |
+| `isibi-sites` | the R2 bucket every published site is served from |
+| `isibi-user-` | the Neon project name for every per-user project that already exists |
+| `site-secrets-v1` | the v1 key-derivation suffix, and the `"isibi"` fallback beside it in `site-secrets.mjs`; change either and every secret already encrypted under v1 stops decrypting |
+| `isibi-ambient` | a CSS animation name baked into published sites, matched against its own @keyframes |
+| `isibi-reveal` | the same, for the reveal keyframe |
+| `zephyr_session_v1` | a live user's session, in their browser; renaming signs everyone out |
+| `zephyr_chats_v1` | their chat history — renaming does not migrate it, it orphans it |
+| `zephyr_memory_v1` | their learned taste |
+| `zephyr_avatars_v1` | their saved avatars |
+| `zephyr_owner_v1` | which account the browser belongs to |
+
+**`isibi.schema.json` was the exception.** It is `gofarther.schema.json` now, and
+only because `parseSchemaSpec` was widened to accept both first — read as absent
+it does not fail loudly, it reads as a site that declared no database.
+
+**And the trap that makes a blind replace catastrophic:** `isibi` is a substring
+of **`visibility`**, about 107 times across the tree. A case-insensitive
+find-and-replace rewrites every one of them, mostly inside CSS, where nothing
+throws — the page just stops hiding things. `test/page-gen.test.mjs` has
+anchored on this since 2026-08-24 via the kit's `visibility-toggle` component.
 
 Also: the **`react-day-picker` pin at `^9.14.0`** must stay. `calendar.tsx` needs
 v9 and a v10 upgrade breaks it. Do not "clean it up".

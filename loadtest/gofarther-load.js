@@ -125,7 +125,7 @@ export function handleSummary(data) {
   const pct = (name) => (m[name] && m[name].values && m[name].values.rate != null)
     ? (m[name].values.rate * 100).toFixed(2) + '%' : 'n/a';
   const line = (l) => l + '\n';
-  let s = '\n──────── isibi load test ────────\n';
+  let s = '\n──────── Go Farther load test ────────\n';
   s += line(`peak VUs      page=${PAGE_VUS}  credits=${TOKEN ? API_VUS : 'off (no token)'}`);
   s += line(`page   p95 / p99   ${g('http_req_duration', 'p(95)')} / ${g('http_req_duration', 'p(99)')} ms`);
   s += line(`credits p95        ${g('api_latency_ms', 'p(95)')} ms   (max ${g('api_latency_ms', 'max')} ms)`);
