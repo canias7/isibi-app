@@ -30,11 +30,42 @@ test("WRITING REFUSES the 'isibi' fallback that READING must keep", () => {
   assert.notEqual(writeMaterial(ENV1), null);
 });
 
-test("v1 derivation is byte-identical to the one worker.js already uses", () => {
+test("v1 derivation is byte-identical to the pre-module one", () => {
   // Anything else strands every secret written before this module existed.
   assert.equal(keyMaterial({ SUPABASE_SERVICE_KEY: "svc" }, 1), "svc|site-secrets-v1");
   assert.equal(keyMaterial({ FAL_KEY: "fal" }, 1), "fal|site-secrets-v1");
   assert.equal(keyMaterial({}, 1), "isibi|site-secrets-v1");
+});
+
+test("nothing outside this module derives a site-secrets key", () => {
+  // The assertion the test above was NAMED for and never made. It used to be
+  // called "byte-identical to the one worker.js already uses" and compared this
+  // module against hardcoded strings — it never opened worker.js. So when
+  // worker.js grew a second copy of the derivation on 2026-08-27 with a
+  // different fallback ("Go Farther" where this file has "isibi"), nothing went
+  // red. It survived three days and was found by reading, not by testing.
+  //
+  // It could not have corrupted anything — that copy had no callers and no
+  // encrypt path, so it never wrote or opened a row — but a second key
+  // derivation is the one kind of duplicate that reading either copy cannot
+  // catch: each looks entirely correct on its own. The property is that there
+  // is only ever one.
+  const ROOT = path.join(import.meta.dirname, "..");
+  const carriers = [];
+  const walk = (dir, rel) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (["node_modules", ".git", "dist", "docs", "test", "public"].includes(e.name)) continue;
+      const full = path.join(dir, e.name), r = rel ? rel + "/" + e.name : e.name;
+      if (e.isDirectory()) { walk(full, r); continue; }
+      if (!/\.(mjs|js)$/.test(e.name) || e.name === "package-lock.json") continue;
+      if (fs.readFileSync(full, "utf8").includes("site-secrets-v")) carriers.push(r);
+    }
+  };
+  walk(ROOT, "");
+  assert.deepEqual(carriers, ["site-secrets.mjs"],
+    "a site-secrets key derivation exists outside site-secrets.mjs: " + carriers.join(", ") +
+    ".\n\nTwo derivations cannot be kept in step by reading them — one of them will be " +
+    "edited alone, and the failure is a secret that no longer opens. There must be one.");
 });
 
 test("v2 has NO fallback — an absent dedicated key is null, not a weaker key", () => {

@@ -18,8 +18,8 @@
 
 // ── Key versioning ───────────────────────────────────────────────────────────
 //
-// v1 derived the AES key from SUPABASE_SERVICE_KEY, which is what the surviving
-// decryptSecret in worker.js still does. That is a real hazard for THIS content:
+// v1 derived the AES key from SUPABASE_SERVICE_KEY. That is a real hazard for
+// THIS content:
 // rotating the Supabase service key would silently make every stored payment
 // credential undecryptable, and the failure would show up as checkouts breaking
 // on every site at once, long after the rotation.
@@ -40,9 +40,18 @@ const CURRENT_VERSION = 2;
 export function keyMaterial(env, version) {
   const e = env || {};
   if (version === 2) return e.SITE_SECRETS_KEY ? String(e.SITE_SECRETS_KEY) + "|site-secrets-v2" : null;
-  // v1 keeps the EXACT derivation worker.js already uses, INCLUDING its "isibi"
+  // v1 keeps the derivation the D1-era vault used, INCLUDING its "isibi"
   // fallback, or previously stored secrets stop opening. See writeMaterial for
   // why that fallback is readable and not writable.
+  //
+  // THIS IS THE ONLY DERIVATION IN THE TREE, and that is now asserted rather
+  // than assumed. worker.js carried a second copy from 2026-08-27 to
+  // 2026-08-30 with a DIFFERENT fallback, and nothing noticed: it had no
+  // callers and no encrypt path, so it could never have written or opened a
+  // row. The test that should have caught it was called "byte-identical to the
+  // one worker.js already uses" and never opened worker.js — it compared this
+  // module against hardcoded strings. A second copy of a key derivation is the
+  // one kind of duplicate that cannot be caught by reading either copy.
   if (version === 1) return (e.SUPABASE_SERVICE_KEY || e.FAL_KEY || "isibi") + "|site-secrets-v1";
   return null;
 }

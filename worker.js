@@ -2830,26 +2830,6 @@ function logSiteHit(env, ctx, slug, path, request) {
   if (ctx && ctx.waitUntil) ctx.waitUntil(p);
 }
 
-// ── Secrets vault: AES-GCM encrypt at rest, key derived from a server-only secret.
-let _siteSecretKeyPromise = null;
-function siteSecretKey(env) {
-  if (!_siteSecretKeyPromise) {
-    _siteSecretKeyPromise = (async () => {
-      const material = new TextEncoder().encode((env.SUPABASE_SERVICE_KEY || env.FAL_KEY || "Go Farther") + "|site-secrets-v1");
-      const digest = await crypto.subtle.digest("SHA-256", material);
-      return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
-    })();
-  }
-  return _siteSecretKeyPromise;
-}
-async function decryptSecret(env, packed) {
-  const key = await siteSecretKey(env);
-  const bytes = bytesFromB64url(String(packed || ""));
-  const iv = bytes.slice(0, 12), ct = bytes.slice(12);
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-  return new TextDecoder().decode(pt);
-}
-
 // Resolve one path to its RAW value (not stringified) — used when a template value
 // is a SOLE `{{placeholder}}`, so `"{{steps.list.records}}"` embeds the actual array
 // (a function can respond with structured data), not a JSON string of it.
