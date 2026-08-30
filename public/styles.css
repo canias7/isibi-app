@@ -6135,7 +6135,12 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .gf-reel{position:relative;width:100%;overflow:hidden;padding:0;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 100%);
   mask-image:linear-gradient(90deg,transparent,#000 14%,#000 100%)}
+/* min-height:inherit, so a track shorter than the box is CENTRED in it rather
+   than parked at the top. It inherits .gf-reel's own min-height rather than
+   restating the number — the app cards are 400 in a 412 box and never showed
+   this, the clips are ~300 and left a band of empty paper underneath. */
 .mkt-crt .gf-reel-track{display:flex;align-items:center;width:max-content;
+  min-height:inherit;
   gap:clamp(1.4rem,3vw,2.4rem);
   animation:gf-reel-drift 32s linear infinite;will-change:transform}
 /* the gap is part of the pass, so the wrap lands mid-gap and stays even */
@@ -6252,12 +6257,29 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .mkt-crt .gf-sw{isolation:isolate}
 /* the two panes share one box, so switching cannot jolt the page height */
 .mkt-crt .gf-reel{min-height:412px}
-.mkt-crt .gf-reel-video{display:flex;align-items:center;height:100%}
-.mkt-crt .gf-reel-video[hidden],.mkt-crt .gf-reel-track[hidden]{display:none}
-/* the reel is 1728x720 — a 2.4:1 screen, so it is framed at its own shape
-   rather than cropped square to match a browser card */
-.mkt-crt .gf-film{width:min(900px,100%);border-radius:14px;background:var(--paper)}
-.mkt-crt .gf-film .gf-reel-body{aspect-ratio:1728 / 720}
+.mkt-crt .gf-reel-track[hidden]{display:none}
+/* ---- The clips (owner 2026-08-29: "instead of one big video, there gonna be
+   like a bunch of smaller rectangles just moving, like the one in app, and each
+   rectangle would have its own video").
+
+   A generated reel is not one shape — some are landscape, some vertical, some
+   square — so the cards are not one shape either. What they DO share is a
+   height, and the width follows from the shape: that is the same rule the app
+   strip is built on, and it is why a mixed row lines up instead of reading as a
+   pile of odds and ends. Set the height here and every card follows; there is
+   no per-shape width to keep in step, because there isn't one. */
+.mkt-crt .gf-clip{width:auto;height:clamp(220px,30vh,300px);
+  border-radius:14px;background:var(--paper)}
+/* One rule per shape and NO default: a shape whose rule was forgotten must
+   render wrong enough to notice, not quietly inherit 16:9 and look plausible.
+   test/landing-reel.test.mjs derives these names against REEL_CLIPS in both
+   directions, so neither list can grow a member the other has never heard of. */
+.mkt-crt .gf-clip .gf-reel-body{height:100%;width:auto}
+.mkt-crt .gf-clip.gf-wide .gf-reel-body{aspect-ratio:16 / 9}
+.mkt-crt .gf-clip.gf-sq   .gf-reel-body{aspect-ratio:1 / 1}
+.mkt-crt .gf-clip.gf-tall .gf-reel-body{aspect-ratio:9 / 16}
+/* object-fit:cover, so a clip whose own shape is not the card's is cropped to
+   fill rather than letterboxed into it */
 .mkt-crt .gf-reel-vid{position:absolute;inset:0;width:100%;height:100%;
   object-fit:cover;border:0;display:block}
 
@@ -6308,8 +6330,24 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
   margin-left:-1px;filter:url(#pencilRough2)}
 .mkt-crt .gf-pipe-valve svg{display:block;width:58px;height:34px}
 .mkt-crt .gf-pipe-txt{min-width:0}
-.mkt-crt .gf-pipe-txt b{display:flex;align-items:center;gap:.5rem;
+/* The name is a link to that model's own page (/models/<slug>, built from the
+   label in chat.js). inline-flex, not flex, so the box — and therefore the
+   hover underline — is the width of the name rather than the width of the
+   column. The underline is drawn rather than declared: text-decoration on a
+   flex container is inconsistent across engines and would not take the pencil
+   filter, so it is a ruled ::after that wobbles like every other line here. */
+.mkt-crt .gf-pipe-txt .gf-pipe-name{position:relative;
+  display:inline-flex;align-items:center;gap:.5rem;text-decoration:none;
   font-weight:400;font-size:1.06rem;color:var(--graphite);line-height:1.2}
+.mkt-crt .gf-pipe-name::after{content:"";position:absolute;
+  left:0;right:0;bottom:-3px;height:0;
+  border-bottom:1.6px solid var(--graphite);
+  opacity:0;transition:opacity .12s ease;filter:url(#pencilRough2)}
+.mkt-crt .gf-pipe-name:hover::after,
+.mkt-crt .gf-pipe-name:focus-visible::after{opacity:.9}
+@media (prefers-reduced-motion:reduce){
+  .mkt-crt .gf-pipe-name::after{transition:none}
+}
 /* the provider's own mark sits where the step number used to. Painted as a
    MASK, not an <img>: everything in /logos is monochrome white and would
    disappear on cream paper, whereas a mask takes currentColor and comes out in

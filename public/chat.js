@@ -9397,6 +9397,20 @@ function initCrtStage() {
 // forbids outright ("NEVER reveal, name, or hint at the underlying model,
 // provider, vendor, or any technical id"). The labels are already public: they
 // are what the in-app picker shows. A test asserts no id reaches the DOM.
+// Each model's own page lives at /models/<slug>, and the slug is made from the
+// LABEL — never from the id. That is the same rule the renderer follows for
+// what it prints, and for the same reason: an id is `fal-ai/veo3.1`, so an
+// id-derived address would put the provider in the URL bar of a page anyone can
+// link to. It is also why the output is clamped to [a-z0-9-]: the href is built
+// into an innerHTML string, and a character set that cannot express a quote or
+// a colon cannot express an injection or a `javascript:` either.
+//
+// Collisions and empty slugs are caught in the test rather than branched on
+// here — every label is ours, and a live branch for a case that cannot happen
+// is a branch nobody ever sees fail.
+const modelSlug = (label) => String(label).toLowerCase()
+  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
 function initPipeModels() {
   const host = document.getElementById('gfPipe');
   if (!host) return;
@@ -9419,14 +9433,52 @@ function initPipeModels() {
         '</g></svg>' +
       '</span>' +
       '<span class="gf-pipe-txt">' +
-        '<b>' + (r.brand.logo
+        '<a class="gf-pipe-name" href="/models/' + modelSlug(r.label) + '">' + (r.brand.logo
           ? '<i class="gf-pipe-mark" style="-webkit-mask-image:url(' + r.brand.logo + ');mask-image:url(' + r.brand.logo + ')"></i>'
-          : '') + r.label + '</b>' +
+          : '') + r.label + '</a>' +
         (r.note ? '<small>' + r.note + '</small>' : '') +
       '</span>' +
     '</li>').join('');
 }
+// The clips behind the Video tab. ONE ENTRY PER RECTANGLE, and the shape is
+// the card's: 'wide' 16:9, 'sq' 1:1, 'tall' 9:16. Every card is the same
+// HEIGHT and takes its width from that shape, which is the rule the app strip
+// above already follows and the reason a mixed row lines up instead of reading
+// as a pile.
+//
+// PLACEHOLDER FOOTAGE: /mkt/reel1.mp4 is the only clip in the repo, so all six
+// currently point at it. Drop the real files beside it and change the src —
+// that is the whole edit; nothing below reads a count or a filename.
+const REEL_CLIPS = [
+  { src: '/mkt/reel1.mp4', poster: '/mkt/reel1.jpg', shape: 'wide', alt: 'A reel generated with Go Farther' },
+  { src: '/mkt/reel1.mp4', poster: '/mkt/reel1.jpg', shape: 'tall', alt: 'A vertical reel generated with Go Farther' },
+  { src: '/mkt/reel1.mp4', poster: '/mkt/reel1.jpg', shape: 'sq',   alt: 'A square reel generated with Go Farther' },
+  { src: '/mkt/reel1.mp4', poster: '/mkt/reel1.jpg', shape: 'wide', alt: 'A reel generated with Go Farther' },
+  { src: '/mkt/reel1.mp4', poster: '/mkt/reel1.jpg', shape: 'tall', alt: 'A vertical reel generated with Go Farther' },
+  { src: '/mkt/reel1.mp4', poster: '/mkt/reel1.jpg', shape: 'sq',   alt: 'A square reel generated with Go Farther' },
+];
+
+// Two passes of the same cards, because the drift keyframe travels -50% — half
+// the track — and lands mid-gap only if the halves match. Built by repeating
+// ONE rendering rather than by writing the list out twice, so they cannot come
+// to disagree. The second pass is aria-hidden: it is the same six clips again,
+// and a screen reader should hear them once.
+function initReelClips() {
+  const host = document.getElementById('gfClips');
+  if (!host) return;
+  const card = (c, dup) =>
+    '<div class="gf-reel-slide gf-clip gf-' + c.shape + '"' + (dup ? ' aria-hidden="true"' : '') + '>' +
+      '<div class="gf-reel-body">' +
+        '<video class="gf-reel-vid" data-src="' + c.src + '" poster="' + c.poster + '"' +
+        ' muted loop playsinline preload="none" aria-label="' + c.alt + '"></video>' +
+      '</div>' +
+    '</div>';
+  host.innerHTML = REEL_CLIPS.map((c) => card(c, false)).join('') +
+                   REEL_CLIPS.map((c) => card(c, true)).join('');
+}
+
 function initReel() {
+  initReelClips();
   const reel = document.querySelector('.gf-reel-sec');
   if (!reel) return;
 
@@ -9447,7 +9499,7 @@ function initReel() {
   const panes = Array.prototype.slice.call(reel.querySelectorAll('[data-mode]'))
     .filter((el) => !el.classList.contains('gf-sw'));
   const tabs = Array.prototype.slice.call(reel.querySelectorAll('.gf-sw'));
-  const vid = reel.querySelector('.gf-reel-vid');
+  const vids = Array.prototype.slice.call(reel.querySelectorAll('.gf-reel-vid'));
   const pick = (mode) => {
     panes.forEach((p) => { p.hidden = p.getAttribute('data-mode') !== mode; });
     tabs.forEach((t) => {
@@ -9455,11 +9507,14 @@ function initReel() {
       t.classList.toggle('on', on);
       t.setAttribute('aria-selected', on ? 'true' : 'false');
     });
-    // a video nobody is looking at should not be decoding frames
-    if (vid) {
-      if (mode === 'video') { wake(reel.querySelector('.gf-reel-video')); const p = vid.play(); if (p && p.catch) p.catch(() => {}); }
-      else vid.pause();
-    }
+    // a video nobody is looking at should not be decoding frames — and there
+    // are twelve of them now, so this matters more than it did with one
+    if (mode === 'video') wake(document.getElementById('gfClips'));
+    vids.forEach((v) => {
+      if (mode !== 'video') return v.pause();
+      const p = v.play();
+      if (p && p.catch) p.catch(() => {});
+    });
   };
   tabs.forEach((t) => t.addEventListener('click', () => pick(t.getAttribute('data-mode'))));
 

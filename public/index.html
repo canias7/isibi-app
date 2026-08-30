@@ -207,13 +207,15 @@
             <div class="gf-reel-body"><iframe class="gf-reel-frame" data-src="/mkt/demo3/" title="Gloopies — a character brand site Go Farther built" tabindex="-1" scrolling="no"></iframe></div>
           </div>
         </div>
-          <div class="gf-reel-video" data-mode="video" hidden>
-            <div class="gf-reel-slide gf-film">
-              <div class="gf-reel-body"><video class="gf-reel-vid" data-src="/mkt/reel1.mp4"
-                poster="/mkt/reel1.jpg" muted loop playsinline preload="none"
-                aria-label="A reel generated with Go Farther"></video></div>
-            </div>
-          </div>
+          <!-- The video pane is a SECOND marquee, the same machinery as the app
+               one above (owner 2026-08-29: "instead of one big video, there
+               gonna be like a bunch of smaller rectangles just moving, like the
+               one in app, and each rectangle would have its own video"). Filled
+               by initReelClips from REEL_CLIPS rather than written out here,
+               because the drift keyframe travels -50% and only lands evenly if
+               the two passes are IDENTICAL — hand-copied cards drift the first
+               time somebody edits one half. -->
+          <div class="gf-reel-track gf-clips" data-mode="video" id="gfClips" hidden></div>
       </div>
       </div>
         </div>

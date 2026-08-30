@@ -69,6 +69,55 @@ test("no model id reaches the DOM", () => {
   }
 });
 
+test("every model name links to its own page, addressed by LABEL", () => {
+  // Each model gets a page at /models/<slug>. The slug is made from the label
+  // and never from the id, which is the same rule that governs what the row
+  // PRINTS — an id-derived address would put `fal-ai/` in the URL bar of a page
+  // anyone can link to, which is the leak the print rule exists to prevent,
+  // wearing a different hat.
+  const src = /const modelSlug = ([\s\S]*?);\n/.exec(CHAT);
+  assert.ok(src, "modelSlug must exist — the links are built with it");
+  assert.match(renderer, /href="\/models\/' \+ modelSlug\(r\.label\)/,
+    "the href must be /models/ + the slug of the LABEL");
+  assert.equal(/modelSlug\(\s*(m|r)\.id\b/.test(CHAT), false, "a slug may never be made from an id");
+});
+
+test("no two models share a page, and none is addressed by nothing", () => {
+  // Two labels that slug the same would silently point two rows at one page —
+  // and it would look completely correct until somebody opened both. An empty
+  // slug is the other half: a link to /models/ that leads nowhere.
+  const src = /const modelSlug = ([\s\S]*?);\n/.exec(CHAT)[1];
+  const slug = eval("(" + src + ")");                 // the real function, not a re-typed copy
+  // Scanned over the LISTS THE PIPELINE RENDERS, not over all of chat.js.
+  // Scanning the file pulls in GROUP_META, whose picker headings repeat labels
+  // like 'Veo 3.1' legitimately — which forced a "same label is fine" excuse
+  // into the check, and that excuse hid the second half of the bug: two ROWS
+  // sharing one name is also two rows sharing one page. Window the right set
+  // and uniqueness is plain, with nothing to excuse.
+  const between = (open, close) => {
+    const i = CHAT.indexOf(open);
+    assert.ok(i > 0, "missing " + open);
+    const j = CHAT.indexOf(close, i);
+    assert.ok(j > i, open + " must be closed");
+    return CHAT.slice(i, j);
+  };
+  const pool = between("const MODEL_LISTS = {", "\n};") + between("const LLM_MODELS = [", "\n];") +
+    // the pipeline appends Grok itself; it gets a link like every other row
+    between("if (key === 'llm') rows.push(", ");");
+  const names = [...pool.matchAll(/\blabel: '([^']+)'/g)].map((m) => m[1]);
+  assert.ok(names.length >= 19, "expected the platform's models, found " + names.length + " labels");
+  const seen = new Map();
+  for (const l of names) {
+    const sl = slug(l);
+    assert.ok(sl.length > 0, "'" + l + "' slugs to nothing — its link would go to /models/");
+    assert.match(sl, /^[a-z0-9-]+$/,
+      "'" + l + "' slugs to '" + sl + "'; a slug outside [a-z0-9-] can break out of the href");
+    assert.equal(seen.has(sl), false,
+      "'" + l + "' and '" + seen.get(sl) + "' both slug to '" + sl + "' — one page, two models");
+    seen.set(sl, l);
+  }
+});
+
 test("the models are listed in ONE place", () => {
   // The whole point of deleting the nav menu. Two renderers over one table is
   // this repo's most repeated failure shape: they do not disagree on day one,
