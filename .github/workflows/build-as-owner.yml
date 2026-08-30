@@ -324,6 +324,23 @@ jobs:
     # not being reached for on a first build, and the next suspect is its
     # position — `qr` is 15th of 24, answered after the page is already planned.
     #
+    # ── RUN 88 NEVER RAN: CLOUDFLARE 503'd THE DEPLOY ────────────────────────
+    #
+    # The first attempt at `washhouse-2` reached step 4 and stopped there:
+    #
+    #   GET /accounts/***/workers/scripts/isibi-app/deployments -> 503
+    #   upstream connect error or disconnect/reset before headers
+    #   the deploy failed — building against it proves nothing
+    #
+    # All 13 secrets uploaded; `wrangler deploy` itself hit a 503 from
+    # Cloudflare's API. Nothing to do with this repo, and the gate did exactly
+    # its job: the build step was SKIPPED and nothing was spent. Worth recording
+    # because "the deploy failed" and "the build failed" look the same from a
+    # ledger that did not move, and only one of them is a reason to change code.
+    #
+    # The next push deployed cleanly at 18:16:45Z, so this is a straight retry
+    # of the same first build on the same fresh slug.
+    #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #
     # Owner: "we gonna delete any timeout there is anywhere, pls, just let the
