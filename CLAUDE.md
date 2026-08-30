@@ -748,6 +748,20 @@ wraps the command in a shell whose command line contains the pattern, so
 `pkill -f x` kills the thing running it (exit 144, empty log) and
 `until ! pgrep -f x` never exits. Kill by PID; watch a log's tail.
 
+**A CI STEP THAT DOES NOT INSTALL WHAT THE TESTS IMPORT — and five commits of
+red nobody looked at (2026-08-30).** `site-build.yml` ran two test files under
+"both modules are dependency-free, so no install is needed", which was TRUE when
+written and false the moment `site-qr.mjs` imported `qrcode-generator`. The step
+failed with "Cannot find package"; the same tests passed locally, where the
+dependency is installed. **The check and the thing it checks disagreed about the
+environment, which is the one disagreement a test cannot report on itself.**
+Two habits, both cheap: read CI after a push (five went unread), and never let a
+workflow assert a property about the code in a COMMENT — `test/workflow-deps.test.mjs`
+now asserts it. Its first draft walked the import graph and false-alarmed on
+`import` statements inside STRING fixtures; the shipped version is blunt (every
+`node --test` step installs first) because a check that flags correct code is
+worse than no check.
+
 **Re-run the thing the change is asserted by.** Appeasing a false alarm in one
 checker while never re-running the harness that actually proves the change has
 shipped red twice.

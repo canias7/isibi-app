@@ -56,8 +56,21 @@ jobs:
           cache-dependency-path: builder/lovable/template/package-lock.json
 
       # The generator's rules, tool schema and output checks, plus the decisions
-      # made around them — which attempt is published, and what it cost. Both
-      # modules are dependency-free, so no install is needed.
+      # made around them — which attempt is published, and what it cost.
+      #
+      # THE ROOT INSTALL IS NOT OPTIONAL ANY MORE (2026-08-30). This step carried
+      # "both modules are dependency-free, so no install is needed" — true when it
+      # was written, and false from the moment `builder/site-qr.mjs` began
+      # importing `qrcode-generator` to draw a QR. One test here evaluates the
+      # real design tool, which imports that module, so it failed with "Cannot
+      # find package" on a runner with no root node_modules.
+      #
+      # IT WENT UNNOTICED FOR FIVE COMMITS because the suite passes locally, where
+      # the dependency IS installed — the check and the thing it checks disagreed
+      # about the environment. `test/workflow-deps.test.mjs` now derives this from
+      # the import graph, so the next dependency added to a builder module fails
+      # in the unit suite instead of here.
+      - run: npm ci --no-audit --no-fund --loglevel=error
       - run: node --test "test/page-gen.test.mjs" "test/publish-pages.test.mjs"
 
       # EVERY INDEPENDENT CHECK BELOW RUNS EVEN WHEN AN EARLIER ONE FAILED, and
