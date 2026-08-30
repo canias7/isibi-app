@@ -300,6 +300,30 @@ jobs:
     # was the cause; if it does not, the wording is exonerated and the next
     # suspect is the field's position in the tool.
     #
+    # ── RUN 88: A FIRST BUILD, WHICH IS THE ONLY THING THAT CAN ANSWER THIS ──
+    #
+    # THE PREVIOUS THREE RUNS COULD NOT HAVE PRODUCED A QR AND I SHOULD HAVE SEEN
+    # IT SOONER. Reusing `washhouse-1` makes a REVISE, and a revise carries
+    # `EDIT_RULE`: "THIS IS AN EDIT, NOT A NEW SITE. Return ONLY the fields this
+    # change actually asks you to alter. Omit every other field." `EDIT_REQUIRED`
+    # is `[]`, so nothing is compelled either. The site already existed without a
+    # QR and nothing in the message asked to add one, so the model omitted it —
+    # a rule doing exactly its job, not a field being ignored.
+    #
+    # So runs 85, 86 and 87 measured the revise path three times over. Run 84 was
+    # the only FIRST build and it died at typecheck on the `<Figure>` bug before
+    # its design could be read. The build step has therefore never been tested
+    # for a QR at all, which is the thing the owner actually asked for.
+    #
+    # A NEW SLUG IS WHAT MAKES IT A FIRST BUILD. Same brief, which hands over the
+    # real wifi credentials, so `NEVER INVENT THE DESTINATION` is satisfied
+    # honestly. `washhouse-1` stays up and untouched.
+    #
+    # WHAT THIS RUN SETTLES EITHER WAY: if a QR appears, the field works and the
+    # three declines were the edit rule. If it does not, the field is genuinely
+    # not being reached for on a first build, and the next suspect is its
+    # position — `qr` is 15th of 24, answered after the page is already planned.
+    #
     # ── AND THEN 30 BECAME THE LAST BINDING CEILING (2026-08-22, owner's call) ──
     #
     # Owner: "we gonna delete any timeout there is anywhere, pls, just let the
@@ -937,7 +961,7 @@ jobs:
           # build is also the only way to exercise the design step end to end:
           # a revise anchors every field to what is stored, which is exactly
           # what a new field must not be tested through.
-          OWNER_SLUG: ${{ github.event.inputs.slug || 'washhouse-1' }}
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'washhouse-2' }}
           OWNER_PICKER: ${{ github.event.inputs.picker || 'grok' }}
           # ── THE BRIEF IS AN INPUT NOW (2026-08-30) ────────────────────────
           #
