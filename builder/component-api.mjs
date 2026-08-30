@@ -662,7 +662,7 @@ export const COMPONENT_API = {
   "field-mask": "FieldMask(value: string, onChange: (raw: string) => void, groups: number[], separator?: string = \" \", numeric?: boolean = true, id?: string)",
   "field-success": "FieldSuccess(id?: string, children?: React.ReactNode)",
   "field-warning": "FieldWarning(id?: string, children: React.ReactNode)",
-  "figure": "Figure(src?: string | null, alt?: string, caption?: string, credit?: string, ratio?: string = \"16/9\")",
+  "figure": "Figure(src?: string | null, alt?: string, caption?: string, credit?: string, ratio?: string = \"16/9\", children?: React.ReactNode)",
   "file-conflict": "FileConflict(name: string, existing: string, incoming: string, onKeepBoth: () => void, onReplace: () => void, onSkip: () => void)",
   "file-drop": "FileDrop(onFile: (file: File) => void, accept?: string = \"image/*\", busy?: boolean, hint?: string = \"PNG or JPEG, up to 2 MB\")",
   "file-list": "FileList(files: { name: string; size?: number; href?: string; meta?: string | null }[], onRemove?: (name: string) => void, empty?: string = \"No files yet\")",

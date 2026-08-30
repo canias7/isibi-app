@@ -830,6 +830,43 @@ and checks the component really accepts children, so a rename cannot make the
 guard lie. **The general shape: when the kit has two components for one job, the
 prompt must pick, because a name is not a contract.**
 
+**TWO KIT COMPONENTS WHOSE NAMES DO NOT DISTINGUISH THEM (2026-08-30, runs 84
+and 85, 22 credits).** `Figure` drew its own picture from a `src` prop and took
+NO children; `MediaCaption` took the picture as a child. Both are captioned
+figures. Told to render a QR as its own `<img src={SITE_QR}>` and show it with
+its caption, the model reached for the one whose NAME matched the job and the
+build died at typecheck with TS2322 — **twice, in two generations, at two
+different lines**. **The signature list already said `Figure` took no children**
+(`component-api.mjs` is generated from the real props and is in the prompt), and
+the model passed them anyway; naming the right component in the directive was
+tried between the two runs and run 85 read past that too. **So the fix is the
+wall, not the rule**: `Figure` takes children now (`children ?? <SafeImage>`),
+which removes the choice instead of governing it. Regenerating
+`component-api.mjs` is the hop that carries it to the model — two tests catch
+that file going stale, which is how the change reaches the prompt at all.
+**The general shape: when the kit has two components for one job and their names
+do not say which is which, a prompt cannot fix it — make the obvious name work.**
+
+**A DIRECTIVE FIX THAT WAS INERT BECAUSE THE DIRECTIVE NEVER FIRED (2026-08-30).**
+Between runs 84 and 85 I changed `marksDirective`'s QR paragraph to name the
+right component. It changed nothing, because that paragraph is emitted ONLY when
+a `qr` exists and neither run designed one — I fixed prose the model never saw
+and then read the identical failure as "the model ignored it". **Before
+concluding a prompt change did not work, check the prompt actually contained
+it.** The tell was in the builder's own reply both times: it described the wifi
+as something to COPY off the screen, never to scan.
+
+**THE QR RULE IS STRICTER THAN THE REST OF THE DESIGN STEP, so a first build can
+almost never have one (2026-08-30, open).** `QR_FIELD` says "NEVER INVENT THE
+DESTINATION… it points at something the brief actually gives you, or it does not
+exist" — while every other field invents placeholder detail freely, and the same
+builds invented a door code, a phone number and an address, each flagged "swap
+them for the real ones". A brief that says *scan the wifi off the screen* gives
+no real password, so the model correctly declined and printed it as text.
+`WIFI:`, `tel:`, `mailto:` and `geo:` are all accepted by `readQrText`, so the
+machinery is not the limit — the rule is. **Whether a QR may use a placeholder
+like everything else is a product call; owner's.**
+
 **A UNIT CONVENTION STATED ONLY IN PROSE (2026-08-30, run 83, live on
 `ashgrove-1`).** `OptionPricedList` says in its own doc comment "All arithmetic
 in integer minor units". The generated page passed the database's `price` —
