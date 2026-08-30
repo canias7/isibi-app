@@ -15,6 +15,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 // every Cloudflare custom-hostname call the platform made threw before it could
 // reach the API. Invisible until the line ran, which is the whole class of bug
 // `test/worker-imports.test.mjs` now covers.
+import { resolveAlias, cleanAlias, renameRows, aliasRefusal, renameRequest, readRename } from "./builder/site-alias.mjs";
 import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, isPublishedSiteRequest, siteHostSlug, siteHostFor, siteUrlFor, siteOrigin, claimRefusal, dnsInstructions, readStatus, mountRootFor, absolutizeAssets } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
@@ -102,7 +103,7 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage } from "./builder/site-lanes.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -7744,6 +7745,89 @@ async function cfHostname(env, method, path, body) {
 // visitor path of every request to every custom domain.
 const hostRoutes = makeCache({ ttlMs: 300_000, max: 2000 });
 
+// ── RENAMED SITES: a label → the site it really is ──────────────────────────
+//
+// FIVE MINUTES, like `hostRoutes` above, and on the same visitor path — but with
+// the OPPOSITE caching rule, which is the whole subtlety here.
+//
+// For a custom domain a MISS is rare and must not be cached ("a lookup failure
+// is not an absence"). For an alias the miss is the overwhelming majority: every
+// site that has never been renamed — all 47 of them today — resolves to "no row"
+// on every single request. Not caching that would put a Supabase round trip in
+// front of every page load on the platform to serve a feature almost nobody uses.
+//
+// So a miss IS cached, and the distinction the other cache draws still has to be
+// drawn: `NO_ALIAS` is the sentinel for "asked, and there is none", and a query
+// that FAILED stores nothing at all. Same rule, said with a value instead of an
+// absence, because here the two really are different answers.
+const NO_ALIAS = Object.freeze({ none: true });
+const aliasRoutes = makeCache({ ttlMs: 300_000, max: 4000 });
+/** slug → its current public name. Same rules, the other direction. */
+const aliasCurrent = makeCache({ ttlMs: 300_000, max: 4000 });
+
+/**
+ * The alias row for one label, or `NO_ALIAS`, or null when we could not ask.
+ */
+async function aliasRowFor(env, label) {
+  const l = typeof label === "string" ? label.toLowerCase() : "";
+  if (!l) return NO_ALIAS;
+  const hit = aliasRoutes.get(l);
+  if (hit) return hit;
+  if (!env.SUPABASE_SERVICE_KEY) return null;
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_aliases?alias=eq.${encodeURIComponent(l)}&select=slug,current&limit=1`,
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+    // A MISSING TABLE IS NOT A MISSING ALIAS, and this is the state the platform
+    // is in until the table is created by hand. PostgREST answers 404/400 for an
+    // unknown relation; treating that as "no alias" is exactly right — the
+    // feature is simply not installed — but it must not be cached as an answer,
+    // or installing the table later would take five minutes to take effect on
+    // every isolate. Answering null degrades to today's behaviour precisely.
+    if (!r.ok) return null;
+    const rows = await r.json().catch(() => null);
+    if (rows === null) return null;
+    const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+    const val = row && typeof row.slug === "string" ? { slug: row.slug.toLowerCase(), current: !!row.current } : NO_ALIAS;
+    aliasRoutes.set(l, val);
+    return val;
+  } catch { return null; }
+}
+
+/**
+ * WHAT A SITE IS CALLED NOW — its current public name, or its slug.
+ *
+ * THE SLUG IS THE HONEST FALLBACK, not a guess: a site with no alias row IS
+ * addressed by its slug, and a site whose row we could not read is one we cannot
+ * say a new name for. Both answer the slug, and both are right — the difference
+ * between them is invisible here and matters nowhere else.
+ */
+async function publicNameFor(env, slug) {
+  const s = typeof slug === "string" ? slug.toLowerCase() : "";
+  if (!s || !env.SUPABASE_SERVICE_KEY) return s;
+  const hit = aliasCurrent.get(s);
+  if (hit) return hit === NO_ALIAS ? s : hit;
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_aliases?slug=eq.${encodeURIComponent(s)}&current=is.true&select=alias&limit=1`,
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return s;
+    const rows = await r.json().catch(() => null);
+    if (rows === null) return s;
+    const name = Array.isArray(rows) && rows[0] && typeof rows[0].alias === "string" ? rows[0].alias.toLowerCase() : null;
+    aliasCurrent.set(s, name || NO_ALIAS);
+    return name || s;
+  } catch { return s; }
+}
+
+/** Forget both directions for one site — after a rename, in this isolate. */
+function forgetAlias(slug, ...labels) {
+  try {
+    aliasCurrent.delete(String(slug || "").toLowerCase());
+    for (const l of labels) if (l) aliasRoutes.delete(String(l).toLowerCase());
+  } catch { /* a cache that cannot forget still expires */ }
+}
+
 /**
  * Which site answers on this hostname?
  *
@@ -13375,7 +13459,35 @@ async function handleRequest(request, env, ctx) {
       if (pretty) return Response.redirect("https://" + pretty + (sm2[2] || "/") + url.search, 301);
     }
 
-    const zoneSlug = siteHostSlug(url.hostname);
+    let zoneSlug = siteHostSlug(url.hostname);
+    // ── A RENAMED SITE ANSWERS AT BOTH ADDRESSES ────────────────────────────
+    //
+    // The label a visitor typed is the site's slug for every site that has never
+    // been renamed, which is the overwhelming majority and costs one cached
+    // lookup. For a renamed one it is either the site's CURRENT name (serve it,
+    // under its real storage slug) or a name it USED to have (301 to what it is
+    // called now, permanently, because that is what a rename means).
+    //
+    // BEFORE the path rewrite below, because the rewrite builds `/s/<slug>/` and
+    // the slug it needs is the STORAGE one — the alias is an address, never a key.
+    if (zoneSlug) {
+      const row = await aliasRowFor(env, zoneSlug);
+      // `null` is "we could not ask" and answers today's behaviour exactly: the
+      // label is the slug. `resolveAlias` treats a null row that way too, so the
+      // degraded path and the no-alias path are one line rather than two.
+      const seen = row === NO_ALIAS ? null : row;
+      const now = seen && !seen.current ? await publicNameFor(env, seen.slug) : null;
+      const out = resolveAlias(zoneSlug, seen, now);
+      if (out.redirect) {
+        const to = siteHostFor(out.redirect);
+        // 301 for the reason the `/s/` redirect above gives: the point of a
+        // rename is to tell crawlers which address is canonical, and a temporary
+        // redirect consolidates nothing. Skipped when the new name has no pretty
+        // host, which would be a redirect to nowhere.
+        if (to) return Response.redirect("https://" + to + url.pathname + url.search, 301);
+      }
+      if (out.slug) zoneSlug = out.slug;
+    }
     if (zoneSlug && !servedAtRoot(url.pathname)) {
       url.pathname = "/s/" + zoneSlug + (url.pathname === "/" ? "/" : url.pathname);
       request = new Request(url.toString(), request);
@@ -17909,6 +18021,114 @@ async function handleRequest(request, env, ctx) {
               return Response.json({
                 ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [],
                 msg: rOut.msg, cost: await eCharge(rOut.usage), usage: rOut.usage,
+              });
+            }
+            if (eLayer === "rename") {
+              // ── THE SITE'S ADDRESS (2026-08-29, owner: "yeah do the alias one")
+              //
+              // NOTHING MOVES. The slug stays the key to every R2 prefix, every
+              // table and the dispatch script; what changes is the NAME the site
+              // answers to. See builder/site-alias.mjs for why a copy-and-delete
+              // was rejected — briefly: R2 has no rename, so the copy is a loop
+              // of PUTs with no transaction, and the alias record it would still
+              // need is the entire feature on its own.
+              const current = await publicNameFor(env, ownerSlug);
+
+              // NOTHING IS GUESSED. Every other lane biases toward acting,
+              // because a wrong edit is visible and undoable. This one is
+              // neither — the old address 301s forever after — so a message with
+              // no name in it is a refusal, not an attempt. Second place on the
+              // platform where the bias inverts, after the `pages` verb.
+              let rq;
+              try {
+                rq = await anthropicMessages(env, renameRequest({
+                  message: eInstruction, current, model: LANE_MODEL,
+                }));
+              } catch (e) {
+                return modelDown(e, "The editor is busy — try again in a moment.");
+              }
+              const wanted = readRename(rq);
+              const rUsage = laneUsage(rq, LANE_MODEL);
+              if (!wanted) {
+                return Response.json({
+                  ok: false, layer: "rename", cost: await eCharge(rUsage),
+                  msg: "Tell me what you would like the address to be — for example \u201Ccall it sunset-shoes\u201D — and I will move it.",
+                }, { status: 422 });
+              }
+
+              // ── IS IT FREE? THREE WAYS IT MIGHT NOT BE ────────────────────
+              //
+              // Checked before anything is written, and all three answer a
+              // DIFFERENT sentence: a customer told "that name is taken" for a
+              // name that is merely malformed goes looking for a conflict that
+              // does not exist. `aliasRefusal` owns the wording so the lane and
+              // the route cannot drift apart.
+              if (wanted === current) {
+                return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                  msg: aliasRefusal(wanted, { same: true }) }, { status: 422 });
+              }
+              // Reserved subdomains are refused by `siteHostFor` answering null,
+              // which is the same check the build path trusts.
+              if (!siteHostFor(wanted)) {
+                return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                  msg: aliasRefusal(wanted, { reserved: true }) }, { status: 422 });
+              }
+              // TAKEN MEANS EITHER: a site built under that slug, or a name
+              // another site has ever answered to. Both are real conflicts — the
+              // second is the whole reason old names stay claimed.
+              const takenBySite = await siteOwnerBySlug(wanted, env);
+              const takenByAlias = await aliasRowFor(env, wanted);
+              const aliasConflict = takenByAlias && takenByAlias !== NO_ALIAS && takenByAlias.slug !== ownerSlug;
+              // A LOOKUP WE COULD NOT MAKE IS NOT A FREE NAME. `aliasRowFor`
+              // answers null when it could not ask, and handing out a name on
+              // that basis is how two sites end up sharing an address.
+              if (takenBySite || aliasConflict || takenByAlias === null) {
+                return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                  msg: aliasRefusal(wanted, { taken: true }) }, { status: 422 });
+              }
+
+              const rows = renameRows({ slug: ownerSlug, uid: ou.id, from: current, to: wanted });
+              if (!rows) {
+                return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                  msg: aliasRefusal(wanted, {}) || "That name will not work as a web address." }, { status: 422 });
+              }
+              // THE OLD NAME FIRST, THE NEW ONE SECOND, and the ORDER is the
+              // recovery story rather than style — see `renameRows`. A failure
+              // between them leaves the site exactly where it started.
+              const putAlias = async (row) => {
+                const w = await fetch(`${SUPABASE_URL}/rest/v1/site_aliases`, {
+                  method: "POST",
+                  headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=merge-duplicates" }),
+                  body: JSON.stringify(row),
+                  signal: AbortSignal.timeout(15000),
+                });
+                return w.ok ? null : (await w.text().catch(() => "")).slice(0, 200);
+              };
+              const badOld = await putAlias(rows.demote);
+              if (badOld) return escalate("rename-store", { detail: badOld });
+              const badNew = await putAlias(rows.promote);
+              if (badNew) return escalate("rename-store", { detail: badNew });
+              forgetAlias(ownerSlug, current, wanted);
+
+              // ── AND REPUBLISH, WHICH IS NOT OPTIONAL ──────────────────────
+              //
+              // The canonical link and `og:url` are baked into the R2 sidecar at
+              // publish time. A renamed site whose sidecar still names the old
+              // address tells every crawler the old one is the real one — the
+              // "a wrong canonical is worse than none" case __root.tsx already
+              // argues, arriving through a new door. `recompileAndPublish` is the
+              // shared spine and recomputes it from the public name.
+              // THROUGH `publishStep`, NOT STRAIGHT TO THE SPINE. One publish
+              // per message is the law here (owner: "if the act was 2 things
+              // then 1 publish"), and a rename can arrive beside a colour change
+              // in the same sentence. The spine runs once below the loop; this
+              // hands it the pages and says the rung is done.
+              await publishStep(env, { slug: ownerSlug, pages: eSrc, label: "renamed to " + wanted });
+              const addr = siteHostFor(wanted);
+              return Response.json({
+                ok: true, layer: "rename", renamed: wanted, url: addr ? "https://" + addr + "/" : null,
+                cost: await eCharge(rUsage),
+                msg: "Done — your site is now at " + (addr || wanted) + ". The old address still works and sends people to the new one.",
               });
             }
             if (eLayer === "nav") {

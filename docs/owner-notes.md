@@ -183,6 +183,39 @@ nothing for it. Cap of three, and the wording tells the model to search the kit
 first and say what it searched for — a component we build that the kit already
 had is the expensive mistake here.
 
+**0d. DONE 2026-08-29: renaming a site — the last unbuilt lane** (owner: "now the
+slug lane", then "yeah do the alias one").
+
+**Every lane on the platform now does something.** `slug` was the last one that
+did not.
+
+**Nothing moves when a site is renamed.** I looked at doing it "properly" —
+copying everything to a new name and deleting the old — and it is the wrong
+trade. A site's name is the key to five database tables, seven storage areas and
+its own Worker script, and there is no way to rename storage: you copy it item by
+item, and if that stops halfway the site is half at each address with no way
+back.
+
+And the safe version needs nothing extra. Either way we have to remember the old
+name belongs to that site, because **the old address has to keep working** —
+people print it, put it on vans, and as of today we put it on QR codes — and
+because the old name has to stay taken, or the next customer to ask for
+`shoeroom-1` takes over an address a live site is still sending people to. Once
+you have that record, the copying buys nothing.
+
+So: the site keeps its internal name, gets a new public one, and the old address
+permanently redirects. Reversible, and nothing can half-fail.
+
+**One thing to know, and it is permanent:** a site's storage name and its web
+address can now be different. That is fine and invisible to customers, but it
+means nothing in the code may assume they are the same — it is written into
+CLAUDE.md as a standing trap.
+
+**It will not do anything until one database table is made.** There is no
+migration tool in this project, so tables get created by hand. Until that
+happens the code quietly behaves exactly as it does today — no errors, no
+change. Tell me when you want it created and I will do it.
+
 **0c. DONE 2026-08-29: a QR code and an animated mark, both optional** (owner:
 *"qr code maker as optional, also gif maker as optional too, in the design
 step"*, and on the second: *"just like a svg step, a gif step to generate gif"*).

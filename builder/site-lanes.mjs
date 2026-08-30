@@ -178,6 +178,23 @@ export const LANE_LAYER = {
   // compelled, and this field's whole worth is that the ordinary answer is none.
   tsx: "page",
   action: "nav",
+  // ── A RENAME IS ITS OWN RUNG (2026-08-29) ────────────────────────────────
+  //
+  // NOT AN OWN LANE, and the reason is the invariant the own lanes rest on:
+  // every one of them but `css` is a KEY ON THE STORED LOOK, read with
+  // `priorLook[field]` and written through `mergeLook`. A site's ADDRESS is
+  // none of those things — it is a platform record — so an own lane would have
+  // its answer silently dropped at the merge, which is precisely the shape
+  // `three` shipped in and the guard above now watches for.
+  //
+  // It dispatches like `backend` does: the value is not ours, the work is one
+  // rung away, and the layer that does it owns the whole operation.
+  //
+  // KEYED BY THE GROUP NAME, NOT THE FIELD NAME — this map is `elsewhere` → the
+  // layer, so `images` maps to `picture` and `plan` maps to `page`. A `slug:`
+  // key here would be looked up by nothing and `laneLayer` would answer null,
+  // which the load-time check catches as "dispatches nowhere". It did.
+  rename: "rename",
 };
 
 /**
@@ -195,7 +212,13 @@ export const LANE_LAYER = {
  *   slug   the site's address. A move: republish under a new name, redirect the
  *          old one, and every custom domain has to keep pointing at it.
  */
-export const LANE_UNBUILT = { slug: "move" };
+// EMPTY SINCE 2026-08-29, AND THE EXPORT STAYS. `slug` was the last one, and it
+// is built now (owner: "yeah do the alias one"). The name, the group, the
+// `laneUnbuilt` reader and the partition slot all remain because the NEXT
+// capability somebody defers needs exactly this shape — and because a group
+// that is empty is a fact the partition test can assert, where a group that was
+// deleted is one nobody can.
+export const LANE_UNBUILT = {};
 
 /**
  * ── THE THREE THINGS `pages` MEANS, AND WHY THEY NEED A SECOND WORD ─────────
@@ -540,10 +563,13 @@ const LANES = {
     elsewhere: "tsx",
   },
 
-  /* ---- the three that are still their own work ---- */
+  /* ---- the three whose work is not a stored value ---- */
   kind: { hint: "Whether this is a shopfront that persuades a visitor, or a tool the business works in — changing it makes a different site.", escalate: "build" },
   pages: { hint: "Which pages the site HAS — adding one, taking one away, or moving one to a new address. Not what is ON a page.", verbs: true },
-  slug: { hint: "The site's web address — the word in <name>.gofarther.app.", unbuilt: true },
+  slug: {
+    hint: "THE SITE'S WEB ADDRESS — the word in <name>.gofarther.app. Renaming the site, or giving it a different address.",
+    elsewhere: "rename",
+  },
 };
 
 /** Every lane, in one order, and it is the order they RUN in — see `readLanes`. */

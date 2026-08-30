@@ -271,7 +271,10 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
   //   dispatched  another edit layer does the work
   //   verbs       which layer depends on a verb the router also answers
   //   escalate    a rung ABOVE this route does it (`kind` is a rebuild)
-  //   unbuilt     nobody does it yet (`slug` is an address move)
+  //   unbuilt     nobody does it yet — EMPTY since 2026-08-29, when `slug`
+  //               became a real rename. The group stays because a group that is
+  //               empty is a fact this test can assert, where a group that was
+  //               deleted is one nobody can.
   // Collapsing any two of them loses a real distinction: "the page rung does
   // this", "we cannot tell which of three you mean", "the build rung does this"
   // and "nothing does this" are four different sentences to a customer.
@@ -368,6 +371,15 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
     // purpose — every plan axis is compelled, and this field's whole worth is
     // that the ordinary answer is none.
     tsx: "page",
+    // ── THE ADDRESS (2026-08-29) ───────────────────────────────────────────
+    //
+    // `slug` was the one unbuilt lane on the platform and is a dispatched one
+    // now (owner: "yeah do the alias one"). It dispatches rather than acting
+    // here for the reason the own-lane guard states: every own lane but `css` is
+    // a KEY ON THE STORED LOOK, and an address is a platform record — an own
+    // lane would have its answer dropped at `mergeLook`, silently, which is
+    // exactly the shape `three` shipped in.
+    slug: "rename",
   };
   for (const [field, layer] of Object.entries(MAPPING)) {
     assert.equal(laneLayer(field), layer,
@@ -378,11 +390,25 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
   assert.deepEqual([...DISPATCHED_LANES].sort(), Object.keys(MAPPING).sort(),
     "the dispatched group changed without a decision about where the new lane's work goes");
 
-  // THE UNBUILT ONES EACH NAME THEIR OWN JOB. Three different pieces of work —
-  // a rebuild, a page-set change, an address move — and a single word for all
-  // three is the failure-that-cannot-name-itself shape this repo has recorded
-  // seven times over; the last one cost two live runs.
-  assert.ok(UNBUILT_LANES.length >= 1, "nothing is unbuilt — if that is true, say so here rather than leaving an empty loop");
+  // ── NOTHING IS UNBUILT, AND THAT IS SAID HERE RATHER THAN LEFT AS AN EMPTY
+  //    LOOP (2026-08-29) ────────────────────────────────────────────────────
+  //
+  // The floor used to be `>= 1` — a live-observer check, because a loop over an
+  // empty collection contributes no assertions and passes exactly like one that
+  // checked everything. It fired the day `slug` became a real rename, which is
+  // precisely what it was for: it refused to let the group empty out silently.
+  //
+  // So the assertion inverts rather than being deleted. Every lane on the
+  // platform now does something, and if a future capability is deferred it will
+  // land in this group and this line will fail until somebody writes down what
+  // it needs — which is the whole value of keeping the group alive and empty.
+  assert.equal(UNBUILT_LANES.length, 0,
+    "a lane is unbuilt again: " + UNBUILT_LANES.join(",") + " — name what each one needs, then update this");
+  // …and the reader still has to WORK, or a later unbuilt lane gets one word for
+  // a job that needs its own sentence. Driven with a fabricated lane rather than
+  // a real one, so it measures the function instead of today's roster.
+  assert.equal(laneUnbuilt("slug"), null, "`slug` still reports as unbuilt after being built");
+  assert.equal(laneUnbuilt("nope"), null, "the unbuilt reader answers for a lane that does not exist");
   assert.equal(new Set(UNBUILT_LANES.map(laneUnbuilt)).size, UNBUILT_LANES.length,
     "two unbuilt lanes share one reason, so nobody can tell which job is missing");
   for (const f of UNBUILT_LANES) {

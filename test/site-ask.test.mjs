@@ -1935,14 +1935,28 @@ test("every edit layer is driven by the live check, or is named as a known gap",
   // empty balance, and reusing an owner upload means chaining this to whatever
   // an earlier step happened to store. A named gap is a decision; an unnamed one
   // is the state this test exists to end.
-  const KNOWN_GAPS = ["picture"];
+  // ── `rename` JOINED THE GAP LIST 2026-08-29, AND IT IS WRITTEN DOWN ───────
+  //
+  // Two reasons, and the first is decisive: the live check cannot drive a rename
+  // until `site_aliases` EXISTS, and this repo has no migration runner — tables
+  // are created by hand. Until somebody makes it, `aliasRowFor` answers null on
+  // every lookup, `resolveAlias` reads that as "no alias", and the platform
+  // behaves exactly as it did before the feature. That is a deliberate degrade,
+  // not an accident, and it means the code can ship ahead of the table safely.
+  //
+  // The second holds even after the table exists: a live rename CLAIMS a real
+  // address on the real platform and leaves a real site answering at a new name.
+  // Every other layer's live check is undoable; this one would litter the
+  // namespace with test names that can never be released, because releasing them
+  // is precisely what the old-name-stays-claimed rule forbids.
+  const KNOWN_GAPS = ["picture", "rename"];
   const missing = EDIT_LAYERS.filter((l) => !driven.has(l) && !KNOWN_GAPS.includes(l));
   assert.deepEqual(missing, [],
     "these lanes have no live proof at all: " + missing.join(", "));
 
   // AND THE GAP LIST MAY NOT GROW QUIETLY EITHER — a layer added to it is a
   // decision to ship something unproven, which should have to be written down.
-  assert.ok(KNOWN_GAPS.length <= 1, "more lanes are being shipped without live proof");
+  assert.ok(KNOWN_GAPS.length <= 2, "more lanes are being shipped without live proof");
   // The floor: a scan that stopped matching would report full coverage.
   assert.ok(driven.size >= EDIT_LAYERS.length - KNOWN_GAPS.length,
     "the scan found only " + driven.size + " layers in the live check");

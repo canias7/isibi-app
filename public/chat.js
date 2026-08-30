@@ -11698,6 +11698,18 @@ function editReply(e) {
     // the half a second copy here would eventually drop.
     return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.');
   }
+  if (e.layer === 'rename') {
+    // THE SERVER NAMES THE ADDRESS, for the reason the nav branch below gives:
+    // it is the only side that knows what name was actually granted. The model
+    // asked for one, `cleanAlias` may have read it slightly differently, and a
+    // second opinion here would eventually tell an owner they are at an address
+    // they are not at — on the one field where being wrong is permanent.
+    //
+    // THE OLD ADDRESS STILL WORKING IS THE HALF THAT NEEDS SAYING. An owner who
+    // has printed cards, put the address on a van, or is carrying a QR code that
+    // points at it will assume a rename broke all three, and will not ask.
+    return e.msg || ('✅ Your site is now at ' + (e.renamed || 'its new address') + '. The old address still works.');
+  }
   if (e.layer === 'nav') {
     // THE SERVER NAMES THE MENU, because it is the only thing that knows what
     // was DROPPED and why — an item pointing at a page the site does not have

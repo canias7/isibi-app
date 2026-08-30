@@ -123,7 +123,9 @@ export const FALLBACK_NO_SITE = "build";
  * An unrecognised layer is not a fourth option, it is a routing failure, and it
  * goes UP the ladder like every other one.
  */
-export const EDIT_LAYERS = ["data", "text", "look", "page", "rules", "picture", "logo", "nav"];
+// `rename` JOINED 2026-08-29 — a site's address, which is a platform record and
+// not a value on the look, so it is a rung of its own rather than an edit lane.
+export const EDIT_LAYERS = ["data", "text", "look", "page", "rules", "picture", "logo", "nav", "rename"];
 
 /**
  * The layers where "take it away" is a thing a customer can ask for.
@@ -296,7 +298,12 @@ export const ASK_TOOL = {
           // `nav` layer there it is a ~27-credit page-generation call to move one
           // word, and the example has to point at the cheap lane or the layer is
           // reachable by nothing.
-          "A MENU CHANGE IS \"nav\", NOT THIS AND NOT \"addon\". It lands on every page and costs almost nothing.",
+          "A MENU CHANGE IS \"nav\", NOT THIS AND NOT \"addon\". It lands on every page and costs almost nothing.\n" +
+          "\"rename\" — THE SITE'S WEB ADDRESS, and nothing else: the word in <name>.gofarther.app. Pick it when " +
+          "they ask to rename the site, move it, or have it at a different address. NOT for changing the business's " +
+          "NAME as it reads in the header — that is the name on the page and it is a look change; a site can be " +
+          "called \"Sunset Shoes\" and live at shoeroom-1, and plenty do. The old address keeps working and sends " +
+          "people to the new one, so this is safe to pick when they plainly asked for it — and only then.",
       },
       page: {
         type: "string",

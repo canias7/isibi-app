@@ -460,6 +460,52 @@ the majority of the platform. `{ tables: [] }` is the truth about such a site;
 `null` is kept for a site that HAS a database whose `_meta` could not be read,
 because cannot-tell must never read as nothing-there.
 
+### RENAMING A SITE IS AN ALIAS, NOT A MOVE (2026-08-29)
+
+`slug`→`rename`, and **nothing moves**. A slug keys five Supabase tables, seven
+R2 prefixes and one dispatch script; R2 has no rename, so a "real" move is a loop
+of PUTs with no transaction — a copy that dies halfway leaves the site half at
+each address with nothing to roll back to.
+
+**And the move needs everything the alias needs anyway.** Either way the platform
+must remember the old name belongs to this site: the old address has to keep
+working (customers print it, and we now generate **QR codes** pointing at it) and
+the old name has to stay CLAIMED, or the next build of `shoeroom-1` takes over an
+address a live site still redirects from. So the alias record IS the feature and
+the copy is pure added risk.
+
+**THE STORAGE SLUG AND THE PUBLIC ADDRESS CAN NOW DIFFER, and nothing may assume
+they are equal.** `slug` stays the storage key — every R2 prefix, every table,
+the dispatch script, and `SITE_SLUG` baked into the page (which addresses the
+site's own API, so it MUST stay the key). The one place the distinction is
+load-bearing is the canonical link and `og:url`: both are baked into the R2
+sidecar at publish time, so **a rename republishes** or the site tells every
+crawler its real address is the old one.
+
+`site_aliases (alias PK, slug, uid, current)`, with **one current name per site
+enforced by a partial unique index** rather than by us — two rows claiming to be
+a site's live address is a state no application check survives concurrency.
+
+**The cache rule INVERTS from `hostRoutes`.** There a miss is rare and must not be
+cached; here the miss is every site that has never been renamed, so not caching
+it would put a Supabase round trip in front of every page load on the platform.
+The miss is cached as `NO_ALIAS`; a lookup that FAILED caches nothing — including
+the failure that matters most, the table not existing yet.
+
+**It ships before the table does, deliberately.** No migration runner here, so
+`site_aliases` is created by hand; until it is, `aliasRowFor` answers null and
+the platform behaves exactly as before. Named as a known gap in the live check
+for that reason, and because a live rename would claim a real address that the
+old-name-stays-claimed rule then forbids ever releasing.
+
+**The bias inverts here, and it is the second place on the platform that happens**
+(after the `pages` verb): a message with no name in it is REFUSED, never guessed,
+because the old address 301s forever after. `cleanAlias` refuses rather than
+repairs for the same reason — the first draft turned "déjà vu café" into
+`dj-vu-caf`.
+
+---
+
 **Still mixed, and next: the ADDON step**, which calls `designSiteSchema` with the
 same 84.8k build tool to add one page. **DELETE deferred** (owner's call).
 
