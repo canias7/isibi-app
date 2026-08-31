@@ -61,7 +61,7 @@ jobs:
           # A DISPATCH NAMES ITS SITE; A PUSH READS THE LAST ONE BUILT. The
           # default is not decoration — on the push path `inputs.slug` is empty
           # and an unset OWNER_SLUG makes the script refuse with nothing read.
-          OWNER_SLUG: ${{ github.event.inputs.slug || 'coalhole-2' }}
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'fretwork-1' }}
         run: node scripts/answer-read.mjs
       - uses: actions/upload-artifact@v4
         if: always()
