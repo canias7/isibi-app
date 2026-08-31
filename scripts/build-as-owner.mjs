@@ -248,6 +248,9 @@ if (IS_EDIT) {
       log(`step 5 — upstream: status=${e.upstream} type=${e.upstreamType}${e.billing ? " BILLING" : ""}`);
     }
     if (e.kind) log(`step 5 — kind: ${e.kind}`);
+    // RUN 96 READS THIS BLOCK AS MUCH AS IT READS THE LANE. If the ceiling was
+    // the whole story the edit now goes through; if it was not, these lines are
+    // what turn the next failure from a guess into a fact.
   }
 
   const eAfter = await fetch(`${BASE}/api/credits`, { headers: auth }).then((r) => r.json()).catch(() => null);
