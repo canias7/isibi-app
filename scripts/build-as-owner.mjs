@@ -258,6 +258,9 @@ if (IS_EDIT) {
     // correction round is what has to save it, off the map the build itself
     // captured. Two builds and a corrected selector is the pass; one build and a
     // dead rule is the whole thing not firing.
+    //
+    // Run 99 never got that far: it died at 60,000ms on our own ceiling, before
+    // the first model call returned. Run 100 asks the same question with 240s.
     // RUN 96 READS THIS BLOCK AS MUCH AS IT READS THE LANE. If the ceiling was
     // the whole story the edit now goes through; if it was not, these lines are
     // what turn the next failure from a guess into a fact.
