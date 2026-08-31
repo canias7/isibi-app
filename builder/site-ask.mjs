@@ -1,4 +1,5 @@
-// Telling a question from an instruction — and answering the question.
+
+import { modelsFor } from "./build-models.mjs";// Telling a question from an instruction — and answering the question.
 //
 // THE BUILDER COULD NOT BE ASKED ANYTHING. `siteSend` had exactly one decision
 // in it — `isBuild = !sitePages(site).length` — so the FIRST message on a project
@@ -33,8 +34,23 @@
 // Plain module with its side effects injected, like `site-context.mjs` and
 // `publish-pages.mjs`, so all of it is tested with no network and no Worker.
 
-/** Haiku. This is a routing decision and a short answer, not a design task. */
-export const ASK_MODEL = "claude-haiku-4-5";
+/** A small call: a routing decision and a short answer, not a design task. */
+/**
+ * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
+ *
+ * Every small call on this platform was pinned to `claude-haiku-4-5`, so a
+ * customer who had picked Grok still had Anthropic in their path — and when
+ * Anthropic refused on billing, the whole cheap ladder went down with it while
+ * builds carried on fine. Run 93 measured that: a `css` edit answered 503 in
+ * 5.3s having spent nothing, and the lane it was testing never ran.
+ *
+ * DERIVED FROM THE TABLE rather than restated, so it cannot drift from the
+ * picker, and it resolves to DEFAULT_PICKER — which is what a caller that
+ * forgets to thread the picker gets. That is deliberately the platform default
+ * and never Haiku: a forgotten hop should land on the model everything else
+ * uses, not quietly back on the provider this change exists to leave.
+ */
+export const ASK_MODEL = modelsFor().quick;
 
 /**
  * Enough for a real answer and not enough for an essay.
@@ -494,7 +510,7 @@ const SYSTEM =
  * Extracted the way `pagesRequest` was, and for the same reason: the moment two
  * places construct this request, a test tunes something production does not run.
  */
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL } = {}) {
   const text = String(message || "").trim().slice(0, MAX_MESSAGE);
   // WHICH ANSWERS ARE EVEN AVAILABLE, said outright rather than left to be
   // inferred from whether the digest happens to list any pages. The digest is a
@@ -532,7 +548,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // are named; this block owns exactly one fact, that clarify is over.
     : "\n\nQUESTIONS\nQuestions are closed for this message — never answer \"clarify\".";
   return {
-    model: ASK_MODEL,
+    model,
     max_tokens: ASK_MAX_TOKENS,
     tools: [ASK_TOOL],
     // FORCED, like both of the other calls. Without it Haiku will happily answer
@@ -920,7 +936,7 @@ export function clarifiedBrief(brief, qa) {
  * three — this call is cheap, but "cheap" is not a billing rule, and a model
  * whose price changes should not need a second place edited.
  */
-export function askUsage(reply) {
+export function askUsage(reply, model = ASK_MODEL) {
   const u = (reply && reply.usage) || {};
   return {
     in: Number(u.input_tokens) || 0,
@@ -932,7 +948,7 @@ export function askUsage(reply) {
     // rates for a Haiku call, three times over. Invisible today, because a
     // routing call rounds up to the one-credit floor either way; it stops being
     // invisible the moment anything on this path gets bigger.
-    model: ASK_MODEL,
+    model,
   };
 }
 
@@ -947,7 +963,7 @@ export function askUsage(reply) {
  * that path running. `usage` comes back null on that route, so nothing is billed
  * for a call that failed — the same our-fault rule the build path follows.
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -970,7 +986,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   const pages = (site && Array.isArray(site.pages)) ? site.pages : [];
   let reply;
   try {
-    reply = await deps.send(askRequest({ message: text, site, canClarify, brief, qa: asked, hasSite: !!hasSite }));
+    reply = await deps.send(askRequest({ message: text, site, canClarify, brief, qa: asked, hasSite: !!hasSite, model }));
   } catch {
     // A THROW IS THE BOTTOM OF THE LADDER FOR THIS STATE, not unconditionally a
     // build. On an existing site an unreachable router used to mean the customer
@@ -981,5 +997,5 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   const routed = readRouting(reply, {
     canClarify, answering: !!answering, attached: !!attached, hasSite: !!hasSite, pages,
   });
-  return { ...routed, usage: askUsage(reply) };
+  return { ...routed, usage: askUsage(reply, model) };
 }

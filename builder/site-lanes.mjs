@@ -93,9 +93,25 @@
 // second copy of the shape, and two copies of one shape drift in silence.
 import { PLAN_KEYS, BEHAVIOR_ITEM, MAX_BEHAVIOR } from "./site-plan.mjs";
 import { THEME_SHORTLIST } from "./site-theme-registry.mjs";
+import { modelsFor } from "./build-models.mjs";
 
-/** Haiku. Naming which part of a site a sentence is about is routing, not work. */
-export const LANE_MODEL = "claude-haiku-4-5";
+/** A small call: naming which part of a site a sentence is about is routing, not work. */
+/**
+ * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
+ *
+ * Every small call on this platform was pinned to `claude-haiku-4-5`, so a
+ * customer who had picked Grok still had Anthropic in their path — and when
+ * Anthropic refused on billing, the whole cheap ladder went down with it while
+ * builds carried on fine. Run 93 measured that: a `css` edit answered 503 in
+ * 5.3s having spent nothing, and the lane it was testing never ran.
+ *
+ * DERIVED FROM THE TABLE rather than restated, so it cannot drift from the
+ * picker, and it resolves to DEFAULT_PICKER — which is what a caller that
+ * forgets to thread the picker gets. That is deliberately the platform default
+ * and never Haiku: a forgotten hop should land on the model everything else
+ * uses, not quietly back on the provider this change exists to leave.
+ */
+export const LANE_MODEL = modelsFor().quick;
 
 /** Enough for a short list of names. There is no prose in this output at all. */
 export const LANE_PICK_MAX_TOKENS = 200;
@@ -753,10 +769,10 @@ const PICK_SYSTEM =
   "Name the fewest parts that cover what they asked for. One is nearly always right.";
 
 /** The routing request. Shaped like `askRequest` in site-ask.mjs, for the same reasons. */
-export function pickRequest({ message, fields = LANE_FIELDS, current = "" }) {
+export function pickRequest({ message, fields = LANE_FIELDS, current = "", model = LANE_MODEL }) {
   const tool = pickTool(fields);
   return {
-    model: LANE_MODEL,
+    model,
     max_tokens: LANE_PICK_MAX_TOKENS,
     // A REAL CACHED PREFIX: the tool and the system text are byte-identical on
     // every edit any customer makes, and the message is the only per-call byte.
@@ -851,20 +867,25 @@ export function laneUsage(reply, model) {
  * falling back to the whole list would answer "we could not tell" by buying
  * seventeen edits, which is the most expensive possible reading of it.
  */
-export async function pickLanes(deps, { message, fields = LANE_FIELDS, current = "" } = {}) {
+export async function pickLanes(deps, { message, fields = LANE_FIELDS, current = "", model = LANE_MODEL } = {}) {
   const text = String(message || "").trim();
   // A PAID CALL BEHIND A PUBLIC ROUTE. The composer will not send an empty
   // message; "the client wouldn't do that" is not a gate.
   if (!text) return { fields: [], usage: null, failed: false };
   let reply;
   try {
-    reply = await deps.send(pickRequest({ message: text, fields, current }));
+    reply = await deps.send(pickRequest({ message: text, fields, current, model }));
   } catch (e) {
     // CARRIED, NOT SWALLOWED. The caller tells a billing outage from a busy
     // model by reading `e.status` and `e.detail`.
     return { fields: [], usage: null, failed: true, error: e };
   }
-  return { fields: readLanes(reply, fields), page: readPageVerb(reply), usage: laneUsage(reply, LANE_MODEL), failed: false };
+  // THE MODEL THAT WAS ACTUALLY SENT, not the module default. This stamped
+  // `LANE_MODEL` while the request carried the caller's `model`, so a customer
+  // on Sonnet had their routing call PRICED as the default picker's — the rate
+  // column disagreeing with the call it prices. Caught by the per-message
+  // billing test, which noticed the bill spanning two models.
+  return { fields: readLanes(reply, fields), page: readPageVerb(reply), usage: laneUsage(reply, model), failed: false };
 }
 
 /* ---------------------------------------------------------------- the action */

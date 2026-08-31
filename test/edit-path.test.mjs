@@ -37,6 +37,7 @@ import { LANE_FIELDS, OWN_LANES, UNBUILT_LANES, laneLayer, laneUnbuilt, laneEsca
 // assertion below "failed" for a reason that had nothing to do with billing.
 // A hand-typed constant is a second copy of a name, and two copies drift.
 import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
+import { modelsFor, BUILD_MODELS } from "../builder/build-models.mjs";
 
 const USER = { id: "u-editpath-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
@@ -164,7 +165,21 @@ test("one ask: the router runs, then one lane, and nothing else", async () => {
 
       const [router, lane] = calls;
       // THE ROUTER IS THE CHEAP HALF, or the split costs more than it saves.
-      assert.match(String(router.body.model), /haiku/i, "the lane router is not on the cheap model: " + router.body.model);
+      // THE ROUTER AND THE LANE ARE ON THE SAME MODEL — the customer's picked one.
+      //
+      // Pinned to /haiku/i until run 93, when a billing refusal at that one
+      // provider took down the router, every lane and the whole cheap ladder at
+      // once while builds on Grok carried on. Owner's call: the picked model does
+      // everything.
+      //
+      // COMPARED TO THE LANE, NOT TO `modelsFor().quick` — that is the DEFAULT
+      // picker's model, and this fixture drives a different one, so asserting
+      // against it would pass only while the two happened to agree. What matters
+      // is that no call on this path is left behind on a model of its own, which
+      // is exactly the state that caused the outage.
+      assert.equal(String(router.body.model), String(lane.body.model),
+        "the router and the lane are on different models — one of them is not following the picker: " +
+        router.body.model + " vs " + lane.body.model);
       // …AND IT OFFERS EVERY LANE, so a customer cannot ask about a part of
       // their site the router has no name for.
       const offered = router.body.tools[0].input_schema.properties.fields.items.enum;
@@ -282,8 +297,15 @@ test("every call in the message is on one bill", async () => {
       assert.ok(!Object.hasOwn(body, "renamed"),
         "a rung's own value overwrote one the merge had already decided — `renamed` came back as "
           + JSON.stringify(body.renamed));
-      assert.ok(new Set(parts.map((p) => p.model)).size === 2,
-        "both calls were billed at the same model — the router is haiku and the lane is not");
+      // ONE MODEL ACROSS BOTH CALLS, WHICH IS THE REVERSE OF WHAT THIS SAID.
+      // It asserted TWO — the router on Haiku and the lane on the picker's — and
+      // that split is precisely what run 93 died of: a billing refusal at the
+      // router's provider took down every lane behind it while builds carried
+      // on. What still matters is the thing the line above measures, that each
+      // part carries a model at all; what changed is that they now agree.
+      assert.equal(new Set(parts.map((p) => p.model)).size, 1,
+        "the router and the lane were billed at different models — one is not following the picker: " +
+        JSON.stringify(parts.map((p) => p.model)));
     },
   );
 });
@@ -625,8 +647,25 @@ test("the billing is per MESSAGE, not per rung — measured against the ledger",
         const parts = (body.usage && body.usage.langUsage) || [];
         assert.equal(parts.length, 3,
           "the bill carries " + parts.length + " calls; expected the router plus two lanes: " + JSON.stringify(parts));
-        assert.equal(parts.filter((p) => p.model === "claude-haiku-4-5").length, 1,
-          "the routing call is on the bill more than once: " + JSON.stringify(parts));
+        // THE MODEL CAN NO LONGER TELL THE ROUTER FROM A LANE, and that is the
+        // point rather than a loss. This filtered for `claude-haiku-4-5` and
+        // worked only because the router was on a DIFFERENT provider from the
+        // lanes — the exact split that took the cheap ladder down on run 93 when
+        // that provider refused on billing. Everything on this path follows the
+        // customer's picker now, so the count above is what catches a
+        // double-counted router: three parts, not four.
+        //
+        // What replaces it is the invariant the change exists for — no call on
+        // this path is left behind on a model of its own.
+        assert.equal(new Set(parts.map((p) => p.model)).size, 1,
+          "the bill spans more than one model, so some call is not following the picker: " + JSON.stringify(parts));
+        // A MODEL THE TABLE REALLY OFFERS, not a hardcoded name and not the
+        // DEFAULT picker's — this fixture drives a different picker, so pinning
+        // `modelsFor().quick` would pass only while the two happened to agree.
+        // (I wrote it that way first and this assertion caught it.)
+        const quicks = Object.keys(BUILD_MODELS).map((k) => modelsFor(k).quick);
+        assert.ok(quicks.includes(parts[0].model),
+          "the bill is on a model no picker resolves to: " + parts[0].model + " not in " + JSON.stringify(quicks));
       },
       { billed },
     );

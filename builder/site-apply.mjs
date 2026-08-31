@@ -33,9 +33,25 @@
 
 import { extractText, applyEdits } from "./site-text.mjs";
 import { sortSlots, sortDigest, sortColumns, applySort, sortReply, sortRefusal, SORT_DIRS } from "./site-order.mjs";
+import { modelsFor } from "./build-models.mjs";
 
-/** Haiku. Choosing which of a list of strings to change is not a design task. */
-export const TEXT_MODEL = "claude-haiku-4-5";
+/** A small call: choosing which of a list of strings to change is not a design task. */
+/**
+ * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
+ *
+ * Every small call on this platform was pinned to `claude-haiku-4-5`, so a
+ * customer who had picked Grok still had Anthropic in their path — and when
+ * Anthropic refused on billing, the whole cheap ladder went down with it while
+ * builds carried on fine. Run 93 measured that: a `css` edit answered 503 in
+ * 5.3s having spent nothing, and the lane it was testing never ran.
+ *
+ * DERIVED FROM THE TABLE rather than restated, so it cannot drift from the
+ * picker, and it resolves to DEFAULT_PICKER — which is what a caller that
+ * forgets to thread the picker gets. That is deliberately the platform default
+ * and never Haiku: a forgotten hop should land on the model everything else
+ * uses, not quietly back on the provider this change exists to leave.
+ */
+export const TEXT_MODEL = modelsFor().quick;
 
 /**
  * Enough for a handful of replacements and not enough for an essay.
@@ -132,11 +148,11 @@ const SYSTEM =
  * compile. `site-text.mjs` still refuses the edit if the source has moved under
  * it; this makes that the second line of defence rather than the first.
  */
-export function textRequest({ instruction, items }) {
+export function textRequest({ instruction, items, model = TEXT_MODEL }) {
   const list = (Array.isArray(items) ? items : []).slice(0, MAX_TEXT_ITEMS);
   const lines = list.map((it, i) => i + ". [" + it.path + "] " + it.text);
   return {
-    model: TEXT_MODEL,
+    model,
     max_tokens: TEXT_MAX_TOKENS,
     tools: [TEXT_TOOL],
     tool_choice: { type: "tool", name: "write_text_edits" },
@@ -275,14 +291,14 @@ export function readTextEdits(reply, items) {
 }
 
 /** The four token kinds, in the shape `pageCredits` prices. One price table, everywhere. */
-export function textUsage(reply) {
+export function textUsage(reply, model = TEXT_MODEL) {
   const u = (reply && reply.usage) || {};
   return {
     in: Number(u.input_tokens) || 0,
     out: Number(u.output_tokens) || 0,
     cacheRead: Number(u.cache_read_input_tokens) || 0,
     cacheWrite: Number(u.cache_creation_input_tokens) || 0,
-    model: TEXT_MODEL,
+    model,
   };
 }
 
@@ -300,7 +316,7 @@ export function textUsage(reply) {
  * A THROW ESCALATES TOO, and bills nothing: `usage` is null on that path, the
  * same our-fault rule the build path follows.
  */
-export async function runTextEdit(deps, { instruction, pages } = {}) {
+export async function runTextEdit(deps, { instruction, pages, model = TEXT_MODEL } = {}) {
   const items = textItems(pages);
   if (!items.length) return { ok: false, escalate: true, reason: "no-text", usage: null };
   // A PARTIAL LIST SHOWN AS COMPLETE IS THE BUG THIS LAYER'S DESIGN AVOIDS,
@@ -317,7 +333,7 @@ export async function runTextEdit(deps, { instruction, pages } = {}) {
   if (items.length > MAX_TEXT_ITEMS) return { ok: false, escalate: true, reason: "too-much-text", usage: null };
   let reply;
   try {
-    reply = await deps.send(textRequest({ instruction, items }));
+    reply = await deps.send(textRequest({ instruction, items, model }));
   } catch (e) {
     // OUR MODEL CALL FAILED, SO THIS IS REPORTED AND NOT ESCALATED — the rule
     // every sibling lane already follows, and the look layer states outright:
@@ -337,7 +353,7 @@ export async function runTextEdit(deps, { instruction, pages } = {}) {
     // are read off the real failure rather than guessed at.
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
-  const usage = textUsage(reply);
+  const usage = textUsage(reply, model);
   const edits = readTextEdits(reply, items);
   if (!edits.length) return { ok: false, escalate: true, reason: "no-match", usage };
   const ed = applyEdits(pages, edits);
@@ -376,8 +392,23 @@ export async function runTextEdit(deps, { instruction, pages } = {}) {
 // sentence to hand a model. The owner still has the Data panel for those, where
 // they can see the row they are changing.
 
-/** Haiku. Picking which row and which column is not a design task. */
-export const DATA_MODEL = "claude-haiku-4-5";
+/** A small call: picking which row and which column is not a design task. */
+/**
+ * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
+ *
+ * Every small call on this platform was pinned to `claude-haiku-4-5`, so a
+ * customer who had picked Grok still had Anthropic in their path — and when
+ * Anthropic refused on billing, the whole cheap ladder went down with it while
+ * builds carried on fine. Run 93 measured that: a `css` edit answered 503 in
+ * 5.3s having spent nothing, and the lane it was testing never ran.
+ *
+ * DERIVED FROM THE TABLE rather than restated, so it cannot drift from the
+ * picker, and it resolves to DEFAULT_PICKER — which is what a caller that
+ * forgets to thread the picker gets. That is deliberately the platform default
+ * and never Haiku: a forgotten hop should land on the model everything else
+ * uses, not quietly back on the provider this change exists to leave.
+ */
+export const DATA_MODEL = modelsFor().quick;
 export const DATA_MAX_TOKENS = 1200;
 /** How many rows the model is shown. A menu is a dozen; a hundred is not a menu. */
 export const MAX_DATA_ROWS = 60;
@@ -533,12 +564,12 @@ export function recentBlock(recent) {
     "entirely: it is a record of what went, not a list of things to restore.";
 }
 
-export function dataRequest({ instruction, tables, recent, lists }) {
+export function dataRequest({ instruction, tables, recent, lists, model = DATA_MODEL }) {
   // THE LISTS BLOCK IS OMITTED WHEN THERE ARE NONE, so a caller that does not
   // pass the pages sends exactly the request it sent before this existed.
   const order = sortDigest(lists, tables);
   return {
-    model: DATA_MODEL,
+    model,
     max_tokens: DATA_MAX_TOKENS,
     tools: [DATA_TOOL],
     tool_choice: { type: "tool", name: "write_row_changes" },
@@ -648,14 +679,14 @@ export function readDataChanges(reply, tables) {
 }
 
 /** The four token kinds, in the shape `pageCredits` prices. One price table, everywhere. */
-export function dataUsage(reply) {
+export function dataUsage(reply, model = DATA_MODEL) {
   const u = (reply && reply.usage) || {};
   return {
     in: Number(u.input_tokens) || 0,
     out: Number(u.output_tokens) || 0,
     cacheRead: Number(u.cache_read_input_tokens) || 0,
     cacheWrite: Number(u.cache_creation_input_tokens) || 0,
-    model: DATA_MODEL,
+    model,
   };
 }
 
@@ -674,7 +705,7 @@ export function dataUsage(reply) {
  * and matched none of them does NOT escalate: the rungs above cannot change a
  * row either, so sending them up spends ~25 credits to fail differently.
  */
-export async function runDataEdit(deps, { instruction, tables, recent, pages } = {}) {
+export async function runDataEdit(deps, { instruction, tables, recent, pages, model = DATA_MODEL } = {}) {
   const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name && Array.isArray(t.rows));
   if (!usable.length) return { ok: false, escalate: true, reason: "no-data", usage: null };
   // WHAT ORDER EACH LIST COMES OUT IN, which is a fact about the PAGES and not
@@ -683,7 +714,7 @@ export async function runDataEdit(deps, { instruction, tables, recent, pages } =
   const lists = sortSlots(pages);
   let reply;
   try {
-    reply = await deps.send(dataRequest({ instruction, tables: usable, recent, lists }));
+    reply = await deps.send(dataRequest({ instruction, tables: usable, recent, lists, model }));
   } catch (e) {
     // OUR MODEL CALL FAILED, SO THIS IS REPORTED AND NOT ESCALATED — the rule
     // every sibling lane already follows, and the look layer states outright:
@@ -703,7 +734,7 @@ export async function runDataEdit(deps, { instruction, tables, recent, pages } =
     // are read off the real failure rather than guessed at.
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
-  const usage = dataUsage(reply);
+  const usage = dataUsage(reply, model);
   const changes = readDataChanges(reply, usable);
 
   // ── WHAT ORDER A LIST COMES OUT IN ────────────────────────────────────────

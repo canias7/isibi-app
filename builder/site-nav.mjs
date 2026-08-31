@@ -38,8 +38,24 @@
 // outside the Worker and outside the container.
 
 import { routeOf } from "./site-addon.mjs";
+import { modelsFor } from "./build-models.mjs";
 
-export const NAV_MODEL = "claude-haiku-4-5";
+/**
+ * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
+ *
+ * Every small call on this platform was pinned to `claude-haiku-4-5`, so a
+ * customer who had picked Grok still had Anthropic in their path — and when
+ * Anthropic refused on billing, the whole cheap ladder went down with it while
+ * builds carried on fine. Run 93 measured that: a `css` edit answered 503 in
+ * 5.3s having spent nothing, and the lane it was testing never ran.
+ *
+ * DERIVED FROM THE TABLE rather than restated, so it cannot drift from the
+ * picker, and it resolves to DEFAULT_PICKER — which is what a caller that
+ * forgets to thread the picker gets. That is deliberately the platform default
+ * and never Haiku: a forgotten hop should land on the model everything else
+ * uses, not quietly back on the provider this change exists to leave.
+ */
+export const NAV_MODEL = modelsFor().quick;
 export const NAV_MAX_TOKENS = 1200;
 
 /** A nav longer than this is a menu nobody can use, on a phone least of all. */
@@ -700,9 +716,9 @@ export function navDigest(slots, routes, actions, links, contacts, lists, layout
   return lines.join("\n");
 }
 
-export function navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts }) {
+export function navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts, model = NAV_MODEL }) {
   return {
-    model: NAV_MODEL,
+    model,
     max_tokens: NAV_MAX_TOKENS,
     system: NAV_SYSTEM,
     tools: [NAV_TOOL],
@@ -991,11 +1007,11 @@ export function renderNav(links) {
     .join(", ");
 }
 
-export function navUsage(reply) {
+export function navUsage(reply, model = NAV_MODEL) {
   const u = reply && reply.usage;
   if (!u) return null;
   return {
-    model: NAV_MODEL,
+    model,
     in: u.input_tokens || 0,
     out: u.output_tokens || 0,
     cacheRead: u.cache_read_input_tokens || 0,
@@ -1141,7 +1157,7 @@ function droppedNote(dropped) {
  * that did not happen. It refuses, and says so — the `no-change` shape the look
  * lane already uses.
  */
-export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
+export async function runNavEdit(deps, { instruction, pages, routes, model = NAV_MODEL } = {}) {
   const slots = navSlots(pages);
   const actions = actionSlots(pages);
   const links = linkSlots(pages);
@@ -1156,9 +1172,9 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   }
 
   let reply;
-  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts })); }
+  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts, model })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
-  const usage = navUsage(reply);
+  const usage = navUsage(reply, model);
 
   const read = readNav(reply, routes);
   const wantsMenu = !!(read && read.links && read.links.length);

@@ -28,6 +28,7 @@ import { readSchemaTool } from "./integration/schema-tool.mjs";
 import { PLAN_KEYS } from "../builder/site-plan.mjs";
 import { EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { modelsFor } from "../builder/build-models.mjs";
 import {
   LANE_FIELDS, OWN_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES, MAX_LANES,
   laneEscalate, laneVerbs, verbLayer, readPageVerb, PAGE_VERBS,
@@ -534,5 +535,10 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
   // The headline claim stays absolute, because THAT one is about the two calls a
   // customer actually pays for and does not move with the lane count.
   assert.ok(pick < whole / 10, "the router alone is no longer a fraction of the build tool (" + pick + " vs " + whole + ")");
-  assert.equal(pickRequest({ message: "x" }).model, "claude-haiku-4-5", "the router is no longer on the cheap model");
+  // THE PICKED MODEL, not a spelling. This pinned `claude-haiku-4-5` until run
+  // 93, when a billing refusal at that one provider took down every lane, the
+  // router and the whole cheap ladder at once. What this line is for is that
+  // the router is not on some model of its own — it follows the picker, and
+  // the size assertions above are what measure "cheap".
+  assert.equal(pickRequest({ message: "x" }).model, modelsFor().quick, "the router is not on the picked model");
 });

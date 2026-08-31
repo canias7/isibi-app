@@ -29,6 +29,7 @@
 // `site-ask.mjs`, so every decision is tested with no network and no Worker.
 
 import { READ_LEVELS, WRITE_LEVELS, ACCESS_PRESETS, resolveAccess } from "../site-access.mjs";
+import { modelsFor } from "./build-models.mjs";
 
 /**
  * Haiku, deliberately, and the reason is the validation rather than the task
@@ -37,7 +38,22 @@ import { READ_LEVELS, WRITE_LEVELS, ACCESS_PRESETS, resolveAccess } from "../sit
  * a refusal rather than a wrong rule — and a rules change that costs 2 credits
  * instead of 0.3 is a rung that stops being worth having.
  */
-export const RULES_MODEL = "claude-haiku-4-5";
+/**
+ * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
+ *
+ * Every small call on this platform was pinned to `claude-haiku-4-5`, so a
+ * customer who had picked Grok still had Anthropic in their path — and when
+ * Anthropic refused on billing, the whole cheap ladder went down with it while
+ * builds carried on fine. Run 93 measured that: a `css` edit answered 503 in
+ * 5.3s having spent nothing, and the lane it was testing never ran.
+ *
+ * DERIVED FROM THE TABLE rather than restated, so it cannot drift from the
+ * picker, and it resolves to DEFAULT_PICKER — which is what a caller that
+ * forgets to thread the picker gets. That is deliberately the platform default
+ * and never Haiku: a forgotten hop should land on the model everything else
+ * uses, not quietly back on the provider this change exists to leave.
+ */
+export const RULES_MODEL = modelsFor().quick;
 export const RULES_MAX_TOKENS = 1400;
 
 /** How many tables one instruction may change. "Cap both forms" is a real ask. */
@@ -247,9 +263,9 @@ export function rulesDigest(tables) {
   return out.join("\n");
 }
 
-export function rulesRequest({ instruction, tables }) {
+export function rulesRequest({ instruction, tables, model = RULES_MODEL }) {
   return {
-    model: RULES_MODEL,
+    model,
     max_tokens: RULES_MAX_TOKENS,
     tools: [RULES_TOOL],
     tool_choice: { type: "tool", name: "write_table_rules" },
@@ -472,14 +488,14 @@ export function rulesReply({ applied = [], refused = [] } = {}) {
 }
 
 /** The four token kinds, in the shape `pageCredits` prices. One price table, everywhere. */
-export function rulesUsage(reply) {
+export function rulesUsage(reply, model = RULES_MODEL) {
   const u = (reply && reply.usage) || {};
   return {
     in: Number(u.input_tokens) || 0,
     out: Number(u.output_tokens) || 0,
     cacheRead: Number(u.cache_read_input_tokens) || 0,
     cacheWrite: Number(u.cache_creation_input_tokens) || 0,
-    model: RULES_MODEL,
+    model,
   };
 }
 
@@ -498,17 +514,17 @@ export function rulesUsage(reply) {
  * to fail differently. That is the same call `runDataEdit` makes, for the same
  * reason.
  */
-export async function runRulesEdit(deps, { instruction, tables } = {}) {
+export async function runRulesEdit(deps, { instruction, tables, model = RULES_MODEL } = {}) {
   const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name);
   if (!usable.length) return { ok: false, escalate: true, reason: "no-tables", usage: null };
 
   let reply;
   try {
-    reply = await deps.send(rulesRequest({ instruction, tables: usable }));
+    reply = await deps.send(rulesRequest({ instruction, tables: usable, model }));
   } catch (e) {
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
-  const usage = rulesUsage(reply);
+  const usage = rulesUsage(reply, model);
   const { changes, refused } = readRules(reply, usable);
   // THE NO-MATCH REPLY IS COMPOSED HERE, not at the call site, and that is not
   // tidiness: a refusal carries the reason a rule could not be applied, and a

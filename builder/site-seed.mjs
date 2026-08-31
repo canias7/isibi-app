@@ -18,8 +18,24 @@
 // request is composed here, the caller sends it. So every decision below is
 // testable with no network and no Worker.
 import { resolveAccess, accessNameFor, isManagedColumn } from "../site-access.mjs";
+import { modelsFor } from "./build-models.mjs";
 
-export const SEED_MODEL = "claude-haiku-4-5";
+/**
+ * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
+ *
+ * Every small call on this platform was pinned to `claude-haiku-4-5`, so a
+ * customer who had picked Grok still had Anthropic in their path — and when
+ * Anthropic refused on billing, the whole cheap ladder went down with it while
+ * builds carried on fine. Run 93 measured that: a `css` edit answered 503 in
+ * 5.3s having spent nothing, and the lane it was testing never ran.
+ *
+ * DERIVED FROM THE TABLE rather than restated, so it cannot drift from the
+ * picker, and it resolves to DEFAULT_PICKER — which is what a caller that
+ * forgets to thread the picker gets. That is deliberately the platform default
+ * and never Haiku: a forgotten hop should land on the model everything else
+ * uses, not quietly back on the provider this change exists to leave.
+ */
+export const SEED_MODEL = modelsFor().quick;
 export const SEED_MAX_TOKENS = 2000;
 /** Most tables one call will fill. A schema with more than this has other problems. */
 export const MAX_GAP_TABLES = 6;
@@ -119,11 +135,11 @@ const TOOL = {
   },
 };
 
-export function seedRequest({ brief = "", tables = [] } = {}) {
+export function seedRequest({ brief = "", tables = [], model = SEED_MODEL } = {}) {
   const list = (Array.isArray(tables) ? tables : []).slice(0, MAX_GAP_TABLES);
   const spec = list.map((t) => "- " + t.name + " (" + t.columns.join(", ") + ")").join("\n");
   return {
-    model: SEED_MODEL,
+    model,
     max_tokens: SEED_MAX_TOKENS,
     tools: [TOOL],
     // FORCED, like every other structured call here. Prose is unusable: the
@@ -211,14 +227,14 @@ function seedUsage(reply, model) {
  * without this function: published, with an empty list. That is the state this
  * is trying to improve on, so it is the only honest thing to degrade to.
  */
-export async function topUpSeed(deps, { brief = "", spec = null, seed = null } = {}) {
+export async function topUpSeed(deps, { brief = "", spec = null, seed = null, model = SEED_MODEL } = {}) {
   const gaps = seedGaps(spec, seed);
   // THE PROPERTY THAT MAKES THIS AFFORDABLE: a build the designer got right
   // makes no call at all.
   if (!gaps.length) return { rows: {}, usage: null, gaps: [] };
   let reply;
   try {
-    reply = await deps.send(seedRequest({ brief, tables: gaps }));
+    reply = await deps.send(seedRequest({ brief, tables: gaps, model }));
   } catch {
     return { rows: {}, usage: null, gaps: gaps.map((g) => g.name), failed: true };
   }

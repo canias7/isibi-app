@@ -11867,6 +11867,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             const top = await topUpSeed(
               { send: (req) => anthropicMessages(env, req) },
               {
+                model: modelsFor(body && body.picker).quick,
                 brief: briefWithLinks,
                 // ONLY AN ARRAY IS NARROWED, and the guard is the whole point.
                 //
@@ -16886,6 +16887,11 @@ async function handleRequest(request, env, ctx) {
         {
           message: rb.message,
           site: rb.site,
+          // THE PICKED MODEL. This call was the reason the whole cheap ladder
+          // sat behind one provider: it runs before anything else on an edit, so
+          // when Anthropic refused on billing (run 93) nothing downstream got a
+          // chance to be right. `rb.picker` is the same field the build reads.
+          model: modelsFor(rb && rb.picker).quick,
           // THE CLARIFY GATE, and it is deliberately the SERVER's and not the
           // client's. `firstBuild` says a project has no pages yet; `qa` is what
           // has already been asked and answered this round. Both arrive in the
@@ -17801,6 +17807,7 @@ async function handleRequest(request, env, ctx) {
                   // the small call, and handing it the state an ACTING lane
                   // needs would make it the expensive one twice over.
                   current: siteDigest({ pages: eSrc.map((p) => routeOf(p.path)) }),
+                  model: modelsFor(eb && eb.picker).quick,
                 },
               );
               pickUsage = picked.usage;
@@ -17974,7 +17981,7 @@ async function handleRequest(request, env, ctx) {
                 // answer is the `{ order, dir }` argument to `useRows`. Read on
                 // the request the lane already pays for, so asking costs
                 // nothing on a build that never mentions the order.
-              }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null, pages: eSrc });
+              }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null, pages: eSrc, model: modelsFor(eb && eb.picker).quick });
 
               if (!dOut.ok) {
                 // A model that read the rows and matched none does NOT escalate:
@@ -18084,7 +18091,7 @@ async function handleRequest(request, env, ctx) {
                 // table that already exists — and it persists `_meta` itself, so
                 // there is no second write that could disagree with the DDL.
                 apply: async (spec) => { await applySiteSchema(rdb, normalizeSchema(spec)); return true; },
-              }, { instruction: eInstruction, tables: rSpec.tables });
+              }, { instruction: eInstruction, tables: rSpec.tables, model: modelsFor(eb && eb.picker).quick });
 
               if (!rOut.ok) {
                 if (!rOut.escalate) {
@@ -18246,7 +18253,7 @@ async function handleRequest(request, env, ctx) {
               const navRoutes = [...new Set(eSrc.map((p) => routeOf(p.path)).filter(Boolean))];
               const nOut = await runNavEdit({
                 send: (req) => anthropicMessages(env, req),
-              }, { instruction: eInstruction, pages: eSrc, routes: navRoutes });
+              }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: modelsFor(eb && eb.picker).quick });
 
               if (!nOut.ok) {
                 if (!nOut.escalate) {
@@ -18348,7 +18355,7 @@ async function handleRequest(request, env, ctx) {
                   if (made) balance -= SITE_PHOTO_USD / CREDIT_USD;
                   return made;
                 },
-              }, { instruction: eInstruction, pages: eSrc });
+              }, { instruction: eInstruction, pages: eSrc, model: modelsFor(eb && eb.picker).quick });
 
               if (!pOut.ok) {
                 if (!pOut.escalate) {
@@ -18491,7 +18498,7 @@ async function handleRequest(request, env, ctx) {
             }
             if (eLayer === "text") {
               const out = await runTextEdit({ send: (req) => anthropicMessages(env, req) },
-                { instruction: eInstruction, pages: eSrc });
+                { instruction: eInstruction, pages: eSrc, model: modelsFor(eb && eb.picker).quick });
               // `escalate` false with `ok` false is the one case that is NOT a
               // rung problem: the stored source moved under us, and the lane
               // above would be working from the same copy. Retrying fixes it.
@@ -19106,6 +19113,7 @@ async function handleRequest(request, env, ctx) {
               // a deliberate rewording was caught on 329 of 329.
               const tw = await runTweak({
                 instruction: eInstruction, path: target.path, source: target.source,
+                model: modelsFor(eb && eb.picker).quick,
                 send: (req) => anthropicMessages(env, req),
               });
               if (tw.ok) {
@@ -19547,7 +19555,8 @@ async function handleRequest(request, env, ctx) {
               let aSeed = aDesigned.seed;
               const aTop = await topUpSeed(
                 { send: (req) => anthropicMessages(env, req) },
-                { brief: aInstruction, spec: { ...aDesigned, tables: (aDesigned.tables || []).filter((t) => t && folded.added.includes(t.name)) }, seed: aSeed },
+                { brief: aInstruction, spec: { ...aDesigned, tables: (aDesigned.tables || []).filter((t) => t && folded.added.includes(t.name)) }, seed: aSeed,
+                  model: modelsFor(ab && ab.picker).quick },
               );
               if (aTop.gaps.length) {
                 // Same as the build lane: without `failed` a dead provider and a

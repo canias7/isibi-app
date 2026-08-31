@@ -9,6 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { modelsFor } from "../builder/build-models.mjs";
 import {
   ASK_TOOL, ASK_MODEL, ASK_MAX_TOKENS, MAX_MESSAGE,
   MAX_CLARIFY, MIN_OPTIONS, MAX_OPTIONS, MAX_OPTION_CHARS, MAX_QUESTION_CHARS,
@@ -30,7 +31,13 @@ const toolReply = (input, usage) => ({
 test("one call, forced to the tool, on the cheap model", () => {
   const r = askRequest({ message: "what pages do I have?", site: SITE });
   assert.equal(r.model, ASK_MODEL);
-  assert.match(ASK_MODEL, /haiku/i, "this is a routing decision, not a design task");
+  // THE MODEL COMES FROM THE PICKER TABLE, NOT A LITERAL (2026-08-31). This
+  // asserted /haiku/i until run 93 died on an Anthropic billing refusal with
+  // the whole cheap ladder pinned to that one provider. What it was really
+  // protecting is that this is a SMALL call rather than the design call, and
+  // that property is asserted below by the tool, the forcing and the token
+  // ceiling. What the model must be is the one the customer picked.
+  assert.equal(ASK_MODEL, modelsFor().quick, "the router is pinned to a model instead of the picker's");
   // FORCED. Without tool_choice the model answers in prose and there is no field
   // to branch on — the point is a decision the code can read.
   assert.deepEqual(r.tool_choice, { type: "tool", name: "route_message" });

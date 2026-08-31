@@ -34,10 +34,36 @@
 // against ~71, warm ~24 against ~50.
 //
 // Flipping DEFAULT_PICKER is one line once a build has been watched end to end.
+// ── `quick` — THE SMALL CALLS, AND WHY THEY ARE NOT HAIKU ANY MORE ──────────
+//
+// Owner's call 2026-08-31, straight after run 93: "we are gonna get rid of
+// haiku routing, we are gonna use for routing the same model is picked, if grok
+// is picked then that will be it."
+//
+// WHAT PROMPTED IT. Every classifier and cheap layer on the platform was
+// hardcoded to `claude-haiku-4-5`, so a `css` edit — a lane that already runs on
+// the PICKED model — never got as far as running: `pick_lanes` goes first, it
+// went to Anthropic, and Anthropic answered a billing refusal. The edit came
+// back 503 in 5.3 seconds having spent nothing, with the site untouched. That is
+// the exact failure `DEFAULT_PICKER` was flipped to Grok for on 2026-08-22
+// (reason (1) above), left in place on every small call for nine days.
+//
+// A THIRD KEY RATHER THAN REUSING `design`. The acting lanes already send
+// `modelsFor(picker).design`, which WORKS and reads as a mistake: an intent
+// router is not a design step, and the next person to change what `design`
+// means would move the routers with it by accident. Its own name is what makes
+// "run the classifiers on something cheaper" a one-line change in this table
+// instead of a hunt through eight modules.
+//
+// SAME MODEL AS THE PICKER, WHICH IS THE OWNER'S ANSWER AND NOT A DEFAULT. It
+// costs more than Haiku on the two Anthropic pickers — these are small calls, so
+// the absolute number is small — and it buys the thing that matters: a customer
+// who picked Grok now has NO Anthropic in their path at all, so an outage at one
+// provider cannot take out the whole cheap ladder for everybody.
 export const BUILD_MODELS = {
-  sonnet: { design: "claude-sonnet-5", pages: "claude-sonnet-5" },
-  opus: { design: "claude-opus-5", pages: "claude-opus-5" },
-  grok: { design: "grok-4.6", pages: "grok-4.6" },
+  sonnet: { design: "claude-sonnet-5", pages: "claude-sonnet-5", quick: "claude-sonnet-5" },
+  opus: { design: "claude-opus-5", pages: "claude-opus-5", quick: "claude-opus-5" },
+  grok: { design: "grok-4.6", pages: "grok-4.6", quick: "grok-4.6" },
 };
 
 // What a request that says nothing gets — and what the composer defaults to, so

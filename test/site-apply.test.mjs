@@ -16,6 +16,7 @@ import { EDIT_LAYERS, ASK_TOOL } from "../builder/site-ask.mjs";
 import { CORPUS_URL } from "./fixtures/corpus.mjs";
 import { PLAN_KEYS } from "../builder/site-plan.mjs";
 import { readCss } from "../builder/site-freecss.mjs";
+import { modelsFor } from "../builder/build-models.mjs";
 
 const HOME = {
   path: "src/routes/index.tsx",
@@ -59,7 +60,13 @@ const idOf = (items, text, path) =>
 test("one forced call on the cheap model", () => {
   const r = textRequest({ instruction: "change the phone number", items: textItems(PAGES) });
   assert.equal(r.model, TEXT_MODEL);
-  assert.match(TEXT_MODEL, /haiku/i, "picking which strings change is not a design task");
+  // THE MODEL COMES FROM THE PICKER TABLE, NOT A LITERAL (2026-08-31). This
+  // asserted /haiku/i until run 93 died on an Anthropic billing refusal with
+  // the whole cheap ladder pinned to that one provider. What it was really
+  // protecting is that this is a SMALL call rather than the design call, and
+  // that property is asserted below by the tool, the forcing and the token
+  // ceiling. What the model must be is the one the customer picked.
+  assert.equal(TEXT_MODEL, modelsFor().quick, "the text lane is pinned to a model instead of the picker's");
   assert.deepEqual(r.tool_choice, { type: "tool", name: "write_text_edits" });
   assert.equal(r.tools.length, 1);
   assert.equal(r.max_tokens, TEXT_MAX_TOKENS);
@@ -885,7 +892,13 @@ test("the model is shown the rows it may change, with their ids", () => {
   assert.match(d, /TABLE services — columns: name, price, minutes/);
   assert.match(d, /id 1: name="Haircut", price="£22", minutes=30/);
   assert.match(dataRequest({ instruction: "haircut is now £25", tables: MENU }).messages[0].content, /£25/);
-  assert.match(DATA_MODEL, /haiku/i, "picking a row is not a design task");
+  // THE MODEL COMES FROM THE PICKER TABLE, NOT A LITERAL (2026-08-31). This
+  // asserted /haiku/i until run 93 died on an Anthropic billing refusal with
+  // the whole cheap ladder pinned to that one provider. What it was really
+  // protecting is that this is a SMALL call rather than the design call, and
+  // that property is asserted below by the tool, the forcing and the token
+  // ceiling. What the model must be is the one the customer picked.
+  assert.equal(DATA_MODEL, modelsFor().quick, "the data lane is pinned to a model instead of the picker's");
 });
 
 test("an id nobody offered cannot reach SQL", () => {

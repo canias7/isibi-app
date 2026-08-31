@@ -37,9 +37,25 @@ import { extractText } from "./site-text.mjs";
 // module none of the properties above, and injecting it would put the one thing
 // that makes the rung safe behind a caller remembering to pass it.
 import { lintPages } from "./page-gen.mjs";
+import { modelsFor } from "./build-models.mjs";
 
-/** Haiku. Editing a className is not a design task, and the saving IS the model. */
-export const TWEAK_MODEL = "claude-haiku-4-5";
+/** A small call: editing a className is not a design task, and the saving IS the point. */
+/**
+ * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
+ *
+ * Every small call on this platform was pinned to `claude-haiku-4-5`, so a
+ * customer who had picked Grok still had Anthropic in their path — and when
+ * Anthropic refused on billing, the whole cheap ladder went down with it while
+ * builds carried on fine. Run 93 measured that: a `css` edit answered 503 in
+ * 5.3s having spent nothing, and the lane it was testing never ran.
+ *
+ * DERIVED FROM THE TABLE rather than restated, so it cannot drift from the
+ * picker, and it resolves to DEFAULT_PICKER — which is what a caller that
+ * forgets to thread the picker gets. That is deliberately the platform default
+ * and never Haiku: a forgotten hop should land on the model everything else
+ * uses, not quietly back on the provider this change exists to leave.
+ */
+export const TWEAK_MODEL = modelsFor().quick;
 
 /**
  * Room for the page to come back whole, plus a little.
@@ -157,11 +173,11 @@ export const TWEAK_RULES =
  * the sentence at the top differs — the alternative was a second copy of eight
  * guards, which is how the five copies of one route mapping happened.
  */
-export function tweakRequest({ instruction, path, source, rules = TWEAK_RULES, heading = "THE CHANGE THEY ASKED FOR" }) {
+export function tweakRequest({ instruction, path, source, rules = TWEAK_RULES, heading = "THE CHANGE THEY ASKED FOR", model = TWEAK_MODEL }) {
   const what = String(instruction == null ? "" : instruction).trim();
   const file = String(source == null ? "" : source);
   return {
-    model: TWEAK_MODEL,
+    model,
     max_tokens: TWEAK_MAX_TOKENS,
     system: String(rules == null ? "" : rules) || TWEAK_RULES,
     tools: [TWEAK_TOOL],
@@ -176,11 +192,11 @@ export function tweakRequest({ instruction, path, source, rules = TWEAK_RULES, h
 }
 
 /** What this call cost, in the shape the ledger prices. */
-export function tweakUsage(reply) {
+export function tweakUsage(reply, model = TWEAK_MODEL) {
   const u = reply && reply.usage;
   if (!u) return null;
   return {
-    model: TWEAK_MODEL,
+    model,
     in: u.input_tokens || 0,
     out: u.output_tokens || 0,
     cacheRead: u.cache_read_input_tokens || 0,
@@ -372,12 +388,12 @@ export function tweakable(source) {
  * exception escaping would turn "the cheap rung was unavailable" into "the edit
  * failed", which is strictly worse than not having built it.
  */
-export async function runTweak({ instruction, path, source, send, rules, heading }) {
+export async function runTweak({ instruction, path, source, send, rules, heading, model = TWEAK_MODEL }) {
   const can = tweakable(source);
   if (!can.ok) return { ok: false, reason: can.reason, usage: null };
   let reply = null;
   try {
-    reply = await send(tweakRequest({ instruction, path, source, rules, heading }));
+    reply = await send(tweakRequest({ instruction, path, source, rules, heading, model }));
   } catch (e) {
     // The provider, not the page. Reported as its own reason so a run of these
     // in a log reads as an outage rather than as the model refusing every tweak.
@@ -387,7 +403,7 @@ export async function runTweak({ instruction, path, source, send, rules, heading
   // happened and the customer is charged for what was used, which is the rule
   // the whole billing tier is built on. A refusal is ~1 credit; hiding it would
   // be a small silent undercharge on the commonest failure there is.
-  return { ...readTweak(reply, { source }), usage: tweakUsage(reply) };
+  return { ...readTweak(reply, { source }), usage: tweakUsage(reply, model) };
 }
 
 /**

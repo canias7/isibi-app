@@ -19,6 +19,7 @@ import {
 // happen to carry a long quoted string.
 import { extractText } from "../builder/site-text.mjs";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
+import { modelsFor } from "../builder/build-models.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
 const PAGE = read("../builder/lovable/template/src/routes/index.tsx");
@@ -188,11 +189,18 @@ test("the request carries the instruction FIRST, and forces the tool", () => {
   assert.equal(tweakUsage(null), null);
 });
 
-test("HAIKU, because the saving IS the model", () => {
+test("THE SAVING IS THE PROMPT, and the model is the picker's", () => {
+  // RENAMED FROM "HAIKU, because the saving IS the model" (2026-08-31). The test
+  // already disproved its own title in its own comment — "most of the difference
+  // is NOT the model" — and run 93 settled it: every small call was pinned to
+  // one provider, that provider refused on billing, and the whole cheap ladder
+  // went down while builds carried on. The model is the customer's picker now;
+  // the saving was always the prompt, and that is what the two assertions below
+  // have always measured.
+  //
   // Measured on a real 12,044-character page: 3 credits here against 10 for the
-  // rewrite, and most of the difference is NOT the model — it is that this call
-  // does not send the ~36,000-token generator prompt. Both halves are pinned.
-  assert.equal(TWEAK_MODEL, "claude-haiku-4-5");
+  // rewrite, because this call does not send the ~36,000-token generator prompt.
+  assert.equal(TWEAK_MODEL, modelsFor().quick, "the tweak rung is pinned to a model instead of the picker's");
   assert.ok(!/PAGE_RULES|COMPONENT_API|CHART_COMPONENTS/.test(TWEAK_RULES),
     "the tweak prompt has grown the generator's rules — the saving is gone");
   assert.ok(TWEAK_RULES.length < 2000, "the tweak prompt is " + TWEAK_RULES.length + " characters");

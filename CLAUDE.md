@@ -509,6 +509,26 @@ variadic and rounds once with a floor of 1, and the routing call is billed once
 per MESSAGE rather than once per rung (a sweep caught that double-count; it is
 now watched against the ledger, not against our own arithmetic).
 
+**EVERY SMALL CALL FOLLOWS THE PICKER, NOT A HARDCODED MODEL** (owner,
+2026-08-31: *"we are gonna get rid of haiku routing, we are gonna use for routing
+the same model is picked, if grok is picked then that will be it"*).
+`BUILD_MODELS` has a third slot, **`quick`**, equal to that picker's own model —
+grok→`grok-4.6`, sonnet→`claude-sonnet-5`, opus→`claude-opus-5` — and the intent
+router, the lane picker and all eight rungs (`text` `data` `nav` `picture`
+`rules` `tweak` `seed`, plus the acting lanes) resolve through it.
+**WHAT IT COST TO LEARN**: run 93 bought a `css` edit and got a **503 in 5.3
+seconds having spent nothing**, because every one of those was pinned to
+`claude-haiku-4-5` and Anthropic refused on billing. Builds were fine the whole
+time — generation was already on the picked model — so *the platform's cheap
+ladder was entirely behind one provider while its expensive half was not*.
+**Two guards, and the second is the one that matters**: `test/build-models.test.mjs`
+scans the eight modules for a pinned model id (comments blanked — every one of
+them now names Haiku while explaining that it is gone), and
+`test/picked-model.test.mjs` DRIVES each runner with a sentinel and reads the
+request that would have gone out. Only the second catches the real failure — a
+sweep found `routeMessage` taking a `model` and never passing it to
+`askRequest`, which every static check reads as correct.
+
 **Every prompt in there is a PLACEHOLDER** and marked so (owner: *"i will tell you
 the prompt later"*). One `hint` and one `edit` string per lane in the `LANES`
 table; swapping the wording in is a find-and-replace.

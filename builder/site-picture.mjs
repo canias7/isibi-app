@@ -31,9 +31,25 @@
 // lanes. `readNeedsPlace` compares a route the model named against the pages
 // this site has, and those arrive as file paths.
 import { routeOf } from "./site-addon.mjs";
+import { modelsFor } from "./build-models.mjs";
 
-/** Haiku. Matching a sentence to a list of sentences is not a design task. */
-export const PICTURE_MODEL = "claude-haiku-4-5";
+/** A small call: matching a sentence to a list of sentences is not a design task. */
+/**
+ * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
+ *
+ * Every small call on this platform was pinned to `claude-haiku-4-5`, so a
+ * customer who had picked Grok still had Anthropic in their path — and when
+ * Anthropic refused on billing, the whole cheap ladder went down with it while
+ * builds carried on fine. Run 93 measured that: a `css` edit answered 503 in
+ * 5.3s having spent nothing, and the lane it was testing never ran.
+ *
+ * DERIVED FROM THE TABLE rather than restated, so it cannot drift from the
+ * picker, and it resolves to DEFAULT_PICKER — which is what a caller that
+ * forgets to thread the picker gets. That is deliberately the platform default
+ * and never Haiku: a forgotten hop should land on the model everything else
+ * uses, not quietly back on the provider this change exists to leave.
+ */
+export const PICTURE_MODEL = modelsFor().quick;
 export const PICTURE_MAX_TOKENS = 1200;
 
 /** How many slots the model is shown. A page with more than this is a contact sheet. */
@@ -275,9 +291,9 @@ export function pictureDigest(slots, library) {
   return out.join("\n");
 }
 
-export function pictureRequest({ instruction, slots, library }) {
+export function pictureRequest({ instruction, slots, library, model = PICTURE_MODEL }) {
   return {
-    model: PICTURE_MODEL,
+    model,
     max_tokens: PICTURE_MAX_TOKENS,
     tools: [PICTURE_TOOL],
     tool_choice: { type: "tool", name: "choose_pictures" },
@@ -483,14 +499,14 @@ export function applyPictures(pages, choices) {
 }
 
 /** The four token kinds, in the shape `pageCredits` prices. One price table, everywhere. */
-export function pictureUsage(reply) {
+export function pictureUsage(reply, model = PICTURE_MODEL) {
   const u = (reply && reply.usage) || {};
   return {
     in: Number(u.input_tokens) || 0,
     out: Number(u.output_tokens) || 0,
     cacheRead: Number(u.cache_read_input_tokens) || 0,
     cacheWrite: Number(u.cache_creation_input_tokens) || 0,
-    model: PICTURE_MODEL,
+    model,
   };
 }
 
@@ -556,7 +572,7 @@ export function pictureReply({ used = [], made = [], cleared = [], framed = [], 
  * alone and the others still change. Refusing the whole batch would mean an
  * owner who asked for one uploaded photograph and one made one gets neither.
  */
-export async function runPictureEdit(deps, { instruction, pages } = {}) {
+export async function runPictureEdit(deps, { instruction, pages, model = PICTURE_MODEL } = {}) {
   const slots = imageSlots(pages);
   if (!slots.length) return { ok: false, escalate: true, reason: "no-slots", usage: null };
 
@@ -564,9 +580,9 @@ export async function runPictureEdit(deps, { instruction, pages } = {}) {
   try { library = (await deps.library()) || []; } catch { library = []; }
 
   let reply;
-  try { reply = await deps.send(pictureRequest({ instruction, slots, library })); }
+  try { reply = await deps.send(pictureRequest({ instruction, slots, library, model })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
-  const usage = pictureUsage(reply);
+  const usage = pictureUsage(reply, model);
 
   const all = readPictures(reply, slots, library);
   const refused = all.filter((c) => c.refused);

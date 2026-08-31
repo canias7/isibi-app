@@ -35,8 +35,23 @@ const workerCode = code(worker);
 const chat = read("public/chat.js");
 
 test("the pickers resolve to the models they promise, and Grok is the default", () => {
-  assert.deepEqual(modelsFor("sonnet"), { picker: "sonnet", design: "claude-sonnet-5", pages: "claude-sonnet-5" });
-  assert.deepEqual(modelsFor("opus"), { picker: "opus", design: "claude-opus-5", pages: "claude-opus-5" });
+  // `quick` JOINED 2026-08-31 — the model for the small calls: the intent router,
+  // the lane picker, and the text/data/nav/picture/rules/tweak/seed rungs. It was
+  // a hardcoded `claude-haiku-4-5` in eight modules until run 93 died on an
+  // Anthropic billing refusal with the whole cheap ladder behind that one
+  // provider, while builds on Grok carried on fine. Owner's call: the picked
+  // model does everything.
+  assert.deepEqual(modelsFor("sonnet"), { picker: "sonnet", design: "claude-sonnet-5", pages: "claude-sonnet-5", quick: "claude-sonnet-5" });
+  assert.deepEqual(modelsFor("opus"), { picker: "opus", design: "claude-opus-5", pages: "claude-opus-5", quick: "claude-opus-5" });
+  // AND NO PICKER MAY LEAVE A PROVIDER BEHIND. The whole point of the change is
+  // that a customer on Grok has no Anthropic in their path at all, so `quick`
+  // being some other family's model would restore exactly the outage it was
+  // made to end. Derived from the entry rather than listed again.
+  for (const key of Object.keys(BUILD_MODELS)) {
+    const m = modelsFor(key);
+    assert.equal(m.quick, m.design,
+      "`" + key + "` sends its small calls to a different model from its build — a second provider is back in that customer's path");
+  }
   // THE DEFAULT IS THE CHEAP ONE, and that is a decision rather than a habit:
   // a cold Opus schema call is 15 credits against a 20-credit grant, which left
   // a new account unable to finish its own first build. Asserted against the
@@ -479,3 +494,58 @@ const ROUTING_CREDITS = 1;
 //
 // Recorded rather than silently removed: "we decided against it" and "we forgot"
 // look identical in a diff a year later.
+
+test("NO SMALL CALL PINS ITS OWN MODEL — the edit path follows the picker", () => {
+  // THE REGRESSION THIS EXISTS FOR (run 93, 2026-08-31). Every classifier and
+  // cheap rung on the platform carried a hardcoded `claude-haiku-4-5`, so a
+  // customer who had picked Grok still had Anthropic in their path. Anthropic
+  // refused on billing and the whole cheap ladder went down — the router, the
+  // lane picker, and all eight rungs — while builds carried on fine because
+  // generation was already on the picked model. A `css` edit answered 503 in
+  // 5.3 seconds having spent nothing, and the lane under test never ran.
+  //
+  // Nothing asserted that, and nothing would have: each module's constant read
+  // perfectly sensibly on its own, and the coupling was only visible by looking
+  // at all eight at once. That is what this does.
+  const MODULES = ["site-ask", "site-lanes", "site-apply", "site-nav",
+    "site-picture", "site-rules", "site-tweak", "site-seed"];
+  // A MODEL ID AS A STRING LITERAL. Deliberately both families — pinning Grok
+  // here would be the same mistake wearing the other provider's name, and the
+  // point is that these follow the picker rather than that they avoid Anthropic.
+  const PINNED = /["'](?:claude-[a-z0-9.-]+|grok-[0-9][a-z0-9.-]*)["']/g;
+
+  const offenders = [];
+  let scanned = 0;
+  for (const name of MODULES) {
+    const src = read("builder/" + name + ".mjs");
+    // BLANK THE COMMENTS FIRST. Every one of these modules now carries a note
+    // explaining that the model is no longer `claude-haiku-4-5` — so an
+    // unblanked scan reports the fix as the defect it fixed, which is this
+    // repo's most-recorded own-goal.
+    const body = code(src);
+    scanned++;
+    for (const m of body.matchAll(PINNED)) {
+      offenders.push(name + ": " + m[0] + " at line " + body.slice(0, m.index).split("\n").length);
+    }
+  }
+  // THE OBSERVER IS ALIVE. A typo'd path would read eight empty strings and
+  // report a clean sweep over nothing.
+  assert.equal(scanned, MODULES.length);
+  for (const name of MODULES) {
+    assert.ok(read("builder/" + name + ".mjs").length > 1000, name + " read as almost nothing — this scan proves nothing");
+  }
+
+  assert.deepEqual(offenders, [],
+    "these modules pin a model instead of taking the picker's:\n  " + offenders.join("\n  ") +
+    "\nEvery small call resolves through `modelsFor(picker).quick`, so one provider having a bad day " +
+    "cannot take down a customer who chose the other. See BUILD_MODELS.");
+
+  // AND THE SCAN CAN SEE ONE — without this, a regex that matched nothing and a
+  // blanker that blanked everything both look like compliance.
+  assert.equal([...code('const M = "claude-haiku-4-5";').matchAll(PINNED)].length, 1,
+    "the scan cannot see a pinned Anthropic model");
+  assert.equal([...code('const M = "grok-4.6";').matchAll(PINNED)].length, 1,
+    "the scan cannot see a pinned xAI model");
+  assert.equal([...code('// it was "claude-haiku-4-5" until run 93').matchAll(PINNED)].length, 0,
+    "a model named in a comment is being read as a pin — every one of these modules has such a comment");
+});

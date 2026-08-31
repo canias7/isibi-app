@@ -426,6 +426,24 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
     build also tries to open the new component as if it were a page, gets a 404,
     and puts two false "a page didn't load" warnings on your response. Not fixed
     yet.
+- **The whole cheap edit ladder was down, and builds were fine — fixed
+  2026-08-31, your call.** I bought an edit to test the `css` step and it came
+  back in 5.3 seconds having done nothing and charged nothing: *"The site builder
+  is temporarily unavailable."*
+  - **Anthropic had refused us on billing.** Every small call on the platform —
+    the bit that reads your message and decides what you meant, the bit that
+    picks which part of the site to change, and all eight of the cheap change
+    types — was hardcoded to one Anthropic model. Builds run on Grok, so they
+    carried on working perfectly while every edit on the platform failed.
+  - **Now they all use whichever model is picked.** Pick Grok and there is no
+    Anthropic anywhere in your path; pick Sonnet and there is no Grok. One
+    provider having a bad day can no longer take out half the product.
+  - **A sweep caught a real gap while I was doing it**: I had threaded the model
+    through the router and it silently ignored it. Every readable check passed —
+    the code looked right — and only actually running it showed the value never
+    reaching the wire. There is a test that does that now, for all eight.
+  - **Still to do: the edit test itself.** Run 93 never got as far as the `css`
+    step, so we still do not know how that step behaves. That is the next run.
 - **Run 91 PUBLISHED (2026-08-31): `coalhole-2` is live at
   https://coalhole-2.gofarther.app/ — 11 credits.** Same theatre brief that
   killed run 90, built clean this time: one page, 8,967 characters, 291 seconds.
