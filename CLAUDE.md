@@ -180,11 +180,11 @@ of them (14 required).
 below drifted twice before, so re-derive it, don't trust this line:
 
 > `brand` · `slug` · `description` · `kind` · `purpose` · `pages` · `components` ·
-> `tsx` · `theme` · `wordmark` · `favicon` · `gif` · `shape` · `images` · `qr` ·
+> `tsx` · `theme` · `wordmark` · `favicon` · `shape` · `images` · `qr` ·
 > `css` · `backend` · `action` · `lang` · `langs` · `three` · `behavior` ·
 > `needsWeb` · `webQueries`
 
-Only `tsx`, `gif`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
+Only `tsx`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
 `webQueries` are optional.
 **`seeds` and `share` are NOT fields** — `seeds` came off on 2026-08-23 and
 `share` never existed (the share image is chosen at publish time, not designed).
@@ -251,19 +251,33 @@ Only `tsx`, `gif`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
   **The spine re-sends them on every publish** (`source/<slug>/parts.json`), which
   is not an optimisation: a page importing a component that is not sent does not
   compile, so without it the first typo fix after a build takes the site down.
-- **`gif`** (2026-08-29, owner: *"gif maker as optional too… just like a svg
-  step, a gif step to generate gif"*) — **an animated mark, drawn by the model as
-  one SVG document with its animation inside it.** Sits with `wordmark` and
-  `favicon` because it is the same job: one document, replaced whole, validated
-  by the same scanner. `cleanMark` now takes its tag/attr sets as PARAMETERS and
-  has three callers; `GIF_ATTRS` is derived from `FAVICON_ATTRS` so the two
-  cannot diverge. **The one new risk is indirection**: `<animate
-  attributeName="href">` names its target in a VALUE, so a document that cannot
-  *write* `href` could animate one in — `attributeName` is therefore checked
-  against the same set the scanner admits. `animateMotion` is refused outright
-  (its child is `<mpath href>`). **It produces an animated SVG, not a `.gif`
-  binary** — smaller, sharper, and it themes with the page; a real encoder buys
-  nothing unless these ever have to be shared OFF the site.
+- **`gif` — RETIRED 2026-08-31** (owner: *"delete the gif step for now"*). It
+  worked and it is still live: `washhouse-1` and `washhouse-3` serve one today,
+  the laundrette's being a drum — outer ring, three dots on an `animateTransform`
+  turning 360° over 6s — in **534 bytes**. **What ended it was the NAME, not the
+  feature.** The owner asked for a "gif" and this draws an animated SVG: smaller,
+  sharper, themes with the page, and does NOT play where a GIF plays — pasted
+  into a message, an email or a social post it is a still or nothing. The one
+  thing the word promises is the one thing it cannot do.
+  **What went**: the field from `design_schema`, and the `gif` edit lane with it
+  (a lane for a field the build no longer produces edits nothing —
+  `test/edit-lanes.test.mjs` asserts the two name sets both ways, and this is the
+  first time that guard fired in the subtracting direction).
+  **What stayed, deliberately**: `gif` on `EDIT_FIELDS`, exactly as `seeds` and
+  `family` are kept after leaving the design step — `mergeLook` rebuilds from
+  that array ALONE, so dropping the name strips the two live sites on their next
+  unrelated edit. And the whole render path: `GIF_FIELD`, `cleanGif`, both
+  container payloads, `marksDirective`'s gif half. `site-marks.test.mjs` still
+  asserts every hop from storage onward for BOTH marks, which is what keeps those
+  two sites working; only hop 1 now says `gif` is absent from the tool.
+  **To put it back**: restore the one property and the lane. Nothing else moved.
+  The scanner notes are worth keeping either way — `cleanMark` takes its tag/attr
+  sets as PARAMETERS and has three callers, `GIF_ATTRS` is derived from
+  `FAVICON_ATTRS` so the two cannot diverge, and the indirection risk is real:
+  `<animate attributeName="href">` names its target in a VALUE, so a document
+  that cannot *write* `href` could animate one in — `attributeName` is checked
+  against the same set the scanner admits, and `animateMotion` is refused
+  outright (its child is `<mpath href>`).
 - **`qr`** (2026-08-29, owner: *"qr code maker as optional"*) — `{ points, label
   }`, both required. **We draw it, the model never does**: a QR is Reed-Solomon
   over a spec with 40 sizes and 8 masks, and its failure mode is a code that
@@ -406,7 +420,7 @@ means *the ones this module edits itself*; the dispatched, verb and escalate lan
 do real work too, just on another rung. **21 of 22 act in the plain sense — only
 `slug` does nothing.**
 
-- **11 act here** — `css theme brand description wordmark favicon gif qr lang
+- **10 act here** — `css theme brand description wordmark favicon qr lang
   langs behavior`. The first eight are a plain string, enum or short list, which is why
   this module owns its own shapes; `behavior` is the one exception and shares
   `BEHAVIOR_ITEM` from `site-plan.mjs`, the only module both paths may read.
@@ -831,7 +845,7 @@ leaves with a card carrying a code you scan; the QR belongs on the PRINTED CARD
 pointing at the site, and the site's job is to RESOLVE the code — which is
 exactly the `chairs` table it built. A QR on the page would have been the site
 linking to itself. Worth remembering before reading a missing optional field as
-a dead wire: **`qr` and `gif` are offered on every build** (`FRONTEND_SCHEMA_TOOL`
+a dead wire: **`qr` is offered on every build** (`FRONTEND_SCHEMA_TOOL`
 destructures out `backend` and nothing else), so absence is a judgement, not a gap.
 
 **AN AUDIT OF THE CONTAINER'S INPUTS FOUND THE NEXT `three` (2026-08-30).**

@@ -117,7 +117,7 @@ import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTIO
 // The designer-drawn tab icon (2026-08-28, owner's call). The FIELD is the ask;
 // `cleanFavicon` itself runs at the merge (`FIELD_KEEPS.favicon`) and again in
 // the container at the write — this file only carries the answer through.
-import { FAVICON_FIELD, WORDMARK_FIELD, GIF_FIELD } from "./builder/site-favicon.mjs";
+import { FAVICON_FIELD, WORDMARK_FIELD } from "./builder/site-favicon.mjs";
 import { QR_FIELD, qrSvg } from "./builder/site-qr.mjs";
 // THE 500 THEMES, BACK IN THE PRODUCT (2026-08-27, owner's call). The tool's
 // enum is `THEME_SHORTLIST` — 100 of the 500, the owner's second call the same
@@ -3987,18 +3987,37 @@ const SITE_SCHEMA_TOOL = {
       // uploaded logo still beats either.
       wordmark: WORDMARK_FIELD,
       favicon: FAVICON_FIELD,
-      // ── AND THE ANIMATED ONE, BESIDE THE TWO STILL MARKS ────────────────
+      // ── THE ANIMATED MARK IS RETIRED (owner, 2026-08-31: "delete the gif
+      // step for now") ────────────────────────────────────────────────────
       //
-      // Owner, 2026-08-29: "gif maker as optional too, in the design step…
-      // just like a svg step, a gif step to generate gif". So it sits with the
-      // drawn marks rather than with the page content: it is the same job as
-      // the wordmark and the tab icon — the model draws one document, the same
-      // scanner validates it, the site keeps nothing if it is refused.
+      // IT SAT HERE, beside the two still marks, and it worked: `washhouse-1`
+      // and `washhouse-3` both serve a real one today — the laundrette's is a
+      // drum, an outer ring and three dots on an `animateTransform` rotating
+      // 360° over six seconds, in 534 bytes.
       //
-      // AFTER the two still marks, because an animated mark on a site that has
-      // one is usually a moving version of that identity, and the model has
-      // just drawn it.
-      gif: GIF_FIELD,
+      // WHAT ENDED IT WAS THE NAME, NOT THE FEATURE. The owner asked for a
+      // "gif" and what this produces is an animated SVG, which is smaller,
+      // sharper and themes with the page — and does NOT play where a GIF plays.
+      // Pasted into a message, an email or a social post it is a still picture
+      // or nothing at all. So the one thing the word promises is the one thing
+      // it cannot do, and until that is either built (a real encoder) or the
+      // expectation is settled, the step is not worth a field on every build.
+      //
+      // WHAT IS DELETED AND WHAT IS NOT, deliberately:
+      //   - GONE: this field, so no build is ever asked for one again; and the
+      //     `gif` edit lane, because a lane for a field the build no longer
+      //     produces edits nothing and `test/edit-lanes.test.mjs` says so.
+      //   - KEPT: `gif` on `EDIT_FIELDS`, exactly as `seeds` and `family` are
+      //     kept after leaving the design step. `mergeLook` rebuilds its answer
+      //     from that array ALONE, so dropping the name there would strip the
+      //     two live sites' marks on their next unrelated edit.
+      //   - KEPT: `GIF_FIELD`, `cleanGif`, the container payload and
+      //     `marksDirective`'s gif half — all still serving those two sites,
+      //     and all still under test.
+      //
+      // TO PUT IT BACK: restore this one property and the lane. Nothing else
+      // moved, which is the whole point of cutting it here rather than pulling
+      // the feature out by the roots.
       shape: SHAPE_FIELD,
       // AND THE PHOTOGRAPHS LAST OF ALL (owner's call, 2026-08-23 — "lets move
       // image generator to the designer").

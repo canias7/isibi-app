@@ -44,7 +44,12 @@ const bare = (src) => src.replace(/^\s*(?:\/\/|\*|\/\*)[^\n]*$/gm, (m) => " ".re
 // property of a build and nothing a customer asks to change afterwards.
 const WEB = ["needsWeb", "webQueries"];
 
-test("the two paths cover the same EIGHTEEN fields — asserted both ways", async () => {
+// THE NAME HAS DRIFTED TWICE AND IS NOW DERIVED FROM NOTHING, so it says the
+// number out loud and the assertions below say it again. It read "EIGHTEEN"
+// while asserting twenty-two — the count moved and the title did not, which is
+// this repo's own "a guard that goes red for the change rather than for a bug"
+// wearing its other face: a title nobody re-anchors stops describing the test.
+test("the two paths cover the same TWENTY-ONE fields — asserted both ways", async () => {
   const { tool } = await readSchemaTool();
   const all = Object.keys(tool.input_schema.properties);
   const designed = all.filter((k) => !WEB.includes(k));
@@ -69,8 +74,16 @@ test("the two paths cover the same EIGHTEEN fields — asserted both ways", asyn
   // somebody makes on purpose; the two loops below are the property, and they
   // are what caught this one — a field with no lane is a part of a site the
   // customer could never change again.
-  assert.equal(designed.length, 22, "the design tool no longer yields twenty-two editable fields: " + designed.join(","));
-  assert.equal(LANE_FIELDS.length, 22, "the edit path no longer has twenty-two lanes: " + LANE_FIELDS.join(","));
+  // TWENTY-ONE SINCE 2026-08-31, when `gif` was retired (owner: "delete the gif
+  // step for now") — the field and its lane went in the same commit, which is
+  // the two loops below doing their job in the subtracting direction for the
+  // first time. `gif` is still on `EDIT_FIELDS`, exactly as `seeds` and `family`
+  // are, so the two sites already wearing an animated mark keep it; what they
+  // lost is the ability to change it.
+  assert.equal(designed.length, 21, "the design tool no longer yields twenty-one editable fields: " + designed.join(","));
+  assert.equal(LANE_FIELDS.length, 21, "the edit path no longer has twenty-one lanes: " + LANE_FIELDS.join(","));
+  assert.ok(!designed.includes("gif") && !LANE_FIELDS.includes("gif"),
+    "`gif` is back on one side of this and not the other — it was retired from both on 2026-08-31");
   for (const k of designed) {
     assert.ok(LANE_FIELDS.includes(k), "the build can produce `" + k + "` and the edit path has no lane for it");
   }

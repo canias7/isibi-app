@@ -176,9 +176,16 @@ test("the field refuses to invent a destination", () => {
 test("THE CHAIN — both marks reach the site, and survive every later publish", async () => {
   const { tool } = await readSchemaTool();
   const p = tool.input_schema.properties;
-  assert.ok(p.gif && p.qr, "hop 1: the design step cannot answer one of them");
+  // hop 1: THE QR ONLY, SINCE 2026-08-31. `gif` left the design tool with the
+  // owner's call to retire that step, so no new build can ever answer one —
+  // and every hop below this line is still asserted for BOTH, because that is
+  // exactly what keeps `washhouse-1` and `washhouse-3` serving the marks they
+  // already have. A retired field whose storage and publish path quietly rotted
+  // would take two live sites' artwork off on their next unrelated edit.
+  assert.ok(p.qr, "hop 1: the design step cannot answer the QR");
+  assert.ok(!p.gif, "hop 1: `gif` is back in the design tool — it was retired on 2026-08-31, and its lane is gone");
+  assert.ok(!tool.input_schema.required.includes("qr"), "`qr` is compelled, so every build will invent one");
   for (const k of ["gif", "qr"]) {
-    assert.ok(!tool.input_schema.required.includes(k), "`" + k + "` is compelled, so every build will invent one");
     assert.ok(EDIT_FIELDS.includes(k), "hop 2: `" + k + "` is not stored, so the merge discards it");
   }
   // The merge really carries them.
@@ -249,16 +256,21 @@ test("THE CHAIN — both marks reach the site, and survive every later publish",
 
 /* ── the edit half ──────────────────────────────────────────────────────── */
 
-test("both act here — a redraw and two strings are the cheapest edits there are", () => {
-  for (const f of ["gif", "qr"]) {
-    assert.ok(LANE_FIELDS.includes(f), "there is no `" + f + "` lane, so it can never be changed");
-    assert.ok(OWN_LANES.includes(f), "the `" + f + "` lane no longer acts here");
-    assert.deepEqual(Object.keys(editTool(f).input_schema.properties), [f], "the `" + f + "` lane can answer another field");
-    assert.deepEqual(editTool(f).input_schema.required, [], "the `" + f + "` lane compels an answer on an edit");
-  }
+test("the QR acts here — two strings are the cheapest edit there is", () => {
+  // IT WAS BOTH MARKS UNTIL 2026-08-31 (owner: "delete the gif step for now").
+  // The `gif` field left the design tool and its lane went with it, because a
+  // lane for a field the build no longer produces bills and edits nothing —
+  // asserted in test/edit-lanes.test.mjs, in both directions.
+  assert.ok(LANE_FIELDS.includes("qr"), "there is no `qr` lane, so it can never be changed");
+  assert.ok(OWN_LANES.includes("qr"), "the `qr` lane no longer acts here");
+  assert.deepEqual(Object.keys(editTool("qr").input_schema.properties), ["qr"], "the `qr` lane can answer another field");
+  assert.deepEqual(editTool("qr").input_schema.required, [], "the `qr` lane compels an answer on an edit");
   // The QR lane's own sharpest rule, which is not a syntax rule.
   assert.match(laneRule("qr"), /NEVER INVENT A DESTINATION/, "the QR lane may invent a URL on an edit");
-  assert.match(laneRule("gif"), /replaced WHOLE/, "the gif lane does not say that an unreturned shape is gone");
+
+  // AND THE GIF LANE IS REALLY GONE, stated positively rather than left as the
+  // absence of an assertion — an absence is also what a deleted test looks like.
+  assert.ok(!LANE_FIELDS.includes("gif"), "the `gif` lane is back without its design field, so it edits nothing");
 });
 
 test("the designer is shown both, whole", () => {

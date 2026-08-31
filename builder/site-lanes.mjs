@@ -477,31 +477,21 @@ const LANES = {
     },
   },
 
-  // ── THE ANIMATED MARK ──────────────────────────────────────────────────
+  // ── THE ANIMATED MARK LANE IS GONE WITH ITS FIELD (2026-08-31) ─────────
   //
-  // ACTS HERE, beside `favicon` and `wordmark`, because it is the same KIND of
-  // value they are: one SVG document, stored whole, replaced whole, validated by
-  // the same scanner. A customer asking to change what it does is asking for a
-  // redraw, and a redraw is one cheap call.
-  gif: {
-    hint: "THE ANIMATED MARK — the small looping graphic: what it shows, how it moves, how fast, or taking it off the site.",
-    shape: { type: "string" },
-    edit: {
-      is: "The site's animated mark, as one complete SVG document, as it should be after their change.",
-      yours:
-        "THE WHOLE DRAWING IS YOURS TO REDRAW. Any shape, any colour, any timing — whatever they asked to " +
-        "look or move differently, draw it. You are handed the document the site is wearing; return it with " +
-        "their change made.",
-      wide:
-        "THE ASK IS THE EDIT, AND A REDRAW IS NOT ONE. Asked to slow it down, change the duration — do not " +
-        "take the opportunity to redraw the shapes, restyle the colours, or make it 'better'. This field is " +
-        "replaced WHOLE, so anything you do not carry across is gone from their site.",
-      keep:
-        "EVERY SHAPE, COLOUR AND TIMING THEY DID NOT ASK ABOUT COMES BACK EXACTLY AS IT WAS. A mark that " +
-        "quietly becomes a different mark is the site changing on its own, and it is the one change nobody " +
-        "asked for that a visitor is guaranteed to notice, because it moves.",
-    },
-  },
+  // It acted here, beside `favicon` and `wordmark`, and it went when the owner
+  // retired the `gif` design step — see the note where that field used to sit
+  // in worker.js for why. THE LANE HAD TO GO WITH IT, and that is a rule rather
+  // than tidiness: `test/edit-lanes.test.mjs` asserts the two name sets in BOTH
+  // directions, because a lane for a field the build no longer produces is a
+  // lane that bills and edits nothing.
+  //
+  // `gif` STAYS ON `EDIT_FIELDS` regardless, and that is not an inconsistency —
+  // `seeds` and `family` are there on the same footing. `mergeLook` rebuilds its
+  // answer from that array alone, so the name has to stay or `washhouse-1` and
+  // `washhouse-3` lose the marks they are serving today on their next unrelated
+  // edit. What those two sites cannot do any more is CHANGE the mark; what they
+  // keep is the mark.
 
   // ── THE QR CODE ────────────────────────────────────────────────────────
   //

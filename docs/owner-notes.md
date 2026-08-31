@@ -393,6 +393,39 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **The gif step is gone (2026-08-31, your call).** You asked for it deleted "for
+  now", and it is off the design step — no future build will be asked for an
+  animated mark.
+  - **It did work.** `washhouse-1` and `washhouse-3` both have one today. The
+    laundrette's is a washing-machine drum: a ring and three dots going round
+    once every six seconds, in 534 bytes.
+  - **What killed it was the word, not the thing.** You asked for a gif; what it
+    makes is an animated SVG. On the site that is better in every way — a
+    hundredth of the size, sharp at any size, and it uses the site's own colours.
+    Off the site it stops moving: paste it into WhatsApp or an email and you get
+    a still picture. So the one thing "gif" promises is the one thing it cannot
+    do. If you ever want the pasteable kind, that is a different job — encoding a
+    real `.gif` — and only worth it if sharing it is the point.
+  - **Your two live sites keep their marks.** I deliberately did not rip the
+    feature out by the roots: the storage and the publishing still carry it, so
+    those two sites go on serving what they have. What they lost is the ability
+    to *change* it.
+  - **Putting it back is one line plus its edit lane.** Nothing else moved.
+- **Run 92 PUBLISHED (2026-08-31): `fretwork-1` is live at
+  https://fretwork-1.gofarther.app/ — 12 credits.** The build that finally
+  answered the question runs 90 and 91 were bought for: **the model wrote its own
+  component.** One, called `chord-diagram` — the chord box, used eight times.
+  - **All eight chord shapes are musically correct.** E, A, D, G, C, Em, Am, Dm.
+  - **It cost about 1 credit — under a penny.** 5,017 characters of code at
+    Grok's output rate. It is extra words in a call that was already happening,
+    not a second call.
+  - **It also wrote the bit our own kit refuses to do.** Our components avoid
+    drawings because a screen reader cannot read one. This one draws the diagram
+    *and* writes it out in words underneath for anyone who cannot see it.
+  - **One bug of ours, found by it**: the check that opens every page after a
+    build also tries to open the new component as if it were a page, gets a 404,
+    and puts two false "a page didn't load" warnings on your response. Not fixed
+    yet.
 - **Run 91 PUBLISHED (2026-08-31): `coalhole-2` is live at
   https://coalhole-2.gofarther.app/ — 11 credits.** Same theatre brief that
   killed run 90, built clean this time: one page, 8,967 characters, 291 seconds.
