@@ -1009,6 +1009,52 @@ const EDIT_SYSTEM =
  * one: the model is shown what this part of the site IS and then what they said
  * about it. That is the whole prompt, which is what "pure action" means.
  */
+// ── THE SITE'S OWN STYLING, SHOWN TO THE LANE THAT STYLES IT ────────────────
+//
+// Owner, 2026-08-31: "you need to show the whole css of the site… the css step
+// in the edit css path need to be able to edit everything possible that contains
+// css, and im pretty sure that the theme code has css inside, otherwise it
+// wouldnt be a theme."
+//
+// The `yours` half of this lane's own rule has always said "THE WHOLE LOOK IS
+// HERE AND ALL OF IT IS YOURS TO EDIT… You are not limited to what the theme
+// offers" — which was a promise about a theme the model had never been shown.
+// This is what makes it true.
+//
+// THREE THINGS THE WORDING HAS TO DO, and the third is the one that can do harm:
+//
+//   1. Say these rules are ALREADY on the page, so the model reads them as the
+//      site's current state rather than as a draft to improve.
+//   2. Say the answer is written LAST, because that is the fact that makes an
+//      override work and is not guessable from the note alone.
+//   3. Say DO NOT COPY IT BACK — and this is the load-bearing one. The lane's
+//      answer REPLACES the stored free-CSS layer. A model that returns the theme
+//      with one line changed would freeze a copy of the theme into a layer that
+//      outranks it and no longer follows it, so a later theme change would apply
+//      to nothing. That is a worse site than the one that ignored the edit.
+//
+// A CEILING, because this is a per-call byte in a cached-prefix request and a
+// theme is 4-11KB. Cut at a rule boundary like `readCss` does, so the tail of
+// the note is never half a declaration the model then tries to complete.
+export const MAX_THEME_NOTE = 14000;
+
+export function themeNote(css) {
+  const s = typeof css === "string" ? css.trim() : "";
+  if (!s) return "";
+  let use = s;
+  if (use.length > MAX_THEME_NOTE) {
+    const at = use.lastIndexOf("}", MAX_THEME_NOTE);
+    use = (at > 0 ? use.slice(0, at + 1) : use.slice(0, MAX_THEME_NOTE)) + "\n/* … */";
+  }
+  return "THE SITE'S CURRENT STYLING — its theme, and these rules are ON THE PAGE right now:\n" +
+    use +
+    "\n\nThat block is context, NOT your answer. Do not copy it back: what you return REPLACES the " +
+    "stylesheet above it and is written LAST, after everything here, so one rule of yours overrides " +
+    "anything in it. If what they asked for is decided by one of these custom properties, the smallest " +
+    "change is to redefine that property — but only when what they named really is the whole site, " +
+    "because every component reading it repaints.";
+}
+
 export function editRequest({ field, message, value, model, note = "" }) {
   const tool = editTool(field);
   return {

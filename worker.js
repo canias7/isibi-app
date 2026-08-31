@@ -103,7 +103,7 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote } from "./builder/site-lanes.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -126,7 +126,16 @@ import { QR_FIELD, qrSvg } from "./builder/site-qr.mjs";
 // here: the merge validates through `FIELD_KEEPS.theme` in site-edit.mjs,
 // which judges against the FULL registry, so all 500 stay storable and
 // renderable while the shortlist only bounds what the model picks between.
-import { THEME_SHORTLIST, themeFontPair } from "./builder/site-theme-registry.mjs";
+import { THEME_SHORTLIST, themeFontPair, resolveTheme } from "./builder/site-theme-registry.mjs";
+// THE THEME IS CSS, WHICH IS WHY THE EDIT PATH NEEDS IT (owner, 2026-08-31:
+// "the css step in the edit css path need to be able to edit everything possible
+// that contains css, and im pretty sure that the theme code has css inside,
+// otherwise it wouldnt be a theme"). It does: `themeCss` renders a theme to
+// custom properties and rules, and the container writes that straight into the
+// site's stylesheet. Adding these two costs no bundle — the registry they come
+// from is already imported on the line above.
+import { themeCss } from "./builder/site-theme.mjs";
+import { applyStyle } from "./builder/site-style.mjs";
 import { laneName } from "./builder/build-lane.mjs";
 // THE TWO LONG MODEL CALLS, IN A MODULE THE CONTAINER CAN IMPORT TOO. Aliased
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
@@ -18704,6 +18713,51 @@ async function handleRequest(request, env, ctx) {
               // from the same stylesheet and changes nothing.
               if (!priorLook && !priorCss) return escalate("no-look");
 
+              // ── WHAT THE SITE IS ACTUALLY WEARING (owner's call, 2026-08-31) ──
+              //
+              // "you need to show the whole css of the site… the css step in the
+              // edit css path need to be able to edit everything possible that
+              // contains css, and im pretty sure that the theme code has css
+              // inside, otherwise it wouldnt be a theme."
+              //
+              // IT DOES, AND THE LANE HAD NEVER SEEN IT. `runLane` was handed
+              // `priorCss` — the free-CSS layer alone — so a site whose build
+              // never wrote one was described to the model as "(not set — this
+              // site has never had one)" while wearing a full theme. Measured on
+              // `fretwork-1` after run 96: 208 custom properties in the served
+              // stylesheet, `--primary` declared four times, and the lane was
+              // told the site had no CSS at all.
+              //
+              // So the model had nothing to change a colour BY. It could not
+              // reach for `--primary` because it did not know one existed; it
+              // guessed at markup instead and wrote `header button`, which
+              // matches no element on a page whose header control is an `<a>`.
+              //
+              // CONTEXT, NOT VALUE, AND THE DISTINCTION IS LOAD-BEARING. The
+              // lane's answer REPLACES `priorCss`. Show the theme as the current
+              // value and the obvious thing for a model to return is that value
+              // with one line changed — which would freeze a copy of the theme
+              // into the free layer, where it stops following the theme and
+              // silently outranks it (the free layer is written last). So the
+              // theme rides in `note`, which `editRequest` prints after the
+              // value and never asks the model to reproduce.
+              //
+              // THE KIT'S BASE SHEET IS DELIBERATELY NOT HERE. It is ~200KB of
+              // Tailwind utilities, byte-identical on every site on the
+              // platform, and it is not "this site's CSS" in any sense a
+              // customer means. The theme is 4-11KB (median 7KB, measured across
+              // all 500), which is what makes showing the whole of it possible
+              // at all.
+              //
+              // BEST-EFFORT: a theme that will not render leaves the note empty
+              // and the lane behaves exactly as it did before this existed. A
+              // stylesheet edit must not fail over the CONTEXT for it.
+              let themeSheet = "";
+              try {
+                const t = resolveTheme(priorLook && priorLook.theme);
+                if (t) themeSheet = themeCss(applyStyle(t, (priorLook && priorLook.style) || null));
+              } catch (e) { console.error("edit look theme render failed:", ownerSlug, e && e.message); }
+
               // ── THE EDIT PATH, WHICH IS NOT THE BUILD PATH ────────────────
               //
               // Owner, 2026-08-29: "it should be 2 separated path tho, idk why
@@ -18802,6 +18856,10 @@ async function handleRequest(request, env, ctx) {
                       // second copy of that set; the property is that they are
                       // ALL on `EDIT_FIELDS`, and that is what is written now.
                       value: field === "css" ? priorCss : (priorLook || {})[field],
+                      // THE SITE'S OWN STYLING, ON THE ONE LANE THAT STYLES.
+                      // Every other acting lane edits a short string or a list
+                      // and a stylesheet would be noise in front of it.
+                      note: field === "css" ? themeNote(themeSheet) : "",
                       model: modelsFor(eb && eb.picker).design,
                     },
                   );

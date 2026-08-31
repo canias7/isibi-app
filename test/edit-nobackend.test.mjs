@@ -571,3 +571,158 @@ test("…and it reads the CUSTOMER'S picker, not the default one", async () => {
       "a Sonnet customer with the Anthropic key set was refused before their model call: " + JSON.stringify(body));
   });
 });
+
+// ── THE SITE'S OWN CSS REACHES THE LANE THAT EDITS CSS (run 96) ─────────────
+//
+// Owner, 2026-08-31: "you need to show the whole css of the site… the css step
+// in the edit css path need to be able to edit everything possible that contains
+// css, and im pretty sure that the theme code has css inside, otherwise it
+// wouldnt be a theme."
+//
+// DRIVEN, AND IT HAS TO BE. This is the wiring class — a value computed,
+// forwarded and delivered to the wrong hop — which has shipped twelve-plus
+// features dead in this repo, twice in this session alone. Reading worker.js for
+// `themeNote(` proves the call site exists; only driving the route and opening
+// the request proves the bytes arrive.
+//
+// THE EXPECTATION IS DERIVED FROM THE REAL PRODUCER. `themeCss` is the only
+// thing that renders a theme, so the assertion asks IT what the site wears
+// rather than carrying a hand-typed copy of a token — the fixture-in-a-different
+// -shape trap, which in this repo has already certified a wrong `og:url` for a
+// day by comparing a value against a constant assembled the same wrong way.
+const THEMED = "broadsheet";
+
+function themedBucket(slug) {
+  const store = new Map([
+    ["source/" + slug + "/pages.json", JSON.stringify(PAGES)],
+    [CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Paperless", theme: THEMED }, css: "" })],
+  ]);
+  return {
+    store,
+    async get(k) { const v = store.get(k); return v === undefined ? null : { text: async () => v }; },
+    async put(k, v) { store.set(k, String(v)); },
+    async delete(k) { store.delete(k); },
+    async list() { return { objects: [], truncated: false }; },
+  };
+}
+
+/** Every model request the route made, with its body — which `withModel` does not keep. */
+async function withBodies(run, { fields = ["css"], answer = { css: "header a{color:red}" } } = {}) {
+  const real = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String((input && input.url) || input || "");
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify(USER), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/rest/v1/site_project")) {
+      return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/rest/v1/site_backends")) {
+      return new Response(JSON.stringify([{ uid: USER.id, brief: "" }]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/v1/messages") || url.includes("/v1/chat/completions")) {
+      let body = {};
+      try { body = JSON.parse(String(init && init.body) || "{}"); } catch {}
+      const asked = body.tool_choice?.name || body.tool_choice?.function?.name || "";
+      calls.push({ url, asked, body });
+      const input = asked === "pick_lanes" ? { fields } : answer;
+      const anthropic = url.includes("/v1/messages");
+      return new Response(JSON.stringify(anthropic
+        ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked || "edit_site", input }], usage: { input_tokens: 10, output_tokens: 5 } }
+        : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked || "edit_site", arguments: JSON.stringify(input) } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5 } }),
+        { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("unavailable", { status: 503 });
+  };
+  try { return await run(calls); } finally { globalThis.fetch = real; }
+}
+
+/** The text of a captured request, whichever provider shape it went out in. */
+const bodyText = (c) => JSON.stringify(c.body);
+
+test("the css lane is shown the site's THEME css, not just the free-css layer", async () => {
+  const { themeCss } = await import("../builder/site-theme.mjs");
+  const { resolveTheme } = await import("../builder/site-theme-registry.mjs");
+  const theme = resolveTheme(THEMED);
+  assert.ok(theme, "the fixture names a theme the registry does not have");
+  const sheet = themeCss(theme);
+  // A REAL DECLARATION OUT OF THAT SHEET, so the assertion cannot pass on a
+  // token name this test invented. Long enough to be unmistakable.
+  const decl = (sheet.match(/--background:\s*[^;]+;/) || [])[0];
+  assert.ok(decl && decl.length > 20, "could not derive a token declaration from the rendered theme");
+
+  await withBodies(async (calls) => {
+    await edit("themed-1", "look", "make the header link a deep forest green", { store: themedBucket("themed-1") });
+    const lane = calls.find((c) => c.asked === "edit_site");
+    assert.ok(lane, "the css lane never ran: " + JSON.stringify(calls.map((c) => c.asked)));
+    const text = bodyText(lane);
+    assert.ok(text.includes(decl),
+      "the lane's request does not carry the site's own theme CSS — it is still being shown the free-CSS " +
+      "layer alone, which on a site like this one is empty: " + decl);
+  });
+});
+
+test("…and it is told not to copy that block back, which is what stops the theme being frozen", async () => {
+  // THE LOAD-BEARING HALF. The lane's answer REPLACES the stored free-CSS layer,
+  // so a model that returns the theme with one line changed writes a copy of the
+  // theme into a layer that outranks it and no longer follows it — a later theme
+  // change would then apply to nothing. Worse than ignoring the edit.
+  await withBodies(async (calls) => {
+    await edit("themed-2", "look", "make the header link a deep forest green", { store: themedBucket("themed-2") });
+    const lane = calls.find((c) => c.asked === "edit_site");
+    const text = bodyText(lane);
+    assert.match(text, /Do not copy it back/,
+      "the theme block is shown with no instruction against returning it");
+    assert.match(text, /written LAST/,
+      "the note does not say the answer wins, so an override reads as pointless");
+  });
+});
+
+test("…and no OTHER lane is handed a stylesheet it has no use for", async () => {
+  // BOUNDED, so this is a change to ONE lane rather than a stylesheet stapled to
+  // every edit on the platform. `brand` edits a short string; a theme in front of
+  // it is per-call bytes bought for nothing, on a call whose prefix is cached.
+  await withBodies(async (calls) => {
+    await edit("themed-3", "look", "call us Paperless Press from now on", { store: themedBucket("themed-3") });
+    const lane = calls.find((c) => c.asked === "edit_site");
+    assert.ok(lane, "the brand lane never ran: " + JSON.stringify(calls.map((c) => c.asked)));
+    assert.doesNotMatch(bodyText(lane), /THE SITE.S CURRENT STYLING/,
+      "the brand lane is being handed the site's stylesheet, which it has no use for");
+  }, { fields: ["brand"], answer: { brand: "Paperless Press" } });
+});
+
+test("themeNote itself: the heading is there, the ceiling holds, and a non-string is refused", async () => {
+  const { themeNote, MAX_THEME_NOTE } = await import("../builder/site-lanes.mjs");
+
+  // THE POSITIVE COUNTERPART to the `doesNotMatch` above, and the sweep is what
+  // asked for it: deleting the heading survived, because a test that only ever
+  // asserts a string is ABSENT is satisfied by that string never existing. This
+  // repo's "a negative assertion must prove its observer is alive", found inside
+  // the guard written to bound the change.
+  const note = themeNote(":root{--primary:oklch(0.5 0.14 30)}");
+  assert.match(note, /THE SITE'S CURRENT STYLING/,
+    "the note lost the heading that tells the model what the block IS");
+  assert.match(note, /ON THE PAGE right now/,
+    "the note no longer says these rules are live, so they read as a draft to improve");
+  assert.ok(note.includes(":root{--primary:oklch(0.5 0.14 30)}"),
+    "the note does not actually contain the stylesheet it was given");
+
+  // A NON-STRING IS REFUSED, NEVER COERCED. `String(["a{}"])` is `"a{}"` — a
+  // perfectly good stylesheet assembled out of a shape mistake — and this repo
+  // has shipped that exact coercion as a real bug three times.
+  assert.equal(themeNote(["a{}"]), "", "an array was coerced into a stylesheet");
+  assert.equal(themeNote(null), "", "null produced a note");
+  assert.equal(themeNote(""), "", "an empty sheet produced a note");
+  assert.equal(themeNote("   "), "", "whitespace produced a note");
+
+  // AND THE CEILING CUTS AT A RULE BOUNDARY, so the tail is never half a
+  // declaration the model then tries to finish. Built from real rules rather
+  // than a run of one character, because the boundary is what is under test.
+  const big = ":root{--a:1}\n".repeat(4000);
+  assert.ok(big.length > MAX_THEME_NOTE, "the fixture is not large enough to reach the ceiling");
+  const cut = themeNote(big);
+  assert.ok(cut.includes("/* … */"), "an over-long sheet was not marked as cut");
+  const body = cut.slice(cut.indexOf("\n") + 1, cut.indexOf("/* … */"));
+  assert.ok(body.trimEnd().endsWith("}"), "the sheet was cut mid-rule: " + JSON.stringify(body.slice(-40)));
+});
