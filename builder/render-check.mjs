@@ -230,6 +230,37 @@ export function chromiumSandboxed() {
   return typeof process.getuid === "function" ? process.getuid() !== 0 : false;
 }
 
+// A CEILING ON WHAT IS ASKED, because this crosses into the page once per route
+// per viewport and the stylesheet is the model's. `MAX_CSS` is 60,000
+// characters, which is thousands of rules; a sheet that large is not one
+// somebody is waiting on a per-selector verdict for.
+const MAX_SELECTORS = 300;
+
+/**
+ * Which of these selectors match at least one element on THIS page.
+ *
+ * RUNS IN THE PAGE, so it is the browser's own selector engine giving the
+ * answer — not a parser of ours agreeing with itself. That is the entire point:
+ * the question "does `header button` match anything" has exactly one authority,
+ * and it is the thing that will actually render the site.
+ *
+ * A SELECTOR THAT THROWS IS TREATED AS A HIT, not as a miss. `querySelectorAll`
+ * throws on a syntax it does not know, and an unparseable selector is a
+ * different complaint from a selector that points at nothing — reporting it
+ * here would put "this matches nothing on your page" in front of a customer
+ * about a rule the browser could not even read. Cannot-tell must never read as
+ * nothing-there, which is the rule `loadConfig` and the design tool already
+ * follow two layers up.
+ */
+function countSelectors(list) {
+  const out = [];
+  for (const sel of list) {
+    try { if (document.querySelectorAll(sel).length > 0) out.push(sel); }
+    catch { out.push(sel); }
+  }
+  return out;
+}
+
 export async function launchChromium(chromium) {
   const sandboxed = chromiumSandboxed();
   const args = sandboxed ? ["--disable-dev-shm-usage"] : ["--no-sandbox", "--disable-dev-shm-usage"];
@@ -282,8 +313,41 @@ export async function screenshotHtml(html, { width, height }) {
  * So an unavailable server is reported as a check that could not run, and the
  * pages are not blamed for it.
  */
-export async function checkRender(distDir, routes, ssrFetch, serverDown) {
+export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = null) {
   const list = (Array.isArray(routes) ? routes : []).filter(Boolean);
+  // ── DOES THE MODEL'S STYLESHEET POINT AT ANYTHING? (2026-08-31, run 96) ────
+  //
+  // The selectors arrive already filtered to the ones a zero-match verdict is
+  // sound for — see `plainSelectors` in `site-freecss.mjs`, which is where the
+  // judgement lives and where the reasoning for each exclusion is written down.
+  // This function's only job is to COUNT, against the real DOM, which is the
+  // one thing no amount of reading the stylesheet can do.
+  //
+  // UNIONED ACROSS ROUTES AND VIEWPORTS: a selector that matches on any page is
+  // alive. A multi-page site whose rule hits only the menu page is not a dead
+  // rule, and asking per-page would report one on every other page.
+  const selectors = Array.isArray(opts && opts.selectors)
+    ? opts.selectors.filter((s) => typeof s === "string" && s).slice(0, MAX_SELECTORS)
+    : [];
+  const hit = new Set();
+  // PAGES SUCCESSFULLY PROBED, and the whole soundness of the answer rests on
+  // it. If nothing loaded, every selector matches nothing and a reader with no
+  // floor calls the entire stylesheet dead — the "a negative assertion must
+  // prove its observer is alive" trap, in the one place where tripping it would
+  // tell a customer their working edit did nothing.
+  let looked = 0;
+  // THE VERDICT, DERIVED ONCE, at whichever return the run reaches. Written as
+  // a function rather than assembled at each of the three exits because a
+  // classification repeated per call site is the thing this repo's `settle`
+  // comment already warns about: a new exit tomorrow gets it by saying nothing.
+  //
+  // NOTHING IS REPORTED WHEN NOTHING WAS ASKED, so a build that sent no
+  // stylesheet — every site before free CSS, and every cheap edit that leaves
+  // the look alone — produces a byte-identical report to the one it produced
+  // before this existed.
+  const tally = () => (selectors.length
+    ? { deadSelectors: selectors.filter((s) => !hit.has(s)), selectorsLooked: looked }
+    : {});
   // THE VERDICT IS ASKED FOR, NEVER DEFAULTED. This was a local initialised to
   // `true` and overwritten only after the browser launched, so every failure
   // before that — a port that would not listen, a missing `playwright-core`, a
@@ -344,6 +408,15 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown) {
             await page.waitForTimeout(SETTLE_MS);
             await page.evaluate(() => window.scrollTo(0, 0));
             Object.assign(obs, await page.evaluate(probe));
+            // COUNTED HERE, INSIDE THE TRY AND AFTER THE NAV CHECK, so a route
+            // that 404'd or threw contributes neither a hit nor a `looked`.
+            // `routePaths()` currently offers the `-parts/` components as if
+            // they were routes and they answer 404, so this distinction is not
+            // hypothetical on any site with a generated component.
+            looked++;
+            if (selectors.length) {
+              for (const s of await page.evaluate(countSelectors, selectors)) hit.add(s);
+            }
             // AND THEN OPEN THINGS, which is the only way to see a modal at all.
             // Same page, same browser — the static pass has already paid for the
             // load, so this is a few hundred milliseconds rather than a second
@@ -368,13 +441,13 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown) {
     // counted, and `ok:false` is what stops the customer being told anything
     // about a run that could not finish.
     const stopped = typeof serverDown === "function" ? String(serverDown() || "") : "";
-    if (stopped) return renderReport(seen, { ok: false, error: stopped, cut, sandboxed });
-    return renderReport(seen, { cut, sandboxed });
+    if (stopped) return renderReport(seen, { ok: false, error: stopped, cut, sandboxed, ...tally() });
+    return renderReport(seen, { cut, sandboxed, ...tally() });
   } catch (e) {
     // The check could not run. Reported as such rather than as a clean pass —
     // a broken harness that reads as "we looked and it was fine" is the silent
     // skip this codebase has already been bitten by three times.
-    return renderReport(seen, { ok: false, error: String((e && e.message) || e), cut, sandboxed });
+    return renderReport(seen, { ok: false, error: String((e && e.message) || e), cut, sandboxed, ...tally() });
   } finally {
     if (browser) await browser.close().catch(() => {});
     if (server) await new Promise((r) => server.close(r));

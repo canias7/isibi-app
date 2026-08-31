@@ -52,7 +52,7 @@ import { startSiteServer } from "./site-ssr.mjs";
 import { checkRender, screenshotHtml } from "./render-check.mjs";
 import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
-import { readCss, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
+import { readCss, plainSelectors, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -1868,7 +1868,14 @@ const server = http.createServer((req, res) => {
       const ssr = await startSiteServerForCheck();
       let render;
       try {
-        render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, routePaths(), ssr.fetch, ssr.down));
+        // THE SELECTORS COME FROM THE SHEET WE ACTUALLY WROTE, not from
+        // `payload.css`. `writeCss` truncates at `MAX_CSS` on a rule boundary,
+        // so the raw field can carry a tail that is not in the file — asking
+        // about a rule the site does not have would report it dead, correctly
+        // and uselessly. `cssUsed.applied` is also the gate: a build that sent
+        // no stylesheet asks nothing and its report is unchanged.
+        const cssSelectors = cssUsed && cssUsed.applied ? plainSelectors(readCss(payload.css).css) : [];
+        render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, routePaths(), ssr.fetch, ssr.down, { selectors: cssSelectors }));
       } finally { ssr.stop(); }
 
       // ── THE SHARE CARD, COMPOSED FREE (2026-08-28, owner's call) ────────────

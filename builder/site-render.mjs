@@ -474,7 +474,7 @@ export function readPage(obs) {
  * the run was complete, so an untruncated report is byte-identical to what it
  * was before this existed.
  */
-export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true } = {}) {
+export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0 } = {}) {
   const list = Array.isArray(observations) ? observations : [];
   const findings = [];
   for (const o of list) for (const f of readPage(o)) findings.push(f);
@@ -496,6 +496,22 @@ export function renderReport(observations, { ok = true, error = "", cut = false,
   // addressed. "We thought this was sandboxed" is a worse position than knowing
   // it is not.
   if (sandboxed === false) report.sandboxed = false;
+  // ── RULES THAT POINT AT NOTHING (2026-08-31, run 96) ──────────────────────
+  //
+  // CARRIED ONLY WHEN A PAGE WAS ACTUALLY LOOKED AT. `selectorsLooked` is the
+  // floor, and it is the entire honesty of the field: with no pages probed
+  // every selector "matched nothing", which would tell a customer their working
+  // stylesheet was dead on the run where the browser failed to start. That is
+  // this repo's "a negative assertion must prove its observer is alive", and
+  // the observer here fails in exactly the direction that would be believed.
+  //
+  // `selectorsLooked` RIDES ALONG rather than being consumed and dropped, so a
+  // reader downstream can tell "we checked four pages and these three rules hit
+  // nothing" from "we checked nothing". Two facts, not one.
+  if (Array.isArray(deadSelectors) && deadSelectors.length && selectorsLooked > 0) {
+    report.deadSelectors = deadSelectors.slice(0, MAX_FINDINGS);
+    report.selectorsLooked = selectorsLooked;
+  }
   if (error) report.error = clip(error, 200);
   return report;
 }

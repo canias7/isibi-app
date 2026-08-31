@@ -381,3 +381,155 @@ export function cssNote(report) {
   if (!report || !report.notes || !report.notes.length) return "";
   return report.notes.join(" ");
 }
+
+// ── DID THE SHEET POINT AT ANYTHING THAT EXISTS? (2026-08-31, run 96) ────────
+//
+// Run 96 asked for the header button in a deep forest green. The lane answered
+// `header button{background-color:#1b4332}` — right colour, right scope, one
+// rule, nothing else touched — published, reported `ok: true` and billed a
+// credit. The site did not change by a single pixel, because the kit renders
+// that control as an `<a>`: there is not one `<button>` element on the page.
+//
+// NOTHING COULD HAVE CAUGHT IT. The CSS is valid, so it compiles; the site
+// publishes; a rule matching nothing is byte-for-byte as healthy as a rule that
+// worked. The `look` lane never sees the page — it is shown the stored
+// stylesheet and the customer's sentence and nothing else — so it was guessing
+// at markup, and "button" is what the customer called it.
+//
+// ── WHY THIS JUDGES SO LITTLE, DELIBERATELY ─────────────────────────────────
+//
+// The bar here is ZERO false alarms, and there is no corpus to measure one
+// against: `test/fixtures/corpus` is 100 sites of TSX pages and not one
+// stylesheet. So instead of a heuristic checked against examples, this reports
+// only selectors whose zero-match verdict is SOUND BY CONSTRUCTION — a plain
+// structural selector that matches no element cannot affect any element, and no
+// example is needed to know that.
+//
+// Everything else is skipped in silence, and each exclusion is a real way a
+// live selector matches nothing in a static DOM:
+//
+//   · `:` — every pseudo-class and pseudo-element. `button:hover` matches
+//     nothing until somebody hovers; `p::before` matches no ELEMENT at all.
+//     This one exclusion covers the whole family, which is why it is a bare
+//     character test rather than a list of names that would go stale.
+//   · `.dark` / `.light` — the theme hooks. `.dark .card` matches nothing while
+//     the page is in light mode, and it is perfectly correct CSS.
+//   · `[data-state`, `[aria-`, `[open]`, `[hidden]` — runtime state. A dialog's
+//     rules match nothing until it opens. `[data-slot=…]` is NOT here and must
+//     not be: it is the kit's structural hook, present in the DOM from the
+//     first paint, and excluding it would blind this to most of the kit.
+//   · `&` — nesting. A nested selector has no meaning standing on its own.
+//
+// A selector this skips is not judged safe; it is judged UNJUDGEABLE, and the
+// difference matters — see `deadNote`, which counts what was looked at.
+
+/** Split a selector list on commas that are not inside `(`, `[` or a string. */
+function splitSelectors(list) {
+  const out = [];
+  let buf = "", depth = 0, quote = "";
+  for (const ch of String(list)) {
+    if (quote) { buf += ch; if (ch === quote) quote = ""; continue; }
+    if (ch === '"' || ch === "'") { quote = ch; buf += ch; continue; }
+    if (ch === "(" || ch === "[") depth++;
+    else if (ch === ")" || ch === "]") depth--;
+    // THE COMMA INSIDE `:is(a, b)` IS NOT A SELECTOR BOUNDARY, and a flat
+    // `split(",")` is this repo's own recorded "flat scans where depth matters"
+    // trap — written wrong five-plus times before this one.
+    if (ch === "," && depth <= 0) { out.push(buf.trim()); buf = ""; continue; }
+    buf += ch;
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out.filter(Boolean);
+}
+
+/** The state hooks a static DOM cannot answer for. See the block above. */
+const STATE_HOOKS = Object.freeze(["[data-state", "[aria-", "[open]", "[hidden]"]);
+
+/** Is this selector one whose zero-match verdict would be sound? */
+export function judgeableSelector(sel) {
+  const s = String(sel || "").trim();
+  if (!s || s.length > 200) return false;
+  if (s.includes(":") || s.includes("&") || s.includes("@")) return false;
+  // WORD-BOUNDED, so `.darkroom-panel` on a photographer's site is judged and
+  // only the theme hook itself is skipped. A bare `includes(".dark")` would
+  // silently stop judging any class that merely starts that way.
+  if (/(^|[^\w-])\.(dark|light)([^\w-]|$)/.test(s)) return false;
+  if (STATE_HOOKS.some((h) => s.toLowerCase().includes(h))) return false;
+  // A selector has to actually select something. `*` is legal and always
+  // matches, so it is judgeable but pointless; anything with no name, class,
+  // id, attribute or `*` in it is not a selector we understand.
+  return /[A-Za-z0-9_\-*]/.test(s);
+}
+
+/**
+ * Every selector in a model-written stylesheet whose liveness we can judge.
+ *
+ * DESCENDS INTO `@media`/`@supports`/`@container`/`@layer` and REFUSES to
+ * descend into `@keyframes`, whose "selectors" are `from`, `to` and `40%` —
+ * testing those against a DOM is meaningless, and reporting them dead would be
+ * a false alarm on every animation anybody writes. `@font-face`, `@property`
+ * and friends are skipped the same way: their blocks contain declarations, not
+ * rules.
+ */
+export function plainSelectors(css) {
+  if (typeof css !== "string" || !css.trim()) return [];
+  const src = blankComments(css);
+  const out = [];
+  const seen = new Set();
+  // A prelude is everything since the last `{`, `}` or `;` at this level.
+  let buf = "", quote = "";
+  const stack = [];              // one entry per open block: true = descend
+  let descend = true;            // are we inside blocks we still read rules from?
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (quote) { buf += ch; if (ch === quote) quote = ""; continue; }
+    if (ch === '"' || ch === "'") { quote = ch; buf += ch; continue; }
+    if (ch === "{") {
+      const prelude = buf.trim();
+      buf = "";
+      const isAt = prelude.startsWith("@");
+      // AN AT-RULE EITHER CONTAINS RULES OR IT DOES NOT, and only the first
+      // kind is worth walking into. Listed by what they CONTAIN rather than by
+      // name-matching every at-rule that exists, so an at-rule nobody here has
+      // heard of is skipped rather than read as a selector.
+      const nests = /^@(media|supports|container|layer|scope|document)\b/i.test(prelude);
+      const into = isAt ? (nests && descend) : descend;
+      if (!isAt && descend) {
+        for (const one of splitSelectors(prelude)) {
+          if (judgeableSelector(one) && !seen.has(one)) { seen.add(one); out.push(one); }
+        }
+      }
+      stack.push(descend);
+      // Inside a plain style rule sit declarations, not rules — so stop reading
+      // preludes until it closes. Nested CSS would put rules there, and those
+      // carry `&`, which `judgeableSelector` already refuses.
+      descend = isAt ? into : false;
+      continue;
+    }
+    if (ch === "}") { buf = ""; descend = stack.length ? stack.pop() : true; continue; }
+    if (ch === ";" && !stack.length) { buf = ""; continue; }
+    buf += ch;
+  }
+  return out;
+}
+
+/**
+ * The customer's sentence for rules that point at nothing.
+ *
+ * `looked` IS REQUIRED AND IS THE WHOLE HONESTY OF THIS. If the render check
+ * opened no page — the server did not start, every route 404'd, the browser
+ * would not launch — then every selector matches nothing and a naive reader
+ * calls the entire stylesheet dead. That is this repo's "a negative assertion
+ * must prove its observer is alive" trap, and it is the one failure mode that
+ * would turn this from a safety net into an outage. No pages looked at means
+ * no verdict, and the empty string says so.
+ */
+export function deadNote(dead, looked) {
+  if (!Array.isArray(dead) || !dead.length) return "";
+  if (!Number.isFinite(looked) || looked < 1) return "";
+  const list = dead.slice(0, 3).map((s) => "`" + s + "`").join(", ");
+  const more = dead.length > 3 ? ` (and ${dead.length - 3} more)` : "";
+  return dead.length === 1
+    ? `One rule in the new stylesheet points at something this site does not have — ${list} matches nothing on the page, so it changes nothing.`
+    : `${dead.length} rules in the new stylesheet point at something this site does not have — ${list}${more} match nothing on the page, so they change nothing.`;
+}
