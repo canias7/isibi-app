@@ -103,7 +103,7 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote } from "./builder/site-lanes.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -8532,6 +8532,45 @@ async function loadSiteSource(env, slug) {
  */
 const ANSWER_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/answer.json";
 
+// ── WHAT EVERY ELEMENT ON THIS SITE IS CALLED (2026-08-31, owner's call) ────
+//
+// The landmark map the container captures in a real browser — see
+// `landmarkProbe` in `builder/site-render.mjs` for what it holds and why the
+// name and the selector are separate fields.
+//
+// STORED RATHER THAN RE-DERIVED, because the only thing that can produce it is a
+// browser with the built site open, and the `css` edit lane runs long before any
+// of that: the lane needs the map to write a selector, and the map only exists
+// after a build. So each publish leaves the map behind for the next edit to
+// read. A site that has not been published since this shipped simply has none,
+// and the lane behaves exactly as it did before — which is the property that
+// makes this safe to deploy against 47 live sites.
+//
+// ITS OWN KEY, never folded into `pages.json` or the config. Both of those are
+// INPUTS the next build reads; this is an OBSERVATION of the last build's
+// output, and a stale observation must never be mistaken for a current input.
+const LANDMARKS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/landmarks.json";
+
+async function saveLandmarks(env, slug, marks) {
+  if (!env.SITES_BUCKET || !Array.isArray(marks) || !marks.length) return false;
+  try {
+    await env.SITES_BUCKET.put(LANDMARKS_KEY(slug), JSON.stringify({
+      at: new Date().toISOString(), slug, marks,
+    }), { httpMetadata: { contentType: "application/json" } });
+    return true;
+  } catch (e) { console.error("landmarks save failed:", slug, e && e.message); return false; }
+}
+
+async function loadLandmarks(env, slug) {
+  if (!env.SITES_BUCKET) return [];
+  try {
+    const o = await env.SITES_BUCKET.get(LANDMARKS_KEY(slug));
+    if (!o) return [];
+    const v = JSON.parse(await o.text());
+    return Array.isArray(v && v.marks) ? v.marks : [];
+  } catch (e) { console.error("landmarks read failed:", slug, e && e.message); return []; }
+}
+
 async function saveGenAnswer(env, slug, answer) {
   if (!env.SITES_BUCKET) return false;
   try {
@@ -9276,7 +9315,7 @@ async function translateStrings(env, tag, strings) {
 // original from its own initialiser.
 const publishSpine = (...a) => recompileAndPublish(...a);
 
-async function recompileAndPublish(env, { slug, pages, label, renamed = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false }) {
   let look = null, logo = "", icon = ""
   let verify = null, langStrings = null;
   // THE MODEL'S OWN STYLESHEET, read here for the reason every other look key is:
@@ -9629,6 +9668,38 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     };
   }
 
+  // ── A RULE THAT SELECTS NOTHING DOES NOT SHIP YET (2026-08-31, owner) ─────
+  //
+  // "If an intended selector matches zero elements, do not publish yet. Give the
+  // model the actual landmark map and ask it to correct the selector."
+  //
+  // THIS IS THE ONLY PLACE THE ANSWER EXISTS AND THE LAST PLACE IT IS STILL
+  // FREE TO ACT ON. The site is built and a real browser has opened every route,
+  // so `deadSelectors` is a measurement rather than a guess — and nothing has
+  // been written to R2 yet, so returning here leaves the live site exactly as it
+  // was. One line later and the correction would be a second publish over a
+  // first one the customer already saw.
+  //
+  // OPT-IN VIA `verifyCss`, for two reasons. It is only meaningful when this
+  // publish carries a stylesheet the model just wrote — a text fix or a picture
+  // swap has no selector to be wrong about. And the CORRECTION round must call
+  // this again with it OFF, which is what bounds the loop at one: without that,
+  // a model that cannot find the right selector refuses its customer for ever.
+  //
+  // THE MAP RIDES BACK WITH IT. The caller needs it to ask for a correction, and
+  // it is captured by the same browser pass that found the dead rule — so
+  // fetching it from anywhere else would be reading a different build's page.
+  const deadCss = verifyCss && built.render && Array.isArray(built.render.deadSelectors)
+    ? built.render.deadSelectors : [];
+  if (deadCss.length) {
+    return {
+      ok: false, error: "dead-css", ours: false,
+      dead: deadCss,
+      landmarks: (built.render && built.render.landmarks) || [],
+      detail: "the stylesheet has " + deadCss.length + " rule(s) that match no element on the page",
+    };
+  }
+
   // THE SAME META A BUILD PUBLISHES. Every field here is one this path was
   // missing when it was a second copy.
   const wrote = await writeSiteDistToR2(env, slug, built.files, {
@@ -9663,6 +9734,11 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   // writing it before the compile is proved would hand the next edit a version
   // that does not build.
   await saveSiteSource(env, slug, pages);
+  // AND THE MAP OF WHAT THE PUBLISHED PAGE CONTAINS, for the next edit to aim
+  // by. Best-effort and after the source, in that order deliberately: the source
+  // is what the next edit EDITS and the map is only what helps it aim, so a map
+  // that fails to store must never be able to cost the source.
+  await saveLandmarks(env, slug, built.render && built.render.landmarks);
   // AND THE REFRESHED SCRIPT, after the files — the ordering `putSiteWorker`
   // owns, and the same one the build path uses one function over.
   //
@@ -10445,6 +10521,23 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       : { uploaded: false, status: workerUpload.status, error: String(workerUpload.error || "").slice(0, 200),
           ...(workerUpload.stage === "pack" ? { stage: "pack" } : {}) };
   }
+  // ── AND THE MAP OF WHAT THIS BUILD PUT ON THE PAGE ────────────────────────
+  //
+  // The container captures landmarks on EVERY build, this one included, and
+  // until now only the cheap-edit spine stored them. So a freshly built site had
+  // no map and its FIRST edit aimed blind — the worst place for the gap, because
+  // the first thing anybody asks for after a build is a colour or a control.
+  // Found by the owner asking when the map is built.
+  //
+  // HERE RATHER THAN IN `deps.publish`, where the edit spine's copy sits: that
+  // callback is handed `(dist, pages, worker)` and never sees the render report.
+  // `publishPages` carries it out on `out.render`, so this is the first point on
+  // the build path where the map exists at all.
+  //
+  // GATED ON A REAL PUBLISH. A build that failed has no live page, and a map
+  // describing one that was never served would aim the next edit at elements
+  // nobody can see.
+  if (out && out.ok && out.render) await saveLandmarks(env, slug, out.render.landmarks);
   return out;
 }
 
@@ -17649,6 +17742,26 @@ async function handleRequest(request, env, ctx) {
             } catch { preEditConfig = null; }
 
             let pendingPublish = null;
+            // WHAT THE CORRECTION ROUND NEEDS, CARRIED ACROSS THE SCOPE BOUNDARY.
+            //
+            // `edb`, `themeSheet` and the lane list are all `const`s inside the
+            // `look` branch; the one publish runs BELOW that branch and cannot
+            // see them. Reading them there anyway is a ReferenceError that
+            // `node --check` passes and esbuild bundles happily — the `vidRefN`
+            // class, which this repo has shipped to production once and which
+            // `test/wiring.test.mjs` now catches. It caught this.
+            //
+            // So the look branch hands over exactly what the retry needs, and
+            // `null` means no stylesheet was written this message — which is
+            // also the gate on verifying selectors at all.
+            //
+            // ITS KEY IS `sheet` AND NOT `themeSheet`, deliberately. The guard
+            // above matches a bare `\bname\b`, so `cssCtx.themeSheet` reads to
+            // it as the out-of-scope variable it is named after — a false alarm
+            // on correct code. Teaching that scanner about property positions
+            // would buy a blind spot in a check that caught two real bugs in
+            // this change alone; renaming one property costs nothing.
+            let cssCtx = null;
             const publishStep = async (e, args) => {
               if (Array.isArray(args && args.pages) && args.pages.length) eSrc = args.pages;
               // `renamed` ACCUMULATES rather than replaces: two rungs can each
@@ -18758,6 +18871,14 @@ async function handleRequest(request, env, ctx) {
                 if (t) themeSheet = themeCss(applyStyle(t, (priorLook && priorLook.style) || null));
               } catch (e) { console.error("edit look theme render failed:", ownerSlug, e && e.message); }
 
+              // AND WHAT IS ON THE PAGE, which is the half the theme cannot
+              // supply. The theme says which colours exist; this says which
+              // elements do, and which selector reaches each one. Stored by the
+              // last publish — see `saveLandmarks` — so a site that has not been
+              // published since this shipped simply has no map and the lane
+              // behaves exactly as it did before.
+              const eMarks = await loadLandmarks(env, ownerSlug);
+
               // ── THE EDIT PATH, WHICH IS NOT THE BUILD PATH ────────────────
               //
               // Owner, 2026-08-29: "it should be 2 separated path tho, idk why
@@ -18830,6 +18951,9 @@ async function handleRequest(request, env, ctx) {
                 // live in the code — and the partition test is what would
                 // actually catch the drift it was written for.
                 ranLanes = pickedFields;
+                // See `cssCtx` where it is declared: this is the hand-over that
+                // lets the publish below verify and correct a stylesheet.
+                if (pickedFields.includes("css")) cssCtx = { edb, sheet: themeSheet };
 
                 // ONE CALL PER LANE, IN TURN (owner's call, asked which way a
                 // two-part message should go: "run both lanes in turn"). They
@@ -18859,7 +18983,13 @@ async function handleRequest(request, env, ctx) {
                       // THE SITE'S OWN STYLING, ON THE ONE LANE THAT STYLES.
                       // Every other acting lane edits a short string or a list
                       // and a stylesheet would be noise in front of it.
-                      note: field === "css" ? themeNote(themeSheet) : "",
+                      // THE MAP FIRST, THE THEME SECOND, and the order is the
+                      // job: the lane's first decision is WHICH element, and
+                      // only then WHAT COLOUR. Both are context and neither is
+                      // the value being edited.
+                      note: field === "css"
+                        ? [landmarkNote(eMarks), themeNote(themeSheet)].filter(Boolean).join("\n\n")
+                        : "",
                       model: modelsFor(eb && eb.picker).design,
                     },
                   );
@@ -19473,8 +19603,72 @@ async function handleRequest(request, env, ctx) {
             // has nothing to publish, and compiling anyway would spend a build
             // on a site that is not changing.
             let finalPub = null;
+            let cssFixed = null;
             if (pendingPublish && done.some((d) => !d.failed)) {
-              finalPub = await publishSpine(env, pendingPublish);
+              // ── VERIFY THE SELECTORS THIS MESSAGE INTRODUCED ─────────────
+              //
+              // Only when the `css` lane actually ran: it is the one rung that
+              // writes selectors, and asking the question on a text fix would
+              // buy a second build to check a stylesheet nobody touched.
+              finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: !!cssCtx });
+
+              // ONE CORRECTION ROUND, AND EXACTLY ONE (owner: "give the model
+              // the actual landmark map and ask it to correct the selector…
+              // rebuild and verify"). Nothing has been published at this point —
+              // the spine returns before writing to R2 — so the live site is
+              // still untouched while this runs.
+              //
+              // THE SECOND PUBLISH RUNS WITH `verifyCss` OFF, which is what
+              // makes this bounded rather than a loop. If the correction is also
+              // dead the site ships anyway: a rule that selects nothing is
+              // inert, and refusing outright would throw away every OTHER lane's
+              // work in the same message to punish one selector. The outcome is
+              // reported either way rather than quietly assumed.
+              // `cssCtx` IS PART OF THE CONDITION, not just of the request.
+              // The spine is asked to verify only when a stylesheet was written,
+              // so in principle a `dead-css` answer implies one — but "in
+              // principle" is how a null dereference ships: a sweep making the
+              // gate unconditional turned every text edit into `cssCtx.edb` on
+              // null, and the guard watching it counted builds and saw nothing
+              // wrong. The correction needs the context, so it asks for it.
+              if (!finalPub.ok && finalPub.error === "dead-css" && cssCtx) {
+                const fix = await runLane(
+                  { send: quickSend(env) },
+                  {
+                    field: "css",
+                    message: eInstruction,
+                    value: (await readSiteConfig(env, ownerSlug, cssCtx.edb).catch(() => null))?.config?.css || "",
+                    note: [
+                      "YOUR LAST ANSWER DID NOT REACH THE PAGE. These selectors matched NO element when the " +
+                      "site was built and opened in a browser:\n" + finalPub.dead.map((d) => "  " + d).join("\n") +
+                      "\n\nThey are not typos — they name something this page does not contain. Find the row " +
+                      "below that the customer actually meant and use ITS selector, then send the whole " +
+                      "stylesheet back with only that fixed. Change nothing else.",
+                      landmarkNote(finalPub.landmarks),
+                      themeNote(cssCtx.sheet),
+                    ].filter(Boolean).join("\n\n"),
+                    model: modelsFor(eb && eb.picker).design,
+                  },
+                );
+                // THE CORRECTION IS NOT BILLED, and that is a decision rather
+                // than an oversight. `laneUsages` belongs to the look block and
+                // is out of scope here — but the fix is not to reach it: this
+                // round exists because OUR first answer pointed at nothing, and
+                // `ourFault` is the rule this platform already bills by. The
+                // customer asked once and pays once.
+                if (!fix.failed && typeof fix.value === "string" && fix.value.trim()) {
+                  const put = await patchSiteConfig(env, ownerSlug, cssCtx.edb, { css: fix.value });
+                  if (put.ok) cssFixed = { dead: finalPub.dead };
+                }
+                // REBUILD AND SEE. Off this time, so this is the last attempt.
+                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: false });
+              } else if (!finalPub.ok && finalPub.error === "dead-css") {
+                // ASKED TO VERIFY WITH NOTHING TO CORRECT WITH. Not reachable
+                // today — `verifyCss` is `!!cssCtx` — and it is handled anyway
+                // because the alternative is the customer's edit vanishing over
+                // a rule that is merely inert. Publish what they asked for.
+                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: false });
+              }
               if (!finalPub.ok) {
                 // THE SITE IS UNTOUCHED — nothing was published — but the STORED
                 // state is not: each rung wrote its change before handing over

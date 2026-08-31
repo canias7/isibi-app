@@ -842,3 +842,136 @@ test("a verb aimed at a page the site does not have is refused, not honoured", a
     }
   } finally { c.uninstall(); }
 });
+
+// ── A RULE THAT SELECTS NOTHING DOES NOT PUBLISH (2026-08-31, owner's call) ──
+//
+// "If an intended selector matches zero elements, do not publish yet. Give the
+// model the actual landmark map and ask it to correct the selector."
+//
+// DRIVEN, AND THE SWEEP IS WHY. The first version of these guards read
+// worker.js for the gate's own text and asserted it sat above the publish call.
+// A sweep replacing the condition with `if (false)` SURVIVED all of it — the
+// text is still there, in the right order, doing nothing. Four separate
+// mutations survived that way. Source order is not behaviour.
+//
+// So the container fixture answers with a real `render` report and these count
+// what actually happened: how many builds ran, whether the site was published,
+// and whether the model was asked again with the map in front of it.
+
+const DEAD_RENDER = {
+  ok: true, checked: 2, pages: 1, findings: [],
+  deadSelectors: ["header button"],
+  selectorsLooked: 2,
+  landmarks: [
+    { name: "header-button", selector: '[data-slot="site-link"]', tag: "a", section: "header",
+      role: "button", text: "Get your first lesson free", route: "/" },
+  ],
+};
+
+test("a dead selector withholds the publish and buys exactly one correction", async () => {
+  // DEAD ON THE FIRST BUILD, CLEAN ON THE SECOND — which is the whole shape of
+  // the feature. A static report would make "it published after the fix"
+  // indistinguishable from "it never checked again".
+  const c = installCompiler({ render: (n) => (n === 1 ? DEAD_RENDER : { ok: true, checked: 2, pages: 1, findings: [] }) });
+  try {
+    await withWire(
+      { pick_lanes: { fields: ["css"] }, edit_site: { css: "header button{background-color:#014421}" } },
+      async (calls) => {
+        const { body } = await edit("dead-1", "make the button in the header forest green");
+        // TWO BUILDS: the one that found the dead rule, and the one after the
+        // correction. One build means the gate never fired; three means the
+        // round is not bounded and a stubborn model loops on the customer.
+        assert.equal(c.calls.length, 2,
+          "expected exactly two builds (find, then re-check) — got " + c.calls.length);
+        // AND THE MODEL WAS ASKED AGAIN, with the dead selector named and the
+        // map in front of it. Without this the second build is just a retry of
+        // the same answer.
+        const laneCalls = calls.filter((x) => x.tool === "edit_site");
+        assert.equal(laneCalls.length, 2,
+          "the css lane ran " + laneCalls.length + " times — no correction was asked for");
+        const retry = JSON.stringify(laneCalls[1]);
+        assert.match(retry, /DID NOT REACH THE PAGE/, "the correction round does not tell the model what failed");
+        assert.match(retry, /header button/, "the correction round does not name the dead selector");
+        assert.ok(retry.includes('[data-slot=\\"site-link\\"]') || retry.includes('[data-slot="site-link"]'),
+          "the correction round does not hand over the landmark map: " + retry.slice(0, 300));
+        // AND IT SHIPPED IN THE END. Refusing outright would throw away every
+        // other lane's work in the same message to punish one selector.
+        assert.equal(body && body.ok, true, "the corrected edit never published: " + JSON.stringify(body));
+      },
+    );
+  } finally { c.uninstall(); }
+});
+
+test("…and a clean build is never asked to correct anything", async () => {
+  // THE CONTROL, and without it every assertion above is satisfied by a gate
+  // that fires on every edit — which would double the cost of the whole cheap
+  // ladder and buy a second model call per colour change.
+  const c = installCompiler({ render: { ok: true, checked: 2, pages: 1, findings: [] } });
+  try {
+    await withWire(
+      { pick_lanes: { fields: ["css"] }, edit_site: { css: '[data-slot="site-link"]{background-color:#014421}' } },
+      async (calls) => {
+        const { body } = await edit("dead-2", "make the button in the header forest green");
+        assert.equal(body && body.ok, true, "a clean edit did not publish: " + JSON.stringify(body));
+        assert.equal(c.calls.length, 1, "a clean edit compiled " + c.calls.length + " times");
+        assert.equal(calls.filter((x) => x.tool === "edit_site").length, 1,
+          "a clean edit was sent back to the model for a correction it did not need");
+      },
+    );
+  } finally { c.uninstall(); }
+});
+
+test("verification is asked for on a stylesheet edit and NOT on a text one", async () => {
+  // THE GATE IS OPT-IN, and the bound matters both ways: unasked, a dead rule
+  // ships silently; asked on every rung, a typo fix buys a second build to check
+  // a stylesheet nobody touched.
+  //
+  // READ OFF THE BUILD COUNT rather than off an internal flag: with a dead
+  // report standing, a rung that ASKED sees it and builds twice, and a rung that
+  // did not builds once. That is the flag's only observable consequence, which
+  // is what makes this a behaviour test rather than a restatement.
+  const c = installCompiler({ render: (n) => (n === 1 ? DEAD_RENDER : { ok: true, checked: 2, pages: 1, findings: [] }) });
+  try {
+    await withWire(
+      { pick_lanes: { fields: ["brand"] }, edit_site: { brand: "Northwind" } },
+      async () => {
+        const { body } = await edit("dead-3", "call us Northwind from now on");
+        // THE OUTCOME FIRST. Counting builds alone is satisfied by a CRASH —
+        // one build, then a throw — which is exactly what a sweep making the
+        // gate unconditional produced: `cssCtx` is null on a brand edit and the
+        // correction round dereferenced it. The build count said "1" and the
+        // guard passed on code that 500s.
+        assert.equal(body && body.ok, true,
+          "a brand edit did not go through: " + JSON.stringify(body));
+        assert.equal(c.calls.length, 1,
+          "an edit that wrote no stylesheet still verified selectors and built " + c.calls.length + " times");
+      },
+    );
+  } finally { c.uninstall(); }
+});
+
+test("the landmark map is STORED after a publish, or the next edit is blind again", async () => {
+  // THE HOP THE SWEEP FOUND UNGUARDED. Deleting `saveLandmarks` entirely
+  // survived the whole suite: the map was captured, carried, and dropped on the
+  // floor — the wiring trap, in the change written to close a wiring trap.
+  const c = installCompiler({ render: { ok: true, checked: 2, pages: 1, findings: [], landmarks: DEAD_RENDER.landmarks } });
+  try {
+    await withWire(
+      { pick_lanes: { fields: ["css"] }, edit_site: { css: '[data-slot="site-link"]{color:#014421}' } },
+      async () => {
+        // OUR OWN BUCKET, so the writes are inspectable. `withWire` yields the
+        // model calls; the store is made inside `edit` unless one is passed.
+        const b = bucket("marks-store");
+        const { body } = await edit("marks-store", "make the header button green", { store: b });
+        const store = b.store;
+        assert.equal(body && body.ok, true, "the edit did not publish: " + JSON.stringify(body));
+        const key = [...store.keys()].find((k) => k.endsWith("/landmarks.json"));
+        assert.ok(key, "no landmark map was stored — the next edit on this site aims blind: "
+          + JSON.stringify([...store.keys()].slice(0, 8)));
+        const saved = JSON.parse(store.get(key));
+        assert.equal(saved.marks[0].selector, '[data-slot="site-link"]',
+          "the stored map lost the selector, which is the only column that has to be right");
+      },
+    );
+  } finally { c.uninstall(); }
+});

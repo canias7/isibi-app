@@ -47,7 +47,15 @@ export class Container {
  */
 let COMPILER = null;
 
-export function installCompiler({ ok = true, error = "" } = {}) {
+// `render` IS A REAL FIELD OF A REAL BUILD RESPONSE, and its absence here was a
+// fixture quietly less capable than the thing it stands for. The container runs
+// a browser over every route and returns that report — `deadSelectors`,
+// `landmarks`, findings — and the publish spine now BRANCHES on it: a rule that
+// matches no element withholds the publish. With no `render` in the stub that
+// branch could never be taken, so the whole zero-match gate was untestable and a
+// sweep deleting it survived. Passed per case rather than defaulted, so every
+// existing caller keeps the response it already had.
+export function installCompiler({ ok = true, error = "", render = null } = {}) {
   const calls = [];
   COMPILER = {
     calls,
@@ -73,7 +81,12 @@ export function installCompiler({ ok = true, error = "" } = {}) {
       // successful build of nothing. A fixture that quietly changes the shape it
       // was given is the same trap as one that invents a shape.
       const files = body.files || {};
-      return new Response(JSON.stringify({ ok: true, files }), { status: 200, headers: { "content-type": "application/json" } });
+      // THE RENDER REPORT, WHEN THE CASE ASKED FOR ONE. A function so a test can
+      // answer differently on the second call — which is exactly what the
+      // correction round needs: dead the first time, clean after the fix.
+      const rep = typeof render === "function" ? render(calls.length) : render;
+      return new Response(JSON.stringify({ ok: true, files, ...(rep ? { render: rep } : {}) }),
+        { status: 200, headers: { "content-type": "application/json" } });
     },
   };
   return { calls, uninstall: () => { COMPILER = null; } };

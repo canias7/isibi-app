@@ -1547,3 +1547,29 @@ test("the translation calls are billed, and a refused language is reported", () 
   assert.match(w, /langsRefused: \(langsRefused && langsRefused\.length\) \? langsRefused : undefined,/,
     "a refused language is computed and never returned");
 });
+
+test("BOTH publish paths store the landmark map, or a fresh site's first edit aims blind", () => {
+  // THE GAP THE OWNER'S QUESTION FOUND. The container captures landmarks on
+  // every build, and for a while only the cheap-edit spine stored them — so a
+  // newly built site had no map and its FIRST edit was back to guessing at
+  // markup, which is the worst place for the hole: the first thing anybody asks
+  // for after a build is a colour or a control.
+  //
+  // A SOURCE READ, AND SAID SO. The build path's own storage sits inside the
+  // route that calls `publishPages`, and driving that end to end means a design
+  // call, a provision and a generation — infrastructure this suite does not
+  // have. What a scan CAN hold is that neither call site has been deleted,
+  // which is exactly how this gap appeared: the sweep that found it removed the
+  // line and nothing went red. It will not catch a semantically broken store;
+  // `test/edit-path.test.mjs` drives the edit path's one for that.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const calls = [...src.matchAll(/\bawait saveLandmarks\(/g)].length;
+  assert.ok(calls >= 2,
+    "only " + calls + " publish path stores the landmark map — a site published by the other one " +
+    "hands its next css edit nothing to aim with");
+
+  // AND THE BUILD PATH'S IS GATED ON A REAL PUBLISH. A map describing a page
+  // that was never served would aim the next edit at elements nobody can see.
+  const at = src.indexOf("if (out && out.ok && out.render) await saveLandmarks(");
+  assert.ok(at > 0, "the build path stores its map ungated, or the store is gone");
+});

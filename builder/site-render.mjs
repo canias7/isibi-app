@@ -474,7 +474,7 @@ export function readPage(obs) {
  * the run was complete, so an untruncated report is byte-identical to what it
  * was before this existed.
  */
-export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0 } = {}) {
+export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0, landmarks = null } = {}) {
   const list = Array.isArray(observations) ? observations : [];
   const findings = [];
   for (const o of list) for (const f of readPage(o)) findings.push(f);
@@ -512,6 +512,12 @@ export function renderReport(observations, { ok = true, error = "", cut = false,
     report.deadSelectors = deadSelectors.slice(0, MAX_FINDINGS);
     report.selectorsLooked = selectorsLooked;
   }
+  // THE LANDMARK MAP RIDES HERE BUT IS NOT A FINDING. It is not capped by
+  // `MAX_FINDINGS` — that bound exists so model-adjacent PROSE stays readable,
+  // and this is a lookup table whose whole value is being complete. It is also
+  // deliberately invisible to `renderNote`, which reads `findings` alone: the
+  // customer is told what is wrong with their site, never handed its DOM.
+  if (Array.isArray(landmarks) && landmarks.length) report.landmarks = landmarks;
   if (error) report.error = clip(error, 200);
   return report;
 }
@@ -568,4 +574,212 @@ export function renderNote(report) {
   });
   const list = bits.length === 1 ? bits[0] : bits.slice(0, -1).join(", ") + " and " + bits[bits.length - 1];
   return `I had a look at the finished pages: ${list}.`;
+}
+
+// ── THE LANDMARK MAP (2026-08-31, owner's call) ─────────────────────────────
+//
+// "implement the landmark map, but design it as a general element-targeting
+// system — not a one-site hardcoded fix… Require the model to target stable
+// `data-slot` selectors instead of guessing HTML tags from the user's wording.
+// If the user says 'button', interpret that as the element's visual or
+// functional role — not necessarily a literal `<button>`."
+//
+// WHAT IT IS FOR. The `css` edit lane writes a stylesheet for a page it has
+// never seen, from one sentence. Run 96 was asked for "the button up in the
+// header" and wrote `header button{background-color:#1b4332}` — valid CSS,
+// right colour, right width, and it matched ZERO elements: the kit renders that
+// control as `<a data-slot="site-link">` and the page contains no `<button>` at
+// all. Run 98, with the theme in front of it, wrote the same dead selector in a
+// different green. Two paid edits, three credits, no pixel moved. Measured, on
+// the live site, in a real browser.
+//
+// So this hands the model the page's actual vocabulary.
+//
+// ── WHY THE NAME AND THE SELECTOR ARE TWO FIELDS ───────────────────────────
+//
+// The owner asked for stable descriptive identifiers — `header-primary-cta`,
+// `hero-title`, `footer-phone-link`. Those are what a customer's sentence
+// sounds like, and they are what `name` carries.
+//
+// They are NOT what goes in the stylesheet. Stamping new attributes onto the
+// kit would mean editing 2,112 components AND republishing all 47 live sites
+// before one edit could benefit, and the `-parts/` components the `tsx` step
+// writes would never carry them at all. So `name` is derived here — from where
+// the element sits, what it does and what it says — and `selector` is a
+// separate field carrying something that ALREADY addresses that element today.
+//
+// THE SELECTOR IS VERIFIED, NOT CONSTRUCTED AND HOPED FOR. This runs inside the
+// page, so every candidate is tested against the real DOM before it is offered:
+// it must match exactly one element and that element must be this one. A
+// selector that cannot be made unique is dropped rather than guessed at — an
+// ambiguous target is how "change the header button" moves three of them.
+//
+// This is the whole point of capturing here rather than reading the source: the
+// source says `<SiteChrome action={…}>`, and no amount of reading it tells you
+// that renders an anchor.
+
+/** How many landmarks one page may contribute. A map is for reading, not for storing a DOM. */
+export const MAX_LANDMARKS = 40;
+
+/**
+ * What every meaningful element on THIS page is called, and how to select it.
+ *
+ * SELF-CONTAINED, because it is serialised into the page by `page.evaluate` —
+ * no imports, no closures, no reference to anything in this module. Same
+ * constraint `probe` and `probeOverlay` above are written under.
+ *
+ * @param {string} route  the address this page was opened at
+ * @param {number} cap    max landmarks (MAX_LANDMARKS; passed so the page needs no import)
+ */
+export function landmarkProbe({ route, cap }) {
+  const out = [];
+  const clip = (s, n) => String(s == null ? "" : s).replace(/\s+/g, " ").trim().slice(0, n);
+
+  // WHICH SECTION AN ELEMENT LIVES IN — the "component/section" the owner asked
+  // for. Read off the real landmarks first (header/footer/nav are unambiguous)
+  // and otherwise off the nearest ancestor the kit labelled, which is how a
+  // control ends up described as living in the `cta-band` or the `hero-split`.
+  const sectionOf = (el) => {
+    if (el.closest("header")) return "header";
+    if (el.closest("footer")) return "footer";
+    if (el.closest("nav")) return "nav";
+    const s = el.parentElement && el.parentElement.closest("[data-slot]");
+    const slot = s && s.getAttribute("data-slot");
+    return slot && slot !== "site-chrome" ? slot : "body";
+  };
+
+  // WHAT IT DOES, which is the half the customer's wording is about. `button` is
+  // a ROLE here and deliberately not a tag test: the thing a customer calls a
+  // button is an `<a>` on every site this kit has ever built.
+  const roleOf = (el) => {
+    const tag = el.tagName.toLowerCase();
+    const explicit = el.getAttribute("role");
+    if (explicit) return explicit;
+    if (tag === "a") {
+      // LOOKS-LIKE COMES FIRST, AND THE ORDER IS THE OWNER'S RULE. "If the user
+      // says 'button', interpret that as the element's visual or functional
+      // role." `data-slot` is the kit's own word for what it drew, so an anchor
+      // it dressed as a button is a BUTTON here — whatever its href says.
+      //
+      // Measured: the first draft tested `tel:` first and named the header's
+      // primary control `header-phone-link`, because the kit points it at a
+      // phone number. Correct about the destination and useless to a customer
+      // saying "the button up in the header" — which is the exact sentence this
+      // whole map exists to answer. The destination is not lost: it rides on
+      // `href` below, so "the phone link in the footer" still resolves.
+      const slot = el.getAttribute("data-slot") || "";
+      if (slot === "button" || slot === "site-link") return "button";
+      const href = el.getAttribute("href") || "";
+      if (/^tel:/i.test(href)) return "phone-link";
+      if (/^mailto:/i.test(href)) return "email-link";
+      return "link";
+    }
+    if (tag === "button") return "button";
+    if (/^h[1-6]$/.test(tag)) return tag === "h1" ? "title" : "heading";
+    if (tag === "img") return "image";
+    if (tag === "input" || tag === "textarea" || tag === "select") return "field";
+    return el.getAttribute("data-slot") || tag;
+  };
+
+  // A SELECTOR THAT PROVABLY ADDRESSES THIS ONE ELEMENT, or nothing.
+  //
+  // Cheapest and most stable first. Every candidate is TESTED — `matches one
+  // element` and `that element is this one` — because a selector offered to the
+  // model is a promise, and an ambiguous one moves things nobody asked about.
+  const uniqueFor = (el) => {
+    const tag = el.tagName.toLowerCase();
+    const esc = (v) => String(v).replace(/["\\]/g, "\\$&");
+    const id = el.getAttribute("id");
+    const slot = el.getAttribute("data-slot");
+    const sect = sectionOf(el);
+    // The section prefix, as a selector rather than as a word.
+    const scope = sect === "header" || sect === "footer" || sect === "nav"
+      ? sect
+      : (sect && sect !== "body" ? '[data-slot="' + esc(sect) + '"]' : "");
+    const tries = [];
+    if (id && /^[A-Za-z][\w-]*$/.test(id)) tries.push("#" + id);
+    if (slot) {
+      tries.push('[data-slot="' + esc(slot) + '"]');
+      if (scope) tries.push(scope + ' [data-slot="' + esc(slot) + '"]');
+    }
+    if (scope) tries.push(scope + " " + tag);
+    tries.push(tag);
+    for (const sel of tries) {
+      let hit;
+      try { hit = document.querySelectorAll(sel); } catch { continue; }
+      if (hit.length === 1 && hit[0] === el) return sel;
+    }
+    // NTH-OF-TYPE IS THE LAST RESORT AND IS STILL VERIFIED. It is the most
+    // brittle form here — a page that gains a sibling renames it — so it is
+    // offered only when nothing above addressed the element, and only when the
+    // browser confirms it lands on exactly this one.
+    const parent = el.parentElement;
+    if (parent && scope) {
+      const sibs = [...parent.children].filter((c) => c.tagName === el.tagName);
+      const i = sibs.indexOf(el);
+      if (i >= 0) {
+        const sel = scope + " " + tag + ":nth-of-type(" + (i + 1) + ")";
+        let hit;
+        try { hit = document.querySelectorAll(sel); } catch { hit = null; }
+        if (hit && hit.length === 1 && hit[0] === el) return sel;
+      }
+    }
+    return "";
+  };
+
+  // WHICH ELEMENTS ARE WORTH A LINE. Everything the kit labelled, plus the
+  // things a customer names by sight: headings, controls, pictures and fields.
+  // Not every node — a map of 393 elements is not a map.
+  const seen = new Set();
+  const pick = [];
+  for (const el of document.querySelectorAll("[data-slot], h1, h2, h3, a, button, [role=button], img, input, textarea, select")) {
+    if (seen.has(el)) continue;
+    seen.add(el);
+    pick.push(el);
+  }
+
+  const used = new Map();
+  for (const el of pick) {
+    if (out.length >= cap) break;
+    // INVISIBLE ELEMENTS ARE NOT LANDMARKS. A control inside a closed menu is
+    // real but it is not what "the button in the header" means, and offering it
+    // is how an edit lands somewhere the customer cannot see.
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const selector = uniqueFor(el);
+    if (!selector) continue;
+    const role = roleOf(el);
+    const section = sectionOf(el);
+    // THE STABLE DESCRIPTIVE NAME the owner asked for: where it is, then what it
+    // does, then a number ONLY when the pair repeats. `header-button`,
+    // `footer-phone-link`, `cta-band-button-2`.
+    // AN ELEMENT THAT *IS* ITS SECTION IS NAMED ONCE. `<header data-slot=
+    // "site-header">` came out `header-site-header`, which reads like two
+    // different things and is one.
+    const isSelf = el.tagName.toLowerCase() === section
+      || (el.getAttribute("data-slot") || "") === section;
+    const base = (section === "body" || isSelf ? (isSelf ? section : role) : section + "-" + role)
+      .replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
+    const n = (used.get(base) || 0) + 1;
+    used.set(base, n);
+    out.push({
+      name: n === 1 ? base : base + "-" + n,
+      selector,
+      slot: el.getAttribute("data-slot") || "",
+      tag: el.tagName.toLowerCase(),
+      section,
+      role,
+      text: clip(el.getAttribute("aria-label") || el.textContent || el.getAttribute("alt"), 40),
+      // WHERE IT GOES, when that is what a customer would name it by. Carried
+      // separately from `role` so a control can be both — the header's button
+      // IS a phone link, and neither fact should cost the other.
+      ...(el.getAttribute("href") ? { href: clip(el.getAttribute("href"), 40) } : {}),
+      // TRIMMED HARD. A kit control carries ~30 Tailwind utilities and the whole
+      // map would be class lists with landmarks hidden between them. Enough to
+      // recognise the element, not enough to restyle from.
+      classes: clip(el.getAttribute("class"), 80),
+      route: String(route || "/"),
+    });
+  }
+  return out;
 }

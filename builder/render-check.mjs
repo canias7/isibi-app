@@ -19,7 +19,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport } from "./site-render.mjs";
+import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS } from "./site-render.mjs";
 
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
@@ -336,6 +336,8 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
   // prove its observer is alive" trap, in the one place where tripping it would
   // tell a customer their working edit did nothing.
   let looked = 0;
+  // The landmark map, unioned across routes — each entry carries its own `route`.
+  const marks = [];
   // THE VERDICT, DERIVED ONCE, at whichever return the run reaches. Written as
   // a function rather than assembled at each of the three exits because a
   // classification repeated per call site is the thing this repo's `settle`
@@ -345,9 +347,10 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
   // stylesheet — every site before free CSS, and every cheap edit that leaves
   // the look alone — produces a byte-identical report to the one it produced
   // before this existed.
-  const tally = () => (selectors.length
-    ? { deadSelectors: selectors.filter((s) => !hit.has(s)), selectorsLooked: looked }
-    : {});
+  const tally = () => ({
+    ...(selectors.length ? { deadSelectors: selectors.filter((s) => !hit.has(s)), selectorsLooked: looked } : {}),
+    ...(marks.length ? { landmarks: marks } : {}),
+  });
   // THE VERDICT IS ASKED FOR, NEVER DEFAULTED. This was a local initialised to
   // `true` and overwritten only after the browser launched, so every failure
   // before that — a port that would not listen, a missing `playwright-core`, a
@@ -424,6 +427,23 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
             // bug was found, and doing it twice doubles the cost for a panel
             // whose colours do not change with the width.
             if (vp.name === "phone") obs.overlays = await openOverlays(page);
+            // ── THE LANDMARK MAP, DESKTOP ONLY ────────────────────────────
+            //
+            // What every meaningful element on this page is called and how to
+            // select it — see `landmarkProbe`. ONE VIEWPORT, because the map
+            // describes STRUCTURE and structure is not a width: capturing it
+            // twice doubles the cost to produce a second copy of the same list,
+            // and the two copies would then have to be merged by something.
+            //
+            // DESKTOP rather than phone, and not arbitrarily: the phone layout
+            // hides controls behind a hamburger, and a hidden element is
+            // skipped by the probe — so a phone-only capture would offer a map
+            // with the header's own button missing from it.
+            if (vp.name === "desktop") {
+              try {
+                for (const m of await page.evaluate(landmarkProbe, { route, cap: MAX_LANDMARKS })) marks.push(m);
+              } catch (e) { /* a map is a bonus; never let it cost a render report */ }
+            }
           } catch (e) {
             obs.error = String((e && e.message) || e).slice(0, 200);
           }

@@ -306,7 +306,10 @@ const LANES = {
       yours:
         "THE WHOLE LOOK IS HERE AND ALL OF IT IS YOURS TO EDIT. Any element, any component, any state, any one " +
         "page — whatever they asked to look different, write the rule that does it. You are not limited to what " +
-        "the theme offers and nothing on the page is out of reach.",
+        "the theme offers and nothing on the page is out of reach. AIM BY THE LANDMARK TABLE, not by the tag " +
+        "their wording implies: it lists the page's real elements with a selector for each that was tested and " +
+        "matches exactly one. What somebody calls a button is a ROLE, not a tag — this kit draws one as an " +
+        "`<a>`, so a rule for `button` on such a page is valid CSS that selects nothing at all.",
       wide:
         "EACH EDIT ONLY AS WIDE AS IT WAS ASKED. A change to one control is a rule for that control. A new value " +
         "for a token is not — every component reading that token repaints, so a request about one button becomes " +
@@ -1053,6 +1056,53 @@ export function themeNote(css) {
     "anything in it. If what they asked for is decided by one of these custom properties, the smallest " +
     "change is to redefine that property — but only when what they named really is the whole site, " +
     "because every component reading it repaints.";
+}
+
+// ── THE LANDMARK MAP, AS THE MODEL READS IT (2026-08-31, owner's call) ──────
+//
+// "Require the model to target stable `data-slot` selectors instead of guessing
+// HTML tags from the user's wording. If the user says 'button', interpret that
+// as the element's visual or functional role — not necessarily a literal
+// `<button>`."
+//
+// WHAT IT REPLACES. Nothing. Until this, the lane was shown the stylesheet and
+// the customer's sentence, and had to invent a selector for a page it had never
+// seen. Run 96 wrote `header button` and matched zero elements; run 98, shown
+// the theme, wrote the same dead selector in a different green. The information
+// it needed was never missing from the SITE — only from the request.
+//
+// A TABLE, NOT PROSE, and the columns are the owner's list: the stable name,
+// the selector that addresses it, the tag, the section, what it does, what it
+// says, its classes and its route. Pipe-separated because it is scanned rather
+// than read, and every byte here is a per-call byte on a cached-prefix request.
+//
+// `selector` IS THE LOAD-BEARING COLUMN and the reason this is trustworthy at
+// all: every one was tested against the real DOM at capture time and matches
+// EXACTLY ONE element. The model is not being asked to construct a selector
+// from the other columns — it is being handed one that already works, and the
+// other columns exist so it can tell which row the customer meant.
+export const MAX_LANDMARK_ROWS = 40;
+
+export function landmarkNote(marks) {
+  const list = Array.isArray(marks) ? marks.filter((m) => m && typeof m === "object" && m.selector) : [];
+  if (!list.length) return "";
+  const cell = (v) => String(v == null ? "" : v).replace(/[|\n]/g, " ").trim();
+  const rows = list.slice(0, MAX_LANDMARK_ROWS).map((m) =>
+    [cell(m.name), cell(m.selector), "<" + cell(m.tag) + ">", cell(m.section), cell(m.role),
+     cell(m.text), cell(m.href), cell(m.route)].join(" | "));
+  return "WHAT IS ACTUALLY ON THEIR PAGE — every row is a real element, and each `selector` was tested " +
+    "against the rendered page and matches EXACTLY ONE of them:\n" +
+    "name | selector | tag | section | role | text | link | route\n" +
+    rows.join("\n") +
+    "\n\nSELECT BY THE `selector` COLUMN. Do not invent a selector out of the tag or out of the words they " +
+    "used: what a customer calls a button is usually not a `<button>` — this kit renders one as an `<a>`, and " +
+    "a rule for `header button` on a page with no `<button>` in it is valid CSS that changes nothing and is " +
+    "indistinguishable from a rule that worked. Read their wording as the element's ROLE and its PLACE, then " +
+    "find the row: \"the button up in the header\" is the row whose section is `header` and whose role is " +
+    "`button`, whatever tag it turns out to be.\n" +
+    "If they named something that is genuinely not in this table, say so by changing nothing rather than " +
+    "aiming at where it ought to be. A general rule meant for the whole site — a token, `body`, a heading " +
+    "level everywhere — does not need a row and is still yours to write.";
 }
 
 export function editRequest({ field, message, value, model, note = "" }) {

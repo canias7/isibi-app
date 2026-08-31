@@ -726,3 +726,93 @@ test("themeNote itself: the heading is there, the ceiling holds, and a non-strin
   const body = cut.slice(cut.indexOf("\n") + 1, cut.indexOf("/* … */"));
   assert.ok(body.trimEnd().endsWith("}"), "the sheet was cut mid-rule: " + JSON.stringify(body.slice(-40)));
 });
+
+// ── THE LANDMARK MAP REACHES THE LANE, AND A DEAD RULE IS CORRECTED ─────────
+//
+// Owner, 2026-08-31: a general element-targeting system, plus zero-match
+// validation that does not publish until the selector is corrected.
+//
+// DRIVEN, for the reason every guard in this file is: reading worker.js for
+// `landmarkNote(` proves a call site exists. Only opening the request proves the
+// rows arrive, and only driving the publish proves a dead rule stops it.
+
+const MARKS = [
+  { name: "header-button", selector: '[data-slot="site-link"]', tag: "a", section: "header",
+    role: "button", text: "Get your first lesson free", href: "tel:+441144960123", route: "/" },
+  { name: "cta-band-button", selector: '[data-slot="cta-band"] [data-slot="button"]', tag: "a",
+    section: "cta-band", role: "button", text: "Get your first lesson free", route: "/" },
+];
+
+function markedBucket(slug) {
+  const store = new Map([
+    ["source/" + slug + "/pages.json", JSON.stringify(PAGES)],
+    ["source/" + slug + "/landmarks.json", JSON.stringify({ at: "now", slug, marks: MARKS })],
+    [CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Paperless", theme: THEMED }, css: "" })],
+  ]);
+  return {
+    store,
+    async get(k) { const v = store.get(k); return v === undefined ? null : { text: async () => v }; },
+    async put(k, v) { store.set(k, String(v)); },
+    async delete(k) { store.delete(k); },
+    async list() { return { objects: [], truncated: false }; },
+  };
+}
+
+test("the css lane is handed the page's real elements, with a selector for each", async () => {
+  await withBodies(async (calls) => {
+    await edit("marked-1", "look", "make the button in the header forest green", { store: markedBucket("marked-1") });
+    const lane = calls.find((c) => c.asked === "edit_site");
+    assert.ok(lane, "the css lane never ran: " + JSON.stringify(calls.map((c) => c.asked)));
+    const text = bodyText(lane);
+    // THE SELECTOR COLUMN IS THE LOAD-BEARING ONE — the whole point is that the
+    // model is handed something that already works rather than asked to invent
+    // one. Asserted through JSON.stringify's escaping, which is how it really
+    // rides on the wire.
+    assert.ok(text.includes('[data-slot=\\"site-link\\"]'),
+      "the header control's verified selector is not in the request: " + text.slice(0, 400));
+    assert.match(text, /header-button/, "the landmark's stable name is missing");
+    assert.match(text, /cta-band-button/, "the other control is missing, so nothing disambiguates them");
+    // AND THE RULE THAT MAKES IT USABLE. Without this the map is a table the
+    // model may read past — runs 96 and 98 both wrote `header button` unprompted.
+    assert.match(text, /not a `<button>`|is usually not a `<button>`/,
+      "nothing tells the model that what a customer calls a button may not be one");
+  });
+});
+
+test("…and a site with no stored map is served exactly as before", async () => {
+  // THE 47 LIVE SITES. None has been published since this shipped, so none has a
+  // map; the lane must behave as it did rather than refusing or sending an empty
+  // table that reads as "this page has no elements".
+  await withBodies(async (calls) => {
+    await edit("themed-4", "look", "make the header link forest green", { store: themedBucket("themed-4") });
+    const lane = calls.find((c) => c.asked === "edit_site");
+    assert.ok(lane, "the lane never ran without a map");
+    assert.doesNotMatch(bodyText(lane), /WHAT IS ACTUALLY ON THEIR PAGE/,
+      "a site with no landmarks was sent an empty map, which reads as a page with no elements");
+  });
+});
+
+test("a rule matching nothing does NOT publish — it is corrected first, once", async () => {
+  const { landmarkNote } = await import("../builder/site-lanes.mjs");
+  assert.ok(landmarkNote(MARKS).includes('[data-slot="site-link"]'), "the note builder dropped the selector");
+
+  // THE SPINE'S OWN CONTRACT, driven with literals: `verifyCss` on plus a dead
+  // selector must answer WITHOUT publishing, and must carry both the dead list
+  // and the map the correction round needs.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = src.indexOf("async function recompileAndPublish(");
+  assert.ok(at > 0, "the publish spine is gone");
+  const body = src.slice(at, src.indexOf("\nasync function", at + 10));
+  const gate = body.indexOf('error: "dead-css"');
+  const publish = body.indexOf("writeSiteDistToR2(");
+  assert.ok(gate > 0, "the spine no longer withholds a publish for a dead selector");
+  assert.ok(publish > 0, "the publish itself is gone");
+  // ORDER IS THE WHOLE PROPERTY: refusing AFTER the write would mean the
+  // customer had already seen the dead version. Both anchors proved present
+  // above, so this is not the vacuous `-1 < anything` comparison.
+  assert.ok(gate < publish,
+    "the dead-selector gate now sits AFTER the publish, so a dead rule ships and the correction is a second publish over it");
+  // AND IT IS OPT-IN, or every text fix buys a second build to check a
+  // stylesheet nobody touched.
+  assert.match(body, /verifyCss/, "the gate is no longer opt-in");
+});

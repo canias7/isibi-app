@@ -542,3 +542,35 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
   // the size assertions above are what measure "cheap".
   assert.equal(pickRequest({ message: "x" }).model, modelsFor().quick, "the router is not on the picked model");
 });
+
+test("the landmark note offers only rows that can actually be selected", async () => {
+  const { landmarkNote, MAX_LANDMARK_ROWS } = await import("../builder/site-lanes.mjs");
+
+  // A ROW WITH NO SELECTOR IS WORSE THAN NO ROW. The whole promise of this table
+  // is "each `selector` was tested and matches exactly one element" — a row that
+  // carries a name and an empty selector invites the model to invent one from
+  // the other columns, which is precisely the guessing the map exists to end.
+  // A sweep deleting the filter survived, so nothing held this.
+  const note = landmarkNote([
+    { name: "header-button", selector: '[data-slot="site-link"]', tag: "a", section: "header", role: "button", text: "Free lesson" },
+    { name: "ghost", selector: "", tag: "a", section: "header", role: "button", text: "Cannot be addressed" },
+    { name: "also-ghost", tag: "a", section: "footer", role: "link", text: "No selector key at all" },
+  ]);
+  assert.match(note, /header-button/, "the usable row is missing");
+  assert.doesNotMatch(note, /Cannot be addressed/, "a row with an empty selector was offered to the model");
+  assert.doesNotMatch(note, /No selector key at all/, "a row with no selector key was offered to the model");
+
+  // NOTHING IN, NOTHING OUT — and an empty table must never be sent: it reads as
+  // "this page has no elements", which is a lie about every site that simply has
+  // not been published since the map shipped.
+  assert.equal(landmarkNote([]), "", "an empty map produced a table");
+  assert.equal(landmarkNote(null), "", "a missing map produced a table");
+  assert.equal(landmarkNote([{ name: "x" }]), "", "a map of unusable rows produced a table");
+  assert.equal(landmarkNote("[]"), "", "a string was read as a map");
+
+  // AND THE CEILING HOLDS, because this is a per-call byte on a cached prefix.
+  const many = Array.from({ length: MAX_LANDMARK_ROWS + 25 }, (_, i) =>
+    ({ name: "n" + i, selector: "#n" + i, tag: "div", section: "body", role: "block", text: "t" + i }));
+  const rows = landmarkNote(many).split("\n").filter((l) => l.includes(" | ") && !l.startsWith("name |"));
+  assert.equal(rows.length, MAX_LANDMARK_ROWS, "the row cap is not holding: " + rows.length);
+});

@@ -2504,6 +2504,60 @@ function H() { return <main><h1>Promised imports</h1></main>; }
     }
   }
 
+  // ── THE LANDMARK MAP, THROUGH A REAL BROWSER (2026-08-31) ─────────────────
+  //
+  // `landmarkProbe` runs inside the page, so it is one of the few things in this
+  // repo the unit suite structurally cannot reach: it needs a DOM, no DOM
+  // library is installed, and splitting its logic into testable helpers is
+  // impossible because `page.evaluate` SERIALISES the function — it cannot call
+  // anything at module scope. Duplicating the logic to test it would be two
+  // lists of the same thing, which this repo has paid for more than any other
+  // mistake.
+  //
+  // So it is proved here, where a real Chromium really opens the built site.
+  // A mutation sweep found three properties of it completely unguarded — an
+  // anchor dressed as a button, selector uniqueness, and invisible elements —
+  // and every one of them is a way the map lies to the model that reads it.
+  {
+    // THE FILE THIS SUITE ALREADY BUILDS EVERYWHERE ELSE. A page written just
+    // for this case would be a fixture whose shape the pipeline never produces,
+    // and `INDEX` carries buttons, headings and a form — exactly the elements a
+    // customer names by sight.
+    const lm = await post({ files: { "index.tsx": INDEX }, slug: "landmark-map", ...themeAsSeeds("broadsheet") });
+    ok("A SITE BUILDS AND ITS LANDMARKS ARE CAPTURED", lm.ok === true && Array.isArray(lm.render && lm.render.landmarks),
+      "stage=" + lm.stage + " error=" + String(lm.error || "").slice(0, 300));
+    if (lm.ok && lm.render && Array.isArray(lm.render.landmarks)) {
+      const marks = lm.render.landmarks;
+      // A FLOOR FIRST. Every assertion below is about what the rows CONTAIN, and
+      // `[].every(...)` is `true` — an empty map would pass all of them while
+      // proving the opposite. This repo's vacuous-observer trap.
+      ok("…and the map is not empty, so the checks below observe something", marks.length > 0,
+        "landmarks=" + marks.length);
+      ok("…every row carries a selector, which is the only column that must be right",
+        marks.length > 0 && marks.every((m) => m && typeof m.selector === "string" && m.selector),
+        JSON.stringify(marks.filter((m) => !(m && m.selector)).slice(0, 3)));
+      ok("…every row carries a stable name and the route it was found on",
+        marks.length > 0 && marks.every((m) => m.name && m.route),
+        JSON.stringify(marks.filter((m) => !(m.name && m.route)).slice(0, 3)));
+      // NAMES ARE UNIQUE, or two rows describe themselves identically and the
+      // model cannot tell which control the customer meant — the exact
+      // ambiguity the map exists to remove.
+      const names = marks.map((m) => m.name);
+      ok("…and no two landmarks share a name", new Set(names).size === names.length,
+        names.filter((n, i) => names.indexOf(n) !== i).join(", ") || "-");
+      // AND THE ROLE RULE THE OWNER ASKED FOR: an anchor the kit dresses as a
+      // button reads as a BUTTON, because that is the word a customer uses.
+      // Skipped rather than failed when the fixture has no such control, since a
+      // page without one proves nothing either way.
+      const dressed = marks.filter((m) => m.tag === "a" && /button|site-link/.test(m.slot || ""));
+      if (dressed.length) {
+        ok("…and an anchor the kit draws as a button READS as a button",
+          dressed.every((m) => m.role === "button"),
+          JSON.stringify(dressed.map((m) => [m.name, m.tag, m.slot, m.role]).slice(0, 3)));
+      }
+    }
+  }
+
   // BOTH MARKS, THROUGH A REAL BUILD. See MARKS_INDEX for why this is not
   // covered by the source-level chain test in test/site-marks.test.mjs.
   {
