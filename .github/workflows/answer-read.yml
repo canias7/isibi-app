@@ -1,0 +1,52 @@
+# READ BACK WHAT THE GENERATOR WROTE ON A SITE'S LAST BUILD.
+#
+# FREE AND READ-ONLY: one admin sign-in and one authenticated GET. No container
+# is started, no model is called, no credit moves — which is why this is
+# `workflow_dispatch` ONLY and carries no marker gate. There is nothing to opt
+# into, because there is nothing to spend.
+#
+# WHY IT IS A WORKFLOW AND NOT A LOCAL SCRIPT. The Supabase service key lives in
+# Actions secrets and nowhere else, so a session cannot sign in as the owner from
+# anywhere but here.
+#
+# WHAT IT IS FOR. Run 90 died with `Identifier 'createFileRoute' has already been
+# declared` and the page was gone — a build only stored its source on SUCCESS, so
+# every failure was undiagnosable by construction. The build now keeps its raw
+# answer whatever happens; this reads it back. `build as owner` prints the same
+# thing at step 5b, but only for a build it watched to the end, and the slow ones
+# it does not are exactly the ones worth reading.
+name: answer read
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: 'the site to read (e.g. coalhole-2)'
+        required: true
+        type: string
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: read the stored answer
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          OWNER_BASE_URL: https://gofarther.dev
+          OWNER_SLUG: ${{ github.event.inputs.slug }}
+        run: node scripts/answer-read.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: answer-read-log
+          path: answer-read-log.md
+          if-no-files-found: ignore

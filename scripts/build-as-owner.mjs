@@ -19,6 +19,7 @@
 
 import fs from "node:fs";
 import https from "node:https";
+import { ownerSession, desc } from "./owner-session.mjs";
 
 /**
  * POST with NO HEADERS TIMEOUT, because `fetch` has one and a build can outrun it.
@@ -154,7 +155,7 @@ function log(msg) {
 function fail(msg) { log("FATAL: " + msg); process.exit(1); }
 
 // Redaction discipline: a secret is described by its length, never shown.
-const desc = (v) => (v ? `set (${String(v).length} chars)` : "MISSING");
+// ONE COPY, in owner-session.mjs, where the sign-in that uses it most now lives.
 
 if (!EMAIL) fail("OWNER_EMAIL is not set");
 if (!SERVICE_KEY) fail("SUPABASE_SERVICE_KEY is not set");
@@ -170,32 +171,15 @@ log(IS_EDIT
   ? `step 0 — edit "${SLUG}" [${LAYER}] (${INSTRUCTION.length} chars): ${INSTRUCTION}`
   : `step 0 — brief (${BRIEF.length} chars): ${BRIEF}`);
 
-const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };
-
-// ── step 1: sign in as the owner via an admin magic link ────────────────────
-log("step 1 — asking GoTrue admin for a one-time magic link (no password involved)");
-const gl = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
-  method: "POST", headers: svc,
-  body: JSON.stringify({ type: "magiclink", email: EMAIL }),
-});
-const glBody = await gl.json().catch(() => ({}));
-const tokenHash = glBody.hashed_token || (glBody.properties && glBody.properties.hashed_token);
-log(`step 1 — generate_link answered ${gl.status}; token_hash ${desc(tokenHash)}`);
-if (!gl.ok || !tokenHash) fail("could not generate a sign-in link: " + JSON.stringify(glBody).slice(0, 300));
-
-log("step 2 — exchanging the one-time token for a session (consumes the link)");
-const vr = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
-  method: "POST", headers: { apikey: ANON_KEY, "content-type": "application/json" },
-  body: JSON.stringify({ type: "magiclink", token_hash: tokenHash }),
-});
-const session = await vr.json().catch(() => ({}));
-const jwt = session.access_token;
-log(`step 2 — verify answered ${vr.status}; access_token ${desc(jwt)}; user=${(session.user && session.user.email) || "?"}`);
-if (!vr.ok || !jwt) fail("could not open a session: " + JSON.stringify(session).slice(0, 300));
-if (session.user && session.user.email && session.user.email !== EMAIL) {
-  fail(`signed in as ${session.user.email}, expected ${EMAIL} — refusing to spend anybody else's credits`);
-}
-const auth = { Authorization: `Bearer ${jwt}`, "content-type": "application/json" };
+// ── steps 1 and 2: sign in as the owner via an admin magic link ─────────────
+//
+// IMPORTED, NOT WRITTEN HERE, since `answer-read.mjs` started needing the same
+// handshake. Its own log lines are unchanged — they are inside the module, so
+// the two callers cannot describe one sign-in two ways. See owner-session.mjs.
+let auth;
+try {
+  ({ auth } = await ownerSession({ supabaseUrl: SUPABASE_URL, serviceKey: SERVICE_KEY, anonKey: ANON_KEY, email: EMAIL, log }));
+} catch (e) { fail(String((e && e.message) || e)); }
 
 // ── step 3: balance before ──────────────────────────────────────────────────
 const before = await fetch(`${BASE}/api/credits`, { headers: auth }).then((r) => r.json()).catch(() => null);
