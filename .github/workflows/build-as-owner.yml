@@ -453,7 +453,21 @@ jobs:
           # are. An edit is ~1 credit against a build's 12, so the marker is
           # buying something an order of magnitude cheaper than it used to.
           #
-          # ── RUN 94: THE `css` LANE — SECOND ATTEMPT ────────────────────────
+          # ── RUN 95: THE `css` LANE — THIRD ATTEMPT ─────────────────────────
+          #
+          # RUN 94 FAILED IDENTICALLY TO 93, AND THAT ONE WAS MINE. Every small
+          # call was moved onto the picked model and the SENDER was left as
+          # `anthropicMessages`, which posts to api.anthropic.com whatever the
+          # model says — so `grok-4.6` was addressed to Anthropic and got the
+          # same billing refusal. The model name moved and the door did not.
+          # `quickSend` routes on the model now, and a driven guard asserts the
+          # URL rather than reading the code, because every static read of the
+          # broken version was correct.
+          #
+          # Site, ask and before-capture all unchanged — 93 and 94 both spent
+          # nothing and changed nothing.
+          #
+          # ── RUN 94 (kept: it is the record of what the fix had to be) ───────
           #
           # RUN 93 NEVER REACHED THE LANE. It answered 503 in 5.3s having spent
           # nothing: `pick_lanes` runs first, it was pinned to `claude-haiku-4-5`
