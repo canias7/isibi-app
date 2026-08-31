@@ -5347,13 +5347,50 @@ const callBuilderModel = (env, req, budget = null) => callModel(keysFrom(env), r
 // the request, the response AND the error envelope, so `upstreamKind` reads a
 // Grok failure exactly as it reads an Anthropic one.
 //
-// THE 20-SECOND CEILING IS KEPT DELIBERATELY. `BUILDER_CALL_MS` is ten minutes,
-// sized for a build; these are the calls a customer waits on in a chatbox, and
-// `anthropicMessages` held them to 20s. Passed as a budget-shaped object because
-// that is the knob `callBuilderModel` already has.
-const QUICK_CALL_MS = 20000;
+// THE CEILING WAS 20s AND THAT WAS HAIKU'S NUMBER — run 95 (2026-08-31).
+//
+// `anthropicMessages` held every small call to 20 seconds, which was right for
+// as long as every small call was Haiku. The commit above moved the model
+// underneath the ceiling and kept the ceiling, so the first `pick_lanes` call
+// that actually reached xAI was given a Haiku-sized window: `error: send` at
+// 27.7s, 0 credits, the site untouched, and a customer told "the editor is
+// busy" about a bound of ours. This repo's own "a rule true because of a layer
+// below it expires when that layer moves" — and the layer moved in the same
+// commit that kept the rule.
+//
+// AND THIS BRANCH DOES NOT STREAM. `quickSend` passes no `opts`, so the signal
+// bounds the whole request-to-parsed-JSON: the picked model has to finish its
+// ENTIRE answer, any reasoning tokens included, inside the window. Grok is ~3x
+// slower than Sonnet on generation, measured, so the ceiling is not a small
+// call's latency any more — it is a different provider's whole turn.
+//
+// 60 SECONDS, WHICH IS STILL A CHATBOX AND STILL A SIXTH OF A BUILD. The number
+// is a wait a person will sit through, not a measurement — nothing here has
+// clocked a `pick_lanes` call on Grok, and the guard below pins the PROPERTY
+// (well inside a build's ten minutes) rather than this figure.
+const QUICK_CALL_MS = 60000;
 const quickBudget = { capMs: () => QUICK_CALL_MS };
 const quickSend = (env) => (req) => callBuilderModel(env, req, quickBudget);
+
+/**
+ * Is the key the PICKED model needs missing?
+ *
+ * The edit and addon routes both opened with `if (!env.ANTHROPIC_API_KEY)`,
+ * which was the same fact as "this platform can call a model" for as long as
+ * every small call was Anthropic's. It is not any more: a customer on Grok has
+ * no Anthropic in their path at all, so that gate refuses an edit the platform
+ * could serve and — the direction that actually bites — passes an account whose
+ * `XAI_API_KEY` is the one that is missing, straight into a send that throws.
+ *
+ * ASKED THROUGH `isXaiModel` AND `keysFrom`, the two functions that already
+ * decide this one layer down in `callBuilderModel`. A third opinion about which
+ * key a model needs is the "two lists of the same thing" trap with a 401 at the
+ * end of it.
+ */
+const modelKeyMissing = (env, model) => {
+  const k = keysFrom(env);
+  return isXaiModel(model) ? !k.xai : !k.anthropic;
+};
 
 
 /**
@@ -17546,7 +17583,8 @@ async function handleRequest(request, env, ctx) {
             const escalate = (reason, extra) =>
               Response.json({ ok: false, escalate: true, reason, cost: 0, ...(extra || {}) });
             if (!eInstruction) return escalate("empty");
-            if (!env.ANTHROPIC_API_KEY) return escalate("unconfigured");
+            // THE PICKED MODEL'S KEY, not Anthropic's — see `modelKeyMissing`.
+            if (modelKeyMissing(env, modelsFor(eb && eb.picker).quick)) return escalate("unconfigured");
 
             // THE STORED SOURCE IS THE WHOLE PREMISE. Without it there is
             // nothing to edit — a site built before the source was kept — and
@@ -17733,14 +17771,31 @@ async function handleRequest(request, env, ctx) {
             const modelDown = (e, what) => {
               console.error("edit model call failed:", ownerSlug, eLayer, e && e.message);
               const k = upstreamKind(e && e.detail);
+              // OUR CEILING IS NOT THE MODEL BEING BUSY, and the build path has
+              // asked this since `isCallTimeout` was written — see its own note:
+              // a timeout carries no HTTP response, so `upstreamKind` has
+              // nothing to read and the throw falls through to whichever "busy,
+              // try again" sentence the caller passed. That sentence blames the
+              // provider for a bound of OURS and sends the customer back into
+              // the identical wait. Run 95 is the measured instance: 27.7s, a
+              // Haiku-sized window around a Grok call, reported as a busy model.
+              const timedOut = isCallTimeout(e);
               return Response.json({
                 ok: false, error: "send", cost: 0,
                 msg: k.billing
                   ? "The site builder is temporarily unavailable — this is on us, not your change."
-                  : (what || "That didn't go through — try again in a moment."),
+                  : timedOut
+                    ? "That took longer than we allow ourselves to wait — this is on us, and nothing was charged."
+                    : (what || "That didn't go through — try again in a moment."),
                 upstream: (e && e.status) || null,
                 upstreamType: k.type,
                 billing: k.billing || undefined,
+                // THE BOUND, NAMED, so a ceiling of ours can never again be read
+                // off the wire as a provider's answer. `kind` already carried
+                // `TimeoutError` and no reader printed it; this one says which
+                // side the failure came from in a word.
+                timeout: timedOut || undefined,
+                waitedMs: timedOut ? QUICK_CALL_MS : undefined,
                 kind: String((e && e.name) || "Error").slice(0, 40),
               }, { status: 503 });
             };
@@ -19507,7 +19562,11 @@ async function handleRequest(request, env, ctx) {
             const aEscalate = (reason, extra) =>
               Response.json({ ok: false, escalate: true, reason, cost: 0, ...(extra || {}) });
             if (!aInstruction) return aEscalate("empty");
-            if (!env.ANTHROPIC_API_KEY) return aEscalate("unconfigured");
+            // The addon rung designs on `.design` rather than `.quick`; both
+            // resolve to one model per picker today, and asking about the one
+            // this rung sends is what keeps that a coincidence rather than a
+            // dependency.
+            if (modelKeyMissing(env, modelsFor(ab && ab.picker).design)) return aEscalate("unconfigured");
 
             const aSrc = await loadSiteSource(env, ownerSlug);
             if (!aSrc || !aSrc.length) return aEscalate("no-source");

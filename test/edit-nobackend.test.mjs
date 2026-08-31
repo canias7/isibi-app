@@ -181,7 +181,7 @@ async function withModel(run, { hasDb = false, owned = true } = {}) {
 /** The spine's existence check — `select=uid&limit=1`, which ONLY it issues. */
 const askedIfSiteExists = (seen) => seen.some((u) => u.includes("select=uid") && u.includes("limit=1"));
 
-async function edit(slug, layer, instruction, { store = null, picker = "" } = {}) {
+async function edit(slug, layer, instruction, { store = null, picker = "", keys = null } = {}) {
   const worker = await loadWorker();
   const req = new Request(`https://gofarther.dev/api/site/${slug}/edit`, {
     method: "POST",
@@ -190,13 +190,48 @@ async function edit(slug, layer, instruction, { store = null, picker = "" } = {}
   });
   const res = await worker.fetch(req, {
     SITES_BUCKET: store || bucket(slug),
-    // SET, because an absent key escalates as `unconfigured` BEFORE the gate —
-    // which would make this test pass while proving nothing about it.
-    ANTHROPIC_API_KEY: "test-key-not-used",
-    XAI_API_KEY: "test-key-not-used",
+    // BOTH SET BY DEFAULT, because an absent key escalates as `unconfigured`
+    // BEFORE the gate — which would make these tests pass while proving nothing
+    // about them. `keys` overrides for the two cases that are ABOUT the gate.
+    ...(keys || { ANTHROPIC_API_KEY: "test-key-not-used", XAI_API_KEY: "test-key-not-used" }),
   }, makeCtx());
   const body = await res.json().catch(() => null);
   return { status: res.status, body };
+}
+
+/**
+ * THE SAME SITE, WITH THE MODEL CALL TIMING OUT — the failure run 95 spent a
+ * live edit on and could not name.
+ *
+ * `AbortSignal.timeout` rejects with a DOMException named `TimeoutError`, so
+ * that NAME is the whole signal: there is no HTTP response, `status` is
+ * undefined, and `upstreamKind` has nothing to read. Thrown here rather than
+ * simulated with a slow response, because what is under test is how the route
+ * reads the throw — and a real 60-second wait is not something a test may buy.
+ *
+ * NAMED, NOT MESSAGED. `isCallTimeout` asks `e.name` precisely because the
+ * message differs between workerd and Node; a fixture that matched on the
+ * message would certify a check that cannot fire in production.
+ */
+async function withTimingOutModel(run) {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String((input && input.url) || input || "");
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify(USER), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/rest/v1/site_project")) {
+      return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/rest/v1/site_backends")) {
+      return new Response(JSON.stringify([{ uid: USER.id, brief: "" }]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/v1/messages") || url.includes("/v1/chat/completions")) {
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    }
+    return new Response("unavailable", { status: 503 });
+  };
+  try { return await run(); } finally { globalThis.fetch = real; }
 }
 
 test("a look edit on a site with NO database is not refused for having none", async () => {
@@ -413,4 +448,126 @@ test("a read-refusal and a killed container do not wear the same sentence", asyn
   assert.doesNotMatch(read, /restarting/, "a read-refusal still claims the build service restarted");
   assert.equal(compileMsg({ ours: false, error: "compile" }, "theirs"), "theirs",
     "a failure that is NOT ours stopped deferring to the lane's own wording");
+});
+
+// ── OUR OWN CEILING MUST NOT WEAR THE PROVIDER'S COSTUME (run 95) ───────────
+//
+// The sibling above splits a read-refusal from a killed container. This is the
+// same rule one door over, and run 95 is what it cost to learn: `pick_lanes`
+// was cut off by `QUICK_CALL_MS` — a bound of OURS — and the customer was told
+// "The editor is busy — try again in a moment," which blames the model and
+// sends them back into the identical wait. `isCallTimeout` had existed for the
+// build path the whole time; the edit path's `modelDown` never asked it.
+
+test("a timeout on OUR ceiling is reported as ours, not as the model being busy", async () => {
+  await withTimingOutModel(async () => {
+    const { body } = await edit("paperless-timeout", "look", "make the header button forest green");
+    assert.ok(body, "the lane answered nothing at all");
+    assert.equal(body.error, "send", "the lane did not reach its model call: " + JSON.stringify(body));
+
+    // THE FACT, on the wire, in a field a reader cannot miss.
+    assert.equal(body.timeout, true,
+      "a timeout on our own ceiling is not marked as ours: " + JSON.stringify(body));
+    assert.ok(Number(body.waitedMs) > 0,
+      "the response does not say how long we waited, so the ceiling cannot be told from a hang");
+
+    // AND IT IS NOT MISREPORTED AS THE PROVIDER'S. A timeout carries no HTTP
+    // response, so anything claiming a provider status here is invented.
+    assert.equal(body.upstream, null,
+      "a timeout is reporting an upstream status it cannot have had: " + JSON.stringify(body));
+    assert.notEqual(body.billing, true, "a timeout is being reported as a billing refusal");
+
+    // AND THE SENTENCE. Not "busy", which is the model; not "try again in a
+    // moment", which is an invitation back into the same 60 seconds.
+    assert.doesNotMatch(String(body.msg), /busy/i,
+      "our ceiling still tells the customer the model is busy: " + body.msg);
+    assert.doesNotMatch(String(body.msg), /try again in a moment/i,
+      "our ceiling still sends the customer straight back into the same wait: " + body.msg);
+  });
+});
+
+test("…and the proof is not vacuous: a real provider refusal is still NOT marked as our timeout", async () => {
+  // THE CONTROL. Without it, `timeout: true` on every failure would pass the
+  // test above — a flag that is always set says nothing. `withSite` answers the
+  // model 503, which is a provider's own answer and must read as one.
+  await withSite(async () => {
+    const { body } = await edit("paperless-503", "look", "make the header button forest green");
+    assert.equal(body.error, "send", "the lane did not reach its model call: " + JSON.stringify(body));
+    assert.notEqual(body.timeout, true,
+      "a 503 from the provider is being reported as our own ceiling: " + JSON.stringify(body));
+    assert.equal(body.waitedMs, undefined,
+      "a provider refusal carries a wait time it never waited");
+  });
+});
+
+// ── THE GATE ASKS ABOUT THE KEY THE PICKED MODEL NEEDS ──────────────────────
+//
+// Both edit routes opened with `if (!env.ANTHROPIC_API_KEY)`, which was the
+// same fact as "we can call a model" only while every small call was Anthropic's.
+// Left as it was, it refuses a Grok customer whose platform is fine and — the
+// direction that actually bites — waves through an account whose xAI key is the
+// missing one, into a send that throws.
+
+test("a Grok edit is not refused for a missing ANTHROPIC key it never needed", async () => {
+  await withSite(async () => {
+    const { body } = await edit("paperless-xai", "look", "make the header button forest green", {
+      picker: "grok",
+      keys: { XAI_API_KEY: "test-key-not-used" },
+    });
+    assert.ok(body, "the lane answered nothing at all");
+    // POSITIVE: reaching the model call is proof the gate was passed. The send
+    // then fails on the stub's 503, which is what keeps this free.
+    assert.equal(body.error, "send",
+      "a Grok edit was refused before its model call with only the xAI key set: " + JSON.stringify(body));
+    assert.notEqual(body.reason, "unconfigured",
+      "the gate still refuses a Grok customer for the key their path never touches");
+  });
+});
+
+test("…and the direction that bites: a Grok edit with ONLY the Anthropic key set is refused up front", async () => {
+  await withSite(async () => {
+    const { body } = await edit("paperless-noxai", "look", "make the header button forest green", {
+      picker: "grok",
+      keys: { ANTHROPIC_API_KEY: "test-key-not-used" },
+    });
+    assert.ok(body, "the lane answered nothing at all");
+    // The refusal has to happen HERE, before the send — a key we forgot to set
+    // is a deploy to fix, and letting it through turns it into a throw that
+    // reads like the provider refused us.
+    assert.equal(body.reason, "unconfigured",
+      "a Grok edit with no xAI key was allowed through to the send: " + JSON.stringify(body));
+    assert.equal(body.escalate, true, "the refusal is not the escalate shape every other gate uses");
+  });
+});
+
+test("…and it reads the CUSTOMER'S picker, not the default one", async () => {
+  // BOTH CASES ABOVE DRIVE `grok`, WHICH IS ALSO `DEFAULT_PICKER` — so
+  // `modelsFor(eb.picker)` and `modelsFor()` are the same object for them, and a
+  // gate that ignored the body entirely would pass both. The sweep proved it:
+  // replacing the customer's picker with the default SURVIVED. This repo's own
+  // recorded trap, and the third time in one session that an assertion anchored
+  // on the default picker was checked against a fixture driving the default.
+  //
+  // `sonnet` is a NON-default picker, so the two readings genuinely differ here.
+  await withSite(async () => {
+    const { body } = await edit("paperless-sonnet", "look", "make the header button forest green", {
+      picker: "sonnet",
+      keys: { XAI_API_KEY: "test-key-not-used" },
+    });
+    assert.ok(body, "the lane answered nothing at all");
+    assert.equal(body.reason, "unconfigured",
+      "a Sonnet customer with only an xAI key set was allowed through to the send — the gate is reading " +
+      "the default picker rather than theirs: " + JSON.stringify(body));
+  });
+
+  // AND THE OTHER DIRECTION, so this is not satisfied by a gate that simply
+  // refuses every non-default picker.
+  await withSite(async () => {
+    const { body } = await edit("paperless-sonnet-ok", "look", "make the header button forest green", {
+      picker: "sonnet",
+      keys: { ANTHROPIC_API_KEY: "test-key-not-used" },
+    });
+    assert.equal(body.error, "send",
+      "a Sonnet customer with the Anthropic key set was refused before their model call: " + JSON.stringify(body));
+  });
 });

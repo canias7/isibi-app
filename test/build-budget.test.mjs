@@ -3,6 +3,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "../builder/build-budget.mjs";
+// FROM THE MODULE THAT DEFINES IT, never re-typed here. A build's ceiling is
+// what the small-call ceiling is measured against below, and a hand-typed copy
+// of it is a second version of the same number that drifts in silence.
+import { BUILDER_CALL_MS } from "../builder/build-call.mjs";
 import { buildPathFn } from "./fixtures/build-path.mjs";
 
 /** A clock a test drives, so nothing here waits on real time. */
@@ -259,8 +263,34 @@ test("the build route makes ONE budget, and both model calls are given it", () =
     "the small-call sender no longer carries its own ceiling — it would inherit the ten-minute build budget");
   const cap = CODE.match(/const QUICK_CALL_MS = (\d+);/);
   assert.ok(cap, "the small-call ceiling is gone");
-  assert.ok(Number(cap[1]) < 60000,
-    "the small-call ceiling is " + cap[1] + "ms — these are calls a customer waits on in a chatbox");
+  // THE PROPERTY, NOT THE FIGURE. This asserted `< 60000` while the constant was
+  // 20000 — a bound written around the value of the day, and the value of the
+  // day was HAIKU'S. Run 95 spent a live edit finding that out: the model under
+  // the ceiling became Grok and the ceiling did not move, so the first
+  // `pick_lanes` call to reach xAI was cut off at 20s. Raising the constant then
+  // made this guard go red for the fix rather than for a bug, which is the tell
+  // this repo already has written down.
+  //
+  // What has to hold is the REASON the ceiling exists: a person is watching a
+  // chatbox, so it is nothing like a build's ten minutes — and it is a bound
+  // rather than a wish, so it must still be one. Both ends asserted, and the
+  // figure between them is free to follow whatever model is underneath it.
+  const capMs = Number(cap[1]);
+  assert.ok(capMs <= BUILDER_CALL_MS / 5,
+    "the small-call ceiling is " + capMs + "ms, too close to a build's " + BUILDER_CALL_MS +
+    "ms — these are calls a customer waits on in a chatbox");
+  // AND A FLOOR, WHICH IS THE HALF RUN 95 PAID FOR. A bound with only an upper
+  // limit let the sweep put 20000 back and nothing went red — the exact
+  // regression that cost the run, surviving the guard written about it.
+  //
+  // 20s IS NOT AN ARBITRARY FLOOR, it is the measurement: a `pick_lanes` call on
+  // the default picker did not finish inside it, non-streaming, so the whole
+  // answer plus any reasoning has to fit. Stated as "more than what was measured
+  // to be too short" rather than as the current figure, so the number between
+  // the two bounds stays free to follow whichever model is underneath it.
+  assert.ok(capMs > 20000,
+    "the small-call ceiling is back to " + capMs + "ms — that is Haiku's number, and a Grok " +
+    "`pick_lanes` call was measured failing to finish inside it (run 95, 2026-08-31)");
 
   // AND THE WORKER'S HOP INTO THE MODULE, WHICH IS POSITIONAL AND MOVED.
   //

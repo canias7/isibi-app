@@ -235,6 +235,19 @@ if (IS_EDIT) {
     // turns every failure into a guess.
     if (e.detail) log(`step 5 — detail: ${e.detail}`);
     if (e.reason) log(`step 5 — reason: ${e.reason}`);
+    // AND THE SAME TRAP AGAIN, ONE FIELD-SET OVER (run 95, 2026-08-31). The
+    // note above was written for `detail`/`reason`, which is what an ESCALATE
+    // carries. A model-call failure is a different envelope — `modelDown` sends
+    // `upstream`, `upstreamType`, `billing`, `timeout`, `waitedMs` and `kind` —
+    // and this printed none of them, so a run that answered `error: send` in
+    // 27.7s said nothing about which side had failed. `kind` was `TimeoutError`
+    // on the wire the whole time. Fixing one envelope's diagnostics is not
+    // fixing the harness; print whatever the failure came with.
+    if (e.timeout) log(`step 5 — OUR ceiling, not the provider: waited ${e.waitedMs}ms`);
+    if (e.upstream || e.upstreamType || e.billing) {
+      log(`step 5 — upstream: status=${e.upstream} type=${e.upstreamType}${e.billing ? " BILLING" : ""}`);
+    }
+    if (e.kind) log(`step 5 — kind: ${e.kind}`);
   }
 
   const eAfter = await fetch(`${BASE}/api/credits`, { headers: auth }).then((r) => r.json()).catch(() => null);
