@@ -453,7 +453,22 @@ jobs:
           # are. An edit is ~1 credit against a build's 12, so the marker is
           # buying something an order of magnitude cheaper than it used to.
           #
-          # ── RUN 93: THE `css` LANE, AND WHAT IT DOES **NOT** TOUCH ──────────
+          # ── RUN 94: THE `css` LANE — SECOND ATTEMPT ────────────────────────
+          #
+          # RUN 93 NEVER REACHED THE LANE. It answered 503 in 5.3s having spent
+          # nothing: `pick_lanes` runs first, it was pinned to `claude-haiku-4-5`
+          # like every other small call on the platform, and Anthropic refused us
+          # on billing. Builds were fine throughout — generation was already on
+          # the picked model — so the cheap ladder was entirely behind one
+          # provider and the expensive half was not. Every small call follows the
+          # picker now (`BUILD_MODELS.quick`), so with `picker: grok` there is no
+          # Anthropic anywhere in this run's path.
+          #
+          # SAME SITE, SAME ASK, SAME BEFORE-CAPTURE (216,304 bytes, md5
+          # cb54d0a8cba11b9706361e6bd40d82b6) — run 93 changed nothing, so the
+          # comparison still holds.
+          #
+          # ── WHAT IT MEASURES (unchanged from 93) ───────────────────────────
           #
           # `OWNER_LAYER: look` is FORCED rather than routed, which is the point:
           # the layer classifier is not under test here, `pick_lanes` and the
