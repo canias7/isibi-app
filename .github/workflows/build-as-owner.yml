@@ -1006,6 +1006,43 @@ jobs:
           # build is also the only way to exercise the design step end to end:
           # a revise anchors every field to what is stored, which is exactly
           # what a new field must not be tested through.
+          # ── RUN 92: A BRIEF THE KIT GENUINELY CANNOT ANSWER ───────────────
+          #
+          # THE QUESTION IS STILL THE ONE RUN 90 WAS BOUGHT FOR and neither 90
+          # nor 91 answered: does a real design step ever REACH for the `tsx`
+          # hatch? Run 90 died on a duplicate import. Run 91 built clean and
+          # declined — correctly, because the kit HAS a `seat-map`, so the
+          # theatre brief could never have triggered the hatch. That brief was
+          # my mistake: I picked it believing the kit had nothing for it.
+          #
+          # THIS ONE IS CHOSEN AGAINST THE KIT, MEASURED. Of 2,112 components,
+          # 26 draw anything at all and every one is a ring, a gauge, a tiny
+          # chart, a machine-readable code or an input surface — there is no
+          # component anywhere that draws a picture OF something. That is policy,
+          # not oversight: `gallery-plan` and `stage-plot` both say in their own
+          # comments that they are TEXT because a drawn diagram is unusable to a
+          # screen reader. `seat-map` is the single exception and it is dots at
+          # percentages.
+          #
+          # So: chord shapes. Verified absent by name AND content — every
+          # "chord" hit in the kit is `kbd-chord` (keyboard shortcuts), and
+          # fretboard, sheet-music, staff-notation, piano and metronome are all
+          # zero. A chord diagram is a 6x5 grid with dots, so the model can
+          # plausibly get it RIGHT — which matters, because this measures
+          # whether it reaches for the hatch, not whether it can draw.
+          #
+          # AND THE BRIEF NEVER MENTIONS COMPONENTS OR DIAGRAMS-AS-CODE. Saying
+          # "generate a custom component" would rig the very decision under test.
+          # It is a customer describing a problem.
+          #
+          # READ: does `tsx` come back non-empty, and does `does` name what the
+          # kit could not do? A decline is a real result too — the field's own
+          # description says "OMIT THIS FIELD ENTIRELY unless the kit genuinely
+          # fell short" and "a kit component you have to bend slightly is still
+          # the better answer", which is exactly the instruction that produced
+          # run 91's bent seat-map. If it declines here, the discouragement is
+          # too strong and that is the finding.
+          #
           # ── RUN 91: THE SAME BRIEF, SO THE SAME FAILURE IS REACHABLE ──────
           #
           # Run 90 died in the BUNDLER, not the typecheck — `SyntaxError:
@@ -1025,7 +1062,7 @@ jobs:
           # what decides `revise`, so reusing it would send the EDIT path, whose
           # `EDIT_RULE` deliberately suppresses every field the message did not
           # ask for. Runs 85, 86 and 87 were all spent learning that.
-          OWNER_SLUG: ${{ github.event.inputs.slug || 'coalhole-2' }}
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'fretwork-1' }}
           OWNER_PICKER: ${{ github.event.inputs.picker || 'grok' }}
           # ── THE BRIEF IS AN INPUT NOW (2026-08-30) ────────────────────────
           #
@@ -1039,7 +1076,7 @@ jobs:
           # brief — and the push path, which names none — behaves exactly as
           # before.
           OWNER_BRIEF: ${{ github.event.inputs.brief || '' }}
-          OWNER_BRIEF_DEFAULT: "A 48-seat theatre above a pub in Hackney called The Coalhole. Six rows of eight. The back two rows have a pillar that blocks part of the view and people ring up asking which seats those are, so we want them looking at the actual plan of the room and picking their own seat instead of us describing it down the phone. One price for everything. Four shows a week, and on cabaret nights we pull row A out for tables so the plan is different that night. Nothing glossy - it is a room above a pub."
+          OWNER_BRIEF_DEFAULT: "I teach guitar to beginners in Sheffield, mostly adults who have never picked one up. One-to-one, and small groups of three. The thing every single person asks me for between lessons is the chord shapes - which finger goes on which fret, and which strings you do not strum. At the moment I photograph my own hand and send it on WhatsApp and it is useless, you cannot tell anything from it. I want the first eight chords up on the site so I can just tell them to go and look at it. Thirty pounds an hour one-to-one, eighteen each in a group, first lesson free. I am not a performer, I am not selling gigs, it is just teaching."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
