@@ -248,8 +248,10 @@ if (IS_EDIT) {
       log(`step 5 — upstream: status=${e.upstream} type=${e.upstreamType}${e.billing ? " BILLING" : ""}`);
     }
     if (e.kind) log(`step 5 — kind: ${e.kind}`);
-    // Run 97 reads the same three lines run 96 did, against a lane that can now
-    // see what the site is wearing.
+    // Runs 97 and 98 read the same three lines run 96 did, against a lane that
+    // can now see what the site is wearing. 97 never got to print them: it was
+    // fired ten minutes after a `builder/` push and the container image was
+    // still rolling, against this repo's own documented 15-20 minute wait.
     // RUN 96 READS THIS BLOCK AS MUCH AS IT READS THE LANE. If the ceiling was
     // the whole story the edit now goes through; if it was not, these lines are
     // what turn the next failure from a guess into a fact.
