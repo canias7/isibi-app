@@ -2304,6 +2304,192 @@ function cleanPath(raw) {
   return SAFE_PATH.test(p) ? p : null;
 }
 
+// ── THE SAME IMPORT WRITTEN TWICE ───────────────────────────────────────────
+//
+// THE BUILD THIS EXISTS TO STOP — run 90, `coalhole-1`, 2026-08-30:
+//
+//     Error transforming route file /app/src/routes/index.tsx:
+//     SyntaxError: Identifier 'createFileRoute' has already been declared. (3:9)
+//
+// The model wrote its first import line, then wrote it again a couple of lines
+// down. JavaScript will not accept one name introduced twice at the top level,
+// so the bundler stopped at line 3 and there was no site to publish.
+//
+// AND THIS IS THE ONE FAILURE THE SHIP-IT-ANYWAY CHANGE CANNOT REACH. A type
+// error is a claim about types and Vite strips those without checking them —
+// which is why the typecheck reports rather than refuses since 2026-08-30. But
+// Vite still has to PARSE, and a file it cannot parse yields no bundle at all.
+// Salvage cannot help either: the page is `index.tsx`, and `publish-pages.mjs`
+// will not stub the home page.
+//
+// WHY A CHECK AND NOT A PROMPT RULE (owner asked directly, 2026-08-31). The
+// prompt does not contain that import line anywhere — the model wrote it from
+// its own knowledge of the framework — so forbidding it means writing it down,
+// which is this repo's own "prose contains the thing it forbids" trap with
+// nine-plus recorded instances. And runs 84/85 already measured what a rule
+// buys here: the signature list said `Figure` takes no children, the model
+// passed children anyway, naming the right component in the directive was tried
+// in between, and run 85 read past that too. Twenty-two credits. What worked
+// was making the mistake impossible rather than discouraged. A duplicate import
+// is not even a decision to argue with — it is a slip partway through nine
+// thousand characters, and a rule cannot instruct attention.
+//
+// REPAIRED RATHER THAN REFUSED, and the asymmetry with the `href` lint below is
+// the same one the dangling-`to=` rewrite already draws: there, the alternative
+// to rewriting is losing the whole site. Here it is the same. Dropping an exact
+// duplicate import is a NO-OP — the same names from the same module, twice and
+// once, mean identical things to the program — so there is nothing to weigh.
+// Reported, never silent, exactly as that rewrite is.
+
+/**
+ * Where an import statement ENDS, from the `import` at `i`.
+ *
+ * THE MODULE SPECIFIER IS THE TERMINATOR, not the semicolon and not the line.
+ * `import { A } from "x"` may span five lines with no semicolon at the end, and
+ * the specifier is the first complete string literal at brace depth 0 — which
+ * covers `import "./a.css"` (the specifier is the first thing there) as well as
+ * every `from` form. Depth matters because ES2022 allows a string INSIDE the
+ * braces (`import { "a-b" as c } from "x"`), and that one is not the module.
+ *
+ * -1 when it does not end: an unterminated string, or a header that runs off the
+ * end of the file. The caller stops there rather than guessing, which is right —
+ * a file that does not parse is the compiler's to refuse, not ours to edit.
+ *
+ * THE UNTERMINATED-STRING REFUSAL IS NOT OBSERVABLE, and that is said out loud
+ * rather than left as a branch pretending to be tested. A sweep replaced it with
+ * a clamp to end-of-file and nothing went red, so the two were driven against
+ * each other over eight shapes of broken string and disagreed on none: all the
+ * clamp adds is one last span running to EOF, and a span holding the whole tail
+ * of a file cannot equal an earlier import, so no drop can ever differ. It stays
+ * because it is the honest answer and costs nothing — not because a guard holds
+ * it up. See test/page-gen.test.mjs, which pins the intention and says the same.
+ */
+function importEnd(src, i) {
+  let depth = 0;
+  let j = i + 6;                                    // past "import"
+  while (j < src.length) {
+    const c = src[j], d = src[j + 1];
+    if (c === "/" && d === "/") { const nl = src.indexOf("\n", j); if (nl < 0) return -1; j = nl + 1; continue; }
+    if (c === "/" && d === "*") { const e = src.indexOf("*/", j + 2); if (e < 0) return -1; j = e + 2; continue; }
+    if (c === "{" || c === "(" || c === "[") { depth++; j++; continue; }
+    if (c === "}" || c === ")" || c === "]") { depth--; j++; continue; }
+    // A SEMICOLON AT DEPTH 0 BEFORE ANY SPECIFIER ends the statement too. It
+    // cannot happen in a valid import and is here so a malformed one stops
+    // rather than swallowing the statements after it.
+    if (c === ";" && depth === 0) return j + 1;
+    if (c === '"' || c === "'" || c === "`") {
+      let k = j + 1;
+      while (k < src.length && src[k] !== c) { if (src[k] === "\\") k++; k++; }
+      if (k >= src.length) return -1;               // unterminated
+      if (depth === 0) {
+        let m = k + 1;
+        while (m < src.length && (src[m] === " " || src[m] === "\t")) m++;
+        if (src[m] === ";") m++;
+        return m;
+      }
+      j = k + 1; continue;
+    }
+    j++;
+  }
+  return -1;
+}
+
+/**
+ * The import statements in a file's HEADER, as `[start, end)` spans.
+ *
+ * THE HEADER ONLY, AND THAT IS THE SAFETY ARGUMENT. Scanning starts at byte 0
+ * and stops at the first thing that is not an import, a comment or blank space.
+ * A page is full of prose and the word "import" turns up inside it — in a FAQ
+ * answer, in a heading, in a string. Confined to the run of imports before any
+ * real code, this can never reach into one.
+ *
+ * `import(` and `import.meta` are EXPRESSIONS. Neither can appear before the
+ * first statement of a module, so meeting one means the header is over.
+ */
+function importSpans(src) {
+  const spans = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") { i++; continue; }
+    if (c === "/" && src[i + 1] === "/") { const nl = src.indexOf("\n", i); if (nl < 0) return spans; i = nl + 1; continue; }
+    if (c === "/" && src[i + 1] === "*") { const e = src.indexOf("*/", i + 2); if (e < 0) return spans; i = e + 2; continue; }
+    if (!/^import\b/.test(src.slice(i, i + 7))) return spans;
+    let j = i + 6;
+    while (j < src.length && (src[j] === " " || src[j] === "\t" || src[j] === "\n" || src[j] === "\r")) j++;
+    if (src[j] === "(" || src[j] === ".") return spans;
+    const end = importEnd(src, i);
+    if (end < 0) return spans;
+    spans.push([i, end]);
+    i = end;
+  }
+  return spans;
+}
+
+/**
+ * One statement's text with its LAYOUT removed, so two spellings of the same
+ * import compare equal.
+ *
+ * WHERE THE LINE IS, and it is drawn deliberately rather than as far as it will
+ * go. Whitespace, a dangling comma and the trailing semicolon are formatting: a
+ * multi-line import is written `Card,` and the one-line form `Card`, which is
+ * the house style's own doing and not a difference the program can see. Past
+ * that this stops. Quote style and the ORDER of the names are left alone —
+ * `{ A, B }` and `{ B, A }` bind the same things and are safe to collapse, but
+ * telling that takes splitting the list, and every step from comparing text to
+ * understanding statements is a step toward collapsing two imports that are not
+ * the same. A miss here costs a build we could have saved; a wrong match costs
+ * a build that was fine.
+ */
+const normImport = (t) => t
+  .replace(/\s+/g, " ")
+  .replace(/,\s*\}/g, " }")
+  .replace(/\s*;\s*$/, "")
+  .trim();
+
+/**
+ * Drop an import the file's header already made. Exact repeats only.
+ *
+ * WHOLE STATEMENTS, NEVER LINES, and this is the half that looks like a detail
+ * and is the whole difficulty. A kit import routinely spans several lines:
+ *
+ *     import {
+ *       Button,
+ *       Card,
+ *     } from "@/components/ui/x"
+ *
+ * A line-level dedupe sees `  Button,` again inside a DIFFERENT import, deletes
+ * it, and quietly breaks a page that was fine — the simplest version of this and
+ * the wrong one.
+ *
+ * The trailing newline goes with the statement, so the file does not gain a
+ * blank line where the repeat was.
+ */
+export function dedupeImports(source) {
+  const src = String(source || "");
+  const spans = importSpans(src);
+  if (spans.length < 2) return { source: src, dropped: [] };
+  const seen = new Set();
+  const drop = [];
+  for (const [s, e] of spans) {
+    const key = normImport(src.slice(s, e));
+    if (seen.has(key)) {
+      // MEASURED ON THE ORIGINAL, cut from the copy. Every extension is worked
+      // out against `src`, where the offsets are still true; the cuts then run
+      // back-to-front so no earlier span is ever moved by a later one.
+      let k = e;
+      while (k < src.length && (src[k] === " " || src[k] === "\t")) k++;
+      if (src[k] === "\r") k++;
+      if (src[k] === "\n") k++;
+      drop.push([s, k, key]);
+    } else seen.add(key);
+  }
+  if (!drop.length) return { source: src, dropped: [] };
+  let out = src;
+  for (let n = drop.length - 1; n >= 0; n--) out = out.slice(0, drop[n][0]) + out.slice(drop[n][1]);
+  return { source: out, dropped: drop.map((d) => d[2]) };
+}
+
 /**
  * Structural check on the tool's output: real paths, real source, an index.
  * Returns the files worth trying to compile plus everything wrong with them.
@@ -2314,6 +2500,18 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
   const seen = new Set();
   const raw = (input && Array.isArray(input.pages)) ? input.pages : [];
   if (raw.length > MAX_PAGES) problems.push("More than " + MAX_PAGES + " pages were written; only the first " + MAX_PAGES + " were kept.");
+  // ONE PLACE, TWO LISTS. Pages and the hand-written components are validated
+  // in two loops below and compile as one program, so a duplicate import kills
+  // the build from either of them. Written here rather than twice.
+  const undupe = (source, name) => {
+    const dd = dedupeImports(source);
+    if (dd.dropped.length) {
+      problems.push(name + " imported the same thing twice, which stops the whole site building; " +
+        (dd.dropped.length === 1 ? "the repeat was" : dd.dropped.length + " repeats were") +
+        " removed (" + dd.dropped[0].slice(0, 90) + ").");
+    }
+    return dd.source;
+  };
   for (const p of raw.slice(0, MAX_PAGES)) {
     const source = p && typeof p.source === "string" ? p.source : "";
     // AN EMPTY PAGE IS A PROBLEM, NOT A SILENT SKIP. Dropped quietly, a call that
@@ -2333,7 +2531,10 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
     if (source.length > MAX_PAGE_CHARS) { problems.push(path + " is over " + MAX_PAGE_CHARS + " characters — cut it down."); continue; }
     if (!/createFileRoute\s*\(/.test(source)) { problems.push(path + " does not export a Route — every page needs createFileRoute(...)."); continue; }
     seen.add(path);
-    pages.push({ path, source });
+    // AFTER THE REFUSALS, so a page that is not going to be kept does not report
+    // a repair nobody will see; and BEFORE the link rewrites below, which edit
+    // `p.source` in place and would otherwise be undone by a later assignment.
+    pages.push({ path, source: undupe(source, path) });
   }
   // A PARTIAL SET HAS NO HOME PAGE AND SHOULD NOT, which is not the same as a
   // site having none. The addon lane returns only what it wrote — usually one
@@ -2516,7 +2717,11 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
     }
     if (partSeen.has(name)) { problems.push('The component "' + name + '" was written twice; the second was ignored.'); continue; }
     partSeen.add(name);
-    parts.push({ name, source });
+    // THE SAME REPAIR AS THE PAGES, because these compile in the same program. A
+    // duplicate import here takes the build down exactly as one in a page does,
+    // and the error names the component — a file the customer never asked for
+    // and cannot see.
+    parts.push({ name, source: undupe(source, 'the component "' + name + '"') });
   }
   return { pages, notes, problems, parts };
 }

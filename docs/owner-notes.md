@@ -437,9 +437,28 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
     answer is stored the moment it arrives, before anything is allowed to refuse
     it, under its own key so a broken answer can never become the site's source.
     The build log prints the whole page when a build does not publish clean.
-  - **What is NOT fixed: the repeat itself.** I still do not know why the model
-    did it, and I am not guessing again — run 91 uses the same brief, so either it
-    builds or it fails the same way and I finally read the file.
+  - **And the repeat itself is walled off now (2026-08-31, your call).** Before
+    the page goes to the compiler we look at the list of imports at the top and,
+    if the identical one appears twice, delete the second. Removing an exact
+    duplicate is a no-op — same names, same place, twice and once mean the same
+    thing — so there is nothing to get wrong, and it costs nothing: no model
+    call, no build, no credits.
+    - **Not a prompt rule, which you asked about and were right to.** A rule is
+      something a model reads past: runs 84 and 85 both died on a component whose
+      own documentation already said what it does, including after I rewrote the
+      instruction between them. And this is not a decision to argue with — it is
+      a slip partway through nine thousand characters.
+    - **It only removes an EXACT repeat.** Two imports that overlap without being
+      identical still fail, on purpose: merging them is a guess, and a wrong
+      guess compiles and ships the wrong thing, which is worse than a failed
+      build. Now that the file is kept, I can read those if they ever happen.
+    - **Measured, not argued**: run over 3,736 real files — every page in the
+      calibration corpus and the entire component kit — it rewrites none of them.
+      That is the bar here before a check ships, because a check that flags good
+      code is worse than the problem it prevents.
+  - **What I still do not know is WHY it repeated the line**, and I am not
+    guessing again. It cannot take a site down any more, which is the part that
+    was costing you money.
 - **Run 84 FAILED (2026-08-30), and it failed ON the thing you asked me to test —
   8 credits.** You asked for a build with a QR. I gave it a laundrette brief where
   a code on the screen is the obvious answer (the wifi password). **The design step

@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import {
   UI_COMPONENTS, componentApiFor, siteComponentApi, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MAX_PAGE_CHARS, MANAGED_COLUMNS,
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, READ_NOTE, WRITE_NOTE, accessNote, propsOf, UI_EXPORTS,
-  repairImports } from "../builder/page-gen.mjs";
+  repairImports, dedupeImports } from "../builder/page-gen.mjs";
 import { MAX_TWEAK_CHARS } from "../builder/site-tweak.mjs";
 import { accessNameFor } from "../site-access.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
@@ -4715,4 +4715,264 @@ test("repairImports fixes the measured failure and refuses to guess", () => {
   const guessy = 'import { Header } from "@/components/ui/heading-level";\n<Header />';
   assert.equal(repairImports(page(guessy)).pages[0].source, guessy,
     "it guessed on a module with several exports and no PascalCase match");
+});
+
+/* ------------------------------------------ the same import written twice */
+
+// RUN 90 IS WHAT THIS SECTION IS FOR (`coalhole-1`, 2026-08-30):
+//
+//     Error transforming route file /app/src/routes/index.tsx:
+//     SyntaxError: Identifier 'createFileRoute' has already been declared. (3:9)
+//
+// The model wrote its first import line, then wrote it again. JavaScript will
+// not take one name introduced twice at the top level, the bundler stopped at
+// line 3, and the customer was charged for a placeholder. It is the one failure
+// the ship-it-anyway change cannot reach — Vite strips types without checking
+// them, but it still has to PARSE — and salvage cannot help either, because the
+// page is `index.tsx` and the home page is never stubbed.
+
+// THE PAGE, DERIVED. `dupPage` prepends `onePage`'s OWN first line, so the two
+// copies cannot drift apart the way a hand-typed pair would — this repo's
+// "derive a fixture from its real producer".
+const onePage = `import { createFileRoute } from "@tanstack/react-router";
+import { useRows } from "@/lib/rows";
+export const Route = createFileRoute("/")({ component: Page });
+function Page() { const { data } = useRows("services"); return <div>{data?.length}</div>; }`;
+const dupPage = () => onePage.split("\n")[0] + "\n" + onePage;
+
+test("THE DUPLICATE IMPORT THAT KILLED RUN 90 IS REMOVED, and the page survives", () => {
+  const src = dupPage();
+  // THE FIXTURE IS WHAT IT CLAIMS TO BE. Without this the test passes just as
+  // well on a page with one import, asserting a repair of something that was
+  // never broken.
+  assert.equal(src.split("import { createFileRoute }").length - 1, 2,
+    "the fixture no longer carries the duplicate it is named for");
+
+  const out = dedupeImports(src);
+  assert.equal(out.dropped.length, 1, "the repeated import was not seen");
+  assert.equal(out.source.split("import { createFileRoute }").length - 1, 1, "the repeat is still there");
+  // AND NOTHING ELSE MOVED. A repair that also ate the next import, or a line of
+  // the component, would satisfy the count above perfectly.
+  assert.equal(out.source, onePage, "the repair changed something other than the repeated line");
+});
+
+test("the repair reaches validatePages, and is REPORTED rather than silent", () => {
+  const v = validatePages({ pages: [{ path: "index.tsx", source: dupPage() }] });
+  assert.equal(v.pages.length, 1, "the page was refused instead of repaired");
+  assert.equal(v.pages[0].source.split("import { createFileRoute }").length - 1, 1,
+    "the page kept for compiling still has the duplicate — the wiring, not the repair, is what failed");
+  assert.ok(v.problems.some((p) => /imported the same thing twice/.test(p)),
+    "the repair happened silently: problems say " + JSON.stringify(v.problems));
+
+  // AND A CLEAN PAGE REPORTS NOTHING, or every build carries a problem about a
+  // repair that did not happen.
+  const clean = validatePages({ pages: [{ path: "index.tsx", source: onePage }] });
+  assert.deepEqual(clean.problems, []);
+  assert.equal(clean.pages[0].source, onePage, "a page with no repeat was rewritten anyway");
+});
+
+test("a hand-written component gets the same repair — it compiles in the same program", () => {
+  // A duplicate import in a `-parts/` component takes the build down exactly as
+  // one in a page does, and the error names a file the customer never asked for.
+  const v = validatePages({ pages: [{ path: "index.tsx", source: onePage }],
+    parts: [{ name: "seat-plan", source: dupPage() }] });
+  assert.equal(v.parts.length, 1);
+  assert.equal(v.parts[0].source.split("import { createFileRoute }").length - 1, 1,
+    "the component kept for compiling still has the duplicate");
+  assert.ok(v.problems.some((p) => /seat-plan/.test(p) && /imported the same thing twice/.test(p)),
+    "the component's repair was not reported, or does not name the component: " + JSON.stringify(v.problems));
+});
+
+test("A MULTI-LINE IMPORT IS NOT TAKEN APART — the line-level version of this is the bug", () => {
+  // THE TRAP THE WHOLE DESIGN IS SHAPED AROUND. Kit imports routinely span
+  // several lines, and `  Button,` legitimately appears inside two different
+  // ones. A dedupe that worked on LINES would delete the second occurrence and
+  // silently break a page that was fine — the simplest version of this feature
+  // and the wrong one.
+  const src = `import {
+  Button,
+  Card,
+} from "@/components/ui/a";
+import {
+  Button as B,
+  Card as C,
+} from "@/components/ui/b";
+export const x = 1;`;
+  const out = dedupeImports(src);
+  assert.deepEqual(out.dropped, [], "a repeated LINE inside two different imports was read as a repeated import");
+  assert.equal(out.source, src, "a multi-line import was edited");
+
+  // AND A REAL multi-line repeat IS caught, however it is spaced — the statement
+  // is compared, not its formatting, or the model has only to break a line
+  // differently to walk past this.
+  const twice = `import {
+  Button,
+  Card,
+} from "@/components/ui/a";
+import { Button, Card } from "@/components/ui/a";
+export const x = 1;`;
+  const fixed = dedupeImports(twice);
+  assert.equal(fixed.dropped.length, 1, "the same import written across two shapes was not recognised");
+  assert.match(fixed.source, /export const x = 1;/, "the repair ate the code after the header");
+  assert.equal(fixed.source.split('from "@/components/ui/a"').length - 1, 1);
+});
+
+test("TWO repeats are both removed, and the cuts do not corrupt each other", () => {
+  // THE OFFSETS ARE THE POINT. Every span is measured against the ORIGINAL text,
+  // so the cuts have to run back-to-front — done forwards, the second cut uses
+  // an offset the first one already moved and takes a bite out of the wrong
+  // place. With one duplicate the two orders are indistinguishable, which is
+  // exactly why every other case here would pass over a broken loop.
+  const src = `import { A } from "a";
+import { B } from "b";
+import { A } from "a";
+import { C } from "c";
+import { B } from "b";
+export const x = 1;`;
+  const out = dedupeImports(src);
+  assert.equal(out.dropped.length, 2, "one of the two repeats was missed");
+  assert.equal(out.source, 'import { A } from "a";\nimport { B } from "b";\nimport { C } from "c";\nexport const x = 1;',
+    "two cuts landed on top of each other");
+
+  // AND THE REPORT COUNTS THEM. The singular branch reads "the repeat was
+  // removed" and would be a lie here.
+  const v = validatePages({ pages: [{ path: "index.tsx", source: src.replace("export const x = 1;", onePage) }] });
+  assert.ok(v.problems.some((p) => /2 repeats were removed/.test(p)),
+    "a page with two repeats is reported in the singular: " + JSON.stringify(v.problems));
+});
+
+test("THE HEADER ONLY — page prose containing the word `import` is never touched", () => {
+  // A page is full of writing, and the writing contains anything. The scan stops
+  // at the first thing that is not an import, a comment or blank space, so it
+  // cannot reach into a string, a heading or a FAQ answer.
+  const src = `import { createFileRoute } from "@tanstack/react-router";
+export const Route = createFileRoute("/")({ component: Page });
+const FAQ = [
+  { q: "Do you import beans?", a: 'import { createFileRoute } from "@tanstack/react-router";' },
+  { q: "Really?", a: 'import { createFileRoute } from "@tanstack/react-router";' },
+];
+function Page() { return <div>{FAQ.length}</div>; }`;
+  const out = dedupeImports(src);
+  assert.deepEqual(out.dropped, [], "an import quoted inside page copy was read as a real one");
+  assert.equal(out.source, src, "the scan reached past the header into the page body");
+});
+
+test("the header survives comments, blank lines and a side-effect import", () => {
+  const src = `// The seat plan lives here.
+import "./seats.css";
+
+/* the router */
+import { createFileRoute } from "@tanstack/react-router";
+import "./seats.css";
+export const Route = createFileRoute("/")({ component: Page });`;
+  const out = dedupeImports(src);
+  assert.equal(out.dropped.length, 1, "a repeated side-effect import across comments was missed");
+  assert.equal(out.source.split('import "./seats.css";').length - 1, 1);
+  assert.match(out.source, /export const Route/, "the repair ate the code after the header");
+  assert.match(out.source, /\/\* the router \*\//, "the repair ate a comment inside the header");
+});
+
+test("two DIFFERENT imports are both kept, however similar", () => {
+  // THE OTHER HALF OF THE PROPERTY, and the one a careless key would break: the
+  // same names from a DIFFERENT module, and different names from the SAME one,
+  // are both legitimate and neither is a repeat.
+  const sameName = 'import { Card } from "@/components/ui/a";\nimport { Card as C } from "@/components/ui/b";\nexport const x = 1;';
+  assert.deepEqual(dedupeImports(sameName).dropped, [], "two modules exporting the same name were collapsed");
+
+  const sameModule = 'import { Card } from "@/components/ui/a";\nimport { Button } from "@/components/ui/a";\nexport const x = 1;';
+  assert.deepEqual(dedupeImports(sameModule).dropped, [], "two different imports from one module were collapsed");
+
+  // AND THE STATED MISS, pinned so it is a boundary rather than a surprise.
+  // `{ A, B }` and `{ B, A }` bind the same things and would be safe to
+  // collapse — telling that takes splitting the list, and `normImport` stops at
+  // layout on purpose. If this ever starts passing, the comparison has grown
+  // teeth nobody argued for.
+  const reordered = 'import { A, B } from "a";\nimport { B, A } from "a";\nexport const x = 1;';
+  assert.deepEqual(dedupeImports(reordered).dropped, [],
+    "the comparison now understands the name list — that is past where normImport says it stops");
+
+  // A FILE WITH NOTHING TO DO IS RETURNED UNCHANGED — no import, one import, or
+  // a header that is only comments.
+  for (const s of ["export const x = 1;", 'import { A } from "a";\nexport const x = 1;', "// nothing here\n"]) {
+    assert.equal(dedupeImports(s).source, s, "a file with no repeat was rewritten: " + JSON.stringify(s));
+  }
+});
+
+test("a dynamic `import(` or `import.meta` ends the header — they are expressions", () => {
+  // NEITHER IS AN IMPORT STATEMENT, so meeting one means the header is over and
+  // nothing past it is a candidate.
+  //
+  // THE FIRST DRAFT OF THIS TEST PINNED NOTHING, and the sweep is what said so.
+  // It put the dynamic import inside `const load = () => import("./big")` — a
+  // line the header already stops at because it begins with `const`, so the
+  // guard was never consulted and deleting it changed no answer. Both cases
+  // below put the expression at STATEMENT position, which is the only place the
+  // guard can fire; without it the scan runs on and the third import below is
+  // treated as a repeat of the first.
+  const dyn = 'import { A } from "a";\nimport("./big");\nimport { A } from "a";\nexport const x = 1;';
+  assert.deepEqual(dedupeImports(dyn).dropped, [],
+    "the scan ran past a top-level dynamic import and kept deduping");
+  const meta = 'import { A } from "a";\nimport.meta.env;\nimport { A } from "a";\nexport const x = 1;';
+  assert.deepEqual(dedupeImports(meta).dropped, [], "the scan ran past `import.meta`");
+});
+
+test("a string INSIDE the braces is not mistaken for the module", () => {
+  // `import { "a-b" as c } from "x"` is legal (ES2022 arbitrary module namespace
+  // names) and the quoted part is a member, not the module — which is why the
+  // specifier is the first string at brace depth ZERO rather than the first
+  // string at all. Without the depth check the statement is cut short at `"a-b"`,
+  // the header ends there, and a real repeat below it is never seen.
+  const src = 'import { "a-b" as c } from "x";\nimport { "a-b" as c } from "x";\nexport const y = 1;';
+  const out = dedupeImports(src);
+  assert.equal(out.dropped.length, 1, "the statement was cut off at a string inside its own braces");
+  assert.equal(out.source, 'import { "a-b" as c } from "x";\nexport const y = 1;');
+});
+
+test("an unterminated string stops the scan rather than eating the file", () => {
+  // A file that does not parse is the compiler's to refuse, not ours to edit.
+  //
+  // THIS PINS AN INTENTION, NOT A BEHAVIOUR, and saying so is the point rather
+  // than dressing it up. A sweep replaced `importEnd`'s `return -1` with a clamp
+  // to the end of the file and NOTHING went red — so it was driven directly
+  // against both implementations over eight shapes of unterminated string, and
+  // they disagreed on none. The reason is structural: the only thing the clamp
+  // adds is one final span running to end-of-file, and a span containing the
+  // whole tail of the file cannot equal an earlier import, so no drop can differ.
+  // The refusal is kept because it is the honest answer and costs nothing, not
+  // because a test is holding it up.
+  const bad = 'import { A } from "a";\nimport { A } from "a";\nimport { B } from "b';
+  const out = dedupeImports(bad);
+  assert.equal(out.dropped.length, 1, "the two complete imports before the broken one were not compared");
+  assert.match(out.source, /import \{ B \} from "b$/, "the unreadable tail was edited");
+});
+
+test("ZERO FALSE ALARMS ON THE REAL CORPUS — measured, not argued", () => {
+  // THE BAR THIS REPO SETS FOR ANY NEW CHECK: a check that flags correct code is
+  // strictly worse than the miss it prevents, and the rate is measured against
+  // real files rather than reasoned about. Every file here compiles, so any
+  // rewrite at all is a false alarm.
+  const walk = (d, hit = []) => {
+    for (const n of fs.readdirSync(d)) {
+      const f = path.join(d, n);
+      if (fs.statSync(f).isDirectory()) walk(f, hit);
+      else if (/\.tsx?$/.test(n)) hit.push(f);
+    }
+    return hit;
+  };
+  const files = [...walk(CORPUS_DIR), ...walk(fileURLToPath(new URL("../builder/lovable/template/src/", import.meta.url)))];
+  // THE OBSERVER IS ALIVE. An empty walk reports a perfect rate over nothing.
+  assert.ok(files.length > 3000, "only " + files.length + " real files found — this sweep has drifted and proves nothing");
+
+  const alarms = [];
+  let withImports = 0;
+  for (const f of files) {
+    const src = fs.readFileSync(f, "utf8");
+    if (/^import\b/m.test(src)) withImports++;
+    if (dedupeImports(src).source !== src) alarms.push(path.relative(CORPUS_DIR, f));
+  }
+  // AND THE SCAN REALLY REACHED THEM. Files with no imports at all cannot
+  // produce a false alarm, so a sweep of those would report zero honestly and
+  // measure nothing.
+  assert.ok(withImports > 3000, "only " + withImports + " of " + files.length + " files carried an import — the scan is reading the wrong things");
+  assert.deepEqual(alarms, [], "these correct files were rewritten by the duplicate-import repair:\n  " + alarms.join("\n  "));
 });

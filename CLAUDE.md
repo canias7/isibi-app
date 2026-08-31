@@ -1027,6 +1027,24 @@ nothing can read is where run 90's page already was.**
 **And the ship-it-anyway change does not cover this**: a syntax error is not a
 type error. Vite strips types without checking them but still has to PARSE, so a
 file it cannot parse yields no bundle at all.
+**THE WALL SHIPPED 2026-08-31** — `dedupeImports` in `page-gen.mjs`, called from
+`validatePages` for pages AND parts (one program, one failure). It scans the
+import HEADER only (stopping at the first thing that is not an import, comment
+or blank, so page prose containing the word can never be reached), compares whole
+STATEMENTS rather than lines — `  Button,` legitimately repeats inside two
+different multi-line imports, and a line-level dedupe deletes it and breaks a
+working page — and drops an exact repeat, which is a no-op. `normImport` removes
+LAYOUT only (whitespace, a dangling comma, the trailing `;`); name order and
+quote style are a stated miss, pinned by a test, because every step from
+comparing text to understanding statements is a step toward collapsing two
+imports that differ. **0 false alarms over 3,736 real files** (the 324-page
+corpus + the 3,412-file kit), which is the bar this repo sets before a check
+ships. **NOT a prompt rule**, and the owner asked directly: the prompt does not
+contain that import line at all, so forbidding it means writing it down (the
+"prose contains the thing it forbids" trap), and runs 84/85 already measured what
+a rule buys — the signature list said `Figure` took no children, the model passed
+children anyway, the directive was rewritten in between, and run 85 read past
+that too.
 
 **Re-run the thing the change is asserted by.** Appeasing a false alarm in one
 checker while never re-running the harness that actually proves the change has
