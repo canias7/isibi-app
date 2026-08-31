@@ -413,16 +413,20 @@ customer ──► pick_lanes ──► edit_site ──► publish
              17 names       0 required
 ```
 
-**Twenty-two lanes and ALL BUT ONE act** (owner, 2026-08-29: *"i need all the 17
-lanes acting"* — seventeen then, nineteen now that `three` and `behavior` have
-arrived). `pick_lanes` runs ABOVE the layer dispatch, so it is the front door for
-all twenty-two and what it names decides which layer runs.
+**Twenty-one lanes and EVERY ONE ACTS** (owner, 2026-08-29: *"i need all the 17
+lanes acting"* — seventeen then; twenty-two once `three`, `behavior`, `tsx`, `gif`
+and `qr` arrived, and twenty-one since `gif` was retired on 2026-08-31).
+`pick_lanes` runs ABOVE the layer dispatch, so it is the front door for all
+twenty-one and what it names decides which layer runs.
+**DERIVE THIS LIST, DO NOT TRUST IT** — it has gone stale twice. `node -e` over
+`site-lanes.mjs` and print `LANE_FIELDS`, `OWN_LANES`, `DISPATCHED_LANES`,
+`VERB_LANES`, `ESCALATE_LANES`, `UNBUILT_LANES` and `LANE_LAYER`.
 
 **`OWN_LANES` is a group name, not a verdict** — renamed from `ACTING_LANES` on
 2026-08-29 after the owner asked *"i thought all of them were act?"* twice. It
 means *the ones this module edits itself*; the dispatched, verb and escalate lanes all
-do real work too, just on another rung. **21 of 22 act in the plain sense — only
-`slug` does nothing.**
+do real work too, just on another rung. **ALL 21 act in the plain sense since
+`slug` shipped — `UNBUILT_LANES` is empty.**
 
 - **10 act here** — `css theme brand description wordmark favicon qr lang
   langs behavior`. The first eight are a plain string, enum or short list, which is why
@@ -433,8 +437,8 @@ do real work too, just on another rung. **21 of 22 act in the plain sense — on
   missing from that list bills and changes nothing, silently, at both ends.
   Asserted in `test/edit-lanes.test.mjs`; `css` is excluded by name because the
   stylesheet has its own `_meta` key.
-- **8 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
-  `shape`/`components`/`purpose`/`three`/`tsx`→`page`. Nothing reads a STORED plan (the
+- **9 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
+  `slug`→`rename`, `shape`/`components`/`purpose`/`three`/`tsx`→`page`. Nothing reads a STORED plan (the
   container gets the pages, the theme and the stylesheet), so `shape` is not a
   value to save, it is a job for the rung that rewrites pages. All of them already
   had cheap shipping implementations; nothing was missing but the wire.
@@ -448,8 +452,10 @@ do real work too, just on another rung. **21 of 22 act in the plain sense — on
   exists one rung up, and it is NOT a dispatch: `build` is not an edit layer, and
   the guard asserting every dispatch target appears in `EDIT_LAYERS` is what
   caught the first attempt to make it one.
-- **1 unbuilt** — `slug`, a real address change: claim the new name, republish
-  the Worker under it, redirect the old one, keep custom domains pointing at it.
+- **0 unbuilt.** `slug` was the last one and it shipped as an ALIAS rather than a
+  move — it dispatches to `rename`. The group is kept because it is a real state
+  a future lane can be in, and `test/edit-lanes.test.mjs` asserts it is empty and
+  names anything that lands back in it.
 
 The five groups are a **total, disjoint partition**, asserted in
 `test/edit-lanes.test.mjs` — and each is a different sentence to a customer, so
