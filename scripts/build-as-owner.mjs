@@ -773,6 +773,63 @@ if (d.problems && d.problems.length) log(`step 5 — problems: ${JSON.stringify(
   log("         ledger below still measures what was spent. This is a slow build, not a dead one.");
 }
 
+// ── step 5b: THE PAGE THE MODEL ACTUALLY WROTE ──────────────────────────────
+//
+// THE LINE RUN 90 DIED WITHOUT. It failed with `Identifier 'createFileRoute'
+// has already been declared. (3:9)`, and by the time anybody read that the page
+// existed nowhere: the container had been recycled and the only other copy was
+// in a Worker's memory. Four rounds of "why was it repeated" followed, every one
+// of them unanswerable from a single line of error text.
+//
+// The build now stores its raw answer the moment it arrives and before anything
+// can refuse it (`keep`, in publish-pages.mjs), and `GET /api/site/answer` is
+// what reads it back. This is the hop that puts it in the log — without it the
+// store is a file nobody ever opens, which is the same place run 90's page was.
+//
+// ONLY WHEN THERE IS SOMETHING TO DIAGNOSE. A build that published clean has its
+// source on the site, and tens of kilobytes of TSX in every green log would bury
+// the run report it sits in. `typeErrors` counts as something to diagnose: since
+// 2026-08-30 a page that does not typecheck SHIPS, so a green build can carry
+// exactly the kind of defect this exists to read.
+if (haveAnswer && (d.page !== "app" || d.typeErrors)) {
+  const aslug = d.slug || SLUG;
+  log(`step 5b — the build did not publish clean (page=${d.page}, kept=${d.kept}) — reading what the model wrote`);
+  try {
+    const r = await fetch(`${BASE}/api/site/answer?slug=${encodeURIComponent(aslug)}`, { headers: auth });
+    const a = await r.json().catch(() => null);
+    if (!r.ok || !a || !a.ok) {
+      log(`step 5b — the answer store answered ${r.status}: ${JSON.stringify(a).slice(0, 200)}`);
+    } else if (!a.answer) {
+      log(`step 5b — nothing stored: ${a.why || "(no reason given)"}`);
+    } else {
+      const ans = a.answer;
+      log(`step 5b — stored ${ans.at}${ans.truncated ? " (the answer was TRUNCATED at max_tokens)" : ""}`);
+      // WHY THERE IS NO ANSWER, when there is none. A model that replied in prose
+      // instead of calling the tool leaves `input: null` and this is the only
+      // record of it — printed FIRST, because on that path everything below is
+      // empty and the reason must not read as a broken dump.
+      if (ans.shape) log(`step 5b — the model never called the tool: ${JSON.stringify(ans.shape)}`);
+      const pages = (ans.input && ans.input.pages) || [];
+      const parts = (ans.input && ans.input.parts) || [];
+      log(`step 5b — ${pages.length} page(s), ${parts.length} hand-written component(s)`);
+      // THE SOURCE ITSELF, WHOLE AND UNTRIMMED. A capped dump is how a diagnosis
+      // ends up guessing again: the defect that killed run 90 was on line 3 and
+      // the one before it was on line 96, and no cap is right for both. It is the
+      // owner's own page, in the owner's own log.
+      for (const p of pages) {
+        log(`step 5b — ── src/routes/${p.path} (${String(p.source || "").length} chars) ──`);
+        log("```tsx\n" + String(p.source || "") + "\n```");
+      }
+      for (const p of parts) {
+        log(`step 5b — ── src/routes/-parts/${p.name}.tsx (${String(p.source || "").length} chars) ──`);
+        log("```tsx\n" + String(p.source || "") + "\n```");
+      }
+    }
+  } catch (e) {
+    log(`step 5b — could not read the answer store: ${String((e && e.message) || e).slice(0, 160)}`);
+  }
+}
+
 // ── step 6: balance after ───────────────────────────────────────────────────
 const after = await fetch(`${BASE}/api/credits`, { headers: auth }).then((r) => r.json()).catch(() => null);
 log(`step 6 — balance AFTER: ${JSON.stringify(after)}`);

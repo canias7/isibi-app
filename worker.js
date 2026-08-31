@@ -8425,6 +8425,46 @@ async function loadSiteSource(env, slug) {
 }
 
 /**
+ * WHAT THE GENERATOR ACTUALLY WROTE, KEPT WHETHER OR NOT IT BUILT.
+ *
+ * A SECOND KEY, NOT A SECOND WRITE TO `pages.json`, and the reason is the one
+ * `saveSiteSource` states two functions up: that file is the next revise's
+ * ANCHOR, and it is written "LAST, AND ONLY ON SUCCESS" precisely so a failed
+ * build cannot hand the next edit a version that does not compile. Writing a
+ * broken answer there would trade a diagnostic for a working site. This key is
+ * read by nothing on the build path — only by a person looking at a failure.
+ *
+ * OVERWRITTEN EACH BUILD, deliberately. One record per site, always the latest
+ * attempt, so the store stays a fixed size instead of growing a file per build
+ * on a prefix nothing sweeps. What that gives up is the previous attempt, and
+ * that is the right trade: a failure is diagnosed immediately after it happens
+ * or not at all, and the run that matters is the one that just failed.
+ *
+ * IT IS THE OWNER'S OWN SITE, so there is nothing here they may not read —
+ * `GET /api/site/answer` checks exactly that and nothing else is served it.
+ */
+const ANSWER_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/answer.json";
+
+async function saveGenAnswer(env, slug, answer) {
+  if (!env.SITES_BUCKET) return false;
+  try {
+    await env.SITES_BUCKET.put(ANSWER_KEY(slug), JSON.stringify({
+      at: new Date().toISOString(), slug, ...(answer && typeof answer === "object" ? answer : {}),
+    }), { httpMetadata: { contentType: "application/json" } });
+    return true;
+  } catch (e) { console.error("answer save failed:", slug, e && e.message); return false; }
+}
+
+async function loadGenAnswer(env, slug) {
+  if (!env.SITES_BUCKET) return null;
+  try {
+    const o = await env.SITES_BUCKET.get(ANSWER_KEY(slug));
+    if (!o) return null;
+    return JSON.parse(await o.text());
+  } catch (e) { console.error("answer read failed:", slug, e && e.message); return null; }
+}
+
+/**
  * AND THE COMPONENTS WRITTEN FOR THIS SITE, which the kit does not have.
  *
  * A SECOND KEY RATHER THAN A SECOND FIELD IN `pages.json`, and that is about the
@@ -10257,6 +10297,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       workerUpload = await putSiteWorker(env, slug, worker);
       return wrote;
     },
+    // THE RAW ANSWER, BEFORE ANYTHING JUDGES IT — see the call site in
+    // publish-pages.mjs for why this is not in the failure branches. Its own key,
+    // never the revise anchor: a broken answer stored there would be handed to
+    // the next edit as the site's source.
+    keep: (answer) => saveGenAnswer(env, slug, answer),
     readCredits: () => readCredits(auth),
     useCredits: (n) => collectCredits(auth, n),
     // What the web-research step already spent, so it is billed by the same rule
@@ -15933,6 +15978,41 @@ async function handleRequest(request, env, ctx) {
         // anything it could have told us, and must not wear its wording.
         return Response.json({ ok: false, phase: want ? "result" : "start", lane, error: "the container could not be reached: " + String((e && e.message) || e).slice(0, 200), kind: String((e && e.name) || "Error"), ms: Date.now() - t0 }, { status: 502 });
       }
+    }
+
+    // GET /api/site/answer — WHAT THE GENERATOR WROTE ON THIS SITE'S LAST BUILD.
+    //
+    // THE HALF THAT MAKES THE STORE WORTH HAVING. `publishPages` keeps the raw
+    // tool payload the moment it arrives and before anything can refuse it, and
+    // a record nothing can read is a record nobody reads. Run 90 is the
+    // measurement: a build died on `Identifier 'createFileRoute' has already
+    // been declared`, and the page existed in exactly two places — a container
+    // that had already been recycled and a Worker's memory. Four rounds of the
+    // owner asking why, and the honest answer every time was that the file was
+    // in the bin.
+    //
+    // OWNERSHIP, NOT MERELY AUTH. `authUser` says who is asking; `siteOwnerBySlug`
+    // says whether the site is theirs. This is a customer's own page source, and
+    // a signed-in stranger has no more claim on it than an anonymous one.
+    //
+    // 404 FOR A SITE THAT IS NOT YOURS, matching the build route below: a
+    // distinct 403 would tell whoever asks that the slug exists and is taken,
+    // and a slug is claimable by whoever builds it first.
+    if (url.pathname === "/api/site/answer" && request.method === "GET") {
+      const au = await authUser(request);
+      if (!au) return UNAUTHED();
+      const aslug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
+      if (!aslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      const aown = await siteOwnerBySlug(aslug, env);
+      if (!aown || aown !== au.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      const stored = await loadGenAnswer(env, aslug);
+      // NOTHING STORED IS ITS OWN ANSWER AND MUST NOT WEAR THE 404 ABOVE, which
+      // means "not your site". A site you own and just built reading "not found"
+      // sends the next session hunting a permission bug that is not there —
+      // this repo's own "a failure that cannot name itself". Every site built
+      // before this shipped lands in this branch.
+      if (!stored) return Response.json({ ok: true, slug: aslug, answer: null, why: "nothing stored — this site has not been built since the answer store shipped" });
+      return Response.json({ ok: true, slug: aslug, answer: stored });
     }
 
     // GET /api/site/reach — CAN THE BUILD CONTAINER REACH A MODEL PROVIDER.

@@ -619,6 +619,12 @@ export function salvageNote(stubbed) {
  *                     this is the layer where twelve features have been dead:
  *                     a side channel makes "the script never reached the
  *                     upload" indistinguishable from "no script was made".
+ *   keep(answer)    → boolean|void    OPTIONAL. The model's raw tool payload,
+ *                     `{ input, shape, truncated }`, stored somewhere a FAILED
+ *                     build can still be read from. Called once, immediately
+ *                     after `generate` and before anything can refuse the
+ *                     answer — see the call site for why it is not in the
+ *                     failure branches. Returning `false` says it did not land.
  *   readCredits()   → number
  *   useCredits(n)   → number: the credits ACTUALLY collected, which may be less
  *                     than n. The ledger is a gate, not a till — `use_credits`
@@ -929,6 +935,57 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
   }
 
   out.genMs = Date.now() - tGen;
+
+  // ── THE MODEL'S ANSWER IS KEPT BEFORE ANYTHING IS ALLOWED TO REFUSE IT ─────
+  //
+  // WHAT ITS ABSENCE COSTS, measured on run 90 (`coalhole-1`, 2026-08-30). The
+  // build died in the bundler with
+  //
+  //     Error transforming route file /app/src/routes/index.tsx:
+  //     SyntaxError: Identifier 'createFileRoute' has already been declared. (3:9)
+  //
+  // and the page went in the bin. Every question the owner then asked — why was
+  // the line repeated, did the tsx step cause it, is it one of ours — was
+  // unanswerable from one line of error text, and saying so four times is what
+  // this hop is worth. THREE separate comments in this file already end with
+  // "the pages are gone the moment this returns" (the `validate` exit, the
+  // salvage keep, and `cited`), each one a session that hit this wall and bought
+  // a diagnostic FIELD instead of the source. This buys the source.
+  //
+  // HERE, AND NOT IN THE FAILURE BRANCHES, WHICH IS THE WHOLE POINT. Four exits
+  // below lose the answer and a fifth is a throw, and this file's own `settle`
+  // comment states the rule: a new failure mode is classified in ONE place
+  // rather than remembered at each call site. A store per branch is a store the
+  // next branch forgets — and a throw skips every branch anyway. One call,
+  // before anything can go wrong, cannot be forgotten.
+  //
+  // THE RAW TOOL PAYLOAD, NOT `v.pages`. `validatePages` runs below this and its
+  // job is to REFUSE: a page with no code, an unusable path, a component named
+  // wrong. On the `validate` exit those refusals ARE the mystery, so storing the
+  // validated set would keep precisely the pages that were never the problem and
+  // drop the ones that were.
+  //
+  // BEST-EFFORT AND NEVER FATAL — the contract `archiveVersion` and the source
+  // store already have: this is a diagnostic and a build must never be lost to
+  // one. AWAITED rather than left floating because a Worker kills an un-awaited
+  // promise, which is exactly how a store like this is never written and never
+  // noticed.
+  if (typeof deps.keep === "function") {
+    // AND WHETHER IT LANDED. That is the lesson `sourceStored` was bought with
+    // one module over: a store whose answer is discarded makes "we never wrote
+    // it" and "we wrote it and it is gone" the same silence — on the one path
+    // whose entire job is ending a silence.
+    try { out.kept = (await deps.keep({
+      input: (gen && gen.input) || null,
+      // WHY THERE IS NO ANSWER, when there is none. `gen.shape` is the only
+      // record of a model that replied in prose instead of calling the tool, and
+      // on that path `input` is null — so a record carrying just the null would
+      // be indistinguishable from a store that ran before the call.
+      shape: (gen && gen.shape) || null,
+      truncated: !!(gen && gen.truncated),
+    })) !== false; } catch { out.kept = false; }
+  }
+
   // THE FOUR TOKEN KINDS, kept rather than collapsed into a credit total.
   // `charge` prices them and threw the breakdown away — so the SCHEMA call
   // reported its cache-read and cache-write counts while the pages call, the one

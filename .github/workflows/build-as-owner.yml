@@ -1006,7 +1006,26 @@ jobs:
           # build is also the only way to exercise the design step end to end:
           # a revise anchors every field to what is stored, which is exactly
           # what a new field must not be tested through.
-          OWNER_SLUG: ${{ github.event.inputs.slug || 'coalhole-1' }}
+          # ── RUN 91: THE SAME BRIEF, SO THE SAME FAILURE IS REACHABLE ──────
+          #
+          # Run 90 died in the BUNDLER, not the typecheck — `SyntaxError:
+          # Identifier 'createFileRoute' has already been declared. (3:9)`. A
+          # syntax error is the one failure the 2026-08-30 ship-it-anyway change
+          # cannot help with: vite strips types without checking them, but it
+          # still has to PARSE, and a file it cannot parse becomes no bundle.
+          #
+          # And the page was gone, so four rounds of "why was it repeated" had no
+          # answer. `keep` now stores the model's raw tool payload before
+          # anything can refuse it and `step 5b` prints it into this log, so this
+          # run has two good outcomes and no bad one: it builds, or it fails the
+          # same way and the file is finally readable.
+          #
+          # FRESH SLUG, and that is not a formality. `coalhole-1` was claimed by
+          # run 90 even though it published only the placeholder — ownership is
+          # what decides `revise`, so reusing it would send the EDIT path, whose
+          # `EDIT_RULE` deliberately suppresses every field the message did not
+          # ask for. Runs 85, 86 and 87 were all spent learning that.
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'coalhole-2' }}
           OWNER_PICKER: ${{ github.event.inputs.picker || 'grok' }}
           # ── THE BRIEF IS AN INPUT NOW (2026-08-30) ────────────────────────
           #

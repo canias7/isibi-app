@@ -141,6 +141,12 @@ auth-gated, idempotent, a slug claimed by whoever builds it first (409).
 8. **Publish** — write-then-sweep into R2, then upload the site's own Worker
    script.
 
+**The model's answer is kept whether or not it builds** — `deps.keep`, called once
+straight after generation, storing the raw tool payload at `source/<slug>/answer.json`
+(never `pages.json`, which is the revise anchor and success-only). Read back by
+`GET /api/site/answer?slug=` for the site's owner; printed into the owner-build
+log by step 5b when a build does not publish clean. Run 90 is why.
+
 **The build fires and the Worker walks away.** A queue consumer runs it (15
 minutes guaranteed); the generation itself runs in the CONTAINER (no clock) and
 **streams**, because an idle wire is hung up at ~270s by the egress. The answer
@@ -627,7 +633,7 @@ what the work cost.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 418 credits** (2026-08-30, after run 83). It was **0** on 08-29;
+- **Balance: 341 credits** (read from the ledger 2026-08-31, after run 90). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**
@@ -989,6 +995,28 @@ now asserts it. Its first draft walked the import graph and false-alarmed on
 `import` statements inside STRING fixtures; the shipped version is blunt (every
 `node --test` step installs first) because a check that flags correct code is
 worse than no check.
+
+**A DIAGNOSTIC FIELD IS NOT A SUBSTITUTE FOR THE ARTIFACT (2026-08-30, run 90).**
+`coalhole-1` died in the BUNDLER — `SyntaxError: Identifier 'createFileRoute' has
+already been declared. (3:9)`, the model having written the same import twice —
+and the page was gone: the container recycled, the answer only ever in a Worker's
+memory. Four rounds of the owner asking *why was it repeated* and every answer was
+a guess. **`publish-pages.mjs` already said "the pages are gone the moment this
+returns" in THREE separate comments**, each one a past session that hit this wall
+and bought a narrower field instead of the file — `out.error`, then `out.cited`,
+then the `validate` exit keeping `problems`. Three payments for a fraction of one
+thing. Now `deps.keep` stores the raw tool payload ONCE, straight after
+`generate` and before anything can refuse it — not in the failure branches, of
+which there are four plus a throw, because this file's own `settle` comment
+already states the rule that a new failure mode is classified in one place rather
+than remembered at each call site. Its own R2 key, never `pages.json`: that one is
+the revise anchor and is written only on success precisely so a broken answer
+cannot become the site's source. `GET /api/site/answer` reads it back
+(owner-gated), and `scripts/build-as-owner.mjs` step 5b prints it — **a record
+nothing can read is where run 90's page already was.**
+**And the ship-it-anyway change does not cover this**: a syntax error is not a
+type error. Vite strips types without checking them but still has to PARSE, so a
+file it cannot parse yields no bundle at all.
 
 **Re-run the thing the change is asserted by.** Appeasing a false alarm in one
 checker while never re-running the harness that actually proves the change has

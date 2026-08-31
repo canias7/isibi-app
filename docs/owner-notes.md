@@ -393,6 +393,29 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **Run 90 FAILED (2026-08-30), and I could not tell you why — which is the part
+  that is now fixed.** The build died with one line:
+
+  ```
+  Error transforming route file /app/src/routes/index.tsx:
+  SyntaxError: Identifier 'createFileRoute' has already been declared. (3:9)
+  ```
+
+  The model wrote the same line twice at the top of the page. A computer will not
+  accept the same name introduced twice, so it stopped reading and there was no
+  site to publish. **You asked four times why it repeated the line, and every
+  answer I gave was a guess** — because we only saved a page's code when a build
+  *worked*, so the file had been thrown away.
+  - **Not a type error, and that matters.** Your "ship it even if it's broken"
+    change covers a page whose *types* are wrong; this page could not be *read* at
+    all, and there is genuinely nothing to publish from a file that will not parse.
+  - **What is fixed (2026-08-30): the file is kept now, win or lose.** The model's
+    answer is stored the moment it arrives, before anything is allowed to refuse
+    it, under its own key so a broken answer can never become the site's source.
+    The build log prints the whole page when a build does not publish clean.
+  - **What is NOT fixed: the repeat itself.** I still do not know why the model
+    did it, and I am not guessing again — run 91 uses the same brief, so either it
+    builds or it fails the same way and I finally read the file.
 - **Run 84 FAILED (2026-08-30), and it failed ON the thing you asked me to test —
   8 credits.** You asked for a build with a QR. I gave it a laundrette brief where
   a code on the screen is the obvious answer (the wifi password). **The design step
@@ -753,5 +776,6 @@ key can read them, which is the whole point for the connection-string table.
 
 **One accounting fact:** ✦300 was once added to the ledger by hand rather than
 bought through Stripe (the minting function needs a secret that lives in GitHub
-Actions). It has long since been spent; the balance today is 418 (topped up 100 + 400 on
-2026-08-30 to fund the `ashgrove-1` builds; runs 80, 82 and 83 spent 80 of it).
+Actions). It has long since been spent; the balance is **341**, read from the ledger on
+2026-08-31 after run 90 (topped up 100 + 400 on 2026-08-30 to fund the
+`ashgrove-1` builds; runs 80–90 have spent 159 of it).

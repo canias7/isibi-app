@@ -116,6 +116,14 @@ function harness(over = {}) {
     calls.repair = [];
     deps.repair = (req) => { calls.repair.push(req); return over.repair(req); };
   }
+  // OPTIONAL, like the two above — but ALWAYS RECORDED when supplied, including
+  // on the paths that return before a page is ever compiled. That is the whole
+  // property being bought: the exits that lose the answer are exactly the ones
+  // that never reach a compile.
+  if (over.keep) {
+    calls.keep = [];
+    deps.keep = (a) => { calls.keep.push(a); return over.keep(a); };
+  }
   return { deps, calls };
 }
 
@@ -2439,4 +2447,171 @@ test("a delete says WHICH project it dropped, and does not claim one it never lo
   assert.match(block, /projectId = legacy\.neon_project;/, "the legacy project is not named");
   assert.match(w, /projectId: projectId \|\| undefined,/,
     "the response carries no projectId, so the consumers' fallback calls DELETE /projects/undefined");
+});
+
+/* ------------------------------------ the answer a failed build leaves behind */
+
+// RUN 90 IS THE WHOLE REASON THIS SECTION EXISTS (`coalhole-1`, 2026-08-30).
+// The bundler refused with
+//
+//     Error transforming route file /app/src/routes/index.tsx:
+//     SyntaxError: Identifier 'createFileRoute' has already been declared. (3:9)
+//
+// and the page was gone: the container had been recycled and the only other copy
+// was in a Worker's memory. Four rounds of "why was it repeated" and the honest
+// answer every time was that the file was in the bin. `keep` is the hop that
+// ends that, and everything below asserts the property that makes it worth
+// having — the answer survives the exits that used to lose it.
+
+// The run-90 page, DERIVED rather than typed. `good()` already opens with the
+// import, so prepending the same line makes a genuine duplicate that cannot
+// drift away from the fixture it is built on — and it still satisfies
+// `validatePages`, which is what put it in front of the bundler in the first
+// place.
+const duped = () => ({ path: "index.tsx", source: 'import { createFileRoute } from "@tanstack/react-router";\n' + good().source });
+
+test("THE PAGE THAT KILLED THE BUILD IS STILL READABLE AFTERWARDS", async () => {
+  const page = duped();
+  // THE FIXTURE IS WHAT IT CLAIMS TO BE. Without this the test passes just as
+  // well on a page with one import, asserting storage of something that was
+  // never the failure.
+  assert.equal(page.source.split('import { createFileRoute }').length - 1, 2,
+    "the fixture no longer contains the duplicate import it is named for");
+
+  const { deps, calls } = harness({
+    generate: async () => gen([page]),
+    compile: async () => ({ ok: false, stage: "build", error: "Error transforming route file /app/src/routes/index.tsx:\nSyntaxError: Identifier 'createFileRoute' has already been declared. (3:9)" }),
+    keep: async () => true,
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "coalhole-1" });
+
+  assert.equal(out.page, "placeholder", "the build still fails — this buys a diagnosis, not a fix");
+  assert.equal(calls.keep.length, 1, "the answer was never kept, so this failure is as unreadable as run 90 was");
+  const kept = calls.keep[0].input.pages.find((p) => p.path === "index.tsx");
+  assert.equal(kept.source, page.source, "what was stored is not what the model wrote");
+  assert.equal(out.kept, true, "the response does not say the answer landed");
+});
+
+test("the answer is kept on EVERY exit that loses it, not just the compile", async () => {
+  // FOUR EXITS, ONE STORE. The reason `keep` is called before `validatePages`
+  // rather than inside each failure branch is that these three return long
+  // before a compile, and a per-branch store is one the next branch forgets.
+  const at = async (over) => {
+    const { deps, calls } = harness({ keep: async () => true, ...over });
+    const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+    return { out, calls };
+  };
+
+  // (1) EVERY PAGE REFUSED. `out.pages` cannot carry these — validatePages threw
+  // them away — so the store is the only record of what was actually written.
+  const empty = await at({ generate: async () => gen([{ path: "index.tsx", source: "" }]) });
+  assert.equal(empty.out.stage, "validate");
+  assert.equal(empty.calls.keep.length, 1, "a build whose every page was refused kept nothing");
+  assert.equal(empty.calls.keep[0].input.pages[0].path, "index.tsx",
+    "the RAW payload is what must be stored: the refused pages are the whole mystery on this exit");
+
+  // (2) PAGES, BUT NO HOME.
+  const noHome = await at({ generate: async () => gen([good("menu.tsx")]) });
+  assert.equal(noHome.out.stage, "home");
+  assert.equal(noHome.calls.keep.length, 1, "a homeless build kept nothing");
+
+  // (3) THE MODEL NEVER CALLED THE TOOL. `input` is null here, so the record
+  // would be indistinguishable from a store that ran too early — `shape` is the
+  // only thing that says a model replied and what it replied with.
+  const prose = await at({ generate: async () => ({ input: null, shape: { stopReason: "end_turn", blocks: ["text"] }, usage: { in: 1, out: 1, cacheRead: 0, cacheWrite: 0 } }) });
+  assert.equal(prose.out.stage, "validate");
+  assert.equal(prose.calls.keep.length, 1, "a model that answered in prose kept nothing");
+  assert.equal(prose.calls.keep[0].input, null);
+  assert.deepEqual(prose.calls.keep[0].shape, { stopReason: "end_turn", blocks: ["text"] },
+    "the only record of a model that never called the tool did not reach the store");
+});
+
+test("the store runs ONCE, and before the compile can refuse anything", async () => {
+  // THE ORDERING IS THE FEATURE. Stored after the compile it would be missing on
+  // exactly the builds it exists for, and stored twice it would be paying for a
+  // put per attempt on a salvage retry.
+  const order = [];
+  const { deps, calls } = harness({
+    generate: async () => gen([good()]),
+    keep: async () => { order.push("keep"); return true; },
+    compile: async () => { order.push("compile"); return { ok: true, files: { "index.html": { t: "<x>" } } }; },
+  });
+  await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(calls.keep.length, 1, "the answer is stored more than once per build");
+  assert.deepEqual(order, ["keep", "compile"], "the answer is stored after the compile, so a failed compile loses it");
+});
+
+test("a store that fails cannot take a build down, and says so", async () => {
+  // BEST-EFFORT IN BOTH DIRECTIONS. A diagnostic that can fail a build is worse
+  // than no diagnostic, and a diagnostic that fails silently is the `sourceStored`
+  // lesson: "we never wrote it" and "we wrote it and it is gone" must not be the
+  // same silence.
+  const threw = await publishPages(harness({ keep: async () => { throw new Error("R2 is down"); } }).deps,
+    { spec: SPEC, slug: "x" });
+  assert.equal(threw.page, "app", "a failed diagnostic store took a working site down with it");
+  assert.equal(threw.kept, false, "a store that threw is reported as having landed");
+
+  const refused = await publishPages(harness({ keep: async () => false }).deps, { spec: SPEC, slug: "x" });
+  assert.equal(refused.page, "app");
+  assert.equal(refused.kept, false, "a store that answered `false` is reported as having landed");
+
+  // AND A STORE THAT ANSWERS NOTHING HAS LANDED, which is why the test is
+  // `!== false` and not a truthiness check. The dep is documented `boolean|void`
+  // and a caller that writes the bytes and returns nothing is the ordinary shape
+  // of a void dep — reading that as a failure would send the next session
+  // hunting a store that worked. FOUND BY A SWEEP: `!== false` and `!!` are
+  // identical on every value these tests drove, so nothing here distinguished
+  // the two until this line existed.
+  const quiet = await publishPages(harness({ keep: async () => {} }).deps, { spec: SPEC, slug: "x" });
+  assert.equal(quiet.kept, true, "a store that returned nothing is reported as having failed");
+});
+
+test("with no keep dep a build behaves exactly as it did before the store existed", async () => {
+  // The same property `images` and `repair` are asserted for: an optional dep
+  // that changes behaviour when absent is not optional.
+  const { deps } = harness({});
+  assert.equal(typeof deps.keep, "undefined");
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "app");
+  assert.equal(out.kept, undefined, "a build with no store reports a field about one");
+});
+
+test("THE WIRING — the Worker really passes `keep`, and it does not write the revise anchor", () => {
+  // THE HOP THIS REPO HAS SHIPPED DEAD TWELVE TIMES. Every test above drives a
+  // fake; none of them can see that worker.js forgot the dep, which is exactly
+  // how `three` was designed on every build and discarded before anything stored
+  // it. Anchored on landmarks, never a byte window.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const from = w.indexOf("const out = await publishPages({");
+  const to = w.indexOf("}, { spec, slug, priorUsage, livePages });", from);
+  assert.ok(from > 0 && to > from, "the build's publishPages call site moved — this scan proves nothing");
+  const site = w.slice(from, to);
+  assert.match(site, /keep:\s*\(answer\)\s*=>\s*saveGenAnswer\(env, slug, answer\)/,
+    "the build no longer hands publishPages anywhere to keep the model's answer");
+
+  // AND THE KEY IS NOT THE REVISE ANCHOR, which is the one way this feature
+  // could do real harm: `pages.json` is what the next edit is handed, and it is
+  // written only on success precisely so a broken answer cannot become the
+  // site's source. Both key functions are EVALUATED rather than read, because
+  // two path literals that look different can still collide.
+  const keyFn = (name) => {
+    const m = w.match(new RegExp("const " + name + " = \\(slug\\) => ([^;]+);"));
+    assert.ok(m, name + " is no longer a one-line key function");
+    return new Function("slug", "return " + m[1]);
+  };
+  const answerKey = keyFn("ANSWER_KEY")("Coalhole-1");
+  assert.notEqual(answerKey, keyFn("SOURCE_KEY")("Coalhole-1"),
+    "the answer store writes the revise anchor — a failed build would become the site's source");
+  assert.notEqual(answerKey, keyFn("PARTS_KEY")("Coalhole-1"), "the answer store writes over the site's components");
+  assert.match(answerKey, /^source\/coalhole-1\//, "the answer is not filed under its own site, lower-cased");
+
+  // AND IT CAN BE READ BACK BY THE PERSON WHO OWNS IT. A record nothing can read
+  // is a record nobody reads — run 90's page was "stored" in a container too.
+  const r = w.indexOf('url.pathname === "/api/site/answer"');
+  assert.ok(r > 0, "nothing serves the stored answer, so it can never be looked at");
+  const route = w.slice(r, w.indexOf('url.pathname === "/api/site/reach"', r));
+  assert.ok(route.length > 200, "the answer route's scan lost its bounds");
+  assert.match(route, /await authUser\(request\)/, "the answer route serves a customer's page source unauthenticated");
+  assert.match(route, /siteOwnerBySlug\([\s\S]{0,40}\)/, "the answer route checks who is asking but not whose site it is");
+  assert.match(route, /loadGenAnswer\(env, aslug\)/, "the answer route does not actually read the store");
 });
