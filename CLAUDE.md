@@ -271,6 +271,10 @@ Only `tsx`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
   asserts every hop from storage onward for BOTH marks, which is what keeps those
   two sites working; only hop 1 now says `gif` is absent from the tool.
   **To put it back**: restore the one property and the lane. Nothing else moved.
+  **Sweep 4/4 caught, comment-only control survived** — and two of the four are
+  the ones worth having: `gif` dropping off `EDIT_FIELDS`, and the container
+  skipping `cleanGif` on the stored document. Both would take a live site's
+  artwork off or serve it unvalidated with the field long gone from the tool.
   The scanner notes are worth keeping either way — `cleanMark` takes its tag/attr
   sets as PARAMETERS and has three callers, `GIF_ATTRS` is derived from
   `FAVICON_ATTRS` so the two cannot diverge, and the indirection risk is real:
