@@ -437,14 +437,41 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           OWNER_EMAIL: aniascristian@gmail.com
           OWNER_BASE_URL: https://gofarther.dev
-          # ── DISPATCH DRIVES THE MODE; A PUSH IS ALWAYS A BUILD ────────────────
+          # ── DISPATCH DRIVES THE MODE, AND A PUSH NOW CARRIES ITS OWN ─────────
           #
-          # On a workflow_dispatch these carry the inputs; on a marker push the
-          # inputs are empty, so `mode` falls to `build` and the hardcoded brief
-          # below runs exactly as it always has. The edit path reads OWNER_SLUG
-          # and OWNER_INSTRUCTION and ignores the brief entirely.
-          OWNER_MODE: ${{ github.event.inputs.mode || 'build' }}
-          OWNER_INSTRUCTION: ${{ github.event.inputs.instruction || '' }}
+          # A dispatch fills these from its inputs. A marker push used to fall to
+          # `build` and always did, because a session CANNOT dispatch a workflow:
+          # `POST /actions/workflows/<file>/dispatches` answers 403 Resource not
+          # accessible by integration, the same scope wall recorded above for
+          # cancelling a run and in answer-read.yml. So the edit lane — the thing
+          # a customer does dozens of times after their site exists — was
+          # reachable only by a person clicking the button, and has therefore
+          # never been exercised from a session at all.
+          #
+          # THE DEFAULTS BELOW ARE THE RUN THIS PUSH IS BUYING and are meant to
+          # be edited per run, exactly as `OWNER_SLUG` and `OWNER_BRIEF_DEFAULT`
+          # are. An edit is ~1 credit against a build's 12, so the marker is
+          # buying something an order of magnitude cheaper than it used to.
+          #
+          # ── RUN 93: THE `css` LANE, AND WHAT IT DOES **NOT** TOUCH ──────────
+          #
+          # `OWNER_LAYER: look` is FORCED rather than routed, which is the point:
+          # the layer classifier is not under test here, `pick_lanes` and the
+          # `css` lane are. The instruction is a natural, NARROW ask about one
+          # control, so the lane's own ceiling is what is being measured —
+          #
+          #   "EACH EDIT ONLY AS WIDE AS IT WAS ASKED. A change to one control is
+          #    a rule for that control. A new value for a token is not — every
+          #    component reading that token repaints, so a request about one
+          #    button becomes a different-looking site."
+          #
+          # `fretwork-1` wears that same red on the header button AND on the big
+          # band at the foot of the page, so the two answers are visibly
+          # different: a scoped rule moves one of them, a token moves both. READ:
+          # which one moved, and whether the rest of the 216,304-byte stylesheet
+          # came back byte for byte (the `keep` half, diffed rather than eyeballed).
+          OWNER_MODE: ${{ github.event.inputs.mode || 'edit' }}
+          OWNER_INSTRUCTION: ${{ github.event.inputs.instruction || 'the button up in the header is a bit bright for us — could you make it a deep forest green instead' }}
           OWNER_LAYER: ${{ github.event.inputs.layer || 'look' }}
           # A FRESH SLUG AGAIN. Runs 3 and 4 both died at the wall on THIS
           # brief and each left a claimed slug plus a live Neon project behind
