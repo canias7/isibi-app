@@ -5373,13 +5373,40 @@ const callBuilderModel = (env, req, budget = null) => callModel(keysFrom(env), r
 // slower than Sonnet on generation, measured, so the ceiling is not a small
 // call's latency any more — it is a different provider's whole turn.
 //
-// 60 SECONDS, WHICH IS STILL A CHATBOX AND STILL A SIXTH OF A BUILD. The number
-// is a wait a person will sit through, not a measurement — nothing here has
-// clocked a `pick_lanes` call on Grok, and the guard below pins the PROPERTY
-// (well inside a build's ten minutes) rather than this figure.
-const QUICK_CALL_MS = 60000;
+// ── 240 SECONDS (owner's call, 2026-08-31, after run 99) ───────────────────
+//
+// 60s WAS ALSO WRONG, and run 99 is the measurement that says so: a `look` edit
+// died at exactly 60,000ms with `kind: TimeoutError`, having spent nothing,
+// while run 98 had completed the same request shape minutes earlier. So Grok's
+// small calls sit AT this bound and ordinary variance decides which side of it
+// they land on. Two guesses, two failures — 20s inherited from Haiku, then 60s
+// picked as "a wait a person will sit through".
+//
+// WHAT THIS IS A CLOCK ON, because it is easy to read it as something bigger:
+// ONE model call, made BY THE WORKER, to the provider. Not the build, not the
+// container, not the publish. Run 99 never reached the container at all.
+//
+// 240s IS NEARLY THE WHOLE WIRE, and that is the real bound behind the number —
+// the egress hangs up an idle connection at ~270s, so a call allowed to outlive
+// that can never deliver an answer whatever we set here.
+//
+// THE STATED RISK, since this is per-call and an edit makes TWO: back-to-back
+// slow calls total more than the wire allows, and the egress cuts that with no
+// diagnosis of its own. A shared budget for the whole edit — what builds already
+// have, and what this path has never had — is the fix that removes the guessing
+// rather than moving it. Recorded here so the next person meets the reasoning
+// instead of a third number.
+const QUICK_CALL_MS = 240000;
 const quickBudget = { capMs: () => QUICK_CALL_MS };
-const quickSend = (env) => (req) => callBuilderModel(env, req, quickBudget);
+const quickSend = (env, what = "") => (req) => callBuilderModel(env, req, quickBudget).catch((e) => {
+  // WHICH CALL RAN OUT, named on the error itself. Run 99's log said a call had
+  // exceeded our ceiling and could not say whether it was the lane picker or the
+  // lane — two calls, one sentence, and the next move different for each. The
+  // "failure that cannot name itself" trap, on the diagnostic added to close the
+  // previous instance of it.
+  if (what && e && !e.call) { try { e.call = what; } catch { /* frozen error */ } }
+  throw e;
+});
 
 /**
  * Is the key the PICKED model needs missing?
@@ -17918,6 +17945,7 @@ async function handleRequest(request, env, ctx) {
                 // side the failure came from in a word.
                 timeout: timedOut || undefined,
                 waitedMs: timedOut ? QUICK_CALL_MS : undefined,
+                call: (e && e.call) || undefined,
                 kind: String((e && e.name) || "Error").slice(0, 40),
               }, { status: 503 });
             };
@@ -18003,7 +18031,7 @@ async function handleRequest(request, env, ctx) {
             const eLooking = eLayer === "look";
             if (eLooking) {
               const picked = await pickLanes(
-                { send: quickSend(env) },
+                { send: quickSend(env, "pick_lanes") },
                 {
                   message: eInstruction,
                   // WHAT THE SITE IS, IN ONE LINE. Deliberately thin — this is
@@ -18963,7 +18991,7 @@ async function handleRequest(request, env, ctx) {
                 const answers = {};
                 for (const field of pickedFields) {
                   const ran = await runLane(
-                    { send: quickSend(env) },
+                    { send: quickSend(env, "lane") },
                     {
                       field,
                       message: eInstruction,
@@ -19633,7 +19661,7 @@ async function handleRequest(request, env, ctx) {
               // wrong. The correction needs the context, so it asks for it.
               if (!finalPub.ok && finalPub.error === "dead-css" && cssCtx) {
                 const fix = await runLane(
-                  { send: quickSend(env) },
+                  { send: quickSend(env, "lane-correction") },
                   {
                     field: "css",
                     message: eInstruction,

@@ -7,6 +7,11 @@ import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CON
 // what the small-call ceiling is measured against below, and a hand-typed copy
 // of it is a second version of the same number that drifts in silence.
 import { BUILDER_CALL_MS } from "../builder/build-call.mjs";
+// THE WIRE, measured rather than configured: the egress hangs up an idle
+// connection at roughly 270s. It is not a constant anywhere in the source
+// because nothing sets it — it is Cloudflare's, and this repo learned it by
+// having builds die on it. Written here as the bound it really is.
+const EGRESS_HANGUP_MS = 270000;
 import { buildPathFn } from "./fixtures/build-path.mjs";
 
 /** A clock a test drives, so nothing here waits on real time. */
@@ -259,7 +264,16 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   // AND THE EXEMPTION IS REAL RATHER THAN A WAY PAST THE LOOP. `quickBudget`
   // has to exist, has to be shorter than a build's, and has to be what the
   // small-call sender passes — otherwise "excluded by name" is just a hole.
-  assert.match(CODE, /const quickSend = \(env\) => \(req\) => callBuilderModel\(env, req, quickBudget\)/,
+  // THE PROPERTY, NOT THE SIGNATURE (2026-08-31). This pinned the sender's exact
+  // spelling — `(env) => (req) => …` — and went red the moment it grew an honest
+  // second parameter naming WHICH call it is, reporting a working sender as a
+  // missing ceiling. This repo's single most repeated own-goal, and the failure
+  // message described something nobody did.
+  //
+  // What has to hold is that `quickSend` hands `callBuilderModel` the SMALL-CALL
+  // budget rather than a build's. Its parameter list and whatever it wraps around
+  // the call are free to change.
+  assert.match(CODE, /const quickSend = [^;]*?callBuilderModel\(env, req, quickBudget\)/s,
     "the small-call sender no longer carries its own ceiling — it would inherit the ten-minute build budget");
   const cap = CODE.match(/const QUICK_CALL_MS = (\d+);/);
   assert.ok(cap, "the small-call ceiling is gone");
@@ -276,9 +290,22 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   // rather than a wish, so it must still be one. Both ends asserted, and the
   // figure between them is free to follow whatever model is underneath it.
   const capMs = Number(cap[1]);
-  assert.ok(capMs <= BUILDER_CALL_MS / 5,
-    "the small-call ceiling is " + capMs + "ms, too close to a build's " + BUILDER_CALL_MS +
-    "ms — these are calls a customer waits on in a chatbox");
+  // THE UPPER BOUND IS THE WIRE, NOT A FRACTION OF A BUILD (2026-08-31, run 99).
+  //
+  // This asserted `<= BUILDER_CALL_MS / 5` — 120s — which was a bound derived
+  // from a number that has nothing to do with this path: `BUILDER_CALL_MS` is
+  // what a BUILD's generation call gets, and dividing it by five produced a
+  // limit with no meaning of its own. The owner raised the ceiling to 240s after
+  // run 99 died at 60s, and this went red for the change rather than for a bug —
+  // the tell this repo already has written down.
+  //
+  // The real constraint is the EGRESS: an idle connection is hung up at ~270s,
+  // so a call permitted to outlive that can never deliver an answer however
+  // generous we are. That is a fact about the wire rather than about a build,
+  // and it holds whatever the figure between the bounds becomes.
+  assert.ok(capMs < EGRESS_HANGUP_MS,
+    "the small-call ceiling is " + capMs + "ms, past the ~" + EGRESS_HANGUP_MS +
+    "ms the egress allows an idle wire — a call that outlives the connection cannot answer on it");
   // AND A FLOOR, WHICH IS THE HALF RUN 95 PAID FOR. A bound with only an upper
   // limit let the sweep put 20000 back and nothing went red — the exact
   // regression that cost the run, surviving the guard written about it.

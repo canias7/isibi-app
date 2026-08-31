@@ -2555,6 +2555,32 @@ function H() { return <main><h1>Promised imports</h1></main>; }
           dressed.every((m) => m.role === "button"),
           JSON.stringify(dressed.map((m) => [m.name, m.tag, m.slot, m.role]).slice(0, 3)));
       }
+
+      // ── SELECTORS ARE DISTINCT, which is what UNIQUENESS looks like from out
+      // here. The probe tests each candidate against the real DOM and demands it
+      // match exactly one element; if that check were relaxed to "matches at
+      // least one", the two anchors the kit stamps `data-slot="button"` would
+      // both be offered as `[data-slot="button"]` — one selector, two rows,
+      // pointing at each other. Then "change the header button" moves three
+      // controls, which is the failure the map exists to prevent.
+      //
+      // A sweep found this completely unguarded.
+      const sels = marks.map((m) => m.selector);
+      ok("…and no two landmarks share a selector, so each really addresses one element",
+        new Set(sels).size === sels.length,
+        sels.filter((x, i) => sels.indexOf(x) !== i).slice(0, 3).join(" | ") || "-");
+
+      // ── AND NOTHING INVISIBLE IS OFFERED. A control a visitor cannot see is
+      // not what "the button in the header" means, and aiming an edit at one
+      // spends a credit somewhere nobody will ever look.
+      //
+      // THE KIT SHIPS THE PERFECT PROBE FOR THIS: `SiteChrome` renders a
+      // visually-hidden "Skip to content" link on every page — a real anchor,
+      // zero-sized, present in the DOM of every site this platform builds. If
+      // the visibility filter stops working it is the first thing through.
+      ok("…and the kit's visually-hidden skip link is NOT offered as a landmark",
+        !marks.some((m) => /skip to content/i.test(m.text || "")),
+        JSON.stringify(marks.filter((m) => /skip to content/i.test(m.text || "")).slice(0, 2)));
     }
   }
 

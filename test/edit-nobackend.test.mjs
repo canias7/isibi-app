@@ -816,3 +816,27 @@ test("a rule matching nothing does NOT publish — it is corrected first, once",
   // stylesheet nobody touched.
   assert.match(body, /verifyCss/, "the gate is no longer opt-in");
 });
+
+test("a timeout says WHICH call ran out, not just that one did", async () => {
+  // RUN 99 IS WHY. Its log said a call had exceeded our ceiling and could not
+  // say whether that was the lane picker or the lane itself — two calls, one
+  // sentence, and a different next move for each, so the diagnosis was an
+  // inference again. That is the "failure that cannot name itself" trap landing
+  // on the diagnostic written to close the previous instance of it.
+  //
+  // AND THE SWEEP IS WHY THIS TEST EXISTS: deleting the naming, and deleting the
+  // field that carries it to the wire, both SURVIVED. A diagnostic with no test
+  // is a diagnostic that quietly stops working the first time somebody edits
+  // near it — which is exactly how run 99 came to need it.
+  await withTimingOutModel(async () => {
+    const { body } = await edit("named-timeout", "look", "make the header button forest green");
+    assert.equal(body.error, "send", "the lane did not reach its model call: " + JSON.stringify(body));
+    assert.equal(body.timeout, true, "the timeout is no longer marked as ours");
+    assert.ok(body.call, "the response does not say which call timed out: " + JSON.stringify(body));
+    // THE FIRST CALL A `look` EDIT MAKES is the lane picker, so that is the one
+    // a timeout here must name. Asserted as the real value rather than "some
+    // truthy string", or a sender that named every call `"lane"` would pass.
+    assert.equal(body.call, "pick_lanes",
+      "the timeout named `" + body.call + "`, but the first call a look edit makes is the lane picker");
+  });
+});
