@@ -18,6 +18,22 @@
 name: answer read
 
 on:
+  # ── AND ON A PUSH TO ITS OWN TWO FILES, WITH NO MARKER ────────────────────
+  #
+  # `build as owner` gates its push trigger on a marker because a run there
+  # spends ~45 credits. This one spends NOTHING, so there is nothing to opt into
+  # — and the path filter alone keeps it from firing on unrelated work.
+  #
+  # THE REASON IT IS NOT DISPATCH-ONLY IS A SCOPE WALL, said plainly so nobody
+  # re-tries it. `POST /actions/workflows/<file>/dispatches` answers **403
+  # Resource not accessible by integration** from a session, which is the same
+  # wall build-as-owner.yml already records for cancelling a run. So a
+  # dispatch-only workflow is one only a person can start, and this exists to
+  # prove a store landed on the build that just ran.
+  push:
+    paths:
+      - '.github/workflows/answer-read.yml'
+      - 'scripts/answer-read.mjs'
   workflow_dispatch:
     inputs:
       slug:
@@ -42,7 +58,10 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           OWNER_EMAIL: aniascristian@gmail.com
           OWNER_BASE_URL: https://gofarther.dev
-          OWNER_SLUG: ${{ github.event.inputs.slug }}
+          # A DISPATCH NAMES ITS SITE; A PUSH READS THE LAST ONE BUILT. The
+          # default is not decoration — on the push path `inputs.slug` is empty
+          # and an unset OWNER_SLUG makes the script refuse with nothing read.
+          OWNER_SLUG: ${{ github.event.inputs.slug || 'coalhole-2' }}
         run: node scripts/answer-read.mjs
       - uses: actions/upload-artifact@v4
         if: always()
