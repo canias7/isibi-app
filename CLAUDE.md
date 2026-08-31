@@ -145,7 +145,14 @@ auth-gated, idempotent, a slug claimed by whoever builds it first (409).
 straight after generation, storing the raw tool payload at `source/<slug>/answer.json`
 (never `pages.json`, which is the revise anchor and success-only). Read back by
 `GET /api/site/answer?slug=` for the site's owner; printed into the owner-build
-log by step 5b when a build does not publish clean. Run 90 is why.
+log by step 5b when a build does not publish clean, and by `scripts/answer-read.mjs`
+(the `answer read` workflow) at any time, free. Run 90 is why. **PROVEN LIVE on
+run 91**: `coalhole-2`'s page read back whole out of R2 after the build.
+**Two readers, deliberately.** Step 5b sees only a build the runner watched to
+the end — and run 91 is the proof that is not enough: it stopped watching at
+10.1 minutes with the generation unfinished, so `haveAnswer` was false and both
+step 5 and step 5b were skipped on a build that had already published. A log is
+a snapshot; the store is the record.
 
 **The build fires and the Worker walks away.** A queue consumer runs it (15
 minutes guaranteed); the generation itself runs in the CONTAINER (no clock) and
@@ -633,13 +640,16 @@ what the work cost.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 341 credits** (read from the ledger 2026-08-31, after run 90). It was **0** on 08-29;
+- **Balance: 330 credits** (read from the ledger 2026-08-31, after run 91). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**
 - **A BUILD AND A REVISE COST DIFFERENT MONEY, BOTH MEASURED.** A first build on
   grok is **~45 credits** (run 80, `ashgrove-1`, one page, 2 photographs: 45
-  billed, 47 with the routing call). A REVISE of the same site is **17** (run 83:
+  billed, 47 with the routing call) — **but that is the TOP of a range, not the
+  price**: run 91 (`coalhole-2`, one page, 8,967 chars, 0 photographs bought)
+  cost **11**, ledger 341→330. Four times' difference between two first builds on
+  the same model, so quote a range or measure the run. A REVISE of the same site is **17** (run 83:
   9 billed for the build, 17 off the balance with routing) — it anchors to the
   stored design, so the expensive fresh-decision half does not re-run. The
   workflow carried "~130" for nine days, a Sonnet-era guess nothing could check,

@@ -393,6 +393,30 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 **Live bugs**
 
+- **Run 91 PUBLISHED (2026-08-31): `coalhole-2` is live at
+  https://coalhole-2.gofarther.app/ — 11 credits.** Same theatre brief that
+  killed run 90, built clean this time: one page, 8,967 characters, 291 seconds.
+  - **So the repeated line was a one-off, not a fault in the path.** The stored
+    page imports `createFileRoute` exactly once. Nothing was wrong with the
+    feature run 90 was testing.
+  - **And the kit already had the hard part.** It reached for `SeatMap`,
+    `AvailabilityLegend`, `Tabs`, `AdmissionPrices` and `EventCard` and wrote
+    **no** hand-made components — a 48-seat plan with the pillar seats marked
+    restricted, a second plan for cabaret nights with row A as tables, and
+    tapping a seat tells you the number to give on the phone. It decided there
+    should be no booking form, "because there is nowhere for it to go", and said
+    so in its reply. That is the right call and it named it.
+  - **11 credits, not the ~45 a first build cost on run 80.** Both are real
+    measurements of a first Grok build; the number depends on the site, so treat
+    ~45 as the top of the range rather than the price.
+  - **The store is proven working on a real build**, which the build alone could
+    not show: the page was read back out of storage afterwards, in full, for
+    nothing. That read is a button now — Actions → "answer read" → the slug.
+  - **One thing did not go to plan and is worth knowing.** The build log itself
+    did NOT print the page: the runner stopped watching at 10.1 minutes with the
+    generation still finishing, so it had no result to work from even though the
+    site had already published. The log is a snapshot of what one runner saw;
+    the store is the record. That is exactly why the separate reader exists.
 - **Run 90 FAILED (2026-08-30), and I could not tell you why — which is the part
   that is now fixed.** The build died with one line:
 
