@@ -237,11 +237,30 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   const gen = buildPathFn("generateSitePages");
   const genFwd = [...gen.body.matchAll(/\bcall\(\w+,\s*\w+,\s*(\w+)\)|callBuilderModel\(\w+,\s*\w+,\s*(\w+)\)/g)]
     .map((m) => m[1] || m[2]);
-  const fwd = [...CODE.matchAll(/callBuilderModel\(\w+,\s*\w+,\s*(\w+)\)/g)].map((m) => m[1]).concat(genFwd);
+  // THE SMALL-CALL SENDER IS NOT A BUILD CALL AND MUST NOT INHERIT A BUILD'S
+  // BUDGET (2026-08-31). `quickSend` routes the classifiers and the cheap rungs
+  // through the same function, so this scan started catching it and reporting
+  // that a builder call had stopped forwarding the build's budget — about a call
+  // that has no build to belong to. It carries `quickBudget`, a 20-second
+  // ceiling, because these are the calls a customer waits on in a chatbox while
+  // `BUILDER_CALL_MS` is ten minutes. Excluded BY NAME, and asserted below, so
+  // the exemption is a stated one rather than a hole in the pattern.
+  const fwd = [...CODE.matchAll(/callBuilderModel\(\w+,\s*\w+,\s*(\w+)\)/g)]
+    .map((m) => m[1]).filter((n) => n !== "quickBudget").concat(genFwd);
   assert.ok(fwd.length >= 2, `expected both builder calls to forward a budget; found ${fwd.length}`);
   for (const name of fwd) {
     assert.equal(name, "budget", `a builder call forwards \`${name}\` rather than the build's budget`);
   }
+
+  // AND THE EXEMPTION IS REAL RATHER THAN A WAY PAST THE LOOP. `quickBudget`
+  // has to exist, has to be shorter than a build's, and has to be what the
+  // small-call sender passes — otherwise "excluded by name" is just a hole.
+  assert.match(CODE, /const quickSend = \(env\) => \(req\) => callBuilderModel\(env, req, quickBudget\)/,
+    "the small-call sender no longer carries its own ceiling — it would inherit the ten-minute build budget");
+  const cap = CODE.match(/const QUICK_CALL_MS = (\d+);/);
+  assert.ok(cap, "the small-call ceiling is gone");
+  assert.ok(Number(cap[1]) < 60000,
+    "the small-call ceiling is " + cap[1] + "ms — these are calls a customer waits on in a chatbox");
 
   // AND THE WORKER'S HOP INTO THE MODULE, WHICH IS POSITIONAL AND MOVED.
   //

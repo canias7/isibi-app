@@ -614,9 +614,18 @@ test("THE REPAIR PASS HAS A MODEL CALL BEHIND IT", () => {
   const end = bare.indexOf("useCredits:", at);
   assert.ok(end > at, "the deps object no longer ends at useCredits — re-anchor this window");
   const deps = bare.slice(at, end);
-  assert.match(deps, /\n\s*repair:\s*\(/,
+  // ANYTHING ASSIGNED, not an arrow specifically. This matched `repair: (` and
+  // went red when the dep became a named sender (`quickSend(env)`) — a correct
+  // change reported as the repair pass being inert. The property is that the dep
+  // is THERE; what shape it takes is not this guard's business.
+  assert.match(deps, /\n\s*repair:\s*\S/,
     "publishPages is called with no `repair` dep — the repair pass is inert on every build");
-  assert.match(deps, /repair:[^\n]*anthropicMessages\(/,
+  // A SENDER, NOT A PROVIDER BY NAME. This required `anthropicMessages(` and so
+  // went red when the small calls started routing on the model — `quickSend`
+  // reaches a model too, and reaches whichever one the picker chose, which is
+  // strictly more than this was asking for. What must stay true is that the dep
+  // is wired to something that CALLS, rather than to a stub that refuses.
+  assert.match(deps, /repair:[^\n]*(?:anthropicMessages|quickSend|callBuilderModel)\(/,
     "the repair dep no longer reaches a model — it can only ever refuse");
 });
 

@@ -135,7 +135,7 @@ async function edit(slug, instruction, { store = null, layer = "look" } = {}) {
     headers: { "content-type": "application/json", Authorization: TOKEN },
     body: JSON.stringify({ layer, page: "", remove: false, rename: "", tab: false, instruction, picker: "sonnet" }),
   });
-  const res = await worker.fetch(req, { SITES_BUCKET: store || bucket(slug), ANTHROPIC_API_KEY: "test-key" }, makeCtx());
+  const res = await worker.fetch(req, { SITES_BUCKET: store || bucket(slug), ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key" }, makeCtx());
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 

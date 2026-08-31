@@ -5334,6 +5334,28 @@ const SITE_SCHEMA_MAX_TOKENS = 16000;
  */
 const callBuilderModel = (env, req, budget = null) => callModel(keysFrom(env), req, budget);
 
+// ── THE SMALL CALLS GO TO WHICHEVER PROVIDER THE MODEL BELONGS TO ───────────
+//
+// `anthropicMessages` posts to api.anthropic.com unconditionally, so threading
+// the picked model through every classifier and rung (run 94) changed the model
+// NAME on the wire and not the address it was sent to: `model: "grok-4.6"` went
+// to Anthropic, which answered with the same billing refusal as before and made
+// the fix look like it had done nothing. The wiring trap, on the one hop that
+// mattered — the value was computed, forwarded, and delivered to the wrong door.
+//
+// `callBuilderModel` already routes on `isXaiModel(req.model)` and translates
+// the request, the response AND the error envelope, so `upstreamKind` reads a
+// Grok failure exactly as it reads an Anthropic one.
+//
+// THE 20-SECOND CEILING IS KEPT DELIBERATELY. `BUILDER_CALL_MS` is ten minutes,
+// sized for a build; these are the calls a customer waits on in a chatbox, and
+// `anthropicMessages` held them to 20s. Passed as a budget-shaped object because
+// that is the knob `callBuilderModel` already has.
+const QUICK_CALL_MS = 20000;
+const quickBudget = { capMs: () => QUICK_CALL_MS };
+const quickSend = (env) => (req) => callBuilderModel(env, req, quickBudget);
+
+
 /**
  * Did this throw come from the bound above rather than from the provider?
  *
@@ -10198,7 +10220,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     // `recompileAndPublish`, which never calls `publishPages` at all, and a
     // repair there would be re-checking pages the customer just changed by hand
     // against a report about the build before it.
-    repair: (req) => anthropicMessages(env, req),
+    repair: quickSend(env),
     publish: async (dist, pages, worker) => {
       // THE SITE'S EXTRA LANGUAGE PREFIXES, for the sitemap and the route
       // manifest — and RECOMPUTED here rather than reached for, because
@@ -11865,7 +11887,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
           const knownTables = new Set(((editState && editState.tables) || []).map((n) => String(n).toLowerCase()));
           if (designed) {
             const top = await topUpSeed(
-              { send: (req) => anthropicMessages(env, req) },
+              { send: quickSend(env) },
               {
                 model: modelsFor(body && body.picker).quick,
                 brief: briefWithLinks,
@@ -16883,7 +16905,7 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: true, intent: "build", cost: 0 });
       }
       const routed = await routeMessage(
-        { send: (req) => anthropicMessages(env, req) },
+        { send: quickSend(env) },
         {
           message: rb.message,
           site: rb.site,
@@ -17797,17 +17819,21 @@ async function handleRequest(request, env, ctx) {
             // in the wrong half passes. The overlapping-window trap, and the
             // version that bites is always the one you add yourself — this is
             // the SECOND time in one session it has been added back here.
+            // ONE NAME FOR THE PICKED SMALL-CALL MODEL. Ten call sites in this
+            // block resolve it; ten copies of `modelsFor(eb && eb.picker).quick`
+            // is ten things that can disagree about which picker they read.
+            const eQuickModel = modelsFor(eb && eb.picker).quick;
             const eLooking = eLayer === "look";
             if (eLooking) {
               const picked = await pickLanes(
-                { send: (req) => anthropicMessages(env, req) },
+                { send: quickSend(env) },
                 {
                   message: eInstruction,
                   // WHAT THE SITE IS, IN ONE LINE. Deliberately thin — this is
                   // the small call, and handing it the state an ACTING lane
                   // needs would make it the expensive one twice over.
                   current: siteDigest({ pages: eSrc.map((p) => routeOf(p.path)) }),
-                  model: modelsFor(eb && eb.picker).quick,
+                  model: eQuickModel,
                 },
               );
               pickUsage = picked.usage;
@@ -17947,7 +17973,7 @@ async function handleRequest(request, env, ctx) {
               }
 
               const dOut = await runDataEdit({
-                send: (req) => anthropicMessages(env, req),
+                send: quickSend(env),
                 // ONE STATEMENT PER CHANGE, parameterised, with the table name
                 // taken from the DECLARED schema rather than from the model —
                 // it is the only part that cannot be a bound parameter.
@@ -17981,7 +18007,7 @@ async function handleRequest(request, env, ctx) {
                 // answer is the `{ order, dir }` argument to `useRows`. Read on
                 // the request the lane already pays for, so asking costs
                 // nothing on a build that never mentions the order.
-              }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null, pages: eSrc, model: modelsFor(eb && eb.picker).quick });
+              }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null, pages: eSrc, model: eQuickModel });
 
               if (!dOut.ok) {
                 // A model that read the rows and matched none does NOT escalate:
@@ -18084,14 +18110,14 @@ async function handleRequest(request, env, ctx) {
               // Nothing here reads a ROW, so no customer's data is shown to a
               // model: the digest is names, columns, types and rules.
               const rOut = await runRulesEdit({
-                send: (req) => anthropicMessages(env, req),
+                send: quickSend(env),
                 // ONE APPLY FOR THE MERGED SPEC. `applySiteSchema` re-emits
                 // every table's REVOKEs, grants and policies in order, which is
                 // what makes a pair change and a `retired` take effect on a
                 // table that already exists — and it persists `_meta` itself, so
                 // there is no second write that could disagree with the DDL.
                 apply: async (spec) => { await applySiteSchema(rdb, normalizeSchema(spec)); return true; },
-              }, { instruction: eInstruction, tables: rSpec.tables, model: modelsFor(eb && eb.picker).quick });
+              }, { instruction: eInstruction, tables: rSpec.tables, model: eQuickModel });
 
               if (!rOut.ok) {
                 if (!rOut.escalate) {
@@ -18132,14 +18158,18 @@ async function handleRequest(request, env, ctx) {
               // platform where the bias inverts, after the `pages` verb.
               let rq;
               try {
-                rq = await anthropicMessages(env, renameRequest({
-                  message: eInstruction, current, model: LANE_MODEL,
+                // THE PICKED MODEL AND THE MATCHING PROVIDER — this sent
+                // `LANE_MODEL` (now the picker table's DEFAULT, not the
+                // customer's) to a hardcoded Anthropic endpoint, so a Sonnet
+                // customer's rename was both priced and addressed wrong.
+                rq = await quickSend(env)(renameRequest({
+                  message: eInstruction, current, model: eQuickModel,
                 }));
               } catch (e) {
                 return modelDown(e, "The editor is busy — try again in a moment.");
               }
               const wanted = readRename(rq);
-              const rUsage = laneUsage(rq, LANE_MODEL);
+              const rUsage = laneUsage(rq, eQuickModel);
               if (!wanted) {
                 return Response.json({
                   ok: false, layer: "rename", cost: await eCharge(rUsage),
@@ -18252,8 +18282,8 @@ async function handleRequest(request, env, ctx) {
               // by name, which is the rule that stops it rewriting a route id.
               const navRoutes = [...new Set(eSrc.map((p) => routeOf(p.path)).filter(Boolean))];
               const nOut = await runNavEdit({
-                send: (req) => anthropicMessages(env, req),
-              }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: modelsFor(eb && eb.picker).quick });
+                send: quickSend(env),
+              }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel });
 
               if (!nOut.ok) {
                 if (!nOut.escalate) {
@@ -18337,7 +18367,7 @@ async function handleRequest(request, env, ctx) {
               // must buy the two; nothing implemented it.
               let balance = await readCredits(eAuth).catch(() => 0);
               const pOut = await runPictureEdit({
-                send: (req) => anthropicMessages(env, req),
+                send: quickSend(env),
                 // The owner's upload library, named the way they see it.
                 library: async () => (await siteUploadList(env, ownerSlug))
                   .map((o) => ({ name: uploadFileName(o.key), url: uploadUrl(ownerSlug, uploadFileName(o.key)) }))
@@ -18355,7 +18385,7 @@ async function handleRequest(request, env, ctx) {
                   if (made) balance -= SITE_PHOTO_USD / CREDIT_USD;
                   return made;
                 },
-              }, { instruction: eInstruction, pages: eSrc, model: modelsFor(eb && eb.picker).quick });
+              }, { instruction: eInstruction, pages: eSrc, model: eQuickModel });
 
               if (!pOut.ok) {
                 if (!pOut.escalate) {
@@ -18497,8 +18527,8 @@ async function handleRequest(request, env, ctx) {
               });
             }
             if (eLayer === "text") {
-              const out = await runTextEdit({ send: (req) => anthropicMessages(env, req) },
-                { instruction: eInstruction, pages: eSrc, model: modelsFor(eb && eb.picker).quick });
+              const out = await runTextEdit({ send: quickSend(env) },
+                { instruction: eInstruction, pages: eSrc, model: eQuickModel });
               // `escalate` false with `ok` false is the one case that is NOT a
               // rung problem: the stored source moved under us, and the lane
               // above would be working from the same copy. Retrying fixes it.
@@ -18700,7 +18730,7 @@ async function handleRequest(request, env, ctx) {
                 const answers = {};
                 for (const field of pickedFields) {
                   const ran = await runLane(
-                    { send: (req) => anthropicMessages(env, req) },
+                    { send: quickSend(env) },
                     {
                       field,
                       message: eInstruction,
@@ -19113,8 +19143,8 @@ async function handleRequest(request, env, ctx) {
               // a deliberate rewording was caught on 329 of 329.
               const tw = await runTweak({
                 instruction: eInstruction, path: target.path, source: target.source,
-                model: modelsFor(eb && eb.picker).quick,
-                send: (req) => anthropicMessages(env, req),
+                model: eQuickModel,
+                send: quickSend(env),
               });
               if (tw.ok) {
                 const twPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: tw.source } : p));
@@ -19554,7 +19584,7 @@ async function handleRequest(request, env, ctx) {
               // on rows that are immediately discarded.
               let aSeed = aDesigned.seed;
               const aTop = await topUpSeed(
-                { send: (req) => anthropicMessages(env, req) },
+                { send: quickSend(env) },
                 { brief: aInstruction, spec: { ...aDesigned, tables: (aDesigned.tables || []).filter((t) => t && folded.added.includes(t.name)) }, seed: aSeed,
                   model: modelsFor(ab && ab.picker).quick },
               );

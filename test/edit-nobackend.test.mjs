@@ -145,19 +145,33 @@ async function withModel(run, { hasDb = false, owned = true } = {}) {
       return new Response(JSON.stringify(owned ? [{ uid: USER.id, brief: "", ...(hasDb ? { neon_db: "sitedb" } : {}) }] : []),
         { status: 200, headers: { "content-type": "application/json" } });
     }
-    if (url.includes("/v1/messages")) {
-      // WHICH TOOL WAS ASKED FOR, read off the request rather than assumed.
+    // BOTH PROVIDERS, SINCE 2026-08-31. The small calls route on the model now
+    // (`callBuilderModel`) and the default picker is Grok, so a stub that
+    // answered only Anthropic's endpoint made every lane fail at the send and
+    // look broken — which is exactly what it did when the change landed. The
+    // shapes differ, so each endpoint is answered in its OWN shape rather than
+    // one being pushed through the other.
+    const anthropic = url.includes("/v1/messages");
+    const xai = url.includes("/v1/chat/completions");
+    if (anthropic || xai) {
+      // WHICH TOOL WAS ASKED FOR, read off the request rather than assumed —
+      // and the two providers spell that differently.
       const asked = (() => {
-        try { return JSON.parse(String(init && init.body) || "{}").tool_choice?.name || ""; } catch { return ""; }
+        try {
+          const b = JSON.parse(String(init && init.body) || "{}");
+          return b.tool_choice?.name || b.tool_choice?.function?.name || "";
+        } catch { return ""; }
       })();
       const input = asked === "pick_lanes"
         ? { fields: ["css"] }
         : { css: "footer{background-color:#0b3d2e}" };
-      return new Response(JSON.stringify({
-        stop_reason: "tool_use",
-        content: [{ type: "tool_use", name: asked || "edit_site", input }],
-        usage: { input_tokens: 10, output_tokens: 5 },
-      }), { status: 200, headers: { "content-type": "application/json" } });
+      const body = anthropic
+        ? { stop_reason: "tool_use",
+            content: [{ type: "tool_use", name: asked || "edit_site", input }],
+            usage: { input_tokens: 10, output_tokens: 5 } }
+        : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked || "edit_site", arguments: JSON.stringify(input) } }] }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 10, completion_tokens: 5 } };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
     }
     return new Response("unavailable", { status: 503 });
   };
@@ -179,6 +193,7 @@ async function edit(slug, layer, instruction, { store = null, picker = "" } = {}
     // SET, because an absent key escalates as `unconfigured` BEFORE the gate —
     // which would make this test pass while proving nothing about it.
     ANTHROPIC_API_KEY: "test-key-not-used",
+    XAI_API_KEY: "test-key-not-used",
   }, makeCtx());
   const body = await res.json().catch(() => null);
   return { status: res.status, body };
@@ -267,10 +282,27 @@ test("the proof is not vacuous: the same lane still refuses a site with no store
   // a PHOTOGRAPH on a site with no stored look used to be refused `no-look` by
   // a lane that was never going to handle it. It is now dispatched to the
   // `picture` layer, which does not need a look at all.
-  await withModel(async () => {
+  await withModel(async (seen) => {
     const bare = bucket("paperless-bare");
     bare.store.set(CONFIG_KEY("paperless-bare"), JSON.stringify({}));
     const { body } = await edit("paperless-bare", "look", "make the footer dark green", { store: bare });
+    // ── THE SEND GOES TO THE PROVIDER THE MODEL BELONGS TO (2026-08-31) ──────
+    //
+    // THE BUG THIS CATCHES COST RUN 94, and it is the wiring trap in its purest
+    // form. Every classifier and rung was moved onto the picked model — and the
+    // sender was still `anthropicMessages`, which posts to api.anthropic.com
+    // unconditionally. So `model: "grok-4.6"` was addressed to Anthropic, which
+    // answered the same billing refusal as before and made a correct fix look
+    // like it had done nothing. The model name moved; the door did not.
+    //
+    // Asserted on the URLs the stub actually saw, because that is the one place
+    // the mistake is visible: every static read of the code looked right.
+    const model = seen.filter((u) => u.includes("/v1/messages") || u.includes("/v1/chat/completions"));
+    assert.ok(model.length > 0, "no model call was made at all — this assertion is watching nothing");
+    for (const u of model) {
+      assert.ok(u.includes("/v1/chat/completions"),
+        "a small call on the default (Grok) picker went to " + u + " — the model routes by provider, the sender did not");
+    }
     assert.ok(body, "the lane answered nothing at all");
     assert.equal(body.reason, "no-look",
       "a site with no look and no stylesheet was not refused — the lane answers the same thing to everything: "
