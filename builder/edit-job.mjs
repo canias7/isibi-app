@@ -240,6 +240,89 @@ export function newLeaseOwner(rnd = Math.random) {
 }
 
 /**
+ * Read one queue message, and REFUSE anything that is not ours.
+ *
+ * THE REFUSAL IS THE POINT. Three kinds share this queue and each has its own
+ * handler; a reader that guessed would put an edit through the BUILD path, which
+ * replays the request as a build — a second design call and a second charge on a
+ * job that has already been billed. `readMessage` in `build-job.mjs` refuses
+ * everything but `site-build` for exactly this reason, and this is its mirror.
+ */
+export function readEditMessage(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  if (body.kind !== EDIT_JOB_KIND) return null;
+  // A NON-STRING ID IS REFUSED, NOT COERCED. `String(["abc"])` is `"abc"`.
+  if (typeof body.id !== "string" || !/^[0-9a-f]{32}$/.test(body.id)) return null;
+  return { kind: EDIT_JOB_KIND, id: body.id };
+}
+
+/**
+ * The header that tells the front door this request IS the replay.
+ *
+ * WITHOUT IT THE CONSUMER WOULD ENQUEUE ITSELF for ever — the replayed request
+ * hits the same route, sees the flag on, and files another job. The marker is
+ * the base case.
+ */
+export const REPLAY_HEADER = "x-gf-job";
+
+/**
+ * Rebuild the customer's request for the consumer to run.
+ *
+ * ONLY THREE HEADERS, and copying more would be a bug rather than a kindness:
+ * `content-length` would describe a body that has been through JSON, and any
+ * conditional or caching header would apply to a request nobody is waiting on.
+ * The build path's `replayRequest` makes the same choice for the same reason;
+ * this one exists because the marker header is ours and builds must not carry it.
+ */
+export function replayEditRequest({ url, auth, body, job }) {
+  const headers = { "content-type": "application/json" };
+  if (auth) headers.authorization = auth;
+  if (job) headers[REPLAY_HEADER] = String(job);
+  return new Request(String(url || ""), { method: "POST", headers, body: String(body || "") });
+}
+
+/**
+ * How long each phase actually took, from a trace's events.
+ *
+ * ── WHY THIS EXISTS (owner, 2026-09-01) ───────────────────────────────────
+ *
+ * "Do not treat observed minimums as the permanent admission threshold…
+ * persist real durations from every async edit, then derive the correction
+ * requirement from measured p90/p95."
+ *
+ * The trace already records a `start` and an outcome for every phase, but the
+ * numbers on them are ELAPSED-SINCE-JOB-START, not durations — so a percentile
+ * query over the raw events would be computing percentiles of "how late in the
+ * job this happened", which is a different quantity that happens to look
+ * plausible. Subtracting here, once, is what makes the stored numbers mean what
+ * a later query will assume they mean.
+ *
+ * A phase that started and never finished contributes NOTHING rather than a
+ * zero: it is the one that was running when the job died, and folding it in as
+ * 0ms would drag every percentile down at exactly the moment the data is about
+ * a job that ran too long.
+ */
+export function phaseDurations(events) {
+  if (!Array.isArray(events)) return {};
+  const open = new Map();
+  const out = {};
+  for (const e of events) {
+    if (!e || typeof e.p !== "string") continue;
+    const at = Number(e.ms);
+    if (!Number.isFinite(at)) continue;
+    if (e.s === "start") { open.set(e.p, at); continue; }
+    if (e.s !== "ok" && e.s !== "fail") continue;
+    if (!open.has(e.p)) continue;
+    // LAST WINS for a phase that ran twice under one name. Nothing does today
+    // (the two publishes are `publish:1` and `publish:2`), and a silent sum
+    // would be a number no percentile could be read from.
+    out[e.p] = Math.max(0, at - open.get(e.p));
+    open.delete(e.p);
+  }
+  return out;
+}
+
+/**
  * Is the async edit path on?
  *
  * OPTIONAL, AND OFF IS THE DEFAULT INCLUDING WHEN THE VALUE IS NONSENSE. An

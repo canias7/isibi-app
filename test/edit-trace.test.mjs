@@ -270,8 +270,24 @@ test("a null trace is exactly what a non-edit route has", () => {
   const routeAfter = src.indexOf("editTrace = newTrace(", decl);
   assert.ok(tryAfter > decl && tryAfter < routeAfter,
     "the trace is no longer declared outside the try that encloses the route, so the catch cannot see it");
-  assert.match(src, /if \(editTrace\) flushEditTrace\(/,
-    "the catch flushes unconditionally — a non-edit route would write an empty row");
+  // GUARDED, NOT ADJACENT (re-anchored 2026-09-01). This pinned
+  // `if (editTrace) flushEditTrace(` as one string and went red when the branch
+  // grew a body — capturing the events for the durations write before letting
+  // the trace go. The flush had not moved and the guard was still there; the
+  // spelling between them had. Second time on this assertion, which is the tell.
+  //
+  // What must hold is that the flush is REACHED ONLY WHEN A TRACE EXISTS, so a
+  // route that is not an edit writes no empty row. Whatever else the branch does
+  // is free to change.
+  // CALL SITES ONLY. The first draft of this scan matched the DECLARATION too
+  // — `function flushEditTrace(env, ...)` — which has no guard in front of it
+  // and never could, so the guard flagged the function's own definition.
+  const calls = [...src.matchAll(/(?<!function )flushEditTrace\(env/g)].map((m) => m.index);
+  assert.ok(calls.length >= 2, `only ${calls.length} flush call sites — the catch and the finally are both needed`);
+  for (const at of calls) {
+    assert.match(src.slice(Math.max(0, at - 200), at), /if \(editTrace\)/,
+      "a flush is reached without checking that a trace exists — a non-edit route would write an empty row");
+  }
 });
 
 test("the trace is flushed on EVERY exit, not only the throwing one", () => {
@@ -284,11 +300,11 @@ test("the trace is flushed on EVERY exit, not only the throwing one", () => {
   // path while the work has many. This route has dozens of returns, and
   // enumerating them is what guarantees the next one is missed.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const i = src.indexOf("if (editTrace) flushEditTrace(");
+  const i = src.indexOf("flushEditTrace(env");
   assert.ok(i > 0, "nothing flushes the trace");
   // A `finally` ON THE TRY THAT ENCLOSES THE EDIT ROUTE — the only construct
   // that covers every return by construction rather than by enumeration.
-  assert.match(src, /\} finally \{[\s\S]{0,2000}?if \(editTrace\) flushEditTrace\(/,
+  assert.match(src, /\} finally \{[\s\S]{0,2000}?if \(editTrace\) \{?[\s\S]{0,200}?flushEditTrace\(/,
     "the trace is not flushed in a finally, so a normal return writes nothing");
   // AND EXACTLY ONCE: the catch clears the trace after flushing, or a throwing
   // request writes its row twice and the second overwrites the first.

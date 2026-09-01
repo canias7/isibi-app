@@ -34,6 +34,11 @@ import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "./builder/build-budget.mjs";
 import { JOB_KIND, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
+import {
+  EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
+  PUBLISH_LEASE_S, REPLAY_HEADER, makeEditBudget, cleanIdemKey, newLeaseOwner,
+  editAsyncOn, replayEditRequest, phaseDurations, readEditMessage, isTerminalEdit,
+} from "./builder/edit-job.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
@@ -2428,6 +2433,10 @@ export default {
     // written by an operator sweep, never by the platform itself, so on an
     // ordinary tick this is one Supabase read that comes back empty.
     ctx.waitUntil(runSiteRebuild(env));
+    // Close out async edits whose consumer died. INERT UNTIL THE FLAG IS ON —
+    // with no jobs the RPC is one Supabase call that comes back empty, the same
+    // posture `runSiteRebuild` above has.
+    ctx.waitUntil(runLostEditJobs(env));
   },
   // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
   //
@@ -2463,7 +2472,15 @@ export default {
         // from nothing, charging a second design.
         const msg = readMessage(message && message.body);
         const resume = readResumeMessage(message && message.body);
-        if (msg) {
+        // AN EDIT IS ITS OWN KIND, dispatched explicitly like the other two. It
+        // shares the queue because the queue is the thing that gives fifteen
+        // guaranteed minutes off the customer's connection — and NOT the build
+        // path, which it must never fall into: `runQueuedSiteBuild` would replay
+        // an edit's request as a build.
+        const edit = readEditMessage(message && message.body);
+        if (edit) {
+          await runQueuedSiteEdit(env, ctx, edit.id);
+        } else if (msg) {
           await runQueuedSiteBuild(env, ctx, msg.id);
         } else if (resume) {
           await runResumedSiteBuild(env, ctx, resume.id);
@@ -5402,7 +5419,19 @@ const callBuilderModel = (env, req, budget = null) => callModel(keysFrom(env), r
 // instead of a third number.
 const QUICK_CALL_MS = 240000;
 const quickBudget = { capMs: () => QUICK_CALL_MS };
-const quickSend = (env, what = "") => (req) => callBuilderModel(env, req, quickBudget).catch((e) => {
+// `budget` IS OPTIONAL AND THE DEFAULT IS THE FLAT CEILING, so every existing
+// caller is unchanged. A queued edit passes its own clock, which composes the
+// two: a lane call started at minute eleven of a thirteen-minute job gets what
+// is left less the publish reserve, not another four minutes.
+const quickSend = (env, what = "", budget = null) => (req) => callBuilderModel(env, req,
+  // WHICHEVER IS SOONER, AND THE 240s CEILING SURVIVES THE COMPOSITION. A bare
+  // job budget here would be asked `capMs(BUILDER_CALL_MS)` — ten minutes, the
+  // default `callBuilderModel` passes — and a lane call would quietly be allowed
+  // four times what the synchronous path gives it. Clamping to QUICK_CALL_MS
+  // first keeps the per-call ceiling exactly what it was and lets the job's
+  // remaining time only ever make it SMALLER.
+  budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_CALL_MS, QUICK_CALL_MS)) } : quickBudget
+).catch((e) => {
   // WHICH CALL RAN OUT, named on the error itself. Run 99's log said a call had
   // exceeded our ceiling and could not say whether it was the lane picker or the
   // lane — two calls, one sentence, and the next move different for each. The
@@ -6510,6 +6539,111 @@ function flushEditTrace(env, ctx, trace, outcome) {
     const p = writeEditTrace(env, row);
     if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p);
   } catch (e) { console.error("edit trace flush failed:", e && e.name); }
+}
+
+// ── THE ASYNC EDIT PATH'S ONE DOOR INTO POSTGRES ───────────────────────────
+//
+// Every state, lease and money transition for a queued edit goes through one of
+// the `edit_*` RPCs, and every one of them is a single plpgsql body — therefore
+// a single transaction. That is the whole reason they exist: a conditional row
+// update followed by a separate ledger call is not atomic, and the Worker can
+// die between them.
+//
+// SERVICE ROLE AND THE MINT KEY, BOTH. The functions are revoked from `anon` and
+// `authenticated`, so the service key is what reaches them at all; the mint key
+// is the second factor, and it is the same one `add_credits` and
+// `use_credits_for` already take. The consumer replays the CUSTOMER'S token for
+// the edit itself and uses this for the bookkeeping, because the cron that
+// refunds a lost job hours later has no customer token and a queued job can
+// outlive one.
+//
+// IT NEVER THROWS. A billing RPC that throws inside a queue consumer is a
+// message the runtime may redeliver, and a redelivered edit is a second charge.
+// Every caller therefore reads `ok` and decides; a transport failure and a
+// refusal are distinguishable, which is what `error: "rpc"` is for.
+async function editRpc(env, fn, args) {
+  if (!env.SUPABASE_SERVICE_KEY || !env.CREDITS_MINT_SECRET) {
+    return { ok: false, error: "no-service-key" };
+  }
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+      method: "POST",
+      headers: svcHeaders(env, { "content-type": "application/json" }),
+      body: JSON.stringify({ ...args, p_mint: env.CREDITS_MINT_SECRET }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!r.ok) {
+      // THE STATUS, NEVER THE BODY. A PostgREST error quotes the request that
+      // produced it, and this request carries the mint key.
+      console.error("edit rpc refused:", fn, r.status);
+      return { ok: false, error: "rpc", status: r.status };
+    }
+    const out = await r.json().catch(() => null);
+    return (out && typeof out === "object" && !Array.isArray(out)) ? out : { ok: false, error: "rpc-shape" };
+  } catch (e) {
+    console.error("edit rpc failed:", fn, String((e && e.name) || e));
+    return { ok: false, error: "rpc", kind: String((e && e.name) || "Error") };
+  }
+}
+
+/**
+ * Everything a replayed edit needs to know about being a job.
+ *
+ * ── THE THREE CLOCKS, AND WHY THEY ARE THREE ──────────────────────────────
+ *
+ * `budget`   the hard whole-edit deadline, fixed at claim, EXTENDED BY NOTHING.
+ * `beat()`   the lease, renewed on a timer, which says who may act.
+ * capMs      the per-call ceiling, derived from what the budget has left.
+ *
+ * They are deliberately not one thing. Cloudflare stops the consumer at fifteen
+ * minutes and is not listening to any of them, so a lease renewal must never be
+ * able to look like more execution time — `makeEditBudget` closes over its start
+ * and exposes no setter, and this object never touches it.
+ *
+ * `null` FOR A SYNCHRONOUS EDIT, and every use of it is optional-chained. With
+ * the flag off nothing here runs and the route behaves exactly as it did.
+ */
+function makeJobCtx(env, { id, owner, budget, trace }) {
+  let cancelled = false;
+  let beats = 0;
+  return {
+    id, owner, budget, trace,
+    /** Has the customer asked to stop? Answered by the last heartbeat. */
+    cancelled: () => cancelled,
+    beats: () => beats,
+    /**
+     * Renew the lease and pick up a cancel, in one round trip.
+     *
+     * The consumer is already talking to Postgres on a timer; a separate cancel
+     * poll would be a second trip asking a question this answer contains.
+     */
+    async beat(phase) {
+      const r = await editRpc(env, "edit_beat", {
+        p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S, p_phase: phase || null,
+      });
+      beats++;
+      // A TRANSPORT FAILURE IS NOT A CANCEL. Reading one as a cancel would stop
+      // a healthy edit because Supabase blinked; the lease expiring is what
+      // handles a consumer that has genuinely lost touch, and that is decided
+      // on the other side.
+      if (r && r.ok === true && r.cancel === true) cancelled = true;
+      return r;
+    },
+    /**
+     * May the next phase begin?
+     *
+     * ── RECHECKED AT EVERY BOUNDARY (owner's constraint) ─────────────────
+     *
+     * Three ways to be told no, and they are not interchangeable — each ends the
+     * job differently, so collapsing them into a boolean would lose the reason a
+     * customer is about to be given.
+     */
+    gate(phase) {
+      if (cancelled) return { go: false, why: "cancelled" };
+      if (budget && budget.expired()) return { go: false, why: "budget" };
+      return { go: true, phase };
+    },
+  };
 }
 
 async function writeBuildRecord(env, row) {
@@ -9393,7 +9527,7 @@ const publishSpine = (...a) => recompileAndPublish(...a);
  *   every mark a no-op, so every existing caller is unchanged — which is what
  *   keeps this instrumentation and not a behaviour change.
  */
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null }) {
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
@@ -9726,7 +9860,17 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
         // A FLAT CEILING RATHER THAN A BUDGET, because this path has none: it is
         // reached from seven edit lanes and the rebuild drain, none of which
         // starts a build clock. Ten minutes is a bound where there was none.
-        signal: AbortSignal.timeout(CONTAINER_CALL_MS),
+        // CAPPED AGAINST WHAT THE JOB HAS LEFT, not a flat ten minutes. This
+        // spine read `CONTAINER_CALL_MS` flat because the ~273s reset always
+        // arrived first, so the ceiling was never reachable and nothing behind
+        // it composed. Moving the work onto the queue is what makes it
+        // reachable — and a fresh ten minutes started at minute eleven of a
+        // thirteen-minute job would blow the consumer's own ceiling.
+        //
+        // `capMs` reserves the publish window as well, so the container can
+        // never eat the time the publish itself needs. Null job, flat ceiling:
+        // the synchronous path is unchanged.
+        signal: AbortSignal.timeout(job && job.budget ? job.budget.capMs(CONTAINER_CALL_MS) : CONTAINER_CALL_MS),
       }));
       // ACCEPTED — a response object exists, so the container was reached and
       // answered a status. Distinct from "returned", below, which needs the
@@ -9801,6 +9945,30 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // keeps only the error's class. `archiveVersion` alone has a try. These
   // marks are the difference between "it threw somewhere inside 164 seconds"
   // and a named operation.
+  // ── THE LAST CHECK BEFORE ANYTHING IS WRITTEN (async path) ────────────────
+  //
+  // One conditional UPDATE decides whether this consumer may publish at all: it
+  // must still hold the lease, the job must not be cancelled, terminal or under
+  // review, and it must be billed. A consumer whose lease was stolen loses here
+  // and stops with the live site untouched.
+  //
+  // IT EXTENDS THE LEASE AND THAT IS NOT EXTRA EXECUTION TIME. The lease says
+  // WHO may act; the budget says how long this isolate may run, is shorter, and
+  // is enforced separately — Cloudflare stops the consumer at fifteen minutes
+  // whatever any lease says. The extension exists so the sweep, which needs
+  // expiry plus a minute of grace, cannot steal a job that is mid-publish.
+  //
+  // AND IT MARKS `publish_started_at`, which is what makes everything after this
+  // point un-refundable-by-default: from here the site Worker upload may or may
+  // not have landed, and nobody outside can tell.
+  if (job) {
+    const may = await editRpc(env, "edit_may_publish", { p_id: job.id, p_owner: job.owner, p_ttl: PUBLISH_LEASE_S });
+    if (!may || may.granted !== true) {
+      tm("publish:gate", "fail", { why: String((may && may.error) || "rpc") });
+      return { ok: false, error: "not-granted", detail: String((may && may.error) || "rpc") };
+    }
+    tm("publish:gate", "ok");
+  }
   tm("r2:dist", "start", { files: Object.keys(built.files || {}).length });
   const wrote = await writeSiteDistToR2(env, slug, built.files, {
     brand: (look && look.brand) || slug,
@@ -9856,9 +10024,44 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // upload on a text fix leaves the site 404ing while the customer is told the
   // typo is corrected. Same `uploaded`/`status`/`error` shape as the build
   // response, so one client branch reads both.
+  // ── DEPLOYMENT IDENTITY, RECORDED BEFORE THE COMMIT POINT ────────────────
+  //
+  // So a job that dies in the next few seconds can be reconciled by COMPARISON
+  // rather than by guessing: `artifact_build` is the id baked into the script
+  // about to be uploaded, and the live site reports it back on every response as
+  // `x-site-build`. Written before the upload, deliberately — recorded after, it
+  // would be missing on exactly the failure it exists to resolve.
+  if (job) {
+    await editRpc(env, "edit_publish_mark", {
+      p_id: job.id, p_owner: job.owner,
+      p_artifact_build: (built.worker && built.worker.build) || null,
+      p_dist_etag: null, p_sidecar_etag: null,
+      p_source_etag: String(Array.isArray(pages) ? pages.length : 0),
+      p_worker_status: null,
+    });
+  }
   tm("worker:put", "start");
   const wput = await putSiteWorker(env, slug, built.worker);
   tm("worker:put", wput && wput.uploaded === false ? "fail" : "ok", { status: (wput && wput.status) || 0 });
+  // ── THE COMMIT POINT ─────────────────────────────────────────────────────
+  //
+  // Under Start `dist/client` holds no HTML — the document is `__root.tsx`
+  // rendered per request by this script, and this script names THIS build's
+  // hashed assets. So the live site becomes the new build exactly here and
+  // nowhere else, which is why everything above is additive and safe to abandon.
+  //
+  // `published_at` IS WHAT THE TWO BILLING INTERLOCKS READ: finalize requires it
+  // set, refund requires it null. Recording it is therefore the difference
+  // between an edit that can be paid for and one that can be refunded.
+  if (job && !(wput && wput.uploaded === false)) {
+    await editRpc(env, "edit_committed", {
+      p_id: job.id, p_owner: job.owner, p_build: (built.worker && built.worker.build) || null,
+    });
+    await editRpc(env, "edit_publish_mark", {
+      p_id: job.id, p_owner: job.owner, p_artifact_build: null, p_dist_etag: null,
+      p_sidecar_etag: null, p_source_etag: null, p_worker_status: Number((wput && wput.status) || 0) || null,
+    });
+  }
   // THE RENDER REPORT REACHES THE CALLER. Every edit lane pays ~6s for the
   // check inside the container and used to throw the result away (2026-08-14
   // audit) — so a cheap edit that turned the site blank or unreadable
@@ -11202,6 +11405,253 @@ async function runQueuedSiteBuild(env, ctx, id) {
     console.error("build queue: could not write the result for job", id, String((e && e.message) || e));
   }
 }
+
+/** Where an edit job's replayable request lives. Its own prefix, not `jobs/<id>`. */
+const editJobKey = (id) => EDIT_JOB_PREFIX + String(id);
+
+/**
+ * CLOSE OUT EDITS WHOSE CONSUMER DIED.
+ *
+ * `max_retries` is 0, so nothing redelivers a message whose isolate was stopped
+ * — the job would otherwise sit `building` for ever with the customer's credits
+ * held against work that ended. This is the only thing that can notice.
+ *
+ * THE DECISION IS POSTGRES'S, NOT THIS FUNCTION'S, and that is deliberate: a
+ * job that died DURING the publish is not an ordinary loss. Its site Worker
+ * upload may or may not have landed, and nobody outside can tell — so
+ * `edit_sweep_lost` routes those to `needs_review` with the money untouched and
+ * counts them separately, while every other stale job refunds atomically. Doing
+ * that comparison here would put the rule two places.
+ *
+ * BOUNDED, and it shares a two-minute tick with five other jobs.
+ */
+/**
+ * A QUEUED EDIT THAT STOPS WITHOUT PUBLISHING.
+ *
+ * ── THE OWNER'S RULE, IN ONE PLACE ────────────────────────────────────────
+ *
+ * "If a required phase cannot safely begin: publish nothing unless the current
+ * build has already passed verification; retain the currently live site; persist
+ * the terminal phase and reason; refund atomically when appropriate."
+ *
+ * Every caller reaches here BEFORE the spine writes anything, so "retain the
+ * currently live site" is a property of where this is called from rather than
+ * something it has to undo. Nothing here touches R2.
+ *
+ * "WHEN APPROPRIATE" IS DECIDED BY POSTGRES, NOT HERE, and that is the point of
+ * routing it through `edit_refund`: it refuses a published job outright, and it
+ * routes a job that had already begun publishing to `needs_review` with the
+ * money untouched. This function cannot accidentally refund an edit that shipped
+ * because it is not the thing that decides.
+ *
+ * ONE PLACE, because this repo's own rule is that a new failure mode is
+ * classified once rather than remembered at each call site — the argument
+ * `publish-pages.mjs` makes about `settle`, and the reason run 90's page was
+ * lost across four separate failure branches.
+ */
+async function editStopped(env, { job, why, phase, trace, ctx, msg }) {
+  const r = await editRpc(env, "edit_refund", { p_id: job.id, p_state: why === "cancelled" ? "cancelled" : "failed", p_note: why + " at " + phase });
+  try { if (trace) trace.mark("stopped", "fail", { why, phase, refunded: Number((r && r.refunded) || 0) }); } catch { /* never */ }
+  const review = !!(r && r.error === "needs-review");
+  return Response.json({
+    ok: false,
+    error: why,
+    phase,
+    cost: 0,
+    refunded: Number((r && r.refunded) || 0),
+    review: review || undefined,
+    msg: msg || (why === "cancelled"
+      ? "I stopped that edit before anything was published — your site is untouched and you haven't been charged."
+      : review
+        ? "That edit stopped while it was publishing and I can't tell yet whether it went live, so I've paused " +
+          "edits on this site until that's settled."
+        : "That edit ran out of time before it could publish safely, so I've left your site exactly as it was " +
+          "and refunded what it cost."),
+  }, { status: review ? 409 : 503 });
+}
+
+async function runLostEditJobs(env) {
+  if (!env.SUPABASE_SERVICE_KEY || !env.CREDITS_MINT_SECRET) return;
+  const r = await editRpc(env, "edit_sweep_lost", { p_limit: 20, p_grace: STALE_GRACE_S });
+  // SILENT WHEN THERE IS NOTHING TO SAY. On an ordinary tick this is one call
+  // that comes back zeroed, and logging that every two minutes would bury the
+  // one line that matters.
+  if (r && r.ok === true && ((r.lost || 0) > 0 || (r.review || 0) > 0)) {
+    console.log("edit sweep:", JSON.stringify({ lost: r.lost, review: r.review, refunded: r.refunded }));
+  }
+}
+
+/**
+ * FILE AN EDIT AND WALK AWAY.
+ *
+ * The synchronous edit request is reset at ~273 seconds — measured twice, at
+ * 273.2s and 273.1s, the second an outright ECONNRESET on the inbound TLS
+ * socket. Nothing we configure is 273, so the wall is infrastructure and the
+ * work has to leave the connection.
+ *
+ * ORDER MATTERS AND IT IS ROW, THEN OBJECT, THEN MESSAGE. The row is the
+ * idempotency arbiter, so it goes first: a duplicate POST is settled by Postgres
+ * before anything else exists. The object is what the consumer replays. The
+ * message is last, because a message naming a job whose request was never stored
+ * is a consumer that can only fail.
+ *
+ * A DUPLICATE POST NEVER ENQUEUES AGAIN. It answers with the original job and
+ * its live state, which is the whole point of the client's idempotency key: a
+ * lost response followed by a retry must not become two charged edits.
+ */
+async function enqueueEditJob(env, { slug, uid, auth, url, body, idem }) {
+  if (!env.BUILD_QUEUE || !env.SITES_BUCKET) return { ok: false, error: "queue not configured" };
+  const key = cleanIdemKey(idem);
+  // REFUSED, NEVER MINTED HERE. A server-generated key makes every retry a
+  // distinct job, which is exactly the double charge the key exists to prevent.
+  if (!key) return { ok: false, error: "bad-idem" };
+  const id = newJobId((b) => crypto.getRandomValues(b));
+  const made = await editRpc(env, "edit_create", {
+    p_id: id, p_uid: uid, p_slug: slug, p_op: "edit", p_idem: key,
+  });
+  if (!made || made.ok !== true) return { ok: false, error: String((made && made.error) || "rpc"), job: made && made.job };
+  const jobId = String(made.job || id);
+  if (made.duplicate === true) return { ok: true, job: jobId, state: made.state, duplicate: true };
+  try {
+    await env.SITES_BUCKET.put(editJobKey(jobId), JSON.stringify(packJob({ url, auth, body, uid, at: Date.now() })));
+  } catch (e) {
+    console.error("edit queue: could not store the request for", jobId, String((e && e.message) || e));
+    // NOTHING HAS BEEN SPENT. The row exists with `billing: none`, so the sweep
+    // will find it unleased and close it without touching any money.
+    return { ok: false, error: "store" };
+  }
+  try {
+    await env.BUILD_QUEUE.send({ kind: EDIT_JOB_KIND, id: jobId });
+  } catch (e) {
+    console.error("edit queue: could not enqueue", jobId, String((e && e.message) || e));
+    return { ok: false, error: "enqueue" };
+  }
+  return { ok: true, job: jobId, state: "queued", duplicate: false };
+}
+
+/**
+ * RUN ONE QUEUED EDIT.
+ *
+ * ── THE CONSUMER REPLAYS THE REQUEST ──────────────────────────────────────
+ *
+ * It does not reimplement the edit; it rebuilds the customer's own POST with the
+ * marker header and runs the real handler against it. Every model call, every
+ * gate, every lane and every publish decision executes the same code in the same
+ * order as the synchronous path — which is what makes "the pipeline is
+ * unchanged" a fact about the control flow rather than a claim. The build path
+ * has done this since run 11 and it is the reason this whole approach is cheap.
+ *
+ * ── IT CANNOT THROW ───────────────────────────────────────────────────────
+ *
+ * A throw out of a queue handler is a message the runtime may redeliver, and a
+ * redelivered edit is a second set of model calls on a job that has already been
+ * charged. `max_retries` is 0 and this acks everything, but the handler is the
+ * belt as well as the braces.
+ */
+async function runQueuedSiteEdit(env, ctx, id) {
+  const owner = newLeaseOwner();
+  let beat = null;
+  try {
+    if (!env.SITES_BUCKET) { console.error("edit queue: no bucket for", id); return; }
+    // CLAIM FIRST, BEFORE READING ANYTHING. A second delivery of the same
+    // message finds nothing to claim and leaves without touching the request,
+    // the models or the money.
+    const claim = await editRpc(env, "edit_claim", { p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S });
+    if (!claim || claim.claimed !== true) {
+      console.log("edit queue: not claimed", id, String((claim && claim.error) || "rpc"));
+      return;
+    }
+    let job = null;
+    try {
+      const obj = await env.SITES_BUCKET.get(editJobKey(id));
+      // READ ONCE. A body is a stream and cannot be consumed twice; the first
+      // draft parsed it, tested a field, and parsed it again — which answers
+      // null on the second read and turns every job into "request missing".
+      if (obj) job = readJob(JSON.parse(await obj.text()));
+    } catch { job = null; }
+    if (!job) {
+      console.error("edit queue: no stored request for", id);
+      await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "request object missing" });
+      return;
+    }
+    // THE TOKEN GOES THE MOMENT IT HAS BEEN READ, exactly as the build path
+    // does: it is the customer's own bearer token and it has no reason to
+    // outlive the one read that needs it.
+    try { await env.SITES_BUCKET.delete(editJobKey(id)); } catch { /* the sweep is not this */ }
+
+    // ── THE HEARTBEAT IS A TIMER, NOT A PHASE BOUNDARY ────────────────────
+    //
+    // The container call is a single await of up to ten minutes with no
+    // boundary inside it, so a heartbeat that only fired between phases would
+    // let the lease expire during every single build — and the sweep would then
+    // steal a healthy job and refund a customer whose edit was still running.
+    //
+    // IT RENEWS THE LEASE AND NOT THE CLOCK. Cloudflare stops this isolate at
+    // fifteen minutes whatever the lease says; the budget below is what keeps
+    // the work inside that, and nothing here can move it.
+    const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(EDIT_JOB_MS) });
+    beat = setInterval(() => { jctx.beat(null).catch(() => {}); }, HEARTBEAT_S * 1000);
+
+    const req = replayEditRequest({ url: job.url, auth: job.auth, body: job.body, job: id });
+    // THE JOB CONTEXT REACHES THE HANDLER THROUGH THE REQUEST, not a global.
+    // One isolate serves many requests concurrently and a module-level "current
+    // job" would splice two customers together — the same reason `editTrace` is
+    // a local.
+    EDIT_JOBS.set(id, jctx);
+    let res;
+    try {
+      // THE NAMED HANDLER, not the default export's `fetch`. That wrapper adds
+      // browser security headers to a response nothing here sends to a browser,
+      // and re-entering the module's own entry point to reach one route is a
+      // longer way round with more that can surprise.
+      res = await handleRequest(req, env, ctx);
+    } finally {
+      EDIT_JOBS.delete(id);
+      if (beat) { clearInterval(beat); beat = null; }
+    }
+    const bodyText = await res.text().catch(() => "");
+    // ── THE OUTCOME ───────────────────────────────────────────────────────
+    //
+    // The handler has already made every money decision through the RPCs — it
+    // reserved, it may have published and finalized, it may have refunded. This
+    // only records the reply so the poll route has something to hand back, and
+    // closes anything the handler left open.
+    let payload = null;
+    try { payload = JSON.parse(bodyText); } catch { payload = null; }
+    const shipped = res.status < 400 && payload && payload.ok !== false;
+    await editRpc(env, "edit_finalize", {
+      p_id: id,
+      p_result: { status: res.status, type: res.headers.get("content-type") || "application/json", body: bodyText.slice(0, 200000) },
+    });
+    if (!shipped) {
+      // REFUND IS CONDITIONAL AT THE DATABASE, not here. It refuses a published
+      // job outright and routes a job that died mid-publish to needs_review with
+      // the money untouched, so calling it on an edit that actually shipped is
+      // safe rather than merely unlikely.
+      await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "edit did not ship" });
+    }
+    // The measured durations are written by the HANDLER, beside its trace flush
+    // — that is where the trace lives, and copying it out here would be a second
+    // opinion about what happened built from a value the handler owns.
+  } catch (e) {
+    console.error("edit queue: job failed", id, String((e && e.stack) || e));
+    try {
+      await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "consumer threw" });
+    } catch { /* an instrument may not break the thing it measures */ }
+  } finally {
+    if (beat) clearInterval(beat);
+  }
+}
+
+/**
+ * The job contexts this isolate is currently running, keyed by job id.
+ *
+ * A MAP RATHER THAN A GLOBAL, and the key is what makes it safe: one isolate
+ * serves many requests at once, so a single "current job" would attribute one
+ * customer's budget and lease to another. The replayed request carries its id in
+ * a header and looks itself up; entries are added and removed around one await.
+ */
+const EDIT_JOBS = new Map();
 
 /**
  * PICK UP A BUILD WHOSE GENERATION IS STILL RUNNING SOMEWHERE ELSE.
@@ -17379,6 +17829,80 @@ async function handleRequest(request, env, ctx) {
     // away from changing, and the day `authUser` stops requiring an id it is the
     // difference between refusing an old object and handing it to whoever asks
     // first. Same convention as `built.ok &&` and the `pressed` axis.
+    // ── POLL OR CANCEL ONE ASYNC EDIT ─────────────────────────────────────
+    //
+    // FOUR-OH-FOUR FOR A JOB THAT IS NOT YOURS, never 403 — the same posture
+    // `assertOwner` takes for a slug, and for the same reason: a 403 confirms
+    // that an id exists, which turns this into an oracle.
+    //
+    // THE BODY IS AN ALLOW-LIST ENFORCED IN POSTGRES. `edit_get` builds the
+    // object out of named columns, and `edit_jobs.error` has room for
+    // `{ kind, phase }` and nowhere to put a provider message, a stack or a
+    // `detail`. So a route that forgot to strip something has nothing to
+    // forget; the diagnostic half lives in `edit_traces`, behind the service
+    // key, where `redact()` has already run.
+    //
+    // BOTH VERBS CHECK THE SITE AS WELL AS THE JOB. A site can change hands or
+    // be deleted between the enqueue and the poll, and ownership of a job is
+    // not ownership of what it edits.
+    if (url.pathname.startsWith("/api/site/edit/")) {
+      const eu = await authUser(request);
+      if (!eu) return Response.json({ error: "sign in first" }, { status: 401 });
+      const ejid = url.pathname.slice("/api/site/edit/".length);
+      if (!isJobId(ejid)) return Response.json({ error: "not found" }, { status: 404 });
+      if (request.method !== "GET" && request.method !== "DELETE") {
+        return Response.json({ error: "method not allowed" }, { status: 405 });
+      }
+      const row = await editRpc(env, "edit_get", { p_id: ejid, p_uid: eu.id });
+      // A TRANSPORT FAILURE IS NOT A MISSING JOB, and conflating them would have
+      // a client stop polling a job that is running perfectly well.
+      if (row && row.error === "rpc") return Response.json({ ok: false, error: "could not read the job" }, { status: 503 });
+      if (!row || row.ok !== true) return Response.json({ error: "not found" }, { status: 404 });
+      const ownsSite = await siteOwnerBySlug(String(row.slug || ""), env).catch(() => null);
+      if (ownsSite && ownsSite !== eu.id) return Response.json({ error: "not found" }, { status: 404 });
+      if (request.method === "DELETE") {
+        const c = await editRpc(env, "edit_cancel", { p_id: ejid, p_uid: eu.id });
+        if (c && c.error === "too-late") {
+          // TRUE RATHER THAN RACED. The site is already published; saying "too
+          // late" is the honest answer and pretending otherwise would leave the
+          // customer expecting a rollback that is not coming.
+          return Response.json({ ok: false, job: ejid, status: c.state, error: "too-late" }, { status: 409 });
+        }
+        if (!c || c.ok !== true) return Response.json({ error: "not found" }, { status: 404 });
+        return Response.json({ ok: true, job: ejid, status: c.state, cancel: !!c.cancel });
+      }
+      // A FINISHED JOB HANDS BACK ITS STORED REPLY, byte for byte what the
+      // synchronous path would have returned. That is what keeps the client
+      // change small and the rollback honest: one object, reached two ways.
+      //
+      // EVERY TERMINAL STATE, NOT JUST `done`. A failed edit has an explanation
+      // too — which rung stopped, whether anything was refunded — and gating
+      // this on success would answer a bare `status: failed` while the sentence
+      // the handler wrote sat unread in the row.
+      const res = row.result;
+      if (isTerminalEdit(row.state) && res && typeof res.body === "string") {
+        return new Response(res.body, {
+          status: Number(res.status) || 200,
+          headers: { "content-type": String(res.type || "application/json") },
+        });
+      }
+      return Response.json({
+        ok: row.state !== "failed" && row.state !== "lost",
+        job: ejid,
+        status: row.state,
+        phase: row.phase || undefined,
+        ms: Number(row.ms) || 0,
+        cost: Number(row.cost) || 0,
+        cancel: !!row.cancel,
+        // A JOB UNDER REVIEW IS SAID SO, because the next thing the customer
+        // does is try again and `edit_create` will refuse — a refusal with no
+        // explanation reads as the platform being broken.
+        review: row.needs_review === true ? true : undefined,
+        kind: (row.error && row.error.kind) || undefined,
+        failedPhase: (row.error && row.error.phase) || undefined,
+      }, { status: row.state === "done" ? 200 : 202 });
+    }
+
     if (url.pathname.startsWith("/api/site/build/") && request.method === "GET") {
       const bu = await authUser(request, env);
       if (!bu) return Response.json({ error: "sign in first" }, { status: 401 });
@@ -17804,6 +18328,12 @@ async function handleRequest(request, env, ctx) {
         // KEPT SEPARATELY so the reply can still name the trace after the
         // catch has flushed and cleared it.
         let cidForReply = "";
+        // AND THE SAME TRICK FOR THE MEASURED DURATIONS. The catch flushes the
+        // trace and nulls it, so the `finally` that records phase timings would
+        // find nothing on exactly the path where the timings matter most — the
+        // one that threw. Both are captured before the trace is let go.
+        let editTraceJob = "";
+        let editTraceEvents = null;
         try {
           let r;
           // ── PUBLISHED VERSIONS ────────────────────────────────────────────
@@ -17833,7 +18363,68 @@ async function handleRequest(request, env, ctx) {
             const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
             if (g.error) return Response.json(g.error.body, { status: g.error.status });
 
-            const eb = await request.json().catch(() => ({}));
+            // ── THE BODY IS READ AS TEXT FIRST ────────────────────────────
+            //
+            // Because the async path has to STORE it: the consumer replays this
+            // exact request, and `request.json()` consumes the stream, so there
+            // would be nothing left to keep. Parsed here instead of there, so
+            // both paths see the same object however it was read.
+            const ebRaw = await request.text().catch(() => "");
+            let eb = {};
+            try { const p = JSON.parse(ebRaw); if (p && typeof p === "object" && !Array.isArray(p)) eb = p; } catch { eb = {}; }
+
+            // ── ONE FORK, AND NOTHING BELOW IT CAN TELL ───────────────────
+            //
+            // A synchronous edit is reset at ~273 seconds — measured twice, at
+            // 273.2s and 273.1s, the second an outright ECONNRESET on the
+            // inbound TLS socket. Nothing we configure is 273, so the wall is
+            // infrastructure and the work has to leave the connection.
+            //
+            // THIS IS THE WHOLE DIFFERENCE BETWEEN THE TWO PATHS. With the flag
+            // off, or when this request IS the consumer's replay, execution
+            // falls straight through and every line below runs exactly as it
+            // did before — which is what makes the rollback "unset the variable
+            // and redeploy" rather than a revert.
+            //
+            // THE MARKER HEADER IS THE BASE CASE. Without it the replayed
+            // request would reach this same fork, see the flag on, and file
+            // another job, for ever.
+            const eJobId = request.headers.get(REPLAY_HEADER) || "";
+            const eJob = eJobId ? EDIT_JOBS.get(eJobId) || null : null;
+            if (eJob) editTraceJob = eJob.id;
+            if (!eJobId && editAsyncOn(env)) {
+              const q = await enqueueEditJob(env, {
+                slug: ownerSlug, uid: ou.id, auth: request.headers.get("Authorization") || "",
+                url: url.toString(), body: ebRaw, idem: eb && eb.idem,
+              });
+              if (!q.ok && q.error === "bad-idem") {
+                // REFUSED, NOT MINTED. A key generated here makes every retry a
+                // distinct job, which is precisely the double charge the key
+                // exists to prevent.
+                return Response.json({ ok: false, error: "bad-idem",
+                  msg: "That request was missing its retry key, so I stopped rather than risk running it twice." }, { status: 400 });
+              }
+              if (!q.ok && q.error === "needs-review") {
+                // A SITE WHOSE LAST EDIT DIED MID-PUBLISH takes no new ones
+                // until somebody establishes whether it shipped. Building on
+                // the wrong assumption would overwrite a published version
+                // nobody knew was live.
+                return Response.json({ ok: false, error: "needs-review", job: q.job,
+                  msg: "Your last edit stopped part-way through publishing and I can't tell yet whether it went " +
+                    "live. I've paused edits on this site until that's settled — nothing has been charged for it." },
+                  { status: 409 });
+              }
+              if (!q.ok) return Response.json({ ok: false, error: "queue", kind: String(q.error || "") }, { status: 503 });
+              return Response.json(
+                { ok: true, job: q.job, status: q.state || "queued", duplicate: q.duplicate || undefined,
+                  poll: "/api/site/edit/" + q.job },
+                { status: q.duplicate ? 200 : 202 });
+            }
+            // EVERY MODEL CALL ON THIS ROUTE GOES THROUGH ONE WRAPPER, so the
+            // job's clock reaches all ten of them without ten chances to forget
+            // one. `eJob` is null on the synchronous path and `quickSend` then
+            // falls back to its flat ceiling, exactly as before.
+            const eQuick = (what = "") => quickSend(env, what, eJob && eJob.budget);
             // THE BLACK BOX STARTS HERE — see `editTrace` where it is declared.
             // From this point every phase marks itself, and the marks are
             // in-memory pushes: no awaits, no subrequests, nothing that can
@@ -18039,6 +18630,8 @@ async function handleRequest(request, env, ctx) {
             // and here the drift would be somebody's money.
             let pickBilled = false;
             const billedAll = [];
+            // Which charge this is, for the ledger's per-charge idempotency key.
+            let eSeq = 0;
             const eCharge = async (usage, ...more) => {
               const parts = billParts(usage, ...more).filter((p) => {
                 // THE ROUTING CALL IS BILLED ONCE PER MESSAGE, not once per
@@ -18053,6 +18646,25 @@ async function handleRequest(request, env, ctx) {
               });
               if (!parts.length) return 0;
               billedAll.push(...parts);
+              // ── ON THE ASYNC PATH THE MONEY GOES THROUGH POSTGRES ────────
+              //
+              // Same amount, same `pageCredits` arithmetic, one transaction
+              // instead of two steps. `edit_reserve` debits the balance, writes
+              // the ledger row and accumulates the job's cost together — so a
+              // consumer dying between the debit and the record is not a state
+              // that exists, and the refund has one number to return.
+              //
+              // SEQUENCED, because this funnel runs once per RUNG. A single-shot
+              // reserve would under-charge every multi-lane edit: the second call
+              // would find the reservation made and do nothing.
+              if (eJob) {
+                const r = await editRpc(env, "edit_reserve", { p_id: eJob.id, p_seq: ++eSeq, p_cost: pageCredits(...parts) });
+                // A LEDGER THAT WILL NOT ANSWER MUST NOT FAIL THE EDIT, which is
+                // the rule `collectCredits` already follows one line down: the
+                // work is done and refusing to hand it over because billing
+                // blinked costs the customer their change AND their credits.
+                return (r && r.ok === true) ? Number(r.charged) || 0 : 0;
+              }
               try { return await collectCredits(eAuth, pageCredits(...parts)); } catch { return 0; }
             };
 
@@ -18184,7 +18796,7 @@ async function handleRequest(request, env, ctx) {
             if (eLooking) {
               editTrace.mark("pick_lanes", "start");
               const picked = await pickLanes(
-                { send: quickSend(env, "pick_lanes") },
+                { send: eQuick("pick_lanes") },
                 {
                   message: eInstruction,
                   // WHAT THE SITE IS, IN ONE LINE. Deliberately thin — this is
@@ -18333,7 +18945,7 @@ async function handleRequest(request, env, ctx) {
               }
 
               const dOut = await runDataEdit({
-                send: quickSend(env),
+                send: eQuick(),
                 // ONE STATEMENT PER CHANGE, parameterised, with the table name
                 // taken from the DECLARED schema rather than from the model —
                 // it is the only part that cannot be a bound parameter.
@@ -18470,7 +19082,7 @@ async function handleRequest(request, env, ctx) {
               // Nothing here reads a ROW, so no customer's data is shown to a
               // model: the digest is names, columns, types and rules.
               const rOut = await runRulesEdit({
-                send: quickSend(env),
+                send: eQuick(),
                 // ONE APPLY FOR THE MERGED SPEC. `applySiteSchema` re-emits
                 // every table's REVOKEs, grants and policies in order, which is
                 // what makes a pair change and a `retired` take effect on a
@@ -18522,7 +19134,7 @@ async function handleRequest(request, env, ctx) {
                 // `LANE_MODEL` (now the picker table's DEFAULT, not the
                 // customer's) to a hardcoded Anthropic endpoint, so a Sonnet
                 // customer's rename was both priced and addressed wrong.
-                rq = await quickSend(env)(renameRequest({
+                rq = await eQuick()(renameRequest({
                   message: eInstruction, current, model: eQuickModel,
                 }));
               } catch (e) {
@@ -18642,7 +19254,7 @@ async function handleRequest(request, env, ctx) {
               // by name, which is the rule that stops it rewriting a route id.
               const navRoutes = [...new Set(eSrc.map((p) => routeOf(p.path)).filter(Boolean))];
               const nOut = await runNavEdit({
-                send: quickSend(env),
+                send: eQuick(),
               }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel });
 
               if (!nOut.ok) {
@@ -18727,7 +19339,7 @@ async function handleRequest(request, env, ctx) {
               // must buy the two; nothing implemented it.
               let balance = await readCredits(eAuth).catch(() => 0);
               const pOut = await runPictureEdit({
-                send: quickSend(env),
+                send: eQuick(),
                 // The owner's upload library, named the way they see it.
                 library: async () => (await siteUploadList(env, ownerSlug))
                   .map((o) => ({ name: uploadFileName(o.key), url: uploadUrl(ownerSlug, uploadFileName(o.key)) }))
@@ -18887,7 +19499,7 @@ async function handleRequest(request, env, ctx) {
               });
             }
             if (eLayer === "text") {
-              const out = await runTextEdit({ send: quickSend(env) },
+              const out = await runTextEdit({ send: eQuick() },
                 { instruction: eInstruction, pages: eSrc, model: eQuickModel });
               // `escalate` false with `ok` false is the one case that is NOT a
               // rung problem: the stored source moved under us, and the lane
@@ -19147,7 +19759,7 @@ async function handleRequest(request, env, ctx) {
                 for (const field of pickedFields) {
                   editTrace.mark("lane:" + field, "start");
                   const ran = await runLane(
-                    { send: quickSend(env, "lane") },
+                    { send: eQuick("lane") },
                     {
                       field,
                       message: eInstruction,
@@ -19574,7 +20186,7 @@ async function handleRequest(request, env, ctx) {
               const tw = await runTweak({
                 instruction: eInstruction, path: target.path, source: target.source,
                 model: eQuickModel,
-                send: quickSend(env),
+                send: eQuick(),
               });
               if (tw.ok) {
                 const twPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: tw.source } : p));
@@ -19797,8 +20409,21 @@ async function handleRequest(request, env, ctx) {
               // Only when the `css` lane actually ran: it is the one rung that
               // writes selectors, and asking the question on a text fix would
               // buy a second build to check a stylesheet nobody touched.
+              // ── THE BUDGET IS RECHECKED AT EVERY BOUNDARY ────────────────
+              //
+              // Nothing has been published at this point — the spine returns
+              // before writing to R2 — so a refusal here leaves the live site
+              // exactly as it was, which is what makes stopping safe.
+              //
+              // `null` ON THE SYNCHRONOUS PATH, and every branch below is
+              // written so that `eGate` being absent means "carry on". With the
+              // flag off this whole mechanism is a few `if`s that do not fire.
+              const eGate = eJob ? eJob.gate("build") : null;
+              if (eGate && !eGate.go) {
+                return await editStopped(env, { job: eJob, why: eGate.why, phase: "build", trace: editTrace, ctx });
+              }
               editTrace.mark("publish:1", "start", { verifyCss: !!cssCtx });
-              finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: !!cssCtx, trace: editTrace });
+              finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: !!cssCtx, trace: editTrace, job: eJob });
               editTrace.mark("publish:1", finalPub && finalPub.ok ? "ok" : "fail",
                 { err: String((finalPub && finalPub.error) || ""), dead: Array.isArray(finalPub && finalPub.dead) ? finalPub.dead.length : 0 });
 
@@ -19831,11 +20456,35 @@ async function handleRequest(request, env, ctx) {
               // is indistinguishable from one in any of the eight rungs above it.
               // Nothing has published when this runs, so the site is untouched
               // whichever way it goes.
+              // ── THE CORRECTION ADMISSION GATE (async path only) ──────────
+              //
+              // A round begun with too little budget left spends the model call
+              // AND the container run and then fails anyway — the customer is
+              // refunded either way, so the only difference is whether we spent
+              // their credits to arrive at the same place.
+              //
+              // AND THE OTHER HALF OF THE OWNER'S RULE: "publish nothing unless
+              // the current build has already passed verification". Build 1 has
+              // NOT passed — that is why we are here — so refusing the round
+              // means publishing nothing and refunding, rather than shipping a
+              // stylesheet we already know points at no element.
+              //
+              // THE FLOOR IS PROVISIONAL AND SAID SO. `CORRECT_FLOOR_MS` is a
+              // conservative starting figure; `phase_ms` records what every real
+              // async edit actually took and `edit_phase_stats` reads the p90/p95
+              // back, so the number becomes evidence rather than staying a guess.
+              const eCanFix = !eJob || eJob.budget.canCorrect();
+              if (!finalPub.ok && finalPub.error === "dead-css" && cssCtx && eJob && !eCanFix) {
+                editTrace.mark("correct:skipped", "fail", { leftMs: eJob.budget.remaining() });
+                return await editStopped(env, { job: eJob, why: "budget", phase: "correct", trace: editTrace, ctx,
+                  msg: "I found that my change wouldn't have shown up on your page, and there wasn't enough time " +
+                    "left to put it right safely — your site is untouched and you haven't been charged." });
+              }
               if (!finalPub.ok && finalPub.error === "dead-css" && cssCtx) {
                 try {
                 editTrace.mark("lane:correct", "start", { dead: finalPub.dead.slice(0, 3) });
                 const fix = await runLane(
-                  { send: quickSend(env, "lane-correction") },
+                  { send: eQuick("lane-correction") },
                   {
                     field: "css",
                     message: eInstruction,
@@ -19864,11 +20513,33 @@ async function handleRequest(request, env, ctx) {
                   const put = await patchSiteConfig(env, ownerSlug, cssCtx.edb, { css: fix.value });
                   if (put.ok) cssFixed = { dead: finalPub.dead };
                 }
-                // REBUILD AND SEE. Off this time, so this is the last attempt.
-                editTrace.mark("publish:2", "start");
-                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: false, trace: editTrace });
+                // ── REBUILD AND SEE, AND THE TWO PATHS DIFFER HERE ───────────
+                //
+                // SYNCHRONOUS: verification off, so this is the last attempt and
+                // the site ships whatever the second stylesheet selects. A rule
+                // that matches nothing is inert, and refusing outright would
+                // throw away every OTHER lane's work in the same message to
+                // punish one selector.
+                //
+                // ASYNC: verification ON, because the owner's rule for the
+                // queued path is explicit — publish nothing unless the current
+                // build has passed verification, and refund otherwise. The two
+                // are allowed to differ precisely because the flag decides which
+                // runs, and the synchronous path must stay byte-identical to
+                // what it was while the flag is off.
+                //
+                // IT IS STILL BOUNDED AT ONE ROUND either way: the second
+                // verification decides whether to PUBLISH, never whether to
+                // correct again.
+                editTrace.mark("publish:2", "start", { verify: !!eJob });
+                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: !!eJob, trace: editTrace, job: eJob });
                 editTrace.mark("publish:2", finalPub && finalPub.ok ? "ok" : "fail",
                   { err: String((finalPub && finalPub.error) || "") });
+                if (eJob && !finalPub.ok && finalPub.error === "dead-css") {
+                  return await editStopped(env, { job: eJob, why: "unverified", phase: "verify", trace: editTrace, ctx,
+                    msg: "My correction still wouldn't have shown up on your page, so I've left your site exactly " +
+                      "as it was and refunded what this cost." });
+                }
                 } catch (e) {
                   console.error("css verify round failed:", ownerSlug, (e && (e.stack || e.message)) || e);
                   // THE CLASS, NEVER THE MESSAGE, matching the owner-route catch
@@ -19889,7 +20560,7 @@ async function handleRequest(request, env, ctx) {
                 // today — `verifyCss` is `!!cssCtx` — and it is handled anyway
                 // because the alternative is the customer's edit vanishing over
                 // a rule that is merely inert. Publish what they asked for.
-                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: false });
+                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: false, job: eJob });
               }
               if (!finalPub.ok) {
                 // THE SITE IS UNTOUCHED — nothing was published — but the STORED
@@ -21224,7 +21895,7 @@ async function handleRequest(request, env, ctx) {
           // `traceRow` and stored behind the service key; the reply below is
           // byte-identical to what it has always been apart from `cid`, which
           // is ours and names nothing.
-          if (editTrace) { flushEditTrace(env, ctx, editTrace, { ok: false, error: e }); editTrace = null; }
+          if (editTrace) { editTraceEvents = editTrace.events(); flushEditTrace(env, ctx, editTrace, { ok: false, error: e }); editTrace = null; }
           return Response.json({
             error: "Something went wrong reaching your site's data.", kind, why,
             cid: (cidForReply) || undefined,
@@ -21251,7 +21922,28 @@ async function handleRequest(request, env, ctx) {
           // failing phase from the events — the phase that reported `fail`, or
           // the last one still open — which is a better answer than a boolean
           // this block would have to guess at.
-          if (editTrace) flushEditTrace(env, ctx, editTrace, { ok: !editTrace.events().some((x) => x.s === "fail") });
+          if (editTrace) { editTraceEvents = editTrace.events(); flushEditTrace(env, ctx, editTrace, { ok: !editTraceEvents.some((x) => x.s === "fail") }); }
+          // ── WHAT EVERY PHASE ACTUALLY TOOK ──────────────────────────────
+          //
+          // Written here for the reason the trace is: `finally` covers every
+          // return this route has, and there are dozens. Owner's constraint —
+          // "persist real durations from every async edit, then derive the
+          // correction requirement from measured p90/p95" — so the admission
+          // floor stops being the conservative guess it starts as.
+          //
+          // DURATIONS, NOT TIMESTAMPS. The trace's numbers are elapsed-since-
+          // start, so a percentile over them would be a percentile of "how late
+          // in the job this happened" — a different quantity that looks
+          // plausible. `phaseDurations` subtracts once, here, so the stored
+          // numbers mean what a later query will assume they mean.
+          //
+          // ON THE `waitUntil`, so a measurement can never add latency to the
+          // thing it measures. Async path only: a synchronous edit has no job
+          // row to write to.
+          if (editTraceJob && editTraceEvents) {
+            const p = editRpc(env, "edit_phase_write", { p_id: editTraceJob, p_phase_ms: phaseDurations(editTraceEvents) });
+            if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); else await p;
+          }
         }
       }
     }
