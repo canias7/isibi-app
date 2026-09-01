@@ -31,6 +31,12 @@
 //   mem  192MB  RETURNED in 2.1s — memory is not the wall
 //   sub  240s   NOT MEASURED — inner status 522, inner fetch waited 0.0s
 //
+// STAGE 1 IS DEPLOYED (2026-09-01, ad64d6e7). The container image carrying
+// `/slowreply` rolled with it, so the preflight below should confirm on its
+// first or second poll rather than waiting out its twenty-five minutes. If it
+// does not, the image has not finished rolling and the run refuses rather than
+// printing four NOT MEASURED rows — which is the whole point of it.
+//
 // AND THAT IS WHY THIS FILE IS BEING TOUCHED AGAIN ON 2026-09-01. Two edits have
 // now died at 273.2s and 273.1s (the second an outright `ECONNRESET`), and an
 // EDIT IS NOT CPU-BOUND — it waits on a model call, then on the container, and
