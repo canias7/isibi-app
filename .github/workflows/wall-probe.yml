@@ -19,11 +19,12 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    # The default is three modes: `burn` and `sub` each sweep four durations to
-    # their own ceiling (240+300+360+420 = 22 minutes apiece if nothing stops
-    # them) and `mem` is seconds. Plus the deploy wait, so the worst case is
-    # around 50 minutes. Bounded well above that, because a cancelled job
-    # reports NOTHING and this probe's whole value is its answer.
+    # The default is now `sub` ALONE — the only unanswered mode, and the only
+    # one shaped like the thing that dies. Worst case: the deploy wait (10), the
+    # container-image preflight (up to 25, because a `builder/` push rolls the
+    # image and that takes 15–20 minutes), then four durations to the ceiling
+    # (240+300+360+420 = 22). Bounded well above the sum, because a cancelled
+    # job reports NOTHING and this probe's whole value is its answer.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4

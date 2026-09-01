@@ -15606,31 +15606,77 @@ async function handleRequest(request, env, ctx) {
       // may hold one open, would look exactly like the observed cluster and is
       // invisible to a request that makes no subrequests at all.
       //
-      // It calls THIS SAME ROUTE on our own hostname, so the far end is known to
-      // survive the duration (`plain` proved that) and anything that goes wrong
-      // is the hop rather than the destination.
+      // ── IT CALLS THE CONTAINER, NOT OUR OWN HOSTNAME (fixed 2026-09-01) ────
+      //
+      // THIS MODE HAS NEVER MEASURED ANYTHING, across every run of the probe.
+      // It used to fetch this same route on our own zone, and Cloudflare answers
+      // **522 in 0.0 seconds** to a Worker calling the zone it is itself serving
+      // — a self-referential request, refused at the edge. The probe scored that
+      // NOT MEASURED, correctly, which is the only reason it was not read as a
+      // subrequest surviving four minutes.
+      //
+      // THE CONTAINER IS THE HONEST FAR END rather than a workaround for the
+      // 522. The longest await an edit or a build ever performs IS
+      // `containerFetch`, under `CONTAINER_CALL_MS`, so a Worker holding this
+      // open is the real shape — not a stand-in that happens to route.
+      //
+      // `/slowreply` REPLIES AT THE END, which is what makes this a measurement;
+      // `/hold` deliberately replies at once and would have this mode returning
+      // in milliseconds again, wearing a different hostname.
+      //
+      // PINNED TO THE PROBE'S OWN LANE, like the other two container probes: a
+      // caller-chosen lane is one that could starve a real build.
       if (url.searchParams.get("sub") === "1") {
+        if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, mode: "sub", error: "no container binding" }, { status: 503 });
+        const s0c = Date.now();
+        try {
+          const c = getContainer(env.SITE_BUILD_CONTAINER, laneName("hold-probe"));
+          const r = await c.fetch(new Request("http://build/slowreply?ms=" + ms, { method: "POST" }));
+          const body = await r.text();
+          let inner = 0;
+          try { inner = Number(JSON.parse(body).waitedMs) || 0; } catch { inner = 0; }
+          // THE CONTAINER'S OWN `waitedMs`, NOT OUR WALL-CLOCK, is what proves
+          // the far end really waited. Our own elapsed time is the thing under
+          // test, so reading the hop's duration off it would be the measurement
+          // certifying itself — and a container that answered instantly would
+          // score as a held subrequest, which is exactly the defect this mode
+          // was rewritten to stop making.
+          return Response.json({
+            ok: r.ok, mode: "sub", askedMs: ms, tookMs: Date.now() - t0,
+            innerMs: inner, innerStatus: r.status, innerBody: body.slice(0, 200),
+          });
+        } catch (e) {
+          return Response.json({
+            ok: false, mode: "sub", askedMs: ms, tookMs: Date.now() - t0,
+            innerMs: 0, why: String((e && e.message) || e).slice(0, 200),
+          }, { status: 502 });
+        }
+      }
+      // THE OLD SELF-CALLING FORM, KEPT AND RENAMED RATHER THAN DELETED. It is
+      // the one thing that demonstrates the 522, and a mode whose failure is
+      // itself a documented platform behaviour is worth being able to re-run —
+      // the alternative is a future session re-deriving it from a comment.
+      //
+      // `innerMs` IS WHAT MAKES THE RESULT READABLE, and its absence is what
+      // made the first run's answer worthless. Measured 2026-08-21: a 240s
+      // request came back in 0.1 SECONDS — the inner fetch never waited at all
+      // — and the probe counted that as "a subrequest can be held for 240s"
+      // because all it looked at was a 200 and a wall-clock. A mode has to prove
+      // it did the thing before its result may be read.
+      if (url.searchParams.get("subself") === "1") {
         const inner = new URL(url.toString());
-        inner.searchParams.delete("sub");
-        // `innerMs` IS WHAT MAKES THE RESULT READABLE, and its absence is what
-        // made the first run's answer worthless. Measured 2026-08-21: a 240s
-        // `sub` request came back in 0.1 SECONDS — the inner fetch never waited
-        // at all — and the probe counted that as "a subrequest can be held for
-        // 240s" because all it looked at was a 200 and a wall-clock. A mode has
-        // to prove it did the thing before its result may be read, so the
-        // duration of the inner call travels back and the probe refuses to
-        // score a `sub` row that did not actually wait.
+        inner.searchParams.delete("subself");
         const s0 = Date.now();
         try {
           const r = await fetch(inner.toString(), { headers: { Authorization: request.headers.get("Authorization") || "" } });
           const body = await r.text();
           return Response.json({
-            ok: r.ok, mode: "sub", askedMs: ms, tookMs: Date.now() - t0,
+            ok: r.ok, mode: "subself", askedMs: ms, tookMs: Date.now() - t0,
             innerMs: Date.now() - s0, innerStatus: r.status, innerBody: body.slice(0, 200),
           });
         } catch (e) {
           return Response.json({
-            ok: false, mode: "sub", askedMs: ms, tookMs: Date.now() - t0,
+            ok: false, mode: "subself", askedMs: ms, tookMs: Date.now() - t0,
             innerMs: Date.now() - s0, why: String((e && e.message) || e).slice(0, 200),
           }, { status: 502 });
         }

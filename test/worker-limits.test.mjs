@@ -81,9 +81,22 @@ test("a mode that measured nothing gets no ceiling", () => {
   // request that never happened. Every verdict is gated on `measured`.
   assert.match(PROBE, /const measured =/);
   for (const m of ["burn", "mem", "sub"]) {
-    const at = PROBE.indexOf(`MODES.includes("${m}")`);
+    // WINDOWED TO THE NEXT VERDICT, NOT TO 700 BYTES (fixed 2026-09-01). The
+    // byte window was this repo's own most-repeated trap and it fired exactly
+    // as recorded: a preflight added ahead of the verdicts pushed `sub`'s gate
+    // past the 700th character, and the guard reported a verdict that had not
+    // moved as no longer gated. A byte count is outrun by the next comment
+    // somebody writes.
+    //
+    // Both landmarks are asserted, because `indexOf` answering -1 gives
+    // `slice(-1, -1)` — the empty string, which matches no pattern and would
+    // fail this assertion for the wrong reason, reporting a deleted verdict as
+    // an ungated one.
+    const at = PROBE.indexOf(`if (MODES.includes("${m}")) {`);
     assert.ok(at > 0, `no verdict block for ${m}`);
-    const block = PROBE.slice(at, at + 700);
+    const nextAt = PROBE.indexOf("if (MODES.", at + 10);
+    const block = PROBE.slice(at, nextAt > at ? nextAt : PROBE.length);
+    assert.ok(block.length > 40, `${m}'s verdict block came out empty — the landmark moved`);
     assert.match(block, /!measured\(/, `${m}'s verdict is not gated on having measured anything`);
   }
 });

@@ -25,6 +25,19 @@
 // remaining candidates still have opposite fixes: CPU is a line of config
 // (Workers Paid defaults to 30s and this repo had never set `limits`), memory
 // is a rewrite of the publish path. `burn` and `mem` are the two questions.
+//
+// SECOND RUN, 2026-08-21, WITH `limits.cpu_ms` ALREADY AT THE MAXIMUM:
+//   burn 240s   DIED (ECONNRESET) after 300.0s
+//   mem  192MB  RETURNED in 2.1s — memory is not the wall
+//   sub  240s   NOT MEASURED — inner status 522, inner fetch waited 0.0s
+//
+// AND THAT IS WHY THIS FILE IS BEING TOUCHED AGAIN ON 2026-09-01. Two edits have
+// now died at 273.2s and 273.1s (the second an outright `ECONNRESET`), and an
+// EDIT IS NOT CPU-BOUND — it waits on a model call, then on the container, and
+// burns almost nothing in between. The `burn` verdict cannot explain it and
+// `plain` says waiting survives 420s, so the only candidate left is the shape
+// neither of them tests: a Worker HOLDING AN OUTBOUND FETCH. That is `sub`, and
+// `sub` has never once produced a measurement.
 
 import https from "node:https";
 
@@ -103,22 +116,76 @@ const STEPS = (process.env.WALL_STEPS || "240,300,360,420").split(",").map((s) =
 const MB = (process.env.WALL_MB || "32,64,96,128,192").split(",").map((s) => Number(s.trim())).filter(Boolean);
 
 // EACH MODE ASKS A DIFFERENT QUESTION AND ONLY ONE OF THEM IS ABOUT TIME.
-//   plain   waits on a timer            — ANSWERED, no wall to 420s
-//   stream  waits and heartbeats        — ANSWERED, no wall to 420s
-//   burn    spends CPU                  — Workers Paid defaults to 30s of it
-//   mem     holds memory                — a Worker has 128MB
-//   sub     waits on an OUTBOUND FETCH  — the shape a build actually has
+//   plain    waits on a timer            — ANSWERED 08-21: no wall to 420s
+//   stream   waits and heartbeats        — ANSWERED 08-21: no wall to 420s
+//   mem      holds memory                — ANSWERED 08-21: 192MB held, fine
+//   burn     spends CPU                  — ANSWERED 08-21: ECONNRESET at 300.0s
+//   sub      waits on an OUTBOUND FETCH  — the shape an edit actually has
+//   subself  the same, to our own zone   — demonstrates Cloudflare's 522
 //
-// The default is the three UNANSWERED ones. `plain` and `stream` cost 22
-// minutes each to re-prove something already measured, and the run has to fit
+// THE DEFAULT IS `sub` ALONE, because it is the only unanswered question left
+// and the only one shaped like the thing that dies. The other three each cost up
+// to 22 minutes to re-prove something already measured, and the run has to fit
 // inside its job timeout — re-running an answered question is how a probe stops
-// being worth running. Both are still reachable through WALL_MODES.
-const MODES = (process.env.WALL_MODES || "burn,mem,sub").split(",").map((s) => s.trim()).filter(Boolean);
+// being worth running. All of them stay reachable through WALL_MODES.
+//
+// `sub` HAS NEVER MEASURED, across every run. Its inner fetch went to our own
+// hostname and Cloudflare answered 522 in 0.0s: a Worker cannot call the zone it
+// serves. It now calls the CONTAINER's `/slowreply`, which is the honest far end
+// rather than a workaround — the longest await an edit performs IS the container
+// fetch. `subself` keeps the old form so the 522 stays reproducible.
+const MODES = (process.env.WALL_MODES || "sub").split(",").map((s) => s.trim()).filter(Boolean);
 
 // What the first run measured, so a verdict comparing against "waiting" does
 // not have to re-run waiting — and so it is never silently sourced from a mode
 // that did not run in THIS pass.
 const PLAIN_MEASURED = 420;
+
+// ── WAIT FOR THE CONTAINER IMAGE, NOT JUST THE DEPLOY ─────────────────────
+//
+// The workflow waits for deploy.yml and that is NOT enough for this mode. A
+// push touching `builder/` rolls the container image and the roll takes 15–20
+// minutes, so an instance started three minutes after "deploy completed" is
+// still running the PREVIOUS image — one with no `/slowreply` in it. That
+// answers 404 instantly, `innerMs` comes back 0, and the run scores NOT
+// MEASURED: the exact non-answer this whole change exists to end, reproduced by
+// firing too early.
+//
+// A PROBE RATHER THAN A SLEEP. A fixed wait is a guess that is either wasteful
+// or wrong; asking the container whether it can hold for one second is the
+// question itself, at 1/240th of the cost. Nothing is spent either way.
+async function waitForSlowreply(token, minutes = 25) {
+  const until = Date.now() + minutes * 60_000;
+  for (let attempt = 1; Date.now() < until; attempt++) {
+    const r = await get("/api/_slow?ms=1000&sub=1", token);
+    const inner = Number((r.body || {}).innerMs || 0);
+    // 800ms OF A 1000ms ASK — the same 0.8 tolerance the row validator uses, so
+    // the preflight and the scoring cannot disagree about what "it waited"
+    // means. A container on the old image answers in single-digit milliseconds.
+    if (inner >= 800) { console.log(`  container is on the new image (held ${inner}ms, poll ${attempt})\n`); return true; }
+    console.log(`  waiting for the container image ... held ${inner}ms (poll ${attempt})`);
+    await new Promise((res) => setTimeout(res, 30_000));
+  }
+  return false;
+}
+
+// NAMED RATHER THAN INLINE, and a guard is why. `test/worker-limits.test.mjs`
+// finds each verdict block by the FIRST `MODES.includes("<mode>")` in the file,
+// so an inline condition here silently stole `sub`'s anchor and made that guard
+// report a working verdict as ungated. Its window is fixed below too — but the
+// collision is worth not creating in the first place.
+const wantsContainerSub = MODES.includes("sub");
+if (wantsContainerSub) {
+  console.log("preflight: can the container hold a reply at all?");
+  if (!await waitForSlowreply(session.access_token)) {
+    // REFUSE RATHER THAN MEASURE. Running the sweep now would print four NOT
+    // MEASURED rows and no verdict, which is indistinguishable from the defect
+    // being fixed — and a harness that cannot fail honestly is worse than none.
+    console.error("  the container never held a 1s reply — it is still on an image without /slowreply.");
+    console.error("  Nothing was measured. Re-run once the image has rolled.");
+    process.exit(1);
+  }
+}
 
 const rows = [];
 for (const mode of MODES) {
@@ -141,7 +208,11 @@ for (const mode of MODES) {
     // the difference between a measurement and a green tick.
     const b = r.body || {};
     let valid = true, note = "";
-    if (mode === "sub") {
+    // BOTH SUB FORMS, and the prefix is the point rather than a shortcut: the
+    // whole reason `subself` exists is that it returns 200 without waiting, so a
+    // check that named only `sub` would score the demonstration of the bug as a
+    // clean pass.
+    if (mode.startsWith("sub")) {
       const inner = Number(b.innerMs || 0);
       if (inner < n * 1000 * 0.8) {
         valid = false;
@@ -227,6 +298,14 @@ if (MODES.includes("sub")) {
     console.log(`     while the same wait on a timer survives ${waits}. A build's model`);
     console.log(`     calls and container build are exactly this shape.`);
   } else console.log(`  => A SUBREQUEST CAN BE HELD FOR ${top("sub")}s, so no single outbound wait is the wall.`);
+}
+// `subself` IS A DEMONSTRATION, NOT A CEILING. It exists to keep the 522
+// reproducible, so the only reading worth printing is whether it still does
+// what it did — and NOT MEASURED is its success condition, which is why it
+// gets its own sentence rather than borrowing `sub`'s.
+if (MODES.includes("subself")) {
+  if (!measured("subself")) console.log(`  => SELF-CALL: refused, as expected — a Worker cannot fetch its own zone.`);
+  else console.log(`  => SELF-CALL: it WAITED this time, up to ${last("subself")}s — the 522 is gone, so the comment in worker.js is stale.`);
 }
 // Only ever printed when everything really was measured and everything really
 // survived, so a clean sweep does not end on a shrug — and an UNMEASURED sweep
