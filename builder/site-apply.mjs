@@ -7,6 +7,23 @@
 // entirely the pages step — ~23 credits of output tokens re-emitting five pages
 // that did not change.
 //
+// ── WHERE THIS RUNS FROM, AS OF 2026-09-01 ─────────────────────────────────
+//
+// Unchanged, and that is worth saying rather than leaving to be inferred. The
+// lanes below can now be driven from a QUEUE CONSUMER instead of the customer's
+// connection — the synchronous edit request is reset at ~273 seconds, measured
+// twice — but the consumer REPLAYS the customer's own request into the same
+// handler, so every line here executes in the same order either way.
+//
+// What differs is only what surrounds them: a whole-job budget composed into
+// every model and container call through `capMs`, a lease that says which
+// consumer may act, and a publish gate that runs before anything reaches R2.
+// None of it is visible from inside this module, and none of it may be — a lane
+// that behaved differently depending on how it was invoked would be two lanes.
+//
+// It is off by default and narrower than that: `EDIT_ASYNC` must be set AND the
+// account or site must be on an explicit allowlist, which ships empty.
+//
 // THE PROTECTION IS THAT THE STEPS ARE ABSENT, NOT THAT A RULE FORBIDS THEM.
 // Nothing in this module can reach `applySiteSchema`, `seedSiteRows` or the page
 // generator, so "an edit never touches the database" is a property of the lane
