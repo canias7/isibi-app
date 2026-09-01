@@ -47,6 +47,13 @@ jobs:
       # ASK deploy.yml FOR ITS OWN RUNS — a find-by-name over
       # `actions/runs?head_sha=` silently stops finding the deploy once a push
       # fires more workflows than fit on one page. This repo lost a run to that.
+      # A DEPLOY CAN FAIL FOR REASONS THAT ARE NOT THE CODE'S, and this one did
+      # on 2026-09-01: the container build could not reach Docker Hub
+      # ("dial tcp ...: i/o timeout" pulling node:22-slim) and the whole deploy
+      # went red while the Worker it would have shipped was byte-identical to
+      # the one already live. Waiting is still right — testing an old Worker is
+      # worse than not testing — but a red deploy here is worth reading before
+      # it is believed: a Docker Hub timeout is transient and a re-push clears it.
       - name: wait for this push's deploy
         if: github.event_name == 'push'
         run: |
