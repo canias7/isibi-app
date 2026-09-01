@@ -262,22 +262,105 @@ export function readEditMessage(body) {
  * WITHOUT IT THE CONSUMER WOULD ENQUEUE ITSELF for ever — the replayed request
  * hits the same route, sees the flag on, and files another job. The marker is
  * the base case.
+ *
+ * ── AND ITS PRESENCE PROVES NOTHING ON ITS OWN ────────────────────────────
+ *
+ * A header name is public and a job id is handed to the customer in the 202, so
+ * neither is evidence of anything. The first cut of this treated the header's
+ * PRESENCE as the test — and any signed-in owner could send it and drop
+ * straight into the inline pipeline, skipping the queue, the budget, the lease
+ * and, worst of all, `edit_create`'s `needs_review` refusal, which is the only
+ * thing stopping a new edit on a site whose last publish state is unknown.
+ *
+ * So the marker is `<jobId>.<secret>`, and the secret is 32 random hex minted
+ * server-side, stored only in the service-role-only job object, and never sent
+ * to any client. Knowing your own job id is not enough; there is nothing a
+ * customer can observe that lets them build one.
  */
 export const REPLAY_HEADER = "x-gf-job";
+
+/** A per-job replay secret. Never leaves the server, never reaches a client. */
+export function newReplaySecret(fill) {
+  const b = new Uint8Array(16);
+  fill(b);
+  let out = "";
+  for (const x of b) out += x.toString(16).padStart(2, "0");
+  return out;
+}
+
+/** `<jobId>.<secret>`, the only form the front door accepts. */
+export function packReplayMarker(id, secret) {
+  return String(id || "") + "." + String(secret || "");
+}
+
+/**
+ * Split a marker, and REFUSE anything that is not exactly one.
+ *
+ * Both halves are checked for shape here so the caller's comparison is between
+ * two known-good strings rather than between whatever arrived and a stored
+ * value — and a non-string is refused rather than coerced, because
+ * `String(["a…"])` is `"a…"` and this repo has shipped that three times.
+ */
+export function readReplayMarker(v) {
+  if (typeof v !== "string" || !v) return null;
+  const dot = v.indexOf(".");
+  if (dot < 0) return null;
+  const id = v.slice(0, dot);
+  const secret = v.slice(dot + 1);
+  if (!/^[0-9a-f]{32}$/.test(id) || !/^[0-9a-f]{32}$/.test(secret)) return null;
+  return { id, secret };
+}
+
+/**
+ * WHAT THE CONSUMER REPLAYS. Deliberately NOT the build path's `packJob`.
+ *
+ * ── NO BEARER TOKEN, AND THAT IS THE POINT ────────────────────────────────
+ *
+ * `packJob` stores the customer's own `Authorization` header, because a build's
+ * ledger calls go through `use_credits`, which resolves the user from
+ * `auth.uid()` and so cannot be made by a service key. An async edit has no such
+ * need: its money moves through `edit_reserve`, which is service-role and takes
+ * the uid explicitly.
+ *
+ * Storing one anyway would buy three problems for nothing — a live credential at
+ * rest, a job that fails because a token expired while it sat in the queue, and
+ * an identity broader than the one job it is for. The `uid` and `slug` here are
+ * the immutable record instead, and the consumer's authority is the LEASE.
+ */
+export function packEditJob({ url, body, uid, slug, secret, at }) {
+  return {
+    v: 1,
+    url: String(url || ""),
+    body: String(body || ""),
+    uid: String(uid || ""),
+    slug: String(slug || "").toLowerCase(),
+    secret: String(secret || ""),
+    at: Number(at) || 0,
+  };
+}
+
+/** And back, refusing any shape we did not write. */
+export function readEditJob(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (raw.v !== 1) return null;
+  for (const k of ["url", "body", "uid", "slug", "secret"]) {
+    if (typeof raw[k] !== "string" || !raw[k]) return null;
+  }
+  if (!/^[0-9a-f]{32}$/.test(raw.secret)) return null;
+  return { url: raw.url, body: raw.body, uid: raw.uid, slug: raw.slug, secret: raw.secret, at: Number(raw.at) || 0 };
+}
 
 /**
  * Rebuild the customer's request for the consumer to run.
  *
- * ONLY THREE HEADERS, and copying more would be a bug rather than a kindness:
- * `content-length` would describe a body that has been through JSON, and any
- * conditional or caching header would apply to a request nobody is waiting on.
- * The build path's `replayRequest` makes the same choice for the same reason;
- * this one exists because the marker header is ours and builds must not carry it.
+ * TWO HEADERS, AND NO AUTHORIZATION. Copying more would be a bug rather than a
+ * kindness: `content-length` would describe a body that has been through JSON,
+ * and any conditional header would apply to a request nobody is waiting on. The
+ * absent one is the deliberate part — see `packEditJob`.
  */
-export function replayEditRequest({ url, auth, body, job }) {
+export function replayEditRequest({ url, body, marker }) {
   const headers = { "content-type": "application/json" };
-  if (auth) headers.authorization = auth;
-  if (job) headers[REPLAY_HEADER] = String(job);
+  if (marker) headers[REPLAY_HEADER] = String(marker);
   return new Request(String(url || ""), { method: "POST", headers, body: String(body || "") });
 }
 

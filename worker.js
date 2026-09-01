@@ -38,6 +38,7 @@ import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
   PUBLISH_LEASE_S, REPLAY_HEADER, makeEditBudget, cleanIdemKey, newLeaseOwner,
   editAsyncOn, replayEditRequest, phaseDurations, readEditMessage, isTerminalEdit,
+  newReplaySecret, packReplayMarker, readReplayMarker, packEditJob, readEditJob,
 } from "./builder/edit-job.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
@@ -955,6 +956,28 @@ async function refundCredits(env, userId, amount) {
 // Read the caller's balance without deducting (used to reject a broke user
 // before we spend any fal money). get_credits also does the one-time signup
 // grant on first touch, same as use_credits. Throws if the ledger is down.
+/**
+ * THE SAME NUMBER, ASKED FOR BY UID INSTEAD OF BY TOKEN.
+ *
+ * A queued edit carries no bearer token — deliberately, see `packEditJob` — so
+ * `readCredits` has nothing to present. Without this the picture lane would read
+ * a balance of zero on every async edit and quietly decline to buy a photograph
+ * the customer could afford: a wrong answer that looks like a policy.
+ *
+ * SERVICE ROLE AND A PLAIN SELECT, not `get_credits`, because that function
+ * resolves the user from `auth.uid()` and also performs the first-touch grant —
+ * neither of which belongs on a read taken in the middle of somebody's edit.
+ * A row that is not there is a balance of zero, which is what it means.
+ */
+async function readCreditsFor(env, uid) {
+  if (!env.SUPABASE_SERVICE_KEY || !uid) return 0;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/credits?user_id=eq.${encodeURIComponent(uid)}&select=balance`,
+    { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+  if (!r.ok) throw new Error("credits read " + r.status);
+  const rows = await r.json().catch(() => []);
+  return Number((Array.isArray(rows) && rows[0] && rows[0].balance) || 0);
+}
+
 async function readCredits(authHeader) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_credits`, {
     method: "POST",
@@ -6603,11 +6626,15 @@ async function editRpc(env, fn, args) {
  * `null` FOR A SYNCHRONOUS EDIT, and every use of it is optional-chained. With
  * the flag off nothing here runs and the route behaves exactly as it did.
  */
-function makeJobCtx(env, { id, owner, budget, trace }) {
+function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "" }) {
   let cancelled = false;
   let beats = 0;
   return {
     id, owner, budget, trace,
+    // THE IMMUTABLE RECORD, carried so the front door can resolve identity from
+    // it instead of from a bearer token. Both come from the row Postgres
+    // returned when this consumer claimed the job.
+    uid, slug,
     /** Has the customer asked to stop? Answered by the last heartbeat. */
     cancelled: () => cancelled,
     beats: () => beats,
@@ -11499,7 +11526,7 @@ async function runLostEditJobs(env) {
  * its live state, which is the whole point of the client's idempotency key: a
  * lost response followed by a retry must not become two charged edits.
  */
-async function enqueueEditJob(env, { slug, uid, auth, url, body, idem }) {
+async function enqueueEditJob(env, { slug, uid, url, body, idem }) {
   if (!env.BUILD_QUEUE || !env.SITES_BUCKET) return { ok: false, error: "queue not configured" };
   const key = cleanIdemKey(idem);
   // REFUSED, NEVER MINTED HERE. A server-generated key makes every retry a
@@ -11512,8 +11539,19 @@ async function enqueueEditJob(env, { slug, uid, auth, url, body, idem }) {
   if (!made || made.ok !== true) return { ok: false, error: String((made && made.error) || "rpc"), job: made && made.job };
   const jobId = String(made.job || id);
   if (made.duplicate === true) return { ok: true, job: jobId, state: made.state, duplicate: true };
+  // THE SECRET IS MINTED HERE AND NEVER LEAVES THE SERVER. It is what the
+  // consumer later presents to prove a replay is a replay; the customer is
+  // handed the job id and nothing else, so a marker cannot be assembled from
+  // anything they can see. See `editReplayUser`.
+  //
+  // NO BEARER TOKEN IS STORED. `packEditJob` keeps the uid and the slug instead
+  // — the immutable record — because an async edit's money moves through
+  // service-role RPCs that take the uid explicitly, so the token buys nothing
+  // and costs a live credential at rest plus a job that dies when it expires.
+  const secret = newReplaySecret((b) => crypto.getRandomValues(b));
   try {
-    await env.SITES_BUCKET.put(editJobKey(jobId), JSON.stringify(packJob({ url, auth, body, uid, at: Date.now() })));
+    await env.SITES_BUCKET.put(editJobKey(jobId),
+      JSON.stringify(packEditJob({ url, body, uid, slug, secret, at: Date.now() })));
   } catch (e) {
     console.error("edit queue: could not store the request for", jobId, String((e && e.message) || e));
     // NOTHING HAS BEEN SPENT. The row exists with `billing: none`, so the sweep
@@ -11567,16 +11605,32 @@ async function runQueuedSiteEdit(env, ctx, id) {
       // READ ONCE. A body is a stream and cannot be consumed twice; the first
       // draft parsed it, tested a field, and parsed it again — which answers
       // null on the second read and turns every job into "request missing".
-      if (obj) job = readJob(JSON.parse(await obj.text()));
+      if (obj) job = readEditJob(JSON.parse(await obj.text()));
     } catch { job = null; }
     if (!job) {
       console.error("edit queue: no stored request for", id);
       await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "request object missing" });
       return;
     }
-    // THE TOKEN GOES THE MOMENT IT HAS BEEN READ, exactly as the build path
-    // does: it is the customer's own bearer token and it has no reason to
-    // outlive the one read that needs it.
+    // ── THE OBJECT AND THE ROW MUST AGREE ────────────────────────────────
+    //
+    // The claim came from Postgres and the request came from R2, and until this
+    // check nothing tied the two together: a job object whose `uid` or `slug`
+    // disagreed with the row would have been replayed anyway, under a lease that
+    // says nothing about whose site it is. Two writes to one bucket key, or one
+    // hand-edited object, is all that would take.
+    //
+    // THE ROW IS THE AUTHORITY, because it is the thing the customer's
+    // authenticated POST created and the thing every later gate reads. The
+    // object is only a carrier for the body.
+    if (String(claim.uid || "") !== job.uid || String(claim.slug || "") !== job.slug) {
+      console.error("edit queue: stored request does not match the claimed job", id);
+      await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "stored request did not match the job" });
+      return;
+    }
+    // AND THE SECRET GOES WITH THE OBJECT. It is the replay's only credential
+    // and it has no reason to outlive the one read that needs it — the same
+    // rule the build path applies to the bearer token it has to keep.
     try { await env.SITES_BUCKET.delete(editJobKey(id)); } catch { /* the sweep is not this */ }
 
     // ── THE HEARTBEAT IS A TIMER, NOT A PHASE BOUNDARY ────────────────────
@@ -11589,15 +11643,18 @@ async function runQueuedSiteEdit(env, ctx, id) {
     // IT RENEWS THE LEASE AND NOT THE CLOCK. Cloudflare stops this isolate at
     // fifteen minutes whatever the lease says; the budget below is what keeps
     // the work inside that, and nothing here can move it.
-    const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(EDIT_JOB_MS) });
+    const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(EDIT_JOB_MS), uid: job.uid, slug: job.slug });
     beat = setInterval(() => { jctx.beat(null).catch(() => {}); }, HEARTBEAT_S * 1000);
 
-    const req = replayEditRequest({ url: job.url, auth: job.auth, body: job.body, job: id });
+    const req = replayEditRequest({ url: job.url, body: job.body, marker: packReplayMarker(id, job.secret) });
     // THE JOB CONTEXT REACHES THE HANDLER THROUGH THE REQUEST, not a global.
     // One isolate serves many requests concurrently and a module-level "current
     // job" would splice two customers together — the same reason `editTrace` is
     // a local.
-    EDIT_JOBS.set(id, jctx);
+    // KEYED BY THE SECRET, NOT THE ID. Every customer knows their own job id —
+    // it is in the 202 — so a map keyed on it would let them look up a running
+    // job's context by sending a header they can construct.
+    EDIT_JOBS.set(job.secret, jctx);
     let res;
     try {
       // THE NAMED HANDLER, not the default export's `fetch`. That wrapper adds
@@ -11606,7 +11663,7 @@ async function runQueuedSiteEdit(env, ctx, id) {
       // longer way round with more that can surprise.
       res = await handleRequest(req, env, ctx);
     } finally {
-      EDIT_JOBS.delete(id);
+      EDIT_JOBS.delete(job.secret);
       if (beat) { clearInterval(beat); beat = null; }
     }
     const bodyText = await res.text().catch(() => "");
@@ -11644,14 +11701,50 @@ async function runQueuedSiteEdit(env, ctx, id) {
 }
 
 /**
- * The job contexts this isolate is currently running, keyed by job id.
+ * The job contexts this isolate is currently running, KEYED BY THE REPLAY SECRET.
  *
- * A MAP RATHER THAN A GLOBAL, and the key is what makes it safe: one isolate
- * serves many requests at once, so a single "current job" would attribute one
- * customer's budget and lease to another. The replayed request carries its id in
- * a header and looks itself up; entries are added and removed around one await.
+ * A MAP RATHER THAN A GLOBAL, and the key is what makes it safe twice over. One
+ * isolate serves many requests at once, so a single "current job" would
+ * attribute one customer's budget and lease to another — and keying on the JOB
+ * ID would leave the door open to whoever knows one, which is every customer who
+ * has ever been handed a 202. The secret is minted server-side and lives only in
+ * the service-role-only job object.
+ *
+ * Entries are added and removed around one await, so a marker is valid for
+ * exactly as long as its job is running here and not one moment longer.
  */
 const EDIT_JOBS = new Map();
+
+/**
+ * WHO A REPLAYED REQUEST IS, or null.
+ *
+ * ── THE TRUST BOUNDARY, IN ONE FUNCTION ───────────────────────────────────
+ *
+ * Four things have to hold, and each closes a different hole:
+ *
+ *   the marker parses          — a header name and a job id are public
+ *   the secret names a job     — running HERE, right now, claimed by us
+ *   the id matches that job    — a secret cannot be pointed at another job
+ *   the slug matches the route — the grant is one site, not an account
+ *
+ * WHAT IT GRANTS IS DELIBERATELY NARROW: one uid, for one slug, while one
+ * claimed job runs in this isolate. It is not a session, it cannot be presented
+ * to any other route, and it disappears when the job does — which is what keeps
+ * "internal replay authorization must not grant broader access than this one
+ * claimed edit job" a property of the code rather than a promise about it.
+ *
+ * AND IT IS NOT A CREDENTIAL THE CUSTOMER EVER HELD. The alternative — storing
+ * their bearer token and replaying it — is what this replaces: see
+ * `packEditJob` for the three problems that bought.
+ */
+function editReplayUser(request, slug) {
+  const m = readReplayMarker(request.headers.get(REPLAY_HEADER));
+  if (!m) return null;
+  const j = EDIT_JOBS.get(m.secret);
+  if (!j || j.id !== m.id) return null;
+  if (!j.uid || !j.slug || j.slug !== String(slug || "").toLowerCase()) return null;
+  return { id: j.uid, replay: j };
+}
 
 /**
  * PICK UP A BUILD WHOSE GENERATION IS STILL RUNNING SOMEWHERE ELSE.
@@ -18277,9 +18370,25 @@ async function handleRequest(request, env, ctx) {
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
       if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv || sh) {
-        const ou = await authUser(request);
-        if (!ou) return UNAUTHED();
+        // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
+        // to it. Nothing about deriving it depends on who is asking.
         const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv || sh)[1].toLowerCase();
+        // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
+        //
+        // The consumer replays the customer's request minutes after they made
+        // it, and deliberately does not carry their token: a Supabase access
+        // token expires in an hour, a job can sit in the queue, and a queued
+        // edit must not fail because a credential aged. So identity comes from
+        // the job row's IMMUTABLE `uid` instead, proved by a secret the customer
+        // has never seen — see `editReplayUser`.
+        //
+        // `ed &&` IS LOad-BEARING AND IS NOT TIDINESS. This block gates
+        // NINETEEN routes; without it a replay marker would authenticate a
+        // request to the domains panel, the secrets editor or the delete route.
+        // The grant is one uid, one slug, one running job.
+        const eReplay = ed ? editReplayUser(request, ownerSlug) : null;
+        const ou = (await authUser(request)) || eReplay;
+        if (!ou) return UNAUTHED();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -18389,12 +18498,27 @@ async function handleRequest(request, env, ctx) {
             // THE MARKER HEADER IS THE BASE CASE. Without it the replayed
             // request would reach this same fork, see the flag on, and file
             // another job, for ever.
-            const eJobId = request.headers.get(REPLAY_HEADER) || "";
-            const eJob = eJobId ? EDIT_JOBS.get(eJobId) || null : null;
+            // ── A MARKER THAT DID NOT VALIDATE IS REFUSED, NOT IGNORED ────
+            //
+            // This is the hole the first cut had, and it was not theoretical:
+            // the fork asked whether the HEADER WAS PRESENT, so any signed-in
+            // owner could send `x-gf-job: anything` and drop straight into the
+            // inline pipeline — skipping the queue, the budget, the lease, and
+            // `edit_create`, which is the ONLY place a site under `needs_review`
+            // is stopped from taking another edit.
+            //
+            // Falling back to enqueueing would be the tempting fix and it is the
+            // wrong one: a request carrying a marker we cannot verify is not an
+            // ordinary request that happens to have an extra header, it is
+            // somebody probing. 404, the same answer a slug that is not yours
+            // gets, so the two are indistinguishable from outside.
+            const eRawMarker = request.headers.get(REPLAY_HEADER) || "";
+            const eJob = (eReplay && eReplay.replay) || null;
+            if (eRawMarker && !eJob) return Response.json({ error: "not found" }, { status: 404 });
             if (eJob) editTraceJob = eJob.id;
-            if (!eJobId && editAsyncOn(env)) {
+            if (!eJob && editAsyncOn(env)) {
               const q = await enqueueEditJob(env, {
-                slug: ownerSlug, uid: ou.id, auth: request.headers.get("Authorization") || "",
+                slug: ownerSlug, uid: ou.id,
                 url: url.toString(), body: ebRaw, idem: eb && eb.idem,
               });
               if (!q.ok && q.error === "bad-idem") {
@@ -19337,7 +19461,10 @@ async function handleRequest(request, env, ctx) {
               // bought three photographs it could afford one of. The comment on
               // that check already said a batch that can afford two of three
               // must buy the two; nothing implemented it.
-              let balance = await readCredits(eAuth).catch(() => 0);
+              // BY UID ON THE QUEUED PATH, by token on the synchronous one. A
+              // replay has no bearer token to present and reading zero would
+              // decline photographs the customer can afford.
+              let balance = await (eJob ? readCreditsFor(env, eJob.uid) : readCredits(eAuth)).catch(() => 0);
               const pOut = await runPictureEdit({
                 send: eQuick(),
                 // The owner's upload library, named the way they see it.

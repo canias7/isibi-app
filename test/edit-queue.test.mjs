@@ -18,7 +18,11 @@ import { readFileSync } from "node:fs";
 import {
   EDIT_JOB_KIND, REPLAY_HEADER, EDIT_JOB_MS, PUBLISH_RESERVE_MS, TERMINAL_RESERVE_MS,
   CORRECT_FLOOR_MS, readEditMessage, replayEditRequest, phaseDurations, makeEditBudget,
+  newReplaySecret, packReplayMarker, readReplayMarker, packEditJob, readEditJob,
 } from "../builder/edit-job.mjs";
+
+const ID = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
+const SEC = "0f1e2d3c4b5a69780f1e2d3c4b5a6978";
 
 const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
@@ -65,6 +69,25 @@ function at(src, needle, label) {
   return i;
 }
 
+/**
+ * A window between two landmarks, PROVING BOTH EXIST AND ARE IN ORDER.
+ *
+ * `at()` alone is not enough and this file learned that the hard way: a closing
+ * landmark that sits EARLIER in the file than the opening one passes both
+ * existence checks and yields `slice(big, small)` — the empty string, which
+ * contains none of the things the assertions then look for. So the guard
+ * reported a function it had never looked at as missing every property it has.
+ *
+ * The same shape as the -1 case this repo already records, one step along: it is
+ * not that a landmark is gone, it is that the two are the wrong way round.
+ */
+function between(src, open, close, label) {
+  const a = at(src, open, label);
+  const b = src.indexOf(close, a);
+  assert.ok(b > a, `${label}: the closing landmark does not follow the opening one (${close})`);
+  return src.slice(a, b);
+}
+
 // ── THE MESSAGE ───────────────────────────────────────────────────────────
 
 test("an edit message is read as an edit and nothing else is", () => {
@@ -93,25 +116,160 @@ test("the queue dispatches an edit to the edit handler, never the build one", ()
 
 // ── THE REPLAY ────────────────────────────────────────────────────────────
 
-test("the replay carries the marker, and the marker is the base case", () => {
-  const r = replayEditRequest({ url: "https://x/api/site/s/edit", auth: "Bearer t", body: '{"a":1}', job: "j1" });
+test("the replay carries the marker and NO bearer token", () => {
+  const r = replayEditRequest({ url: "https://x/api/site/s/edit", body: '{"a":1}', marker: packReplayMarker(ID, SEC) });
   assert.equal(r.method, "POST");
-  assert.equal(r.headers.get(REPLAY_HEADER), "j1");
-  assert.equal(r.headers.get("authorization"), "Bearer t");
+  assert.equal(r.headers.get(REPLAY_HEADER), ID + "." + SEC);
   assert.equal(r.headers.get("content-type"), "application/json");
-  // NOTHING ELSE. `content-length` would describe a body that has been through
-  // JSON, and any conditional header would apply to a request nobody awaits.
-  assert.deepEqual([...r.headers.keys()].sort(), ["authorization", "content-type", REPLAY_HEADER]);
+  // ── THE ABSENT HEADER IS THE POINT ──────────────────────────────────────
+  //
+  // A queued edit does not carry the customer's token, so it cannot fail
+  // because one expired while the job sat in the queue, and there is no live
+  // credential at rest to leak. Asserted as an exhaustive header list rather
+  // than "authorization is absent", because the next header somebody adds
+  // should have to be argued for.
+  assert.deepEqual([...r.headers.keys()].sort(), ["content-type", REPLAY_HEADER]);
 });
 
-test("the fork checks the marker before the flag, so a replay cannot re-enqueue", () => {
-  const fork = CODE.slice(at(CODE, "const eJobId = request.headers.get(REPLAY_HEADER)", "fork"),
+test("the fork REFUSES a marker it cannot verify, rather than falling through", () => {
+  const fork = CODE.slice(at(CODE, "const eRawMarker = request.headers.get(REPLAY_HEADER)", "fork"),
                           at(CODE, "editTrace = newTrace(", "fork end"));
-  // WITHOUT THE MARKER IN THE CONDITION the consumer's own replay reaches this
-  // fork, sees the flag on, and files another job — for ever.
-  assert.match(fork, /if \(!eJobId && editAsyncOn\(env\)\)/,
-    "the fork no longer requires the marker to be ABSENT before enqueueing");
+  // THE HOLE THIS CLOSES WAS REAL. The first cut asked whether the header was
+  // PRESENT, so any signed-in owner could send one and drop into the inline
+  // pipeline — past the queue, the budget, the lease, and `edit_create`, which
+  // is the only place a site under `needs_review` is stopped.
+  assert.match(fork, /if \(eRawMarker && !eJob\) return Response\.json\(\{ error: "not found" \}, \{ status: 404 \}\)/,
+    "an unverifiable replay marker no longer refuses the request");
+  // AND THE ENQUEUE IS GATED ON THE VERIFIED JOB, not on the raw header — or a
+  // forged one would still skip it.
+  assert.match(fork, /if \(!eJob && editAsyncOn\(env\)\)/,
+    "the enqueue is gated on the raw header again, so a forged one would skip it");
   assert.match(fork, /enqueueEditJob/, "the fork no longer enqueues");
+});
+
+// ── THE TRUST BOUNDARY ────────────────────────────────────────────────────
+
+test("a marker is two halves and both must be exactly right", () => {
+  assert.deepEqual(readReplayMarker(ID + "." + SEC), { id: ID, secret: SEC });
+  // A HEADER NAME AND A JOB ID ARE PUBLIC. The id is handed to the customer in
+  // the 202, so anything they can assemble from it alone must be refused.
+  assert.equal(readReplayMarker(ID), null, "a bare job id parses as a marker");
+  assert.equal(readReplayMarker(ID + "."), null);
+  assert.equal(readReplayMarker("." + SEC), null);
+  assert.equal(readReplayMarker(ID + "." + SEC.slice(0, 31)), null, "a short secret parses");
+  assert.equal(readReplayMarker(ID.toUpperCase() + "." + SEC), null, "case is not pinned, so a near-miss parses");
+  assert.equal(readReplayMarker(""), null);
+  assert.equal(readReplayMarker(null), null);
+  // AND A NON-STRING IS REFUSED, NOT COERCED.
+  assert.equal(readReplayMarker([ID + "." + SEC]), null);
+});
+
+test("the secret is minted from real randomness and is not derivable", () => {
+  // 128 BITS FROM THE PLATFORM'S CSPRNG. The fill function is injected so this
+  // can assert the LENGTH the caller must supply rather than trusting it.
+  let asked = 0;
+  const sec = newReplaySecret((b) => { asked = b.length; b.fill(0xab); });
+  assert.equal(asked, 16, "the secret is drawn from fewer than 128 bits");
+  assert.match(sec, /^[0-9a-f]{32}$/);
+  assert.equal(sec, "ab".repeat(16));
+  // It is called with crypto.getRandomValues in the Worker — asserted at the
+  // call site below, because that is the half a fake cannot prove.
+  assert.match(CODE, /newReplaySecret\(\(b\) => crypto\.getRandomValues\(b\)\)/,
+    "the replay secret is no longer drawn from the platform CSPRNG");
+});
+
+test("the stored job carries the identity and NOT a bearer token", () => {
+  const packed = packEditJob({ url: "https://x/y", body: "{}", uid: "u1", slug: "S1", secret: SEC, at: 5 });
+  assert.deepEqual(packed, { v: 1, url: "https://x/y", body: "{}", uid: "u1", slug: "s1", secret: SEC, at: 5 });
+  // NO `auth` FIELD EXISTS TO FILL. The build path's packJob keeps one because
+  // `use_credits` resolves the user from auth.uid() and a service key cannot
+  // charge on somebody's behalf; an async edit's money moves through
+  // service-role RPCs that take the uid, so the token buys nothing.
+  assert.equal("auth" in packed, false, "the stored edit job has somewhere to put a bearer token");
+  assert.ok(!/auth/i.test(JSON.stringify(packed)), "a credential-shaped field survived");
+  // The slug is normalised on the way in, so the consumer's comparison against
+  // the row is between two values that were lowercased by the same rule.
+  assert.equal(packed.slug, "s1");
+  // AND IT REFUSES ANY SHAPE WE DID NOT WRITE.
+  assert.equal(readEditJob({ ...packed, v: 2 }), null);
+  assert.equal(readEditJob({ ...packed, secret: "short" }), null);
+  assert.equal(readEditJob({ ...packed, uid: "" }), null);
+  assert.equal(readEditJob(null), null);
+  assert.deepEqual(readEditJob(packed), { url: "https://x/y", body: "{}", uid: "u1", slug: "s1", secret: SEC, at: 5 });
+});
+
+test("the replay identity is scoped to one uid, one slug, one running job", () => {
+  const fn = between(CODE, "function editReplayUser(request, slug)", "async function recordRefire", "replay user");
+  // FOUR CHECKS, and each closes a different hole. Asserted as properties of the
+  // function's text because there is no Worker runtime here to drive it — but
+  // every one of them is a comparison this file can name exactly.
+  assert.match(fn, /readReplayMarker\(/, "the marker is no longer parsed");
+  assert.match(fn, /EDIT_JOBS\.get\(m\.secret\)/, "the lookup is no longer by the secret");
+  assert.match(fn, /j\.id !== m\.id/, "a secret is no longer tied to the job it was minted for");
+  assert.match(fn, /j\.slug !== String\(slug/, "the grant is no longer scoped to one slug");
+  assert.match(fn, /return \{ id: j\.uid/, "the identity no longer comes from the job's stored uid");
+  // AND IT IS NOT A SESSION. Nothing here reads a cookie, a token or a header
+  // other than the marker itself.
+  assert.doesNotMatch(fn, /Authorization|authUser|cookie/i, "the replay identity reaches for a credential");
+});
+
+test("the replay identity is offered to the EDIT route and to no other", () => {
+  // THIS BLOCK GATES NINETEEN ROUTES. Without the route check a replay marker
+  // would authenticate a request to the domains panel, the secrets editor or
+  // the delete route — the same grant, aimed anywhere.
+  const auth = CODE.slice(at(CODE, "const eReplay = ed ?", "auth"), at(CODE, "const ownerDeps = {", "auth end"));
+  assert.match(auth, /const eReplay = ed \? editReplayUser\(request, ownerSlug\) : null;/,
+    "the replay identity is no longer restricted to the edit route");
+  assert.match(auth, /const ou = \(await authUser\(request\)\) \|\| eReplay;/,
+    "a real token no longer takes precedence over the replay identity");
+  assert.match(auth, /if \(!ou\) return UNAUTHED\(\);/, "an unidentified request is no longer refused");
+});
+
+test("the consumer checks the stored request against the row it claimed", () => {
+  const fn = CODE.slice(at(CODE, "async function runQueuedSiteEdit", "consumer"),
+                        at(CODE, "const EDIT_JOBS = new Map()", "consumer end"));
+  // THE ROW IS THE AUTHORITY. Until this check the claim came from Postgres and
+  // the request came from R2 with nothing tying them together — a job object
+  // whose uid or slug disagreed would have been replayed under a lease that says
+  // nothing about whose site it is.
+  assert.match(fn, /String\(claim\.uid \|\| ""\) !== job\.uid/, "the stored uid is no longer checked against the claim");
+  assert.match(fn, /String\(claim\.slug \|\| ""\) !== job\.slug/, "the stored slug is no longer checked against the claim");
+  const mismatch = fn.indexOf("String(claim.uid");
+  const replay = fn.indexOf("replayEditRequest");
+  assert.ok(mismatch > 0 && replay > mismatch, "the mismatch check runs after the replay it is meant to prevent");
+  // AND THE MAP IS KEYED BY THE SECRET. Keyed by the id, a customer who knows
+  // their own job id could look up its live context.
+  assert.match(fn, /EDIT_JOBS\.set\(job\.secret,/, "the job map is keyed by something the customer knows");
+  assert.match(fn, /EDIT_JOBS\.delete\(job\.secret\)/, "the map entry outlives the job under a different key");
+});
+
+test("the claim is what proves the job may run at all", () => {
+  // Everything item 3 asks for is decided by ONE conditional UPDATE, which is
+  // the only way these can be checked without a race: exists, not terminal, not
+  // under review, not already settled, and the lease free to take.
+  const sql = readFileSync(new URL("../supabase/applied/20260901110952_edit_job_rpcs.sql", import.meta.url), "utf8");
+  assert.ok(sql.includes("edit_claim"), "the claim RPC is not in the applied record");
+  // The live definition is the one that matters and it is asserted by driving it
+  // against the real database in the pre-flag checks; here the property is that
+  // the consumer ACTS on the answer rather than assuming it.
+  const fn = CODE.slice(at(CODE, "async function runQueuedSiteEdit", "consumer"),
+                        at(CODE, "const EDIT_JOBS = new Map()", "consumer end"));
+  assert.match(fn, /claim\.claimed !== true/, "the consumer no longer stops when the claim is refused");
+  const claimAt = fn.indexOf("edit_claim");
+  for (const later of ["SITES_BUCKET.get", "handleRequest(", "replayEditRequest", "EDIT_JOBS.set"]) {
+    assert.ok(fn.indexOf(later) > claimAt, `${later} runs before the claim`);
+  }
+});
+
+test("a queued edit reads its balance by uid, not by a token it does not have", () => {
+  // ITEM 7, IN THE ONE PLACE IT STILL BIT. Without this the picture lane reads a
+  // balance of zero on every async edit and declines a photograph the customer
+  // can afford — a wrong answer wearing the shape of a policy.
+  assert.match(CODE, /eJob \? readCreditsFor\(env, eJob\.uid\) : readCredits\(eAuth\)/,
+    "the queued path no longer reads the balance by uid");
+  const fn = CODE.slice(at(CODE, "async function readCreditsFor", "balance"), at(CODE, "async function readCredits(", "balance end"));
+  assert.match(fn, /svcHeaders\(env\)/, "the uid balance read no longer uses the service role");
+  assert.doesNotMatch(fn, /get_credits/, "the uid read goes through get_credits, which resolves auth.uid() and grants on first touch");
 });
 
 test("the enqueue stores the request before it sends the message", () => {

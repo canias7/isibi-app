@@ -654,7 +654,13 @@ test("every owner-scoped route matcher appears in the dispatch condition", () =>
   assert.ok(matchers.length >= 7, `only found ${matchers.length} /api/site matchers — the scan broke`);
   assert.ok(matchers.includes("dm2"), "the domains matcher is gone or renamed");
 
-  const cond = src.match(/if \(((?:\w+ \|\| )+\w+)\) \{\n\s*const ou = await authUser\(request\);/);
+  // RE-ANCHORED 2026-09-01. This pinned the LINE THAT FOLLOWS the condition —
+  // `const ou = await authUser(request);` — and went red when the block began
+  // resolving its slug first so a queued edit's replay identity could be scoped
+  // to it. The condition had not changed at all. The property is the condition
+  // itself, so that is what is matched, and the `ownerSlug` line below is what
+  // proves the window really is this block rather than some other disjunction.
+  const cond = src.match(/if \(((?:\w+ \|\| )+\w+)\) \{\n[\s\S]{0,600}?const ownerSlug = \(/);
   assert.ok(cond, "the owner dispatch condition is gone or reshaped");
   const dispatched = new Set(cond[1].split("||").map((s) => s.trim()));
 
@@ -742,7 +748,12 @@ test("nothing in the owner block assigns a Response to `r`", () => {
   // region of the router that legitimately hands back Responses.
   const end = src.indexOf("return Response.json(r.body, { status: r.status });");
   assert.ok(end > 0, "the owner block no longer ends in `Response.json(r.body, …)` — re-anchor this test");
-  const start = src.lastIndexOf("const ou = await authUser(request);", end);
+  // THE OPENING LANDMARK IS THE SLUG, NOT THE AUTH LINE (re-anchored
+  // 2026-09-01). The auth line grew a fallback — a queued edit's replay carries
+  // no bearer token — and this guard reported the whole block as unlocatable.
+  // `ownerSlug` is the first statement in the block and is what every route
+  // under it is about, so it is the more honest anchor either way.
+  const start = src.lastIndexOf("const ownerSlug = (", end);
   assert.ok(start > 0 && end - start > 2000, "could not locate the owner block");
   const block = src.slice(start, end);
 
@@ -955,7 +966,13 @@ test("the picture layer's working balance moves as it spends", () => {
   // three times and bought three photographs it could afford one of.
   const i = WORKER_SRC.indexOf("const pOut = await runPictureEdit({");
   const block = WORKER_SRC.slice(Math.max(0, i - 900), WORKER_SRC.indexOf("}, { instruction: eInstruction, pages: eSrc });", i));
-  assert.match(block, /let balance = await readCredits/, "a const balance can never be decremented");
+  // THE PROPERTY IS `let` PLUS A REAL READ, not the spelling of the read. It
+  // pinned `let balance = await readCredits` and went red when a queued edit —
+  // which carries no bearer token and must read its balance by uid — added a
+  // branch. The failure message even said "a const balance", which nobody had
+  // written: the tell that a spelling was being asserted.
+  assert.match(block, /let balance = await /, "a const balance can never be decremented");
+  assert.match(block, /readCredits(For)?\(/, "the working balance is no longer read from the ledger at all");
   assert.match(block, /balance -= SITE_PHOTO_USD \/ CREDIT_USD/, "the balance must fall as photographs are bought");
   assert.match(block, /if \(made\)/, "…only for one that really landed");
 });
