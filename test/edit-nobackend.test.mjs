@@ -871,3 +871,49 @@ test("the lane's own rule never promises a table that may not be sent", async ()
   assert.match(landmarkNote(MARKS), /AIM BY THIS TABLE/,
     "the note no longer tells the model to use the table it is handing over");
 });
+
+test("BOTH publish paths store the landmark map, not just the edit one", async () => {
+  // THE OWNER FOUND THIS BY ASKING, not a test: "during build time it creates a
+  // map so edit path can edit?" It did not. `saveLandmarks` was wired into the
+  // edit spine only, so a NEWLY BUILT site had no map and its first edit — the
+  // one most likely to be "make the button green" — ran blind. One publish of
+  // lag, in the worst possible place.
+  //
+  // READ RATHER THAN DRIVEN, and said so: driving a first build needs the
+  // container, which the unit suite has no access to. What it holds is that
+  // BOTH publishes store it, which is the half that went missing.
+  //
+  // AND IT EARNED ITS KEEP IMMEDIATELY, in the other direction. Told the build
+  // path had no store, I added a second one — threading the render report through
+  // `deps.publish` — without noticing the build path ALREADY had one, taking the
+  // map off `publishPages`'s return value. This counted THREE and said so. Two
+  // stores on one path is not harmless: they can disagree about which compile
+  // they describe, and the salvage path reassigns `built`.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const calls = [...src.matchAll(/await saveLandmarks\(env, slug, ([^)]*)\)/g)];
+  assert.equal(calls.length, 2,
+    "expected the build path AND the edit spine to store the map; found " + calls.length +
+    " call(s): " + JSON.stringify(calls.map((m) => m[1])));
+
+  // AND EACH TAKES IT FROM THE COMPILE IT IS PUBLISHING. A map read off anything
+  // but the build being served can describe a different compile — on the salvage
+  // path `built` is reassigned, so this is not hypothetical.
+  for (const [, arg] of calls) {
+    assert.match(arg, /render/,
+      "a landmark store is reading from something that is not the render report: " + arg);
+  }
+
+  // AND THE BUILD PATH'S STORE IS GATED ON A REAL PUBLISH. A build that failed
+  // has no live page, and a map describing one that was never served would aim
+  // the next edit at elements nobody can see.
+  //
+  // IT READS `publishPages`' RETURN VALUE rather than the `deps.publish`
+  // callback, and that is deliberate: the callback is handed
+  // `(dist, pages, worker)` and never sees the render report, so this is the
+  // first point on the build path where the map exists at all. Widening the
+  // callback to carry it is the OTHER way to do this, and doing both is how the
+  // duplicate above happened.
+  const buildStore = src.indexOf("if (out && out.ok && out.render) await saveLandmarks(");
+  assert.ok(buildStore > 0,
+    "the build path's store is no longer gated on a successful publish, or it moved");
+});
