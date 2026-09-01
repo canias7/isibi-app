@@ -306,10 +306,9 @@ const LANES = {
       yours:
         "THE WHOLE LOOK IS HERE AND ALL OF IT IS YOURS TO EDIT. Any element, any component, any state, any one " +
         "page — whatever they asked to look different, write the rule that does it. You are not limited to what " +
-        "the theme offers and nothing on the page is out of reach. AIM BY THE LANDMARK TABLE, not by the tag " +
-        "their wording implies: it lists the page's real elements with a selector for each that was tested and " +
-        "matches exactly one. What somebody calls a button is a ROLE, not a tag — this kit draws one as an " +
-        "`<a>`, so a rule for `button` on such a page is valid CSS that selects nothing at all.",
+        "the theme offers and nothing on the page is out of reach. READ THEIR WORDING AS A ROLE, NEVER AS A TAG: " +
+        "what somebody calls a button is usually not a `<button>` — this kit draws one as an `<a>` — so a rule " +
+        "for `button` on such a page is valid CSS that selects nothing at all.",
       wide:
         "EACH EDIT ONLY AS WIDE AS IT WAS ASKED. A change to one control is a rule for that control. A new value " +
         "for a token is not — every component reading that token repaints, so a request about one button becomes " +
@@ -1094,7 +1093,7 @@ export function landmarkNote(marks) {
     "against the rendered page and matches EXACTLY ONE of them:\n" +
     "name | selector | tag | section | role | text | link | route\n" +
     rows.join("\n") +
-    "\n\nSELECT BY THE `selector` COLUMN. Do not invent a selector out of the tag or out of the words they " +
+    "\n\nAIM BY THIS TABLE, AND SELECT BY THE `selector` COLUMN. Do not invent a selector out of the tag or out of the words they " +
     "used: what a customer calls a button is usually not a `<button>` — this kit renders one as an `<a>`, and " +
     "a rule for `header button` on a page with no `<button>` in it is valid CSS that changes nothing and is " +
     "indistinguishable from a rule that worked. Read their wording as the element's ROLE and its PLACE, then " +

@@ -840,3 +840,34 @@ test("a timeout says WHICH call ran out, not just that one did", async () => {
       "the timeout named `" + body.call + "`, but the first call a look edit makes is the lane picker");
   });
 });
+
+test("the lane's own rule never promises a table that may not be sent", async () => {
+  // RUN 100, AND IT COST 2 CREDITS FOR NOTHING. The rule said "AIM BY THE
+  // LANDMARK TABLE… it lists the page's real elements" — in the CACHED TOOL
+  // DESCRIPTION, so it went out on every css edit. The table itself rides in the
+  // per-call note and is only present when the site has a stored map.
+  // `fretwork-1` had none, so the model was told to aim by a table it was never
+  // given. It answered nothing, published nothing, and billed: `ok=true`,
+  // `moved: []`, 39.9s with no build at all.
+  //
+  // THE FIX IS STRUCTURAL, NOT WORDING. The instruction to use the table now
+  // lives IN the table's own note, so it exists exactly when the table does; the
+  // always-sent rule keeps only the principle that survives without one — read
+  // their wording as a role, not a tag.
+  //
+  // My earlier guard checked that the NOTE was absent without a map, and never
+  // that the RULE stopped referring to it. Half the property.
+  const { laneRule, landmarkNote } = await import("../builder/site-lanes.mjs");
+  const rule = laneRule("css");
+  assert.ok(rule && rule.length > 100, "the css lane lost its rule");
+  assert.doesNotMatch(rule, /THIS TABLE|THE LANDMARK TABLE|the table below/i,
+    "the always-sent rule points at a table that is only sometimes sent: " + rule.slice(0, 300));
+  // AND THE PRINCIPLE SURVIVES WITHOUT ONE, or a site with no map loses the one
+  // instruction that would have stopped runs 96 and 98.
+  assert.match(rule, /role/i, "the rule no longer says to read their wording as a role");
+  assert.match(rule, /not a `<button>`|usually not a `<button>`/,
+    "the rule no longer warns that what they call a button may not be one");
+  // THE TABLE'S OWN NOTE CARRIES THE AIMING INSTRUCTION, so it arrives with it.
+  assert.match(landmarkNote(MARKS), /AIM BY THIS TABLE/,
+    "the note no longer tells the model to use the table it is handing over");
+});
