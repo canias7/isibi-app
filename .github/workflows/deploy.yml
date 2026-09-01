@@ -107,6 +107,7 @@ jobs:
             CLOUDFLARE_ACCOUNT_ID
             DOMAIN_CONNECT_KEY
             XAI_API_KEY
+            EDIT_ASYNC
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -207,6 +208,25 @@ jobs:
           # THE RULE THIS ENCODES: a secret named in `secrets:` above must either
           # already exist in GitHub Actions, or carry a fallback here.
           DOMAIN_CONNECT_KEY: ${{ secrets.DOMAIN_CONNECT_KEY || 'not-a-key' }}
+          # ── THE ASYNC EDIT PATH, OFF UNTIL SOMEBODY TURNS IT ON ────────────
+          #
+          # A synchronous edit is reset at ~273s (measured twice: 273.2s and
+          # 273.1s, the second an outright ECONNRESET), so the work moves onto
+          # the build queue. This decides which door an edit goes through, and
+          # nothing below the fork can tell the difference — which is what makes
+          # the rollback "unset it and redeploy" rather than a revert.
+          #
+          # OPTIONAL, AND THE FALLBACK IS WHAT KEEPS THE DEPLOY ALIVE. See
+          # DOMAIN_CONNECT_KEY above for the rule this encodes: a name in the
+          # `secrets:` list with an empty value fails the WHOLE run, which took
+          # three merges down on 2026-08-07.
+          #
+          # `off` IS NOT A MAGIC WORD, it is simply not one of the affirmative
+          # ones. `editAsyncOn` accepts 1/true/on/yes and treats everything else
+          # — including a typo, a number and a non-string — as off, because an
+          # unreadable flag must never turn a customer-facing path on by
+          # accident.
+          EDIT_ASYNC: ${{ secrets.EDIT_ASYNC || 'off' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

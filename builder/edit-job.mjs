@@ -1,0 +1,253 @@
+// One edit, run as a queued job instead of on the customer's connection.
+//
+// ── WHY (2026-09-01) ───────────────────────────────────────────────────────
+//
+// The synchronous edit request is reset at ~273 seconds. Measured twice: run
+// 101 at 273.2s and run 104 at 273.1s, the second naming it outright as
+// ECONNRESET on the inbound TLS socket. Nothing we configure is 273 — the
+// ceilings in this repo are 240s, 600s, 780s and 1080s — so the wall is
+// infrastructure and no amount of tuning moves it. The work has to leave the
+// connection.
+//
+// ── WHY IT IS A LEAF MODULE ────────────────────────────────────────────────
+//
+// No imports, no bindings, no I/O. Every decision that can be WRONG is here and
+// is driven with literal values in the tests — the budget arithmetic especially,
+// which decides whether a correction round is started and therefore whether a
+// customer's money is spent on work that cannot finish. Same split as
+// `edit-trace.mjs` and `site-render.mjs`: the part that judges is separable from
+// the part that acts.
+
+/** The queue message kind. `site-build` is the other one and neither may guess. */
+export const EDIT_JOB_KIND = "site-edit";
+
+/** Where a job's replayable request lives in R2, beside the build jobs. */
+export const EDIT_JOB_PREFIX = "jobs/edit/";
+
+// ── THE CLOCKS ─────────────────────────────────────────────────────────────
+//
+// A QUEUE CONSUMER IS STOPPED AT FIFTEEN MINUTES and that is a hard platform
+// cap, not a setting. Everything below has to fit inside it with room for the
+// job to record what happened while the isolate is still alive.
+
+/** The platform's cap, named so the arithmetic below can be checked against it. */
+export const CONSUMER_CEILING_MS = 900000;
+
+/**
+ * The whole job's clock — THIRTEEN MINUTES, the same figure and the same
+ * reasoning as `BUILD_BUDGET_MS`.
+ *
+ * IT IS FIXED AT CLAIM AND NOTHING EXTENDS IT. Heartbeats renew the LEASE,
+ * which says who may act; they do not and cannot buy execution time, because the
+ * thing that stops the isolate is Cloudflare's ceiling and it is not listening.
+ * The same goes for the publish lease. That separation is structural here:
+ * `makeEditBudget` closes over its start and exposes no setter.
+ *
+ * The 120 seconds between this and the ceiling is the isolate's own teardown
+ * room — the terminal state write, the refund and the trace, which all have to
+ * complete AFTER the deadline fires.
+ */
+export const EDIT_JOB_MS = 780000;
+
+/**
+ * Held back for the publish sweep: the dist write, the archive, the source, the
+ * landmarks and the site Worker upload.
+ *
+ * CONSERVATIVE AND UNMEASURED, AND SAID SO. The R2 publish phase has never been
+ * timed on its own — `PUBLISH_RESERVE_MS` on the build path covers compile plus
+ * container plus pages, which is a different quantity. The trace records
+ * `publish` from the first run so this becomes a measurement instead of a guess;
+ * until then it is deliberately generous, because the cost of it being too small
+ * is a job that dies mid-publish and needs a human.
+ */
+export const PUBLISH_RESERVE_MS = 90000;
+
+/**
+ * Held back for recording the outcome: the terminal state, the refund, the
+ * result and the trace. Small, but it must exist — a job that spends its last
+ * millisecond publishing has no time left to say that it did.
+ */
+export const TERMINAL_RESERVE_MS = 15000;
+
+/**
+ * The floor under a correction round, and its parts are named rather than summed
+ * into one number so a later measurement can move one of them.
+ *
+ * ── WHY THESE ARE MINIMUMS AND NOT CEILINGS ──────────────────────────────
+ *
+ * "Enough budget for correction, build 2, verification, publishing and the final
+ * writes" cannot be read as the per-call CEILINGS, and the arithmetic says why:
+ * a correction call may take 240s and a container call 600s, which with the two
+ * reserves is 945s — more than the whole 780s budget and more than the
+ * platform's 900s. Read that way a correction could never start under any
+ * circumstances, and the feature would be dead on arrival.
+ *
+ * So the reserve is guaranteed STRUCTURALLY and the floor is a separate,
+ * weaker thing:
+ *
+ *   - `capMs` subtracts both reserves from every pre-publish call, so no model
+ *     call and no container call can eat the publish window. That is the
+ *     guarantee, and it holds whatever these numbers say.
+ *   - This floor stops work that is *obviously* doomed — below it there is no
+ *     point spending the customer's money on a round that cannot land.
+ *
+ * The numbers are the smallest a real round has been observed to need, not the
+ * largest it may take: a lane call is tens of seconds and an edit's container
+ * build is one to two minutes (vite is ~7s over 2,186 modules, the render check
+ * ~6s). Conservative on the safe side — too high only skips a correction and
+ * refunds, which is the defined outcome anyway.
+ */
+export const MIN_CORRECT_MS = 60000;
+export const MIN_BUILD_MS = 180000;
+export const MIN_VERIFY_MS = 10000;
+export const CORRECT_FLOOR_MS =
+  MIN_CORRECT_MS + MIN_BUILD_MS + MIN_VERIFY_MS + PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS;
+
+// ── THE LEASE ──────────────────────────────────────────────────────────────
+
+/** How long a claim is good for. Three missed renewals before it can go stale. */
+export const LEASE_TTL_S = 90;
+
+/**
+ * How often it is renewed.
+ *
+ * A TIMER, NEVER A PHASE BOUNDARY, and this is the one lease decision that is
+ * not a matter of taste. The container call is a single await of up to ten
+ * minutes with no boundary inside it, so a heartbeat that only fired between
+ * phases would let the lease expire during every single build — the sweep would
+ * then steal a healthy job and refund a customer whose edit was still running.
+ */
+export const HEARTBEAT_S = 30;
+
+/**
+ * How far past expiry a lease has to be before the sweep may take it. One extra
+ * TTL of grace, so a slow renewal costs nothing.
+ */
+export const STALE_GRACE_S = 60;
+
+/**
+ * The window `edit_may_publish` grants.
+ *
+ * IT IS NOT EXECUTION TIME. It is longer than the publish reserve on purpose —
+ * the sweep needs `expiry + STALE_GRACE_S` to elapse before it can act, so a
+ * publish that runs to its full reserve still cannot be stolen mid-flight. The
+ * consumer's own budget is what limits how long it may actually run, and it is
+ * shorter.
+ */
+export const PUBLISH_LEASE_S = 300;
+
+// ── STATES ─────────────────────────────────────────────────────────────────
+
+/** Every state the database's own CHECK constraint admits, in order. */
+export const EDIT_PHASES = Object.freeze([
+  "queued", "claimed", "routing", "editing", "building",
+  "verifying", "correcting", "rebuilding", "publishing",
+]);
+
+/** Nothing moves out of these. Kept in step with the CHECK constraint by a test. */
+export const TERMINAL_STATES = Object.freeze(["done", "failed", "cancelled", "lost"]);
+
+/**
+ * A NON-STRING IS NOT TERMINAL, and it is not coerced into one either.
+ *
+ * The first draft of this line was `TERMINAL_STATES.includes(String(s || ""))`,
+ * which answers TRUE for `["done"]` — `String(["done"])` is `"done"`. That is
+ * this repo's own recorded trap, shipped for a fourth time, and caught by the
+ * test written for it in the same commit. The direction of the mistake here is a
+ * running job read as finished.
+ */
+export const isTerminalEdit = (s) => typeof s === "string" && TERMINAL_STATES.includes(s);
+
+/**
+ * The whole-job clock.
+ *
+ * `capMs` HANDS BACK WHICHEVER IS SOONER — the per-call bound, or what is left
+ * of the job minus the reserves. That is what makes the two bounds compose
+ * rather than compete, and it is the same shape as `makeBudget` on the build
+ * path, deliberately: one idea, two clocks, no second way of thinking about it.
+ */
+export function makeEditBudget(totalMs = EDIT_JOB_MS, now = () => Date.now()) {
+  const t0 = now();
+  const left = () => Math.max(0, totalMs - Math.max(0, now() - t0));
+  return {
+    startedAt: t0,
+    elapsed: () => Math.max(0, now() - t0),
+    /** What remains of the whole job, reserves included. */
+    remaining: left,
+    /**
+     * What remains for WORK — the job's time less both reserves.
+     *
+     * This is the number every gate reads, and it is what makes the publish
+     * window safe by construction rather than by anybody remembering to leave
+     * room for it.
+     */
+    spendable: () => Math.max(0, left() - PUBLISH_RESERVE_MS - TERMINAL_RESERVE_MS),
+    /**
+     * The ceiling for one call. `publishing: true` releases the publish reserve,
+     * because at that point the publish IS the work being bounded.
+     *
+     * NEVER ZERO for the same reason `capMs` on the build path is never zero: a
+     * timer of 0 fires immediately, which turns "no time left" into "this call
+     * failed instantly" and hides the real reason under a wrong one. A caller
+     * that must refuse asks `expired()`.
+     */
+    capMs(cap, { publishing = false } = {}) {
+      const room = publishing
+        ? Math.max(0, left() - TERMINAL_RESERVE_MS)
+        : Math.max(0, left() - PUBLISH_RESERVE_MS - TERMINAL_RESERVE_MS);
+      return Math.max(1, Math.min(Number(cap) || 0, room));
+    },
+    /** No time left to do any work in. */
+    expired: () => left() <= PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS,
+    /**
+     * May a correction round START?
+     *
+     * Asked BEFORE the round, never during. A round begun with too little left
+     * spends the model call and the container run and then fails anyway — the
+     * customer is refunded either way, so the only difference is whether we
+     * spent their credits to reach the same place.
+     */
+    canCorrect: () => left() >= CORRECT_FLOOR_MS,
+  };
+}
+
+/**
+ * The client's idempotency key, or nothing.
+ *
+ * REFUSES, NEVER REPAIRS AND NEVER GENERATES. A key minted here would make every
+ * retry a distinct job, which is exactly the double charge the key exists to
+ * prevent — the failure is silent and costs the customer money, so the bias
+ * inverts here the way it does for the `pages` verb and for `cleanAlias`.
+ *
+ * AND IT REFUSES A NON-STRING RATHER THAN COERCING ONE. `String(["abc"])` is
+ * `"abc"` — a perfectly good key assembled out of a shape mistake — and this
+ * repo has shipped that coercion as a real bug three times.
+ */
+export function cleanIdemKey(v) {
+  if (typeof v !== "string") return null;
+  return /^[A-Za-z0-9_-]{16,64}$/.test(v) ? v : null;
+}
+
+/**
+ * A consumer instance's name, for the lease.
+ *
+ * NOT THE JOB ID. Two consumers racing for one job must be distinguishable, and
+ * naming the lease after the job makes every holder look like every other one —
+ * which is the whole thing the lease is for.
+ */
+export function newLeaseOwner(rnd = Math.random) {
+  return "c_" + rnd().toString(36).slice(2).padEnd(8, "0").slice(0, 8);
+}
+
+/**
+ * Is the async edit path on?
+ *
+ * OPTIONAL, AND OFF IS THE DEFAULT INCLUDING WHEN THE VALUE IS NONSENSE. An
+ * unreadable flag must not turn a customer-facing path on by accident, so
+ * anything that is not an affirmative word is off.
+ */
+export function editAsyncOn(env) {
+  const v = env && env.EDIT_ASYNC;
+  if (typeof v !== "string") return false;
+  return ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
+}
