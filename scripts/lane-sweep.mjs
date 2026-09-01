@@ -322,6 +322,21 @@ async function main() {
     const body = (reply && reply.json) || {};
     const bal1 = await balance();
     const cost = bal0 - bal1;
+    // THE EDGE IS NOT THE DATABASE. The stored reply is handed back the instant
+    // finalize runs, and `worker:put` has answered 200 by then - but the new
+    // script takes some seconds to be what every edge serves. The third sweep
+    // read the site in that window, saw the old build id and the old colours,
+    // and called the theme lane a liar for a change that was live a moment
+    // later. So a claimed success WAITS for the build id to move, bounded; an
+    // escalate or an already-so must NOT move it, and is read at once.
+    if (body.ok === true && Array.isArray(body.moved) && body.moved.length) {
+      const t1 = Date.now();
+      while (Date.now() - t1 < 90000) {
+        const probe = await site("/");
+        if ((probe.headers.get("x-site-build") || "") !== before.build) break;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    }
     const after = await snapshot();
     const claimedOk = body.ok === true;
     const escalated = body.escalate === true;

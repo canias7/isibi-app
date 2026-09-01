@@ -311,3 +311,16 @@ test("the trace is flushed on EVERY exit, not only the throwing one", () => {
   assert.match(src, /flushEditTrace\(env, ctx, editTrace, \{ ok: false, error: e \}\); editTrace = null;/,
     "the catch does not clear the trace, so a throwing request flushes twice");
 });
+
+test("the r2:dist mark reports the number the writer returns", () => {
+  // `writeSiteDistToR2` ends `return wrote.size` - a number - and the mark read
+  // it with Array.isArray, so every publish traced 0 objects written. Found on
+  // 2026-09-01 while a theme edit that had shipped was being read as a lie;
+  // the trace said nothing had been written and the site said otherwise.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const ret = w.indexOf("return wrote.size;");
+  const mark = w.indexOf('tm("r2:dist", "ok", {');
+  assert.ok(ret > 0 && mark > 0, "the writer's return or the mark is gone");
+  const line = w.slice(mark, w.indexOf("\n", mark));
+  assert.match(line, /Number\.isFinite\(wrote\) \? wrote/, "the mark reads a number as an array and reports 0");
+});

@@ -142,3 +142,22 @@ test("a claimed success with an unmoved build is a lie, and an escalate that mov
   assert.ok(cond.length > 20 && cond.length < 400, "the already-so condition could not be isolated");
   assert.match(cond, /body\.lookNote/, "already-so is not keyed on the server's own lookNote");
 });
+
+test("a claimed success waits for the edge before the site is judged", () => {
+  // THE THIRD SWEEP'S FALSE ALARM. The theme lane published noir; the harness
+  // read the site seconds before the new script was what the edge served, saw
+  // the old build id, and called it a lie. Property: between the reply and the
+  // snapshot there is a bounded wait for the build id to move, taken only on a
+  // reply that claims a change - an escalate must be read at once, because for
+  // it a moved build IS the lie.
+  const src = readFileSync(new URL("../scripts/lane-sweep.mjs", import.meta.url), "utf8");
+  const reply = src.indexOf("const body = (reply && reply.json) || {};");
+  const wait = src.indexOf('(probe.headers.get("x-site-build") || "") !== before.build');
+  const snap = src.indexOf("const after = await snapshot();");
+  assert.ok(reply > 0 && wait > 0 && snap > 0, "a landmark is gone");
+  assert.ok(reply < wait && wait < snap, "the edge wait does not sit between the reply and the snapshot");
+  const gate = src.slice(src.lastIndexOf("if (", wait - 200), wait);
+  assert.match(gate, /body\.ok === true/, "the wait is not gated on a claimed success");
+  assert.match(gate, /body\.moved/, "the wait is not gated on something having moved - an already-so would wait the full bound");
+  assert.match(src.slice(wait - 300, wait + 200), /90000|60000|75000/, "the wait is unbounded");
+});

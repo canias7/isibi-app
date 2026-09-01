@@ -10010,7 +10010,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // something else entirely.
     verify,
   }, pages, renamed, siteLangs.filter((l) => !l.primary).map((l) => l.prefix));
-  tm("r2:dist", "ok", { objects: Array.isArray(wrote) ? wrote.length : 0 });
+  // `writeSiteDistToR2` returns `wrote.size`, a NUMBER. This read it as an
+  // array and reported 0 objects on every publish that wrote dozens - a lying
+  // instrument, found while diagnosing a theme edit that had in fact shipped.
+  tm("r2:dist", "ok", { objects: Number.isFinite(wrote) ? wrote : Array.isArray(wrote) ? wrote.length : 0 });
   tm("archive", "start");
   try {
     await archiveVersion(versionDeps(env), {
