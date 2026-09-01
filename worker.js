@@ -17755,6 +17755,9 @@ async function handleRequest(request, env, ctx) {
         // other. `null` for every route that is not an edit, and every mark
         // on it is a no-op.
         let editTrace = null;
+        // KEPT SEPARATELY so the reply can still name the trace after the
+        // catch has flushed and cleared it.
+        let cidForReply = "";
         try {
           let r;
           // ── PUBLISHED VERSIONS ────────────────────────────────────────────
@@ -17790,6 +17793,7 @@ async function handleRequest(request, env, ctx) {
             // in-memory pushes: no awaits, no subrequests, nothing that can
             // change what this route does or how long it takes.
             editTrace = newTrace({ slug: ownerSlug, uid: ou.id });
+            cidForReply = editTrace.cid;
             // BOTH ARE `let` BECAUSE THE LANE ROUTER MAY REPOINT THEM. See the
             // hoisted `pick_lanes` block below: a message about a photograph is
             // the `picture` layer's work however it arrived, and the door that
@@ -21174,11 +21178,34 @@ async function handleRequest(request, env, ctx) {
           // `traceRow` and stored behind the service key; the reply below is
           // byte-identical to what it has always been apart from `cid`, which
           // is ours and names nothing.
-          if (editTrace) flushEditTrace(env, ctx, editTrace, { ok: false, error: e });
+          if (editTrace) { flushEditTrace(env, ctx, editTrace, { ok: false, error: e }); editTrace = null; }
           return Response.json({
             error: "Something went wrong reaching your site's data.", kind, why,
-            cid: (editTrace && editTrace.cid) || undefined,
+            cid: (cidForReply) || undefined,
           }, { status: 500 });
+        } finally {
+          // ── EVERY EXIT, NOT JUST THE THROWING ONE (run 102) ────────────────
+          //
+          // The first cut flushed in the CATCH alone, so a trace was written
+          // only when the request threw. Run 102 completed normally and wrote
+          // NOTHING — the recorder built to explain run 101 recorded nothing on
+          // the very run that reproduced it, and `edit_traces` was empty.
+          //
+          // The same shape as the bug it exists to find, one layer up: an
+          // instrument attached to a single path while the work has many.
+          // This route has dozens of returns — success, every escalate, every
+          // `modelDown`, the verify refusal — and enumerating them is the
+          // maintenance burden that guarantees the next one is missed. `finally`
+          // covers all of them by construction, including the throw, which is
+          // why the catch nulls the trace after flushing rather than leaving it
+          // to be written twice.
+          //
+          // OUTCOME UNKNOWN HERE, DELIBERATELY: `finally` cannot see the return
+          // value, so `ok` is left to the timeline. `traceRow` derives the
+          // failing phase from the events — the phase that reported `fail`, or
+          // the last one still open — which is a better answer than a boolean
+          // this block would have to guess at.
+          if (editTrace) flushEditTrace(env, ctx, editTrace, { ok: !editTrace.events().some((x) => x.s === "fail") });
         }
       }
     }

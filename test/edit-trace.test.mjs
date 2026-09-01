@@ -261,8 +261,37 @@ test("a null trace is exactly what a non-edit route has", () => {
   // The declaration sits outside the try so the catch can reach it; every route
   // that is not an edit leaves it null and flushes nothing.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(src, /let editTrace = null;\n\s*try \{/,
-    "the trace is no longer declared outside the try, so the catch cannot see it");
+  // THE PROPERTY IS "OUTSIDE THE TRY", not "on the line before it" — this
+  // pinned adjacency and went red when `cidForReply` was declared between
+  // them, reporting the declaration as moved when it had not.
+  const decl = src.indexOf("let editTrace = null;");
+  assert.ok(decl > 0, "the trace declaration is gone");
+  const tryAfter = src.indexOf("try {", decl);
+  const routeAfter = src.indexOf("editTrace = newTrace(", decl);
+  assert.ok(tryAfter > decl && tryAfter < routeAfter,
+    "the trace is no longer declared outside the try that encloses the route, so the catch cannot see it");
   assert.match(src, /if \(editTrace\) flushEditTrace\(/,
     "the catch flushes unconditionally — a non-edit route would write an empty row");
+});
+
+test("the trace is flushed on EVERY exit, not only the throwing one", () => {
+  // RUN 102 IS WHY. The first cut flushed in the catch alone, so a trace was
+  // written only when the request threw. Run 102 completed normally and wrote
+  // nothing — the recorder built to explain run 101 recorded nothing on the run
+  // that reproduced it, and `edit_traces` came back empty.
+  //
+  // The same shape as the bug it exists to find: an instrument attached to one
+  // path while the work has many. This route has dozens of returns, and
+  // enumerating them is what guarantees the next one is missed.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const i = src.indexOf("if (editTrace) flushEditTrace(");
+  assert.ok(i > 0, "nothing flushes the trace");
+  // A `finally` ON THE TRY THAT ENCLOSES THE EDIT ROUTE — the only construct
+  // that covers every return by construction rather than by enumeration.
+  assert.match(src, /\} finally \{[\s\S]{0,2000}?if \(editTrace\) flushEditTrace\(/,
+    "the trace is not flushed in a finally, so a normal return writes nothing");
+  // AND EXACTLY ONCE: the catch clears the trace after flushing, or a throwing
+  // request writes its row twice and the second overwrites the first.
+  assert.match(src, /flushEditTrace\(env, ctx, editTrace, \{ ok: false, error: e \}\); editTrace = null;/,
+    "the catch does not clear the trace, so a throwing request flushes twice");
 });
