@@ -1209,6 +1209,18 @@ the tree. Caught only because the guard written for it was failing, which is the
 good outcome and not a plan. **Put the restore on a `trap … EXIT INT TERM HUP`
 and run the sweep in the background**, where nothing can time it out.
 
+**A PUSH TO MAIN ROLLS THE CONTAINER UNDER WHATEVER IS RUNNING (2026-09-01,
+the first lane sweep).** Two pushes that touched only `scripts/` and `test/`
+each ran `deploy.yml`; the second finished at 20:30:16 and the sweep reached its
+fourth lane at 20:32. `description` waited the full **600 s** container cap on
+an instance being recycled and died "aborted due to timeout"; `wordmark` got a
+plain-text `Container …` body and died on a JSON parse; `favicon` at 20:47 got
+the warm new instance and passed. Both refunded correctly, both reported as
+"didn't compile" — `compileMsg` again, with the truth sitting in `detail`.
+**The deploy rule above says "a push that touches `builder/`"; it is every
+push.** Never push while a live run is in flight, and after any push wait
+15–20 minutes before firing anything that needs the container.
+
 **Re-run the thing the change is asserted by.** Appeasing a false alarm in one
 checker while never re-running the harness that actually proves the change has
 shipped red twice.

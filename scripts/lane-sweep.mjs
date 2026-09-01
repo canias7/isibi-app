@@ -183,7 +183,12 @@ function qrMatches(svg, candidates) {
 export const CASES = [
   { lane: "css", ask: "Make the big heading at the top of the page dark red",
     check: (b, a) => ({ ok: a.build !== b.build && a.sheetLen !== b.sheetLen, note: `sheet ${b.sheetLen}→${a.sheetLen} bytes` }) },
-  { lane: "theme", ask: "Switch the whole site to the letterpress theme",
+  // NOIR, NOT LETTERPRESS. The first sweep asked for letterpress and the server
+  // answered `no-change` in 22 seconds for nothing: the site already had it.
+  // An honest refusal and a wasted lane. The theme name is not readable off
+  // the served page, so the ask names one far from the paper-and-serif look
+  // this site was built with.
+  { lane: "theme", ask: "Switch the whole site to the noir theme",
     check: (b, a) => ({ ok: a.root && a.root !== b.root, note: a.root === b.root ? ":root colours unchanged" : ":root colours changed" }) },
   { lane: "brand", ask: 'Rename the business to "Crookes Guitar School"',
     check: (b, a) => ({ ok: /Crookes Guitar School/.test(a.title) && /Crookes Guitar School/.test(a.ogTitle), note: `title "${a.title}"` }) },
@@ -195,8 +200,19 @@ export const CASES = [
     check: (b, a) => ({ ok: a.icon && a.icon !== b.icon && /<svg/.test(a.icon), note: a.icon === b.icon ? "icon bytes unchanged" : `icon changed (${a.icon.length} bytes)` }) },
   { lane: "lang", ask: "Set the site's language to Welsh",
     check: (b, a) => ({ ok: a.lang === "cy", note: `<html lang="${a.lang}" dir="${a.dir}">` }) },
+  // JUDGED BY WHAT A VISITOR GETS, not by the head. The first sweep called this
+  // lane a liar: it had added both languages — `/fr` and `/es` answered 200 and
+  // the header grew a switch reading Cymraeg · Français · Español — while the
+  // check read `og:locale:alternate` tags and found one of two. That is a
+  // real, separate defect in the head pack (filed), and a check that judges a
+  // lane by a different feature's bug is a false alarm, which this repo rates
+  // worse than a miss.
   { lane: "langs", ask: "Also offer the site in French and Spanish",
-    check: (b, a) => ({ ok: a.locales.length > b.locales.length && a.locales.some((l) => /^fr/.test(l)) && a.locales.some((l) => /^es/.test(l)), note: `locales ${JSON.stringify(a.locales)}` }) },
+    check: (b, a) => {
+      const sw = a.slots.includes("lang-switch") && !b.slots.includes("lang-switch");
+      const names = /Fran[cç]ais/.test(a.headerText) && /Espa[nñ]ol/.test(a.headerText);
+      return { ok: sw && names, note: `lang-switch ${sw ? "added" : "absent"}; header "${a.headerText.slice(0, 80)}"; head alternates ${JSON.stringify(a.locales)}` };
+    } },
   { lane: "behavior", ask: 'When someone presses the "Get your first lesson free" button, open the phone dialler with my number',
     // RECORDED, NOT RENDERED — the field decides and stores, nothing generates
     // from it yet (owner's call). The only observable is the server saying the
@@ -318,7 +334,14 @@ async function main() {
       verdict = chk.ok && after.build === before.build ? "ok (honest refusal)" : "LIE"; note = `escalate ${body.reason}; ${chk.note}`;
     }
     else if (escalated) { verdict = "escalated"; note = `reason ${body.reason}${after.build !== before.build ? " — AND THE BUILD MOVED, which an escalate must never do" : ""}`; if (after.build !== before.build) verdict = "LIE"; }
-    else if (!claimedOk) { verdict = "failed"; note = `${reply.status} ${String(body.error || body.msg || reply.text || "").slice(0, 160)}`; }
+    // `detail` IS THE DIAGNOSIS. The first sweep printed "422 compile" for two
+    // lanes whose real answers were "aborted due to timeout" and a container
+    // replying `Container …` in plain text — a container being recycled onto a
+    // new image under the sweep, because a push to main rolls it. The
+    // customer-facing `msg` collapsed both into "didn't compile", which is the
+    // recorded failure-that-cannot-name-itself; the honest half was in `detail`
+    // the whole time and this line did not print it.
+    else if (!claimedOk) { verdict = "failed"; note = `${reply.status} ${String(body.error || "")} — ${String(body.detail || body.msg || reply.text || "").slice(0, 200)}`; }
     else {
       const chk = c.check(before, after, body);
       const moved = after.build !== before.build;
