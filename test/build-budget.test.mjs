@@ -273,8 +273,26 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   // What has to hold is that `quickSend` hands `callBuilderModel` the SMALL-CALL
   // budget rather than a build's. Its parameter list and whatever it wraps around
   // the call are free to change.
-  assert.match(CODE, /const quickSend = [^;]*?callBuilderModel\(env, req, quickBudget\)/s,
-    "the small-call sender no longer carries its own ceiling — it would inherit the ten-minute build budget");
+  // RE-ANCHORED AGAIN (2026-09-01), and the comment above is why it had to be:
+  // it still pinned the ARGUMENT — `callBuilderModel(env, req, quickBudget)` —
+  // and went red the moment a queued edit began passing its own whole-job clock,
+  // reporting a sender whose ceiling had not moved as having lost one. Twice now
+  // on the same assertion, which is the tell that a spelling was being asserted
+  // and not a property.
+  //
+  // WHAT MUST HOLD: whatever `quickSend` hands `callBuilderModel`, a small call
+  // is bounded by `QUICK_CALL_MS` and never by a build's clock. The default is
+  // `quickBudget`; a caller-supplied budget is clamped to the same ceiling
+  // first, so the job's remaining time can only ever make it smaller.
+  const sender = CODE.slice(CODE.indexOf("const quickSend ="), CODE.indexOf("const modelKeyMissing"));
+  assert.ok(sender.length > 100, "the small-call sender is gone, or its window closed early");
+  assert.match(sender, /callBuilderModel\(env, req,/, "the small-call sender no longer makes the call");
+  assert.match(sender, /quickBudget/, "the small-call sender lost its default ceiling");
+  assert.match(sender, /QUICK_CALL_MS/, "nothing in the small-call sender bounds it to the small-call ceiling");
+  // AND NEVER A BUILD'S. This is the regression the assertion exists for, and it
+  // is the one thing an added parameter cannot introduce by accident.
+  assert.doesNotMatch(sender, /BUILD_BUDGET_MS|CONTAINER_CALL_MS/,
+    "the small-call sender reaches for a build's ceiling — a lane call would get ten minutes");
   const cap = CODE.match(/const QUICK_CALL_MS = (\d+);/);
   assert.ok(cap, "the small-call ceiling is gone");
   // THE PROPERTY, NOT THE FIGURE. This asserted `< 60000` while the constant was

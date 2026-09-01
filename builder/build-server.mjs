@@ -1399,6 +1399,50 @@ const server = http.createServer((req, res) => {
     // make "the hold is running" indistinguishable from "the request is stuck".
     return send(res, 200, { held: true, ms });
   }
+  // ── THE OPPOSITE OF `/hold`: REPLY ONLY AT THE END ────────────────────────
+  //
+  // `/hold` answers at once so the caller can walk away. This one answers after
+  // `ms`, because the question is the other half: can a WORKER hold an outbound
+  // fetch open for that long?
+  //
+  // WHY IT HAD TO EXIST (2026-09-01). The wall probe has five modes and four are
+  // answered — waiting survives 420s, memory survives 192MB held, burning CPU is
+  // cut off. The fifth, `sub`, is the only one shaped like the thing that
+  // actually dies: an edit is not a Worker doing arithmetic, it is a Worker
+  // awaiting Anthropic, then the container, each for minutes. It has NEVER
+  // measured. Its inner fetch went to our own hostname and Cloudflare answered
+  // **522 in 0.0 seconds** — a Worker cannot call its own zone — and the probe
+  // correctly scored that NOT MEASURED rather than counting the 200.
+  //
+  // THE CONTAINER IS THE RIGHT FAR END, not a workaround for the 522. What an
+  // edit awaits longest IS `containerFetch`, under a ten-minute ceiling, so a
+  // Worker holding this open is the real shape rather than a stand-in for it.
+  //
+  // NO LANE, WHICH IS THE ONE PLACE THIS DIFFERS FROM `/hold` ON PURPOSE. That
+  // one takes a lane to look like a build to the busy counter; this one holds a
+  // SOCKET, and taking a lane as well would starve the platform's builds for up
+  // to fifteen minutes to measure something that has nothing to do with lanes.
+  // Same `MAX_HOLD_MS` ceiling, same owner-gated route in front of it.
+  if (req.method === "POST" && req.url && req.url.startsWith("/slowreply")) {
+    const want = Number(new URL(req.url, "http://c").searchParams.get("ms"));
+    const ms = Number.isFinite(want) && want > 0 ? Math.min(want, MAX_HOLD_MS) : 1000;
+    const t0 = Date.now();
+    // A CALLBACK RATHER THAN `await`, because this handler is not async — the
+    // whole server is one sync arrow function and every long route in it hands
+    // the response to a continuation. Awaiting here would be a syntax error, and
+    // making the handler async to please one probe would change how every other
+    // route's throws are surfaced.
+    //
+    // `waitedMs` IS WHAT MAKES THE ROW READABLE, and the probe refuses to score
+    // a `sub` row whose inner call did not really wait — the defect that made
+    // the first run report "a subrequest can be held for 420s" off a request
+    // that came back in a tenth of a second.
+    setTimeout(() => {
+      try { send(res, 200, { slowreply: true, askedMs: ms, waitedMs: Date.now() - t0 }); }
+      catch { /* the caller went away, which is itself an answer the caller sees */ }
+    }, ms);
+    return;
+  }
   // CAN THIS CONTAINER REACH THE MODEL PROVIDERS AT ALL?
   //
   // The second thing no unit test can answer, and the one that decides whether
