@@ -11466,9 +11466,44 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
 // failed (the site is untouched, and rewriting every page to fix a typo is the
 // trade nobody would make). Those the customer is told about, in the server's
 // own words.
+// ── ONE EDIT IN FLIGHT PER SITE, AND ONE KEY PER ASK ─────────────────────
+//
+// `editInFlight` is what stops a double submission while the first POST is
+// unresolved: a second click before the 202 lands would otherwise be a second
+// job with its own key, its own charge and its own publish racing the first.
+//
+// `editIdem` is the retry key for the ask that is in flight. It is minted when
+// the customer asks for something and reused for every retry of THAT POST — a
+// key per attempt would defeat the whole mechanism, since the server's
+// idempotency is `(uid, slug, op, idem_key)` and a fresh key is by definition a
+// new job.
+//
+// `editBlocked` is the sites whose last edit stopped mid-publish. The server
+// refuses those too — `edit_create` answers `needs-review` — and this is the
+// half that stops the customer spending a round trip to be told so.
+const editInFlight = new Set();
+const editIdem = new Map();
+const editBlocked = new Set();
+
 function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOff) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
+  if (editBlocked.has(slug)) { finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
+  // A SIDEWAYS HOP IS THE SAME ASK. `handedOff` means one lane escalated to
+  // another within one message, so it must carry the same key and must not be
+  // refused as a double submission — it IS the first submission, redirected.
+  if (!handedOff) {
+    if (editInFlight.has(slug)) return;
+    editInFlight.add(slug);
+    editIdem.set(slug, EditPoll.newIdemKey());
+  }
+  // READ, NEVER MINTED HERE. A fallback mint at the point of use is a second
+  // key for the same ask wearing a safety net — and the server's idempotency is
+  // (uid, slug, op, idem_key), so a fresh key IS a second job. Absent, the POST
+  // carries none and the server refuses with `bad-idem`, which is the right
+  // direction to fail in: a visible refusal rather than a silent double charge.
+  const idem = editIdem.get(slug);
+  const clearFlight = () => { if (!handedOff) editInFlight.delete(slug); };
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/edit', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -11502,9 +11537,24 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // layer alone so no other edit carries a megabyte of base64 it will not
       // read.
       images: d.layer === 'logo' && Array.isArray(imgs) && imgs.length ? imgs.slice(0, 3) : undefined,
+      // THE RETRY KEY. Ignored entirely while the async flag is off, which is
+      // what keeps the synchronous path byte-identical.
+      idem: idem,
     }),
   }).then(async (r) => {
     const e = await r.json().catch(() => null);
+    // ── A QUEUED EDIT ANSWERS WITH A JOB, NOT AN OUTCOME ─────────────────
+    //
+    // Flag off, this is never taken and every line below runs as it did. Flag
+    // on, the reply is a receipt and the real answer is fetched by polling —
+    // and `duplicate` means this exact ask was already filed, so the right move
+    // is to watch the ORIGINAL rather than treat it as new.
+    if (e && e.ok && e.job && !e.result) {
+      clearFlight();
+      EditPoll.rememberJob(slug, e.job);
+      watchEditJob(site, d, e.job, origin, finish, fallback);
+      return;
+    }
     // A body we cannot read is not a refusal — it is us not knowing, and the
     // rung above still works.
     if (!e) return fallback();
@@ -11521,18 +11571,28 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // sequence of server answers can loop between two lanes. A second
       // escalation goes up the ladder exactly as it does today.
       if (!handedOff && e.layer && e.layer !== d.layer) {
+        // THE LATCH IS NOT CLEARED HERE. The hop is the same ask continuing, so
+        // releasing it would let a second click in while this one is still
+        // running — the exact double submission it exists to stop.
         return siteEdit(site, { ...d, layer: String(e.layer), page: e.page ? String(e.page) : d.page },
           instruction, origin, finish, fallback, imgs, true);
       }
+      clearFlight();
       return fallback();
     }
     if (!r.ok || !e.ok) {
       // The server's own sentence when it has one. `buildDownMsg` already knows
       // to drop the "try again in a few seconds" advice on a failure that no
       // amount of retrying fixes.
+      clearFlight();
+      // A SITE UNDER REVIEW TAKES NO MORE EDITS until somebody establishes
+      // whether its last one shipped. The server refuses as well; this stops
+      // the customer spending a round trip to find out.
+      if (e.error === 'needs-review') { editBlocked.add(slug); finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
       if (e.msg) { finish('⚠️ ' + e.msg); return; }
       return fallback();
     }
+    clearFlight();
     // PUBLISHED. Bump the cache-buster the same way a revise does, or the
     // preview keeps showing the old bundle and the change reads as not applied.
     scheduleCreditRefresh();
@@ -11554,7 +11614,119 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       sitesSave();
     }
     finish(editReply(e) + renderTail(e) + alsoTail(d));
-  }).catch(fallback);
+  }).catch((err) => { clearFlight(); return fallback(err); });
+}
+
+/**
+ * WATCH A QUEUED EDIT UNTIL IT ENDS, OR UNTIL THIS BROWSER STOPS LOOKING.
+ *
+ * ── STOPPING WATCHING IS NOT CANCELLING ───────────────────────────────────
+ *
+ * Nothing here cancels. A closed tab, a navigation, a flat battery or a dropped
+ * connection ends the polling and leaves the work running — it is in a queue
+ * consumer, it has been paid for, and the site is mid-edit. Cancelling on a lost
+ * connection would throw away work somebody bought because they switched apps.
+ * Cancelling is a separate DELETE the server has to confirm; see `cancelEditJob`.
+ */
+function watchEditJob(site, d, job, origin, finish, fallback) {
+  const slug = String(site.slug || '');
+  const w = EditPoll.makeWatch(job, slug);
+  const apply = (e) => {
+    // ── EXACTLY ONCE ──────────────────────────────────────────────────────
+    //
+    // A final answer can arrive more than once: a retry that raced the first,
+    // a resumed watch after a refresh, two tabs on one job. Applying twice
+    // bumps the preview twice, prints the reply twice, and on a `data` edit
+    // offers an undo for rows that are already back.
+    const once = w.take(e);
+    if (!once) return;
+    EditPoll.forgetJob(slug);
+    scheduleCreditRefresh();
+    const s = siteById(origin);
+    if (s) { s.previewV = (s.previewV || 0) + 1; sitesSave(); }
+    finish(editReply(once) + renderTail(once) + alsoTail(d));
+  };
+  const step = async () => {
+    let r = null;
+    let e = null;
+    try {
+      r = await apiFetch('/api/site/edit/' + encodeURIComponent(job), { method: 'GET' });
+      e = await r.json().catch(() => null);
+    } catch (err) { r = null; }
+    // A POLL THAT FAILED IS NOT AN EDIT THAT FAILED, and the one thing it must
+    // never do is resubmit the POST — that is a second job for one ask.
+    if (!r || EditPoll.shouldRetryPoll(r.status)) {
+      w.attempt++;
+      // BOUNDED. Past this the job has certainly ended one way or another and
+      // the customer is better told we lost sight of it than watched for ever.
+      if (w.attempt > 400) { w.stopped = 'gave-up'; finish('⚠️ I lost track of that edit. Reload to pick it back up.'); return; }
+      setTimeout(step, EditPoll.pollDelayMs(w.attempt));
+      return;
+    }
+    if (r.status === 404) {
+      // THE SAME ANSWER A JOB THAT IS NOT YOURS GETS, deliberately, so nothing
+      // here can be used to find out whether an id exists. All this side knows
+      // is that it can no longer follow the edit.
+      EditPoll.forgetJob(slug);
+      w.stopped = 'gone';
+      finish('⚠️ I lost track of that edit. Your site is unchanged unless it had already published.');
+      return;
+    }
+    const verdict = EditPoll.classify(e && e.status, e && e.review);
+    if (!verdict.terminal) {
+      w.attempt++;
+      setTimeout(step, EditPoll.pollDelayMs(w.attempt));
+      return;
+    }
+    if (verdict.kind === 'done') { apply(e); return; }
+    if (w.take(true) === null) return;
+    EditPoll.forgetJob(slug);
+    if (verdict.kind === 'needs_review') editBlocked.add(slug);
+    scheduleCreditRefresh();
+    // THE SERVER'S OWN SENTENCE WHEN IT WROTE ONE FOR A CUSTOMER TO READ, and a
+    // fixed one otherwise. Never `kind`, never `phase`, never a provider
+    // message — the poll route has nowhere to put one, and this is the side
+    // that renders, so the choice is made here rather than trusted from there.
+    finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(verdict.kind)));
+  };
+  setTimeout(step, EditPoll.pollDelayMs(0));
+}
+
+/**
+ * ASK THE SERVER TO STOP. Only the server can say it stopped.
+ *
+ * `cancelled` is displayed when the server confirms it and at no other time —
+ * an aborted fetch here means this browser gave up asking, which says nothing
+ * about the job. And a refusal because publishing has started is not an error:
+ * the edit is going to land, so the right move is to keep watching.
+ */
+function cancelEditJob(site, d, job, origin, finish, fallback) {
+  const slug = String(site.slug || '');
+  return apiFetch('/api/site/edit/' + encodeURIComponent(job), { method: 'DELETE' })
+    .then(async (r) => {
+      const e = await r.json().catch(() => null);
+      if (EditPoll.isCancelTooLate(r.status, e)) { watchEditJob(site, d, job, origin, finish, fallback); return 'too-late'; }
+      if (!EditPoll.isCancelConfirmed(e)) { watchEditJob(site, d, job, origin, finish, fallback); return 'unconfirmed'; }
+      // The job is not finished the moment a cancel is accepted — the consumer
+      // sees it at its next boundary — so this keeps watching for the terminal
+      // state rather than announcing one it has not been told about.
+      watchEditJob(site, d, job, origin, finish, fallback);
+      return 'requested';
+    })
+    // A FAILED CANCEL IS NOT A CANCEL. Keep watching; the edit is still running.
+    .catch(() => { watchEditJob(site, d, job, origin, finish, fallback); return 'unconfirmed'; });
+}
+
+/**
+ * PICK BACK UP AFTER A REFRESH. A queued edit outlives the page that started
+ * it, so the alternative to resuming is the customer sending a second one.
+ */
+function resumeEditJob(site, origin, finish, fallback) {
+  const slug = String(site.slug || '');
+  const job = EditPoll.resumableJob(slug);
+  if (!job) return false;
+  watchEditJob(site, {}, job, origin, finish, fallback);
+  return true;
 }
 // The middle rung: add a page or a table, keep everything else.
 //
