@@ -128,6 +128,12 @@ async function snapshot() {
     headerHtml: pick(html, /<header[\s\S]*?<\/header>/),
     headerText: pick(html, /<header[\s\S]*?<\/header>/).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
     headerLink: pick(html, /<a[^>]*data-slot="site-link"[^>]*>[\s\S]*?<\/a>/),
+    // THE BRAND LINK, the first anchor in the header: plain text, an <img> of a
+    // drawn mark served as a file, or an inline <svg>. The wordmark lane bakes
+    // its drawing to /logo.svg and references it by path, exactly as the
+    // favicon and the QR are - so a check for an inline <svg> reads a working
+    // lane as broken, which is what the fourth sweep did.
+    brandLink: pick(pick(html, /<header[\s\S]*?<\/header>/), /<a[^>]*>[\s\S]*?<\/a>/),
     heroAlt: attr(html, /data-slot="safe-image"[\s\S]{0,600}?alt="([^"]*)"/) || attr(html, /alt="([^"]*)"[\s\S]{0,600}?data-slot="safe-image"/),
     slots: [...html.matchAll(/data-slot="([a-z-]+)"/g)].map((m) => m[1]),
     canvas: /<canvas\b/.test(html),
@@ -195,7 +201,12 @@ export const CASES = [
   { lane: "description", ask: "Change the site description to: Beginner guitar lessons in Crookes, Sheffield. First lesson free.",
     check: (b, a) => ({ ok: a.description !== b.description && /Crookes/.test(a.description), note: `description "${a.description.slice(0, 80)}"` }) },
   { lane: "wordmark", ask: "Draw a simple SVG wordmark for the header instead of showing the name as plain text",
-    check: (b, a) => ({ ok: /<svg/.test(a.headerHtml) && !/<svg/.test(b.headerHtml), note: /<svg/.test(a.headerHtml) ? "header carries an svg wordmark" : "header still plain text" }) },
+    check: (b, a) => {
+      const mark = (l) => /<img[^>]*src="\/logo\.svg"/.test(l) || /<svg/.test(l);
+      const text = (l) => /^<a[^>]*>\s*[^<]+\s*<\/a>$/.test(l.trim());
+      return { ok: mark(a.brandLink) && !mark(b.brandLink) && text(b.brandLink),
+               note: mark(a.brandLink) ? "brand link carries a drawn mark (" + (/logo\.svg/.test(a.brandLink) ? "/logo.svg" : "inline svg") + ")" : "brand link still plain text" };
+    } },
   { lane: "favicon", ask: "Change the tab icon to a simple dark green circle with a white letter G in the middle",
     check: (b, a) => ({ ok: a.icon && a.icon !== b.icon && /<svg/.test(a.icon), note: a.icon === b.icon ? "icon bytes unchanged" : `icon changed (${a.icon.length} bytes)` }) },
   { lane: "lang", ask: "Set the site's language to Welsh",

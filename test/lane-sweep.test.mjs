@@ -47,7 +47,7 @@ test("every case can be judged, and judges the site rather than the reply", () =
     if (c.held || c.lane === "behavior" || Array.isArray(c.mayEscalate)) continue;
     const same = { build: "b1", html: "<html lang=\"en\"><title>T</title></html>", lang: "en", dir: "ltr", title: "T", ogTitle: "T",
       description: "d", locales: ["en"], root: ":root{--a:1}", sheetLen: 10, headerHtml: "<header>T</header>", headerText: "T",
-      headerLink: "<a data-slot=\"site-link\">Go</a>", heroAlt: "x", slots: ["steps", "price-list"], canvas: false, icon: "<svg/>", qr: "", routes: ["/"] };
+      headerLink: "<a data-slot=\"site-link\">Go</a>", brandLink: "<a href=\"/\">T</a>", heroAlt: "x", slots: ["steps", "price-list"], canvas: false, icon: "<svg/>", qr: "", routes: ["/"] };
     const v = c.check(same, { ...same }, { ok: true, moved: [] });
     assert.equal(v.ok, false, "`" + c.lane + "` passes against a site that did not change");
     assert.equal(typeof v.note, "string", "`" + c.lane + "` gives no note");
@@ -160,4 +160,19 @@ test("a claimed success waits for the edge before the site is judged", () => {
   assert.match(gate, /body\.ok === true/, "the wait is not gated on a claimed success");
   assert.match(gate, /body\.moved/, "the wait is not gated on something having moved - an already-so would wait the full bound");
   assert.match(src.slice(wait - 300, wait + 200), /90000|60000|75000/, "the wait is unbounded");
+});
+
+test("the wordmark check reads the brand link, not the whole header", () => {
+  // THE FOURTH SWEEP'S FALSE ALARM. The lane bakes its drawing to /logo.svg and
+  // the header shows <img src="/logo.svg">; the check looked for an inline
+  // <svg> anywhere in the header, found the language switch's icon in the
+  // BEFORE state, and called a working lane a liar.
+  const c = CASES.find((x) => x.lane === "wordmark");
+  const before = { brandLink: '<a href="/">Crookes Guitar School</a>', headerHtml: '<header><a href="/">Crookes Guitar School</a><nav><svg width="24"></svg></nav></header>' };
+  const after = { brandLink: '<a href="/"><img src="/logo.svg" alt="Crookes Guitar School"/></a>', headerHtml: '<header><a href="/"><img src="/logo.svg"/></a><nav><svg width="24"></svg></nav></header>' };
+  assert.equal(c.check(before, after, {}).ok, true, "a mark served as /logo.svg is not recognised");
+  const inline = { ...after, brandLink: '<a href="/"><svg viewBox="0 0 200 40"><text>CGS</text></svg></a>' };
+  assert.equal(c.check(before, inline, {}).ok, true, "an inline svg mark is not recognised");
+  assert.equal(c.check(before, before, {}).ok, false, "an unchanged text brand passes");
+  assert.equal(c.check(after, after, {}).ok, false, "a mark that was already there passes as new");
 });

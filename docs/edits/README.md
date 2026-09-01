@@ -11,4 +11,6 @@ edit is applied on top of the ones before it.
 | 02 | 2026-09-01 20:26–20:50 | sweep one: `css` (heading dark red), `brand` (renamed Crookes Guitar School), `favicon` (green G — not visible in a page shot), `lang` (Welsh), `langs` (French and Spanish; the header grew a switch). `theme` was a no-change (already letterpress); `description` and `wordmark` hit a container roll and were refunded. | `02-sweep1-brand-css-lang-langs-favicon.png` |
 | 03 | 2026-09-01 22:37 | sweep three: `theme` → noir. Greyscale, black buttons; the dark-red heading from `css` survives on top. | `03-sweep3-theme-noir.png` |
 
+| 04 | 2026-09-01 23:09–23:14 | sweep four (old harness, from main): `description` → the meta description reads "Beginner guitar lessons in Crookes, Sheffield. First lesson free." — and `wordmark` → the header name became a drawn mark served as `/logo.svg`. The harness called the wordmark a lie for looking for an inline svg; the site was right. | `04-sweep4-description-wordmark.png`, `05-sweep4-wordmark-logo.svg` |
+
 Later rows are added as the remaining lanes run.
