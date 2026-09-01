@@ -137,6 +137,10 @@ import { THEME_SHORTLIST, themeFontPair, resolveTheme } from "./builder/site-the
 import { themeCss } from "./builder/site-theme.mjs";
 import { applyStyle } from "./builder/site-style.mjs";
 import { laneName } from "./builder/build-lane.mjs";
+// THE EDIT PATH'S OWN BLACK-BOX RECORDER (2026-09-01, owner's call after
+// run 101). Diagnostic only: nothing in this import can change what an edit
+// does, and `recompileAndPublish` treats a null trace as a no-op.
+import { newTrace, traceRow } from "./builder/edit-trace.mjs";
 // THE TWO LONG MODEL CALLS, IN A MODULE THE CONTAINER CAN IMPORT TOO. Aliased
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
 // names — eleven call sites read them, and renaming those would make a move that
@@ -6466,6 +6470,48 @@ function svcHeaders(env, extra) {
  * NEVER AWAITED ON THE BUILD PATH. Its timeout is short for the same reason: a
  * Supabase that has gone away must cost the diagnostics, never the build.
  */
+/**
+ * Store one edit's phase timeline. Diagnostic; nothing depends on it landing.
+ *
+ * ONE WRITE, AT THE END, OFF THE RESPONSE PATH. Marking is an in-memory push
+ * (see `builder/edit-trace.mjs`); a per-phase write would add ~20 subrequests to
+ * the request being measured, which is the instrument altering the thing — a
+ * mistake this repo has already made twice, with a full-page screenshot of a
+ * scroll-animated site and with `compileMsg` collapsing two causes into one
+ * sentence.
+ *
+ * IT SWALLOWS EVERYTHING. A recorder that can fail the request it records is
+ * worse than no recorder, and this one runs on a path where the customer's work
+ * is already done.
+ */
+async function writeEditTrace(env, row) {
+  if (!env.SUPABASE_SERVICE_KEY || !row || !row.cid) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/edit_traces`, {
+      method: "POST",
+      headers: svcHeaders(env, {
+        "content-type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      }),
+      body: JSON.stringify(row),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (e) { console.error("edit trace write failed:", row.cid, e && e.name); }
+}
+
+/**
+ * Hand the trace to `ctx.waitUntil` so it cannot add latency, and write it
+ * inline only if there is no `ctx` to hold it.
+ */
+function flushEditTrace(env, ctx, trace, outcome) {
+  try {
+    const row = traceRow(trace, outcome || {});
+    if (!row) return;
+    const p = writeEditTrace(env, row);
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p);
+  } catch (e) { console.error("edit trace flush failed:", e && e.name); }
+}
+
 async function writeBuildRecord(env, row) {
   if (!env.SUPABASE_SERVICE_KEY || !row || !row.slug) return;
   await fetch(`${SUPABASE_URL}/rest/v1/${BUILD_RECORD_TABLE}`, {
@@ -9342,7 +9388,15 @@ async function translateStrings(env, tag, strings) {
 // original from its own initialiser.
 const publishSpine = (...a) => recompileAndPublish(...a);
 
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false }) {
+/**
+ * @param {object} o.trace  diagnostic only (2026-09-01). A null trace makes
+ *   every mark a no-op, so every existing caller is unchanged — which is what
+ *   keeps this instrumentation and not a behaviour change.
+ */
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null }) {
+  // ONE LOCAL, so the five call sites below read the same way whether or not
+  // a trace was passed. Never throws — see `edit-trace.mjs`.
+  const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   let look = null, logo = "", icon = ""
   let verify = null, langStrings = null;
   // THE MODEL'S OWN STYLESHEET, read here for the reason every other look key is:
@@ -9674,8 +9728,19 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
         // starts a build clock. Ten minutes is a bound where there was none.
         signal: AbortSignal.timeout(CONTAINER_CALL_MS),
       }));
-      return JSON.parse(await rr.text().catch(() => "")) || {};
+      // ACCEPTED — a response object exists, so the container was reached and
+      // answered a status. Distinct from "returned", below, which needs the
+      // whole body: a connection cut mid-body lands between these two marks
+      // and nothing else in this system can tell those apart.
+      tm("container", "start", { accepted: true, status: (rr && rr.status) || 0 });
+      const body = JSON.parse(await rr.text().catch(() => "")) || {};
+      tm("container", body && body.ok ? "ok" : "fail",
+        { returned: true, status: (rr && rr.status) || 0, stage: String((body && body.stage) || ""), files: body && body.files ? Object.keys(body.files).length : 0 });
+      return body;
     } catch (e) {
+      // TIMED OUT OR DISCONNECTED, told apart by the error's class rather than
+      // its message, which differs between runtimes.
+      tm("container", "fail", { name: String((e && e.name) || "Error"), aborted: (e && (e.name === "TimeoutError" || e.name === "AbortError")) || false });
       return { ok: false, error: String((e && e.message) || "the build service did not answer") };
     }
   };
@@ -9729,6 +9794,14 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
 
   // THE SAME META A BUILD PUBLISHES. Every field here is one this path was
   // missing when it was a second copy.
+  // ── EVERY OPERATION FROM HERE DOWN RUNS OUTSIDE ANY `try` ─────────────────
+  //
+  // Question 6 of the owner's diagnosis brief, and the reason it was asked: a
+  // throw in any of the five below escapes to the owner-route catch, which
+  // keeps only the error's class. `archiveVersion` alone has a try. These
+  // marks are the difference between "it threw somewhere inside 164 seconds"
+  // and a named operation.
+  tm("r2:dist", "start", { files: Object.keys(built.files || {}).length });
   const wrote = await writeSiteDistToR2(env, slug, built.files, {
     brand: (look && look.brand) || slug,
     description: (look && look.description) || undefined,
@@ -9741,6 +9814,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // something else entirely.
     verify,
   }, pages, renamed, siteLangs.filter((l) => !l.primary).map((l) => l.prefix));
+  tm("r2:dist", "ok", { objects: Array.isArray(wrote) ? wrote.length : 0 });
+  tm("archive", "start");
   try {
     await archiveVersion(versionDeps(env), {
       slug,
@@ -9756,16 +9831,21 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // serve it. Stored beside the script rather than dug out of the bundle.
       build: (built.worker && built.worker.build) || undefined,
     });
-  } catch (e) { console.error("archive failed:", slug, e && e.message); }
+    tm("archive", "ok");
+  } catch (e) { tm("archive", "fail", { name: String((e && e.name) || "Error") }); console.error("archive failed:", slug, e && e.message); }
   // LAST, AND ONLY ON SUCCESS. The stored source is what the next edit reads, so
   // writing it before the compile is proved would hand the next edit a version
   // that does not build.
+  tm("r2:source", "start");
   await saveSiteSource(env, slug, pages);
+  tm("r2:source", "ok");
   // AND THE MAP OF WHAT THE PUBLISHED PAGE CONTAINS, for the next edit to aim
   // by. Best-effort and after the source, in that order deliberately: the source
   // is what the next edit EDITS and the map is only what helps it aim, so a map
   // that fails to store must never be able to cost the source.
+  tm("r2:landmarks", "start");
   await saveLandmarks(env, slug, built.render && built.render.landmarks);
+  tm("r2:landmarks", "ok", { marks: ((built.render && built.render.landmarks) || []).length });
   // AND THE REFRESHED SCRIPT, after the files — the ordering `putSiteWorker`
   // owns, and the same one the build path uses one function over.
   //
@@ -9776,7 +9856,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // upload on a text fix leaves the site 404ing while the customer is told the
   // typo is corrected. Same `uploaded`/`status`/`error` shape as the build
   // response, so one client branch reads both.
+  tm("worker:put", "start");
   const wput = await putSiteWorker(env, slug, built.worker);
+  tm("worker:put", wput && wput.uploaded === false ? "fail" : "ok", { status: (wput && wput.status) || 0 });
   // THE RENDER REPORT REACHES THE CALLER. Every edit lane pays ~6s for the
   // check inside the container and used to throw the result away (2026-08-14
   // audit) — so a cheap edit that turned the site blank or unreadable
@@ -17658,6 +17740,21 @@ async function handleRequest(request, env, ctx) {
         };
         // Anything thrown below reaches the owner as a bare Cloudflare 1101 with
         // no body otherwise — the same trap the PBKDF2 cap fell into.
+        // ── THE EDIT PATH'S BLACK BOX (2026-09-01, after run 101) ─────────
+        //
+        // DECLARED HERE, OUTSIDE THE TRY, so the catch below can reach it.
+        // Run 101 threw after 273.2s and landed in that catch, which keeps
+        // only the error's CLASS — right for a reply that reaches a browser,
+        // and the reason the failure could not be placed. The trace is the
+        // other audience: behind the service key, redacted, and able to say
+        // which phase was running.
+        //
+        // A LOCAL, NEVER A MODULE GLOBAL. One Worker isolate serves many
+        // requests concurrently, so a shared "current trace" would splice two
+        // customers' timelines together and attribute one's error to the
+        // other. `null` for every route that is not an edit, and every mark
+        // on it is a no-op.
+        let editTrace = null;
         try {
           let r;
           // ── PUBLISHED VERSIONS ────────────────────────────────────────────
@@ -17688,6 +17785,11 @@ async function handleRequest(request, env, ctx) {
             if (g.error) return Response.json(g.error.body, { status: g.error.status });
 
             const eb = await request.json().catch(() => ({}));
+            // THE BLACK BOX STARTS HERE — see `editTrace` where it is declared.
+            // From this point every phase marks itself, and the marks are
+            // in-memory pushes: no awaits, no subrequests, nothing that can
+            // change what this route does or how long it takes.
+            editTrace = newTrace({ slug: ownerSlug, uid: ou.id });
             // BOTH ARE `let` BECAUSE THE LANE ROUTER MAY REPOINT THEM. See the
             // hoisted `pick_lanes` block below: a message about a photograph is
             // the `picture` layer's work however it arrived, and the door that
@@ -18030,6 +18132,7 @@ async function handleRequest(request, env, ctx) {
             const eQuickModel = modelsFor(eb && eb.picker).quick;
             const eLooking = eLayer === "look";
             if (eLooking) {
+              editTrace.mark("pick_lanes", "start");
               const picked = await pickLanes(
                 { send: quickSend(env, "pick_lanes") },
                 {
@@ -18041,6 +18144,8 @@ async function handleRequest(request, env, ctx) {
                   model: eQuickModel,
                 },
               );
+              editTrace.mark("pick_lanes", picked.failed ? "fail" : "ok",
+                { fields: Array.isArray(picked.fields) ? picked.fields : [] });
               pickUsage = picked.usage;
               if (picked.failed) return modelDown(picked.error, "The editor is busy — try again in a moment.");
               if (!picked.fields.length) return escalate("no-lane");
@@ -18990,6 +19095,7 @@ async function handleRequest(request, env, ctx) {
                 // rather than a pipeline, and one publish covers all of them.
                 const answers = {};
                 for (const field of pickedFields) {
+                  editTrace.mark("lane:" + field, "start");
                   const ran = await runLane(
                     { send: quickSend(env, "lane") },
                     {
@@ -19021,6 +19127,9 @@ async function handleRequest(request, env, ctx) {
                       model: modelsFor(eb && eb.picker).design,
                     },
                   );
+                  editTrace.mark("lane:" + field, ran.failed ? "fail" : "ok",
+                    { chars: typeof ran.value === "string" ? ran.value.length : 0,
+                      answered: ran.value !== undefined });
                   if (ran.usage) laneUsages.push(ran.usage);
                   // THE MODEL IS DOWN OR UNPAID. Our fault, our cost — and the
                   // rung above calls the same provider and would fail the same
@@ -19638,7 +19747,10 @@ async function handleRequest(request, env, ctx) {
               // Only when the `css` lane actually ran: it is the one rung that
               // writes selectors, and asking the question on a text fix would
               // buy a second build to check a stylesheet nobody touched.
-              finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: !!cssCtx });
+              editTrace.mark("publish:1", "start", { verifyCss: !!cssCtx });
+              finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: !!cssCtx, trace: editTrace });
+              editTrace.mark("publish:1", finalPub && finalPub.ok ? "ok" : "fail",
+                { err: String((finalPub && finalPub.error) || ""), dead: Array.isArray(finalPub && finalPub.dead) ? finalPub.dead.length : 0 });
 
               // ONE CORRECTION ROUND, AND EXACTLY ONE (owner: "give the model
               // the actual landmark map and ask it to correct the selector…
@@ -19671,6 +19783,7 @@ async function handleRequest(request, env, ctx) {
               // whichever way it goes.
               if (!finalPub.ok && finalPub.error === "dead-css" && cssCtx) {
                 try {
+                editTrace.mark("lane:correct", "start", { dead: finalPub.dead.slice(0, 3) });
                 const fix = await runLane(
                   { send: quickSend(env, "lane-correction") },
                   {
@@ -19695,12 +19808,17 @@ async function handleRequest(request, env, ctx) {
                 // round exists because OUR first answer pointed at nothing, and
                 // `ourFault` is the rule this platform already bills by. The
                 // customer asked once and pays once.
+                editTrace.mark("lane:correct", fix.failed ? "fail" : "ok",
+                  { chars: typeof fix.value === "string" ? fix.value.length : 0 });
                 if (!fix.failed && typeof fix.value === "string" && fix.value.trim()) {
                   const put = await patchSiteConfig(env, ownerSlug, cssCtx.edb, { css: fix.value });
                   if (put.ok) cssFixed = { dead: finalPub.dead };
                 }
                 // REBUILD AND SEE. Off this time, so this is the last attempt.
-                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: false });
+                editTrace.mark("publish:2", "start");
+                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: false, trace: editTrace });
+                editTrace.mark("publish:2", finalPub && finalPub.ok ? "ok" : "fail",
+                  { err: String((finalPub && finalPub.error) || "") });
                 } catch (e) {
                   console.error("css verify round failed:", ownerSlug, (e && (e.stack || e.message)) || e);
                   // THE CLASS, NEVER THE MESSAGE, matching the owner-route catch
@@ -21052,7 +21170,15 @@ async function handleRequest(request, env, ctx) {
           // provider message can quote a request that holds the service key.
           const kind = String((e && e.name) || "Error").slice(0, 40);
           const why = kind === "ReferenceError" ? String((e && e.message) || "").slice(0, 120) : undefined;
-          return Response.json({ error: "Something went wrong reaching your site's data.", kind, why }, { status: 500 });
+          // THE TIMELINE, WITH THE ERROR THIS REPLY MAY NOT CARRY. Redacted in
+          // `traceRow` and stored behind the service key; the reply below is
+          // byte-identical to what it has always been apart from `cid`, which
+          // is ours and names nothing.
+          if (editTrace) flushEditTrace(env, ctx, editTrace, { ok: false, error: e });
+          return Response.json({
+            error: "Something went wrong reaching your site's data.", kind, why,
+            cid: (editTrace && editTrace.cid) || undefined,
+          }, { status: 500 });
         }
       }
     }

@@ -429,12 +429,27 @@ test("the publish path archives, and cannot fail a publish that succeeded", asyn
   // The site is already live by the time an archive runs, so a throw here would
   // trade a working site for a bookkeeping entry. Asserted on the source
   // because the wrapping is the whole guarantee.
+  // ── WINDOWED LANDMARK TO LANDMARK, NOT IN BYTES (2026-09-01) ──────────────
+  //
+  // This read 900 bytes either side of the call, and adding two `tm(...)`
+  // marks plus their comment pushed the `catch` past the far edge — so it
+  // reported that the archive had lost its try, about code where the try is
+  // untouched. This repo's most-recorded trap, ten-plus instances: reasoning
+  // lives in comments here, so any byte window is outrun by the next one.
+  //
+  // The closing landmark is the NEXT SIBLING — the following top-level
+  // function — so the window is whatever the enclosing code really is, and
+  // both ends are proved present before anything is read between them
+  // (`indexOf` answering -1 gives `slice(-1, -1)` = "", which passes every
+  // assertion inside it).
   const i = worker.indexOf("await archiveVersion(");
   assert.ok(i > 0, "nothing archives — version history is dead at the publish end");
-  const before = worker.slice(Math.max(0, i - 900), i);
-  const open = before.lastIndexOf("try {");
-  assert.ok(open >= 0, "the archive call is not inside a try");
-  assert.ok(/catch/.test(worker.slice(i, i + 900)), "the archive call's try has no catch");
+  const open = worker.lastIndexOf("try {", i);
+  assert.ok(open >= 0 && open < i, "the archive call is not inside a try");
+  const nextFn = worker.indexOf("\nasync function ", i);
+  assert.ok(nextFn > i, "could not find the next sibling to close the window on");
+  assert.match(worker.slice(i, nextFn), /\}\s*catch\s*\(/,
+    "the archive call's try has no catch before the end of its function");
 });
 
 test("the restore route rolls back the version the CALLER named", () => {
