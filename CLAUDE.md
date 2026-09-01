@@ -55,8 +55,17 @@ distinction that still exists once the branding does not.
   run — **five of those were merge commits**, whose message git writes itself and
   which can therefore never carry any marker at all.
   `[skip smoke]` still appears all over the history and is harmless: it does not
-  contain `[smoke]`, which `test/deploy-secrets.test.mjs` asserts against the
-  real string so a future rename cannot silently re-arm every old commit.
+  contain the opt-in marker, which `test/deploy-secrets.test.mjs` asserts against
+  the real string so a future rename cannot silently re-arm every old commit.
+  **AND THE OPT-IN MARKER IS NEVER SPELLED IN PROSE EITHER — 2026-09-01, and it
+  cost a run.** The rule two bullets up says exactly this about the skip-CI
+  marker and stops one line short of saying it about this one. A commit
+  explaining that *the previous* commit had bought a build spelled the marker
+  while doing so, and armed itself: `build smoke` fired a second time, on a
+  commit whose whole purpose was to describe the first. Same trap, different
+  marker, and the gate reads the message with no idea it is being quoted. In
+  prose call it **the smoke opt-in marker** and never write it — the only place
+  it belongs is a commit that is deliberately buying the run.
   **The cost of this is that nothing catches a regression by accident any more.**
   Run the smokes by hand before anything that matters.
 - **Never commit while a mutation sweep is running.** A killed sweep skips its

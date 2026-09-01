@@ -873,3 +873,44 @@ bought through Stripe (the minting function needs a secret that lives in GitHub
 Actions). It has long since been spent; the balance is **341**, read from the ledger on
 2026-08-31 after run 90 (topped up 100 + 400 on 2026-08-30 to fund the
 `ashgrove-1` builds; runs 80–90 have spent 159 of it).
+
+## 2026-09-01 — Stage 1 deployed: async edits behind a canary gate
+
+**Live now, changing nothing.** `main` is at the async edit path with its flag
+unset and its allowlist empty. Both have to say yes for an edit to queue, so
+today every edit is still synchronous.
+
+**Step 7 — the paths still work.**
+
+- `edit smoke`: **all green** against the deployed Worker. Price change routes
+  to `data`, colour to `look`, a new page to `addon`, a question is answered
+  rather than built. It reused its fixture site, so it cost less than the ~50
+  credits budgeted.
+- `build smoke`: 8 passed, 6 failed — and **every failure already failed on
+  2026-08-30**, two days before this work, on the last run that was not
+  skipped. One that failed then passes now (the two briefs are routed
+  differently). Zero regressions. The build itself completed and generated a
+  real page; the harness failures are about it expecting a different response
+  SHAPE than the resume path returns.
+
+**Step 8 — the sub probe still has no ceiling, but it got further than ever.**
+For the first time the far end worked: the preflight confirmed on poll 1, the
+container held a 1000ms reply. Then a 240s hold came back **500 at 233.8s**
+with the container not reporting how long it waited — so the probe refuses a
+verdict, correctly. **Do not read 233.8s as the ceiling**: the build path
+already runs container calls from a queue consumer and run 6 measured a 261s
+container slice, longer than this. The difference is likely that `/slowreply`
+sends zero bytes for the whole hold.
+
+**Two mistakes of mine, both worth keeping.**
+
+1. The first Stage 1 deploy **shipped nothing**: `|| ''` is not a fallback,
+   because wrangler-action treats an empty value exactly like a missing
+   secret. `test/deploy-secrets.test.mjs` had checked that a `||` EXISTS and
+   never that the value after it was non-empty — the rule's syntax, not its
+   effect. Both fixed; the sentinel is `-`, which `readCanaryList` drops.
+2. A commit **explaining** that the previous commit had bought a build spelled
+   the smoke opt-in marker while doing so, and armed itself. A second
+   `build smoke` ran. The owner's balance was untouched (it funds a throwaway
+   by minting) but provider calls and a Neon project were spent. The rule is
+   now in CLAUDE.md beside its twin.
