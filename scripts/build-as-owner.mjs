@@ -248,6 +248,11 @@ if (IS_EDIT) {
       log(`step 5 — upstream: status=${e.upstream} type=${e.upstreamType}${e.billing ? " BILLING" : ""}`);
     }
     if (e.kind) log(`step 5 — kind: ${e.kind}`);
+    // THE CORRELATION ID (2026-09-01). Every edit now carries one, and it is
+    // the key into `edit_traces` — the phase timeline that run 101 had no way
+    // to leave behind. Printed on EVERY outcome, not only failures: a run that
+    // succeeds is the control a failing timeline is read against.
+    if (e.cid) log(`step 5 — trace: ${e.cid}`);
     // Runs 97 and 98 read the same three lines run 96 did, against a lane that
     // can now see what the site is wearing. 97 never got to print them: it was
     // fired ten minutes after a `builder/` push and the container image was
