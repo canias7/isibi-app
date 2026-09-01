@@ -16,13 +16,22 @@
   "use strict";
 
   /**
-   * ONE KEY PER USER ACTION, REUSED FOR EVERY RETRY OF THAT ACTION.
+   * ONE KEY PER SUBMISSION, REUSED FOR EVERY RETRY OF THAT SUBMISSION.
    *
    * This is the whole of request-level idempotency on the client side. A key
-   * minted per POST would make a retry after a lost response a SECOND job —
-   * two sets of model calls, two charges, two publishes racing for one site —
-   * which is precisely what the key exists to prevent. So it is minted when the
-   * customer asks for something and carried until that ask is finished.
+   * minted per network ATTEMPT would make a retry after a lost response a
+   * SECOND job — two sets of model calls, two charges, two publishes racing for
+   * one site — which is precisely what the key exists to prevent. So it is
+   * minted where a POST is decided and carried through every retry of it.
+   *
+   * SUBMISSION, NOT ASK, and the distinction is the sideways hop. It used to be
+   * "one key per ask", which was true while an escalate created nothing on the
+   * server: the hop reached a different lane inside one message and one key
+   * described it honestly. The queue ended that. `edit_create` keys on
+   * `(uid, slug, op, idem_key)` and THE LAYER IS NOT IN IT, so a hop carrying
+   * the first key does not file the cheaper job — it matches the row that just
+   * escalated, comes back `duplicate: true`, and the hop silently becomes a
+   * no-op. One ask can be two submissions; `handedOff` bounds it at two.
    *
    * 32 hex from the platform CSPRNG where there is one. `crypto.randomUUID`
    * would do as well; this shape is chosen because the server's own validator
@@ -137,6 +146,14 @@
    * ever shown is `msg`, which the handler wrote for a customer to read.
    */
   function outcomeMessage(kind) {
+    // A `done` JOB IS PUBLISHED — `edit_finalize` refuses to finalize one whose
+    // `published_at` is null — so this must never fall through to the sentence
+    // below, which says the site is untouched. It is reached only when a
+    // finished job has no stored reply to hand back, which `edit_finalize`
+    // should make impossible; kept because the direction of the error matters
+    // more than its likelihood. Telling somebody their live change did not
+    // happen is the one wrong answer here.
+    if (kind === "done") return "That edit finished and your site has been updated — I just couldn't read back what changed. Reload to see it.";
     if (kind === "cancelled") return "I stopped that edit — your site is untouched and you haven't been charged.";
     if (kind === "lost") return "That edit stopped before it finished. Your site is untouched and anything it cost has been refunded.";
     if (kind === "needs_review") {
@@ -249,7 +266,106 @@
     return v.job;
   }
 
+  // THE SAME TWO STRINGS `builder/edit-job.mjs` EXPORTS, and they cannot be
+  // imported from there: this file is a browser global. Two copies of one name,
+  // which is a drift this repo has a rule about — so `test/edit-poll.test.mjs`
+  // reads both and asserts they agree, rather than trusting either.
+  //
+  // DECLARED ABOVE THEIR USE, not beside the export list at the bottom: `var`
+  // hoists the declaration and not the value, so a constant defined below
+  // `readPoll` is undefined to anything that calls it during load.
+  var FINAL_HEADER = "x-gf-edit";
+  var FINAL_VALUE = "final";
+
+  /**
+   * THE POLL ROUTE'S TWO VOICES, AND HOW TO TELL THEM APART.
+   *
+   * A finished job hands back its STORED REPLY — byte for byte the object the
+   * synchronous path returns — and that object has no job-state field, because
+   * it never needed one. So `classify(body.status)` answered `running` on every
+   * completed edit, and `!verdict.terminal` has no attempt bound: the browser
+   * polled a finished, charged, PUBLISHED edit for ever, behind a spinner, on
+   * every queued success and every queued escalate alike. Only the outcomes that
+   * store no reply — lost, cancelled — ever terminated.
+   *
+   * The server now says which voice is speaking (`FINAL_HEADER`), because
+   * neither the body nor the status can carry it:
+   *
+   *   * THE BODY cannot, since it is the synchronous reply unchanged — and
+   *     changing it would break the one property that makes this rollback-safe,
+   *     that both paths carry the same object.
+   *   * THE STATUS cannot, since a stored reply keeps its own — 200 for a
+   *     success, 422 for a compile failure, 503 for a model outage — while the
+   *     poll route has its own 503 for a row it could not read. By number alone
+   *     a stored 503 is a transient one, and gets retried until the client gives
+   *     up on an edit that finished minutes ago.
+   *
+   * THE ORDER OF THESE FOUR IS LOAD-BEARING, so each one says why it sits where
+   * it does.
+   */
+  function readPoll(status, finalHeader, body) {
+    // 1. GONE FIRST. A 404 carries no header and is not worth retrying — it is
+    //    also what a job belonging to somebody else gets, deliberately.
+    if (status === 404) return { act: "gone" };
+    // 2. THE ANSWER BEFORE THE RETRY, which is the whole point: a stored 422 or
+    //    503 IS the outcome, and reading it as a transient failure polls past
+    //    the thing being waited for.
+    if (finalHeader === FINAL_VALUE) return { act: "reply" };
+    // 3. A POLL THAT FAILED IS NOT AN EDIT THAT FAILED.
+    if (shouldRetryPoll(status)) return { act: "retry" };
+    // 4. AND OTHERWISE THE ROUTE IS DESCRIBING THE JOB — the branch taken when
+    //    there is no stored reply to hand back at all.
+    var v = classify(body && body.status, body && body.review);
+    if (!v.terminal) return { act: "wait" };
+    return { act: "ended", kind: v.kind };
+  }
+
+  /**
+   * WHAT TO DO WITH AN ESCALATE: "hop", "up" or "lost".
+   *
+   * An escalate is the server saying this rung could not make the change, so
+   * the change still has to happen one rung up. It arrives on BOTH paths — the
+   * queued reply body IS the synchronous one — and until 2026-09-01 only the
+   * synchronous path read it: `watchEditJob` applied every terminal answer as
+   * an outcome, and `editReply` ends '✅ Done.', so a queued escalate told the
+   * customer their change was made and never ran the revise that would have
+   * made it.
+   *
+   * THE DECISION IS HERE AND THE ACTION IS IN `chat.js`, for the reason this
+   * whole file exists: chat.js cannot be driven by a test, and "did we do the
+   * cheap thing or the expensive thing" is a question about money.
+   *
+   *   "hop"  — the server named a DIFFERENT layer that can do it. One rung
+   *            sideways, at that rung's price rather than a rewrite's.
+   *   "up"   — no cheaper answer, or we already hopped once. The full revise.
+   *   "lost" — we no longer hold the ask (a watch resumed after a refresh), so
+   *            there is nothing to re-post. Telling them beats silently
+   *            starting a ~25-credit rewrite for a sentence nobody re-typed.
+   *
+   * ONE HOP, BOUNDED HERE RATHER THAN TRUSTED FROM THE SERVER: `handedOff`
+   * allows exactly one and only to a different layer, so no sequence of server
+   * answers can loop two lanes against each other.
+   *
+   * `String(x)` IS NOT USED ON EITHER LAYER. `String(["page"])` is "page", and
+   * this repo has shipped that coercion as a real bug four times — a
+   * one-element array passing as a role, an access level, a language. A layer
+   * that is not a string is not a layer.
+   */
+  function escalateAction(e, o) {
+    var opt = o || {};
+    if (!opt.hasAsk) return "lost";
+    if (opt.handedOff) return "up";
+    var named = e && typeof e.layer === "string" ? e.layer : "";
+    var ours = typeof opt.layer === "string" ? opt.layer : "";
+    if (named && named !== ours) return "hop";
+    return "up";
+  }
+
   var api = {
+    FINAL_HEADER: FINAL_HEADER,
+    FINAL_VALUE: FINAL_VALUE,
+    readPoll: readPoll,
+    escalateAction: escalateAction,
     newIdemKey: newIdemKey,
     pollDelayMs: pollDelayMs,
     pollBaseMs: pollBaseMs,

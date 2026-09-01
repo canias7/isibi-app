@@ -1915,7 +1915,12 @@ test("the wire is not cut, at either end", () => {
   // pinned to an exact expression and went red the moment this tail was added
   // beside it. What must hold is that BOTH replies carry it, since one `finish`
   // learning it and the other not is exactly how half a feature ships dead.
-  assert.match(c, /finish\(editReply\(e\)[^;]*alsoTail\(d\)/, "the edit reply drops the leftover");
+  // `o.finish(...)` SINCE 2026-09-01: the edit reply is rendered by
+  // `applyEditResult`, which both the synchronous and the queued path call —
+  // the queued one having had its own copy that carried this correctly and got
+  // the escalate and the undo wrong. Matched on the shape rather than the
+  // receiver's name, so it reads the same either side of that move.
+  assert.match(c, /finish\(editReply\(e\)[^;]*alsoTail\(o?\.?d\)/, "the edit reply drops the leftover");
   assert.match(c, /finish\(addonReplyText\(a\)[^;]*alsoTail\(d\)/, "the addon reply drops the leftover");
   // The addon lane had no routing decision in scope at all until this landed.
   assert.match(c, /function siteAddon\(site, instruction, origin, finish, fallback, d\)/);

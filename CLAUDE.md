@@ -1099,6 +1099,100 @@ a rule buys — the signature list said `Figure` took no children, the model pas
 children anyway, the directive was rewritten in between, and run 85 read past
 that too.
 
+**A HARNESS THAT PASSED WITHOUT TESTING ANYTHING (2026-09-01, the first paid
+canary).** `edit-canary.mjs` POSTed the paid edit with `layer: ""` and got a
+complete, clean round trip: **202 in 1.0s, queued, claimed, replayed, terminal
+in 7.9s**, `billing: none`, `cost: 0`, ledger empty, balance unmoved at 309,
+site's `x-site-build` unchanged. Every one of those readings is what a healthy
+async path looks like, and **not one model call, lane, compile or publish had
+happened** — the edit route does not decide its own layer, `/api/site/route`
+does, and an edit posted without one matches none of the nine branches and falls
+through to `escalate("layer")`.
+**This is the wiring trap seen from the CALLER's side, and worse than the usual
+shape because the missing hop wore the costume of success.** The edit route's
+own `layer:` field carries a comment about that same field being dropped from
+the ROUTE's response — the identical cut, one hop upstream, recorded as the
+tenth instance. The harness simply never made the call that produces it.
+**The general shape: a green harness proves the path it took, not the path you
+meant.** The fix is a refusal, not a fixture — the canary now routes first and
+**refuses to spend** when the router names no layer, because the danger is that
+a blind post PASSES. And a terminal answer is no longer a pass: the verdict is
+`ok: true`, since an escalate is a legitimate product answer and a failed
+canary.
+
+**AND THE DEFECT UNDER THAT ONE WAS BIGGER: THE CLIENT NEVER TERMINATED ON A
+QUEUED JOB THAT PRODUCED A REPLY (2026-09-01, live behind the canary flag).**
+A finished job hands back its STORED REPLY — the same object the synchronous
+path returns, which the poll route's own comment calls "one object, reached two
+ways" — and that object has no job-state field, because it never needed one. So
+`classify(body.status)` answered `running` on every completed edit, and the
+`wait` branch has no attempt bound: the browser polled a finished, charged,
+PUBLISHED edit for ever behind a spinner. Every queued success and every queued
+escalate; only the outcomes that store NO reply — lost, cancelled — terminated
+at all. Driven and confirmed against both real stored bodies.
+**Neither the body nor the status could carry the distinction.** The body is the
+synchronous reply unchanged, and changing it breaks the property that makes the
+rollback safe. The status is the stored reply's own — 200, 422, 503 — while the
+poll route has its own 503 for a row it could not read, so by number alone a
+stored 503 is a transient one and gets retried until the client gives up. So it
+is STATED: `FINAL_HEADER`, set on that branch and nowhere else, and `readPoll`
+with its four cases in a stated order.
+**The general shape, and it is the wiring trap inverted**: the producer was
+correct, the consumer was correct, and the two disagreed about *which of them
+was speaking*. When one endpoint answers in two voices, the voice has to be on
+the wire — inferring it from the payload works until the payload is something
+you did not write.
+
+**AND ONE HOP OVER FROM THAT: A QUEUED ESCALATE RENDERED AS "✅ Done."** The queued reply body
+IS the synchronous one — the consumer stores exactly what the route returned —
+but only the synchronous path ever read it. `watchEditJob` applied every
+terminal answer as an outcome and `editReply` ends `return '✅ Done.'`, so a
+queued edit that could not be made told the customer it had been, bumped the
+preview to show an unchanged site, and **never ran the revise that is the whole
+safety argument for trying a cheap rung first**. Doing less than they asked and
+reporting success, which is the failure the edit path is written to avoid.
+Fixed with ONE decision both paths call: `EditPoll.escalateAction` answers
+`hop` / `up` / `lost`, and `chat.js` acts on it — the decision in the module a
+test can drive, because chat.js cannot be imported and "cheap thing or
+expensive thing" is a question about money.
+**Its third answer is the one that had no name before**: a watch resumed after a
+refresh holds the job id and nothing else, so falling through to `fallback`
+there would start a ~25-credit rewrite on page load for a sentence nobody
+re-typed. (`resumeEditJob` has no callers today — said out loud rather than left
+to be found, since wiring it starts real behaviour on page load.)
+
+**AND A THIRD IN THE SAME TAIL: `apply()` BUMPED THE PREVIEW AND NOTHING ELSE.**
+The synchronous success path also drops a DELETED PAGE from the site picker and
+remembers — or clears — the undo rows. The queued copy did neither, so a queued
+`page` edit left a deleted page on offer, and a queued `data` edit stored no
+undo and never cleared a stale one from an earlier synchronous edit: a standing
+offer to re-add a row that is already back. **Three defects in one duplicated
+tail, none of which fails, logs, or is visible until a customer deletes
+something.** All three are gone because the tail is one function now
+(`editAnswer` + `applyEditResult`), which is what "two lists of the same thing"
+has been saying all along.
+
+**A KEY WHOSE INVARIANT EXPIRED WHEN THE LAYER BELOW IT MOVED (2026-09-01).**
+The idempotency key was minted per ASK, and the sideways hop deliberately reused
+it — correct while an escalate created nothing on the server. The queue ended
+that: `edit_create` keys on `(uid, slug, op, idem_key)` and **the layer is not
+in it**, so a hop carrying the first key does not file the cheaper job at all —
+it matches the row that just escalated, comes back `duplicate: true`, and the
+hop silently becomes a no-op. Now one key per SUBMISSION, `handedOff` bounding
+it at two. This repo's own "a rule true because of a layer below it expires when
+that layer moves" trap, and **the guard that should have caught it passed
+vacuously**: `lastIndexOf("if (!handedOff) {", mint)` finds the guard whether
+the mint is inside it or a hundred lines below, so `guard < mint` was true
+either way. Anchored on the guard's CLOSE now. A placement check that cannot
+observe placement is worse than none.
+
+**A KILLED SWEEP LEAVES A LIVE MUTANT — and the rule two sections up says so
+(2026-09-01, hit anyway).** The restore sat at the end of the run function, so a
+2-minute tool timeout mid-suite left `escalateAction`'s `hasAsk` gate deleted in
+the tree. Caught only because the guard written for it was failing, which is the
+good outcome and not a plan. **Put the restore on a `trap … EXIT INT TERM HUP`
+and run the sweep in the background**, where nothing can time it out.
+
 **Re-run the thing the change is asserted by.** Appeasing a false alarm in one
 checker while never re-running the harness that actually proves the change has
 shipped red twice.

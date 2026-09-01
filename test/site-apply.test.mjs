@@ -768,31 +768,57 @@ test("an edit is dispatched, and every failure falls back to the build", () => {
   // THE ESCALATION MUST NEVER SURFACE AS AN ERROR. It is the whole reason
   // trying the cheap rung first is safe.
   //
-  // ANCHORED ON THE PROPERTY, NOT THE SPELLING. This pinned the exact one-line
-  // `if (e.escalate) return fallback()` and went red the moment that branch
-  // became a block to allow a sideways handoff — a test about word order, which
-  // is this repo's most repeated own-goal. What it needs is that an escalation
-  // is HANDLED and that every path out of that branch is a fallback or another
-  // lane, never the error branch below it.
-  const esc = b.slice(b.indexOf("if (e.escalate)"), b.indexOf("if (!r.ok || !e.ok)"));
-  assert.ok(esc.length > 20, "the escalation branch is gone — an escalation would be shown as an error");
+  // ANCHORED ON THE PROPERTY, NOT THE SPELLING — and RE-ANCHORED twice now, both
+  // times for an honest change. It first pinned the one-line
+  // `if (e.escalate) return fallback()` and went red when that became a block to
+  // allow a sideways handoff. It then pinned the BLOCK, and went red on
+  // 2026-09-01 when the block moved into `escalatedEdit` so the queued path
+  // could reach the same decision — a test about word order reporting a fix as a
+  // regression, which is this repo's most repeated own-goal.
+  //
+  // What it needs is unchanged: an escalation is HANDLED, and every way out of
+  // that handling is a fallback or another lane, never the error branch. So it
+  // follows the handling to wherever it lives rather than requiring it to sit
+  // inline.
+  // AND IT IS READ BEFORE THE FAILURE BRANCH, wherever that reading lives — an
+  // escalate arrives as a 200 with `ok:false`, so a failure check that ran first
+  // would show a change that needs one more rung as an error and stop. Windowed
+  // on `editAnswer`, which is where both paths now read one reply.
+  const ansAt = CHAT.indexOf("function editAnswer(");
+  const ansEnd = CHAT.indexOf("function applyEditResult(");
+  assert.ok(ansAt > 0 && ansEnd > ansAt, "the shared reply reader is gone or moved");
+  const ans = CHAT.slice(ansAt, ansEnd);
+  const escAt = ans.indexOf("if (e.escalate)");
+  const failAt = ans.indexOf("if (!httpOk || !e.ok)");
+  assert.ok(escAt > 0 && failAt > 0, "the escalate check or the failure check is gone");
+  assert.ok(escAt < failAt,
+    "an escalation is not handled before the failure branch, so a 200 carrying escalate:true is shown as an error");
+  const esc = CHAT.slice(CHAT.indexOf("function escalatedEdit("), CHAT.indexOf("function watchEditJob("));
+  assert.ok(esc.length > 200, "the escalation handler is gone — an escalation would be shown as an error");
   assert.match(esc, /fallback\(\)/, "an escalation no longer reaches the build");
-  // A HANDOFF IS BOUNDED TO ONE HOP, and that bound lives HERE rather than in
-  // the server's answer: without it, two lanes each naming the other loop for
-  // ever on a customer's edit.
+  // A HANDOFF IS BOUNDED TO ONE HOP, and that bound lives on THIS side rather
+  // than in the server's answer: without it, two lanes each naming the other
+  // loop for ever on a customer's edit. The comparison itself now lives in
+  // `EditPoll.escalateAction`, which test/edit-poll.test.mjs DRIVES over the
+  // same-layer and already-hopped cases — a stronger check than this read, so
+  // what is asserted here is only that the bound is consulted and carried.
   if (/siteEdit\(/.test(esc)) {
-    assert.match(esc, /!handedOff/, "a sideways handoff is unbounded — two lanes could loop");
-    assert.match(esc, /e\.layer !== d\.layer/, "a handoff to the SAME layer would re-run the lane that just failed");
+    assert.match(esc, /handedOff/, "a sideways handoff is unbounded — two lanes could loop");
+    assert.match(esc, /escalateAction\(/, "the hop is decided here rather than by the module a test can drive");
     assert.match(esc, /, true\)/, "the second call is not marked as handed off, so the bound never bites");
   }
-  assert.match(b, /if \(!e\) return fallback\(\)/, "an unreadable body is not a refusal");
-  assert.match(b, /\}\)\.catch\(fallback\)/, "a network drop must land on the build too");
-  // And the escalation branch must come BEFORE the generic failure branch, or a
-  // 200 carrying escalate:true would be read as an error and shown as one.
-  assert.ok(b.indexOf("e.escalate") < b.indexOf("!r.ok || !e.ok"),
-    "the escalation check must run before the failure check");
+  // AN UNREADABLE BODY IS NOT A REFUSAL — it is us not knowing, and the rung
+  // above still works. In `editAnswer` since both paths started sharing it.
+  assert.match(ans, /if \(!e\) \{[^}]*fallback/, "an unreadable body is not a refusal");
+  assert.match(b, /\}\)\.catch\(\(err\) => \{ clearFlight\(\); return fallback\(err\); \}\)/,
+    "a network drop must land on the build too");
+  // The escalate-before-failure ordering is asserted on `editAnswer` above,
+  // which is where both checks now live — a second copy of it here would be one
+  // more thing to re-anchor the next time either moves.
   // A published change has to bust the preview, or it reads as not applied.
-  assert.match(b, /previewV = \(s\.previewV \|\| 0\) \+ 1/);
+  const applier = CHAT.slice(CHAT.indexOf("function applyEditResult("), CHAT.indexOf("function escalatedEdit("));
+  assert.ok(applier.length > 200, "the shared applier window came out empty");
+  assert.match(applier, /previewV = \(s\.previewV \|\| 0\) \+ 1/);
 });
 
 // ── the page layer: one page's source, one model call ────────────────────────
@@ -1316,13 +1342,28 @@ test("the undo is wired end to end, not just built", () => {
   assert.match(w, /recent: \(eb && eb\.recent\) \|\| null/, "the route never reads it off the body");
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   const at = chat.indexOf("function siteEdit(");
+  assert.ok(at > 0, "siteEdit is gone — the assertions below would pass vacuously");
   const body = chat.slice(at, chat.indexOf("\n}", at));
   assert.match(body, /recent:/, "the client never sends it");
   assert.match(body, /d\.layer === 'data'/, "it is sent on layers that could not act on it");
   // REMEMBERED ON A REMOVAL AND FORGOTTEN ON AN ADD. Carried forever, it is a
   // standing offer to re-add a row on an unrelated change.
-  assert.match(body, /s\.undoRows = gone/, "nothing remembers what went");
-  assert.match(body, /s\.undoRows = null/, "the undo is never cleared, so it can fire twice");
+  //
+  // READ WHERE IT NOW LIVES. This was inside `siteEdit`, and on 2026-09-01 it
+  // moved into `applyEditResult` — because the QUEUED path had its own success
+  // tail that never carried it at all, so a queued `data` edit remembered no
+  // undo and, worse, never CLEARED a stale one. Two copies of one decision,
+  // which is why there is one now. The window follows it rather than requiring
+  // it to stay where a passing test happened to find it.
+  const aAt = chat.indexOf("function applyEditResult(");
+  assert.ok(aAt > 0, "the shared applier is gone");
+  const applier = chat.slice(aAt, chat.indexOf("\n}", aAt));
+  assert.match(applier, /s\.undoRows = gone/, "nothing remembers what went");
+  assert.match(applier, /s\.undoRows = null/, "the undo is never cleared, so it can fire twice");
+  // AND BOTH PATHS REACH IT. A shared applier that only one caller uses is the
+  // same drift wearing a better name.
+  const users = (chat.match(/applyEditResult\(/g) || []).length;
+  assert.equal(users, 2, `applyEditResult has ${users} mentions — one definition and one shared caller is the whole point`);
   // That the offer NAMES the row is asserted on the rendered output in "the
   // replies are DRIVEN, not grepped" — a source-read of the same fact would be a
   // second, weaker copy of it.

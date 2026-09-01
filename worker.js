@@ -36,7 +36,7 @@ import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CON
 import { JOB_KIND, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
-  PUBLISH_LEASE_S, REPLAY_HEADER, makeEditBudget, cleanIdemKey, newLeaseOwner,
+  PUBLISH_LEASE_S, REPLAY_HEADER, FINAL_HEADER, FINAL_VALUE, makeEditBudget, cleanIdemKey, newLeaseOwner,
   replayEditRequest, phaseDurations, readEditMessage, isTerminalEdit,
   newReplaySecret, packReplayMarker, readReplayMarker, packEditJob, readEditJob,
   editAsyncFor,
@@ -17977,7 +17977,13 @@ async function handleRequest(request, env, ctx) {
       if (isTerminalEdit(row.state) && res && typeof res.body === "string") {
         return new Response(res.body, {
           status: Number(res.status) || 200,
-          headers: { "content-type": String(res.type || "application/json") },
+          headers: {
+            "content-type": String(res.type || "application/json"),
+            // AND IT SAYS SO. Without this the client cannot tell this reply
+            // from the poll route's own — see FINAL_HEADER, which is the whole
+            // explanation. The stored body has no job-state field in it.
+            [FINAL_HEADER]: FINAL_VALUE,
+          },
         });
       }
       return Response.json({

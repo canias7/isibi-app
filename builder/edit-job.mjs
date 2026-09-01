@@ -278,6 +278,26 @@ export function readEditMessage(body) {
  * customer can observe that lets them build one.
  */
 export const REPLAY_HEADER = "x-gf-job";
+/**
+ * THE POLL SAYING "THIS IS THE ANSWER, NOT ME TALKING".
+ *
+ * A finished job hands back its STORED REPLY byte for byte — the same object the
+ * synchronous path returns — and that object has no job-state field in it,
+ * because it never needed one. So the client could not tell a finished job from
+ * a running one: `classify(undefined)` answers `running`, and the browser polled
+ * a completed, charged, published edit for ever behind a spinner.
+ *
+ * HTTP STATUS CANNOT CARRY IT EITHER. A stored reply keeps its own status — 200
+ * for a success, 422 for a compile failure, 503 for a model outage — and the
+ * poll route has its own 503 for a row it could not read. Read by number alone,
+ * a stored 503 is indistinguishable from a transient one and gets retried until
+ * the client gives up.
+ *
+ * So the distinction is stated rather than inferred. Set on the stored-reply
+ * branch and nowhere else.
+ */
+export const FINAL_HEADER = "x-gf-edit";
+export const FINAL_VALUE = "final";
 
 /** A per-job replay secret. Never leaves the server, never reaches a client. */
 export function newReplaySecret(fill) {

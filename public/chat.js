@@ -11490,18 +11490,33 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
   if (!slug) return fallback();
   if (editBlocked.has(slug)) { finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
   // A SIDEWAYS HOP IS THE SAME ASK. `handedOff` means one lane escalated to
-  // another within one message, so it must carry the same key and must not be
-  // refused as a double submission — it IS the first submission, redirected.
+  // another within one message, so it must not be refused as a double
+  // submission — it IS the first submission, redirected.
   if (!handedOff) {
     if (editInFlight.has(slug)) return;
     editInFlight.add(slug);
-    editIdem.set(slug, EditPoll.newIdemKey());
   }
-  // READ, NEVER MINTED HERE. A fallback mint at the point of use is a second
-  // key for the same ask wearing a safety net — and the server's idempotency is
-  // (uid, slug, op, idem_key), so a fresh key IS a second job. Absent, the POST
-  // carries none and the server refuses with `bad-idem`, which is the right
-  // direction to fail in: a visible refusal rather than a silent double charge.
+  // ── THE LATCH IS PER ASK. THE KEY IS PER POST. ──────────────────────────
+  //
+  // These were one statement, and the hop carried the FIRST post's key. That
+  // was correct while an escalate created nothing: the sideways hop was the
+  // same ask reaching a different lane, and one key for one ask was the honest
+  // description. It stopped being true when the queue landed.
+  //
+  // `edit_create` keys on `(uid, slug, op, idem_key)` and THE LAYER IS NOT IN
+  // IT — so a hop reusing the key does not file the cheaper job at all. It
+  // matches the row the first post created, comes back `duplicate: true`
+  // naming the job that just escalated, and the watcher reads that job's
+  // stored escalate straight back. The hop silently becomes a no-op.
+  //
+  // So: one key per POST, minted where the POST is decided. Two posts in one
+  // ask are two jobs, deliberately, because the second is at a rung the first
+  // could not reach. What must NOT happen is a mint at the point of use as a
+  // fallback for an empty map — that is a second key for a RETRY, which is the
+  // double charge the key exists to stop. Absent, the POST carries none and the
+  // server refuses with `bad-idem`: a visible refusal rather than a silent
+  // double charge, and the right direction to fail in.
+  editIdem.set(slug, EditPoll.newIdemKey());
   const idem = editIdem.get(slug);
   const clearFlight = () => { if (!handedOff) editInFlight.delete(slug); };
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/edit', {
@@ -11552,69 +11567,151 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
     if (e && e.ok && e.job && !e.result) {
       clearFlight();
       EditPoll.rememberJob(slug, e.job);
-      watchEditJob(site, d, e.job, origin, finish, fallback);
+      watchEditJob(site, d, e.job, origin, finish, fallback, instruction, imgs);
       return;
     }
-    // A body we cannot read is not a refusal — it is us not knowing, and the
-    // rung above still works.
-    if (!e) return fallback();
-    if (e.escalate) {
-      // ── ONE HOP SIDEWAYS, THEN UP ────────────────────────────────────────
-      //
-      // A lane that cannot answer may name a CHEAPER one that can: the picture
-      // layer cannot insert a `<SafeImage>` and the `page` layer can, so "add a
-      // photo to the about page" costs one page instead of the whole-site
-      // rewrite `fallback` performs.
-      //
-      // BOUNDED HERE, NOT TRUSTED FROM THE SERVER, and that is the whole safety
-      // argument: `handedOff` allows exactly one, and a different layer, so no
-      // sequence of server answers can loop between two lanes. A second
-      // escalation goes up the ladder exactly as it does today.
-      if (!handedOff && e.layer && e.layer !== d.layer) {
-        // THE LATCH IS NOT CLEARED HERE. The hop is the same ask continuing, so
-        // releasing it would let a second click in while this one is still
-        // running — the exact double submission it exists to stop.
-        return siteEdit(site, { ...d, layer: String(e.layer), page: e.page ? String(e.page) : d.page },
-          instruction, origin, finish, fallback, imgs, true);
-      }
-      clearFlight();
-      return fallback();
-    }
-    if (!r.ok || !e.ok) {
-      // The server's own sentence when it has one. `buildDownMsg` already knows
-      // to drop the "try again in a few seconds" advice on a failure that no
-      // amount of retrying fixes.
-      clearFlight();
-      // A SITE UNDER REVIEW TAKES NO MORE EDITS until somebody establishes
-      // whether its last one shipped. The server refuses as well; this stops
-      // the customer spending a round trip to find out.
-      if (e.error === 'needs-review') { editBlocked.add(slug); finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
-      if (e.msg) { finish('⚠️ ' + e.msg); return; }
-      return fallback();
-    }
-    clearFlight();
-    // PUBLISHED. Bump the cache-buster the same way a revise does, or the
-    // preview keeps showing the old bundle and the change reads as not applied.
-    scheduleCreditRefresh();
-    const s = siteById(origin);
-    if (s) {
-      s.previewV = (s.previewV || 0) + 1;
-      // REMEMBER WHAT WENT, so the next message can undo it. Replaced by a
-      // later removal and CLEARED by an add, because once a row has been put
-      // back, carrying it forward is a standing offer to put it back again on
-      // an unrelated change.
-      // A DELETED PAGE LEAVES THE PICKER, exactly as it does on the addon lane.
-      // Told it is gone and still offered it is the same lie either way.
-      const cut = (Array.isArray(e.removed) ? e.removed : []).map(sitePathOf).filter(Boolean);
-      if (cut.length && Array.isArray(s.pages)) s.pages = s.pages.filter((q) => !(q && cut.indexOf(q.path) >= 0));
-      const rows = Array.isArray(e.applied) ? e.applied : [];
-      const gone = rows.filter((r) => r && r.removed && r.was).map((r) => ({ table: r.table, was: r.was }));
-      if (gone.length) s.undoRows = gone.slice(0, 3);
-      else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
-      sitesSave();
-    }
-    finish(editReply(e) + renderTail(e) + alsoTail(d));
+    return editAnswer(r && r.ok, e, { site, d, instruction, origin, finish, fallback, imgs, handedOff, clearFlight, slug });
   }).catch((err) => { clearFlight(); return fallback(err); });
+}
+
+/**
+ * READ ONE EDIT REPLY — the same object, whichever path carried it.
+ *
+ * The server's own comment on the poll route promises this: "a finished job
+ * hands back its stored reply, byte for byte what the synchronous path would
+ * have returned… one object, reached two ways". Only one way ever read it.
+ * `watchEditJob` had its own tail, and it had already drifted three ways: an
+ * escalate rendered as '✅ Done.', a deleted page left in the picker, and an
+ * undo neither remembered nor cleared. So the reading is one function now, and
+ * the paths differ only where they genuinely differ — how the reply ARRIVED.
+ *
+ * `httpOk` rather than the Response, because the queued path's `ok` is its
+ * poll's and the synchronous path's is its POST's, and both mean the same thing
+ * about the reply: a stored 422 says the edit did not compile exactly as an
+ * inline 422 does.
+ */
+function editAnswer(httpOk, e, o) {
+  const clearFlight = o.clearFlight || function () {};
+  // A body we cannot read is not a refusal — it is us not knowing, and the
+  // rung above still works.
+  if (!e) { clearFlight(); return o.fallback ? o.fallback() : o.finish('⚠️ ' + EditPoll.outcomeMessage('failed')); }
+  if (e.escalate) return escalatedEdit(e, o);
+  if (!httpOk || !e.ok) {
+    // The server's own sentence when it has one. `buildDownMsg` already knows
+    // to drop the "try again in a few seconds" advice on a failure that no
+    // amount of retrying fixes.
+    clearFlight();
+    // A SITE UNDER REVIEW TAKES NO MORE EDITS until somebody establishes
+    // whether its last one shipped. The server refuses as well; this stops
+    // the customer spending a round trip to find out.
+    if (e.error === 'needs-review') { editBlocked.add(o.slug); o.finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
+    if (e.msg) { o.finish('⚠️ ' + e.msg); return; }
+    // NO SENTENCE AND NO ASK IS NOT A REASON TO SPEND. A watch resumed after a
+    // refresh has no `fallback` to fall to, and inventing a ~25-credit rewrite
+    // there would charge for a message nobody re-typed.
+    if (typeof o.fallback !== 'function') { o.finish('⚠️ ' + EditPoll.outcomeMessage('failed')); return; }
+    return o.fallback();
+  }
+  clearFlight();
+  return applyEditResult(e, o);
+}
+
+/**
+ * WHAT A PUBLISHED EDIT CHANGES ON THIS SIDE — one copy, both paths.
+ *
+ * FOUND THE SAME DAY AND THE SAME WAY AS `escalatedEdit`, which is the point:
+ * the queued watcher had its own success handling, and it had already drifted
+ * from this one. It bumped the preview and stopped, so a queued edit
+ *
+ *   * that DELETED a page left that page in the site picker — "told it is gone
+ *     and still offered" is the same lie whichever path carried it; and
+ *   * that removed ROWS stored no undo, so "put that back" had nothing to refer
+ *     to and `siteEdit` sent no `recent` on the next message. The CLEAR was
+ *     missing too, which is worse than the offer being absent: a stale undo
+ *     from an earlier synchronous edit survived, standing as an offer to re-add
+ *     a row that is already back.
+ *
+ * Neither fails, neither logs, and both are invisible until a customer deletes
+ * something. Two copies of one decision, exactly as this repo's own rule warns.
+ */
+function applyEditResult(e, o) {
+  // PUBLISHED. Bump the cache-buster the same way a revise does, or the preview
+  // keeps showing the old bundle and the change reads as not applied.
+  scheduleCreditRefresh();
+  const s = siteById(o.origin);
+  if (s) {
+    s.previewV = (s.previewV || 0) + 1;
+    // REMEMBER WHAT WENT, so the next message can undo it. Replaced by a later
+    // removal and CLEARED by an add, because once a row has been put back,
+    // carrying it forward is a standing offer to put it back again on an
+    // unrelated change.
+    // A DELETED PAGE LEAVES THE PICKER, exactly as it does on the addon lane.
+    // Told it is gone and still offered it is the same lie either way.
+    const cut = (Array.isArray(e.removed) ? e.removed : []).map(sitePathOf).filter(Boolean);
+    if (cut.length && Array.isArray(s.pages)) s.pages = s.pages.filter((q) => !(q && cut.indexOf(q.path) >= 0));
+    const rows = Array.isArray(e.applied) ? e.applied : [];
+    const gone = rows.filter((r) => r && r.removed && r.was).map((r) => ({ table: r.table, was: r.was }));
+    if (gone.length) s.undoRows = gone.slice(0, 3);
+    else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
+    sitesSave();
+  }
+  o.finish(editReply(e) + renderTail(e) + alsoTail(o.d));
+}
+
+/**
+ * AN ESCALATE IS THE SAME ANSWER WHICHEVER PATH CARRIED IT.
+ *
+ * The queued reply body IS the synchronous one — the consumer stores exactly
+ * what the route returned — so both paths must read it the same way. They did
+ * not. `watchEditJob` applied every terminal answer as an outcome, and
+ * `editReply` ends `return '✅ Done.'`, so a queued edit that escalated told the
+ * customer their change was made, never ran the revise that would have made it,
+ * and bumped the preview to show a site that had not changed. A green tick for
+ * nothing — the one failure this whole path is written to avoid, and it was
+ * live behind the canary flag.
+ *
+ * ONE FUNCTION, CALLED BY BOTH, because two copies of a decision drift and the
+ * drift is silent. Extracted rather than duplicated for exactly that reason.
+ *
+ * ── ONE HOP SIDEWAYS, THEN UP ─────────────────────────────────────────────
+ *
+ * A lane that cannot answer may name a CHEAPER one that can: the picture layer
+ * cannot insert a `<SafeImage>` and the `page` layer can, so "add a photo to
+ * the about page" costs one page instead of the whole-site rewrite `fallback`
+ * performs.
+ *
+ * BOUNDED HERE, NOT TRUSTED FROM THE SERVER, and that is the whole safety
+ * argument: `handedOff` allows exactly one, and only to a DIFFERENT layer, so
+ * no sequence of server answers can loop between two lanes. A second escalation
+ * goes up the ladder.
+ */
+function escalatedEdit(e, o) {
+  const clearFlight = o.clearFlight || function () {};
+  // DECIDED IN `edit-poll.js`, ACTED ON HERE. Three outcomes, one of which
+  // spends ~25 credits, so the choice between them is driven by a test rather
+  // than read out of this file.
+  const act = EditPoll.escalateAction(e, {
+    handedOff: !!o.handedOff,
+    layer: o.d && o.d.layer,
+    // THE ASK ITSELF IS WHAT A HOP AND A FALLBACK BOTH NEED, and a watch
+    // resumed after a refresh holds neither — only the job id survived in
+    // storage.
+    hasAsk: !!o.instruction && typeof o.fallback === 'function',
+  });
+  if (act === 'lost') {
+    clearFlight();
+    o.finish('⚠️ I couldn’t make that change the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.');
+    return;
+  }
+  if (act === 'hop') {
+    // THE LATCH IS NOT CLEARED HERE. The hop is the same ask continuing, so
+    // releasing it would let a second click in while this one is still
+    // running — the exact double submission it exists to stop.
+    return siteEdit(o.site, { ...(o.d || {}), layer: e.layer, page: e.page ? String(e.page) : (o.d && o.d.page) },
+      o.instruction, o.origin, o.finish, o.fallback, o.imgs, true);
+  }
+  clearFlight();
+  return o.fallback();
 }
 
 /**
@@ -11628,10 +11725,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
  * connection would throw away work somebody bought because they switched apps.
  * Cancelling is a separate DELETE the server has to confirm; see `cancelEditJob`.
  */
-function watchEditJob(site, d, job, origin, finish, fallback) {
+function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs) {
   const slug = String(site.slug || '');
   const w = EditPoll.makeWatch(job, slug);
-  const apply = (e) => {
+  const apply = (e, r0) => {
     // ── EXACTLY ONCE ──────────────────────────────────────────────────────
     //
     // A final answer can arrive more than once: a retry that raced the first,
@@ -11641,10 +11738,22 @@ function watchEditJob(site, d, job, origin, finish, fallback) {
     const once = w.take(e);
     if (!once) return;
     EditPoll.forgetJob(slug);
-    scheduleCreditRefresh();
-    const s = siteById(origin);
-    if (s) { s.previewV = (s.previewV || 0) + 1; sitesSave(); }
-    finish(editReply(once) + renderTail(once) + alsoTail(d));
+    // ── THE SAME READER THE SYNCHRONOUS PATH USES, ON THE SAME OBJECT ─────
+    //
+    // Including the escalate, which this function briefly checked for itself —
+    // and a second copy of the check is the thing the whole extraction exists
+    // to remove, so it went the moment `editAnswer` landed. Everything about
+    // what the reply MEANS is decided there; all this side knows is that the
+    // edit is over.
+    //
+    // AFTER `w.take`, deliberately. The latch is what makes an answer act once,
+    // and an escalate that fires twice is two hops — two jobs for one ask,
+    // which is the exact thing the idempotency chain exists to stop.
+    //
+    // `httpOk` is the POLL's, which for a stored reply IS the edit's own
+    // status: a 422 handed back by the poll says the edit did not compile
+    // exactly as an inline 422 does.
+    return editAnswer(!!(r0 && r0.ok), once, { site, d, instruction, origin, finish, fallback, imgs, handedOff: false, slug });
   };
   const step = async () => {
     let r = null;
@@ -11653,9 +11762,23 @@ function watchEditJob(site, d, job, origin, finish, fallback) {
       r = await apiFetch('/api/site/edit/' + encodeURIComponent(job), { method: 'GET' });
       e = await r.json().catch(() => null);
     } catch (err) { r = null; }
-    // A POLL THAT FAILED IS NOT AN EDIT THAT FAILED, and the one thing it must
-    // never do is resubmit the POST — that is a second job for one ask.
-    if (!r || EditPoll.shouldRetryPoll(r.status)) {
+    // ── ONE READING OF THE POLL, AND EVERY BRANCH IS A CASE OF IT ────────
+    //
+    // This was three separate questions asked of three different things — a
+    // retry gate on the status, a 404 on the status again, then `classify` on
+    // the BODY — and the third could not see what it needed. A finished job
+    // hands back its stored reply, which has no job-state field, so
+    // `classify(undefined)` answered `running` and this loop polled a finished,
+    // charged, PUBLISHED edit for ever. `wait` has no attempt bound, so it
+    // never even gave up. Every queued success and every queued escalate.
+    //
+    // `readPoll` is one function with the four cases in a stated order, driven
+    // by a test. A thrown fetch never reaches it: no response is a poll that
+    // failed, which is not an edit that failed.
+    const read = r
+      ? EditPoll.readPoll(r.status, r.headers && r.headers.get(EditPoll.FINAL_HEADER), e)
+      : { act: 'retry' };
+    if (read.act === 'retry') {
       w.attempt++;
       // BOUNDED. Past this the job has certainly ended one way or another and
       // the customer is better told we lost sight of it than watched for ever.
@@ -11663,7 +11786,7 @@ function watchEditJob(site, d, job, origin, finish, fallback) {
       setTimeout(step, EditPoll.pollDelayMs(w.attempt));
       return;
     }
-    if (r.status === 404) {
+    if (read.act === 'gone') {
       // THE SAME ANSWER A JOB THAT IS NOT YOURS GETS, deliberately, so nothing
       // here can be used to find out whether an id exists. All this side knows
       // is that it can no longer follow the edit.
@@ -11672,22 +11795,25 @@ function watchEditJob(site, d, job, origin, finish, fallback) {
       finish('⚠️ I lost track of that edit. Your site is unchanged unless it had already published.');
       return;
     }
-    const verdict = EditPoll.classify(e && e.status, e && e.review);
-    if (!verdict.terminal) {
+    if (read.act === 'wait') {
       w.attempt++;
       setTimeout(step, EditPoll.pollDelayMs(w.attempt));
       return;
     }
-    if (verdict.kind === 'done') { apply(e); return; }
+    // THE STORED REPLY. What it MEANS is `editAnswer`'s to decide; this side
+    // only knows the edit is over.
+    if (read.act === 'reply') { apply(e, r); return; }
+    // AND `ended` IS THE JOB DESCRIBING ITSELF — the branch taken when there is
+    // no stored reply to hand back at all: lost, cancelled, under review.
     if (w.take(true) === null) return;
     EditPoll.forgetJob(slug);
-    if (verdict.kind === 'needs_review') editBlocked.add(slug);
+    if (read.kind === 'needs_review') editBlocked.add(slug);
     scheduleCreditRefresh();
     // THE SERVER'S OWN SENTENCE WHEN IT WROTE ONE FOR A CUSTOMER TO READ, and a
     // fixed one otherwise. Never `kind`, never `phase`, never a provider
     // message — the poll route has nowhere to put one, and this is the side
     // that renders, so the choice is made here rather than trusted from there.
-    finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(verdict.kind)));
+    finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)));
   };
   setTimeout(step, EditPoll.pollDelayMs(0));
 }
@@ -11700,26 +11826,40 @@ function watchEditJob(site, d, job, origin, finish, fallback) {
  * about the job. And a refusal because publishing has started is not an error:
  * the edit is going to land, so the right move is to keep watching.
  */
-function cancelEditJob(site, d, job, origin, finish, fallback) {
+// `instruction` and `imgs` are carried, not used here: a cancel that is refused
+// or unconfirmed goes back to WATCHING, and a watch without the ask can neither
+// hop sideways nor fall back when the answer turns out to be an escalate.
+function cancelEditJob(site, d, job, origin, finish, fallback, instruction, imgs) {
   const slug = String(site.slug || '');
   return apiFetch('/api/site/edit/' + encodeURIComponent(job), { method: 'DELETE' })
     .then(async (r) => {
       const e = await r.json().catch(() => null);
-      if (EditPoll.isCancelTooLate(r.status, e)) { watchEditJob(site, d, job, origin, finish, fallback); return 'too-late'; }
-      if (!EditPoll.isCancelConfirmed(e)) { watchEditJob(site, d, job, origin, finish, fallback); return 'unconfirmed'; }
+      if (EditPoll.isCancelTooLate(r.status, e)) { watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs); return 'too-late'; }
+      if (!EditPoll.isCancelConfirmed(e)) { watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs); return 'unconfirmed'; }
       // The job is not finished the moment a cancel is accepted — the consumer
       // sees it at its next boundary — so this keeps watching for the terminal
       // state rather than announcing one it has not been told about.
-      watchEditJob(site, d, job, origin, finish, fallback);
+      watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs);
       return 'requested';
     })
     // A FAILED CANCEL IS NOT A CANCEL. Keep watching; the edit is still running.
-    .catch(() => { watchEditJob(site, d, job, origin, finish, fallback); return 'unconfirmed'; });
+    .catch(() => { watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs); return 'unconfirmed'; });
 }
 
 /**
  * PICK BACK UP AFTER A REFRESH. A queued edit outlives the page that started
  * it, so the alternative to resuming is the customer sending a second one.
+ *
+ * NO INSTRUCTION AND NO ATTACHMENTS, and that is the truth rather than an
+ * omission: the ask lived in the page that was refreshed away, and only the job
+ * id is in storage. `escalatedEdit` reads the missing ask as its own case and
+ * says so, because the alternative — falling straight through to `fallback` —
+ * would start a ~25-credit rewrite on page load for a sentence nobody re-typed.
+ *
+ * AND IT HAS NO CALLERS TODAY. Said out loud rather than left to be discovered:
+ * everything below it works and nothing reaches it, so a refresh mid-edit still
+ * loses sight of the job. Wiring it starts real behaviour on page load, which is
+ * a product call, not a tidy-up.
  */
 function resumeEditJob(site, origin, finish, fallback) {
   const slug = String(site.slug || '');

@@ -914,3 +914,63 @@ sends zero bytes for the whole hold.
    `build smoke` ran. The owner's balance was untouched (it funds a throwaway
    by minting) but provider calls and a Neon project were spent. The rule is
    now in CLAUDE.md beside its twin.
+
+## 2026-09-01 — Stage 2: the paid canary spent nothing, and that was my bug
+
+**You ran it with `spend: yes` and nothing was charged.** Balance 309 before,
+309 after. `fretwork-1` still serves the same build it did this morning
+(`x-site-build: mtholxpx-rg59n3`). Nothing to undo.
+
+**What actually happened.** The POST queued in 1.0s, the consumer picked it up,
+replayed it, and the poll came back with a terminal answer 7.9 seconds later:
+`{"escalate":true,"reason":"layer","cost":0}`. So the plumbing did its whole
+job — and the edit never ran.
+
+**Why.** The edit route does not decide which of its nine rungs to use.
+`/api/site/route` does that, and the chatbox posts the answer on. My canary
+skipped that call and posted an empty layer, so the route matched no rung and
+fell through. **It looked exactly like a clean pass**: a real job id, a real
+claim, a real terminal answer, no errors anywhere. That is the part worth
+remembering — a green harness proves the path it took, not the path I meant.
+
+**Fixed two ways, because the second is the one that matters.** The canary now
+routes first, exactly as the chatbox does, and carries every field the router
+decides. And it **refuses to spend** if the router names no layer, rather than
+posting blind: the danger here is not failing, it is passing.
+
+**And it found a real defect in the product, one hop over.** On the queued path
+an escalate was being rendered as **"✅ Done."** — the customer told their change
+was made, the preview bumped to show an unchanged site, and the full rewrite
+that is meant to catch exactly this never ran. The synchronous path has always
+handled that correctly; the queued one applied every answer as an outcome. Both
+now go through one decision, and it is in the file a test can actually drive.
+
+**And underneath THAT was the one that mattered most: the chatbox never
+finished watching a queued edit at all.** When a job ends, the poll hands back
+the edit's own reply — the same object the old synchronous path returned. That
+object has no job-status field in it, because it never needed one, so the
+browser read every finished edit as "still running" and kept polling, for ever,
+behind a spinner, on an edit that had already published and charged. So had you
+made a real edit to `fretwork-1` from the chatbox today, the site would have
+changed correctly and the screen would have sat there spinning.
+
+That is now three things fixed in one place, and they were all the same thing:
+the queued path had its own private copy of "what to do with the reply", and the
+copy had drifted three ways — the spinner, the false tick, and a queued edit
+that deleted a page leaving it in the picker (with the row undo neither
+remembered nor cleared). Both paths read one reply through one function now.
+
+Two smaller things fixed with it: a sideways hop was reusing the first
+submission's retry key, which (now that jobs are real rows) made the cheaper
+second attempt a no-op; and one existing guard turned out to pass whatever the
+code said, so it never could have caught that.
+
+**Checks**: suite 4,712 → **4,736, green**. Three mutation sweeps, control
+survived each time — 9/13, then 14/17, then the three survivors re-run and all
+three caught. The canary harness has guards of its own now, which it did not
+before; that is why its bug reached a paid run.
+
+**Nothing has been re-run.** The allowlist is still `fretwork-1` only and the
+flag is still off for everyone else. Say the word and I'll dispatch the paid
+canary again on the fixed harness — it will be one real edit, ~1 credit at the
+`look` rung.

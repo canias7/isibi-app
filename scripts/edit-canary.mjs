@@ -9,7 +9,10 @@
 // replay, finalize — and stops one line short of the first thing that costs
 // money.
 //
-// The paid edit runs only when `CANARY_SPEND=1`, and it runs exactly once.
+// The paid edit runs only when `CANARY_SPEND=1`, and it runs exactly once. It
+// ROUTES FIRST — see the comment above it — because the edit route does not
+// decide its own layer and an edit posted without one costs nothing, changes
+// nothing, and still answers 200.
 //
 // ── HOW IT SIGNS IN ────────────────────────────────────────────────────────
 //
@@ -149,10 +152,57 @@ const before = await fetch(`${SUPABASE_URL}/rest/v1/credits?user_id=eq.${UID}&se
 console.log(`  balance before: ${before}`);
 
 const INSTRUCTION = process.env.CANARY_INSTRUCTION || "make the main call-to-action button background a deeper green";
+
+// ── ROUTE FIRST, BECAUSE THAT IS WHERE THE LAYER COMES FROM ────────────────
+//
+// THE EDIT ROUTE DOES NOT DECIDE ITS OWN LAYER. `/api/site/route` does, and
+// `public/chat.js` posts the answer on — so an edit POSTed with `layer: ""`
+// matches none of the nine branches and falls through to `escalate("layer")`
+// for nothing. That is exactly what the first paid canary did on 2026-09-01:
+// 202 in 1.0s, queued, claimed, replayed, terminal in 7.9s, `billing: none`,
+// `cost: 0`, balance unmoved — a run that looked like a complete pass and had
+// not made a single model call, run a lane, compiled anything or published.
+//
+// It is this repo's own wiring trap seen from the CALLER's side, and worse
+// than the usual shape because the missing hop wore the costume of success.
+// The edit route's `layer:` field carries a comment about the same field being
+// dropped from the ROUTE's response — the identical cut, one hop upstream.
+//
+// SO THE CANARY DOES WHAT THE CLIENT DOES: ask the router, carry every field
+// it decides. The routing call is a real ~0.3-credit charge and belongs to the
+// paid half, which is why it sits below the free checks and behind CANARY_SPEND.
+const digest = { name: CANARY, url: `https://${CANARY}.gofarther.app`, pages: [], tables: [] };
+const rt = await call("POST", "/api/site/route", {
+  body: { message: INSTRUCTION, site: digest, firstBuild: false, brief: INSTRUCTION,
+          qa: [], answering: false, attached: false, slug: CANARY, hasSite: true },
+});
+const rd = (rt.json || {});
+console.log(`  routed in ${(rt.ms / 1000).toFixed(1)}s: intent=${rd.intent || "?"} layer=${rd.layer || "-"} page=${rd.page || "-"} cost=${rd.cost ?? "?"}${rd.failed ? " FAILED" : ""}`);
+
+// REFUSE TO SPEND BLIND. A blank layer costs nothing and proves nothing, and
+// the whole danger is that it PASSES: the round trip completes, the poll
+// returns a terminal answer, and the canary reports green having tested the
+// queue and none of the work. A visible refusal is the only honest outcome.
+if (rt.status !== 200 || rd.intent !== "edit" || !rd.layer) {
+  console.error(`  REFUSING TO SPEND: the router did not name an edit layer (${rt.status} ${rt.text.slice(0, 160)}).`);
+  console.error("  Posting the edit anyway would escalate on `layer` for cost 0 and prove nothing.");
+  process.exit(1);
+}
+
 const idem = hex32();
 const t0 = Date.now();
 const p = await call("POST", `/api/site/${encodeURIComponent(CANARY)}/edit`,
-  { body: { instruction: INSTRUCTION, layer: "", idem } });
+  { body: {
+      instruction: INSTRUCTION, idem,
+      // EVERY FIELD THE ROUTER DECIDES, carried exactly as `siteEdit` carries
+      // them. Sending only `layer` would work today and break the moment the
+      // canary's instruction routes to a rung that needs one of the others.
+      layer: String(rd.layer || ""),
+      page: rd.page ? String(rd.page) : "",
+      remove: rd.remove === true,
+      rename: typeof rd.rename === "string" ? rd.rename : "",
+      tab: rd.tab === true,
+    } });
 console.log(`  POST returned ${p.status} in ${(p.ms / 1000).toFixed(1)}s: ${p.text.slice(0, 200)}`);
 if (p.status !== 202 || !p.json || !p.json.job) { console.error("  the POST did not queue a job"); process.exit(1); }
 const job = p.json.job;
@@ -172,4 +222,25 @@ console.log("  " + (done ? done.text.slice(0, 600) : "NO TERMINAL ANSWER — the
 const after = await fetch(`${SUPABASE_URL}/rest/v1/credits?user_id=eq.${UID}&select=balance`, { headers: svc })
   .then((r) => r.json()).then((r) => Number((r[0] || {}).balance || 0)).catch(() => -1);
 console.log(`\n  balance after: ${after}  (moved ${(before - after).toFixed(2)})`);
-process.exit(done ? 0 : 1);
+
+// ── A TERMINAL ANSWER IS NOT A PASS ────────────────────────────────────────
+//
+// The first paid canary reached a terminal state in 7.9 seconds and reported
+// nothing wrong: the queue had done its whole job and the EDIT had not
+// happened. `done` alone therefore certifies the transport and nothing else,
+// which is precisely how that run passed.
+//
+// What this run exists to prove is that a queued edit REACHES A LIVE SITE, so
+// the verdict is `ok: true` — a rung that ran, compiled and published. An
+// escalate is a legitimate product answer and a failed canary: it means the
+// paid half stopped before the thing under test.
+const body = done && done.json ? done.json : null;
+const published = !!(body && body.ok === true);
+if (!done) console.error("\nCANARY FAILED: no terminal answer inside the watch.");
+else if (!published) {
+  console.error(`\nCANARY FAILED: the edit did not publish — ${body && body.escalate ? "escalated on `" + body.reason + "`" : "answered " + JSON.stringify(body && body.error)}.`);
+  console.error("This is a completed round trip that changed nothing. Do not read it as a pass.");
+} else {
+  console.log(`\nCANARY PASSED: layer=${body.layer || "?"} published, cost=${body.cost ?? "?"}`);
+}
+process.exit(published ? 0 : 1);
