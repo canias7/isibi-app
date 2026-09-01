@@ -261,6 +261,12 @@ if (IS_EDIT) {
     //
     // Run 99 never got that far: it died at 60,000ms on our own ceiling, before
     // the first model call returned. Run 100 asks the same question with 240s.
+    //
+    // Run 100 reached the model and got nothing back: the lane rule said "aim by
+    // the landmark table" in the cached tool description while the table itself
+    // rides in the per-call note, and this site has no map — so the model was
+    // told to use something it was never handed, and correctly declined. Run 101
+    // asks with the instruction moved into the table it refers to.
     // RUN 96 READS THIS BLOCK AS MUCH AS IT READS THE LANE. If the ceiling was
     // the whole story the edit now goes through; if it was not, these lines are
     // what turn the next failure from a guess into a fact.
