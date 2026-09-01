@@ -253,6 +253,10 @@ if (IS_EDIT) {
     // to leave behind. Printed on EVERY outcome, not only failures: a run that
     // succeeds is the control a failing timeline is read against.
     if (e.cid) log(`step 5 — trace: ${e.cid}`);
+    // AND THE TRIGGER IS THE PATH FILTER *AND* THE MARKER. Run 103 carried the
+    // marker, touched worker.js and a test, and fired NOTHING — the workflow's
+    // own header records that exact failure and I read past it. A run that
+    // means to buy a build has to touch THIS file or the workflow.
     // Runs 97 and 98 read the same three lines run 96 did, against a lane that
     // can now see what the site is wearing. 97 never got to print them: it was
     // fired ten minutes after a `builder/` push and the container image was
