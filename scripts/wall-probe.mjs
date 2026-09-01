@@ -31,6 +31,13 @@
 //   mem  192MB  RETURNED in 2.1s — memory is not the wall
 //   sub  240s   NOT MEASURED — inner status 522, inner fetch waited 0.0s
 //
+// FIRST RUN WITH A WORKING FAR END, 2026-09-01: the preflight confirmed on poll
+// 1 (the container held a 1001ms reply), and then the measurement was spoiled by
+// a concurrent deploy rolling the container image under the 240s hold — 502 at
+// 130.7s, "Durable Object reset because its code was updated". `sub` STILL HAS
+// NO CEILING MEASUREMENT. Do not run this while a deploy touching `builder/` is
+// in flight; the image roll takes 15-20 minutes and outlives any single step.
+//
 // STAGE 1 IS DEPLOYED (2026-09-01, ad64d6e7). The container image carrying
 // `/slowreply` rolled with it, so the preflight below should confirm on its
 // first or second poll rather than waiting out its twenty-five minutes. If it
@@ -232,13 +239,45 @@ for (const mode of MODES) {
       note = ` · INVALID: held ${b.heldMb}MB, not ${n}MB`;
     }
 
-    const verdict = returned ? (valid ? "RETURNED" : "NOT MEASURED") : "DIED (" + (r.why || r.status) + ")";
+    // ── A FAR END THAT WAS TORN DOWN IS NOT A CEILING ──────────────────────
+    //
+    // MEASURED 2026-09-01, and the probe printed a confident verdict over it:
+    //
+    //   sub 240s ... DIED (502) after 130.7s
+    //     (Durable Object reset because its code was updated.)
+    //   => THE WALL IS A SUBREQUEST: an outbound fetch stops being held at 240s
+    //
+    // It was not. A deploy rolled the container image while the hold was in
+    // flight, so the thing at the other end stopped existing at 130.7s — which
+    // says nothing whatever about how long a subrequest may be held. The row
+    // even carried the reason, and the scoring read past it.
+    //
+    // The defect is one clause: `invalid` was `returned && !valid`, so a row
+    // that did NOT return could never be invalid and therefore always counted
+    // as a genuine cutoff. Third verdict this probe has printed without
+    // earning it, and the same shape as the first two.
+    //
+    // THE DISTINCTION IS WHO ANSWERED. A true ceiling means nothing answered at
+    // all; this means OUR Worker answered and explained that its far end went
+    // away. So the evidence is a parsed body of ours naming a container fault —
+    // not a status code, which is identical in both cases.
+    const farEndGone = !returned && b && typeof b.why === "string" &&
+      /(durable object|container).{0,40}(reset|updated)|no container binding|code was updated/i.test(b.why);
+    if (farEndGone) {
+      valid = false;
+      note = " · NOT MEASURED: the far end was replaced mid-hold (" + b.why.slice(0, 70) + ")";
+    }
+    const verdict = returned
+      ? (valid ? "RETURNED" : "NOT MEASURED")
+      : (farEndGone ? "NOT MEASURED" : "DIED (" + (r.why || r.status) + ")");
     console.log(`${verdict} after ${(r.ms / 1000).toFixed(1)}s` +
       (r.firstByteAt ? ` · first byte ${(r.firstByteAt / 1000).toFixed(1)}s` : "") +
       (r.ticks ? ` · ${r.ticks} heartbeats` : "") +
       (mode === "burn" && b.slices ? ` · ${b.slices} slices` : "") +
       note);
-    rows.push({ mode, n, ok: returned && valid, invalid: returned && !valid, ms: r.ms });
+    // `invalid` NO LONGER REQUIRES A RETURN. That clause is what let a torn-down
+    // far end be scored as a ceiling — see `farEndGone` above.
+    rows.push({ mode, n, ok: returned && valid, invalid: (returned && !valid) || farEndGone, ms: r.ms });
     // A mode that has already died will die at every larger step too, and each
     // costs its full wall-clock to prove. Stop that mode there. An INVALID row
     // stops it as well: every larger step would be invalid for the same reason,
