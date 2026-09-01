@@ -19659,7 +19659,18 @@ async function handleRequest(request, env, ctx) {
               // gate unconditional turned every text edit into `cssCtx.edb` on
               // null, and the guard watching it counted builds and saw nothing
               // wrong. The correction needs the context, so it asks for it.
+              // AND THIS ROUND REPORTS ITS OWN FAULTS (run 101). That run
+              // answered 500 after 273.2s carrying `kind: "Error"` and nothing
+              // else, because an exception escaping this handler lands in the
+              // OWNER-ROUTE catch far below — a deliberately opaque reply keeping
+              // only the error's class, since a provider message on these routes
+              // can quote the service key. Right for secrecy, useless for
+              // diagnosis: from outside, a fault in the newest code on this path
+              // is indistinguishable from one in any of the eight rungs above it.
+              // Nothing has published when this runs, so the site is untouched
+              // whichever way it goes.
               if (!finalPub.ok && finalPub.error === "dead-css" && cssCtx) {
+                try {
                 const fix = await runLane(
                   { send: quickSend(env, "lane-correction") },
                   {
@@ -19690,6 +19701,21 @@ async function handleRequest(request, env, ctx) {
                 }
                 // REBUILD AND SEE. Off this time, so this is the last attempt.
                 finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: false });
+                } catch (e) {
+                  console.error("css verify round failed:", ownerSlug, (e && (e.stack || e.message)) || e);
+                  // THE CLASS, NEVER THE MESSAGE, matching the owner-route catch
+                  // below and for its reason: a name is a class and cannot be a
+                  // secret, a message can quote the request. `phase` is one of OUR
+                  // own step names, so it is safe to send and it is the whole point.
+                  return Response.json({
+                    ok: false, error: "verify", cost: 0,
+                    msg: "I found that my change wouldn't have shown up on your page, and hit a problem putting " +
+                      "it right — your site is untouched and nothing was charged.",
+                    kind: String((e && e.name) || "Error").slice(0, 40),
+                    phase: cssFixed ? "republish" : "correct",
+                    dead: Array.isArray(finalPub && finalPub.dead) ? finalPub.dead.slice(0, 4) : undefined,
+                  }, { status: 503 });
+                }
               } else if (!finalPub.ok && finalPub.error === "dead-css") {
                 // ASKED TO VERIFY WITH NOTHING TO CORRECT WITH. Not reachable
                 // today — `verifyCss` is `!!cssCtx` — and it is handled anyway
