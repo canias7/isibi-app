@@ -303,6 +303,21 @@ test("the flag ON with the approved canary identity routes asynchronously", () =
   }
 });
 
+test("the deploy's own fallback is one the code reads as absent", () => {
+  // THE TWO HALVES HAVE TO AGREE AND THEY LIVE IN DIFFERENT FILES. The workflow
+  // needs a NON-EMPTY value (wrangler-action fails the whole deploy on an empty
+  // one — it did, on 2026-09-01) and the code needs it to mean "nobody". A
+  // sentinel that satisfied one and not the other is either a broken deploy or
+  // a canary that is silently everybody.
+  const yml = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
+  const m = /EDIT_ASYNC_CANARY: \$\{\{ secrets\.EDIT_ASYNC_CANARY \|\| '([^']*)' \}\}/.exec(yml);
+  assert.ok(m, "the canary secret's fallback is gone or reshaped");
+  assert.ok(m[1].length > 0, "the fallback is empty, which wrangler-action treats as a missing secret");
+  assert.deepEqual(readCanaryList(m[1]), [], `the deploy's fallback ${JSON.stringify(m[1])} parses as a real allowlist entry`);
+  assert.equal(editAsyncFor({ EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: m[1] }, { uid: CANARY_UID, slug: "fretwork-1" }), false,
+    "the shipped default routes an edit asynchronously");
+});
+
 test("no build route reads the canary configuration", () => {
   const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   // EXHAUSTIVE, NOT WINDOWED. A byte window from the build route ran past it

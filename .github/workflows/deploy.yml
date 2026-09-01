@@ -242,7 +242,17 @@ jobs:
           # the cost is that one canary does not get the new path, visible in
           # one test edit. The opposite mistake is every customer at once on a
           # path that has never run.
-          EDIT_ASYNC_CANARY: ${{ secrets.EDIT_ASYNC_CANARY || '' }}
+          #
+          # THE SENTINEL IS `-` AND IT IS NOT EMPTY, which is the whole reason
+          # it is not `''`. wrangler-action fails with "Value for secret X not
+          # found in environment" for an EMPTY value as readily as for a
+          # missing one — so `|| ''` is not a fallback, it is the same failure
+          # spelled differently, and it took this deploy down once already.
+          #
+          # `-` is chosen because `readCanaryList` DROPS it: a slug must start
+          # `[a-z0-9]`, so it parses to an empty list and every edit stays
+          # synchronous. Non-empty for wrangler, absent for the code.
+          EDIT_ASYNC_CANARY: ${{ secrets.EDIT_ASYNC_CANARY || '-' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

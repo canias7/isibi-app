@@ -94,6 +94,19 @@ test("every OPTIONAL listed secret tolerates being absent", () => {
     assert.match(expr, /\|\|/,
       `${name} is optional but has no fallback — an unset value fails the WHOLE deploy, ` +
       `not just this feature. Add ` + "`|| '…'`" + ` or add it to REQUIRED.`);
+    // AND THE FALLBACK MUST NOT BE EMPTY, which is the half this test did not
+    // check and which took the deploy down on 2026-09-01. `wrangler-action`
+    // fails with "Value for secret X not found in environment" for an EMPTY
+    // value as readily as for a missing one — so `|| ''` is not a fallback, it
+    // is the same failure spelled differently. The guard passed, the merge
+    // deployed nothing, and the error named a feature the change never touched:
+    // the exact shape of the 2026-08-07 outage this file exists to prevent,
+    // reproduced by a rule that was checked for its syntax and not its effect.
+    const fb = /\|\|\s*'([^']*)'/.exec(expr);
+    assert.ok(fb, `${name}'s fallback is not a quoted literal, so it cannot be checked for emptiness`);
+    assert.ok(fb[1].length > 0,
+      `${name} falls back to an EMPTY string, which wrangler-action treats exactly like a missing ` +
+      `secret — it fails the whole deploy. Use a non-empty sentinel the code reads as absent.`);
   }
 });
 
