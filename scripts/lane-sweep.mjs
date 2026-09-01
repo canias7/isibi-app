@@ -55,8 +55,20 @@ const SLUG = String(process.env.SWEEP_SLUG || "").trim().toLowerCase();
 const SITE = `https://${SLUG}.gofarther.app`;
 const PICKER = String(process.env.SWEEP_PICKER || "grok").trim().toLowerCase();
 const BUDGET = Number(process.env.SWEEP_BUDGET || 80);
-const CONFIRM = String(process.env.SWEEP_CONFIRM || "");
 const WANT = String(process.env.SWEEP_LANES || "all").trim().toLowerCase();
+
+/**
+ * THE SWITCH, and it reads the word rather than the bytes.
+ *
+ * The first dispatch on 2026-09-01 died in eleven seconds: the workflow's text
+ * box was submitted as `spend ` with a trailing space, and this compared the
+ * raw string. Every other input here was trimmed and this one was not. A gate
+ * whose job is to make sure a person MEANT it should not refuse the person who
+ * meant it and typed a space — that is a refusal about the keyboard, not the
+ * intent. Case is forgiven for the same reason. What is still refused is any
+ * OTHER word, an empty box, and anything that is not a string.
+ */
+export const confirmed = (raw) => typeof raw === "string" && raw.trim().toLowerCase() === "spend";
 
 /** `node:https` rather than fetch — undici gives up at 300s. */
 function call(method, path, { body, headers, token } = {}) {
@@ -238,7 +250,7 @@ export function chooseLanes(want, cases) {
 
 // ── RUN ────────────────────────────────────────────────────────────────────
 async function main() {
-  if (CONFIRM !== "spend") { console.error("SWEEP_CONFIRM must be the word `spend` — this harness costs real credits on a live site."); process.exit(1); }
+  if (!confirmed(process.env.SWEEP_CONFIRM)) { console.error("SWEEP_CONFIRM must be the word `spend` — this harness costs real credits on a live site."); process.exit(1); }
   if (!EMAIL || !SERVICE_KEY || !SLUG) { console.error("OWNER_EMAIL, SUPABASE_SERVICE_KEY and SWEEP_SLUG are required"); process.exit(1); }
   const lanes = chooseLanes(WANT, CASES);
   if (!lanes.length) { console.error("no lanes selected"); process.exit(1); }

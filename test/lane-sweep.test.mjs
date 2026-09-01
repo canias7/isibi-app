@@ -13,7 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { CASES, chooseLanes } from "../scripts/lane-sweep.mjs";
+import { CASES, chooseLanes, confirmed } from "../scripts/lane-sweep.mjs";
 import { LANE_FIELDS, OWN_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES } from "../builder/site-lanes.mjs";
 
 test("importing the harness runs nothing", () => {
@@ -84,9 +84,31 @@ test("the held lanes say why, and the partition still covers them", () => {
   }
 });
 
+test("the confirm word is read as a word, not as bytes", () => {
+  // THE FIRST DISPATCH DIED ON THIS. The workflow's text box came through as
+  // `spend ` with a trailing space and the raw comparison refused it — eleven
+  // seconds, nothing spent, nothing learned. A gate that exists to prove a
+  // person meant it must not refuse the person who meant it and typed a space.
+  for (const yes of ["spend", "spend ", " spend", "SPEND", " Spend\n"]) {
+    assert.equal(confirmed(yes), true, JSON.stringify(yes) + " should open the gate");
+  }
+  // AND STILL A GATE: any other word, nothing, and anything that is not a
+  // string — `String(["spend"])` is "spend", the coercion this repo has shipped
+  // as a bug four times.
+  for (const no of ["", "yes", "spent", "spend now", "s p e n d", null, undefined, true, 1, ["spend"]]) {
+    assert.equal(confirmed(no), false, JSON.stringify(no) + " should not open the gate");
+  }
+});
+
 test("the harness refuses without the confirm word, and the workflow has no free trigger", () => {
   const src = readFileSync(new URL("../scripts/lane-sweep.mjs", import.meta.url), "utf8");
-  assert.match(src, /CONFIRM !== "spend"/, "the harness no longer demands the confirm word");
+  // CONSULTED BEFORE ANYTHING THAT COSTS OR SIGNS IN. Both landmarks proved, so
+  // a deleted gate cannot pass this as -1 < n.
+  const gate = src.indexOf("if (!confirmed(process.env.SWEEP_CONFIRM))");
+  const signIn = src.indexOf("generate_link");
+  assert.ok(gate > 0, "the harness no longer consults the confirm word");
+  assert.ok(signIn > 0, "the sign-in landmark moved");
+  assert.ok(gate < signIn, "the confirm word is checked after signing in, so a refused run still mints a session");
   const wf = readFileSync(new URL("../.github/workflows/lane-sweep.yml", import.meta.url), "utf8");
   assert.doesNotMatch(wf, /^\s*push:/m, "the sweep can run on a push — the expensive thing would be the default");
   assert.doesNotMatch(wf, /^\s*schedule:/m, "the sweep can run on a schedule");
