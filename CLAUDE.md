@@ -693,7 +693,23 @@ what the work cost.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 330 credits** (read from the ledger 2026-08-31, after run 91). It was **0** on 08-29;
+- **THE QUEUED EDIT PATH IS PROVEN LIVE (2026-09-01, `fretwork-1`, job
+  `b760bd3912b465c9a7dc708df58eed8e`).** POST 202 in 1.5s; claimed, routed,
+  `css` lane, first publish refused by verification (`dead-css`: the rule
+  targeted `header [data-slot="button"]` and the header button is a
+  `site-link`), correction round re-targeted `[data-slot=cta-band]
+  [data-slot=button]`, second publish shipped — **414.5s end to end**, one
+  sequenced reserve of 2 credits (`ref …#1`), `billing: finalized`, live
+  `x-site-build` `mtholxpx-rg59n3` → `mtj1iv41-9cmwjw`, nothing left leased.
+  **The correction round's first live proof** rode on it. `edit_finalize`
+  writes no ledger row and moves no balance — the sequenced reserves ARE the
+  charges, metered on real usage via `pageCredits`; finalize is a state flip.
+  The routing call cost **2** on Grok (not the ~0.3 quoted below, which was
+  Haiku). Phase timings worth having: `pick_lanes` 7.5s, `lane:css` 47s,
+  `lane:correct` **134s**, `publish:1` 95s, `publish:2` 120s. Still only
+  `fretwork-1` on the allowlist; **general traffic is NOT enabled.**
+- **Balance: 305 credits** (read from the ledger 2026-09-01, after the paid
+  canary: 309 → 305, routing 2 + edit 2). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**

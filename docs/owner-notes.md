@@ -974,3 +974,45 @@ before; that is why its bug reached a paid run.
 flag is still off for everyone else. Say the word and I'll dispatch the paid
 canary again on the fixed harness — it will be one real edit, ~1 credit at the
 `look` rung.
+
+## 2026-09-01 — Stage 2 done: the paid canary published
+
+**It worked, and you can see it above in the screenshots.** One real edit on
+`fretwork-1` — "make the main call-to-action button background a deeper green"
+— went through the queue and landed: the closing band's button is now a deep
+green (`#062806`). Balance 309 → **305**: 2 for the routing call, 2 for the edit.
+
+**Your six checks, with the evidence.**
+
+1. **POST returned quickly** — 202 in **1.5s**, after an 8.2s routing call.
+2. **Work continued on its own** — the canary only ever polled after that. The
+   job ran 414s in the consumer, lease `c_flcbznx7`, heartbeat kept it alive.
+3. **Charged exactly once** — one ledger row (`…#1`, reserve, −2), `billing:
+   finalized`. Finalize itself moves no money; the metered reserve is the bill.
+4. **The expected build published** — the site now serves
+   `x-site-build: mtj1iv41-9cmwjw`; the job row recorded the same id.
+5. **Identities agree** — job row, the page's header, and the header on the
+   probe path (`/__build.txt`, which is what `confirmSiteWorker` reads) all say
+   `mtj1iv41-9cmwjw`. I cannot read R2 from here, so the sidecar and dist copies
+   are taken on trust from the publish order, not observed.
+6. **Nothing left claimed or leased**; nothing in `needs_review`.
+7. **The frontend** — the canary is not the chatbox, so this run says nothing
+   about it. The fix from earlier today is covered by the suite, not by a live
+   click. A real edit from the chatbox on `fretwork-1` is the remaining proof.
+
+**A bonus you did not order: the correction round proved itself live.** The
+first attempt wrote a rule for `header [data-slot="button"]`, which matches
+nothing (the header button is a link). Verification caught it — zero matches —
+the correction re-targeted the closing band, and the second publish shipped.
+Which is also why it took seven minutes: the correction call alone was 134s on
+Grok.
+
+**Two things I noticed, filed as task cards rather than fixed.** The render
+check opens `-parts/` files as if they were pages and reports two "did not load
+(404)" findings on every publish of a site with a part — a false alarm, the
+router is right. And a corrected edit is stored as a *failed* trace, so the
+phase statistics will count the correction feature's wins as losses.
+
+**Still only `fretwork-1` on the allowlist.** General traffic is not on. The
+honest next step before widening is one edit from the actual chatbox on that
+site, so the frontend fix is proven the same way the backend now is.
