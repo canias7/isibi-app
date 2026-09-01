@@ -12,6 +12,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 
 import { CASES, chooseLanes, confirmed } from "../scripts/lane-sweep.mjs";
 import { LANE_FIELDS, OWN_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES } from "../builder/site-lanes.mjs";
@@ -175,4 +177,22 @@ test("the wordmark check reads the brand link, not the whole header", () => {
   assert.equal(c.check(before, inline, {}).ok, true, "an inline svg mark is not recognised");
   assert.equal(c.check(before, before, {}).ok, false, "an unchanged text brand passes");
   assert.equal(c.check(after, after, {}).ok, false, "a mark that was already there passes as new");
+});
+
+test("the qr check demands the page show the code, not only serve it", () => {
+  // THE FIFTH SWEEP. /qr.svg decoded exactly to the payload asked for and the
+  // page referenced it zero times: the lane bakes the file and nothing places
+  // the figure. A check that stopped at the decode would call an invisible
+  // change a success. Driven with a real code for the asked payload.
+  const c = CASES.find((x) => x.lane === "qr");
+  const qrcode = require("qrcode-generator");
+  const q = qrcode(2, "M"); q.addData("tel:01144960123"); q.make();
+  const n = q.getModuleCount(); const quiet = 4; const size = n + quiet * 2;
+  let d = "";
+  for (let r = 0; r < n; r++) { let c0 = -1; for (let cc = 0; cc <= n; cc++) { const dark = cc < n && q.isDark(r, cc); if (dark && c0 < 0) c0 = cc; if (!dark && c0 >= 0) { d += `M${c0 + quiet} ${r + quiet}h${cc - c0}v1h-${cc - c0}z`; c0 = -1; } } }
+  const svg = `<svg viewBox="0 0 ${size} ${size}"><path d="${d}"/></svg>`;
+  const before = { qr: "", html: "<html></html>" };
+  assert.equal(c.check(before, { qr: svg, html: "<html><img src=\"/qr.svg\"></html>" }, {}).ok, true, "a shown, correct code is not accepted");
+  assert.equal(c.check(before, { qr: svg, html: "<html></html>" }, {}).ok, false, "a served but unshown code passes");
+  assert.equal(c.check(before, { qr: "<svg viewBox=\"0 0 33 33\"><path d=\"M4 4h7v1h-7z\"/></svg>", html: "<html><img src=\"/qr.svg\"></html>" }, {}).ok, false, "a shown but wrong code passes");
 });

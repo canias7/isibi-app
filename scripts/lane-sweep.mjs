@@ -230,10 +230,15 @@ export const CASES = [
     // stored look moved, plus the build moving because a look edit republishes.
     check: (b, a, r) => ({ ok: Array.isArray(r.moved) && r.moved.includes("behavior"), note: `moved ${JSON.stringify(r.moved)} (recorded only; nothing renders from behavior yet)` }) },
   { lane: "qr", ask: 'Add a QR code people can scan to call 0114 496 0123, with the label "Scan to call and book"',
+    // SERVED IS NOT SHOWN. The fifth sweep's code decoded perfectly and the page
+    // referenced it zero times - the lane bakes the file and nothing places the
+    // figure (filed). A customer sees no change, so the check demands both: the
+    // file decodes to the payload asked for AND the page points at it.
     check: (b, a) => {
       if (!a.qr) return { ok: false, note: "/qr.svg is not served" };
       const m = qrMatches(a.qr, ["tel:01144960123", "tel:+441144960123", "tel:0114 496 0123", "tel:+44 114 496 0123", "TEL:01144960123", "TEL:+441144960123"]);
-      return { ok: m.ok, note: m.ok ? `QR decodes to ${m.text}` : `QR served but ${m.why}` };
+      const shown = /qr\.svg/.test(a.html);
+      return { ok: m.ok && shown, note: (m.ok ? `QR decodes to ${m.text}` : `QR served but ${m.why}`) + (shown ? "; page shows it" : "; PAGE DOES NOT REFERENCE IT") };
     } },
   { lane: "action", ask: 'Change the button at the top to say "Book a free lesson"',
     check: (b, a) => ({ ok: /Book a free lesson/i.test(a.headerLink), note: `header link: ${a.headerLink.replace(/<[^>]+>/g, "").trim()}` }) },
