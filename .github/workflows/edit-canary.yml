@@ -1,0 +1,78 @@
+# The canary for the queued edit path — see scripts/edit-canary.mjs.
+#
+# FREE BY DEFAULT. The four confirmations spend nothing: they lean on
+# `escalate("empty")`, which the edit route answers with `cost: 0` before any
+# model call and AFTER the async fork — so an empty instruction exercises the
+# whole round trip (enqueue, claim, replay, finalize) and stops one line short
+# of the first thing that costs money.
+#
+# THE PAID EDIT NEEDS `spend: yes`, and it runs exactly once. It also refuses to
+# run at all if a free check failed, because at that point the paid edit would
+# tell us less than the free ones already have.
+#
+# NO MARKER GATE, deliberately: the default run is free, so gating it behind the
+# opt-in marker would make the cheap thing hard to do and the expensive thing
+# the default. The expensive half has its own switch.
+name: edit canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/edit-canary.mjs'
+      - '.github/workflows/edit-canary.yml'
+  workflow_dispatch:
+    inputs:
+      spend:
+        description: 'Run the ONE paid edit as well (yes/no)'
+        required: false
+        default: 'no'
+      instruction:
+        description: 'What to change, if spending'
+        required: false
+        default: ''
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    # The free half is seconds. The paid half is one edit — a routing call, a
+    # lane, a container build and a publish — plus the wait for the queue to
+    # deliver. Bounded well above that, because a cancelled job reports nothing.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # ASK deploy.yml FOR ITS OWN RUNS — a find-by-name over
+      # `actions/runs?head_sha=` silently stops finding the deploy once a push
+      # fires more workflows than fit on one page. This repo lost a run to that.
+      - name: wait for this push's deploy
+        if: github.event_name == 'push'
+        run: |
+          for i in $(seq 1 40); do
+            state=$(curl -sf "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?head_sha=${{ github.sha }}&per_page=1" \
+              | node -e 'let s="";process.stdin.on("data",(c)=>s+=c).on("end",()=>{const d=JSON.parse(s);const r=(d.workflow_runs||[])[0];console.log(r?r.status+"/"+r.conclusion:"none");})') || state=err
+            echo "deploy: $state (poll $i)"
+            case "$state" in
+              completed/success) exit 0 ;;
+              completed/*) echo "the deploy failed — the canary would be testing the old Worker"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "deploy never finished in 10 minutes"; exit 1
+      - name: canary
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          OWNER_BASE_URL: https://gofarther.dev
+          # The site the allowlist names. Kept here rather than read from the
+          # secret, so a mismatch between what the Worker admits and what this
+          # tests SHOWS UP as a failed check rather than passing quietly.
+          CANARY_SLUG: fretwork-1
+          # A site the allowlist does NOT name, to prove the other half.
+          CONTROL_SLUG: washhouse-3
+          CANARY_SPEND: ${{ github.event.inputs.spend == 'yes' && '1' || '0' }}
+          CANARY_INSTRUCTION: ${{ github.event.inputs.instruction }}
+        run: node scripts/edit-canary.mjs
