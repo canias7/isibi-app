@@ -1016,3 +1016,37 @@ phase statistics will count the correction feature's wins as losses.
 **Still only `fretwork-1` on the allowlist.** General traffic is not on. The
 honest next step before widening is one edit from the actual chatbox on that
 site, so the frontend fix is proven the same way the backend now is.
+
+## 2026-09-01 — Sweep run two: one lane, one real bug, nothing spent
+
+The re-run went out with `all` rather than the fourteen, so its first lane was
+`css` — already done, the heading already dark red. The server answered
+honestly: *"Your site already looks like that — nothing to change."* My harness
+called that a lie because nothing published, and stopped. Harness fault, fixed:
+an "already so" answer is now its own verdict and the sweep carries on.
+
+**But the row underneath was a real defect in the queued path, mine.** That
+honest answer had no terminal state: finalize refuses a job that did not
+publish, the refund branch thought it had shipped, and the job sat until the
+lost-job sweeper declared it lost and refunded it — two and a half minutes for
+a twenty-two-second answer, and the chatbox would have spun the whole time.
+Fixed in the database and the consumer; the old function stays as a wrapper so
+nothing breaks between the migration and the deploy. Billing matches what the
+synchronous path always did: the model calls were real, the reserve stands. If
+you would rather an "already so" answer cost nothing, say so — that is a policy
+change, not a fix.
+
+Balance 299 → 299. `fretwork-1` unchanged since run one.
+
+**Two more things from fixing that, both worth knowing.** The committed database
+check caught a regression in my own fix within minutes: I had rewritten the
+finalize function from the migration folder's copy, and that copy had drifted
+from what was actually live — four of the day's earlier migrations were never
+written to the folder. The folder now carries a snapshot of every live function
+read straight out of the database, and the rule is written down: read the live
+definition, never the folder, before redefining anything. And the refund
+function now refuses a finished job outright, since "finished" can now mean
+"answered, nothing to publish" rather than only "published".
+
+All 48 database checks pass, rolled back. Nothing on the site or the ledger
+changed while any of this was verified.

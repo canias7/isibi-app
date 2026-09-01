@@ -11677,9 +11677,20 @@ async function runQueuedSiteEdit(env, ctx, id) {
     let payload = null;
     try { payload = JSON.parse(bodyText); } catch { payload = null; }
     const shipped = res.status < 400 && payload && payload.ok !== false;
-    await editRpc(env, "edit_finalize", {
+    // `p_ok` IS THE ANSWER THAT NEVER PUBLISHED. "Your site already looks like
+    // that" is ok:true with nothing to ship, and until 2026-09-01 that reply had
+    // no terminal state at all: finalize refused it (published_at null), the
+    // refund branch below was skipped (it shipped, as far as this line knew),
+    // and the job sat until edit_sweep_lost declared it lost and refunded it -
+    // ~150s after a 22s answer, with the poll route unable to hand back the
+    // stored reply until then. Found by the lane sweep on a heading that was
+    // already dark red. The RPC finalizes an ok answer only when publishing
+    // never BEGAN, so the mid-publish ambiguity needs_review exists for is
+    // untouched.
+    const fin = await editRpc(env, "edit_finalize", {
       p_id: id,
       p_result: { status: res.status, type: res.headers.get("content-type") || "application/json", body: bodyText.slice(0, 200000) },
+      p_ok: shipped,
     });
     if (!shipped) {
       // REFUND IS CONDITIONAL AT THE DATABASE, not here. It refuses a published
@@ -11687,6 +11698,13 @@ async function runQueuedSiteEdit(env, ctx, id) {
       // the money untouched, so calling it on an edit that actually shipped is
       // safe rather than merely unlikely.
       await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "edit did not ship" });
+    } else if (fin && fin.ok !== true && fin.error === "not-published") {
+      // AN OK ANSWER THAT BEGAN PUBLISHING AND DID NOT FINISH. Contradictory on
+      // its face, and exactly the case the refund RPC routes to needs_review
+      // with the money untouched. ONLY on `not-published` - a `terminal` refusal
+      // means cancelled or lost already happened, and refund would overwrite
+      // that state with `failed`.
+      await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "answered ok but publishing did not complete" });
     }
     // The measured durations are written by the HANDLER, beside its trace flush
     // — that is where the trace lives, and copying it out here would be a second

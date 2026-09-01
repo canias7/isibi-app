@@ -461,3 +461,23 @@ test("every async mechanism is reached only through a job that may be null", () 
   assert.ok(syncAt >= 0, "the synchronous charge is gone — a flag-off edit would bill nothing");
   assert.ok(forkAt < syncAt, "the async billing fork does not precede the synchronous charge, so both would run");
 });
+
+test("an ok answer that published nothing is finalized, not left to be lost", () => {
+  // FOUND BY THE LANE SWEEP, 2026-09-01. "Your site already looks like that"
+  // is ok:true with nothing to ship. `shipped` was true, finalize refused it
+  // (published_at null), the !shipped refund was skipped, and the job sat
+  // non-terminal until the lost sweeper refunded it ~150s after a 22s answer -
+  // and the poll route could not hand back the stored reply until then.
+  const fn = CODE.slice(at(CODE, "const shipped = res.status < 400", "outcome"),
+                        at(CODE, 'p_note: "consumer threw"', "outcome end"));
+  // THE CALLER SAYS WHETHER IT WAS AN ANSWER. Without p_ok the RPC applies the
+  // old rule and this defect is back with a green suite.
+  assert.match(fn, /"edit_finalize"[\s\S]*?p_ok: shipped/, "finalize is no longer told the reply was an answer");
+  // AND A REFUSED ANSWER IS ROUTED, NOT DROPPED - only on `not-published`. A
+  // `terminal` refusal means cancelled or lost already happened, and the refund
+  // RPC would overwrite that state with `failed`.
+  assert.match(fn, /fin\.error === "not-published"/, "an ok answer finalize refused is dropped on the floor again");
+  assert.doesNotMatch(fn, /fin\.error === "terminal"/, "a terminal refusal is being refunded, which overwrites cancelled/lost with failed");
+  // The decision stays in Postgres: this side never reads the publish columns.
+  assert.doesNotMatch(fn, /published_at|publish_started_at/, "the consumer is deciding for itself whether publishing began");
+});

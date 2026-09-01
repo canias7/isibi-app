@@ -341,6 +341,14 @@ async function main() {
     // customer-facing `msg` collapsed both into "didn't compile", which is the
     // recorded failure-that-cannot-name-itself; the honest half was in `detail`
     // the whole time and this line did not print it.
+    // "YOU ALREADY HAVE THAT" IS AN HONEST ANSWER, and the second sweep stopped
+    // on it: the css lane answered ok with a lookNote, moved nothing, published
+    // nothing, and this read "ok but the build did not move" as a lie. The
+    // server composes that sentence precisely because it knows the difference
+    // between already-so and could-not-do; the harness has to honour it.
+    else if (claimedOk && typeof body.lookNote === "string" && !(Array.isArray(body.moved) && body.moved.length) && after.build === before.build) {
+      verdict = "ok (already so)"; note = body.lookNote;
+    }
     else if (!claimedOk) { verdict = "failed"; note = `${reply.status} ${String(body.error || "")} — ${String(body.detail || body.msg || reply.text || "").slice(0, 200)}`; }
     else {
       const chk = c.check(before, after, body);

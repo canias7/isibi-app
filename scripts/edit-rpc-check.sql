@@ -36,9 +36,16 @@ declare
   j3 text := 'e_'||substr(md5(random()::text),1,20);
   j4 text := 'e_'||substr(md5(random()::text),1,20);
   j5 text := 'e_'||substr(md5(random()::text),1,20);
+  j6 text := 'e_'||substr(md5(random()::text),1,20);
+  j7 text := 'e_'||substr(md5(random()::text),1,20);
   r jsonb; b0 numeric; b1 numeric; n int; log text := '';
   ok_count int := 0;
--- LAST RUN 2026-09-01: ALL 32 CHECKS PASSED, rolled back, and it caught a real
+-- LAST RUN 2026-09-01 (late): ALL 48 CHECKS PASSED, rolled back. Section 15 was
+-- added that evening and its first run caught FAIL 9b - a regression in my own
+-- finalize migration, which had been rewritten from the applied folder's text
+-- rather than the live definition. See the live snapshot beside the migrations.
+--
+-- EARLIER THAT DAY: ALL 32 CHECKS PASSED, rolled back, and it caught a real
 -- defect on its first end-to-end run — `edit_reserve` declared a local named
 -- `ref` and disambiguated it as `edit_reserve.ref`, which Postgres parses as a
 -- TABLE reference:
@@ -250,6 +257,50 @@ begin
   if n <> 0 then raise exception 'FAIL 27b: a founder wrote % ledger rows', n; end if;
   ok_count := ok_count + 3;
   log := log || format('14  founder round trip -> balance %s, %s ledger rows%s', b1, n, chr(10));
+
+  -- ── 15. AN OK ANSWER THAT NEVER BEGAN PUBLISHING IS DONE, NOT LOST ─────
+  --
+  -- Found live 2026-09-01: "Your site already looks like that" answered ok with
+  -- nothing to ship, finalize refused it, and the job fell to the lost sweeper
+  -- and a refund ~150s later. The four-argument finalize takes the caller's
+  -- word that the reply was an answer, and only when publishing never began.
+  --
+  -- SECTION 14 MADE THE TEST USER A FOUNDER; a founder's reserve is exempt and
+  -- would make this section pass for the wrong reason. Undone here - the row was
+  -- inserted by this transaction and rolls back with everything else.
+  delete from private.founders where user_id = u;
+  r := public.edit_create(j6, u, slug, 'edit', 'idem-dddddddddddddddd', k);
+  r := public.edit_reserve(j6, 1, 2, k);
+  select balance into b0 from public.credits where user_id = u;
+  r := public.edit_finalize(j6, '{"status":200,"body":"{\"ok\":true,\"lookNote\":\"already\"}"}'::jsonb, true, k);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'ok') <> 'true' or (r->>'billing') <> 'finalized' or (r->>'published') <> 'false'
+    then raise exception 'FAIL 38 (an ok answer with nothing to publish did not finalize): %', r; end if;
+  if b1 <> b0 then raise exception 'FAIL 38b (finalize moved money): % -> %', b0, b1; end if;
+  if (select state from public.edit_jobs where id = j6) <> 'done' then raise exception 'FAIL 38c (not done)'; end if;
+  -- AND IT IS TERMINAL FOR THE REFUND PATH TOO. `done` used to imply published;
+  -- now it may not, and a refund that moved it to `failed` would contradict the
+  -- stored reply on the same row.
+  r := public.edit_refund(j6, 'failed', 'late', k);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'error') <> 'terminal' or b1 <> b0 then raise exception 'FAIL 39 (refunded or moved a done job): % bal %', r, b1; end if;
+  if (select state from public.edit_jobs where id = j6) <> 'done' then raise exception 'FAIL 39b (refund moved a done job off done)'; end if;
+  -- THE WRAPPER IS THE OLD RULE. Three arguments means p_ok := false, and an
+  -- unpublished job is still refused - FAIL 9 proves the same on j1.
+  -- AND THE AMBIGUOUS CASE STAYS AMBIGUOUS: publishing began, did not finish,
+  -- and the caller claims ok. Refused, then routed to review, money untouched.
+  r := public.edit_create(j7, u, slug, 'edit', 'idem-eeeeeeeeeeeeeeee', k);
+  r := public.edit_reserve(j7, 1, 2, k);
+  r := public.edit_claim(j7, 'ownerGGGG', 90, k);
+  r := public.edit_publish_mark(j7, 'ownerGGGG', 'build-7', null, null, null, null, k);
+  select balance into b0 from public.credits where user_id = u;
+  r := public.edit_finalize(j7, '{"status":200}'::jsonb, true, k);
+  if (r->>'error') <> 'not-published' then raise exception 'FAIL 40 (finalized a job that began publishing and did not finish): %', r; end if;
+  r := public.edit_refund(j7, 'failed', 'answered ok but publishing did not complete', k);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'error') <> 'needs-review' or b1 <> b0 then raise exception 'FAIL 41 (a mid-publish ok answer was not sent to review): % bal %', r, b1; end if;
+  ok_count := ok_count + 7;
+  log := log || format('15  unpublished ok      -> done/finalized, refund refused, mid-publish -> review%s', chr(10));
 
   update private.mint set key_hash = keep;
   raise exception E'ALL % CHECKS PASSED (transaction rolled back)\n%', ok_count, log;

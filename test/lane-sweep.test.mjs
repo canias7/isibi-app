@@ -127,4 +127,18 @@ test("a claimed success with an unmoved build is a lie, and an escalate that mov
   assert.match(src, /AND THE BUILD MOVED, which an escalate must never do/, "an escalate that published is not called a lie");
   assert.match(src, /verdict === "LIE" \|\| verdict === "NEEDS REVIEW" \|\| verdict === "NO ANSWER"\) \{ console\.log\(`STOPPING/,
     "the sweep does not stop on a lie");
+  // AND AN HONEST "ALREADY SO" IS NEITHER. The second sweep stopped on the css
+  // lane answering "Your site already looks like that" - ok, nothing moved,
+  // nothing published - because a build that did not move read as a lie.
+  const already = src.indexOf('verdict = "ok (already so)"');
+  const lie = src.indexOf("reply says ok but the build did not move");
+  assert.ok(already > 0, "an already-satisfied ask is no longer recognised, so it is called a lie");
+  assert.ok(lie > 0 && already < lie, "already-so is judged after the unmoved-build lie, so it never wins");
+  // THE CONDITION, NOT THE NEIGHBOURHOOD. The first draft looked 400 characters
+  // back from the verdict and found "lookNote" - in the COMMENT above the branch.
+  // A sweep deleting the requirement from the code survived it. Prose contains
+  // the thing it requires; anchor on the `else if (` that opens this branch.
+  const cond = src.slice(src.lastIndexOf("else if (", already), already);
+  assert.ok(cond.length > 20 && cond.length < 400, "the already-so condition could not be isolated");
+  assert.match(cond, /body\.lookNote/, "already-so is not keyed on the server's own lookNote");
 });

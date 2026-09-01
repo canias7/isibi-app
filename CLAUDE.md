@@ -1209,6 +1209,34 @@ the tree. Caught only because the guard written for it was failing, which is the
 good outcome and not a plan. **Put the restore on a `trap … EXIT INT TERM HUP`
 and run the sweep in the background**, where nothing can time it out.
 
+**`supabase/applied/` IS NOT THE RECORD OF WHAT IS LIVE (2026-09-01).** Four
+migrations applied earlier that day — phase stats, phase write, the sequenced
+reserve, finalize-always-stores-result — were never written to the folder, and
+the reserve fix was edited into `110952` in place. Rewriting `edit_finalize`
+from the folder's text silently dropped the always-store-result behaviour, and
+only the committed DB check (FAIL 9b) noticed, minutes later. **Before
+redefining any RPC, read it out of the database** (`pg_get_functiondef`), not
+out of this folder; a live snapshot of every `edit_*` function now sits beside
+the migrations for exactly that reason.
+
+**AN OK ANSWER WITH NOTHING TO PUBLISH HAD NO TERMINAL STATE (2026-09-01,
+the second lane sweep).** "Your site already looks like that — nothing to
+change" is `ok: true` with `moved: []` and no publish, and the consumer's
+`shipped` read it as shipped: `edit_finalize` refused it (`published_at` null),
+the `!shipped` refund branch was skipped, and the job sat non-terminal until
+`edit_sweep_lost` declared it **lost and refunded it** ~150 s after a 22 s
+answer. The poll route hands back a stored reply only once the state is
+terminal, so the customer waited the whole 150 s for a sentence that was ready
+at 22. Found because the sweep asked for a heading that was already dark red.
+**Fixed at the RPC**: `edit_finalize(p_id, p_result, p_ok, p_mint)` finalizes
+an ok answer when publishing never BEGAN; the mid-publish ambiguity
+`needs_review` exists for is untouched, and the old three-argument form stays
+as a wrapper (`p_ok := false`) so the Worker running before the deploy keeps
+working. Billing follows the synchronous path: the reserve stands.
+**The general shape**: a state machine with a terminal state only for "shipped"
+and "failed" has no name for "answered, nothing to ship", and the nameless case
+falls to whichever sweeper finds it first.
+
 **A PUSH TO MAIN ROLLS THE CONTAINER UNDER WHATEVER IS RUNNING (2026-09-01,
 the first lane sweep).** Two pushes that touched only `scripts/` and `test/`
 each ran `deploy.yml`; the second finished at 20:30:16 and the sweep reached its
