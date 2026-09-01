@@ -26,7 +26,7 @@ import {
   TERMINAL_RESERVE_MS, CORRECT_FLOOR_MS, MIN_CORRECT_MS, MIN_BUILD_MS, MIN_VERIFY_MS,
   LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S, PUBLISH_LEASE_S,
   EDIT_PHASES, TERMINAL_STATES, isTerminalEdit,
-  makeEditBudget, cleanIdemKey, newLeaseOwner, editAsyncOn,
+  makeEditBudget, cleanIdemKey, newLeaseOwner, editAsyncOn, editAsyncFor, readCanaryList,
 } from "../builder/edit-job.mjs";
 
 const TABLES = readFileSync(new URL("../supabase/applied/20260901110738_edit_jobs_and_credit_events.sql", import.meta.url), "utf8");
@@ -224,4 +224,118 @@ test("the queue kind is its own, and a lease owner is not a job id", () => {
   // Even a degenerate random source produces a fixed-length name rather than a
   // short one — `Math.random().toString(36)` is sometimes shorter than the slice.
   assert.match(newLeaseOwner(() => 0), /^c_.{8}$/);
+});
+
+// ── THE CANARY GATE ───────────────────────────────────────────────────────
+//
+// The flag says WHETHER, the allowlist says WHO, and both have to say yes. The
+// one mistake this must never make is turning a canary into general traffic
+// because a value was typed wrong — so every case below is driven, and the
+// malformed ones are checked in the direction that matters.
+
+const CANARY_UID = "22175f41-6fbf-49d7-b039-a65078a0141c";
+
+test("the flag OFF keeps every edit synchronous, whatever the allowlist says", () => {
+  for (const flag of [undefined, "", "off", "0", "false", "no", "maybe"]) {
+    assert.equal(editAsyncFor({ EDIT_ASYNC: flag, EDIT_ASYNC_CANARY: CANARY_UID }, { uid: CANARY_UID, slug: "fretwork-1" }),
+      false, `flag ${JSON.stringify(flag)} routed an edit asynchronously`);
+  }
+});
+
+test("the flag ON with an EMPTY allowlist keeps every edit synchronous", () => {
+  // THE FIRST DEPLOYMENT OF THIS IS EXACTLY THIS STATE: the flag set, nobody
+  // listed, and no behaviour changed at all.
+  for (const list of [undefined, "", "   ", ",", " , ; ", null, 1, ["x"]]) {
+    assert.equal(editAsyncFor({ EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: list }, { uid: CANARY_UID, slug: "fretwork-1" }),
+      false, `allowlist ${JSON.stringify(list)} routed an edit asynchronously`);
+  }
+});
+
+test("a MALFORMED allowlist is an empty one, never a wildcard", () => {
+  // The direction of this failure is the whole point. A value nobody meant must
+  // keep every edit synchronous — the cost is that a canary does not get the
+  // new path, visible in one test edit. The opposite mistake is every customer
+  // at once on a path that has never run.
+  // THE PROPERTY IS BEHAVIOURAL, NOT LEXICAL — and the first draft got that
+  // wrong. It asserted that `all` must not survive `readCanaryList`, and `all`
+  // survives because it is a well-formed SLUG: a site could legitimately be
+  // called that. Surviving as a literal entry is harmless; what would be a
+  // wildcard is MATCHING something it does not name, and it does not. The check
+  // was flagging correct code, which this repo rates worse than a miss.
+  for (const bad of ["*", "all", "%", ".*", "ALL", "*,*", "'; drop", "..", "/", "http://x", "a".repeat(200)]) {
+    const env = { EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: bad };
+    assert.equal(editAsyncFor(env, { uid: CANARY_UID, slug: "fretwork-1" }), false,
+      `${bad} routed an identity it does not name`);
+    assert.equal(editAsyncFor(env, { uid: "someone", slug: "someone-else-1" }), false,
+      `${bad} routed an unrelated identity`);
+  }
+  // The characters that could only ever be a wildcard are dropped outright.
+  for (const never of ["*", "%", ".*", "?", "**"]) {
+    assert.deepEqual(readCanaryList(never), [], `${never} survived the list at all`);
+  }
+});
+
+test("the flag ON with a DIFFERENT uid or slug keeps that edit synchronous", () => {
+  const env = { EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: CANARY_UID + ", fretwork-1" };
+  assert.equal(editAsyncFor(env, { uid: "00000000-0000-0000-0000-000000000000", slug: "someone-else-1" }), false);
+  assert.equal(editAsyncFor(env, { uid: "", slug: "fretwork-2" }), false);
+  // A PREFIX IS NOT A MATCH. `fretwork-1` must not admit `fretwork-11`.
+  assert.equal(editAsyncFor(env, { uid: "", slug: "fretwork-11" }), false);
+  assert.equal(editAsyncFor(env, { uid: "", slug: "fretwork" }), false);
+  // AND NEITHER IS A SHAPE MISTAKE. `String(["fretwork-1"])` is `"fretwork-1"`,
+  // and a coercion here would widen the canary silently.
+  assert.equal(editAsyncFor(env, { uid: [CANARY_UID], slug: ["fretwork-1"] }), false);
+  assert.equal(editAsyncFor(env, {}), false);
+  assert.equal(editAsyncFor(env), false);
+});
+
+test("the flag ON with the approved canary identity routes asynchronously", () => {
+  const env = { EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: CANARY_UID + ", fretwork-1" };
+  // EITHER AXIS, because the two questions a canary asks are different: one
+  // account's every edit, or one site's every edit whoever makes it.
+  assert.equal(editAsyncFor(env, { uid: CANARY_UID, slug: "anything-else" }), true);
+  assert.equal(editAsyncFor(env, { uid: "someone-else", slug: "fretwork-1" }), true);
+  assert.equal(editAsyncFor(env, { uid: CANARY_UID.toUpperCase(), slug: "" }), true, "the match is case-sensitive");
+  // Separators: comma, space, semicolon and newline all list.
+  for (const sep of [",", " ", ";", "\n", ", "]) {
+    assert.equal(editAsyncFor({ EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: "other-site" + sep + "fretwork-1" }, { uid: "", slug: "fretwork-1" }),
+      true, `separator ${JSON.stringify(sep)} did not list`);
+  }
+});
+
+test("no build route reads the canary configuration", () => {
+  const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // EXHAUSTIVE, NOT WINDOWED. A byte window from the build route ran past it
+  // into the edit route twice while this was being proved, and reported symbols
+  // that are not in it. Locating every occurrence and naming its enclosing
+  // top-level definition cannot make that mistake.
+  const lines = W.split("\n");
+  const owner = (i) => {
+    for (let j = i; j >= 0; j--) {
+      const m = /^(?:async )?function ([a-zA-Z_$][\w$]*)|^const ([a-zA-Z_$][\w$]*) = |^  async (fetch|queue|scheduled)\(/.exec(lines[j]);
+      if (m) return m[1] || m[2] || ("worker." + m[3]);
+    }
+    return "(top level)";
+  };
+  const readers = new Set();
+  lines.forEach((l, i) => {
+    const code = l.replace(/\/\/.*$/, "");
+    if (code.includes("EDIT_ASYNC_CANARY") || code.includes("editAsyncFor(") || code.includes("editAsyncOn(")) readers.add(owner(i));
+  });
+  const BUILD = ["runQueuedSiteBuild", "runResumedSiteBuild", "runSiteBuild", "buildAndPublishPages",
+                 "queueBuild", "awaitJobResult", "recompileAndPublish", "runSiteRebuild"];
+  const leaked = [...readers].filter((f) => BUILD.includes(f));
+  assert.deepEqual(leaked, [], `build-path functions read the canary config: ${leaked.join(", ")}`);
+  // AND THE OBSERVER: the scan must have found the readers it does expect, or
+  // an empty result would satisfy the absence above for the wrong reason.
+  // THE FLOOR IS ONE, AND IT IS ONE ON PURPOSE. `editAsyncFor` subsumes
+  // `editAsyncOn`, so worker.js reads the config at exactly one site — the
+  // fork. A floor of two was written expecting both names here and would have
+  // gone red for an honest simplification; the observer that matters is that
+  // the scan found the fork at all.
+  assert.ok(readers.size >= 1, `only ${readers.size} readers found — the scan stopped matching`);
+  assert.ok(readers.has("handleRequest"), "the fork no longer reads the canary config");
+  // AND EXACTLY ONE, which is the stronger statement: a second reader anywhere
+  // is a second place the canary could be widened.
+  assert.equal(readers.size, 1, `the canary config is read in ${readers.size} places: ${[...readers].join(", ")}`);
 });

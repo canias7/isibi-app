@@ -37,8 +37,9 @@ import { JOB_KIND, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packR
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
   PUBLISH_LEASE_S, REPLAY_HEADER, makeEditBudget, cleanIdemKey, newLeaseOwner,
-  editAsyncOn, replayEditRequest, phaseDurations, readEditMessage, isTerminalEdit,
+  replayEditRequest, phaseDurations, readEditMessage, isTerminalEdit,
   newReplaySecret, packReplayMarker, readReplayMarker, packEditJob, readEditJob,
+  editAsyncFor,
 } from "./builder/edit-job.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
@@ -18516,7 +18517,15 @@ async function handleRequest(request, env, ctx) {
             const eJob = (eReplay && eReplay.replay) || null;
             if (eRawMarker && !eJob) return Response.json({ error: "not found" }, { status: 404 });
             if (eJob) editTraceJob = eJob.id;
-            if (!eJob && editAsyncOn(env)) {
+            // ── THE FLAG SAYS WHETHER, THE ALLOWLIST SAYS WHO ─────────────
+            //
+            // Both have to say yes. An empty allowlist with the flag on is a
+            // deploy that changed no behaviour at all, which is exactly what
+            // the first deployment of this should be — and a malformed one is
+            // an empty one, so a value typed wrong keeps every edit
+            // synchronous rather than putting every customer on a path that
+            // has never run.
+            if (!eJob && editAsyncFor(env, { uid: ou.id, slug: ownerSlug })) {
               const q = await enqueueEditJob(env, {
                 slug: ownerSlug, uid: ou.id,
                 url: url.toString(), body: ebRaw, idem: eb && eb.idem,

@@ -142,8 +142,14 @@ test("the fork REFUSES a marker it cannot verify, rather than falling through", 
     "an unverifiable replay marker no longer refuses the request");
   // AND THE ENQUEUE IS GATED ON THE VERIFIED JOB, not on the raw header — or a
   // forged one would still skip it.
-  assert.match(fork, /if \(!eJob && editAsyncOn\(env\)\)/,
+  // GATED ON THE VERIFIED JOB, whatever decides the flag. This pinned
+  // `editAsyncOn(env)` and went red when a canary allowlist replaced it with
+  // `editAsyncFor(env, …)` — the gate had not moved, only what follows it. The
+  // property is `!eJob`: a forged header must not be able to skip the enqueue.
+  assert.match(fork, /if \(!eJob && editAsync[A-Za-z]*\(env/,
     "the enqueue is gated on the raw header again, so a forged one would skip it");
+  assert.doesNotMatch(fork, /if \(!eRawMarker && editAsync/,
+    "the enqueue is gated on the raw header, which a forger controls");
   assert.match(fork, /enqueueEditJob/, "the fork no longer enqueues");
 });
 

@@ -406,14 +406,74 @@ export function phaseDurations(events) {
 }
 
 /**
- * Is the async edit path on?
+ * Is the async edit path on AT ALL?
  *
  * OPTIONAL, AND OFF IS THE DEFAULT INCLUDING WHEN THE VALUE IS NONSENSE. An
  * unreadable flag must not turn a customer-facing path on by accident, so
  * anything that is not an affirmative word is off.
+ *
+ * ON ITS OWN THIS IS NOT ENOUGH TO ROUTE ANYTHING. See `editAsyncFor`: the flag
+ * is the master switch and the allowlist is who it applies to, and both have to
+ * say yes.
  */
 export function editAsyncOn(env) {
   const v = env && env.EDIT_ASYNC;
   if (typeof v !== "string") return false;
   return ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
+}
+
+/**
+ * WHO THE ASYNC PATH APPLIES TO — a list of uids and slugs, and nothing else.
+ *
+ * ── THERE IS NO WILDCARD, DELIBERATELY ────────────────────────────────────
+ *
+ * Not `*`, not `all`, not an empty string meaning everybody. The one mistake
+ * this must never make is turning a canary into general traffic because a value
+ * was typed wrong, so an entry that is not a well-formed uuid or slug is
+ * DROPPED, and a list with nothing well-formed in it is an empty list — which
+ * keeps every edit synchronous.
+ *
+ * That is the safe direction and it is worth being explicit about which way it
+ * fails: a malformed allowlist means the canary does not get the new path,
+ * which is visible in one test edit. The opposite mistake is every customer on
+ * a path that has never run.
+ */
+export function readCanaryList(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return [];
+  const out = [];
+  for (const piece of raw.split(/[\s,;]+/)) {
+    const v = piece.trim().toLowerCase();
+    if (!v) continue;
+    // A uuid, or a slug of the shape every other route in this codebase admits.
+    // Anything else — a wildcard, a regex, a hostname, a stray quote — is not a
+    // narrower match, it is a value nobody meant, so it is dropped rather than
+    // interpreted.
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v)) { out.push(v); continue; }
+    if (/^[a-z0-9][a-z0-9-]{0,80}$/.test(v)) { out.push(v); continue; }
+  }
+  return out;
+}
+
+/**
+ * Does THIS edit go through the queue?
+ *
+ * BOTH HAVE TO SAY YES. The flag is the master switch and the allowlist is the
+ * blast radius; either alone routes nothing. An empty allowlist with the flag
+ * on is a deploy that changed no behaviour at all, which is exactly what a
+ * first deployment of this should be.
+ *
+ * MATCHED ON EITHER THE ACCOUNT OR THE SITE, because the two questions a canary
+ * asks are different: one account's every edit, or one site's every edit
+ * whoever makes it. Both are narrow and neither implies the other.
+ */
+export function editAsyncFor(env, { uid = "", slug = "" } = {}) {
+  if (!editAsyncOn(env)) return false;
+  const list = readCanaryList(env && env.EDIT_ASYNC_CANARY);
+  if (!list.length) return false;
+  // NON-STRINGS ARE REFUSED, NOT COERCED. `String(["u1"])` is `"u1"`, and a
+  // shape mistake that let an array match an allowlist entry would widen the
+  // canary silently — the one direction this must never fail in.
+  const u = typeof uid === "string" ? uid.toLowerCase() : "";
+  const s = typeof slug === "string" ? slug.toLowerCase() : "";
+  return (!!u && list.includes(u)) || (!!s && list.includes(s));
 }
