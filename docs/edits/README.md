@@ -1,9 +1,15 @@
 # fretwork-1 — what each queued edit did, as screenshots
 
 Every image here is the live site rendered headless right after the edit
-landed (the page's own HTML and stylesheet; photos and web fonts are not
-loaded, so placeholders show where pictures go). Read top to bottom: each
+landed (the page's own HTML and stylesheet; photos, fonts and scripts are not
+loaded, so placeholders show where pictures go, the 3D canvas is a grey box,
+and the header wordmark shows as its alt text). Read top to bottom: each
 edit is applied on top of the ones before it.
+
+**Rows before 08 have blank middles.** The kit reveals sections on scroll, and
+a headless full-page capture leaves them at opacity 0 — an instrument
+artefact this repo has recorded before, not the site. From row 08 the capture
+disables the reveal first, so every section shows.
 
 | # | When | Edit(s) | File |
 |---|---|---|---|
@@ -16,5 +22,7 @@ edit is applied on top of the ones before it.
 | 05 | 2026-09-01 23:49–23:54 | sweep five (old harness, from main): `behavior` was picked as `action` by the lane picker and refused honestly by the nav rung (refunded). `qr` → `/qr.svg` is served and decodes to `tel:01144960123` — correct — but the page references it nowhere, so the page shot is unchanged from row 04. Filed: the qr lane bakes a code nothing places. | `06-sweep5-qr.png`, `06-sweep5-qr.svg` |
 
 | 06 | 2026-09-02 00:02 | sweep five: `three` → a WebGL canvas with a 3D pick beneath the hero, via the page rung. The headless shot cannot run WebGL, so the canvas area is blank here; on the live site it draws. Cost 6. | `07-sweep5-three.png` |
+
+| 07 | 2026-09-02 00:05 | sweep five: `shape` → the price list moved above the numbered steps, via the page rung. First capture with every section visible. Cost 3. | `08-sweep5-shape.png` |
 
 Later rows are added as the remaining lanes run.
