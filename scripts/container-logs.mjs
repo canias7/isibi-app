@@ -29,6 +29,14 @@
 const TOKEN = process.env.CLOUDFLARE_API_TOKEN || "";
 const ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID || "";
 const HOURS = Math.min(168, Math.max(1, Number(process.env.LOG_HOURS) || 5));
+// AN AIMED WINDOW (2026-09-02, run 17). The query answers the NEWEST 900
+// events, and the platform writes ~25 backup lines every two minutes, so
+// "three hours back from now" reaches only ~40 minutes and the minute a job
+// died in ages out of reach before anybody can press the button. LOG_FROM and
+// LOG_TO (RFC3339) bound the window exactly; both set, they win over LOG_HOURS.
+const FROM = Date.parse(String(process.env.LOG_FROM || ""));
+const TO = Date.parse(String(process.env.LOG_TO || ""));
+const AIMED = Number.isFinite(FROM) && Number.isFinite(TO) && TO > FROM;
 // Optional substring filter on the message. Empty means everything — which is
 // the right default for a diagnostic whose whole point is not guessing what
 // the interesting line looks like before reading it.
@@ -41,7 +49,7 @@ if (!ACCOUNT) fail("CLOUDFLARE_ACCOUNT_ID is not set");
 const now = Date.now();
 const body = {
   queryId: "container-logs-probe",
-  timeframe: { from: now - HOURS * 3600 * 1000, to: now },
+  timeframe: AIMED ? { from: FROM, to: TO } : { from: now - HOURS * 3600 * 1000, to: now },
   view: "events",
   limit: 900,
   dry: true,
@@ -97,7 +105,7 @@ if (!r.ok) {
 let j;
 try { j = JSON.parse(text); } catch { fail("the query answered 200 with a body that is not JSON: " + text.slice(0, 300)); }
 const evs = (j && j.result && j.result.events && j.result.events.events) || [];
-console.log(`events in the last ${HOURS}h${NEEDLE ? ` matching ${JSON.stringify(NEEDLE)}` : ""}: ${evs.length}` +
+console.log(`events ${AIMED ? `between ${new Date(FROM).toISOString()} and ${new Date(TO).toISOString()}` : `in the last ${HOURS}h`}${NEEDLE ? ` matching ${JSON.stringify(NEEDLE)}` : ""}: ${evs.length}` +
   (j.result && j.result.events && Number.isFinite(j.result.events.count) ? ` (of ${j.result.events.count} total)` : ""));
 if (!evs.length) {
   // An empty answer is a real answer only if the query ran — print the run's

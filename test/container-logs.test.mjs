@@ -20,3 +20,20 @@ test("the logs reader prints a killed invocation's outcome, and stays a dry read
   assert.match(w, /dry: true/, "the query is no longer a dry read");
   assert.ok(!/console\.(?:log|error)\([^\n]*\bTOKEN\b/.test(w), "the token is printed");
 });
+
+test("the window can be aimed, because the newest 900 events reach only ~40 minutes back", () => {
+  // The first outcome-aware read (2026-09-02 18:37) asked for three hours and
+  // got 18:00 onward: the backup cron writes ~25 lines every two minutes and
+  // the query caps at 900 newest. A from/to pair bounds the query exactly and
+  // wins over the hours when both are set.
+  const w = bare(SRC);
+  assert.match(w, /process\.env\.LOG_FROM/, "LOG_FROM is not read");
+  assert.match(w, /process\.env\.LOG_TO/, "LOG_TO is not read");
+  assert.match(w, /timeframe: AIMED \? \{ from: FROM, to: TO \}/, "an aimed window does not reach the query's timeframe");
+  assert.match(w, /TO > FROM/, "an inverted window is not refused");
+  // …and the workflow's copy names both, so a reader aiming the window edits
+  // the file the button runs.
+  const wf = readFileSync(new URL("../.github/workflows/container-logs.yml", import.meta.url), "utf8");
+  assert.match(wf, /LOG_FROM:/, "the workflow has no LOG_FROM to aim");
+  assert.match(wf, /LOG_TO:/, "the workflow has no LOG_TO to aim");
+});

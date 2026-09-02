@@ -54,6 +54,15 @@ jobs:
           # needle is a substring of the log message, empty for everything.
           # 72h: run 44's two failure lines must stay inside the window however
           # long the token back-and-forth takes — the needle keeps it tiny.
+          # LOG_FROM/LOG_TO (RFC3339) aim the window exactly and win over
+          # LOG_HOURS when both are set: the query answers the newest 900
+          # events and the backup noise fills that in ~40 minutes, so a minute
+          # more than an hour old cannot be reached from "now" at all.
+          # THIS READ (2026-09-02): run 17's lost rename job — the consumer
+          # sent the compile at 17:39:56Z and went silent; what outcome did
+          # Cloudflare record for that invocation?
           LOG_HOURS: '3'
+          LOG_FROM: '2026-09-02T17:38:00Z'
+          LOG_TO: '2026-09-02T17:46:00Z'
           LOG_NEEDLE: ''
         run: node scripts/container-logs.mjs
