@@ -1,35 +1,45 @@
-// The gap sweep: the parts of the edit path the lane sweep could not reach,
+// The gap sweep: the parts of the EDIT PATH the lane sweep could not reach,
 // each driven once on a live site and judged by reading the site afterwards.
 //
 // ── WHY A SECOND HARNESS ───────────────────────────────────────────────────
 //
-// Owner, 2026-09-02: *"OK LETS TEST THE MISSING ONES"*, after the lane sweep
-// had run nineteen of twenty-one lanes and the record showed what it could
-// not reach. `lane-sweep.mjs` posts one ask per DESIGN FIELD through the lane
-// picker; a rung with no lane of its own (`text`, `logo`, the `page` verbs
-// `move` and `remove`, the addon route, `data`, `rules`) never gets a message,
-// and a behaviour of the QUEUE rather than of a rung (cancel) is not an ask at
-// all. Bolting those onto the lane table would break the guard that derives
-// that table from `LANE_FIELDS` in both directions, and that guard has earned
-// its keep twice. So: a second table, keyed on what is being exercised rather
-// than on a field, with its own guard.
+// Owner, 2026-09-02: *"OK LETS TEST THE MISSING ONES"*, and when the first
+// draft reached for the addon route: *"IM TALKING ABOUT THE EDIT PATH, NOT
+// THE ADDON"*. The addon is its own path (docs/architecture.md: one BUILD,
+// then EDIT / ADDON / DELETE each publishing through the one spine) and
+// nothing here calls it.
+//
+// `lane-sweep.mjs` posts one ask per DESIGN FIELD through the lane picker; a
+// rung with no lane of its own (`text`, `logo`, the `page` verbs `move` and
+// `remove`, `data`, `rules`) never gets a message that way, and a behaviour
+// of the QUEUE rather than of a rung (cancel) is not an ask at all. Bolting
+// those onto the lane table would break the guard that derives that table
+// from `LANE_FIELDS` in both directions, and that guard has earned its keep
+// twice. So: a second table, keyed on what is being exercised, with its own
+// guard.
 //
 // ── WHAT "WORKS" MEANS HERE ────────────────────────────────────────────────
 //
 // The same rule as the lane sweep: the reply is the server's claim and the
-// site is the evidence. A route that answers 200, a sitemap that lists it, a
-// header link whose words changed, a row that reads back through the site's
-// own data API, a build id that moved — or did not, on a cancel. Two cases
-// (`rules`, `backend`) have no visitor-visible surface on a database this
-// harness cannot read, and they SAY so: their verdict carries "reply-judged".
+// site is the evidence. A route that answers 200 and a sitemap that lists it,
+// a moved page's old address redirecting to its new one, a header link whose
+// words changed, a row that reads back through the site's own data API and
+// draws on the rendered menu, a build id that moved — or did not, on a
+// cancel or a refusal. Two cases (`rules`, `backend`) have no visitor-visible
+// surface on a database this harness cannot read, and they SAY so: their
+// verdict carries "reply-judged".
 //
-// ── TWO SITES ──────────────────────────────────────────────────────────────
+// ── TWO SITES, AND THE SITE ENDS WHERE IT STARTED ──────────────────────────
 //
 // `fretwork-1` has no database, which is why the lane sweep's `backend` case
 // was an honest refusal and why `data` and `rules` could not run there at
-// all. Those three run on a site that HAS one (`the-lido-cafe` by default).
-// That site is not on the async allowlist, so its edits answer synchronously
-// — the same code, one hop shorter — and the runner below handles both shapes.
+// all. Those, and the page verbs, run on a site that HAS one (`the-lido-cafe`
+// by default). That site is not on the async allowlist, so its edits answer
+// synchronously — the same code, one hop shorter — and the runner below
+// handles both shapes. The move runs twice, out and back, so the page verb is
+// exercised for real and the site keeps its addresses. Remove is driven to
+// its refusal: every page either site has is linked from another, and a
+// linked page is exactly what the verb is written to refuse.
 //
 // ── HOW IT SIGNS IN ────────────────────────────────────────────────────────
 //
@@ -49,11 +59,11 @@ const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 const SLUG = String(process.env.GAP_SLUG || "fretwork-1").trim().toLowerCase();
 const DB_SLUG = String(process.env.GAP_DB_SLUG || "the-lido-cafe").trim().toLowerCase();
 const PICKER = String(process.env.SWEEP_PICKER || "grok").trim().toLowerCase();
-const BUDGET = Number(process.env.GAP_BUDGET || 60);
+const BUDGET = Number(process.env.GAP_BUDGET || 40);
 const WANT = String(process.env.GAP_CASES || "all").trim().toLowerCase();
 const SHOTS = String(process.env.GAP_SHOTS_DIR || "docs/edits").trim();
 
-/** `node:https` rather than fetch — undici gives up at 300s and the addon route can outlive that. */
+/** `node:https` rather than fetch — undici gives up at 300s and a synchronous page edit can outlive that. */
 function call(method, urlOrPath, { body, headers, token } = {}) {
   return new Promise((resolve) => {
     const u = new URL(/^https?:/.test(urlOrPath) ? urlOrPath : BASE + urlOrPath);
@@ -156,12 +166,18 @@ export const tinyPngDataUrl = () => "data:image/png;base64," + tinyPng().toStrin
 //   `route`  — ask `/api/site/route` first and post what it decides, as the
 //              chatbox does. The one case that also tests the intent router.
 //   `<layer>`— post that layer directly (the lane sweep's stated shortcut).
-//   `addon`  — POST the addon route itself, synchronously.
-// `ask` is a string or a function of the before-snapshot (a move needs the
-// route the addon actually created). `body(before)` adds fields. `skip(before)`
-// answers a reason to not spend at all. `publishes` says the build id must
-// move on success. `judged` is `site` or `reply`, and the summary prints it.
-// `cancel` marks the one case that DELETEs its own job once it is claimed.
+// `body(before)` adds fields. `skip(before)` answers a reason to not spend at
+// all. `publishes` says the build id must move on success. `judged` is `site`
+// or `reply`, and the summary prints it. `cancel` marks the one case that
+// DELETEs its own job once it is claimed. `expectError` / `expectEscalate`
+// name the refusal the code is written to make, which is then a verdict of
+// its own rather than a failure or a pass. `from` / `to` are the page verb's
+// addresses, read by the runner for the redirect evidence.
+const moveCheck = (b, a, r, x) => {
+  const redirected = x.oldStatus >= 300 && x.oldStatus < 400 && new RegExp(x.to.replace(/[/]/g, "\\/") + "\\/?$").test(String(x.oldLocation || ""));
+  return { ok: a.routes.includes(x.to) && !a.routes.includes(x.from) && x.newStatus === 200 && redirected,
+    note: `${x.to} answers ${x.newStatus ?? "?"}; ${x.from} answers ${x.oldStatus ?? "?"}${x.oldLocation ? " → " + x.oldLocation : ""}; sitemap ${JSON.stringify(a.routes)}` };
+};
 export const CASES = [
   { name: "text", where: "main", via: "route", publishes: true, judged: "site",
     ask: 'Change the words "Get your first lesson free" to "Your first lesson is free"',
@@ -189,35 +205,28 @@ export const CASES = [
     ask: "Add a testimonials band with two short quotes from students under the price list",
     check: (b, a, r, x) => ({ ok: a.build === b.build && x.state === "cancelled",
       note: `job state ${x.state || "?"}; build ${a.build === b.build ? "unchanged" : "MOVED"}; billing ${x.billing || "?"}` }) },
-  // THE ADDON ROUTE REFUSES A SITE WITHOUT A DATABASE — `if (!adb) return
-  // aEscalate("no-backend")` in worker.js — which is most sites on the
-  // platform, and what `pages add` points at from every one of them. Recorded
-  // here for nothing (the refusal comes before any model call) so the summary
-  // says it in the owner's own numbers; then the real addon runs where it can.
-  { name: "addon-nodb", where: "main", via: "addon", publishes: false, judged: "site", expectEscalate: ["no-backend"],
-    ask: "Add a pricing page listing the lesson prices",
-    check: (b, a) => ({ ok: a.build === b.build, note: "the addon route on a frontend-only site" }) },
-  { name: "addon", where: "db", via: "addon", publishes: true, judged: "site",
-    ask: "Add an opening hours page",
-    skip: (b) => (b.routes.some((r) => /hour|times?$|open/i.test(r)) ? "the site already has an hours page" : ""),
-    check: (b, a, r, x) => {
-      const added = a.routes.filter((rt) => !b.routes.includes(rt));
-      return { ok: added.length === 1 && x.pageStatus === 200, note: `routes added ${JSON.stringify(added)}; ${added[0] || "(none)"} answers ${x.pageStatus ?? "?"}; reply added ${JSON.stringify(r.added || [])}` };
-    } },
-  { name: "move", where: "db", via: "look", publishes: true, judged: "site",
-    ask: (b, ctx) => `Move the page at ${ctx.added} to /times`,
-    skip: (b, ctx) => (ctx.added && b.routes.includes(ctx.added) ? "" : "no page to move (the addon case did not add one)"),
-    check: (b, a, r, x) => {
-      const from = x.from;
-      const redirected = x.oldStatus >= 300 && x.oldStatus < 400 && /\/times\/?$/.test(String(x.oldLocation || ""));
-      return { ok: a.routes.includes("/times") && !a.routes.includes(from) && x.newStatus === 200 && redirected,
-        note: `/times answers ${x.newStatus ?? "?"}; ${from} answers ${x.oldStatus ?? "?"}${x.oldLocation ? " → " + x.oldLocation : ""}; sitemap ${JSON.stringify(a.routes)}` };
-    } },
-  { name: "remove", where: "db", via: "look", publishes: true, judged: "site",
-    ask: "Remove the page at /times",
-    skip: (b) => (b.routes.includes("/times") ? "" : "no /times page to remove"),
-    check: (b, a, r, x) => ({ ok: !a.routes.includes("/times") && x.newStatus === 404,
-      note: `/times answers ${x.newStatus ?? "?"}; sitemap ${JSON.stringify(a.routes)}` }) },
+  // OUT AND BACK. The verb is exercised twice for real and the site keeps its
+  // addresses; what it gains is a redirect from /board, which is what a rename
+  // is supposed to leave behind.
+  { name: "move", where: "db", via: "look", publishes: true, judged: "site", from: "/menu", to: "/board",
+    ask: "Move the page at /menu to /board",
+    skip: (b) => (b.routes.includes("/menu") && !b.routes.includes("/board") ? "" : "the site does not have /menu free to move to /board"),
+    check: moveCheck },
+  { name: "move-back", where: "db", via: "look", publishes: true, judged: "site", from: "/board", to: "/menu",
+    ask: "Move the page at /board to /menu",
+    skip: (b) => (b.routes.includes("/board") && !b.routes.includes("/menu") ? "" : "no /board to move back (the move case did not move it)"),
+    check: moveCheck },
+  // A LINKED PAGE IS REFUSED, BY DESIGN — `mergeAddonPages` answers `kept`
+  // with the sentence the customer sees, and the page rung returns it as a
+  // 422 rather than climbing to a rewrite. Every page either site has is
+  // linked from another, so the refusal is what this verb can be driven to
+  // here, and it is a real answer: the site must be untouched and the page
+  // still there.
+  { name: "remove", where: "db", via: "look", publishes: false, judged: "site", expectError: ["kept"], expectEscalate: ["kept"],
+    ask: "Remove the page at /book",
+    skip: (b) => (b.routes.includes("/book") ? "" : "no /book page to ask about"),
+    check: (b, a, r, x) => ({ ok: a.build === b.build && a.routes.includes("/book") && x.pageStatus === 200,
+      note: `/book still answers ${x.pageStatus ?? "?"}; "${String(r.msg || "").slice(0, 140)}"` }) },
   { name: "data", where: "db", via: "data", publishes: false, judged: "site",
     ask: "Add Cortado at £2.80 to the menu, under Coffee",
     check: (b, a, r, x) => {
@@ -235,12 +244,6 @@ export const CASES = [
     check: (b, a, r) => ({ ok: r.layer === "rules" && Array.isArray(r.applied) && r.applied.length > 0 && a.build === b.build,
       note: `layer ${r.layer || "-"}; lanes ${JSON.stringify(r.lanes || [])}; applied ${JSON.stringify(r.applied || [])}; "${String(r.msg || "").slice(0, 120)}"` }) },
 ];
-
-/** The one route the addon case added — remembered in `ctx` for the verbs that follow it. */
-export const addedRoute = (before, after) => {
-  const added = (after.routes || []).filter((r) => !(before.routes || []).includes(r));
-  return added.length === 1 ? added[0] : "";
-};
 
 export function chooseCases(want, cases) {
   const w = String(want || "all").trim().toLowerCase();
@@ -321,9 +324,6 @@ async function main() {
   console.log(`browser: ${(await openBrowser()) ? "yes" : "no"}\n`);
 
   const results = [];
-  // WHAT ONE CASE LEAVES FOR THE NEXT: the route the addon added is the page
-  // the move case moves and the remove case removes.
-  const ctx = { added: "" };
   let n = 0;
   for (const name of names) {
     const c = CASES.find((x) => x.name === name);
@@ -333,38 +333,32 @@ async function main() {
     n++;
     const before = await snapshot(slug);
     if (before.status !== 200) { console.log(`━━ ${name}: ${slug} does not answer 200 (${before.status}) — skipped\n`); results.push({ name, slug, verdict: "skipped", note: `site answered ${before.status}`, cost: 0, wall: 0 }); continue; }
-    const why = c.skip ? c.skip(before, ctx) : "";
+    const why = c.skip ? c.skip(before) : "";
     if (why) { console.log(`━━ ${name}: skipped — ${why}\n`); results.push({ name, slug, verdict: "skipped", note: why, cost: 0, wall: 0 }); continue; }
-    const ask = typeof c.ask === "function" ? c.ask(before, ctx) : c.ask;
+    const ask = c.ask;
     console.log(`━━ ${name} on ${slug}  "${ask}"`);
     const bal0 = await balance();
     const t0 = Date.now();
     const extra = {};
 
-    // ── THE MESSAGE GOES IN, one of three ways ──────────────────────────
-    let p;
-    if (c.via === "addon") {
-      p = await call("POST", `/api/site/${encodeURIComponent(slug)}/addon`, { token: TOKEN, body: { instruction: ask, picker: PICKER } });
-      console.log(`   addon route answered ${p.status} in ${(p.ms / 1000).toFixed(1)}s`);
-    } else {
-      let fields = { layer: c.via, page: "", remove: false, rename: "", tab: false };
-      if (c.via === "route") {
-        const digest = { name: slug, url: siteUrl(slug), pages: before.routes.map((r) => ({ path: r })), tables: [] };
-        const rt = await call("POST", "/api/site/route", { token: TOKEN, body: { message: ask, site: digest, firstBuild: false, brief: ask, qa: [], answering: false, attached: false, slug, hasSite: true } });
-        const rd = rt.json || {};
-        extra.routed = { intent: rd.intent || "", layer: rd.layer || "", page: rd.page || "", cost: rd.cost };
-        console.log(`   router: intent=${rd.intent || "?"} layer=${rd.layer || "-"} page=${rd.page || "-"} in ${(rt.ms / 1000).toFixed(1)}s`);
-        if (rt.status !== 200 || rd.intent !== "edit" || !rd.layer) {
-          const bal1 = await balance();
-          console.log(`   ROUTER DID NOT NAME AN EDIT LAYER — not posting (would escalate on \`layer\` for nothing)\n`);
-          results.push({ name, slug, verdict: "router", note: `intent ${rd.intent || "?"} layer ${rd.layer || "-"}`, cost: bal0 - bal1, wall: Math.round((Date.now() - t0) / 1000), routed: extra.routed });
-          continue;
-        }
-        fields = { layer: String(rd.layer), page: rd.page ? String(rd.page) : "", remove: rd.remove === true, rename: typeof rd.rename === "string" ? rd.rename : "", tab: rd.tab === true };
+    // ── THE MESSAGE GOES IN, routed first or straight to a layer ────────
+    let fields = { layer: c.via, page: "", remove: false, rename: "", tab: false };
+    if (c.via === "route") {
+      const digest = { name: slug, url: siteUrl(slug), pages: before.routes.map((r) => ({ path: r })), tables: [] };
+      const rt = await call("POST", "/api/site/route", { token: TOKEN, body: { message: ask, site: digest, firstBuild: false, brief: ask, qa: [], answering: false, attached: false, slug, hasSite: true } });
+      const rd = rt.json || {};
+      extra.routed = { intent: rd.intent || "", layer: rd.layer || "", page: rd.page || "", cost: rd.cost };
+      console.log(`   router: intent=${rd.intent || "?"} layer=${rd.layer || "-"} page=${rd.page || "-"} in ${(rt.ms / 1000).toFixed(1)}s`);
+      if (rt.status !== 200 || rd.intent !== "edit" || !rd.layer) {
+        const bal1 = await balance();
+        console.log(`   ROUTER DID NOT NAME AN EDIT LAYER — not posting (would escalate on \`layer\` for nothing)\n`);
+        results.push({ name, slug, verdict: "router", note: `intent ${rd.intent || "?"} layer ${rd.layer || "-"}`, cost: bal0 - bal1, wall: Math.round((Date.now() - t0) / 1000), routed: extra.routed });
+        continue;
       }
-      const body = { ...fields, instruction: ask, picker: PICKER, idem: hex32(), ...(c.body ? c.body(before) : {}) };
-      p = await call("POST", `/api/site/${encodeURIComponent(slug)}/edit`, { token: TOKEN, body });
+      fields = { layer: String(rd.layer), page: rd.page ? String(rd.page) : "", remove: rd.remove === true, rename: typeof rd.rename === "string" ? rd.rename : "", tab: rd.tab === true };
     }
+    const body0 = { ...fields, instruction: ask, picker: PICKER, idem: hex32(), ...(c.body ? c.body(before) : {}) };
+    const p = await call("POST", `/api/site/${encodeURIComponent(slug)}/edit`, { token: TOKEN, body: body0 });
 
     // ── AND THE ANSWER COMES BACK, queued or inline ─────────────────────
     let reply = p; let job = "";
@@ -391,7 +385,7 @@ async function main() {
         }
         if (i % 6 === 0 && q.json) console.log(`   ${String(Math.round((Date.now() - t0) / 1000)).padStart(4)}s  ${st || "?"}${q.json.phase ? " / " + q.json.phase : ""}`);
       }
-    } else if (c.via !== "addon") {
+    } else {
       console.log(`   synchronous answer ${p.status} in ${(p.ms / 1000).toFixed(1)}s`);
     }
     const wall = (Date.now() - t0) / 1000;
@@ -413,16 +407,12 @@ async function main() {
     const after = await snapshot(slug);
 
     // ── THE EVIDENCE EACH CASE NEEDS BEYOND THE HOME PAGE ───────────────
-    if (c.name === "addon") {
-      const target = addedRoute(before, after);
-      if (target) { ctx.added = target; extra.pageStatus = (await site(slug, target)).status; }
+    if (c.from && c.to) {
+      extra.from = c.from; extra.to = c.to;
+      const o = await site(slug, c.from); extra.oldStatus = o.status; extra.oldLocation = o.headers.get("location") || "";
+      extra.newStatus = (await site(slug, c.to)).status;
     }
-    if (c.name === "move") {
-      extra.from = ctx.added;
-      const o = await site(slug, ctx.added); extra.oldStatus = o.status; extra.oldLocation = o.headers.get("location") || "";
-      extra.newStatus = (await site(slug, "/times")).status;
-    }
-    if (c.name === "remove") extra.newStatus = (await site(slug, "/times")).status;
+    if (c.name === "remove") extra.pageStatus = (await site(slug, "/book")).status;
     if (c.name === "data") {
       const rows = await fetch(`${siteUrl(slug)}/api/db/${slug}/data/menu_items?select=*`).then((r) => r.json()).catch(() => []);
       extra.rows = Array.isArray(rows) ? rows : [];
@@ -441,12 +431,15 @@ async function main() {
       else if (extra.state === "done" && after.build !== before.build) { verdict = "ok (too late)"; note = `the edit finished before the cancel landed — an honest outcome; ${chk.note}`; }
       else { verdict = "failed"; note = chk.note; }
     }
-    else if (escalated && c.expectEscalate && c.expectEscalate.includes(String(body.reason))) {
-      // THE REFUSAL THE CODE SAYS IT WILL MAKE. Not "ok" — the summary must not
-      // read a platform gap as a pass — and not "escalated", which is the word
-      // for a refusal nobody predicted. Its own word, so the table says it.
+    // THE REFUSAL THE CODE SAYS IT WILL MAKE. Not "ok" — the summary must not
+    // read a refusal as a pass — and not "escalated" or "failed", which are
+    // the words for outcomes nobody predicted. Its own word, so the table
+    // says it. Either shape: an escalate, or a 422 that names its reason.
+    else if ((escalated && c.expectEscalate && c.expectEscalate.includes(String(body.reason))) ||
+             (!claimedOk && !escalated && c.expectError && c.expectError.includes(String(body.error)))) {
       const chk = c.check(before, after, body, extra);
-      verdict = chk.ok && after.build === before.build ? "refused as coded" : "LIE"; note = `escalate ${body.reason}; ${chk.note}`;
+      verdict = chk.ok && after.build === before.build ? "refused as coded" : "LIE";
+      note = `${escalated ? "escalate " + body.reason : reply.status + " " + body.error}; ${chk.note}`;
     }
     else if (escalated) {
       verdict = after.build !== before.build ? "LIE" : "escalated";
@@ -467,8 +460,7 @@ async function main() {
     const shots = [];
     if (name !== "data" && !/escalated|refused/.test(verdict)) {
       const f = await shot(siteUrl(slug) + "/", path.join(SHOTS, `${tag}.png`)); if (f) shots.push(f);
-      const page = name === "addon" ? ctx.added : name === "move" ? "/times" : "";
-      if (page) { const g = await shot(siteUrl(slug) + page, path.join(SHOTS, `${tag}-page.png`)); if (g) shots.push(g); }
+      if (c.to) { const g = await shot(siteUrl(slug) + c.to, path.join(SHOTS, `${tag}-page.png`)); if (g) shots.push(g); }
     }
     if (name === "data") { const f = await shot(siteUrl(slug) + "/menu", path.join(SHOTS, `${tag}.png`)); if (f) shots.push(f); }
 
@@ -481,8 +473,8 @@ async function main() {
   if (browser) await browser.close().catch(() => {});
   const end = await balance();
   console.log("\n══ SUMMARY ══");
-  console.log("case".padEnd(10) + "site".padEnd(16) + "via".padEnd(8) + "cost".padEnd(6) + "s".padEnd(6) + "verdict");
-  for (const r of results) console.log(r.name.padEnd(10) + String(r.slug).padEnd(16) + String(r.via || "").padEnd(8) + String(r.cost).padEnd(6) + String(r.wall).padEnd(6) + r.verdict);
+  console.log("case".padEnd(11) + "site".padEnd(16) + "via".padEnd(8) + "cost".padEnd(6) + "s".padEnd(6) + "verdict");
+  for (const r of results) console.log(r.name.padEnd(11) + String(r.slug).padEnd(16) + String(r.via || "").padEnd(8) + String(r.cost).padEnd(6) + String(r.wall).padEnd(6) + r.verdict);
   console.log(`\nbalance ${start} → ${end}  (spent ${start - end})`);
   try { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, "gap-sweep-results.json"), JSON.stringify({ at: new Date().toISOString(), start, end, results }, null, 2)); } catch { /* the log carries it */ }
   console.log(`\n${JSON.stringify(results)}`);

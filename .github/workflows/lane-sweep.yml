@@ -2,6 +2,13 @@
 # reading the SITE after each to see whether the lane did the one thing it owns.
 # See scripts/lane-sweep.mjs for what "works" means per lane.
 #
+# AND THE GAP SWEEP, behind the `harness` input: the rungs of the edit path no
+# lane reaches (text, logo, the page verbs, data, rules) and one behaviour of
+# the queue (cancel), on two live sites. See scripts/gap-sweep.mjs. One
+# workflow file for both because GitHub lists a dispatchable workflow only
+# when the file exists on the default branch; this one does, and a dispatch
+# from a branch runs the branch's copy of it.
+#
 # COSTS REAL MONEY, BY DESIGN. Nothing here is free: every lane is a model call
 # and a publish, and the page-rung lanes are rewrites. Budgeted by the `budget`
 # input and stopped by the harness at the first reply that lies about the site.
@@ -12,6 +19,10 @@
 #
 # TWO LANES NEVER RUN UNDER `all`: `slug` (renames the site for ever) and `kind`
 # (a full rebuild that replaces it). Name them in `lanes` to run them.
+#
+# THE GAP SWEEP'S SCREENSHOTS COME BACK ON THE BRANCH THAT WAS DISPATCHED. The
+# runner commits docs/edits/gap-*.png and the results file to the ref it ran
+# from, never to main, so a run can never roll the container or deploy.
 name: lane sweep
 
 on:
@@ -21,22 +32,33 @@ on:
         description: 'Type the word: spend'
         required: true
         default: ''
+      harness:
+        description: 'lane (one ask per design field) | gap (the rungs no lane reaches: text,logo,cancel,move,move-back,remove,data,rules,backend)'
+        required: false
+        default: 'lane'
       lanes:
-        description: 'all, or a comma list (css,theme,brand,…). slug and kind only when named.'
+        description: 'all, or a comma list. Lane names for the lane harness (slug and kind only when named); case names for the gap harness.'
         required: false
         default: 'all'
       site:
         description: 'The site to edit (must be on the async allowlist)'
         required: false
         default: 'fretwork-1'
+      dbsite:
+        description: 'gap harness only: the site with a database, for move / remove / data / rules / backend'
+        required: false
+        default: 'the-lido-cafe'
       picker:
         description: 'grok | sonnet | opus'
         required: false
         default: 'grok'
       budget:
-        description: 'Stop before any lane once this many credits have gone'
+        description: 'Stop before any lane or case once this many credits have gone'
         required: false
         default: '80'
+
+permissions:
+  contents: write
 
 jobs:
   sweep:
@@ -46,6 +68,8 @@ jobs:
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -53,15 +77,54 @@ jobs:
       # real dependency — see test/workflow-deps.test.mjs for why every node
       # step installs first.
       - run: npm ci --no-audit --no-fund
+      # A browser for the gap harness: screenshots, and the one check that
+      # needs a rendered page (the lido menu is drawn from rows at runtime).
+      # Two single-line steps, not one block: test/ci-browser-order.test.mjs
+      # reads the first line of a `run: |` block only, and must see the install
+      # before the step that launches. Pinned to the kit's own playwright line;
+      # --no-save so package.json is untouched.
+      - run: npm i --no-save --no-audit --no-fund playwright@1.49.1
+      - run: npx playwright install --with-deps chromium
       - name: sweep
+        id: sweep
+        continue-on-error: true
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           OWNER_EMAIL: aniascristian@gmail.com
           OWNER_BASE_URL: https://gofarther.dev
           SWEEP_CONFIRM: ${{ github.event.inputs.confirm }}
+          SWEEP_HARNESS: ${{ github.event.inputs.harness }}
           SWEEP_LANES: ${{ github.event.inputs.lanes }}
           SWEEP_SLUG: ${{ github.event.inputs.site }}
           SWEEP_PICKER: ${{ github.event.inputs.picker }}
           SWEEP_BUDGET: ${{ github.event.inputs.budget }}
-        run: node scripts/lane-sweep.mjs
+          GAP_CASES: ${{ github.event.inputs.lanes }}
+          GAP_SLUG: ${{ github.event.inputs.site }}
+          GAP_DB_SLUG: ${{ github.event.inputs.dbsite }}
+          GAP_BUDGET: ${{ github.event.inputs.budget }}
+          GAP_SHOTS_DIR: docs/edits
+        run: |
+          if [ "$SWEEP_HARNESS" = "gap" ]; then node scripts/gap-sweep.mjs; else node scripts/lane-sweep.mjs; fi
+      # The pictures are the record the owner asked for, so they land whether
+      # or not the sweep passed. Pushed to the DISPATCHED ref, which is what
+      # `ref_name` is on a workflow_dispatch — a run from a branch writes to
+      # that branch. Only the gap harness writes pictures; the lane harness
+      # leaves the tree clean and this step finds nothing to keep.
+      - name: keep the screenshots
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/edits
+          if git diff --cached --quiet; then echo "nothing to keep"; exit 0; fi
+          git commit -m "docs: gap sweep screenshots and results ($(date -u +%Y-%m-%dT%H:%MZ))"
+          for i in 1 2 3; do
+            git pull --rebase origin "${{ github.ref_name }}" && git push origin "HEAD:${{ github.ref_name }}" && break
+            sleep 5
+          done
+      - name: verdict
+        if: steps.sweep.outcome != 'success'
+        run: |
+          echo "the sweep reported a LIE, a NEEDS REVIEW or a NO ANSWER — read the log above"
+          exit 1

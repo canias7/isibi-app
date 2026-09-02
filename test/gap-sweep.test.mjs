@@ -1,32 +1,34 @@
 // Guards for scripts/gap-sweep.mjs — the harness that drives the parts of the
-// edit path the lane sweep cannot reach. Kept to properties, not spellings.
+// EDIT PATH the lane sweep cannot reach. Kept to properties, not spellings.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import zlib from "node:zlib";
-import { CASES, chooseCases, tinyPng, tinyPngDataUrl, addedRoute } from "../scripts/gap-sweep.mjs";
+import { CASES, chooseCases, tinyPng, tinyPngDataUrl } from "../scripts/gap-sweep.mjs";
 import { CASES as LANE_CASES, confirmed } from "../scripts/lane-sweep.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import { PAGE_VERBS } from "../builder/site-lanes.mjs";
 
 const SRC = readFileSync(new URL("../scripts/gap-sweep.mjs", import.meta.url), "utf8");
-const WF = readFileSync(new URL("../.github/workflows/gap-sweep.yml", import.meta.url), "utf8");
+const WF = readFileSync(new URL("../.github/workflows/lane-sweep.yml", import.meta.url), "utf8");
 
 // ── THE CASES ARE THE GAPS, AND ONLY THE GAPS ─────────────────────────────
 //
-// Every `via` that posts a layer names one the edit route actually has (or the
-// two non-layer doors, the router and the addon route). A case that posted a
-// layer the route does not know would fall through to `escalate("layer")` for
-// nothing and read as a pass — the first paid canary's exact failure.
-test("every case enters through a real door", () => {
+// Every `via` that posts a layer names one the edit route actually has, or the
+// router. A case that posted a layer the route does not know would fall
+// through to `escalate("layer")` for nothing and read as a pass — the first
+// paid canary's exact failure. And nothing here is the addon route: the owner
+// drew the line ("IM TALKING ABOUT THE EDIT PATH, NOT THE ADDON").
+test("every case enters the edit path through a real door, and none touches the addon", () => {
   assert.ok(CASES.length >= 8, "the case table has shrunk");
   for (const c of CASES) {
-    assert.ok(["route", "addon", ...EDIT_LAYERS].includes(c.via), `${c.name}: via "${c.via}" is not a layer, the router or the addon route`);
+    assert.ok(["route", ...EDIT_LAYERS].includes(c.via), `${c.name}: via "${c.via}" is not an edit layer or the router`);
     assert.ok(["main", "db"].includes(c.where), `${c.name}: where "${c.where}"`);
     assert.ok(["site", "reply"].includes(c.judged), `${c.name}: judged must say site or reply`);
     assert.equal(typeof c.check, "function", `${c.name}: no check`);
-    assert.ok(typeof c.ask === "string" || typeof c.ask === "function", `${c.name}: no ask`);
+    assert.equal(typeof c.ask, "string", `${c.name}: no ask`);
   }
+  assert.ok(!/\/addon/.test(SRC), "the harness names the addon route");
 });
 
 test("the gaps are exactly the rungs and behaviours the lane sweep cannot reach", () => {
@@ -36,8 +38,6 @@ test("the gaps are exactly the rungs and behaviours the lane sweep cannot reach"
   for (const rung of ["text", "logo", "data", "rules"]) assert.ok(names.includes(rung), `no case for the ${rung} rung`);
   // The two page verbs the lane sweep only pointed at.
   for (const verb of PAGE_VERBS.filter((v) => v !== "add")) assert.ok(names.includes(verb), `no case for the page verb ${verb}`);
-  // What `pages add` points at, run for real this time.
-  assert.ok(names.includes("addon"), "no addon case");
   // A behaviour of the queue, not of a rung.
   const cancel = CASES.find((c) => c.name === "cancel");
   assert.ok(cancel && cancel.cancel === true, "no cancel case, or it does not cancel");
@@ -51,22 +51,16 @@ test("the gaps are exactly the rungs and behaviours the lane sweep cannot reach"
   }
 });
 
-// THE ADDON ROUTE REFUSES A SITE WITHOUT A DATABASE (`no-backend`, before any
-// model call), so the addon page and the two verbs that act on it can only run
-// on the database site — and the frontend-only site gets a free probe that
-// records the refusal rather than a case that reads it as a failure.
+// `fretwork-1` has no database, so data, rules and backend cannot run there;
+// and every page verb needs a page the site can spare, which only the site
+// with three pages has.
 test("each case runs on the site that can answer it", () => {
-  const main = ["text", "logo", "cancel", "addon-nodb"];
-  const db = ["addon", "move", "remove", "data", "rules", "backend"];
+  const main = ["text", "logo", "cancel"];
+  const db = ["move", "move-back", "remove", "data", "rules", "backend"];
   for (const c of CASES) {
     assert.ok(main.includes(c.name) || db.includes(c.name), `${c.name} is not placed`);
     assert.equal(c.where, main.includes(c.name) ? "main" : "db", `${c.name} is on the wrong site`);
   }
-  const probe = CASES.find((c) => c.name === "addon-nodb");
-  assert.deepEqual(probe.expectEscalate, ["no-backend"], "the probe expects exactly the coded refusal");
-  assert.equal(probe.publishes, false, "a refusal publishes nothing, so nothing waits for the edge");
-  assert.equal(probe.check({ build: "a" }, { build: "a" }).ok, true);
-  assert.equal(probe.check({ build: "a" }, { build: "b" }).ok, false, "a refusal that moved the build is a lie");
 });
 
 test("chooseCases: all, a list, and unknown names dropped", () => {
@@ -96,7 +90,6 @@ test("tinyPng is a well-formed RGB PNG of the stated size", () => {
   assert.equal(png.readUInt32BE(20), 32);
   assert.equal(png[24], 8, "bit depth");
   assert.equal(png[25], 2, "colour type RGB");
-  // Walk the chunks to IDAT and inflate it: one filter byte per row plus RGB.
   let off = 8; let idat = null;
   while (off < png.length) {
     const len = png.readUInt32BE(off); const type = png.subarray(off + 4, off + 8).toString("ascii");
@@ -111,44 +104,41 @@ test("tinyPng is a well-formed RGB PNG of the stated size", () => {
   assert.deepEqual(Object.keys(logo.body({})), ["images"], "the logo case attaches through `images`, the field the edit route reads");
 });
 
-// ── THE PAGE VERBS DEPEND ON THE ADDON HAVING RUN, AND SAY SO ─────────────
-test("move needs the page the addon added and remove needs /times; neither spends without one", () => {
+// ── THE PAGE VERBS LEAVE THE SITE WHERE THEY FOUND IT ─────────────────────
+test("move goes out and move-back returns; each spends only when its page is there", () => {
   const move = CASES.find((c) => c.name === "move");
-  const remove = CASES.find((c) => c.name === "remove");
-  assert.ok(move.skip({ routes: ["/", "/menu"] }, { added: "" }), "move should skip when the addon added nothing");
-  assert.ok(move.skip({ routes: ["/", "/menu"] }, { added: "/hours" }), "move should skip when the added page is not on the site");
-  assert.equal(move.skip({ routes: ["/", "/hours"] }, { added: "/hours" }), "");
-  assert.equal(move.ask({ routes: ["/", "/hours"] }, { added: "/hours" }), "Move the page at /hours to /times");
-  assert.ok(remove.skip({ routes: ["/", "/hours"] }), "remove should skip with no /times");
-  assert.equal(remove.skip({ routes: ["/", "/times"] }), "");
-  assert.equal(addedRoute({ routes: ["/", "/menu"] }, { routes: ["/", "/menu", "/hours"] }), "/hours");
-  assert.equal(addedRoute({ routes: ["/"] }, { routes: ["/", "/a", "/b"] }), "", "two new routes is not one added page");
-  const addon = CASES.find((c) => c.name === "addon");
-  assert.ok(addon.skip({ routes: ["/", "/hours"] }), "the addon must not add a second hours page");
-  assert.equal(addon.skip({ routes: ["/", "/book", "/menu"] }), "");
+  const back = CASES.find((c) => c.name === "move-back");
+  assert.equal(move.from, back.to, "the pair does not return the page to its address");
+  assert.equal(move.to, back.from, "the pair does not move the same page back");
+  assert.equal(move.skip({ routes: ["/", "/book", "/menu"] }), "");
+  assert.ok(move.skip({ routes: ["/", "/board"] }), "move should skip without /menu");
+  assert.ok(move.skip({ routes: ["/", "/menu", "/board"] }), "move should skip when /board is taken");
+  assert.equal(back.skip({ routes: ["/", "/book", "/board"] }), "");
+  assert.ok(back.skip({ routes: ["/", "/book", "/menu"] }), "move-back should skip when nothing moved");
+  assert.match(move.ask, new RegExp(`${move.from} to ${move.to}`));
+  assert.match(back.ask, new RegExp(`${back.from} to ${back.to}`));
 });
 
-// ── THE CHECKS READ THE SITE ──────────────────────────────────────────────
 test("move passes only when the new address answers, the old one redirects to it, and the sitemap agrees", () => {
   const move = CASES.find((c) => c.name === "move");
-  const b = { routes: ["/", "/hours"], build: "a" };
-  const good = move.check(b, { routes: ["/", "/times"], build: "b" }, {}, { from: "/hours", newStatus: 200, oldStatus: 301, oldLocation: "https://x.gofarther.app/times" });
+  const b = { routes: ["/", "/menu"], build: "a" };
+  const x = { from: "/menu", to: "/board" };
+  const good = move.check(b, { routes: ["/", "/board"], build: "b" }, {}, { ...x, newStatus: 200, oldStatus: 301, oldLocation: "https://x.gofarther.app/board" });
   assert.equal(good.ok, true, good.note);
-  const noRedirect = move.check(b, { routes: ["/", "/times"], build: "b" }, {}, { from: "/hours", newStatus: 200, oldStatus: 404, oldLocation: "" });
+  const noRedirect = move.check(b, { routes: ["/", "/board"], build: "b" }, {}, { ...x, newStatus: 200, oldStatus: 404, oldLocation: "" });
   assert.equal(noRedirect.ok, false, "a moved page must redirect, not 404");
-  const staleMap = move.check(b, { routes: ["/", "/hours", "/times"], build: "b" }, {}, { from: "/hours", newStatus: 200, oldStatus: 301, oldLocation: "/times" });
+  const wrongTarget = move.check(b, { routes: ["/", "/board"], build: "b" }, {}, { ...x, newStatus: 200, oldStatus: 301, oldLocation: "https://x.gofarther.app/" });
+  assert.equal(wrongTarget.ok, false, "a redirect to the home page is the failure `renamed` exists to prevent");
+  const staleMap = move.check(b, { routes: ["/", "/menu", "/board"], build: "b" }, {}, { ...x, newStatus: 200, oldStatus: 301, oldLocation: "/board" });
   assert.equal(staleMap.ok, false, "the sitemap still lists the old address");
 });
 
-test("the runner carries the added route from the addon case to the verbs, and gives a coded refusal its own word", () => {
-  assert.match(SRC, /const ctx = \{ added: "" \};/, "no shared ctx");
-  assert.match(SRC, /ctx\.added = target/, "the addon case does not record what it added");
-  assert.match(SRC, /c\.skip\(before, ctx\)/, "skip does not see ctx");
-  assert.match(SRC, /c\.ask\(before, ctx\)/, "ask does not see ctx");
-  const branch = SRC.indexOf("else if (escalated && c.expectEscalate");
-  const plain = SRC.indexOf("else if (escalated) {");
-  assert.ok(branch > 0 && plain > branch, "the expected-refusal branch must come before the plain escalate branch");
-  assert.match(SRC.slice(branch, plain), /"refused as coded"/);
+test("remove is driven to the coded refusal on a linked page, and passes only with the page still there", () => {
+  const remove = CASES.find((c) => c.name === "remove");
+  assert.deepEqual(remove.expectError, ["kept"], "a linked page answers `kept` — the reason mergeAddonPages gives");
+  assert.equal(remove.publishes, false);
+  assert.equal(remove.check({ build: "a" }, { build: "a", routes: ["/", "/book"] }, { msg: "x" }, { pageStatus: 200 }).ok, true);
+  assert.equal(remove.check({ build: "a" }, { build: "b", routes: ["/"] }, { msg: "x" }, { pageStatus: 404 }).ok, false, "a refusal that removed the page is a lie");
 });
 
 test("the data case demands the row through the site's own API and, with a browser, on the rendered menu", () => {
@@ -192,12 +182,23 @@ test("a claimed publish waits for the edge before the site is read", () => {
   assert.match(SRC.slice(wait, read), /x-site-build/, "the wait does not watch the build id");
 });
 
-test("the workflow is dispatch-only, needs the word, installs before running, and pushes only to the ref it ran from", () => {
+test("a coded refusal gets its own word, decided before the generic escalate and failed branches", () => {
+  const coded = SRC.indexOf("c.expectEscalate && c.expectEscalate.includes");
+  const plainEscalate = SRC.indexOf("else if (escalated) {");
+  const plainFailed = SRC.indexOf("else if (!claimedOk) {");
+  assert.ok(coded > 0 && plainEscalate > coded && plainFailed > coded, "the coded-refusal branch must come before both generic branches");
+  assert.match(SRC.slice(coded, plainEscalate), /"refused as coded"/);
+  assert.match(SRC.slice(coded, plainEscalate), /c\.expectError\.includes\(String\(body\.error\)\)/, "a 422 refusal is not recognised by its reason");
+});
+
+test("the workflow is dispatch-only, needs the word, selects the harness by input, installs before running, and pushes only to the ref it ran from", () => {
   assert.match(WF, /^on:\n  workflow_dispatch:/m);
   assert.ok(!/\n\s*push:/.test(WF), "a push trigger would make the expensive thing the default");
   assert.match(WF, /SWEEP_CONFIRM: \$\{\{ github\.event\.inputs\.confirm \}\}/);
-  const install = WF.indexOf("npm ci"); const run = WF.indexOf("node scripts/gap-sweep.mjs");
-  assert.ok(install > 0 && run > install, "the install must come before the sweep");
+  assert.match(WF, /harness:\n\s+description:[^\n]*\n\s+required: false\n\s+default: 'lane'/, "the harness input must default to the lane sweep");
+  assert.match(WF, /if \[ "\$SWEEP_HARNESS" = "gap" \]; then node scripts\/gap-sweep\.mjs; else node scripts\/lane-sweep\.mjs; fi/, "the input does not select the harness");
+  const install = WF.indexOf("npm ci"); const browser = WF.indexOf("playwright install"); const run = WF.indexOf("node scripts/gap-sweep.mjs");
+  assert.ok(install > 0 && browser > install && run > browser, "install, then browser, then the sweep");
   assert.match(WF, /permissions:\n  contents: write/, "the screenshot commit needs contents: write");
   assert.match(WF, /git push origin "HEAD:\$\{\{ github\.ref_name \}\}"/, "the push must target the dispatched ref");
   assert.ok(!/HEAD:main/.test(WF), "a push to main would deploy and roll the container under the run");
