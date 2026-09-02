@@ -690,3 +690,17 @@ test("no ask means no spend, on the failure path as well as the escalate", () =>
   assert.ok(call > 0, "the failure branch no longer falls back at all");
   assert.ok(guard < call, "the no-ask guard runs after the fallback it exists to prevent");
 });
+
+test("escalateAction: an escalate that names the addon rung goes there, not to the revise", () => {
+  // Owner, 2026-09-02: "add will always go in addon". The edit route says so
+  // with `layer: "addon"`; before this the client had two answers for a
+  // server-named layer - a sideways hop, or the full ~25-credit revise - and
+  // the middle rung was unreachable from an edit.
+  assert.equal(P.escalateAction({ escalate: true, layer: "addon", reason: "addon" }, { layer: "look", hasAsk: true }), "addon");
+  // Even after a hop: the addon never escalates back to an edit, so it cannot loop.
+  assert.equal(P.escalateAction({ escalate: true, layer: "addon" }, { layer: "look", handedOff: true, hasAsk: true }), "addon");
+  // Never without the sentence to hand over.
+  assert.equal(P.escalateAction({ escalate: true, layer: "addon" }, { layer: "look", hasAsk: false }), "lost");
+  // And a reason alone is not a layer: the decision reads the layer the server named.
+  assert.equal(P.escalateAction({ escalate: true, reason: "addon" }, { layer: "look", hasAsk: true }), "up");
+});

@@ -47,7 +47,11 @@ const TOKEN = "Bearer some-token";
 // second copy of what a path looks like, and two copies drift silently.
 const PAGES = [{ path: "src/routes/index.tsx", source: "export default function Home(){return null}" }];
 const STORED_CSS = ":root{--background:oklch(100% 0 0)}\nfooter{background-color:#000}";
-const STORED_LOOK = { brand: "Paperless", theme: "broadsheet", favicon: "<svg viewBox='0 0 32 32'></svg>" };
+// WITH A STORED CODE, because the `qr` lane EDITS one the site has: a site
+// without one sends "add a QR code" to the addon step (owner, 2026-09-02:
+// "add will always go in addon"), and the reachability loop below drives the
+// lane as an edit of what is stored. The wall's own case is further down.
+const STORED_LOOK = { brand: "Paperless", theme: "broadsheet", favicon: "<svg viewBox='0 0 32 32'></svg>", qr: { points: "tel:+441144960123", label: "Scan to call" } };
 
 function bucket(slug) {
   const store = new Map([
@@ -686,6 +690,41 @@ test("`kind` escalates to the rung that rebuilds — it is not reported as missi
       assert.notEqual(body && body.reason, "unbuilt", "`kind` is still reported as missing, but the build rung does this");
       assert.equal(body && body.cost, 0, "a free escalation charged for something");
       assert.deepEqual(toolsOf(calls), ["pick_lanes"], "work was bought for a lane that escalates");
+    },
+  );
+});
+
+test("a code or a scene the site does not have is the addon step's, by the addon's own layer; one it has is edited here", async () => {
+  // Owner, 2026-09-02: "add will always go in addon". Driven through the
+  // route with the picker naming the field, twice: once against a stored
+  // look WITHOUT the field, once with it. The wall sits at the picker, so it
+  // must fire for the dispatched `three` as well as the acting `qr`.
+  for (const field of ["qr", "three"]) {
+    const slug = "wire-add-" + field;
+    const bare = bucket(slug);
+    const look = { ...STORED_LOOK }; delete look[field];
+    bare.store.set(CONFIG_KEY(slug), JSON.stringify({ look, css: STORED_CSS }));
+    await withWire(
+      { pick_lanes: { fields: [field] }, edit_site: { [field]: "never used" } },
+      async (calls) => {
+        const { body } = await edit(slug, "add a " + field + " to the page", { store: bare });
+        assert.equal(body && body.escalate, true, field + " on a site without one did not escalate: " + JSON.stringify(body));
+        assert.equal(body && body.reason, "addon", field + " did not escalate to the addon step: " + JSON.stringify(body));
+        assert.equal(body && body.layer, "addon", field + " did not name the addon's own layer, so the client would fall to the revise");
+        assert.equal(body && body.field, field, "the escalate does not say which field it refused to create");
+        assert.equal(body && body.cost, 0, "a free escalation charged for something");
+        assert.deepEqual(toolsOf(calls), ["pick_lanes"], "work was bought for an ask the addon step owns");
+      },
+    );
+  }
+  // WITH THE CODE STORED, the same ask about `qr` is an edit and the lane runs
+  // (the reachability loop above drives every acting lane the same way).
+  await withWire(
+    { pick_lanes: { fields: ["qr"] }, edit_site: { qr: { points: "tel:+441144960123", label: "Scan to ring" } } },
+    async (calls) => {
+      const { body } = await edit("wire-edit-qr", "change the QR caption to Scan to ring");
+      assert.notEqual(body && body.reason, "addon", "a code the site has was sent to the addon step: " + JSON.stringify(body));
+      assert.ok(toolsOf(calls).includes("edit_site"), "the qr lane did not run on a site that has a code: " + JSON.stringify(toolsOf(calls)));
     },
   );
 });

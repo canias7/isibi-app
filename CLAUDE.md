@@ -392,6 +392,52 @@ express the change. Cheapest first:
 **`sameProse` is the guarantee the page layer cannot make**: a tweak that moved
 the words is thrown away. Measured 0 false alarms over 1,640 real tweaks.
 
+### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
+
+*"Add will always go in addon"* — and the one carve-out is the owner's too:
+*"tsx does exist tho, is literally everything on the page, it could be
+changing a component, is changing tsx."* **The line is at the THING, not the
+page**: does what the customer names exist on the site now? It does — EDIT
+changes it (words, colours, stylesheet, button, menu, pictures, languages,
+what a control does, and the page's own code). It does not — ADDON makes it
+(a page, a table, a section, a QR code, a 3D scene, a photograph where there
+is none). Until 2026-09-02 the router said the opposite in as many words
+("sounds like an addon and is an EDIT"), because the line sat at the page.
+**Four hops, each guarded in `test/add-goes-to-addon.test.mjs`:**
+- the router's wording (`site-ask.mjs`) — the English word IS the question now;
+- **a wall at the edit route's PICKER** (`ADD_ONLY_FIELDS = ["qr","three"]`,
+  `hasLookField`): a picked field the stored look lacks escalates `addon`
+  with `layer: "addon"`. At the picker and NOT in the look step — the first
+  draft sat after the look step's `no-look` and `three` is a dispatched lane
+  that never runs that step, so "add a 3D scene" walked past it. `tsx` is
+  deliberately off the list. The config is read without a connection and a
+  read that fails lets the lane run: cannot-tell must never read as
+  nothing-there;
+- **the browser's `escalateAction` answers `addon`** for that layer and runs
+  the addon route with the same sentence. Before this, every escalate that
+  was not a sideways hop fell to `up` — the ~25-credit full revise — so the
+  middle rung was unreachable from an edit, and the `pages add` escalate had
+  been landing on the revise all along;
+- **the addon step keeps what it designs.** It ran the designer anchored on
+  the stored look and read only `tables` and the pages off the answer — a
+  designed `qr` was dropped. Now: `mergeLook` + `readCss`, the page call told
+  the bindings (`tsx/gif/qr/three`), the look STORED just before the publish
+  (after every refusal, so a refused addon leaves the site as it was) and
+  reverted on a failed one, parts merged and handed to the spine, `moved` in
+  the reply. **And it no longer refuses a site without a database** — the
+  `look`/`logo` dead gate again, one step over: a first build provisions
+  none, so `no-backend` had sent every "add a QR code" on most of the
+  platform to a rebuild. `{ tables: [] }` is the truth about such a site; a
+  table designed for it is a named 422, not a climb.
+The lane sweep's asks changed to match: `qr`, `three`, `tsx`, `components`
+now EDIT what fretwork-1 has (a caption, the pick's speed, the chord-diagram
+component, the accordion swapped), because "Add a QR code…" is an addon ask
+and the harness posts straight to the edit route. Sweep: **23 mutants, 23
+killed, control survived** — two needed a guard that reads a call's own
+`if (` rather than its position, since `if (false)` leaves the call exactly
+where a position check looks for it. **The addon step has NOT run live on a
+database-less site yet**; a gap case for it is ~25 credits, owner's call.
+
 ---
 
 ### THE EDIT PATH IS ITS OWN PATH (2026-08-29)

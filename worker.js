@@ -9589,6 +9589,29 @@ const QR_PLACE_ASK =
   "120px wide, in the contact or closing section where a visitor would look for it. Change nothing else on the page.";
 
 /**
+ * THE DESIGN FIELDS THE EDIT PATH MAY NOT CREATE.
+ *
+ * Owner, 2026-09-02: "add will always go in addon". A QR code or a 3D scene
+ * the site does not have yet is not a change to the site; making one is a
+ * design round, which is the addon step's job — the edit step is "customer
+ * says edit this, and booom you go edit it". What EXISTS is edited here: a
+ * stored code's destination or caption, a scene's motion, and the page's own
+ * code, which always exists ("tsx does exist, it is literally everything on
+ * the page"). So `tsx` is deliberately NOT on this list, and neither is
+ * anything every site has a value for.
+ */
+const ADD_ONLY_FIELDS = ["qr", "three"];
+
+/** Whether a stored look carries a real value for a field — not null, not "", not `{}`. */
+function hasLookField(look, field) {
+  const v = look && look[field];
+  if (v == null) return false;
+  if (typeof v === "string") return v.trim() !== "";
+  if (typeof v === "object") return Object.keys(v).length > 0;
+  return true;
+}
+
+/**
  * @param {object} o.trace  diagnostic only (2026-09-01). A null trace makes
  *   every mark a no-op, so every existing caller is unchanged — which is what
  *   keeps this instrumentation and not a behaviour change.
@@ -19062,6 +19085,31 @@ async function handleRequest(request, env, ctx) {
               if (!picked.fields.length) return escalate("no-lane");
               pickedFields = picked.fields;
 
+              // ── ADDING IS THE ADDON STEP ──────────────────────────────────
+              //
+              // Owner, 2026-09-02: "add will always go in addon". A code or a
+              // scene the site does not have yet is designed from nothing — a
+              // design round, which is the addon step's job, not this path's.
+              // Decided HERE, at the picker, and not inside the look step: a
+              // dispatched lane (`three` → page) never runs the look step, so
+              // a wall there would let "add a 3D scene" through. Named with
+              // the addon's own layer so the client hops to that rung rather
+              // than falling to the full revise. What exists is edited here: a
+              // stored code's caption, a scene's motion, the page's own code.
+              // The config is read without a connection — the look lives in
+              // R2 — and a read that FAILS lets the lane run rather than
+              // refusing: cannot-tell must never read as nothing-there, and
+              // the lane says `no-meta` itself.
+              if (pickedFields.some((f) => ADD_ONLY_FIELDS.includes(f))) {
+                let wallLook = null;
+                try { const c = await readSiteConfig(env, ownerSlug, null); if (c.ok) wallLook = c.config.look; } catch { wallLook = null; }
+                if (wallLook) {
+                  for (const f of ADD_ONLY_FIELDS) {
+                    if (pickedFields.includes(f) && !hasLookField(wallLook, f)) return escalate("addon", { field: f, layer: "addon" });
+                  }
+                }
+              }
+
               // A PAGE-SHAPED LANE NEEDS A PAGE, and a dispatched one carries no
               // `eb.page`. The site's only page is the answer when it has one —
               // most sites, since the PLAN caps a new build at one — otherwise
@@ -19113,7 +19161,7 @@ async function handleRequest(request, env, ctx) {
                 // publishes a site that exists rather than adding to it. Named
                 // rather than folded into a generic escalation, so the ladder
                 // climbs to the rung that really does it.
-                if (pv.layer === "addon") return escalate("addon", { field: "pages", verb: pv.verb });
+                if (pv.layer === "addon") return escalate("addon", { field: "pages", verb: pv.verb, layer: "addon" });
                 // A PAGE THE SITE DOES NOT HAVE IS NOT AN EDIT OF IT. Checked
                 // against the real route list, the same way `readEdit` does one
                 // router up — and for the same reason: a removal aimed at a page
@@ -21005,17 +21053,30 @@ async function handleRequest(request, env, ctx) {
 
             const aSrc = await loadSiteSource(env, ownerSlug);
             if (!aSrc || !aSrc.length) return aEscalate("no-source");
+            // A SITE WITHOUT A DATABASE CAN STILL BE ADDED TO. This step opened
+            // with `if (!adb) return aEscalate("no-backend")` — the same dead
+            // gate the look and logo lanes had — and since a first build
+            // provisions no database, every "add a QR code" on most of the
+            // platform climbed straight to a ~45-credit rebuild. The
+            // connection is needed for two things only: the table list the
+            // designer is shown (empty, honestly, on such a site) and a table
+            // the designer declares (refused below, by name). `{ tables: [] }`
+            // is the truth about a site with no database; `null` stays the
+            // answer for a site that HAS one whose `_meta` could not be read,
+            // because cannot-tell must never read as nothing-there.
             const adb = await siteBackendBySlug(env, ownerSlug);
-            if (!adb) return aEscalate("no-backend");
 
-            let aLook = null, aSpec = null;
+            let aLook = null, aCss = "", aSpec = adb ? null : { tables: [] };
             try {
               const cfg = await readSiteConfig(env, ownerSlug, adb);
               if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
               aLook = cfg.config.look;
-              const rows = await sqlQuery(adb, "SELECT v FROM _meta WHERE k = 'schema'");
-              const row = (rows || [])[0];
-              if (row && row.v) aSpec = JSON.parse(row.v);
+              aCss = typeof cfg.config.css === "string" ? cfg.config.css : "";
+              if (adb) {
+                const rows = await sqlQuery(adb, "SELECT v FROM _meta WHERE k = 'schema'");
+                const row = (rows || [])[0];
+                if (row && row.v) aSpec = JSON.parse(row.v);
+              }
             } catch (e) { console.error("addon meta read failed:", ownerSlug, e && e.message); return aEscalate("no-meta"); }
             if (!aLook || !aSpec) return aEscalate("no-meta");
 
@@ -21050,6 +21111,15 @@ async function handleRequest(request, env, ctx) {
             // it does on a revise.
             let aTables = [], aAltered = [], aSeeded = null, aSeedUsage = null, aSeedTopUp = null;
             if (aDesigned && Array.isArray(aDesigned.tables) && aDesigned.tables.length) {
+              // A TABLE ON A SITE WITH NO DATABASE IS A CONSIDERED REFUSAL, not
+              // a climb: the rung above would rebuild the whole site to get
+              // one. Said by name, so the customer knows what to ask for.
+              if (!adb) {
+                return Response.json({
+                  ok: false, error: "no-database", cost: 0,
+                  msg: "That needs somewhere to store things, and this site doesn't have a database yet — it needs a build that adds one first. Nothing was changed.",
+                }, { status: 422 });
+              }
               // A TABLE THE SITE ALREADY HAS CAN NOW BE ALTERED, narrowly. The
               // concat this replaces fed `normalizeSchema`, whose dedup is
               // first-declaration-wins — so `payment` and `publicView` on an
@@ -21111,6 +21181,25 @@ async function handleRequest(request, env, ctx) {
               catch (e) { console.error("addon seeding failed:", ownerSlug, e && e.message); }
             }
 
+            // ── THE DESIGNED LOOK IS KEPT — this is the step that ADDS ──────
+            //
+            // The designer answers on the frontend tool anchored on the stored
+            // look, so "add a QR code" comes back as a `qr` the site did not
+            // have, and until 2026-09-02 that answer was DROPPED: only `tables`
+            // and the pages were read off it. Now it is merged the way the look
+            // lane merges (absent means unchanged), shown to the page call as
+            // the bindings it may use, and STORED just before the publish so the
+            // container bakes the mark; a failed publish puts the old look back.
+            // `css` follows the look lane's rule too: replaced when usable,
+            // never merged, never stripped by an empty answer.
+            const aMerged = mergeLook(aLook, aDesigned, {}, { instructed: true });
+            const aLookMoved = movedFields(aLook, aMerged);
+            const aCssAsk = readCss(aDesigned && aDesigned.css);
+            const aNextCss = aCssAsk.usable ? aCssAsk.css : aCss;
+            const aLookPatch = (aLookMoved.length || aNextCss !== aCss)
+              ? (aNextCss !== aCss ? { look: aMerged, css: aNextCss } : { look: aMerged })
+              : null;
+
             // ONE PAGE CALL, in addon mode. `priorPages` is the whole site so
             // the model can edit a nav entry; `mode` is what makes it return
             // only what it touched.
@@ -21123,8 +21212,13 @@ async function handleRequest(request, env, ctx) {
               // instruction writes image tokens anyway". An unbought token
               // publishes as the literal text `@@IMG:a barber chair@@`: a broken
               // image AND a visible leak of how the site was made.
-              aGen = await generateSitePages(env, briefWithLayout({ brief: aInstruction, images: 0 }),
-                aSpec, aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon");
+              // AND THE BINDINGS THE SITE HAS, the ones this addon just made
+              // included — the page that places a code must know `SITE_QR`
+              // exists, exactly as the build and the page rung are told.
+              aGen = await generateSitePages(env, briefWithLayout({
+                brief: aInstruction, images: 0,
+                tsx: aMerged.tsx, gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
+              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon");
             } catch (e) {
               console.error("addon generate failed:", ownerSlug, e && e.message);
               const aKind = upstreamKind(e && e.detail);
@@ -21218,14 +21312,40 @@ async function handleRequest(request, env, ctx) {
             // than report success.
             if (!aMerge.ok) return aEscalate(aMerge.reason, { problems: aProblems.slice(0, 4) });
 
+            // STORED NOW, NOT EARLIER: every refusal above leaves the site
+            // exactly as it was, and the publish below is the only thing that
+            // needs the new look — the container bakes `/qr.svg` from what is
+            // stored when it compiles. The one failure after this point puts
+            // the old look back.
+            let aStored = false;
+            if (aLookPatch) {
+              const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);
+              if (!w.ok) {
+                console.error("addon look store failed:", ownerSlug, w.error);
+                return Response.json({ ok: false, error: "config", cost: 0, msg: "That addition couldn't be saved, so your site is untouched — try again in a moment." }, { status: 503 });
+              }
+              aStored = true;
+            }
+            // THE COMPONENTS THE ADDON WROTE GO WITH THE PAGES, merged over the
+            // stored list by name — the page rung's own fix, one rung up.
+            const aParts = (aValid.parts && aValid.parts.length)
+              ? mergeParts(await loadSiteParts(env, ownerSlug), aValid.parts)
+              : null;
             const aPub = await recompileAndPublish(env, {
               slug: ownerSlug, pages: aMerge.pages,
               label: versionLabel({ revise: true, changeNote: aInstruction }),
+              parts: aParts || undefined,
             });
             // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. Not escalated: the
             // rung above would rewrite pages the owner never asked about, to
             // recover from a page this one wrote.
             if (!aPub.ok) {
+              // THE OLD LOOK GOES BACK, so a code or a scene nothing published
+              // does not sit in the stored look waiting for the next publish.
+              if (aStored) {
+                const back = await patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss });
+                if (!back.ok) console.error("addon look revert failed:", ownerSlug, back.error);
+              }
               return Response.json({
                 ok: false, error: "compile", cost: 0,
                 msg: compileMsg(aPub, "That addition didn't compile, so your site is untouched — try describing it differently."),
@@ -21255,6 +21375,10 @@ async function handleRequest(request, env, ctx) {
               ok: true,
               added: aMerge.added, changed: aMerge.changed, removed: aMerge.removed, kept: aMerge.kept,
               reverted: aMerge.reverted,
+              // The design fields this addon gave the site (a `qr`, a `three`),
+              // in the look lane's own word for it, so a reader can tell "added
+              // a page" from "added a code to a page".
+              moved: aLookMoved,
               photos: aSlots,
               tables: aTables, altered: aAltered,
               // What the seeding DID, the build response's own three fields:

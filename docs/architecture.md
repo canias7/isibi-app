@@ -50,6 +50,29 @@ are genuinely not built. `ADDON` is next and has the identical defect the edit
 step had. `DELETE` is deferred — owner's call: *"we are gonna worry about delete
 later"*.
 
+**Where the line between EDIT and ADDON sits (owner, 2026-09-02).** *"Add will
+always go in addon"* — and *"tsx does exist tho, is literally everything on the
+page, it could be changing a component, is changing tsx"*. So the line is at the
+**thing**, not the page: does what the customer names exist on the site now?
+It does — EDIT changes it (words, colours, stylesheet, button, menu, pictures,
+languages, what a control does, and the page's own code). It does not — ADDON
+makes it (a page, a table, a section, a QR code, a 3D scene, a photograph where
+there is none). Before this the line sat at the page: "add a testimonials
+section to the home page" was an edit because the page existed. Four hops carry
+the new line, and each is guarded in `test/add-goes-to-addon.test.mjs`:
+the router's wording (`site-ask.mjs`); a wall at the edit route's picker that
+refuses to *create* a `qr` or a `three` the stored look lacks and escalates
+with `layer: "addon"`; the browser's `escalateAction`, which answers `addon`
+for that layer and runs the addon route (before, every escalate that was not a
+sideways hop fell to the ~25-credit revise, so the middle rung was unreachable
+from an edit); and the addon step itself, which now keeps the look it designs
+(`mergeLook`, stored just before the publish, reverted on a failed one), tells
+the page call the bindings, hands parts to the spine, and no longer refuses a
+site without a database — a first build provisions none, so that refusal had
+sent every "add a QR code" on most of the platform to a rebuild. A table
+designed for such a site is a named refusal, not a climb. The addon still calls
+the build's designer: that half of the split is unchanged.
+
 ---
 
 ## Why the steps must not share the designer

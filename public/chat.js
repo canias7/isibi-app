@@ -11703,6 +11703,14 @@ function escalatedEdit(e, o) {
     o.finish('⚠️ I couldn’t make that change the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.');
     return;
   }
+  // THE MIDDLE RUNG, when the edit names it: the ask adds something the site
+  // does not have, and the addon step is the one that adds (owner, 2026-09-02:
+  // "add will always go in addon"). Same sentence, same picker; it falls to
+  // the revise below only if the addon itself cannot.
+  if (act === 'addon') {
+    clearFlight();
+    return siteAddon(o.site, o.instruction, o.origin, o.finish, o.fallback, o.d);
+  }
   if (act === 'hop') {
     // THE LATCH IS NOT CLEARED HERE. The hop is the same ask continuing, so
     // releasing it would let a second click in while this one is still

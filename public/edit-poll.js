@@ -354,8 +354,16 @@
   function escalateAction(e, o) {
     var opt = o || {};
     if (!opt.hasAsk) return "lost";
-    if (opt.handedOff) return "up";
     var named = e && typeof e.layer === "string" ? e.layer : "";
+    // THE ADDON RUNG, BY NAME. An edit that names `addon` is saying "this
+    // adds something the site does not have" (owner, 2026-09-02: "add will
+    // always go in addon") — a page, a code, a scene. Before this, every
+    // escalate that was not a sideways hop fell to `up`, the full revise:
+    // ~25 credits and every page rewritten, for a request the middle rung
+    // answers for a few. Decided before the hop bound, because the addon
+    // route never escalates back to an edit, so it cannot loop.
+    if (named === "addon") return "addon";
+    if (opt.handedOff) return "up";
     var ours = typeof opt.layer === "string" ? opt.layer : "";
     if (named && named !== ours) return "hop";
     return "up";

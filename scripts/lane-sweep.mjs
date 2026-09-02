@@ -250,16 +250,22 @@ export const CASES = [
     // from it yet (owner's call). The only observable is the server saying the
     // stored look moved, plus the build moving because a look edit republishes.
     check: (b, a, r) => ({ ok: Array.isArray(r.moved) && r.moved.includes("behavior"), note: `moved ${JSON.stringify(r.moved)} (recorded only; nothing renders from behavior yet)` }) },
-  { lane: "qr", ask: 'Add a QR code people can scan to call 0114 496 0123, with the label "Scan to call and book"',
+  // AN EDIT OF THE CODE THE SITE HAS. "Add a QR code…" was the fifth sweep's
+  // ask, and it is an ADDON now (owner, 2026-09-02: "add will always go in
+  // addon") — the edit path refuses to create one and the site has carried a
+  // code since that sweep. So this asks for the one thing the lane still owns
+  // on such a site: the caption, with the destination left alone.
+  { lane: "qr", ask: 'Change the QR code\'s caption to "Scan to ring and book"',
     // SERVED IS NOT SHOWN. The fifth sweep's code decoded perfectly and the page
     // referenced it zero times - the lane bakes the file and nothing places the
-    // figure (filed). A customer sees no change, so the check demands both: the
-    // file decodes to the payload asked for AND the page points at it.
+    // figure (filed, fixed). The check demands all three: the file still decodes
+    // to the number, the page points at it, and the new caption is on the page.
     check: (b, a) => {
       if (!a.qr) return { ok: false, note: "/qr.svg is not served" };
       const m = qrMatches(a.qr, ["tel:01144960123", "tel:+441144960123", "tel:0114 496 0123", "tel:+44 114 496 0123", "TEL:01144960123", "TEL:+441144960123"]);
       const shown = /qr\.svg/.test(a.html);
-      return { ok: m.ok && shown, note: (m.ok ? `QR decodes to ${m.text}` : `QR served but ${m.why}`) + (shown ? "; page shows it" : "; PAGE DOES NOT REFERENCE IT") };
+      const captioned = /Scan to ring and book/.test(a.html);
+      return { ok: m.ok && shown && captioned, note: (m.ok ? `QR decodes to ${m.text}` : `QR served but ${m.why}`) + (shown ? "; page shows it" : "; PAGE DOES NOT REFERENCE IT") + (captioned ? "; new caption on the page" : "; CAPTION UNCHANGED") };
     } },
   { lane: "action", ask: 'Change the button at the top to say "Book a free lesson"',
     // BOTH HALVES: the words changed AND the link kept. The seventh sweep's
@@ -280,20 +286,37 @@ export const CASES = [
     // answer is a refusal, not a pretend. That refusal IS the pass here.
     mayEscalate: ["no-backend", "no-meta", "no-db", "rules"],
     check: (b, a) => ({ ok: a.build === b.build, note: "no database on this site — an honest escalate with the build untouched is correct" }) },
-  // A COMPONENT WITH STATE, so the model has to write a part file rather than
-  // inline a strip - which is the hand-off the edit path lost (2026-09-01).
-  { lane: "tsx", ask: 'Add a small custom component below the FAQ: three buttons "60 bpm", "80 bpm" and "100 bpm" that show the chosen tempo when pressed',
-    check: (b, a, r) => ({ ok: a.build !== b.build && /\bbpm\b/i.test(a.html.replace(/<[^>]+>/g, " ")) && !/\bbpm\b/i.test(b.html.replace(/<[^>]+>/g, " ")), note: `files ${r.files ?? "?"}; tempo buttons ${/\bbpm\b/i.test(a.html.replace(/<[^>]+>/g, " ")) ? "present" : "absent"}` }) },
-  { lane: "three", ask: "Add a small 3D spinning guitar pick beneath the main photo",
-    check: (b, a) => ({ ok: a.canvas && !b.canvas, note: a.canvas ? "a <canvas> is on the page" : "no <canvas>" }) },
+  // AN EDIT OF THE PAGE'S OWN CODE. "Add a small custom component…" was the
+  // ask through the sixth sweep; adding is the ADDON step now (owner,
+  // 2026-09-02), and `tsx` stays an edit because the page's code always exists
+  // ("tsx does exist, it is literally everything on the page, it could be
+  // changing a component"). fretwork-1 has carried `-parts/chord-diagram`
+  // since sweep eight, so this changes that component and reads the change
+  // off the page, where the part's markup renders.
+  { lane: "tsx", ask: 'Change the chord diagram component so the word "Fingering" appears above every diagram\'s grid',
+    check: (b, a, r) => {
+      const words = (s) => (s.replace(/<[^>]+>/g, " ").match(/\bFingering\b/g) || []).length;
+      return { ok: a.build !== b.build && words(a.html) > 0 && words(a.html) > words(b.html),
+               note: `files ${r.files ?? "?"}; "Fingering" ${words(b.html)}→${words(a.html)} on the page` };
+    } },
+  // AN EDIT OF THE SCENE THE SITE HAS (the 3D pick from sweep five). Motion is
+  // not observable headless, so this reads the two things that are: the canvas
+  // is still there, and the page's code moved on a real publish.
+  { lane: "three", ask: "Make the 3D guitar pick spin half as fast",
+    check: (b, a, r) => ({ ok: !!a.canvas && !!b.canvas && a.build !== b.build && (Array.isArray(r.changed) ? r.changed.length > 0 : a.html !== b.html),
+                           note: `canvas ${a.canvas ? "kept" : "GONE"}; ${Array.isArray(r.changed) ? "changed " + JSON.stringify(r.changed) : "html " + (a.html !== b.html ? "moved" : "unchanged")} (motion is not observable headless)` }) },
   { lane: "shape", ask: "Move the price list so it sits above the numbered steps",
     check: (b, a) => {
       const order = (s) => [s.slots.indexOf("price-list"), s.slots.indexOf("steps")];
       const [bp, bs] = order(b); const [ap, as] = order(a);
       return { ok: ap >= 0 && as >= 0 && ap < as && !(bp >= 0 && bs >= 0 && bp < bs), note: `price-list/steps order before ${bp}/${bs}, after ${ap}/${as}` };
     } },
-  { lane: "components", ask: "Add an FAQ accordion with three common questions about beginner lessons",
-    check: (b, a) => ({ ok: a.build !== b.build && a.slots.some((s) => /accordion|faq/.test(s)) && !b.slots.some((s) => /accordion|faq/.test(s)), note: `new slots ${JSON.stringify(a.slots.filter((s) => !b.slots.includes(s)))}` }) },
+  // A CHANGE OF COMPONENT, not an addition. "Add an FAQ accordion…" (sweeps
+  // five and six) is an addon ask now; the site has the accordion, so this
+  // swaps it for another kit component and reads the swap off the slots.
+  { lane: "components", ask: "Replace the FAQ accordion with a plain two-column list of the same questions and answers",
+    check: (b, a) => ({ ok: a.build !== b.build && b.slots.some((s) => /accordion/.test(s)) && !a.slots.some((s) => /accordion/.test(s)) && /question|lesson/i.test(a.html.replace(/<[^>]+>/g, " ")),
+                        note: `accordion ${a.slots.some((s) => /accordion/.test(s)) ? "STILL THERE" : "gone"}; slots now ${JSON.stringify(a.slots.filter((s) => !b.slots.includes(s)))}` }) },
   { lane: "purpose", ask: "Make the page about group lessons for adults rather than one-to-one",
     check: (b, a) => ({ ok: a.build !== b.build && a.html !== b.html && /group/i.test(a.description + a.html.replace(/<[^>]+>/g, " ").slice(0, 4000)), note: "page rewritten toward groups" }) },
   { lane: "pages", ask: "Add a pricing page",

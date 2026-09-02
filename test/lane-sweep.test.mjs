@@ -280,8 +280,14 @@ test("the qr check demands the page show the code, not only serve it", () => {
   let d = "";
   for (let r = 0; r < n; r++) { let c0 = -1; for (let cc = 0; cc <= n; cc++) { const dark = cc < n && q.isDark(r, cc); if (dark && c0 < 0) c0 = cc; if (!dark && c0 >= 0) { d += `M${c0 + quiet} ${r + quiet}h${cc - c0}v1h-${cc - c0}z`; c0 = -1; } } }
   const svg = `<svg viewBox="0 0 ${size} ${size}"><path d="${d}"/></svg>`;
+  // AN EDIT NOW, NOT AN ADDITION (owner, 2026-09-02: "add will always go in
+  // addon"): the ask changes the caption of the code the site has, so the
+  // pass needs the code unchanged, shown, AND the new caption on the page.
   const before = { qr: "", html: "<html></html>" };
-  assert.equal(c.check(before, { qr: svg, html: "<html><img src=\"/qr.svg\"></html>" }, {}).ok, true, "a shown, correct code is not accepted");
-  assert.equal(c.check(before, { qr: svg, html: "<html></html>" }, {}).ok, false, "a served but unshown code passes");
-  assert.equal(c.check(before, { qr: "<svg viewBox=\"0 0 33 33\"><path d=\"M4 4h7v1h-7z\"/></svg>", html: "<html><img src=\"/qr.svg\"></html>" }, {}).ok, false, "a shown but wrong code passes");
+  const shown = "<html><img src=\"/qr.svg\" alt=\"Scan to ring and book\">Scan to ring and book</html>";
+  assert.equal(c.check(before, { qr: svg, html: shown }, {}).ok, true, "a shown, correct code with the new caption is not accepted");
+  assert.equal(c.check(before, { qr: svg, html: "<html>Scan to ring and book</html>" }, {}).ok, false, "a served but unshown code passes");
+  assert.equal(c.check(before, { qr: svg, html: "<html><img src=\"/qr.svg\"></html>" }, {}).ok, false, "a shown code with the old caption passes");
+  assert.equal(c.check(before, { qr: "<svg viewBox=\"0 0 33 33\"><path d=\"M4 4h7v1h-7z\"/></svg>", html: shown }, {}).ok, false, "a shown but wrong code passes");
+  assert.match(c.ask, /^Change /, "the ask must be an edit of the code the site has, not an addition");
 });

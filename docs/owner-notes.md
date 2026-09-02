@@ -1293,6 +1293,52 @@ mutant's anchor was a substring of another's and never applied, and the
 object-form slot's `known` survived because the guard only drove the JSX
 form — an object-form guard was added and both were re-run and killed.
 
+## 2026-09-02 — Add goes to the addon step; tsx stays an edit
+
+Your call: "add will always go in addon", with the carve-out that the
+page's code always exists, so changing a component is an edit. The line is
+at the thing now, not the page: if what the customer names exists, EDIT
+changes it; if it does not, ADDON makes it. Before today the router said the
+opposite in as many words — "add a testimonials section" was an edit because
+the home page existed.
+
+What it took, in four places:
+
+- **The router's wording** says the new rule, with the tsx carve-out.
+- **A wall at the edit route's picker.** If the picker names `qr` or `three`
+  and the site has none stored, the edit path refuses to create one and
+  hands the message to the addon step. It sits at the picker rather than
+  inside the look step because `three` goes to the page rung and never runs
+  the look step — my first draft would have let "add a 3D scene" through.
+- **The browser now has a way to the addon step from an edit.** It did not:
+  an edit that gave up either hopped sideways to another cheap rung or fell
+  straight to the ~25-credit full revise. "Add a pricing page" from an edit
+  has been landing on the revise all along.
+- **The addon step kept nothing it designed.** It ran the designer, read the
+  tables and the pages off the answer, and threw the rest away — so "add a
+  QR code" designed a code and dropped it. It keeps the look now, tells the
+  page call the bindings, stores just before publishing and puts the old
+  look back if the publish fails. And it refused any site without a
+  database, which is most of them: a first build makes none, so every "add
+  a QR code" on the platform was climbing to a full rebuild. It works
+  without one now; a table designed for such a site is refused by name.
+
+The lane sweep's asks changed to match: `qr`, `three`, `tsx` and
+`components` now edit what fretwork-1 already has (the code's caption, the
+pick's speed, the chord-diagram component, the accordion swapped for a
+list), because "Add a QR code…" is an addon ask and the harness posts
+straight to the edit route. The addon step itself has not run live on a
+site without a database yet; a gap-harness case for it would cost about 25
+credits and is yours to call.
+
+Mutation sweep, measured after the run: 23 mutants, 23 killed, the
+comment-only control survived. Two survived the first pass — a mutant can
+leave the store and the revert calls in place and gate them off — so the
+guard now reads each call's own condition, and both were re-run and
+killed. One guard was found passing on a comment (the addon test's
+escalation list still matched "no-backend" in the comment explaining its
+removal); comments are blanked there now and the absence is asserted.
+
 None of this is proven on the site yet; that is the run you are about to
 dispatch: wordmark, behavior, qr, action, tsx, then kind and slug, the two
 you named. In the workflow form: harness `lane`, lanes

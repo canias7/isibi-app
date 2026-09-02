@@ -185,12 +185,23 @@ export const ASK_TOOL = {
           "TAKING A WHOLE PAGE OFF THE SITE IS AN EDIT — \"remove the gallery page\", \"we don't need the about page any " +
           "more\" — with layer \"page\", that page named, and `remove` true. It is not an \"addon\" and it is certainly " +
           "not a question.\n" +
-          "\"addon\" — adding something the site DOES NOT HAVE YET. A page it has no page for, or something it needs to STORE " +
-          "that it has no table for.\n\n" +
-          "THE QUESTION THAT SEPARATES EDIT FROM ADDON IS NOT THE ENGLISH ONE. \"Add a testimonials section to the home page\" " +
-          "sounds like an addon and is an EDIT, because the home page already exists and nothing new has to be stored. Ask " +
-          "instead: does this need a page the site does not have, or a table it does not have? Yes is \"addon\", no is \"edit\". " +
-          "The pages and tables it has are listed above.\n" +
+          // ADDING IS THE ADDON STEP — owner, 2026-09-02: "add will always go in
+          // addon". This used to say the opposite ("sounds like an addon and is
+          // an EDIT"), drawing the line at the PAGE: a section on an existing
+          // page was an edit. The owner's line is at the THING: does what they
+          // name exist on the site now? The one carve-out is the owner's too —
+          // the page's own code always exists, so changing a component is an
+          // edit ("tsx does exist, it is literally everything on the page").
+          "\"addon\" — ADDING SOMETHING THE SITE DOES NOT HAVE YET. A page it has no page for, a table it needs to STORE " +
+          "something it has no table for, or a section, a QR code, a 3D scene, a form, a map or a photograph on a page " +
+          "that does not have one. The page existing does not make it an edit: \"Add a testimonials section to the home " +
+          "page\" is an addon, because the section does not exist yet.\n" +
+          "\"edit\" is for what the site ALREADY HAS, changed: its words, colours, stylesheet, button, menu, pictures, " +
+          "languages, what a control does — and its own code. Changing a component is an edit, because the page's code " +
+          "always exists.\n\n" +
+          "THE QUESTION THAT SEPARATES EDIT FROM ADDON: does the thing they name exist on the site now? It does — " +
+          "\"edit\". It does not — \"addon\". A page the site does not have, or a table it does not have, is always " +
+          "\"addon\". The pages and tables it has are listed above.\n" +
           // THE TIE-BREAK HAD ONE FALSE CLAUSE IN IT, and it cost the deletion
           // twice. Measured live: with "taking a page off is an edit" added
           // above, `Remove the gallery page` stopped answering "ask" and started

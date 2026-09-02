@@ -1349,9 +1349,14 @@ test("the model is TOLD which case it is in, in words", () => {
 
 test("the tool says what separates an edit from an addon, and where to fail", () => {
   const d = ASK_TOOL.input_schema.properties.intent.description;
-  // The English question is the wrong one — "add a testimonials section" is an
-  // edit. This is the measured trap, so the description must name it.
-  assert.match(d, /testimonials/i, "the description does not name the case the boundary gets wrong");
+  // ADDING IS THE ADDON STEP (owner, 2026-09-02: "add will always go in
+  // addon"). This pinned the opposite — "add a testimonials section" as an
+  // edit — while the line sat at the page; the owner's line is at the thing.
+  // The one carve-out is theirs too: the page's code always exists, so
+  // changing a component is an edit. The description must name both.
+  assert.match(d, /testimonials/i, "the description does not name the case the boundary used to get wrong");
+  assert.match(d, /testimonials[^\n]*\baddon\b/i, "a section the page does not have must be named as an addon");
+  assert.match(d, /changing a component is an edit/i, "a change to the page's own code must be named as an edit");
   assert.match(d, /page the site does not have|table it does not have/i);
   assert.match(d, /cannot tell.*addon/is, "the description must say which way to fail");
   // And the layer field has to explain what each one costs to pick between them.

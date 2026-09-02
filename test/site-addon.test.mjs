@@ -260,9 +260,28 @@ test("a failed addon leaves the site untouched, and an unusable one escalates", 
   assert.match(b, /site is untouched/, "a failed compile must promise the live site survived");
   assert.match(b, /if \(!aMerge\.ok\) return aEscalate\(aMerge\.reason/,
     "nothing usable back must escalate rather than report success");
-  for (const reason of ["empty", "unconfigured", "no-source", "no-backend", "no-meta"]) {
-    assert.ok(b.includes('aEscalate("' + reason + '"'), "no escalation path for: " + reason);
+  // COMMENTS BLANKED FIRST. The first version of this loop listed
+  // "no-backend" and kept passing after that refusal was deleted, because the
+  // comment explaining the deletion quotes it — prose contains the thing it
+  // forbids, the recorded trap, caught here on 2026-09-02.
+  const code = b.replace(/^\s*\/\/[^\n]*$/gm, (m) => " ".repeat(m.length));
+  for (const reason of ["empty", "unconfigured", "no-source", "no-meta"]) {
+    assert.ok(code.includes('aEscalate("' + reason + '"'), "no escalation path for: " + reason);
   }
+  // A SITE WITHOUT A DATABASE IS ADDED TO, NOT REFUSED (owner, 2026-09-02:
+  // "add will always go in addon" — and a first build provisions none, so
+  // that refusal sent every "add a QR code" on most of the platform to a
+  // rebuild). The connection is read only under a guard, the spec is an
+  // honest empty one, and a designed table on such a site is a named 422
+  // rather than a climb.
+  assert.ok(!code.includes('aEscalate("no-backend"'), "the addon still refuses a site with no database");
+  const meta = code.indexOf("SELECT v FROM _meta WHERE k = 'schema'");
+  assert.ok(meta > 0, "the addon no longer reads the site's schema");
+  assert.match(code.slice(code.lastIndexOf("if (adb)", meta), meta), /^if \(adb\)/, "the schema read is not gated on there being a database");
+  assert.match(code, /aSpec = adb \? null : \{ tables: \[\] \}/, "a site with no database is not given an honest empty spec");
+  const tables = code.indexOf("if (aDesigned && Array.isArray(aDesigned.tables) && aDesigned.tables.length) {");
+  const refuse = code.indexOf('error: "no-database"', tables);
+  assert.ok(tables > 0 && refuse > tables && refuse < code.indexOf("mergeAddonSchema(", tables), "a designed table on a site with no database must be refused by name before any schema work");
 });
 
 test("the composer dispatches an addon and falls back on everything else", () => {
