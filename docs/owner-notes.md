@@ -1604,3 +1604,26 @@ while the site is at an alias, so it is optional now — one more `slug`
 run (to crookes-guitar) followed by a republish would show the publish
 spine baking the alias into the head live; the driven guard already
 proves it in the tree.
+
+## 2026-09-02 — Forgetting an old address, built
+
+You asked why there are two addresses after a rename and said you want
+the old one gone. Built: on the address lane, "forget the old address
+crookes-guitar" (or "drop the old name", "stop crookes-guitar working")
+deletes that name. The old address stops answering — a plain 404, never
+cached — and the name is free for anyone to claim. It is its own step,
+never something a rename does by itself, because once somebody else takes
+the name it cannot be undone. The lane refuses to forget the site's
+current address ("give it a new address first"), refuses a name that was
+never this site's, and is shown the site's old names so it can tell. A
+forgotten storage name (the one the site was built under) also stops
+answering; nobody else can build under it, because it is still the key
+to your site's files. Our own `/s/<name>/` links now go to whatever the
+site is called today, so they survive a forgotten name. Like a rename,
+it settles everywhere within five minutes.
+
+To run it on fretwork-1, which has `crookes-guitar` as its one old name:
+lanes `forget`, same form otherwise, budget `20`. It costs about 1 credit
+(the routing call and the address call, no compile). After it,
+`crookes-guitar.gofarther.app` answers 404 and anyone could claim that
+name — including you again, by renaming to it.

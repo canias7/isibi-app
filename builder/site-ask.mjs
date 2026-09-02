@@ -330,7 +330,9 @@ export const ASK_TOOL = {
           "they ask to rename the site, move it, or have it at a different address. NOT for changing the business's " +
           "NAME as it reads in the header — that is the name on the page and it is a look change; a site can be " +
           "called \"Sunset Shoes\" and live at shoeroom-1, and plenty do. The old address keeps working and sends " +
-          "people to the new one, so this is safe to pick when they plainly asked for it — and only then.",
+          "people to the new one, so this is safe to pick when they plainly asked for it — and only then. ALSO " +
+          "\"rename\" when they want an OLD address to stop working after a rename (\"forget the old address\", " +
+          "\"drop crookes-guitar\", \"stop the old name working\").",
       },
       page: {
         type: "string",

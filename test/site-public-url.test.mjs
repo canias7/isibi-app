@@ -56,10 +56,11 @@ function bucket(slug) {
  * alias table says: `current` answers the site's own current-name read, and
  * `fail` makes every alias read a 500 — the cannot-tell case.
  */
-function withWire({ answers = {}, current = [], fail = false } = {}, run) {
+function withWire({ answers = {}, current = [], fail = false, former = [] } = {}, run) {
   const real = globalThis.fetch;
   const calls = [];
   const aliasWrites = [];
+  const deletes = [];
   globalThis.fetch = async (input, init) => {
     const url = String((input && input.url) || input || "");
     const method = String((init && init.method) || "GET").toUpperCase();
@@ -72,7 +73,17 @@ function withWire({ answers = {}, current = [], fail = false } = {}, run) {
     if (url.includes("/rest/v1/site_aliases")) {
       if (fail) return new Response("boom", { status: 500 });
       if (method === "POST") { try { aliasWrites.push(JSON.parse(String(init.body))); } catch { aliasWrites.push(null); } return json([], 201); }
+      // A FORGET'S DELETE hands back what it removed, as PostgREST does: the
+      // row when the name is one of the configured old names AND the request
+      // asked for a non-current row, nothing otherwise.
+      if (method === "DELETE") {
+        deletes.push(url);
+        const m = /alias=eq\.([^&]+)/.exec(url);
+        const a = m ? decodeURIComponent(m[1]) : "";
+        return json(former.includes(a) && /current=is\.false/.test(url) ? [{ alias: a, current: false }] : []);
+      }
       if (/current=is\.true/.test(url)) return json(current);
+      if (/current=is\.false/.test(url)) return json(former.map((a) => ({ alias: a })));
       return json([]);
     }
     if (url.includes("/v1/messages")) {
@@ -86,7 +97,7 @@ function withWire({ answers = {}, current = [], fail = false } = {}, run) {
     return new Response("unavailable", { status: 503 });
   };
   return (async () => {
-    try { return await run({ calls, aliasWrites }); } finally { globalThis.fetch = real; }
+    try { return await run({ calls, aliasWrites, deletes }); } finally { globalThis.fetch = real; }
   })();
 }
 
@@ -163,6 +174,64 @@ test("a site may return to its own storage name, and the head follows it back", 
       assert.ok(side, "the way back never wrote the sidecar");
       assert.equal(side.origin, addressOf(slug), "the head did not follow the site back: " + side.origin);
       assert.equal(c.calls.length, 0, "the way back compiled");
+    });
+  } finally { c.uninstall(); }
+});
+
+// ── FORGETTING AN OLD ADDRESS (owner, 2026-09-02: "i want that") ──────────
+
+test("forgetting an old address deletes its row, scoped to this site, and compiles nothing", async () => {
+  const slug = "pub-url-forget";
+  const c = installCompiler();
+  try {
+    await withWire({ answers: { [RENAME_TOOL.name]: { forget: "sunset-shoes" } }, current: [], former: ["sunset-shoes"] }, async ({ calls, deletes, aliasWrites }) => {
+      const store = bucket(slug);
+      const { status, body } = await edit(slug, 'Forget the old address "sunset-shoes"', { store, layer: "rename" });
+      assert.equal(status, 200, "the forget did not go through: " + JSON.stringify(body));
+      assert.equal(body && body.ok, true, JSON.stringify(body));
+      assert.match(String(body.msg || ""), /no longer answers/, "the reply does not say the address stopped: " + JSON.stringify(body));
+      assert.match(String(body.msg || ""), /Anyone can claim/, "the reply does not say the name is free");
+      // ONE DELETE, SCOPED THREE WAYS: the name, this site, not current.
+      assert.equal(deletes.length, 1, "expected exactly one delete: " + JSON.stringify(deletes));
+      assert.match(deletes[0], /alias=eq\.sunset-shoes/);
+      assert.match(deletes[0], new RegExp("slug=eq\\." + slug));
+      assert.match(deletes[0], /current=is\.false/);
+      assert.equal(aliasWrites.length, 0, "a forget wrote alias rows");
+      // The head names the current address and must not move; nothing compiles.
+      assert.equal(sidecarWritten(store, slug), null, "a forget rewrote the head");
+      assert.equal(c.calls.length, 0, "a forget compiled");
+      // The model was shown the old name it could forget.
+      const sent = JSON.stringify(calls.find((x) => x.tool === RENAME_TOOL.name).body.messages);
+      assert.ok(sent.includes("sunset-shoes"), "the model was not shown the site's old names");
+    });
+  } finally { c.uninstall(); }
+});
+
+test("forgetting the CURRENT address is refused by name, and a stranger by the empty delete", async () => {
+  for (const [slug, forget, former, current, sentence, expectDeletes] of [
+    ["pub-url-forget-live", "sunset-shoes", ["pub-url-forget-live"], [{ alias: "sunset-shoes" }], /answers at now/, 0],
+    ["pub-url-forget-stranger", "someone-else", ["sunset-shoes"], [], /not one of this site's old addresses/, 1],
+  ]) {
+    await withWire({ answers: { [RENAME_TOOL.name]: { forget } }, current, former }, async ({ deletes }) => {
+      const store = bucket(slug);
+      const { status, body } = await edit(slug, `Forget the old address "${forget}"`, { store, layer: "rename" });
+      assert.equal(status, 422, slug + ": expected a refusal: " + JSON.stringify(body));
+      assert.match(String(body && body.msg), sentence, slug + ": the wrong sentence: " + JSON.stringify(body));
+      assert.equal(deletes.length, expectDeletes, slug + ": deletes " + JSON.stringify(deletes));
+    });
+  }
+});
+
+test("a new address in the same answer wins over a forget", async () => {
+  const slug = "pub-url-forget-both";
+  const c = installCompiler();
+  try {
+    await withWire({ answers: { [RENAME_TOOL.name]: { name: "Sunset Shoes", forget: slug } }, current: [], former: [] }, async ({ deletes, aliasWrites }) => {
+      const store = bucket(slug);
+      const { body } = await edit(slug, "rename it to sunset shoes and drop the old one", { store, layer: "rename" });
+      assert.equal(body && body.ok, true, JSON.stringify(body));
+      assert.equal(deletes.length, 0, "a forget ran beside a rename");
+      assert.equal(aliasWrites.length, 2, "the rename did not write its rows");
     });
   } finally { c.uninstall(); }
 });

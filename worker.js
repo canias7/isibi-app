@@ -15,7 +15,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 // every Cloudflare custom-hostname call the platform made threw before it could
 // reach the API. Invisible until the line ran, which is the whole class of bug
 // `test/worker-imports.test.mjs` now covers.
-import { resolveAlias, cleanAlias, renameRows, aliasRefusal, renameRequest, readRename } from "./builder/site-alias.mjs";
+import { resolveAlias, cleanAlias, renameRows, aliasRefusal, renameRequest, readRename, readForget } from "./builder/site-alias.mjs";
 import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, isPublishedSiteRequest, siteHostSlug, siteHostFor, siteUrlFor, siteOrigin, claimRefusal, dnsInstructions, readStatus, mountRootFor, absolutizeAssets } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
@@ -8177,6 +8177,26 @@ async function publicUrlFor(env, slug) {
   return siteHostFor(name) ? addressOf(name) : addressOf(slug);
 }
 
+/**
+ * EVERY OLD NAME A SITE HAS HAD — the demoted rows. Read fresh, never cached:
+ * it feeds the rename model (so a "forget the old one" can be checked against
+ * something) and the answer is a lane's business, not a page load's. An empty
+ * list on a failed read is honest: a forget is then refused as a stranger,
+ * which is the safe way for that lookup to be wrong.
+ */
+async function formerNamesFor(env, slug) {
+  const s = typeof slug === "string" ? slug.toLowerCase() : "";
+  if (!s || !env.SUPABASE_SERVICE_KEY) return [];
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_aliases?slug=eq.${encodeURIComponent(s)}&current=is.false&select=alias&order=created_at.asc`,
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return [];
+    const rows = await r.json().catch(() => null);
+    return Array.isArray(rows) ? rows.map((x) => x && typeof x.alias === "string" ? x.alias.toLowerCase() : "").filter(Boolean) : [];
+  } catch { return []; }
+}
+
 /** Forget both directions for one site — after a rename, in this isolate. */
 function forgetAlias(slug, ...labels) {
   try {
@@ -14485,7 +14505,11 @@ async function handleRequest(request, env, ctx) {
     // cannot resolve would be worse than offering none.
     if (isAppHostname(url.hostname)) {
       const sm2 = url.pathname.match(/^\/s\/([a-z0-9][a-z0-9-]{0,80})(\/.*)?$/i);
-      const pretty = sm2 && siteHostFor(sm2[1].toLowerCase());
+      // TO THE SITE'S CURRENT NAME (2026-09-02), not its storage name: a
+      // renamed site's storage address only redirects onward, and a
+      // FORGOTTEN one no longer answers at all — `/s/<slug>/` is ours and must
+      // keep reaching the site whatever it is called now.
+      const pretty = sm2 && siteHostFor(await publicNameFor(env, sm2[1].toLowerCase()));
       // 301 rather than 302: the point of the change is to tell crawlers which
       // of the two is canonical, and a temporary redirect does not consolidate
       // anything. The blast radius of that permanence is small because the panel
@@ -14511,8 +14535,24 @@ async function handleRequest(request, env, ctx) {
       // label is the slug. `resolveAlias` treats a null row that way too, so the
       // degraded path and the no-alias path are one line rather than two.
       const seen = row === NO_ALIAS ? null : row;
-      const now = seen && !seen.current ? await publicNameFor(env, seen.slug) : null;
+      // WHAT THE SITE IS CALLED NOW: for an old name, the redirect's target;
+      // for a label with NO row, the one fact that tells a forgotten storage
+      // name (its site answers to another name → gone) from a never-renamed
+      // site (its own name → served). Cached per slug, the miss included, so
+      // the 47 sites that were never renamed pay one read per isolate per
+      // five minutes and not one per page load.
+      const now = seen
+        ? (!seen.current ? await publicNameFor(env, seen.slug) : null)
+        : await publicNameFor(env, zoneSlug);
       const out = resolveAlias(zoneSlug, seen, now);
+      // A FORGOTTEN ADDRESS (owner, 2026-09-02: "i want that"). Not the
+      // site's 404 page — there is no site at this name any more — and never
+      // cached, because the name is free and may be a site again by tomorrow.
+      if (out.gone) {
+        return new Response("This address is no longer in use.", {
+          status: 404, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+        });
+      }
       if (out.redirect) {
         const to = siteHostFor(out.redirect);
         // 301 for the reason the `/s/` redirect above gives: the point of a
@@ -19513,13 +19553,53 @@ async function handleRequest(request, env, ctx) {
                 // customer's) to a hardcoded Anthropic endpoint, so a Sonnet
                 // customer's rename was both priced and addressed wrong.
                 rq = await eQuick()(renameRequest({
-                  message: eInstruction, current, model: eQuickModel,
+                  message: eInstruction, current, former: await formerNamesFor(env, ownerSlug), model: eQuickModel,
                 }));
               } catch (e) {
                 return modelDown(e, "The editor is busy — try again in a moment.");
               }
               const wanted = readRename(rq);
               const rUsage = laneUsage(rq, eQuickModel);
+
+              // ── FORGETTING AN OLD ADDRESS (owner, 2026-09-02: "i want that") ──
+              //
+              // The other thing a customer says about their address after a
+              // rename: make the old one stop working. It deletes the old
+              // name's row, so the address stops answering and the name is
+              // free for anyone; the storage name's row goes the same way and
+              // the resolver reads the gap (see `resolveAlias`). ONE REQUEST
+              // BOTH CHECKS AND DELETES: the row must carry this site's slug
+              // and must not be current, and PostgREST hands back what it
+              // removed — nothing removed is "not one of this site's old
+              // addresses", said as such. The current name is refused first,
+              // by name, because forgetting it would leave the site with no
+              // address at all. A new address in the same answer wins over a
+              // forget: the model was told to answer one or the other.
+              const drop = wanted ? null : readForget(rq);
+              if (drop) {
+                if (drop === current) {
+                  return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                    msg: aliasRefusal(drop, { live: true }) }, { status: 422 });
+                }
+                const d = await fetch(
+                  `${SUPABASE_URL}/rest/v1/site_aliases?alias=eq.${encodeURIComponent(drop)}&slug=eq.${encodeURIComponent(ownerSlug)}&current=is.false`,
+                  { method: "DELETE", headers: svcHeaders(env, { Prefer: "return=representation" }), signal: AbortSignal.timeout(15000) });
+                if (!d.ok) return escalate("rename-store", { detail: (await d.text().catch(() => "")).slice(0, 200) });
+                const removed = await d.json().catch(() => null);
+                if (!Array.isArray(removed) || !removed.length) {
+                  return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                    msg: aliasRefusal(drop, { stranger: true }) }, { status: 422 });
+                }
+                forgetAlias(ownerSlug, drop);
+                const gone = siteHostFor(drop);
+                return Response.json({
+                  ok: true, layer: "rename", forgot: drop, cost: await eCharge(rUsage),
+                  msg: "Done — " + (gone || drop) + " no longer answers."
+                    // The storage name cannot be claimed by anybody else — it is
+                    // still this site's key — so that half is only said of an alias.
+                    + (drop === ownerSlug ? "" : " Anyone can claim that name now."),
+                });
+              }
               if (!wanted) {
                 return Response.json({
                   ok: false, layer: "rename", cost: await eCharge(rUsage),

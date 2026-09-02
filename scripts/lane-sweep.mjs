@@ -363,6 +363,16 @@ export const CASES = [
   { lane: "kind", held: "a full rebuild at ~45 credits that replaces the site", ask: "Turn this into a booking tool rather than a shopfront", hop: "build",
     check: (b, a, r, x) => ({ ok: a.build !== b.build && a.html !== b.html && x.rebuilt === true,
       note: `rebuild ${x.rebuilt ? "published" : "did not publish"}; title "${a.title}"; slots ${JSON.stringify(a.slots.slice(0, 8))}` }) },
+  // FORGET (owner, 2026-09-02: "i want that"): an old address stops answering
+  // and the name is free. The target is whichever old name the site has, read
+  // off the alias table at run time; a site with none skips the case before
+  // spending. A `key` rather than a second `lane`, because the case table is
+  // asserted to name each lane exactly once — this is the second thing the
+  // slug lane does, chosen by its own name.
+  { key: "forget", lane: "slug", held: "forgets an old address: it stops answering and the name is free for anyone to claim", ask: 'Forget the old address "crookes-guitar"',
+    formerAsk: (name) => `Forget the old address "${name}"`,
+    check: (b, a, r, x) => ({ ok: x.goneStatus === 404 && x.currentStatus === 200 && x.rowGone === true,
+      note: `${x.forgot}.gofarther.app answers ${x.goneStatus ?? "?"}; the site answers ${x.currentStatus ?? "?"}; alias row ${x.rowGone ? "gone" : "STILL THERE"}` }) },
 ];
 
 // THE NAMES ARE CHECKED, NOT FILTERED (2026-09-02, run 16). The dispatch box
@@ -377,9 +387,11 @@ export const CASES = [
 export function chooseLanes(want, cases) {
   const trim = (s) => s.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
   const w = trim(String(want || "all").trim().toLowerCase());
-  if (!w || w === "all") return cases.filter((c) => !c.held).map((c) => c.lane);
+  // A case is chosen by its `key` when it has one (`forget`, the slug lane's
+  // second job) and by its lane otherwise.
+  if (!w || w === "all") return cases.filter((c) => !c.held).map((c) => c.key || c.lane);
   const names = [...new Set(w.split(/[\s,;]+/).map(trim).filter(Boolean))];
-  const known = cases.map((c) => c.lane);
+  const known = cases.map((c) => c.key || c.lane);
   const strangers = names.filter((n) => !known.includes(n));
   if (strangers.length) throw new Error(`not a lane: ${strangers.map((s) => `"${s}"`).join(", ")} — the lanes are ${known.join(", ")}`);
   return names;
@@ -431,13 +443,28 @@ async function main() {
   console.log(`site is up, build ${before.build}, lang=${before.lang}, title="${before.title}"\n`);
 
   for (const lane of lanes) {
-    const c = CASES.find((x) => x.lane === lane);
+    const c = CASES.find((x) => (x.key || x.lane) === lane);
     const spent = start - (await balance());
     if (spent > BUDGET) { console.log(`BUDGET EXHAUSTED (${spent} > ${BUDGET}) — stopping before ${lane}`); break; }
     // THE RENAME'S TARGET IS CHOSEN AT RUN TIME — whichever name the site does
     // not have now — so the lane can be proven again after it has run once.
     const newSlug = typeof c.flip === "function" ? c.flip(PUBLIC, SLUG) : c.newSlug;
-    const ask = typeof c.askFor === "function" ? c.askFor(newSlug) : c.ask;
+    let ask = typeof c.askFor === "function" ? c.askFor(newSlug) : c.ask;
+    // THE FORGET'S TARGET: whichever old name the site has, oldest first, read
+    // off the alias table with the service key. No old name, no spend — the
+    // case is skipped and says so, which is not a failure.
+    let forgot = "";
+    if (typeof c.formerAsk === "function") {
+      const former = await fetch(`${SUPABASE_URL}/rest/v1/site_aliases?slug=eq.${encodeURIComponent(SLUG)}&current=is.false&select=alias&order=created_at.asc`,
+        { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }).then((r) => r.json()).catch(() => []);
+      forgot = Array.isArray(former) && former[0] && typeof former[0].alias === "string" ? former[0].alias : "";
+      if (!forgot) {
+        console.log(`━━ ${lane}  skipped: the site has no old address to forget\n`);
+        results.push({ lane, named: [], layer: "", verdict: "skipped", note: "no old address to forget", cost: 0, wall: 0, job: "", build: before.build, pickedRight: true });
+        continue;
+      }
+      ask = c.formerAsk(forgot);
+    }
     console.log(`━━ ${lane}  "${ask}"`);
     const bal0 = await balance();
     const t0 = Date.now();
@@ -543,6 +570,17 @@ async function main() {
       }
       SITE = `https://${newSlug}.gofarther.app`;
     }
+    // A FORGOTTEN ADDRESS STOPS ANSWERING within the same five-minute cache
+    // lifetime, on every edge; the site's own address must keep answering.
+    if (body.ok === true && forgot) {
+      const tF = Date.now();
+      while (Date.now() - tF < 330000) {
+        const gone = await fetch(`https://${forgot}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
+        const cur = await fetch(`https://${PUBLIC}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
+        if (gone && gone.status === 404 && cur && cur.status === 200) break;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    }
     let after = await snapshot();
     for (let i = 0; seen && after.build !== seen && i < 6; i++) {
       await new Promise((r) => setTimeout(r, 5000));
@@ -559,6 +597,16 @@ async function main() {
       // canonical still names the old name, and only this line can tell.
       extra.newCanonical = nu && nu.status === 200 ? attr(await nu.text().catch(() => ""), /<link rel="canonical" href="([^"]*)"/) : "";
       if (body.ok === true) PUBLIC = newSlug;
+    }
+    // THE FORGET'S EVIDENCE: the old address, the site's own, and the row.
+    if (forgot) {
+      const gone = await fetch(`https://${forgot}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
+      const cur = await fetch(`https://${PUBLIC}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
+      const rows = await fetch(`${SUPABASE_URL}/rest/v1/site_aliases?alias=eq.${encodeURIComponent(forgot)}&select=alias`,
+        { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }).then((r) => r.json()).catch(() => null);
+      extra.forgot = forgot;
+      extra.goneStatus = gone ? gone.status : 0; extra.currentStatus = cur ? cur.status : 0;
+      extra.rowGone = Array.isArray(rows) && rows.length === 0;
     }
     const claimedOk = body.ok === true;
     const escalated = body.escalate === true;
@@ -594,7 +642,8 @@ async function main() {
     // A RENAME IS JUDGED ON ITS ADDRESSES AND ITS HEAD, WITH THE BUILD UNMOVED:
     // nothing compiles, so the generic rule below — which reads an unmoved
     // build as a lie — would call every correct rename a liar.
-    else if (c.newSlug) {
+    else if (c.newSlug || forgot) {
+      // …and a forget the same way: addresses, the row, the build unmoved.
       const chk = c.check(before, after, body, extra);
       const still = after.build === before.build;
       verdict = chk.ok && still ? "ok" : "LIE"; note = chk.note + (still ? "" : " — AND THE BUILD MOVED, which a rename must not do");

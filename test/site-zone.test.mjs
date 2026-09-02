@@ -331,7 +331,12 @@ test("/s/<slug>/ redirects to the pretty host, and cannot loop", () => {
   // GATED ON THE ORIGINAL HOSTNAME BEING THE APP ZONE. `isAppHostname` is false
   // for the site zone (no loop) and false for a custom domain — an owner who
   // bought sharpfadebarbers.com must never have visitors thrown onto our host.
-  const block = w.slice(redirect - 260, redirect + 700);
+  // Landmark to landmark (2026-09-02): the redirect grew a comment when it
+  // moved to the site's public name, and a fixed 700 bytes stopped short of
+  // the line this guard exists to read.
+  const close = w.indexOf("301);", redirect);
+  assert.ok(close > redirect, "the one-address redirect no longer ends in a 301");
+  const block = w.slice(redirect - 260, close + 5);
   assert.match(block, /if \(isAppHostname\(url\.hostname\)\)/,
     "the redirect is not gated on the app zone, so it can loop or hijack a custom domain");
   // ONLY WHEN A PRETTY HOST EXISTS, and this is asserted on the CONDITION rather

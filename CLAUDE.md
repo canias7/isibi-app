@@ -642,6 +642,27 @@ the old row before the rename keeps serving the old name as current until its
 entry expires. A site may return to its own storage name (run 18 found the site
 check refusing it as "taken by another site").
 
+**AN OLD NAME CAN BE FORGOTTEN (owner, 2026-09-02: *"so now theres 2? isnt
+when you do the change the old one is gone?" … "yea i want that"*).** "Forget
+the old address crookes-guitar" on the address lane deletes that name's row:
+the address stops answering (a 404 that is never cached — the name may be a
+site again tomorrow) and the name is free for anyone to claim. It is a
+deliberate second step, never a side effect of a rename, because it cannot be
+undone once somebody else takes the name. **One request both checks and
+deletes** — `DELETE site_aliases?alias=eq.X&slug=eq.<site>&current=is.false`
+with `return=representation`: nothing removed is "not one of this site's old
+addresses"; the current name is refused by name first. The model is shown the
+site's old names (`formerNamesFor`) and answers `forget` INSTEAD of `name`; a
+name in the same answer wins. **The storage name is the one label a deleted
+row cannot make disappear** — no row reads as a never-renamed site — so
+`resolveAlias` has a fourth case: no row AND the site this label names answers
+to another name → gone. The serve path asks `publicNameFor(env, zoneSlug)` for
+a row-less label (cached per slug, the miss included), and `/s/<slug>/` now
+redirects to the site's CURRENT name so our own addressing survives a forgotten
+storage name. Driven in `test/site-public-url.test.mjs`; the harness has a held
+`forget` case (`lanes: forget`, chosen by key, skipped before spending when the
+site has no old name). It settles everywhere within the same five minutes.
+
 `site_aliases (alias PK, slug, uid, current)`, with **one current name per site
 enforced by a partial unique index** rather than by us — two rows claiming to be
 a site's live address is a state no application check survives concurrency.

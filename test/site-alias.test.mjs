@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
-  cleanAlias, resolveAlias, renameRows, aliasRefusal, readRename,
+  cleanAlias, resolveAlias, renameRows, aliasRefusal, readRename, readForget,
   RENAME_TOOL, renameRequest, ALIAS_SQL, MAX_ALIAS,
 } from "../builder/site-alias.mjs";
 import { LANE_FIELDS, OWN_LANES, DISPATCHED_LANES, UNBUILT_LANES, laneLayer, laneUnbuilt } from "../builder/site-lanes.mjs";
@@ -254,4 +254,75 @@ test("the table the code expects is written down", () => {
   // and it would present as the address flapping between two names.
   assert.match(ALIAS_SQL, /unique index[\s\S]*on site_aliases \(slug\) where current/,
     "nothing stops a site having two current addresses");
+});
+
+/* ── forgetting an old name (owner, 2026-09-02: "i want that") ─────────── */
+
+test("a forgotten storage name is GONE, and only when its site answers to another name", () => {
+  // No row, and the site this label names now lives under a different name:
+  // the demoted row a rename wrote was deleted, and nothing else can tell this
+  // label from a never-renamed site. Gone — not served, not redirected.
+  assert.deepEqual(resolveAlias("fretwork-1", null, "crookes-guitar"), { slug: null, redirect: null, gone: true });
+  // A never-renamed site: its current name IS the label. Served, as ever.
+  assert.deepEqual(resolveAlias("shoeroom-1", null, "shoeroom-1"), { slug: "shoeroom-1", redirect: null });
+  // Cannot tell (the lookup failed, or answered nothing): served, never gone.
+  assert.deepEqual(resolveAlias("shoeroom-1", null, null), { slug: "shoeroom-1", redirect: null });
+  assert.deepEqual(resolveAlias("shoeroom-1", null, ""), { slug: "shoeroom-1", redirect: null });
+  // A row still present is never gone: current serves, old redirects.
+  assert.equal(resolveAlias("fretwork-1", { slug: "fretwork-1", current: false }, "crookes-guitar").gone, undefined);
+  assert.equal(resolveAlias("crookes-guitar", { slug: "fretwork-1", current: true }, null).gone, undefined);
+});
+
+test("the address tool can forget, the reader reads it, and the model is shown the old names", () => {
+  const p = RENAME_TOOL.input_schema.properties;
+  assert.ok(p.forget && p.forget.type === "string", "the tool has no way to say which old address to forget");
+  assert.match(p.forget.description, /INSTEAD of `name`/, "the tool does not say a forget and a rename are one or the other");
+  assert.match(p.forget.description, /free for anyone/i, "the permanence — the name is free for anyone — is not stated where the model reads it");
+  assert.deepEqual(RENAME_TOOL.input_schema.required, [], "the tool compels an answer");
+  assert.equal(readForget({ content: [{ type: "tool_use", input: { forget: "Crookes Guitar" } }] }), "crookes-guitar");
+  assert.equal(readForget({ content: [{ type: "tool_use", input: { forget: "café" } }] }), null, "a mangled name reached the caller");
+  assert.equal(readForget({ content: [{ type: "tool_use", input: {} }] }), null);
+  assert.equal(readRename({ content: [{ type: "tool_use", input: { forget: "x-y-z" } }] }), null, "a forget was read as a new name");
+  const req = renameRequest({ message: "drop the old one", current: "crookes-guitar", former: ["fretwork-1"], model: "m" });
+  assert.match(String(req.messages[0].content), /old addresses[^\n]*`fretwork-1`/, "the model is not shown the site's old names");
+  const none = renameRequest({ message: "drop the old one", current: "shoeroom-1", former: [], model: "m" });
+  assert.match(String(none.messages[0].content), /no old addresses/, "a site with no old names is not said to have none");
+  // The two refusals a forget can meet are their own sentences — unlike each
+  // other, and unlike the rename's.
+  const said = new Set([
+    aliasRefusal("ok-name", { live: true }), aliasRefusal("ok-name", { stranger: true }),
+    aliasRefusal("ok-name", { taken: true }), aliasRefusal("ok-name", { same: true }),
+  ]);
+  assert.equal(said.size, 4, "two refusals wear the same sentence");
+});
+
+test("THE FORGET CHAIN — the serve path asks what a row-less label's site is called now, and answers gone", () => {
+  // hop 1: the no-row case passes the site's current name, looked up by the
+  // label as a slug, or the resolver has nothing to tell a forgotten storage
+  // name from a never-renamed site.
+  const resolve = w.indexOf("const out = resolveAlias(zoneSlug, seen, now);");
+  assert.ok(resolve > 0, "the serve path no longer resolves an alias");
+  const nowAt = w.lastIndexOf("const now = ", resolve);
+  assert.ok(nowAt > 0 && resolve - nowAt < 400, "the current-name lookup is not beside the resolve");
+  assert.match(w.slice(nowAt, resolve), /: await publicNameFor\(env, zoneSlug\)/, "a label with no row is served without asking what its site is called now");
+  // hop 2: gone is a 404 that is never cached — the name may be a site again.
+  const gone = w.indexOf("if (out.gone) {", resolve);
+  const redirect = w.indexOf("if (out.redirect) {", resolve);
+  assert.ok(gone > resolve && redirect > gone, "a gone address is not answered before the redirect is considered");
+  assert.match(w.slice(gone, redirect), /status: 404/, "a gone address is not a 404");
+  assert.match(w.slice(gone, redirect), /"cache-control": "no-store"/, "a gone address's 404 can be cached past the name's next life");
+  // hop 3: our own `/s/<slug>/` reaches the site under its CURRENT name.
+  assert.match(w, /siteHostFor\(await publicNameFor\(env, sm2\[1\]\.toLowerCase\(\)\)\)/, "/s/<slug>/ redirects to the storage name, which a forget can take away");
+  // hop 4: the lane deletes by alias AND slug AND not-current, in one request
+  // that hands back what it removed — nothing removed is a stranger — and the
+  // current name is refused by name before anything is deleted.
+  const branch = w.indexOf('if (eLayer === "rename") {');
+  const body = w.slice(branch, w.indexOf('if (eLayer === "nav") {', branch));
+  assert.match(body, /former: await formerNamesFor\(env, ownerSlug\)/, "the model is not shown the site's old names");
+  assert.match(body, /site_aliases\?alias=eq\.\$\{encodeURIComponent\(drop\)\}&slug=eq\.\$\{encodeURIComponent\(ownerSlug\)\}&current=is\.false/, "the delete is not scoped to this site's own old names");
+  assert.match(body, /method: "DELETE"/, "nothing is deleted");
+  assert.match(body, /Prefer: "return=representation"/, "the delete does not hand back what it removed, so a stranger reads as forgotten");
+  const live = body.indexOf("if (drop === current)");
+  assert.ok(live > 0 && live < body.indexOf('method: "DELETE"'), "the current name is not refused before the delete");
+  assert.match(body, /forgetAlias\(ownerSlug, drop\)/, "the lane's own isolate keeps serving the forgotten name");
 });

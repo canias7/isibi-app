@@ -28,7 +28,12 @@ test("every lane has a case and every case names a lane", () => {
   const cases = CASES.map((c) => c.lane);
   for (const f of LANE_FIELDS) assert.ok(cases.includes(f), "`" + f + "` is a lane the sweep never exercises");
   for (const c of cases) assert.ok(LANE_FIELDS.includes(c), "`" + c + "` is a case for a lane the product does not have");
-  assert.equal(new Set(cases).size, cases.length, "a lane has two cases — which one is the verdict?");
+  // A case's identity is its `key` when it has one (`forget`, the slug lane's
+  // second job, 2026-09-02) and its lane otherwise — one verdict per identity.
+  // Until the forget case, identity and lane were the same thing.
+  const ids = CASES.map((c) => c.key || c.lane);
+  assert.equal(new Set(ids).size, ids.length, "two cases share an identity — which one is the verdict?");
+  for (const c of CASES.filter((x) => x.key)) assert.ok(c.held, "`" + c.key + "` is a second case for a lane and would run under `all` beside it");
   // THE OBSERVER IS ALIVE: the loops above pass vacuously over an empty list.
   assert.ok(LANE_FIELDS.length >= 20, `only ${LANE_FIELDS.length} lanes — this test may be scanning almost nothing`);
 });
@@ -232,7 +237,9 @@ test("a claimed success waits for the edge before the site is judged", () => {
   assert.ok(bound && Number(bound[1]) >= 300000, "the rename wait is shorter than the alias cache's five-minute lifetime: " + (bound && bound[1]));
   // …and is judged with the build UNMOVED, by its own rule, before the generic
   // one that reads an unmoved build as a lie.
-  const rv = src.indexOf("else if (c.newSlug) {");
+  // (`c.newSlug || forgot` since 2026-09-02: a forget is judged by the same
+  // rule — addresses, the row, the build unmoved.)
+  const rv = src.indexOf("else if (c.newSlug || forgot) {");
   const generic = src.indexOf("const moved = after.build !== before.build;");
   assert.ok(rv > 0 && generic > rv, "a rename is judged by the generic rule, which calls an unmoved build a lie");
   // The verdict's own expression, not the window: a sweep found `still`
@@ -301,6 +308,32 @@ test("the held lanes are verified when named: a rename on both addresses, a rebu
   assert.equal(kind.check(b, { build: "b", html: "<h1>new</h1>", title: "New", slots: ["booking"] }, {}, { rebuilt: true }).ok, true);
   assert.equal(kind.check(b, { ...b }, {}, { rebuilt: true }).ok, false, "an unchanged site passes as rebuilt");
   assert.equal(kind.check(b, { build: "b", html: "<h1>new</h1>", title: "New", slots: [] }, {}, { rebuilt: false }).ok, false, "a rebuild that did not publish passes");
+});
+
+test("the slug lane's second job — forget — is its own held case, chosen by key", () => {
+  // Owner, 2026-09-02: "i want that" — an old address stops answering and the
+  // name is free. A `key` on the case, because the table names each lane once.
+  const f = CASES.find((x) => x.key === "forget");
+  assert.ok(f, "there is no forget case");
+  assert.equal(f.lane, "slug", "forget is not the slug lane's job");
+  assert.ok(typeof f.held === "string" && f.held.length > 20, "forget is not held with a reason");
+  assert.ok(!chooseLanes("all", CASES).includes("forget"), "`all` would forget an address for good");
+  assert.deepEqual(chooseLanes("forget", CASES), ["forget"]);
+  assert.match(f.formerAsk("crookes-guitar"), /"crookes-guitar"/, "the ask does not name the address to forget");
+  const ok = { forgot: "crookes-guitar", goneStatus: 404, currentStatus: 200, rowGone: true };
+  assert.equal(f.check({}, {}, {}, ok).ok, true);
+  assert.equal(f.check({}, {}, {}, { ...ok, goneStatus: 301 }).ok, false, "an old address that still redirects passes as forgotten");
+  assert.equal(f.check({}, {}, {}, { ...ok, goneStatus: 200 }).ok, false, "an old address that still serves passes as forgotten");
+  assert.equal(f.check({}, {}, {}, { ...ok, currentStatus: 404 }).ok, false, "a site that stopped answering passes");
+  assert.equal(f.check({}, {}, {}, { ...ok, rowGone: false }).ok, false, "a row still there passes");
+  // The runner looks a case up by its key, skips the forget before spending
+  // when the site has no old name, and judges it with the build unmoved.
+  const src = readFileSync(new URL("../scripts/lane-sweep.mjs", import.meta.url), "utf8");
+  assert.match(src, /CASES\.find\(\(x\) => \(x\.key \|\| x\.lane\) === lane\)/, "the runner finds cases by lane alone, so the forget case is unreachable");
+  const skip = src.indexOf('verdict: "skipped"');
+  assert.ok(skip > 0 && skip < src.indexOf("const p = await call(\"POST\""), "a site with no old name is not skipped before the post");
+  assert.match(src, /else if \(c\.newSlug \|\| forgot\) \{/, "a forget is judged by the generic rule, which reads an unmoved build as a lie");
+  assert.match(src, /current=is\.false&select=alias/, "the forget's target is not read off the alias table");
 });
 
 test("the runner follows kind to the rebuild route only on that escalate, and reads a rename off both addresses", () => {

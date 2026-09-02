@@ -581,7 +581,7 @@ const LANES = {
   kind: { hint: "Whether this is a shopfront that persuades a visitor, or a tool the business works in — changing it makes a different site.", escalate: "build" },
   pages: { hint: "Which pages the site HAS — adding one, taking one away, or moving one to a new address. Not what is ON a page.", verbs: true },
   slug: {
-    hint: "THE SITE'S WEB ADDRESS — the word in <name>.gofarther.app. Renaming the site, or giving it a different address.",
+    hint: "THE SITE'S WEB ADDRESS — the word in <name>.gofarther.app. Renaming the site, giving it a different address, or FORGETTING an old address after a rename so it stops working.",
     elsewhere: "rename",
   },
 };
