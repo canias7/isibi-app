@@ -1393,3 +1393,60 @@ test("applyAction over the whole corpus never writes a page TypeScript cannot pa
   assert.ok(checked >= 200, "the corpus scan found only " + checked + " pages with a button — the scan has drifted");
   assert.deepEqual(broke, [], "applyAction broke these pages");
 });
+
+// ── A COMPUTED BUTTON IS DESCRIBED BY ITS HALVES, NEVER AS ABSENT ──────────
+//
+// Live, 2026-09-02, the seventh sweep: fretwork-1's header button has computed
+// words and a literal `tel:+441144960123`. `readAction` answers null for the
+// whole button, the digest said "(there is no button)", and the model asked to
+// change the WORDS wrote a new button and had to invent its link — "/". The
+// page's one working control became a link to itself on a request about
+// wording. The slot now carries each half as it stands (`known`), and the
+// digest states them, so the half they did not ask about is there to copy.
+const halfBtn = (p) => ({
+  path: p,
+  source: `const open = true;\nexport default function P() {\n  return (\n    <SiteChrome name="Crookes" links={[${NAV}]}\n      action={{ label: open ? "Your first lesson is free" : "Lessons", href: "tel:+441144960123" }}>\n      <h1>Hi</h1>\n    </SiteChrome>\n  );\n}\n`,
+});
+
+test("a computed button's slot carries the halves that are plain text", () => {
+  const [s] = actionSlots([halfBtn("index.tsx")]);
+  assert.equal(s.action, null, "the whole button must still read as unreadable to the writer");
+  assert.deepEqual(s.known, { label: null, href: "tel:+441144960123" }, "the literal link is not carried beside the computed words");
+  const [both] = actionSlots([computedBtn("index.tsx")]);
+  assert.deepEqual(both.known, { label: null, href: null }, "two computed halves are not both null");
+  const [plain] = actionSlots([withBtn("index.tsx")]);
+  assert.deepEqual(plain.known, plain.action, "a readable button's halves must equal its action");
+});
+
+test("the digest states a computed button's halves and never calls it absent", () => {
+  const pages = [halfBtn("index.tsx")];
+  const d = navDigest(navSlots(pages), ROUTES, actionSlots(pages));
+  assert.match(d, /THE BUTTON AT THE TOP:\n {2}\(its words are worked out on the page\) -> tel:\+441144960123/, "the digest does not show the literal link beside the computed words");
+  assert.doesNotMatch(d, /there is no button/, "a computed button is reported as no button");
+  assert.match(d, /Keep the half they did not ask about/, "the model is not told to keep the other half");
+  // Both halves computed: both said so, still not absent.
+  const both = navDigest(navSlots([computedBtn("index.tsx")]), ROUTES, actionSlots([computedBtn("index.tsx")]));
+  assert.match(both, /\(its words are worked out on the page\) -> \(its link is worked out on the page\)/);
+  // And a readable button reads exactly as before.
+  const plain = navDigest(navSlots([withBtn("index.tsx")]), ROUTES, actionSlots([withBtn("index.tsx")]));
+  assert.match(plain, /THE BUTTON AT THE TOP:\n {2}Book a chair -> \/book/);
+  assert.doesNotMatch(plain, /worked out on the page/);
+});
+
+test("the object form of the button carries its known halves too", () => {
+  // The same header written as a config object rather than a JSX prop — the
+  // second shape `actionSlots` reads — must carry `known` the same way, or a
+  // site built in that shape keeps losing its link. Caught by a mutation
+  // sweep: the JSX guard above left this branch unobserved.
+  const objBtn = {
+    path: "index.tsx",
+    source: `const open = true;\nconst CHROME = {\n  name: "Crookes",\n  action: { label: open ? "Your first lesson is free" : "Lessons", href: "tel:+441144960123" },\n};\nexport default function P() { return <SiteChrome {...CHROME} />; }\n`,
+  };
+  const [s] = actionSlots([objBtn]);
+  assert.equal(s.kind, "obj");
+  assert.equal(s.action, null);
+  assert.deepEqual(s.known, { label: null, href: "tel:+441144960123" }, "the object form does not carry the literal link");
+  const d = navDigest([], ROUTES, actionSlots([objBtn]));
+  assert.match(d, /\(its words are worked out on the page\) -> tel:\+441144960123/);
+  assert.doesNotMatch(d, /there is no button/);
+});

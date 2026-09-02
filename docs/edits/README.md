@@ -38,4 +38,10 @@ disables the reveal first, so every section shows.
 
 | 13 | 2026-09-02 | the tab icon the `favicon` lane drew, read from the live site: a dark green circle with a white G. Kept here because a page capture cannot show it. | `13-favicon-green-g.svg` |
 
+| 14 | 2026-09-02 12:41 | the seventh sweep (run 11, the fixed lanes): `qr` → the code is now PLACED, not only served: a 120px figure under the contact band with its caption "Scan to call and book". The look step answered "already so" (the code was stored by sweep five) and the new page step behind it published 25 files to show it. The harness read the site before the edge had the new build and called it "already so"; the site is right. Cost 5. The crop has the code inlined so the headless capture can draw it. | `14-sweep7-qr.png`, `14-sweep7-qr-section.png` |
+
+| 15 | 2026-09-02 12:44 | `action` → the header button reads "Book a free lesson", on the computed button that doubled the file twice before. **But the link was lost**: it pointed at `tel:+441144960123` and now points at `/`. The rung's digest told the model "(there is no button)" because the words are computed, so it wrote a new one and invented the link. The harness called it a lie, for the wrong reason (its selector); the verdict was right. Cost 2. Fixed in the tree: the digest now states each half as it is. | `15-sweep7-action.png` |
+
+Earlier in run 11: `wordmark` timed out on its Grok call (the 4-minute cap on a lane call — nothing charged, logo unchanged) and `behavior` was routed to its own lane for the first time and answered "already so" for an accordion that already closes the others. `tsx`, `kind` and `slug` did not run: the sweep stops on a LIE.
+
 `pages` ("Add a pricing page") ended sweep five: the verb lane read `add` and pointed at the addon route, which the queue does not run — cost 0, site untouched, so there is no screenshot. `slug` and `kind` have not run; both are held back until the owner names them.

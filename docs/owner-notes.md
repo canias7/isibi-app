@@ -1233,6 +1233,66 @@ parts dropped at the rung, at the collector and at the spine, the QR step
 gone or ungated, the hint cross-reference removed, the harness hop
 ungated — and every one was caught by a test that names the lane.
 
+## 2026-09-02 — Run 11: the seventh sweep, four lanes in, two real answers
+
+You dispatched at 12:32, eight minutes after the push, with the budget box
+left at 80. Balance 255 → 247. What the SITE says, lane by lane:
+
+- **wordmark — failed, nothing charged, on Grok's speed.** The lane call
+  ran past the four minutes we allow a quick call and we gave up. Logo
+  unchanged. Same lane passed in sweep four. Not the fix; retry.
+- **behavior — routed to its own lane for the first time.** That is the
+  hint fix working. The lane then said the site already does it: the ask
+  was "close the other FAQ questions when one opens" and the kit's
+  accordion already does exactly that. Honest, 1 credit.
+- **qr — PROVEN on the site (screenshot 14).** The look step said "already
+  so" (the code has been stored since sweep five), and the new page step
+  behind it published 25 files to place a 120px figure under the contact
+  band with its caption. The harness read the site before the edge served
+  the new build and printed "already so" — its mistake, fixed below.
+- **action — half right, and the half that was wrong matters (screenshot
+  15).** The header button now says "Book a free lesson" on the computed
+  button that doubled the file twice before. But its link went from
+  `tel:+441144960123` to `/`: the page's one working control became a link
+  to itself, on a request about wording. The harness called it a lie for
+  the wrong reason (its selector) and was right anyway. The run stopped
+  there, so tsx, kind and slug did not run.
+
+**Why the link was lost, and the fix.** The rung shows the model the current
+button only when BOTH halves are plain strings; this header's words are
+computed, so the model was told "(there is no button)", wrote a new one,
+and had to invent the link. The slot now carries each half as it stands
+(`knownAction`), and the digest says "its words are worked out on the page
+-> tel:+441144960123" and tells the model to keep the half they did not
+ask about. The tool already says "return the whole button, both halves,
+even when only one is changing"; it just never had the link to copy.
+
+**Three harness misreads, all fixed.** The wait for the edge and the
+"already so" verdict were keyed on `moved` alone — the nav rung reports
+`changed`, the qr page step only `files` — so both lanes were judged off a
+stale read. And the action check read a `site-link` slot the new anchor
+no longer carried. Now: any of `moved`, `changed` or `files` is a claimed
+publish; already-so needs none of them AND an unmoved build; the action
+check reads the header's last non-language anchor by position and requires
+the words changed AND the link kept.
+
+**Found in passing, filed as task 44:** the render check opens
+`/-parts/chord-diagram` as a route on every publish (two 404 findings per
+component). Harmless today; `routeOf` should skip a `-` segment the way it
+skips `_`.
+
+**Your Grok balance.** You said $0.27 before the run. The four lanes used
+roughly six cents. tsx is a page rewrite (~15c) and kind a rebuild (35c or
+more), so the next run probably runs dry at kind; when xAI refuses, the
+lane fails with a `send` error and our side refunds it, and I can tell
+that apart from a fix failure in the stored reply.
+
+Mutation sweep for this round, measured after the run: 10 mutants, 10
+killed, the comment-only control survived. Two needed a second pass: one
+mutant's anchor was a substring of another's and never applied, and the
+object-form slot's `known` survived because the guard only drove the JSX
+form — an object-form guard was added and both were re-run and killed.
+
 None of this is proven on the site yet; that is the run you are about to
 dispatch: wordmark, behavior, qr, action, tsx, then kind and slug, the two
 you named. In the workflow form: harness `lane`, lanes

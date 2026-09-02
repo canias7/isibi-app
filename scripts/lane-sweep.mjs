@@ -129,6 +129,17 @@ async function snapshot() {
     headerHtml: pick(html, /<header[\s\S]*?<\/header>/),
     headerText: pick(html, /<header[\s\S]*?<\/header>/).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
     headerLink: pick(html, /<a[^>]*data-slot="site-link"[^>]*>[\s\S]*?<\/a>/),
+    // THE HEADER'S CALL-TO-ACTION BY POSITION, NOT BY SLOT: the last anchor in
+    // the header that is not a language switch, as its words and its href. The
+    // seventh sweep's action lane pointed the button at "/", which the router
+    // renders as an active Link with no `site-link` slot, so `headerLink` above
+    // read "" and the verdict blamed the wrong thing.
+    cta: (() => {
+      const h = pick(html, /<header[\s\S]*?<\/header>/);
+      const as = [...String(h || "").matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].filter((m) => !/\blang=/.test(m[1]));
+      const m = as[as.length - 1];
+      return m ? { text: m[2].replace(/<[^>]+>/g, "").trim(), href: ((/\bhref="([^"]*)"/.exec(m[1]) || [])[1] || "") } : { text: "", href: "" };
+    })(),
     // THE BRAND LINK, the first anchor in the header: plain text, an <img> of a
     // drawn mark served as a file, or an inline <svg>. The wordmark lane bakes
     // its drawing to /logo.svg and references it by path, exactly as the
@@ -251,7 +262,17 @@ export const CASES = [
       return { ok: m.ok && shown, note: (m.ok ? `QR decodes to ${m.text}` : `QR served but ${m.why}`) + (shown ? "; page shows it" : "; PAGE DOES NOT REFERENCE IT") };
     } },
   { lane: "action", ask: 'Change the button at the top to say "Book a free lesson"',
-    check: (b, a) => ({ ok: /Book a free lesson/i.test(a.headerLink), note: `header link: ${a.headerLink.replace(/<[^>]+>/g, "").trim()}` }) },
+    // BOTH HALVES: the words changed AND the link kept. The seventh sweep's
+    // rung changed the words and sent the button from `tel:+441144960123` to
+    // "/" — the page's one control became a link to itself, on a request about
+    // wording — and the old check, reading a `site-link` slot the new anchor
+    // no longer carried, called it a lie for the wrong reason. Judged on the
+    // header's call-to-action by text, with the before-snapshot's href as the
+    // link that must survive.
+    check: (b, a) => ({
+      ok: /Book a free lesson/i.test(a.cta.text) && !!b.cta.href && a.cta.href === b.cta.href,
+      note: `button "${a.cta.text}" -> ${a.cta.href}${a.cta.href !== b.cta.href ? ` (WAS ${b.cta.href || "nothing"} — the link was not kept)` : ""}`,
+    }) },
   { lane: "images", ask: "Change the main photo to a close-up of a hand pressing a chord on a guitar fretboard",
     check: (b, a) => ({ ok: a.heroAlt && a.heroAlt !== b.heroAlt && /fretboard|chord|hand/i.test(a.heroAlt), note: `alt "${a.heroAlt.slice(0, 90)}"` }) },
   { lane: "backend", ask: "Only let signed-in members see the price list",
@@ -388,7 +409,12 @@ async function main() {
     // and called the theme lane a liar for a change that was live a moment
     // later. So a claimed success WAITS for the build id to move, bounded; an
     // escalate or an already-so must NOT move it, and is read at once.
-    if (body.ok === true && ((Array.isArray(body.moved) && body.moved.length) || body.hopped === "build" || c.newSlug)) {
+    // A PUBLISH IS CLAIMED BY ANY OF THREE FIELDS. `moved` is the look lanes'
+    // list; the nav rung reports `changed` and the qr placement step reports
+    // neither, only `files`. The seventh sweep read `qr` and `action` before
+    // the edge had the new build, because the wait was gated on `moved` alone,
+    // and called a placed code "already so" and a changed button a lie.
+    if (body.ok === true && ((Array.isArray(body.moved) && body.moved.length) || (Array.isArray(body.changed) && body.changed.length) || Number(body.files) > 0 || body.hopped === "build" || c.newSlug)) {
       const t1 = Date.now();
       while (Date.now() - t1 < 90000) {
         const probe = await site("/");
@@ -426,7 +452,11 @@ async function main() {
     // nothing, and this read "ok but the build did not move" as a lie. The
     // server composes that sentence precisely because it knows the difference
     // between already-so and could-not-do; the harness has to honour it.
-    else if (claimedOk && typeof body.lookNote === "string" && !(Array.isArray(body.moved) && body.moved.length) && after.build === before.build) {
+    // AND NOT WHEN ANYTHING SHIPPED. The qr lane's look step answers "already
+    // so" for a code the site already stores, and the page step that follows
+    // it publishes 25 files to place it; the lookNote alone is the first step's
+    // sentence, not the message's outcome.
+    else if (claimedOk && typeof body.lookNote === "string" && !(Array.isArray(body.moved) && body.moved.length) && !(Array.isArray(body.changed) && body.changed.length) && !(Number(body.files) > 0) && after.build === before.build) {
       verdict = "ok (already so)"; note = body.lookNote;
     }
     else if (!claimedOk) { verdict = "failed"; note = `${reply.status} ${String(body.error || "")} — ${String(body.detail || body.msg || reply.text || "").slice(0, 200)}`; }

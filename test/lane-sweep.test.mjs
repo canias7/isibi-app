@@ -49,7 +49,7 @@ test("every case can be judged, and judges the site rather than the reply", () =
     if (c.held || c.lane === "behavior" || Array.isArray(c.mayEscalate)) continue;
     const same = { build: "b1", html: "<html lang=\"en\"><title>T</title></html>", lang: "en", dir: "ltr", title: "T", ogTitle: "T",
       description: "d", locales: ["en"], root: ":root{--a:1}", sheetLen: 10, headerHtml: "<header>T</header>", headerText: "T",
-      headerLink: "<a data-slot=\"site-link\">Go</a>", brandLink: "<a href=\"/\">T</a>", heroAlt: "x", slots: ["steps", "price-list"], canvas: false, icon: "<svg/>", qr: "", logo: "<svg/>", routes: ["/"] };
+      headerLink: "<a data-slot=\"site-link\">Go</a>", brandLink: "<a href=\"/\">T</a>", cta: { text: "Go", href: "tel:+441144960123" }, heroAlt: "x", slots: ["steps", "price-list"], canvas: false, icon: "<svg/>", qr: "", logo: "<svg/>", routes: ["/"] };
     const v = c.check(same, { ...same }, { ok: true, moved: [] }, {});
     assert.equal(v.ok, false, "`" + c.lane + "` passes against a site that did not change");
     assert.equal(typeof v.note, "string", "`" + c.lane + "` gives no note");
@@ -231,6 +231,41 @@ test("the runner follows kind to the rebuild route only on that escalate, and re
   const both = src.indexOf("if (c.newSlug) {");
   assert.ok(both > 0 && src.indexOf("extra.oldLocation", both) > both, "the rename is not read off both addresses");
   assert.match(src.slice(both, both + 600), /redirect: "manual"/, "the old address is followed, so its 301 can never be seen");
+});
+
+test("the action check wants the words changed AND the link kept, read off the header's own button", () => {
+  // THE SEVENTH SWEEP. The rung changed the words and moved the button from
+  // the dial link to "/" - a request about wording cost the page its one
+  // working control - and the check, reading a `site-link` slot the new
+  // anchor no longer carried, called it a lie for the wrong reason.
+  const c = CASES.find((x) => x.lane === "action");
+  const b = { cta: { text: "Your first lesson is free", href: "tel:+441144960123" } };
+  assert.equal(c.check(b, { cta: { text: "Book a free lesson", href: "tel:+441144960123" } }, {}).ok, true, "the right words on the kept link is not a pass");
+  const lost = c.check(b, { cta: { text: "Book a free lesson", href: "/" } }, {});
+  assert.equal(lost.ok, false, "the right words on a LOST link passes");
+  assert.match(lost.note, /WAS tel:\+441144960123/, "the note does not say which link was lost");
+  assert.equal(c.check(b, { cta: { text: "Your first lesson is free", href: "tel:+441144960123" } }, {}).ok, false, "unchanged words pass");
+  assert.equal(c.check({ cta: { text: "", href: "" } }, { cta: { text: "Book a free lesson", href: "/" } }, {}).ok, false, "a site with no button before is judged as if it had one");
+  // The snapshot reads the header's last non-language anchor, by position.
+  const src = readFileSync(new URL("../scripts/lane-sweep.mjs", import.meta.url), "utf8");
+  const cta = src.indexOf("cta: (() => {");
+  assert.ok(cta > 0, "the snapshot no longer reads the call-to-action");
+  assert.match(src.slice(cta, src.indexOf("})(),", cta)), /lang=/, "the language switches are not excluded, so the last anchor is a language");
+});
+
+test("a reply that shipped is never already-so, and the edge is waited for on any claimed publish", () => {
+  // The qr lane's look step says "already so" for a stored code and the page
+  // step behind it publishes to place it; the nav rung reports `changed`, not
+  // `moved`. The seventh sweep judged both before the edge served them.
+  const src = readFileSync(new URL("../scripts/lane-sweep.mjs", import.meta.url), "utf8");
+  const already = src.indexOf('verdict = "ok (already so)"');
+  const cond = src.slice(src.lastIndexOf("else if (", already), already);
+  assert.match(cond, /body\.changed/, "already-so is not refused for a reply that changed pages");
+  assert.match(cond, /body\.files/, "already-so is not refused for a reply that published files");
+  const start = src.indexOf("const t1 = Date.now();");
+  const gate = src.slice(src.lastIndexOf("if (", start), start);
+  assert.match(gate, /body\.changed/, "the edge wait ignores a reply that changed pages");
+  assert.match(gate, /body\.files/, "the edge wait ignores a reply that published files");
 });
 
 test("the qr check demands the page show the code, not only serve it", () => {

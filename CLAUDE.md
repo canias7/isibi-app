@@ -751,6 +751,22 @@ what the work cost.
   and reads a rename off BOTH addresses (`crookes-guitar`, 301 from the old).
   Sweep for the five fixes and the harness: **23 mutants, 23 killed, control
   survived** — each mutant a fix cut back to the failure measured live.
+  **RUN 11, THE SEVENTH SWEEP (2026-09-02 12:32–12:44, 255 → 247), read
+  off the SITE, not the log:** `qr` **PROVEN** — placed under the contact
+  band with its caption (`docs/edits/14-*`); `action` **half** — the words
+  changed on the computed button that doubled the file twice, and the link
+  went `tel:+441144960123` → `/` because `navDigest` told the model
+  "(there is no button)" for a button with computed words; `wordmark`
+  failed on Grok's speed (the 240s `QUICK_CALL_MS` cap, nothing charged);
+  `behavior` routed to its own lane for the first time and answered
+  already-so, honestly (the kit accordion already closes the others).
+  `tsx`, `kind`, `slug` did not run: the sweep stopped on `action`. **The
+  harness misread both proofs**: its edge wait and already-so verdict were
+  keyed on `moved` alone (the nav rung reports `changed`, the qr page step
+  only `files`) and its action check read a `site-link` slot the new
+  anchor no longer carried. All fixed in the tree with the digest fix
+  (`knownAction`): 10 mutants, 10 killed, control survived. Re-dispatch:
+  `wordmark,action,tsx,kind,slug`.
   **Not one lie from the
   product**; every "LIE" the harness printed was the harness (an edge race, an
   inline-svg assumption, an og:locale count) and each is now a case in
@@ -1429,6 +1445,35 @@ accumulated across rungs for the same reason; `parts` now does too. **When a
 value is added to a chain that collects across steps, check every collector
 on the chain, not only the producer** — the collector was written before the
 value existed and cannot know to keep it.
+
+**A DIGEST THAT REPORTS A COMPUTED VALUE AS ABSENT (2026-09-02, run 11, the
+`action` lane, live on fretwork-1).** `readAction` answers null for the
+whole button when EITHER half is an expression — right for the writer,
+which must not rewrite an expression as text — and `navDigest` read that
+null as "(there is no button)". Asked to change the WORDS of a button whose
+words are computed and whose link is a literal `tel:`, the model wrote a
+new button and had to invent its link: `/`. The site's one working control
+became a link to itself, on a request about wording, and the reply said
+"The button now says…". Nothing failed. **Two nulls that mean different
+things is the `action` trap one entry up, now on the READ side**: "cannot
+read this" and "there is nothing here" reached the model as one sentence.
+`knownAction` carries each half as it stands (`null` = computed, `""` =
+absent, a string = the text), and the digest states both and tells the
+model to keep the half it was not asked about. **The general shape: when a
+reader answers null for "unreadable", check what every consumer says out
+loud for that null** — a writer that skips is safe, a prompt that says
+"absent" is not.
+
+**A MUTANT WHOSE ANCHOR IS A SUBSTRING OF ANOTHER'S (2026-09-02).** The
+sweep's ambiguity check (`indexOf !== lastIndexOf`) refused a mutant whose
+8-space-indented line was contained in its 14-space twin — correctly, and
+it read as NEVER APPLIED until re-anchored on the preceding line. The
+mirror trap ("a mutant that never applied") says verify by checksum; this
+one says **anchor on enough context to be unique, and when two sites share
+a shape, mutate each with its neighbour in the anchor.** And the obj-form
+twin of that mutant SURVIVED for a real reason — the guard drove only the
+JSX form — which is the "a negative assertion must prove its observer is
+alive" trap for a positive one: a guard proves the branch it drives.
 
 ## Backlog
 

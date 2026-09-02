@@ -170,6 +170,7 @@ export function actionSlots(pages) {
         inner: { at: from + 1, to: close },
         action: jsxAction,
         computed: jsxAction === null,
+        known: knownAction(src.slice(from + 1, close)),
       });
     }
 
@@ -194,6 +195,7 @@ export function actionSlots(pages) {
               inner: { at: from + 1, to: close },
               action: objAction,
               computed: objAction === null,
+              known: knownAction(src.slice(from + 1, close)),
             });
           }
         }
@@ -210,6 +212,26 @@ function readAction(body) {
   if (label === null || href === null) return null;
   if (!label) return null;
   return { label, href };
+}
+
+/**
+ * THE HALVES OF A BUTTON THAT ARE PLAIN TEXT, with `null` where a half is
+ * computed and "" where it is absent.
+ *
+ * `readAction` answers null for the WHOLE button when either half is an
+ * expression — right for the writer, which must not rewrite an expression as
+ * if it were text — and wrong for the digest the model reads. Told "(there is
+ * no button)", the model asked to change the WORDS of fretwork-1's header
+ * button (words computed on the page, link a literal `tel:+441144960123`)
+ * answered a brand-new button and sent it to "/": the dial link was lost on a
+ * request about wording, and the page's one control became a link to itself.
+ * Live, 2026-09-02, the seventh sweep. The model is now told each half as it
+ * stands, so the half it was not asked about is there to be copied.
+ */
+function knownAction(body) {
+  const label = literalProp("{" + body + "}", "label");
+  const href = literalProp("{" + body + "}", "href");
+  return { label: label === null ? null : label, href: href === null ? null : href };
 }
 
 /** The index just past the opening tag that starts at `from`. */
@@ -640,9 +662,22 @@ export function navDigest(slots, routes, actions, links, contacts, lists, layout
   // about it cannot be asked to change it, and one told only that a button
   // exists cannot tell "point it at contact" from "add a button".
   const btn = (Array.isArray(actions) ? actions : []).map((a) => a && a.action).filter(Boolean)[0];
+  // A COMPUTED BUTTON IS STILL A BUTTON. A slot with `inner` and no readable
+  // `action` is one whose words or link are an expression on the page; it was
+  // reported here as "(there is no button)", and a model told that, asked to
+  // change the words, wrote a NEW button and had to invent its link — "/",
+  // on a site whose button dialled the owner. Each half is stated as it is,
+  // so the half they did not ask about is there to copy. See `knownAction`.
+  const part = btn ? null : (Array.isArray(actions) ? actions : []).map((a) => a && a.inner && a.known).filter(Boolean)[0];
   lines.push("");
   lines.push("THE BUTTON AT THE TOP:");
-  lines.push(btn ? "  " + btn.label + " -> " + btn.href : "  (there is no button)");
+  if (btn) lines.push("  " + btn.label + " -> " + btn.href);
+  else if (part) {
+    lines.push("  " + (part.label === null ? "(its words are worked out on the page)" : (part.label || "(no words)")) +
+      " -> " + (part.href === null ? "(its link is worked out on the page)" : (part.href || "(no link)")));
+    lines.push("  Keep the half they did not ask about exactly as it is.");
+  }
+  else lines.push("  (there is no button)");
 
   // THE LINKS WRITTEN INTO THE PAGES, grouped by what they SAY and where they
   // go — a customer names one by its words, and the same words on four pages
