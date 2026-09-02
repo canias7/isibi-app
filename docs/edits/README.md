@@ -46,4 +46,6 @@ Earlier in run 11: `wordmark` timed out on its Grok call (the 4-minute cap on a 
 
 | 16 | 2026-09-02 14:49 | run 12 (lanes `all`, after "add goes to addon"): `qr` as an EDIT — the caption changed to "Scan to ring and book"; the code itself is untouched (same 2,290 bytes, same number). The first proof of the qr lane editing what the site has rather than making one. Cost 1. | `16-sweep8-qr-caption.png` |
 
+| 17 | 2026-09-02 15:25 | run 13 (`action,tsx,three,kind,slug`, after the Grok top-up): `action` with both halves named — "Book a free lesson", ringing `tel:0114 496 0123`. The dial link run 11 sent to `/` is back, and the button renders as a `site-link` again. Cost 1. | `17-sweep9-action-link.png` |
+
 `pages` ("Add a pricing page") ended sweep five: the verb lane read `add` and pointed at the addon route, which the queue does not run — cost 0, site untouched, so there is no screenshot. `slug` and `kind` have not run; both are held back until the owner names them.
