@@ -720,8 +720,38 @@ what the work cost.
   filed as task cards**: `behavior` (the intent router sends it to the nav rung,
   which answers `no-menu`), `action` (the nav rung wrote source that does not
   parse), `images` (`no-slots`: `imageSlots` wants a literal alt), `tsx` (the
-  new part is never sent to the container, so vite cannot load it). **Held**:
-  `slug`, `kind` — never under `all`, only when named. **Not one lie from the
+  new part is never sent to the container, so vite cannot load it).
+  **ALL FOUR FIXED IN THE TREE 2026-09-02, AND THE QR'S OTHER HALF WITH THEM —
+  none proven live yet; the seventh sweep (`wordmark behavior qr action tsx
+  kind slug`, the owner's list) is what proves them.** Every root cause was
+  found without a model call: `action` — `applyAction` keyed "is there a
+  button" on `action`, which is ALSO null for a COMPUTED button (`label:
+  buying ? "Browse" : "Sell"`, fretwork-1's header), so it took the insertion
+  branch with no `insertAt` and `slice(0, undefined)` wrote the whole file
+  twice around the attribute (found by driving the 332-page corpus and
+  PARSING every result: one page broke, the same shape); now keyed on `inner`,
+  and a computed button is replaced literal-for-expression. `images` — every
+  hero on the platform is `<HeroSplit image={null} imageAlt="…" />`, a
+  picture carried as PROPS, which the scanner did not address; a component
+  with `image`/`imageAlt` or `src`/`alt` is now a slot, `focusBound` (no
+  reframe, honestly refused). `tsx` — the page rung read `pages` off
+  `validatePages` and dropped `parts`; now merged over the stored list by
+  name (`mergeParts`), handed to `publishStep`, CARRIED across a later rung's
+  publish the way `renamed` accumulates, sent by the spine and stored beside
+  the source after the gate. `behavior` — the picker read "when someone
+  presses the button, open the dialler" as WHERE THE BUTTON POINTS; the two
+  hints now name each other's job (`test/lane-hints.test.mjs` pins the
+  cross-reference, never the wording — the prompts are the owner's
+  placeholders). `qr` — made and never placed: the look branch now adds one
+  page step with a fixed ask of its own (`QR_PLACE_ASK`) when no page mentions
+  `SITE_QR`, and the page rung's brief now carries the stored `tsx`/`qr`/
+  `three` so a page edit knows the bindings exist. **Held**:
+  `slug`, `kind` — never under `all`, only when named; when named, the
+  harness now follows `kind`'s escalate to the rebuild route and watches it,
+  and reads a rename off BOTH addresses (`crookes-guitar`, 301 from the old).
+  Sweep for the five fixes and the harness: **23 mutants, 23 killed, control
+  survived** — each mutant a fix cut back to the failure measured live.
+  **Not one lie from the
   product**; every "LIE" the harness printed was the harness (an edge race, an
   inline-svg assumption, an og:locale count) and each is now a case in
   `test/lane-sweep.test.mjs`. Whole effort, canary included: **309 → 274, 35
@@ -1370,6 +1400,35 @@ parameter that no longer existed. Nothing fails, nothing logs, the bill is a
 Postgres call per edit. **When you delete a consumer, grep for what fed it.**
 
 ---
+
+**TWO NULLS THAT MEANT DIFFERENT THINGS, AND A SLICE ON `undefined` (2026-09-02,
+the `action` lane, two paid runs).** `readAction` answers null for a header
+with no button AND for a header whose button is COMPUTED — a label or href
+that is an expression. `applyAction` keyed "is there a button" on that one
+null, so a computed button took the INSERTION branch, which has no
+`insertAt`, and `src.slice(0, undefined)` is the whole file: the page came
+back as itself, then the attribute, then itself again, and vite said
+`Unexpected token (181:9)` — line 181 being the first line after the page's
+last. **Found deterministically**: drive the writer over the 332-page corpus
+and PARSE every result with the template's own TypeScript. One page broke,
+`marketplace/index.tsx`, the exact shape of fretwork-1's header. That audit is
+`test/site-nav.test.mjs`'s corpus case now, and it is the reusable part — a
+writer that emits source is proven by parsing what it emits, over every real
+page there is, not by reading the writer. The same audit over the picture
+scanner found the `images` failure without a model call: 0 slots on a site
+whose main photograph is a component prop. **When a lane fails live, drive
+its module over the corpus before buying a second run.**
+
+**A DROPPED FIELD HAS A TWIN ONE HOP OVER (2026-09-02, the `tsx` lane).** The
+page rung read `pages` off `validatePages` and dropped `parts` — the wiring
+trap, ordinary. Fixing that hop exposed the next: `publishStep` rebuilds
+`pendingPublish` from the LAST rung's args, so "add a component and change
+the button" would have handed the spine the nav rung's args and the build's
+stored parts, and the page's import would not compile. `renamed` already
+accumulated across rungs for the same reason; `parts` now does too. **When a
+value is added to a chain that collects across steps, check every collector
+on the chain, not only the producer** — the collector was written before the
+value existed and cannot know to keep it.
 
 ## Backlog
 

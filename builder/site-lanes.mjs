@@ -473,7 +473,7 @@ const LANES = {
   // becomes wrong the day behaviour is generated — on that day this lane needs
   // to reach the `page` rung as well. Named in CLAUDE.md's backlog.
   behavior: {
-    hint: "What something on the page DOES when someone uses it — a button, a link, a form, a tab, a filter, a menu, a carousel. What it opens, what it changes, what you see happen.",
+    hint: "What something on the page DOES when someone uses it — a button, a link, a form, a tab, a filter, a menu, a carousel. What it opens, what it changes, what you see happen. This is the lane for any 'when someone presses / clicks / submits X, then Y' — even about the header button; only that button's WORDS and LINK are `action`.",
     shape: { type: "array", items: BEHAVIOR_ITEM },
     edit: {
       is: "Everything on this page that DOES something, as it should be after their change.",
@@ -548,7 +548,13 @@ const LANES = {
   components: { hint: "Which building blocks the page is made of — the manifest it is written from.", elsewhere: "plan" },
   shape: { hint: "Where the sections go on the page and in what order — moving a band up or down, taking one out.", elsewhere: "plan" },
   images: { hint: "A PHOTOGRAPH on the site: swapping one for another, adding one, taking one off, or changing which part of it you see.", elsewhere: "images" },
-  action: { hint: "The site's primary button — what it says and where it points.", elsewhere: "action" },
+  // THE WORDS ON THE BUTTON AND ITS TARGET, AND NOTHING ELSE. The lane sweep
+  // (2026-09-01) sent "when someone presses the button, open the phone
+  // dialler" here — the picker read "open the dialler" as where the button
+  // points — and the nav rung, which changes a label and an href, answered
+  // no-menu. What a control DOES when used is `behavior`; this lane is the
+  // header button's label and destination as a link.
+  action: { hint: "The site's primary button in the header — the words on it, and the page, number or address it links to. Only that button, and only its label and link; what any control DOES when used is `behavior`.", elsewhere: "action" },
   backend: { hint: "What the site STORES — its tables, the rows in them, who may read or add one, and what it refuses.", elsewhere: "backend" },
 
   three: {

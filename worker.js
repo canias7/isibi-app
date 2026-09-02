@@ -55,7 +55,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 // ALIASED, because worker.js already has an `IMAGE_USD` — the per-model price
 // map for the image GENERATOR the customer drives directly. Imported under its
 // own name the two collide, and the collision is invisible to `node --check` and
@@ -9576,11 +9576,24 @@ async function translateStrings(env, tag, strings) {
 const publishSpine = (...a) => recompileAndPublish(...a);
 
 /**
+ * THE ASK THE LOOK BRANCH GIVES THE PAGE RUNG TO PLACE THE QR.
+ *
+ * Fixed words rather than the customer's, because the customer asked for a
+ * code and this step is the page change that shows it. Names the bindings
+ * exactly (`SITE_QR`, `SITE_QR_LABEL`), the way `marksDirective` does, so the
+ * rung uses the generated file rather than drawing a code of its own.
+ */
+const QR_PLACE_ASK =
+  "Show this site's QR code on the page: render <img src={SITE_QR} alt={SITE_QR_LABEL} /> with its caption " +
+  "SITE_QR_LABEL printed beside or beneath it (both imported from @/site-brand), guarded on SITE_QR, at least " +
+  "120px wide, in the contact or closing section where a visitor would look for it. Change nothing else on the page.";
+
+/**
  * @param {object} o.trace  diagnostic only (2026-09-01). A null trace makes
  *   every mark a no-op, so every existing caller is unchanged — which is what
  *   keeps this instrumentation and not a behaviour change.
  */
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null, parts = null }) {
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
@@ -9709,7 +9722,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // `null` FOR EVERY SITE BUILT BEFORE TODAY, which is every site: the key does
   // not exist, the read answers null, and the payload carries `undefined` —
   // byte-for-byte the request this function sent before parts existed.
-  const siteParts = await loadSiteParts(env, slug);
+  // THE PARTS AN EDIT WROTE RIDE WITH IT. The stored list is what the BUILD
+  // wrote; a page edit that answered with a new component in `parts` hands the
+  // merged list in, and it is sent now and stored below beside the source once
+  // the publish has landed. Without this the page imports a component the
+  // container never receives — the lane sweep's `tsx` failure, 2026-09-01.
+  const siteParts = Array.isArray(parts) ? parts : await loadSiteParts(env, slug);
 
   // ── THE SITE'S OTHER LANGUAGES ──────────────────────────────────────────────
   //
@@ -10085,6 +10103,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // that does not build.
   tm("r2:source", "start");
   await saveSiteSource(env, slug, pages);
+  // AND THE PARTS BESIDE THEM, on the same terms: stored only once the publish
+  // is real, so a failed compile cannot leave the stored list naming a
+  // component the live site never got.
+  if (Array.isArray(parts)) await saveSiteParts(env, slug, parts);
   tm("r2:source", "ok");
   // AND THE MAP OF WHAT THE PUBLISHED PAGE CONTAINS, for the next edit to aim
   // by. Best-effort and after the source, in that order deliberately: the source
@@ -18657,7 +18679,14 @@ async function handleRequest(request, env, ctx) {
             // to put them in.
             let eRemove = eb && eb.remove === true;
             let eRename = typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
-            const eInstruction = String((eb && eb.instruction) || "").trim().slice(0, 2000);
+            // `let`, AND THE MESSAGE KEPT BESIDE IT: a step the look branch adds
+            // on its own (placing the QR the qr lane just made) runs the page
+            // rung with an instruction of its own, and every rung reads
+            // `eInstruction`. The customer's sentence is `eMessage`, restored
+            // after the steps have run, so the reply and the version label
+            // still carry what they actually typed.
+            let eInstruction = String((eb && eb.instruction) || "").trim().slice(0, 2000);
+            const eMessage = eInstruction;
             const eAuth = request.headers.get("Authorization") || "";
             // ONE shape for every "I cannot do this, try the rung above".
             const escalate = (reason, extra) =>
@@ -18746,7 +18775,14 @@ async function handleRequest(request, env, ctx) {
               // rename something, and the spine takes one map. A later key wins,
               // which is the same rule the merge below uses for everything else.
               const renamed = { ...((pendingPublish && pendingPublish.renamed) || {}), ...((args && args.renamed) || {}) };
-              pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null };
+              // AND SO DO THE PARTS an earlier rung handed over. The page rung
+              // carries the components the edit wrote; a later rung in the same
+              // message (a nav change beside a new component) calls this with
+              // none, and `{ ...args }` alone would drop them — the spine would
+              // then send the stored list and the page's import would not
+              // compile. A later list wins; absent means "no change to them".
+              const parts = Array.isArray(args && args.parts) ? args.parts : ((pendingPublish && pendingPublish.parts) || null);
+              pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null, parts };
               // A DEFERRED PUBLISH REPORTS SUCCESS, because from the branch's
               // point of view its work IS done — it has stored what it changed
               // and handed over the pages. `files` and `render` are absent until
@@ -19040,6 +19076,22 @@ async function handleRequest(request, env, ctx) {
               for (const f of pickedFields) {
                 const to = laneLayer(f);
                 if (to) steps.push({ layer: to, page: to === "page" ? fallbackPage : ePage, fields: [f] });
+              }
+              // ── THE QR IS PLACED, NOT ONLY MADE ───────────────────────────
+              //
+              // The qr lane stores a destination and a caption and the container
+              // draws `/qr.svg` from them — and on a site whose page was written
+              // before there was a code, nothing shows it: the lane sweep
+              // (2026-09-01) decoded a perfect code the page referenced nowhere.
+              // So when the page does not mention `SITE_QR`, one page step
+              // follows the look step with an ask of its own, and the page rung
+              // — which now sees `marksDirective` from the stored look — puts
+              // the figure on the page. Its ask is fixed text rather than the
+              // customer's sentence, because the customer asked for a code, not
+              // for a page rewrite, and a rewrite told "add a QR code" invents
+              // one of its own instead of using the binding.
+              if (pickedFields.includes("qr") && fallbackPage && !eSrc.some((p) => /\bSITE_QR\b/.test(String((p && p.source) || "")))) {
+                steps.push({ layer: "page", page: fallbackPage, fields: ["qr"], instruction: QR_PLACE_ASK });
               }
 
               // ── `pages`: THREE CAPABILITIES BEHIND ONE FIELD ─────────────
@@ -20479,8 +20531,16 @@ async function handleRequest(request, env, ctx) {
               try {
                 // Same as the addon lane: a stated zero, because the absence of
                 // one is not an instruction and the model writes tokens anyway.
-                eGen = await generateSitePages(env, briefWithLayout({ brief: eInstruction, images: 0 }),
-                  eSpec, eLook2.brand || ownerSlug, [], eModels.pages, eSrc, "page", target.path);
+                // WHAT THE SITE ALREADY HAS, SAID TO THE MODEL. The build's
+                // directives for the hand-written components, the marks and the
+                // 3D scene were never passed on this rung, so a page edit did
+                // not know a component's import path, that `SITE_QR` exists, or
+                // that the canvas is deliberate. Read from the stored look, the
+                // same fields the build read from the design.
+                eGen = await generateSitePages(env, briefWithLayout({
+                  brief: eInstruction, images: 0,
+                  tsx: eLook2.tsx, gif: eLook2.gif, qr: eLook2.qr, three: eLook2.three,
+                }), eSpec, eLook2.brand || ownerSlug, [], eModels.pages, eSrc, "page", target.path);
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail);
@@ -20528,9 +20588,19 @@ async function handleRequest(request, env, ctx) {
                 return escalate(wrote ? "no-change" : "no-page-back", { problems: pProblems.slice(0, 4) });
               }
               const pPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: wrote.source } : p));
+              // THE COMPONENTS THE EDIT WROTE GO WITH THE PAGE. `validatePages`
+              // reads them out of `parts`, as the build does; this rung dropped
+              // them, so a page importing `@/routes/-parts/string-names` was
+              // sent to a container that never received the file — the lane
+              // sweep's `tsx` failure. Merged over what is stored, by name, and
+              // handed to the spine, which sends and then stores them.
+              const pParts = (pValid.parts && pValid.parts.length)
+                ? mergeParts(await loadSiteParts(env, ownerSlug), pValid.parts)
+                : null;
 
               const pPub = await publishStep(env, {
                 slug: ownerSlug, pages: pPages,
+                parts: pParts || undefined,
                 label: versionLabel({ revise: true, changeNote: eInstruction }),
               });
               if (!pPub.ok) {
@@ -20592,7 +20662,11 @@ async function handleRequest(request, env, ctx) {
             // from the one it is replacing.
             const done = [];
             for (const step of steps) {
+              // A STEP THE BRANCH ADDED CARRIES ITS OWN ASK; every other step
+              // runs on the customer's sentence. Restored below the loop.
+              eInstruction = step.instruction || eMessage;
               const res = await runLayer(step.layer, step.page, step.fields);
+              eInstruction = eMessage;
               const body = await res.clone().json().catch(() => null);
               done.push({ step, res, body, failed: !body || body.ok !== true });
               // NO `break`. A RUNG THAT FAILED DOES NOT CANCEL THE OTHERS.

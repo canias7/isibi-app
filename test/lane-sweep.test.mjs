@@ -49,8 +49,8 @@ test("every case can be judged, and judges the site rather than the reply", () =
     if (c.held || c.lane === "behavior" || Array.isArray(c.mayEscalate)) continue;
     const same = { build: "b1", html: "<html lang=\"en\"><title>T</title></html>", lang: "en", dir: "ltr", title: "T", ogTitle: "T",
       description: "d", locales: ["en"], root: ":root{--a:1}", sheetLen: 10, headerHtml: "<header>T</header>", headerText: "T",
-      headerLink: "<a data-slot=\"site-link\">Go</a>", brandLink: "<a href=\"/\">T</a>", heroAlt: "x", slots: ["steps", "price-list"], canvas: false, icon: "<svg/>", qr: "", routes: ["/"] };
-    const v = c.check(same, { ...same }, { ok: true, moved: [] });
+      headerLink: "<a data-slot=\"site-link\">Go</a>", brandLink: "<a href=\"/\">T</a>", heroAlt: "x", slots: ["steps", "price-list"], canvas: false, icon: "<svg/>", qr: "", logo: "<svg/>", routes: ["/"] };
+    const v = c.check(same, { ...same }, { ok: true, moved: [] }, {});
     assert.equal(v.ok, false, "`" + c.lane + "` passes against a site that did not change");
     assert.equal(typeof v.note, "string", "`" + c.lane + "` gives no note");
   }
@@ -153,30 +153,84 @@ test("a claimed success waits for the edge before the site is judged", () => {
   // reply that claims a change - an escalate must be read at once, because for
   // it a moved build IS the lie.
   const src = readFileSync(new URL("../scripts/lane-sweep.mjs", import.meta.url), "utf8");
-  const reply = src.indexOf("const body = (reply && reply.json) || {};");
+  // Keyword-free: the reply became `let body` when the build hop arrived (it
+  // replaces the body with the rebuild's answer), and the old `const` landmark
+  // reported the wait as gone for a change that had not touched it.
+  const reply = src.indexOf("body = (reply && reply.json) || {};");
+  const start = src.indexOf("const t1 = Date.now();");
   const wait = src.indexOf('(probe.headers.get("x-site-build") || "") !== before.build');
   const snap = src.indexOf("const after = await snapshot();");
-  assert.ok(reply > 0 && wait > 0 && snap > 0, "a landmark is gone");
-  assert.ok(reply < wait && wait < snap, "the edge wait does not sit between the reply and the snapshot");
-  const gate = src.slice(src.lastIndexOf("if (", wait - 200), wait);
+  assert.ok(reply > 0 && start > 0 && wait > 0 && snap > 0, "a landmark is gone");
+  assert.ok(reply < start && start < wait && wait < snap, "the edge wait does not sit between the reply and the snapshot");
+  // THE CONDITION THAT OPENS THE WAIT, taken from the `if (` that closes on
+  // the wait's own first line rather than from a byte window.
+  const gateAt = src.lastIndexOf("if (", start);
+  assert.ok(gateAt > 0 && start - gateAt < 400, "the wait's own condition could not be isolated");
+  const gate = src.slice(gateAt, start);
   assert.match(gate, /body\.ok === true/, "the wait is not gated on a claimed success");
   assert.match(gate, /body\.moved/, "the wait is not gated on something having moved - an already-so would wait the full bound");
-  assert.match(src.slice(wait - 300, wait + 200), /90000|60000|75000/, "the wait is unbounded");
+  // The two held lanes publish without a `moved` list: a rebuild ships a whole
+  // new build, a rename republishes the head (canonical, og:url). Both are
+  // read after the edge, or the seventh sweep calls them liars the way the
+  // third called the theme lane one.
+  assert.match(gate, /body\.hopped === "build"/, "a followed rebuild is judged before the edge serves it");
+  assert.match(gate, /c\.newSlug/, "a rename is judged before the edge serves the republished head");
+  assert.match(src.slice(start, wait), /90000|60000|75000/, "the wait is unbounded");
 });
 
-test("the wordmark check reads the brand link, not the whole header", () => {
-  // THE FOURTH SWEEP'S FALSE ALARM. The lane bakes its drawing to /logo.svg and
-  // the header shows <img src="/logo.svg">; the check looked for an inline
-  // <svg> anywhere in the header, found the language switch's icon in the
-  // BEFORE state, and called a working lane a liar.
+test("the wordmark check reads the served mark's own bytes, since the brand link already carries one", () => {
+  // THE FOURTH SWEEP'S FALSE ALARM, then the second ask. The lane bakes its
+  // drawing to /logo.svg and the header shows <img src="/logo.svg">; the first
+  // check looked for an inline <svg> in the header and called a working lane a
+  // liar. The site now HAS a mark, so a second ask ("redraw it as CGS") leaves
+  // the brand link byte-identical — the evidence is the file itself changing.
   const c = CASES.find((x) => x.lane === "wordmark");
-  const before = { brandLink: '<a href="/">Crookes Guitar School</a>', headerHtml: '<header><a href="/">Crookes Guitar School</a><nav><svg width="24"></svg></nav></header>' };
-  const after = { brandLink: '<a href="/"><img src="/logo.svg" alt="Crookes Guitar School"/></a>', headerHtml: '<header><a href="/"><img src="/logo.svg"/></a><nav><svg width="24"></svg></nav></header>' };
-  assert.equal(c.check(before, after, {}).ok, true, "a mark served as /logo.svg is not recognised");
-  const inline = { ...after, brandLink: '<a href="/"><svg viewBox="0 0 200 40"><text>CGS</text></svg></a>' };
-  assert.equal(c.check(before, inline, {}).ok, true, "an inline svg mark is not recognised");
-  assert.equal(c.check(before, before, {}).ok, false, "an unchanged text brand passes");
-  assert.equal(c.check(after, after, {}).ok, false, "a mark that was already there passes as new");
+  const link = '<a href="/"><img src="/logo.svg" alt="Crookes Guitar School"/></a>';
+  const before = { brandLink: link, logo: '<svg viewBox="0 0 120 40"><text>DI:</text></svg>' };
+  const after = { brandLink: link, logo: '<svg viewBox="0 0 160 40"><text>CGS</text></svg>' };
+  assert.equal(c.check(before, after, {}).ok, true, "a redrawn /logo.svg behind an unchanged brand link is not recognised");
+  assert.equal(c.check(before, before, {}).ok, false, "an unchanged mark passes");
+  assert.equal(c.check(before, { ...after, brandLink: '<a href="/">Crookes Guitar School</a>' }, {}).ok, false, "a brand link that lost its mark passes");
+  assert.equal(c.check(before, { ...after, logo: "" }, {}).ok, false, "a mark that stopped being served passes");
+  assert.match(c.check(before, after, {}).note, /logo\.svg \d+→\d+ bytes/, "the note does not carry the byte counts");
+});
+
+test("the held lanes are verified when named: a rename on both addresses, a rebuild on the site", () => {
+  const slug = CASES.find((x) => x.lane === "slug");
+  assert.equal(slug.newSlug, "crookes-guitar", "the rename case does not say which address it claims");
+  assert.equal(slug.check({}, {}, {}, { newStatus: 200, oldStatus: 301, oldLocation: "https://crookes-guitar.gofarther.app/" }).ok, true);
+  assert.equal(slug.check({}, {}, {}, { newStatus: 200, oldStatus: 200, oldLocation: "" }).ok, false, "an old address that still answers is not a rename");
+  assert.equal(slug.check({}, {}, {}, { newStatus: 404, oldStatus: 301, oldLocation: "https://crookes-guitar.gofarther.app/" }).ok, false, "a new address that does not answer is not a rename");
+  assert.equal(slug.check({}, {}, {}, { newStatus: 200, oldStatus: 301, oldLocation: "https://fretwork-1.gofarther.app/" }).ok, false, "a redirect elsewhere is not this rename");
+  const kind = CASES.find((x) => x.lane === "kind");
+  assert.equal(kind.hop, "build", "the kind case does not follow the escalate to the rebuild route");
+  const b = { build: "a", html: "<h1>old</h1>", title: "Old", slots: [] };
+  assert.equal(kind.check(b, { build: "b", html: "<h1>new</h1>", title: "New", slots: ["booking"] }, {}, { rebuilt: true }).ok, true);
+  assert.equal(kind.check(b, { ...b }, {}, { rebuilt: true }).ok, false, "an unchanged site passes as rebuilt");
+  assert.equal(kind.check(b, { build: "b", html: "<h1>new</h1>", title: "New", slots: [] }, {}, { rebuilt: false }).ok, false, "a rebuild that did not publish passes");
+});
+
+test("the runner follows kind to the rebuild route only on that escalate, and reads a rename off both addresses", () => {
+  // `kind` is the one lane whose honest answer is "this is a rebuild", and the
+  // chatbox follows that escalate to the rebuild route. The runner does the
+  // same, ONCE, gated on the case saying so AND the reply escalating there -
+  // a css lane that happened to answer escalate:build must not buy a rebuild.
+  const src = readFileSync(new URL("../scripts/lane-sweep.mjs", import.meta.url), "utf8");
+  const hop = src.indexOf('c.hop === "build" && body.escalate === true && body.reason === "build"');
+  assert.ok(hop > 0, "the build hop is not gated on the case and the escalate");
+  const post = src.indexOf('"/api/site/react-revise"');
+  assert.ok(post > hop, "the rebuild route is called outside the hop");
+  const watch = src.indexOf("/api/site/build/${bjob}");
+  assert.ok(watch > post, "the rebuild is not watched to its end");
+  // WATCHED TO A TERMINAL ANSWER: 202 is "still building", anything else ends
+  // the watch. Then the body becomes the rebuild's own answer, marked as such.
+  assert.match(src.slice(watch, watch + 400), /q\.status !== 202/, "the watch does not read 202 as pending");
+  assert.match(src.slice(watch, watch + 900), /hopped: "build"/, "the rebuild's answer is not marked as the hop's");
+  // The snapshot is taken AFTER the hop, so the site read is the rebuilt one.
+  assert.ok(src.indexOf("const after = await snapshot();") > watch, "the site is read before the rebuild finishes");
+  const both = src.indexOf("if (c.newSlug) {");
+  assert.ok(both > 0 && src.indexOf("extra.oldLocation", both) > both, "the rename is not read off both addresses");
+  assert.match(src.slice(both, both + 600), /redirect: "manual"/, "the old address is followed, so its 301 can never be seen");
 });
 
 test("the qr check demands the page show the code, not only serve it", () => {

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import {
   navSlots, parseNavItems, renderNav, applyNav, readNav, navDigest,
   navRequest, navUsage, navReply, runNavEdit, NAV_TOOL, NAV_MODEL,
@@ -1325,4 +1326,70 @@ test("driven over the only pages in this repo the GENERATOR wrote", () => {
     }
   }
   assert.ok(found >= 5, "body links were found in the generated samples: " + found);
+});
+
+// ── A COMPUTED BUTTON IS REPLACED, NEVER DOUBLED ──────────────────────────
+//
+// Found 2026-09-02 by driving `applyAction` over the 332-page corpus and parsing
+// every result with TypeScript: one page, `marketplace/index.tsx`, whose button
+// is `label: buying ? "Browse everything" : "Start selling"`. `readAction`
+// answers null for a computed label, the writer read that null as "no button
+// yet", and the insertion branch sliced at an `insertAt` the slot does not have
+// — `src.slice(0, undefined)` is the whole file, so the page came back as
+// itself, then the attribute, then itself again. fretwork-1's header has the
+// same shape, and its `action` lane died twice with "Unexpected token (181:9)":
+// line 181 being the first line after the page's last.
+const computedBtn = (p) => ({
+  path: p,
+  source: `const buying = true;\nexport default function P() {\n  return (\n    <SiteChrome name="Made Round Here" links={[${NAV}]}\n      action={{ label: buying ? "Browse everything" : "Start selling", href: buying ? "/browse" : "/sell" }}>\n      <h1>Hi</h1>\n    </SiteChrome>\n  );\n}\n`,
+});
+
+test("a computed button is a slot with no readable action, marked so", () => {
+  const slots = actionSlots([computedBtn("index.tsx")]);
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].action, null);
+  assert.equal(slots[0].computed, true, "a computed button must say it is computed, not look like an absence");
+  assert.ok(slots[0].inner && slots[0].inner.at > 0, "the existing attribute's span is what makes it replaceable");
+  assert.equal(actionSlots([noBtn("index.tsx")])[0].computed, undefined, "a header with no button is not computed");
+});
+
+test("changing a computed button replaces it in place, and the file is not doubled", () => {
+  const before = computedBtn("index.tsx");
+  const { pages: next, changed } = applyAction([before], { label: "Book a free lesson", href: "/book" }, false);
+  assert.deepEqual(changed, ["index.tsx"]);
+  const src = next[0].source;
+  assert.equal((src.match(/export default function/g) || []).length, 1, "the page was doubled");
+  assert.ok(src.length < before.source.length + 80, "the page grew by more than the attribute");
+  assert.deepEqual(actionSlots(next)[0].action, { label: "Book a free lesson", href: "/book" });
+  assert.ok(!/buying \?/.test(src), "the expression is gone — replaced, not appended");
+  // And a removal takes the computed attribute away whole.
+  const gone = applyAction([before], null, true).pages[0].source;
+  assert.ok(!/action=/.test(gone), "the computed button was not removed");
+  assert.equal((gone.match(/export default function/g) || []).length, 1);
+});
+
+test("applyAction over the whole corpus never writes a page TypeScript cannot parse", () => {
+  // THE MEASUREMENT THAT FOUND THE BUG, kept as the guard. The kit's own
+  // TypeScript parses every result; a syntax error that was not there before is
+  // a writer that broke a page.
+  const req = createRequire(new URL("../builder/lovable/template/package.json", import.meta.url));
+  let ts = null;
+  try { ts = req("typescript"); } catch { ts = null; }
+  assert.ok(ts, "the kit's TypeScript is not installed — this guard cannot run");
+  const errs = (src) => (ts.transpileModule(src, { reportDiagnostics: true, fileName: "x.tsx", compilerOptions: { jsx: ts.JsxEmit.Preserve } }).diagnostics || []).length;
+  let checked = 0, broke = [];
+  for (const site of fs.readdirSync(CORPUS_DIR)) {
+    const sd = path.join(CORPUS_DIR, site);
+    if (!fs.statSync(sd).isDirectory()) continue;
+    const pages = fs.readdirSync(sd).filter((f) => f.endsWith(".tsx")).map((f) => ({ path: f, source: fs.readFileSync(path.join(sd, f), "utf8") }));
+    const before = new Map(pages.map((p) => [p.path, errs(p.source)]));
+    const out = applyAction(pages, { label: "Book a free lesson", href: "/book" }, false);
+    for (const p of out.pages) {
+      if (!out.changed.includes(p.path)) continue;
+      checked++;
+      if (errs(p.source) && !before.get(p.path)) broke.push(site + "/" + p.path);
+    }
+  }
+  assert.ok(checked >= 200, "the corpus scan found only " + checked + " pages with a button — the scan has drifted");
+  assert.deepEqual(broke, [], "applyAction broke these pages");
 });

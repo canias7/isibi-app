@@ -158,13 +158,18 @@ export function actionSlots(pages) {
       const from = m.index + a.index + a[0].length - 1; // at the inner `{`
       const close = braceEnd(src, from);
       if (close < 0) continue;
+      // `action` IS NULL FOR A COMPUTED BUTTON TOO — a label or href that is an
+      // expression rather than a string — and `computed` says which null this
+      // is. `applyAction` keys on `inner`, so either kind is replaced in place.
+      const jsxAction = readAction(src.slice(from + 1, close));
       out.push({
         page: p.path, kind: "jsx",
         // The whole attribute, so a removal takes `action={{…}}` away entirely
         // rather than leaving `action={{}}`, which is a button with no label.
         at: m.index + a.index, to: close + 2,
         inner: { at: from + 1, to: close },
-        action: readAction(src.slice(from + 1, close)),
+        action: jsxAction,
+        computed: jsxAction === null,
       });
     }
 
@@ -182,11 +187,13 @@ export function actionSlots(pages) {
           const from = objAt + 1 + a.index + a[0].length - 1;
           const close = braceEnd(src, from);
           if (close > 0) {
+            const objAction = readAction(src.slice(from + 1, close));
             out.push({
               page: p.path, kind: "obj",
               at: objAt + 1 + a.index, to: close + 1,
               inner: { at: from + 1, to: close },
-              action: readAction(src.slice(from + 1, close)),
+              action: objAction,
+              computed: objAction === null,
             });
           }
         }
@@ -1278,9 +1285,25 @@ export function applyAction(pages, action, remove) {
     // into, and only when there is a button to insert. A removal on a header
     // that has none is a no-op rather than a failure — asking for something to
     // go that is already gone is not an error.
-    const doable = mine.filter((s) => (s.action ? true : !!action));
+    // A BUTTON IS THERE OR IT IS NOT, and that is `inner`, never `action`.
+    // `action` is null for two different headers: one with no button, and one
+    // whose button is COMPUTED — `label: buying ? "Browse" : "Sell"` — which
+    // `readAction` cannot read into a label and an href. Both used to take the
+    // insertion branch below, and the computed one has no `insertAt`, so the
+    // slice ran on `undefined`: the WHOLE FILE, then the attribute, then the
+    // whole file again. Found 2026-09-02 by driving this over the 332-page
+    // corpus and parsing the results — one page, `marketplace/index.tsx`, and
+    // it is exactly the shape fretwork-1's header has: the `action` lane died
+    // there twice with "SyntaxError: Unexpected token (181:9)", line 181 being
+    // the first line after the page's last one.
+    //
+    // A computed button that the customer asks to change is REPLACED, literal
+    // for expression — that is what "change the button to say X" means — and
+    // one they ask to remove goes the same way a readable one does.
+    const doable = mine.filter((s) => (s.inner ? true : !!action));
     for (const s of [...doable].sort((a, b) => (b.at ?? b.insertAt) - (a.at ?? a.insertAt))) {
-      if (!s.action) {
+      if (!s.inner) {
+        if (!Number.isInteger(s.insertAt)) continue;
         src = src.slice(0, s.insertAt) +
           (s.kind === "jsx" ? " action={" + body + "}" : " action: " + body + ",") +
           src.slice(s.insertAt);

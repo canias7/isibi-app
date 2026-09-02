@@ -2494,6 +2494,38 @@ export function dedupeImports(source) {
  * Structural check on the tool's output: real paths, real source, an index.
  * Returns the files worth trying to compile plus everything wrong with them.
  */
+/**
+ * THE SITE'S HAND-WRITTEN COMPONENTS AFTER AN EDIT: what it had, with what the
+ * edit wrote laid over it by name.
+ *
+ * FOUND LIVE 2026-09-01 (the lane sweep's `tsx` case). The page rung's model
+ * answered with a new component in `parts`, exactly as the tool asks, and the
+ * page imported it — and the part was dropped on the floor: the rung read only
+ * `pages`, the spine sent the container what `parts.json` held from the BUILD,
+ * and vite died with `Could not load /app/src/routes/-parts/string-names`. On
+ * the second sweep the model happened to keep the component in the page, so
+ * the lane passed one time in two, which is the worst kind of result.
+ *
+ * BY NAME, FRESH WINS, ORDER KEPT: a rewritten component replaces its old
+ * source in place, a new one is appended, and an edit that wrote none hands
+ * back exactly what was stored — so the caller can tell "nothing new" from
+ * "something new" by identity and skip a needless save.
+ */
+export function mergeParts(existing, fresh) {
+  const add = Array.isArray(fresh) ? fresh.filter((p) => p && typeof p.name === "string" && typeof p.source === "string") : [];
+  // NOTHING NEW HANDS BACK THE STORED LIST ITSELF — by identity, so a caller
+  // can tell "unchanged" without comparing sources.
+  if (!add.length) return Array.isArray(existing) ? existing : [];
+  const have = (Array.isArray(existing) ? existing : []).filter((p) => p && typeof p.name === "string" && typeof p.source === "string");
+  const out = have.map((p) => ({ name: p.name, source: p.source }));
+  for (const f of add) {
+    const i = out.findIndex((p) => p.name === f.name);
+    if (i >= 0) out[i] = { name: f.name, source: f.source };
+    else out.push({ name: f.name, source: f.source });
+  }
+  return out;
+}
+
 export function validatePages(input, { partial = false, knownRoutes = null } = {}) {
   const problems = [];
   const pages = [];

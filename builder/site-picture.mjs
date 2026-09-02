@@ -134,6 +134,45 @@ export function imageSlots(pages) {
       });
       if (out.length >= MAX_SLOTS) return out;
     }
+    // ── A KIT COMPONENT CARRYING ITS PICTURE AS PROPS ──────────────────────
+    //
+    // `<HeroSplit image={null} imageAlt="An acoustic guitar…" />` draws its
+    // photograph THROUGH SafeImage, from props — which is what the note above
+    // says is not addressable, and it is how every hero on the platform is
+    // written. So the picture lane answered `no-slots` for "change the main
+    // photo" on a site whose main photo is exactly that (lane sweep,
+    // 2026-09-01, twice). The pair is addressable on the same terms as an
+    // element: a LITERAL alt to match the sentence against, and one attribute
+    // whose value is the picture. `image`/`imageAlt` is the kit's own naming
+    // for a component that has one picture, and `src`/`alt` the other shape it
+    // uses (`Figure`); anything else stays out, because a guess here writes a
+    // URL into a prop that is not a picture.
+    //
+    // NO FOCUS on these. `focus` is SafeImage's own prop and a component may
+    // not forward it, so a slot here is `focusBound` — the same word the bound
+    // SafeImage uses — and `runPictureEdit` refuses a reframe on it as
+    // "cannot", which is the honest answer.
+    const comp = /<([A-Z][A-Za-z0-9]*)\b/g;
+    let c;
+    while ((c = comp.exec(src))) {
+      if (c[1] === "SafeImage") continue;
+      const open = c.index;
+      const end = elementEnd(src, open);
+      if (end < 0) continue;
+      const el = src.slice(open, end);
+      const pair = [["image", "imageAlt"], ["src", "alt"]].find(([pic, alt]) => literalAttr(el, alt) && attrSpan(el, pic));
+      if (!pair) continue;
+      const alt = literalAttr(el, pair[1]);
+      const s = attrSpan(el, pair[0]);
+      out.push({
+        page: p.path, tag: c[1], alt,
+        focus: "", focusAt: null, focusTo: null, focusBound: true, focusInsertAt: null,
+        value: el.slice(s.from, s.to),
+        expr: s.expr,
+        at: open + s.from, to: open + s.to, quoted: !s.expr,
+      });
+      if (out.length >= MAX_SLOTS) return out;
+    }
   }
   return out;
 }

@@ -139,7 +139,11 @@ test("THE CHAIN, END TO END — every hop between declaring a component and writ
     "hop 8: the build never sends the components to the container");
   assert.match(w, /await saveSiteParts\(env, slug, partsBuilt\)/,
     "hop 9: the components are never stored, so the next cheap edit publishes without them");
-  assert.match(w, /const siteParts = await loadSiteParts\(env, slug\)/,
+  // The spine now PREFERS the parts an edit hands it and reads the stored
+  // list back only when handed none (2026-09-02, the tsx lane's fix - see
+  // edit-parts.test.mjs for that half), so this is pinned to the read-back
+  // and not to it being the whole expression.
+  assert.match(w, /const siteParts = [^;\n]*await loadSiteParts\(env, slug\)/,
     "hop 9: the publish spine never reads them back");
   assert.match(w, /parts: siteParts \|\| undefined/,
     "hop 9: the spine reads the components and does not send them — the first typo fix breaks the site");

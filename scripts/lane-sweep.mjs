@@ -112,6 +112,7 @@ async function snapshot() {
   const sheet = sheetHref ? (await site(sheetHref)).text : "";
   const icon = await site(attr(html, /<link rel="icon" href="([^"]+)"/) || "/icon.svg");
   const qr = await site("/qr.svg");
+  const logoFile = await site("/logo.svg");
   const sitemap = await site("/sitemap.xml");
   return {
     build: home.headers.get("x-site-build") || "",
@@ -139,6 +140,9 @@ async function snapshot() {
     canvas: /<canvas\b/.test(html),
     icon: icon.status === 200 ? icon.text : "",
     qr: qr.status === 200 ? qr.text : "",
+    // THE DRAWN MARK'S OWN BYTES: the wordmark lane's second run is judged by
+    // the file changing, since the brand link already carries a mark.
+    logo: logoFile.status === 200 ? logoFile.text : "",
     routes: [...sitemap.text.matchAll(/<loc>[^<]*?(\/[^<]*)<\/loc>/g)].map((m) => m[1].replace(/^https?:\/\/[^/]+/, "")),
   };
 }
@@ -200,12 +204,15 @@ export const CASES = [
     check: (b, a) => ({ ok: /Crookes Guitar School/.test(a.title) && /Crookes Guitar School/.test(a.ogTitle), note: `title "${a.title}"` }) },
   { lane: "description", ask: "Change the site description to: Beginner guitar lessons in Crookes, Sheffield. First lesson free.",
     check: (b, a) => ({ ok: a.description !== b.description && /Crookes/.test(a.description), note: `description "${a.description.slice(0, 80)}"` }) },
-  { lane: "wordmark", ask: "Draw a simple SVG wordmark for the header instead of showing the name as plain text",
+  // REDRAWN, NOT DRAWN: the fourth sweep gave the header a mark, so a second
+  // ask has to change the mark, and the evidence is the served /logo.svg
+  // itself - the brand link looks identical before and after.
+  { lane: "wordmark", ask: 'Redraw the header wordmark as the letters "CGS" in a bold serif, black on transparent',
     check: (b, a) => {
       const mark = (l) => /<img[^>]*src="\/logo\.svg"/.test(l) || /<svg/.test(l);
-      const text = (l) => /^<a[^>]*>\s*[^<]+\s*<\/a>$/.test(l.trim());
-      return { ok: mark(a.brandLink) && !mark(b.brandLink) && text(b.brandLink),
-               note: mark(a.brandLink) ? "brand link carries a drawn mark (" + (/logo\.svg/.test(a.brandLink) ? "/logo.svg" : "inline svg") + ")" : "brand link still plain text" };
+      const drawn = /<svg/.test(a.logo);
+      return { ok: mark(a.brandLink) && drawn && a.logo !== b.logo,
+               note: `brand link ${mark(a.brandLink) ? "carries a mark" : "is plain text"}; /logo.svg ${b.logo.length}→${a.logo.length} bytes${a.logo === b.logo ? " (UNCHANGED)" : ""}` };
     } },
   { lane: "favicon", ask: "Change the tab icon to a simple dark green circle with a white letter G in the middle",
     check: (b, a) => ({ ok: a.icon && a.icon !== b.icon && /<svg/.test(a.icon), note: a.icon === b.icon ? "icon bytes unchanged" : `icon changed (${a.icon.length} bytes)` }) },
@@ -224,7 +231,10 @@ export const CASES = [
       const names = /Fran[cç]ais/.test(a.headerText) && /Espa[nñ]ol/.test(a.headerText);
       return { ok: sw && names, note: `lang-switch ${sw ? "added" : "absent"}; header "${a.headerText.slice(0, 80)}"; head alternates ${JSON.stringify(a.locales)}` };
     } },
-  { lane: "behavior", ask: 'When someone presses the "Get your first lesson free" button, open the phone dialler with my number',
+  // NOT THE HEADER BUTTON. The first ask ("press the button, open the
+  // dialler") read as the button's link and went to the nav rung; a behaviour
+  // about another control is unambiguous.
+  { lane: "behavior", ask: "When someone opens one FAQ question, close any other question that is open",
     // RECORDED, NOT RENDERED — the field decides and stores, nothing generates
     // from it yet (owner's call). The only observable is the server saying the
     // stored look moved, plus the build moving because a look edit republishes.
@@ -249,8 +259,10 @@ export const CASES = [
     // answer is a refusal, not a pretend. That refusal IS the pass here.
     mayEscalate: ["no-backend", "no-meta", "no-db", "rules"],
     check: (b, a) => ({ ok: a.build === b.build, note: "no database on this site — an honest escalate with the build untouched is correct" }) },
-  { lane: "tsx", ask: "Add a small custom component under the main photo that shows the six string names E A D G B E in a row",
-    check: (b, a, r) => ({ ok: a.build !== b.build && /E\s*A\s*D\s*G\s*B\s*E/.test(a.html.replace(/<[^>]+>/g, " ")), note: `files ${r.files ?? "?"}; string names ${/E\s*A\s*D\s*G\s*B\s*E/.test(a.html.replace(/<[^>]+>/g, " ")) ? "present" : "absent"}` }) },
+  // A COMPONENT WITH STATE, so the model has to write a part file rather than
+  // inline a strip - which is the hand-off the edit path lost (2026-09-01).
+  { lane: "tsx", ask: 'Add a small custom component below the FAQ: three buttons "60 bpm", "80 bpm" and "100 bpm" that show the chosen tempo when pressed',
+    check: (b, a, r) => ({ ok: a.build !== b.build && /\bbpm\b/i.test(a.html.replace(/<[^>]+>/g, " ")) && !/\bbpm\b/i.test(b.html.replace(/<[^>]+>/g, " ")), note: `files ${r.files ?? "?"}; tempo buttons ${/\bbpm\b/i.test(a.html.replace(/<[^>]+>/g, " ")) ? "present" : "absent"}` }) },
   { lane: "three", ask: "Add a small 3D spinning guitar pick beneath the main photo",
     check: (b, a) => ({ ok: a.canvas && !b.canvas, note: a.canvas ? "a <canvas> is on the page" : "no <canvas>" }) },
   { lane: "shape", ask: "Move the price list so it sits above the numbered steps",
@@ -266,10 +278,19 @@ export const CASES = [
   { lane: "pages", ask: "Add a pricing page",
     check: (b, a) => ({ ok: a.routes.some((r) => /pric/i.test(r)) && !b.routes.some((r) => /pric/i.test(r)), note: `routes ${JSON.stringify(a.routes)}` }) },
   // HELD BACK. Real lanes, never under `all`.
-  { lane: "slug", held: "renames the site: the old address redirects for ever and the new one is claimed", ask: 'Change the site address to "crookes-guitar"',
-    check: (b, a) => ({ ok: true, note: "not verified by this harness" }) },
-  { lane: "kind", held: "a full rebuild at ~45 credits that replaces the site", ask: "Turn this into a booking tool rather than a shopfront",
-    check: (b, a) => ({ ok: true, note: "not verified by this harness" }) },
+  // VERIFIED ON BOTH ADDRESSES: the new one answers, the old one redirects to
+  // it. The after-snapshot of the old address is the redirect itself, so the
+  // check reads its own two fetches (`x.newStatus`, `x.oldStatus`,
+  // `x.oldLocation`), filled by the runner.
+  { lane: "slug", held: "renames the site: the old address redirects for ever and the new one is claimed", ask: 'Change the site address to "crookes-guitar"', newSlug: "crookes-guitar",
+    check: (b, a, r, x) => ({ ok: x.newStatus === 200 && x.oldStatus >= 300 && x.oldStatus < 400 && /crookes-guitar/.test(String(x.oldLocation || "")),
+      note: `crookes-guitar.gofarther.app answers ${x.newStatus ?? "?"}; the old address answers ${x.oldStatus ?? "?"}${x.oldLocation ? " → " + x.oldLocation : ""}` }) },
+  // `kind` ESCALATES TO A BUILD, and the client follows it to the rebuild
+  // route; so does the runner (`hop: "build"`), which is the only way to see
+  // whether the site that comes back is the tool that was asked for.
+  { lane: "kind", held: "a full rebuild at ~45 credits that replaces the site", ask: "Turn this into a booking tool rather than a shopfront", hop: "build",
+    check: (b, a, r, x) => ({ ok: a.build !== b.build && a.html !== b.html && x.rebuilt === true,
+      note: `rebuild ${x.rebuilt ? "published" : "did not publish"}; title "${a.title}"; slots ${JSON.stringify(a.slots.slice(0, 8))}` }) },
 ];
 
 export function chooseLanes(want, cases) {
@@ -334,8 +355,30 @@ async function main() {
     } else {
       console.log(`   synchronous answer ${p.status} in ${(p.ms / 1000).toFixed(1)}s (the site is not on the async allowlist?)`);
     }
+    let body = (reply && reply.json) || {};
+    const extra = {};
+    // ── THE BUILD HOP ───────────────────────────────────────────────────
+    //
+    // `kind` answers escalate:build, and the chatbox follows that to the
+    // rebuild route. The runner does the same, once, and only for the case
+    // that says so: a queued rebuild watched to its end, then the site read.
+    if (c.hop === "build" && body.escalate === true && body.reason === "build") {
+      const rb = await call("POST", "/api/site/react-revise", { token: TOKEN, body: { slug: SLUG, instruction: c.ask, images: [], picker: PICKER } });
+      const bjob = rb.json && (rb.json.job || rb.json.id);
+      console.log(`   escalated to build; rebuild ${rb.status} ${bjob ? "job " + bjob : rb.text.slice(0, 120)}`);
+      if (bjob) {
+        let last = null;
+        for (let i = 0; i < 150; i++) {
+          await new Promise((r) => setTimeout(r, 10000));
+          const q = await call("GET", `/api/site/build/${bjob}`, { token: TOKEN });
+          if (q.status !== 202) { last = q; break; }
+          if (i % 6 === 0) console.log(`   ${String(Math.round((Date.now() - t0) / 1000)).padStart(4)}s  build pending${q.json && q.json.flight ? " / " + JSON.stringify(q.json.flight).slice(0, 80) : ""}`);
+        }
+        if (last) { body = { ...(last.json || {}), ok: !!(last.json && last.json.ok === true), hopped: "build" }; extra.rebuilt = body.ok === true; console.log(`   rebuild answered ${last.status}: ${last.text.slice(0, 200)}`); }
+        else { body = { ok: false, error: "build-watch", hopped: "build" }; }
+      } else { body = { ok: false, error: "build-post", detail: rb.text.slice(0, 200), hopped: "build" }; }
+    }
     const wall = (Date.now() - t0) / 1000;
-    const body = (reply && reply.json) || {};
     const bal1 = await balance();
     const cost = bal0 - bal1;
     // THE EDGE IS NOT THE DATABASE. The stored reply is handed back the instant
@@ -345,7 +388,7 @@ async function main() {
     // and called the theme lane a liar for a change that was live a moment
     // later. So a claimed success WAITS for the build id to move, bounded; an
     // escalate or an already-so must NOT move it, and is read at once.
-    if (body.ok === true && Array.isArray(body.moved) && body.moved.length) {
+    if (body.ok === true && ((Array.isArray(body.moved) && body.moved.length) || body.hopped === "build" || c.newSlug)) {
       const t1 = Date.now();
       while (Date.now() - t1 < 90000) {
         const probe = await site("/");
@@ -354,6 +397,12 @@ async function main() {
       }
     }
     const after = await snapshot();
+    // THE RENAME'S EVIDENCE: both addresses, read plainly.
+    if (c.newSlug) {
+      const nu = await fetch(`https://${c.newSlug}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
+      const old = await fetch(SITE + "/", { redirect: "manual" }).catch(() => null);
+      extra.newStatus = nu ? nu.status : 0; extra.oldStatus = old ? old.status : 0; extra.oldLocation = old ? (old.headers.get("location") || "") : "";
+    }
     const claimedOk = body.ok === true;
     const escalated = body.escalate === true;
     const named = Array.isArray(body.lanes) ? body.lanes : [];
@@ -382,7 +431,7 @@ async function main() {
     }
     else if (!claimedOk) { verdict = "failed"; note = `${reply.status} ${String(body.error || "")} — ${String(body.detail || body.msg || reply.text || "").slice(0, 200)}`; }
     else {
-      const chk = c.check(before, after, body);
+      const chk = c.check(before, after, body, extra);
       const moved = after.build !== before.build;
       if (chk.ok && moved) { verdict = "ok"; note = chk.note; }
       else if (!moved) { verdict = "LIE"; note = `reply says ok but the build did not move; ${chk.note}`; }

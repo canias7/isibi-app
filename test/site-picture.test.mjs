@@ -467,3 +467,40 @@ test("THE ROUTE FORWARDS THE HANDOFF, and the layer that decides it is the modul
   assert.match(branch, /escalate\(pOut\.reason, pOut\.layer \? \{ layer: pOut\.layer, page: pOut\.page \} : undefined\)/,
     "the route drops the handoff — a page with no slot goes to the full revise instead of one page");
 });
+
+// ── A KIT COMPONENT CARRYING ITS PICTURE AS PROPS ─────────────────────────
+//
+// `<HeroSplit image={null} imageAlt="…" />` draws through SafeImage from props,
+// which the scanner did not see — so "change the main photo" on a site whose
+// main photo is exactly that answered `no-slots` (lane sweep, 2026-09-01,
+// twice). Measured over the corpus after the change: 18 component slots found
+// (Figure 16, MediaObject 2) beside the 188 element ones, and no page lost a
+// slot it had.
+test("a component with image/imageAlt or src/alt props is a picture slot", () => {
+  const hero = { path: "index.tsx", source: `export default function P() {\n  return (\n    <HeroSplit title="Lessons" image={null} imageAlt="An acoustic guitar resting on a wooden chair" />\n  );\n}\n` };
+  const slots = imageSlots([hero]);
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].tag, "HeroSplit");
+  assert.equal(slots[0].alt, "An acoustic guitar resting on a wooden chair");
+  assert.equal(slots[0].expr, true);
+  assert.equal(isEmptySlot(slots[0]), true, "image={null} is an empty slot waiting to be filled");
+  assert.equal(slots[0].focusBound, true, "a component slot cannot be reframed — focus is SafeImage's own prop");
+  const fig = { path: "a.tsx", source: `<Figure src="https://x/y.jpg" alt="The workshop" caption="Us" />` };
+  const f = imageSlots([fig]);
+  assert.equal(f.length, 1); assert.equal(f[0].tag, "Figure"); assert.equal(f[0].value, "https://x/y.jpg"); assert.equal(f[0].quoted, true);
+  // A component with an alt-looking prop and no picture prop is not a slot.
+  assert.deepEqual(imageSlots([{ path: "b.tsx", source: `<Quote alt="x" text="y" />` }]), []);
+  // And a bound picture is recorded as bound, not offered as empty.
+  const bound = imageSlots([{ path: "c.tsx", source: `<HeroSplit image={row.photo} imageAlt="A chair" />` }]);
+  assert.equal(bound.length, 1); assert.equal(isEmptySlot(bound[0]), false);
+});
+
+test("a picture chosen for a component slot is written into the prop, expression or string", () => {
+  const hero = { path: "index.tsx", source: `<HeroSplit image={null} imageAlt="A guitar" />` };
+  const [slot] = imageSlots([hero]);
+  const out = applyPictures([hero], [{ slot, url: "https://cdn/x.jpg" }]);
+  assert.equal(out.pages[0].source, `<HeroSplit image="https://cdn/x.jpg" imageAlt="A guitar" />`);
+  const fig = { path: "a.tsx", source: `<Figure src="old.jpg" alt="The workshop" />` };
+  const [fs2] = imageSlots([fig]);
+  assert.equal(applyPictures([fig], [{ slot: fs2, url: "new.jpg" }]).pages[0].source, `<Figure src="new.jpg" alt="The workshop" />`);
+});

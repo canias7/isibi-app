@@ -355,7 +355,11 @@ test("neither lane can publish an unbought image token", async () => {
     ["addon", block("\n          if (ad) {", "\n          if (tx) {")],
     ["page edit", block("\n            if (eLayer === \"page\") {", "\n            // A LAYER NOBODY IMPLEMENTS")],
   ]) {
-    assert.match(b, /briefWithLayout\(\{ brief: \w+, images: 0 \}\)/,
+    // THE STATED ZERO SITS RIGHT BESIDE THE BRIEF. The page rung's call grew
+    // (2026-09-02) to carry the stored tsx/marks/scene beside the brief, so
+    // this is no longer pinned to the call's close: what must be true is that
+    // `images: 0` is the second thing said, not what is said after it.
+    assert.match(b, /briefWithLayout\(\{\s*brief: \w+,\s*images: 0\b/,
       name + " does not tell the model there are no photographs");
     assert.match(b, /applyImages\(\w+\.pages, \{\}\)/,
       name + " does not sweep an unbought token before publishing");

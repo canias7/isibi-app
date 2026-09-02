@@ -1185,3 +1185,59 @@ edit`, with every edit as a before-and-after pair, the changes a capture
 cannot show (tab icon, wordmark, QR, description, languages), and the lanes
 that produced no picture and why. Sent to you as a file; the captures
 themselves are in `docs/edits/`, now with row 00, the site as built.
+
+## 2026-09-02 — The four broken lanes, fixed in the tree
+
+You asked to work on the broken ones. Each turned out to be one small thing.
+
+- **action.** The button writer read a header whose button is computed — a
+  label chosen by a ternary, which is how fretwork-1's was written — as "no
+  button yet", then sliced the file at an offset that slot does not have.
+  `slice(0, undefined)` is the whole file, so the page came back as itself,
+  the attribute, then itself again. Found by driving the writer over all 332
+  generated pages and parsing every result with TypeScript: one page broke,
+  the same shape as fretwork-1. A computed button is now replaced in place.
+  The corpus parse is kept as a guard.
+- **behavior.** The first ask, "press the button, open the dialler", read as
+  the button's link and went to the same nav rung. The two lanes' hints now
+  say which is which, and the sweep asks about the FAQ instead.
+- **images.** The picture scanner only saw `<SafeImage>` and `<img>`; every
+  hero on the platform carries its photo as component props
+  (`image`, `imageAlt`), so "change the main photo" found no slot. Those
+  props are slots now. Measured over the corpus: 18 more slots, none lost.
+- **tsx.** The page rung's model wrote the new component in `parts`, as the
+  tool asks, and the rung threw it away: only pages were sent, so the
+  container never got the file. The parts now travel with the page, are
+  merged by name over the stored ones, sent, and stored after the publish.
+  The page rung also now tells the model what the site already has — its
+  components, its QR, its 3D scene — which it never did.
+- **qr.** Made but never shown. When the qr lane runs on a page that does
+  not reference the code, one page step follows it with a fixed ask to place
+  the figure using the generated file.
+- **And one more found while checking the tsx chain end to end.** Two asks in
+  one message run two rungs and one publish, and the publish collects from
+  the LAST rung. "Add a component and change the button" would have handed
+  the publish the button rung's pages and the build's old component list,
+  and the new page would not have compiled. The component list now carries
+  across rungs the way a rename already did.
+
+The hint change for behavior/action is guarded on the property, not the
+words — each hint names the other lane — because every hint is still your
+placeholder to reword.
+
+Mutation sweep, measured after the run: 23 mutants, 23 killed, the
+comment-only control survived, sidecars restored byte-identical. The
+mutants are each fix cut back to the failure the sweep measured live —
+the button keyed on the wrong null again, the component slots gone, the
+parts dropped at the rung, at the collector and at the spine, the QR step
+gone or ungated, the hint cross-reference removed, the harness hop
+ungated — and every one was caught by a test that names the lane.
+
+None of this is proven on the site yet; that is the run you are about to
+dispatch: wordmark, behavior, qr, action, tsx, then kind and slug, the two
+you named. In the workflow form: harness `lane`, lanes
+`wordmark,behavior,qr,action,tsx,kind,slug`, site `fretwork-1`, confirm
+`spend`, budget `120`. Dispatch it from the branch until main carries it,
+and only after the container has rolled (15–20 minutes after the push).
+`kind` is a real rebuild (~11–45 credits on its own) and `slug` renames the
+site to `crookes-guitar` for good — the old address 301s to it after that.
