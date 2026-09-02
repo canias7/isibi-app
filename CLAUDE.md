@@ -708,8 +708,28 @@ what the work cost.
   Haiku). Phase timings worth having: `pick_lanes` 7.5s, `lane:css` 47s,
   `lane:correct` **134s**, `publish:1` 95s, `publish:2` 120s. Still only
   `fretwork-1` on the allowlist; **general traffic is NOT enabled.**
-- **Balance: 305 credits** (read from the ledger 2026-09-01, after the paid
-  canary: 309 → 305, routing 2 + edit 2). It was **0** on 08-29;
+- **THE LANE SWEEP RAN, 19 OF 21 LANES, ON `fretwork-1` THROUGH THE QUEUE
+  (2026-09-01/02, `.github/workflows/lane-sweep.yml`, `scripts/lane-sweep.mjs`,
+  screenshots in `docs/edits/`).** One real ask per lane, judged by reading the
+  live site after each publish, never by the reply. **Proven on the site**:
+  `css theme brand description wordmark favicon lang langs purpose components
+  shape three` (12). **Half**: `qr` — `/qr.svg` is served and decodes, and
+  nothing on the page places it. **Correct refusals**: `backend` (no
+  database), `pages` with verb `add` (points at the addon route, which the
+  queue does not run; `remove`/`move` untested). **Broken, all refunded, all
+  filed as task cards**: `behavior` (the intent router sends it to the nav rung,
+  which answers `no-menu`), `action` (the nav rung wrote source that does not
+  parse), `images` (`no-slots`: `imageSlots` wants a literal alt), `tsx` (the
+  new part is never sent to the container, so vite cannot load it). **Held**:
+  `slug`, `kind` — never under `all`, only when named. **Not one lie from the
+  product**; every "LIE" the harness printed was the harness (an edge race, an
+  inline-svg assumption, an og:locale count) and each is now a case in
+  `test/lane-sweep.test.mjs`. Whole effort, canary included: **309 → 274, 35
+  credits**; sweep five alone (11 lanes, 26 minutes) 296 → 274. The harness
+  fixes live on branch `claude/help-needed-ehlwlj`; a dispatch from `main` runs
+  the old harness (done three times), so merge or dispatch from the branch.
+- **Balance: 274 credits** (read from the ledger 2026-09-02 00:16, after sweep
+  five). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**

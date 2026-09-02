@@ -1050,3 +1050,58 @@ function now refuses a finished job outright, since "finished" can now mean
 
 All 48 database checks pass, rolled back. Nothing on the site or the ledger
 changed while any of this was verified.
+
+## 2026-09-02 — The lane sweep: nineteen lanes on fretwork-1, through the queue
+
+You said *"do all of them lane by lane and lets see how it behaves"*. Done,
+bar the two you have to name. Five sweeps, one real ask per lane, and the
+verdict on each read off the live site after the publish — never off the
+reply. Screenshots of every edit are in `docs/edits/` on the branch, one row
+per edit, in order.
+
+| Lane | Ask | What the site did | Cost |
+|---|---|---|---|
+| css | deeper green button; dark red heading | both, second one with a correction round | 2, 1 |
+| brand | rename | Crookes Guitar School, in the title and the head | 1 |
+| favicon | a green G | served, decodes | 1 |
+| lang | Welsh | `lang="cy"`, `dir` right | 1 |
+| langs | French and Spanish | header switch, `/fr` and `/es` routes | 1 |
+| theme | noir | greyscale, black buttons; the red heading survives on top | 1 |
+| description | new meta description | in the head | 1 |
+| wordmark | a drawn mark | served as `/logo.svg` in the brand link (it reads "DI:" — not good, but the lane works) | 1 |
+| qr | a code that dials the number | `/qr.svg` served and decodes to `tel:01144960123` — **and nothing on the page shows it** | 1 |
+| three | a spinning 3D pick | a WebGL canvas under the hero, real three.js | 6 |
+| shape | price list above the steps | moved | 3 |
+| components | an FAQ accordion | three questions, `faq` slot | 5 |
+| purpose | group lessons rather than one-to-one | hero, prices and closing band rewritten toward groups | 7 |
+| backend | members-only prices | honest refusal: no database on this site | 0 |
+| pages | add a pricing page | read the verb `add`, pointed at the addon route (the queue does not run it) | 0 |
+| behavior | button opens the dialler | **broken**: the router sends it to the nav rung, which says `no-menu` | 0, refunded |
+| action | rename the top button | **broken**: the nav rung wrote source that does not parse | 0, refunded |
+| images | swap the main photo | **broken**: `no-slots` — the picture matcher wants a literal alt text | 0, refunded |
+| tsx | a small custom component | **broken**: the new part is never sent to the container, so the build cannot load it | 0, refunded |
+| slug | — | **held** until you name it: the old address redirects for ever | — |
+| kind | — | **held** until you name it: a ~45-credit rebuild that replaces the site | — |
+
+**Twelve lanes proven on the site, one half-proven, two correct refusals,
+four broken, two waiting on you.** Every broken one is refunded in the
+ledger and filed as a task card with the fix spelled out. The product told
+no lies: every time the harness shouted "LIE" it was the harness — judging
+before the edge had switched over, expecting an inline svg where the mark is
+a file, counting og:locale tags — and each of those is now a test.
+
+**Money.** Canary and all five sweeps together: 309 → 274, thirty-five
+credits. Sweep five alone, eleven lanes in twenty-six minutes: 296 → 274.
+The page-rung lanes are the dear ones (3–7 each); the look lanes are 1.
+
+**Two things I found on the way that are not lanes.** The render check opens
+the site's generated component (`/-parts/chord-diagram`) as if it were a page,
+gets a 404, and files it as a serious finding on every publish — filed. And
+every push to `main` rolls the container, not only one that touches
+`builder/`: two lanes died under my own pushes on sweep one. Now written down.
+
+**What needs you.** The harness fixes are on the branch, not on `main`; the
+last three sweeps were dispatched from `main` and ran the old harness, which
+is why they called two working lanes lies. Merge the branch (it rolls the
+container; wait fifteen to twenty minutes before the next run) or dispatch
+from the branch. And say the word if you want `slug` or `kind` run.
