@@ -15,4 +15,6 @@ edit is applied on top of the ones before it.
 
 | 05 | 2026-09-01 23:49–23:54 | sweep five (old harness, from main): `behavior` was picked as `action` by the lane picker and refused honestly by the nav rung (refunded). `qr` → `/qr.svg` is served and decodes to `tel:01144960123` — correct — but the page references it nowhere, so the page shot is unchanged from row 04. Filed: the qr lane bakes a code nothing places. | `06-sweep5-qr.png`, `06-sweep5-qr.svg` |
 
+| 06 | 2026-09-02 00:02 | sweep five: `three` → a WebGL canvas with a 3D pick beneath the hero, via the page rung. The headless shot cannot run WebGL, so the canvas area is blank here; on the live site it draws. Cost 6. | `07-sweep5-three.png` |
+
 Later rows are added as the remaining lanes run.
