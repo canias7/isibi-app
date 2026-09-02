@@ -1443,3 +1443,51 @@ you named. In the workflow form: harness `lane`, lanes
 and only after the container has rolled (15–20 minutes after the push).
 `kind` is a real rebuild (~11–45 credits on its own) and `slug` renames the
 site to `crookes-guitar` for good — the old address 301s to it after that.
+
+## 2026-09-02 — Run 16: kind proven; slug never ran, and the reason is a full stop
+
+You ran at 16:52 with lanes `kind,slug.` — a full stop after the last
+name. The harness dropped the name it did not know without a word, ran
+`kind` alone, and the log read as a complete pass. Fixed in this commit:
+a name that is not a lane now refuses before sign-in, naming it and the
+real lanes, and `slug.` reads as `slug`. Both harnesses, because the
+workflow feeds one input box to both.
+
+**kind — PROVEN LIVE** (screenshot 20). "Turn this into a booking tool
+rather than a shopfront": the lane escalated to a rebuild in ten seconds
+for 0, the harness followed it to the build route and watched for 18
+minutes, and the site came back as a tool — "Book a guitar lesson", a
+week strip, a month calendar, a booking form, opening hours, then the
+eight chords and the QR. **17 credits, 225 → 208**: the revise price,
+not the first-build one, because the design anchored on what was stored.
+The build provisioned fretwork-1's first database (two tables) and seeded
+it, which is why the calendar shows booked days.
+
+What the rebuild kept and what it dropped is the useful reading:
+- Kept, from the stored design: the name, the description, the favicon,
+  the three languages, the QR with its caption, and the header logo — the
+  striped test picture the gap sweep uploaded in run 10, which could not
+  publish then and rode out on this build. Swap it when you like; the
+  logo lane is free.
+- Gone with the page: the 3D pick (the page rung drew it and stores no
+  design field), "Fingering" (the chord-diagram part was rewritten), the
+  header button's words and dial link (the action lane writes source),
+  the hero and its prose (a tool has no hero). A rebuild keeps what the
+  DESIGN remembers and redraws everything the page rungs did. That is by
+  construction, not a defect — but a customer who spent five edits on
+  the page and then asks for a rebuild loses the five.
+- One thing to look at: the kit's availability calendar prints its own
+  legend — "the night beginning on that date… the whole property" —
+  holiday-let copy on a guitar diary. The model picked the component and
+  did not override the text. Backlogged.
+
+**slug — NOT RUN.** `crookes-guitar` still answers 404, no alias row.
+Dispatch it alone: lanes `slug`, budget `20`, from `main` once the
+container has rolled from this push (15–20 minutes). It renames the site
+for good — the old address 301s to it after that.
+
+Sweep for the chooser change: 9 mutants, 9 killed, comment-only control
+survived — after a first round where two survived, because my tests only
+put the punctuation at the end of the whole list and the whole-string
+trim was catching it before the per-name one could. A stray dot before a
+comma is a case now.

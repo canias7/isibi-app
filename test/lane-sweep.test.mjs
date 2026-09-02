@@ -73,9 +73,40 @@ test("slug and kind never run under `all`", () => {
   // `all` covers everything else, derived rather than counted by hand.
   const expected = LANE_FIELDS.filter((f) => f !== "slug" && f !== "kind");
   assert.deepEqual([...all].sort(), [...expected].sort());
-  // A name the product does not have is dropped, not guessed at.
-  assert.deepEqual(chooseLanes("css,nonsense,theme", CASES), ["css", "theme"]);
+  // A NAME THE PRODUCT DOES NOT HAVE REFUSES, naming it and the real lanes.
+  // It used to be dropped without a word, and run 16's `kind,slug.` — a full
+  // stop after the last name — ran `kind` alone while the log read as a
+  // complete pass: the rebuild happened, the rename never did.
+  assert.throws(() => chooseLanes("css,nonsense,theme", CASES),
+    (e) => /"nonsense"/.test(e.message) && e.message.includes("css") && e.message.includes("theme"),
+    "a stranger is dropped instead of refused, or the refusal does not name it and the real lanes");
+  // Punctuation at either end of a name is forgiven: `slug.` can only mean `slug`.
+  assert.deepEqual(chooseLanes("kind,slug.", CASES), ["kind", "slug"], "run 16's own input");
+  assert.deepEqual(chooseLanes(" css , theme. ", CASES), ["css", "theme"]);
+  // ...and on a name in the MIDDLE of the list, which the whole-string trim
+  // cannot reach — a sweep found the per-name trim unobserved without this.
+  assert.deepEqual(chooseLanes("kind., slug", CASES), ["kind", "slug"], "a stray dot before the comma");
+  assert.deepEqual(chooseLanes("all.", CASES), all);
+  assert.deepEqual(chooseLanes("css,theme,css", CASES), ["css", "theme"], "a name typed twice runs once");
   assert.deepEqual(chooseLanes("", CASES), all, "an empty selection is `all`, which is the documented default");
+});
+
+// THE STRANGER REFUSES BEFORE ANYTHING IS SPENT. `chooseLanes` throws; the
+// runner has to catch that and exit, and it has to do so ABOVE the sign-in,
+// or a wrong name signs in, reads the balance and only then dies. Anchored
+// on the call and the magic-link request. The try/catch is read off the
+// call's own line — a spelling, pinned on purpose; if the runner ever
+// splits it over lines, re-anchor here and say so.
+test("a stranger in the lanes box exits the runner before sign-in", () => {
+  const src = readFileSync(new URL("../scripts/lane-sweep.mjs", import.meta.url), "utf8");
+  const main = src.indexOf("async function main()");
+  const call = src.indexOf("lanes = chooseLanes(WANT, CASES)", main);
+  const signIn = src.indexOf("generate_link", main);
+  assert.ok(main > -1 && call > -1 && signIn > -1, "landmarks moved: main, the chooser call, or the sign-in");
+  assert.ok(call < signIn, "the lanes are chosen after the sign-in");
+  const line = src.slice(src.lastIndexOf("\n", call) + 1, src.indexOf("\n", call));
+  assert.ok(/\btry\b/.test(line) && /\bcatch\b/.test(line) && /process\.exit\(1\)/.test(line),
+    "the chooser's refusal is not caught and turned into an exit: " + line.trim());
 });
 
 test("the held lanes say why, and the partition still covers them", () => {

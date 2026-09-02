@@ -66,10 +66,31 @@ test("each case runs on the site that can answer it", () => {
   }
 });
 
-test("chooseCases: all, a list, and unknown names dropped", () => {
+test("chooseCases: all, a list, punctuation forgiven, a stranger refused", () => {
   assert.deepEqual(chooseCases("all", CASES), CASES.map((c) => c.name));
-  assert.deepEqual(chooseCases(" text, remove ,nope", CASES), ["text", "remove"]);
+  assert.deepEqual(chooseCases(" text, remove ", CASES), ["text", "remove"]);
+  assert.deepEqual(chooseCases("text,move-back.", CASES), ["text", "move-back"], "a hyphen inside a name is the name; a full stop after it is not");
+  assert.deepEqual(chooseCases("text., remove", CASES), ["text", "remove"], "a stray dot before the comma, which the whole-string trim cannot reach");
+  // The lane harness's rule (run 16: `kind,slug.` ran `kind` alone), kept
+  // identical here because the workflow feeds one input box to both.
+  assert.throws(() => chooseCases(" text, remove ,nope", CASES),
+    (e) => /"nope"/.test(e.message) && e.message.includes("move-back"),
+    "a stranger is dropped instead of refused, or the refusal does not list the cases");
   assert.deepEqual(chooseCases("", CASES), CASES.map((c) => c.name));
+});
+
+// The stranger refuses before anything is spent — the lane harness's guard,
+// on this runner. Same anchors: the chooser call inside a try that exits, on
+// its own line, above the magic-link request.
+test("a stranger in the cases box exits the runner before sign-in", () => {
+  const main = SRC.indexOf("async function main()");
+  const call = SRC.indexOf("names = chooseCases(WANT, CASES)", main);
+  const signIn = SRC.indexOf("generate_link", main);
+  assert.ok(main > -1 && call > -1 && signIn > -1, "landmarks moved: main, the chooser call, or the sign-in");
+  assert.ok(call < signIn, "the cases are chosen after the sign-in");
+  const line = SRC.slice(SRC.lastIndexOf("\n", call) + 1, SRC.indexOf("\n", call));
+  assert.ok(/\btry\b/.test(line) && /\bcatch\b/.test(line) && /process\.exit\(1\)/.test(line),
+    "the chooser's refusal is not caught and turned into an exit: " + line.trim());
 });
 
 test("the switch is the lane sweep's, so one word arms both harnesses the same way", () => {

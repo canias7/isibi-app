@@ -350,19 +350,34 @@ export const CASES = [
       note: `rebuild ${x.rebuilt ? "published" : "did not publish"}; title "${a.title}"; slots ${JSON.stringify(a.slots.slice(0, 8))}` }) },
 ];
 
+// THE NAMES ARE CHECKED, NOT FILTERED (2026-09-02, run 16). The dispatch box
+// said `kind,slug.` — a full stop after the last name — and this function
+// dropped the name it did not know without a word, so the run was `kind`
+// alone: the rebuild happened, the rename never did, and the log read as a
+// complete pass. A name that is not a lane is now a refusal, thrown here and
+// printed by the runner before sign-in, naming the stranger and the lanes
+// there are. Punctuation at either end of a name is forgiven, since `slug.`
+// can only mean `slug`; a name typed twice runs once. The one input that
+// costs nothing to get wrong is the one that decides what the money buys.
 export function chooseLanes(want, cases) {
-  const w = String(want || "all").trim().toLowerCase();
-  if (w === "all") return cases.filter((c) => !c.held).map((c) => c.lane);
-  const names = w.split(/[\s,;]+/).filter(Boolean);
-  const known = new Set(cases.map((c) => c.lane));
-  return names.filter((n) => known.has(n));
+  const trim = (s) => s.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+  const w = trim(String(want || "all").trim().toLowerCase());
+  if (!w || w === "all") return cases.filter((c) => !c.held).map((c) => c.lane);
+  const names = [...new Set(w.split(/[\s,;]+/).map(trim).filter(Boolean))];
+  const known = cases.map((c) => c.lane);
+  const strangers = names.filter((n) => !known.includes(n));
+  if (strangers.length) throw new Error(`not a lane: ${strangers.map((s) => `"${s}"`).join(", ")} — the lanes are ${known.join(", ")}`);
+  return names;
 }
 
 // ── RUN ────────────────────────────────────────────────────────────────────
 async function main() {
   if (!confirmed(process.env.SWEEP_CONFIRM)) { console.error("SWEEP_CONFIRM must be the word `spend` — this harness costs real credits on a live site."); process.exit(1); }
   if (!EMAIL || !SERVICE_KEY || !SLUG) { console.error("OWNER_EMAIL, SUPABASE_SERVICE_KEY and SWEEP_SLUG are required"); process.exit(1); }
-  const lanes = chooseLanes(WANT, CASES);
+  // A stranger in the list refuses HERE, before the sign-in and the balance
+  // read: nothing spent, and the log says which name was wrong.
+  let lanes;
+  try { lanes = chooseLanes(WANT, CASES); } catch (e) { console.error(String(e && e.message)); process.exit(1); }
   if (!lanes.length) { console.error("no lanes selected"); process.exit(1); }
 
   const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };

@@ -37,7 +37,7 @@ on:
         required: false
         default: 'lane'
       lanes:
-        description: 'all, or a comma list. Lane names for the lane harness (slug and kind only when named); case names for the gap harness.'
+        description: 'all, or a comma list, typed exactly — a name that is not a lane refuses before anything is spent. Lane names for the lane harness (slug and kind only when named); case names for the gap harness.'
         required: false
         default: 'all'
       site:

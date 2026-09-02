@@ -850,6 +850,18 @@ what the work cost.
   Fixed: any of `changed`/`files`/html-moved counts, the edge wait's own
   rule. **The fourth harness false alarm of the day, and the product was
   right in all four.** `kind`/`slug` did not run; re-dispatch `kind,slug`.
+  **RUN 16 (2026-09-02 16:52, typed `kind,slug.`):** `kind` **PROVEN LIVE**
+  — escalated to a rebuild in 10 s for 0, the harness followed it to the
+  build route, and the site came back a booking tool with **its first Neon
+  database (2 tables, seeded)** — **17 credits, 225 → 208**, the revise
+  price (`docs/edits/20-*`). **A rebuild keeps what the DESIGN stores**
+  (name, description, favicon, langs, qr, the uploaded logo — run 10's
+  striped test PNG, which could not publish then, is the header logo now)
+  **and redraws everything the page rungs did** (the 3D pick, "Fingering",
+  the action button and its dial link, the hero). By construction, not a
+  defect. `slug` **NEVER RAN**: the full stop made `slug.` a name the
+  harness did not know and `chooseLanes` dropped it silently — fixed, a
+  stranger refuses before sign-in (see the trap). `crookes-guitar` is 404.
   **Not one lie from the
   product**; every "LIE" the harness printed was the harness (an edge race, an
   inline-svg assumption, an og:locale count) and each is now a case in
@@ -884,8 +896,8 @@ what the work cost.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 255 credits** (read from the ledger 2026-09-02 03:20, after run
-  10). It was **0** on 08-29;
+- **Balance: 208 credits** (read from the ledger 2026-09-02 17:12, after run
+  16). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**
@@ -1558,9 +1570,26 @@ twin of that mutant SURVIVED for a real reason — the guard drove only the
 JSX form — which is the "a negative assertion must prove its observer is
 alive" trap for a positive one: a guard proves the branch it drives.
 
+**A NAME THE HARNESS DID NOT KNOW WAS DROPPED WITHOUT A WORD (2026-09-02,
+run 16).** The lanes box said `kind,slug.` and `chooseLanes` filtered the
+list down to the names it knew, so the run was `kind` alone, ended green,
+and the rename never happened. Run 9's `gap ` one input over — and the one
+input that costs nothing to get wrong is the one that decides what the
+money buys. A stranger now REFUSES before sign-in, naming itself and the
+real names; punctuation at the ends of a name is forgiven; both harnesses,
+because the workflow feeds one box to both. **A filter on a person's input
+is a silent drop; a check is a sentence.**
+
 ## Backlog
 
 - **`three` is done** (2026-08-30) — the entry above records what it cost.
+- **The availability calendar's own legend (open, live on `fretwork-1` since
+  run 16).** `availability-calendar.tsx` prints "Each square is the night
+  beginning on that date… Prices are per night for the whole property" —
+  written for a self-catering let, now on a guitar diary. The model reached
+  for the component and did not override the copy. A legend the model must
+  answer, or one that says nothing about the trade, fixes the class; a
+  firmer sentence does not.
 - **The price-unit mismatch (open, live on `ashgrove-1`).** A kit component
   documents "integer minor units"; the model feeds it major-unit database rows,
   so one control says £16.40 and the total says £1880.00. See the trap entry.

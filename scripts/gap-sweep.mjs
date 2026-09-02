@@ -245,12 +245,21 @@ export const CASES = [
       note: `layer ${r.layer || "-"}; lanes ${JSON.stringify(r.lanes || [])}; applied ${JSON.stringify(r.applied || [])}; "${String(r.msg || "").slice(0, 120)}"` }) },
 ];
 
+// THE NAMES ARE CHECKED, NOT FILTERED — the lane harness's rule (run 16,
+// 2026-09-02: `kind,slug.` ran `kind` alone and read as a complete pass),
+// kept identical here because the workflow feeds the same input box to both.
+// A stranger throws, the runner prints it and stops before sign-in;
+// punctuation at either end of a name is forgiven; a name typed twice runs
+// once. A hyphen INSIDE a name is the name (`move-back`).
 export function chooseCases(want, cases) {
-  const w = String(want || "all").trim().toLowerCase();
-  if (w === "all") return cases.map((c) => c.name);
-  const names = w.split(/[\s,;]+/).filter(Boolean);
-  const known = new Set(cases.map((c) => c.name));
-  return names.filter((n) => known.has(n));
+  const trim = (s) => s.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+  const w = trim(String(want || "all").trim().toLowerCase());
+  if (!w || w === "all") return cases.map((c) => c.name);
+  const names = [...new Set(w.split(/[\s,;]+/).map(trim).filter(Boolean))];
+  const known = cases.map((c) => c.name);
+  const strangers = names.filter((n) => !known.includes(n));
+  if (strangers.length) throw new Error(`not a case: ${strangers.map((s) => `"${s}"`).join(", ")} — the cases are ${known.join(", ")}`);
+  return names;
 }
 
 // ── A BROWSER, IF THERE IS ONE ─────────────────────────────────────────────
@@ -299,7 +308,10 @@ async function renderText(url) {
 async function main() {
   if (!confirmed(process.env.SWEEP_CONFIRM)) { console.error("SWEEP_CONFIRM must be the word `spend` — this harness costs real credits on live sites."); process.exit(1); }
   if (!EMAIL || !SERVICE_KEY) { console.error("OWNER_EMAIL and SUPABASE_SERVICE_KEY are required"); process.exit(1); }
-  const names = chooseCases(WANT, CASES);
+  // A stranger in the list refuses HERE, before the sign-in: nothing spent,
+  // and the log says which name was wrong.
+  let names;
+  try { names = chooseCases(WANT, CASES); } catch (e) { console.error(String(e && e.message)); process.exit(1); }
   if (!names.length) { console.error("no cases selected"); process.exit(1); }
 
   const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };
