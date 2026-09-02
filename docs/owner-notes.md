@@ -1381,6 +1381,15 @@ says:
 tsx and three as edits, action with the link named, the addon step on a
 database-less site. All of that needs the Grok top-up first.
 
+The harness's `action` ask now names the link as well as the words —
+"Change the button at the top to say 'Book a free lesson' and make it ring
+0114 496 0123" — and passes only with both on the header's button, in any
+of the ways a model writes a UK number. That is the ask that puts the dial
+link back after run 11 sent it to `/`.
+
+Next run, after the top-up: lanes `action,tsx,three,kind,slug`, budget
+120, from `main`, at least 20 minutes after the last push.
+
 None of this is proven on the site yet; that is the run you are about to
 dispatch: wordmark, behavior, qr, action, tsx, then kind and slug, the two
 you named. In the workflow form: harness `lane`, lanes

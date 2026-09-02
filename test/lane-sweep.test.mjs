@@ -239,13 +239,20 @@ test("the action check wants the words changed AND the link kept, read off the h
   // working control - and the check, reading a `site-link` slot the new
   // anchor no longer carried, called it a lie for the wrong reason.
   const c = CASES.find((x) => x.lane === "action");
-  const b = { cta: { text: "Your first lesson is free", href: "tel:+441144960123" } };
-  assert.equal(c.check(b, { cta: { text: "Book a free lesson", href: "tel:+441144960123" } }, {}).ok, true, "the right words on the kept link is not a pass");
+  // THE ASK NAMES THE LINK (run 12: the words alone were "already so" and the
+  // link stayed "/"), so the pass is the words AND a dial link to the number,
+  // whichever way the model spells a UK number.
+  assert.match(c.ask, /0114 496 0123/, "the ask does not name the number the button must ring");
+  const b = { cta: { text: "Your first lesson is free", href: "/" } };
+  for (const href of ["tel:+441144960123", "tel:01144960123", "tel:+44 114 496 0123", "tel:0114 496 0123", "tel:+44-114-496-0123"]) {
+    assert.equal(c.check(b, { cta: { text: "Book a free lesson", href } }, {}).ok, true, "the right words on the dial link " + href + " is not a pass");
+  }
   const lost = c.check(b, { cta: { text: "Book a free lesson", href: "/" } }, {});
-  assert.equal(lost.ok, false, "the right words on a LOST link passes");
-  assert.match(lost.note, /WAS tel:\+441144960123/, "the note does not say which link was lost");
+  assert.equal(lost.ok, false, "the right words on a link to the page itself passes");
+  assert.match(lost.note, /NOT the dial link/, "the note does not say the link is wrong");
   assert.equal(c.check(b, { cta: { text: "Your first lesson is free", href: "tel:+441144960123" } }, {}).ok, false, "unchanged words pass");
-  assert.equal(c.check({ cta: { text: "", href: "" } }, { cta: { text: "Book a free lesson", href: "/" } }, {}).ok, false, "a site with no button before is judged as if it had one");
+  assert.equal(c.check(b, { cta: { text: "Book a free lesson", href: "tel:+441144960124" } }, {}).ok, false, "a dial link to a different number passes");
+  assert.equal(c.check({ cta: { text: "", href: "" } }, { cta: { text: "", href: "" } }, {}).ok, false, "a site with no button passes");
   // The snapshot reads the header's last non-language anchor, by position.
   const src = readFileSync(new URL("../scripts/lane-sweep.mjs", import.meta.url), "utf8");
   const cta = src.indexOf("cta: (() => {");

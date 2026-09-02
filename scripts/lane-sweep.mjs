@@ -267,18 +267,22 @@ export const CASES = [
       const captioned = /Scan to ring and book/.test(a.html);
       return { ok: m.ok && shown && captioned, note: (m.ok ? `QR decodes to ${m.text}` : `QR served but ${m.why}`) + (shown ? "; page shows it" : "; PAGE DOES NOT REFERENCE IT") + (captioned ? "; new caption on the page" : "; CAPTION UNCHANGED") };
     } },
-  { lane: "action", ask: 'Change the button at the top to say "Book a free lesson"',
-    // BOTH HALVES: the words changed AND the link kept. The seventh sweep's
-    // rung changed the words and sent the button from `tel:+441144960123` to
-    // "/" — the page's one control became a link to itself, on a request about
-    // wording — and the old check, reading a `site-link` slot the new anchor
-    // no longer carried, called it a lie for the wrong reason. Judged on the
-    // header's call-to-action by text, with the before-snapshot's href as the
-    // link that must survive.
-    check: (b, a) => ({
-      ok: /Book a free lesson/i.test(a.cta.text) && !!b.cta.href && a.cta.href === b.cta.href,
-      note: `button "${a.cta.text}" -> ${a.cta.href}${a.cta.href !== b.cta.href ? ` (WAS ${b.cta.href || "nothing"} — the link was not kept)` : ""}`,
-    }) },
+  // BOTH HALVES NAMED. The seventh sweep's rung changed the words and sent
+  // the button from `tel:+441144960123` to "/" (the digest had called a
+  // computed button absent — fixed), and run 12's ask about the words alone
+  // was honestly "already so" with the link still "/". So this ask names the
+  // link as well, and the check reads both off the header's call-to-action:
+  // the words asked for AND a dial link to that number, in any of the
+  // spellings a model writes a UK number in.
+  { lane: "action", ask: 'Change the button at the top to say "Book a free lesson" and make it ring 0114 496 0123',
+    check: (b, a) => {
+      const href = String((a.cta && a.cta.href) || "");
+      const dials = /^tel:(\+44|0)\s?114\s?496\s?0123$/i.test(href.replace(/[\s()-]/g, "").replace(/^tel:\+44\s?0/i, "tel:+44"));
+      return {
+        ok: /Book a free lesson/i.test(a.cta.text) && dials,
+        note: `button "${a.cta.text}" -> ${href || "nothing"}${dials ? "" : " (NOT the dial link)"}${b.cta && b.cta.href !== href ? ` (was ${b.cta.href || "nothing"})` : ""}`,
+      };
+    } },
   { lane: "images", ask: "Change the main photo to a close-up of a hand pressing a chord on a guitar fretboard",
     check: (b, a) => ({ ok: a.heroAlt && a.heroAlt !== b.heroAlt && /fretboard|chord|hand/i.test(a.heroAlt), note: `alt "${a.heroAlt.slice(0, 90)}"` }) },
   { lane: "backend", ask: "Only let signed-in members see the price list",
