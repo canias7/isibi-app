@@ -112,7 +112,25 @@ console.log("first event, raw:", JSON.stringify(evs[0]).slice(0, 700));
 console.log("---");
 const rows = evs.map((e) => {
   const m = (e && e.$metadata) || {};
+  const w = (e && e.$workers) || {};
   const ts = Number(e && (e.timestamp || m.timestamp)) || 0;
-  return { ts, line: `${ts ? new Date(ts).toISOString() : "?"} [${m.service || "?"}${m.origin ? "/" + m.origin : ""}] ${String(m.message || m.error || JSON.stringify(e).slice(0, 200)).slice(0, 400)}` };
+  // THE OUTCOME, WHEN IT IS NOT "ok" (2026-09-02, run 17). A queue consumer
+  // died mid-call with no line of its own: the message stream shows the
+  // compile going out at 17:39:56 and then nothing until the sweeper four
+  // minutes later. What Cloudflare records for a killed invocation —
+  // exceededCpu, exceededMemory, exception, canceled — lives on
+  // `$workers.outcome`, not in any message, so it is printed beside the line
+  // and tallied below. `ok` is the noise and stays silent.
+  const oc = typeof w.outcome === "string" ? w.outcome : "";
+  const tag = oc && oc !== "ok"
+    ? ` !! ${oc}${w.eventType ? " " + w.eventType : ""}${Number.isFinite(Number(w.cpuTimeMs)) ? " cpu=" + w.cpuTimeMs + "ms" : ""}${Number.isFinite(Number(w.wallTimeMs)) ? " wall=" + w.wallTimeMs + "ms" : ""}`
+    : "";
+  return { ts, oc, line: `${ts ? new Date(ts).toISOString() : "?"} [${m.service || "?"}${m.origin ? "/" + m.origin : ""}] ${String(m.message || m.error || JSON.stringify(e).slice(0, 200)).slice(0, 400)}${tag}` };
 }).sort((a, b) => a.ts - b.ts);
 for (const row of rows) console.log(row.line);
+// THE TALLY — the line to read first when a job vanished: every outcome in
+// the window that was not "ok", with its count.
+const tally = {};
+for (const r of rows) if (r.oc && r.oc !== "ok") tally[r.oc] = (tally[r.oc] || 0) + 1;
+console.log("---");
+console.log("outcomes other than ok:", Object.keys(tally).length ? JSON.stringify(tally) : "none in this window");

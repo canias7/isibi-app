@@ -1561,5 +1561,7 @@ again until the sweeper's own line at 17:44:18 ("lost 1, refunded 1").
 No error, no exception, no last words — the isolate died silently
 mid-call. The log the script prints carries only messages; the outcome
 Cloudflare records for a killed invocation (CPU limit, memory, cancel)
-is a separate field it does not print yet. That is task 52's next step
-and needs no run from you.
+is a separate field it did not print. It does now — beside each line, and
+tallied at the end — so one more press of "container logs" before 16:39
+your time (the default window is three hours back) names the killed
+invocation, if Cloudflare recorded one.

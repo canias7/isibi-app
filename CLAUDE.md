@@ -886,9 +886,11 @@ what the work cost.
   container instance booted at 17:39:51, the consumer POSTed the compile at
   17:39:56, the heartbeat ran 41 s more, then NOTHING from our code until
   the sweeper at 17:44:18 — no error, no exception. A silent isolate death
-  mid-call; `container-logs.mjs` prints messages only, and the outcome
-  Cloudflare records for a killed invocation (CPU, memory, cancel) is the
-  next read. The harness said `failed` and the run
+  mid-call. `container-logs.mjs` printed messages only; it now prints the
+  outcome Cloudflare records for a killed invocation (`$workers.outcome`:
+  exceededCpu, exceededMemory, exception, canceled) beside each line and
+  tallies them — the next press of the button, inside the 3-hour default
+  window, is the read. The harness said `failed` and the run
   ended GREEN (fixed: `failed` is red). **And the canonical at the new address
   still named the old one, which the lost publish did not cause** — see the
   rename section: both hops were missing, and the harness's check read the
