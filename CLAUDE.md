@@ -831,6 +831,15 @@ what the work cost.
   billing (on us, never "try again") and reads xAI's credit wording; every
   caller passes the status, guarded. Sweep 11/11, control survived.
   `kind`/`slug` never run under `all`. **Grok top-up before the next run.**
+  **RUN 13 (2026-09-02 15:22, after the top-up, `action,tsx,three,kind,slug`,
+  238 → 237):** `action` **PROVEN with both halves** — "Book a free lesson",
+  ringing `tel:0114 496 0123` (`docs/edits/17-*`) — and the harness then
+  called it a LIE ten seconds after the publish: **a probe without the
+  `x-site-build` header has an empty id, "" is never equal to the old id,
+  the edge wait broke at once, and the snapshot read the old build.** Third
+  edge false alarm; fixed at both ends (a real, differing id ends the wait;
+  the snapshot is re-taken until it shows that id). The product was right
+  every time. Re-dispatch `tsx,three,kind,slug`.
   **Not one lie from the
   product**; every "LIE" the harness printed was the harness (an edge race, an
   inline-svg assumption, an og:locale count) and each is now a case in

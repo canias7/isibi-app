@@ -158,8 +158,11 @@ test("a claimed success waits for the edge before the site is judged", () => {
   // reported the wait as gone for a change that had not touched it.
   const reply = src.indexOf("body = (reply && reply.json) || {};");
   const start = src.indexOf("const t1 = Date.now();");
-  const wait = src.indexOf('(probe.headers.get("x-site-build") || "") !== before.build');
-  const snap = src.indexOf("const after = await snapshot();");
+  // The probe's id is read into a value since run 13 (a missing id must not
+  // count as a moved one), and the snapshot is a `let` because it can be
+  // re-taken; both spellings moved for that reason.
+  const wait = src.indexOf('const id = probe.headers.get("x-site-build") || "";');
+  const snap = src.indexOf("let after = await snapshot();");
   assert.ok(reply > 0 && start > 0 && wait > 0 && snap > 0, "a landmark is gone");
   assert.ok(reply < start && start < wait && wait < snap, "the edge wait does not sit between the reply and the snapshot");
   // THE CONDITION THAT OPENS THE WAIT, taken from the `if (` that closes on
@@ -176,6 +179,18 @@ test("a claimed success waits for the edge before the site is judged", () => {
   assert.match(gate, /body\.hopped === "build"/, "a followed rebuild is judged before the edge serves it");
   assert.match(gate, /c\.newSlug/, "a rename is judged before the edge serves the republished head");
   assert.match(src.slice(start, wait), /90000|60000|75000/, "the wait is unbounded");
+  // A MISSING ID IS NOT A MOVED ID (run 13, 2026-09-02): one probe without
+  // the header broke the wait at once and the snapshot read the old build,
+  // so a correct edit was called a lie. The break needs a real id that
+  // differs, and the snapshot that follows must show that id or be re-taken.
+  const brk = src.slice(wait, src.indexOf("break;", wait));
+  assert.match(brk, /^const id = probe\.headers\.get\("x-site-build"\) \|\| "";/, "the probe's id is not read into a value");
+  const loopBody = src.slice(start, snap);
+  assert.match(loopBody, /if \(id && id !== before\.build\) \{ seen = id; break; \}/, "the wait breaks on an empty id, or does not record the id it saw");
+  const retake = src.slice(snap, src.indexOf("const claimedOk", snap));
+  assert.match(retake, /after\.build !== seen/, "a snapshot from an edge still on the old script is not re-taken");
+  assert.match(retake, /after = await snapshot\(\)/, "the re-take does not replace the snapshot");
+  assert.match(retake, /i < \d/, "the re-take is unbounded");
 });
 
 test("the wordmark check reads the served mark's own bytes, since the brand link already carries one", () => {
@@ -227,7 +242,8 @@ test("the runner follows kind to the rebuild route only on that escalate, and re
   assert.match(src.slice(watch, watch + 400), /q\.status !== 202/, "the watch does not read 202 as pending");
   assert.match(src.slice(watch, watch + 900), /hopped: "build"/, "the rebuild's answer is not marked as the hop's");
   // The snapshot is taken AFTER the hop, so the site read is the rebuilt one.
-  assert.ok(src.indexOf("const after = await snapshot();") > watch, "the site is read before the rebuild finishes");
+  // (`let`, since run 13: a snapshot from a stale edge is re-taken.)
+  assert.ok(src.indexOf("let after = await snapshot();") > watch, "the site is read before the rebuild finishes");
   const both = src.indexOf("if (c.newSlug) {");
   assert.ok(both > 0 && src.indexOf("extra.oldLocation", both) > both, "the rename is not read off both addresses");
   assert.match(src.slice(both, both + 600), /redirect: "manual"/, "the old address is followed, so its 301 can never be seen");

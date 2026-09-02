@@ -441,15 +441,28 @@ async function main() {
     // neither, only `files`. The seventh sweep read `qr` and `action` before
     // the edge had the new build, because the wait was gated on `moved` alone,
     // and called a placed code "already so" and a changed button a lie.
+    // A MISSING ID IS NOT A MOVED ID. Run 13 (2026-09-02) called a correct
+    // `action` edit a lie ten seconds after it published: one probe came back
+    // without the header (a failed fetch, or an edge mid-swap), "" is never
+    // equal to the old id, the wait broke at once, and the snapshot read the
+    // old build. The break needs a REAL id that differs — and the snapshot
+    // that follows must show that same id, or it is re-taken: two requests a
+    // second apart can land on two edges, one still on the previous script.
+    let seen = "";
     if (body.ok === true && ((Array.isArray(body.moved) && body.moved.length) || (Array.isArray(body.changed) && body.changed.length) || Number(body.files) > 0 || body.hopped === "build" || c.newSlug)) {
       const t1 = Date.now();
       while (Date.now() - t1 < 90000) {
         const probe = await site("/");
-        if ((probe.headers.get("x-site-build") || "") !== before.build) break;
+        const id = probe.headers.get("x-site-build") || "";
+        if (id && id !== before.build) { seen = id; break; }
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
-    const after = await snapshot();
+    let after = await snapshot();
+    for (let i = 0; seen && after.build !== seen && i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      after = await snapshot();
+    }
     // THE RENAME'S EVIDENCE: both addresses, read plainly.
     if (c.newSlug) {
       const nu = await fetch(`https://${c.newSlug}.gofarther.app/`, { redirect: "manual" }).catch(() => null);

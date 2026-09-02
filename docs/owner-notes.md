@@ -1390,6 +1390,27 @@ link back after run 11 sent it to `/`.
 Next run, after the top-up: lanes `action,tsx,three,kind,slug`, budget
 120, from `main`, at least 20 minutes after the last push.
 
+## 2026-09-02 — Run 13: action proven, then the harness tripped on the edge again
+
+You topped up Grok and ran at 15:22. **`action` is proven on the site**
+(screenshot 17): "Book a free lesson", ringing `tel:0114 496 0123` — the
+link run 11 lost is back, on one ask that named both halves. 1 credit,
+238 → 237.
+
+Then the harness called it a lie and stopped, ten seconds after the
+publish, with the build id unmoved and the button still pointing at `/`.
+That was a stale read, not the site: the wait for the edge breaks when a
+probe's build id differs from the old one, and a probe that comes back
+WITHOUT the header (a failed fetch, or an edge mid-swap) has an empty id,
+which is never equal to the old one. So one bad probe ended the wait at
+once and the snapshot read the old build. Third time the edge has fooled
+the harness; this one is fixed at both ends — the break needs a real id
+that differs, and the snapshot that follows is re-taken until it shows
+that same id (bounded, thirty seconds). The site was right every time.
+
+`tsx`, `three`, `kind`, `slug` did not run. Re-dispatch with lanes
+`tsx,three,kind,slug` once the container has rolled from this push.
+
 None of this is proven on the site yet; that is the run you are about to
 dispatch: wordmark, behavior, qr, action, tsx, then kind and slug, the two
 you named. In the workflow form: harness `lane`, lanes
