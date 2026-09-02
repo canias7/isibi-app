@@ -1,0 +1,49 @@
+{
+  "at": "2026-09-02T02:55:00.778Z",
+  "start": 258,
+  "end": 255,
+  "results": [
+    {
+      "name": "text",
+      "slug": "fretwork-1",
+      "via": "route",
+      "judged": "site",
+      "verdict": "ok",
+      "note": "\"Your first lesson is free\" present; old phrase 4→0",
+      "cost": 3,
+      "wall": 164,
+      "job": "db350685a52a3e5972d10b05f0bee815",
+      "state": "done",
+      "billing": "finalized",
+      "build": "mtji10f7-tn9b67",
+      "layer": "text",
+      "routed": {
+        "intent": "edit",
+        "layer": "text",
+        "page": "",
+        "cost": 2
+      },
+      "shots": [
+        "docs/edits/gap-01-text.png"
+      ]
+    },
+    {
+      "name": "logo",
+      "slug": "fretwork-1",
+      "via": "logo",
+      "judged": "site",
+      "verdict": "failed",
+      "note": "422 compile — unbilled",
+      "cost": 0,
+      "wall": 112,
+      "job": "52c4d824e3a1630d1b79d2390b14d7e3",
+      "state": "failed",
+      "billing": "none",
+      "build": "mtji10f7-tn9b67",
+      "layer": "",
+      "shots": [
+        "docs/edits/gap-02-logo.png"
+      ]
+    }
+  ]
+}
