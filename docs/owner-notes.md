@@ -1413,7 +1413,7 @@ that same id (bounded, thirty seconds). The site was right every time.
 
 ## 2026-09-02 — Run 14: tsx and three proven, then my own check tripped
 
-You ran at 15:53. 238 → 226.
+You ran at 15:53. 237 → 225, read from the ledger: 8 for tsx, 4 for three.
 
 - **tsx — PROVEN as an edit of the page's own code** (screenshot 18). The
   word "Fingering" now sits above every one of the eight chord diagrams.
