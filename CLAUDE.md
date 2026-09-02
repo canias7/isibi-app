@@ -882,8 +882,13 @@ what the work cost.
   **LOST**: the consumer's heartbeat stopped at 17:40:37, inside the
   container's roll window, the lease expired at 17:42:07 and `edit_sweep_lost`
   refunded the 1 credit at 17:44:17; no trace row, `publish_started_at` null,
-  phase still `routing` (task #52 — the Worker's log is the only witness,
-  `container logs` pressed by hand). The harness said `failed` and the run
+  phase still `routing` (task #52). **The Worker's log, read by hand**: a
+  container instance booted at 17:39:51, the consumer POSTed the compile at
+  17:39:56, the heartbeat ran 41 s more, then NOTHING from our code until
+  the sweeper at 17:44:18 — no error, no exception. A silent isolate death
+  mid-call; `container-logs.mjs` prints messages only, and the outcome
+  Cloudflare records for a killed invocation (CPU, memory, cancel) is the
+  next read. The harness said `failed` and the run
   ended GREEN (fixed: `failed` is red). **And the canonical at the new address
   still named the old one, which the lost publish did not cause** — see the
   rename section: both hops were missing, and the harness's check read the
@@ -893,6 +898,13 @@ what the work cost.
   keeps `site: fretwork-1`, the storage slug the API keys on. The live head is
   corrected by a free platform republish (`site_rebuild` row, no model call)
   once the deploy carrying `publicUrlFor` is on.
+  **RUN 18 (18:22, `slug` alone):** the harness flipped the target to
+  `fretwork-1` and the lane refused it in 13 s as *taken by another site*
+  — the storage slug IS a site, this one, and the site check did not know
+  whose. Fixed (`wanted === ownerSlug` skips the site check; the alias check
+  already read that row as the site's own), refunded, and the run was RED —
+  the first `failed` to show as one. **A rename touches no container now**,
+  so the re-run needs only the Worker deploy, not the roll.
   **Not one lie from the
   product**; every "LIE" the harness printed was the harness (an edge race, an
   inline-svg assumption, an og:locale count) and each is now a case in

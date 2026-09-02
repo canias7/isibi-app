@@ -1534,3 +1534,32 @@ Sweep for this change: 13 mutants, 13 killed, comment-only control survived
 — after a first pass in which the control never applied (I had anchored it
 as a line comment on a block comment), which is a sweep with no control.
 Suite 4,805 green.
+
+## 2026-09-02 — Run 18: the way back was refused as "taken"
+
+You ran `slug` again at 14:22, before I had said go, and the harness did
+what it now should: it saw the site at crookes-guitar and asked for the
+way back to fretwork-1. The lane refused in 13 seconds — "That name is
+already taken by another site." The site check asked "is fretwork-1 a
+site?", and it is: this one. The alias check beside it already knew the
+row for that name belongs to this site; only the site check needed
+telling. Fixed: a site's own storage name is never taken from it, driven
+in the guard (the rows demote the alias and promote the storage name,
+the head follows the site back, nothing compiles). 1 credit reserved and
+refunded, balance 208. The run went red, which is right — `failed` is
+red now, and this is the first run to show it.
+
+Once this deploy is on, the same `slug` run renames the site back and
+checks the head as well as the addresses. A rename no longer touches the
+container, so no waiting on the roll: about four minutes after the push.
+
+**What your "container logs" click showed about run 17's lost job.** At
+17:39:51 a container instance booted; at 17:39:56 the consumer sent it
+the compile (the republish the old rename lane made); the heartbeat
+carried on for 41 seconds; and then nothing from our code was logged
+again until the sweeper's own line at 17:44:18 ("lost 1, refunded 1").
+No error, no exception, no last words — the isolate died silently
+mid-call. The log the script prints carries only messages; the outcome
+Cloudflare records for a killed invocation (CPU limit, memory, cancel)
+is a separate field it does not print yet. That is task 52's next step
+and needs no run from you.

@@ -19547,7 +19547,14 @@ async function handleRequest(request, env, ctx) {
               // TAKEN MEANS EITHER: a site built under that slug, or a name
               // another site has ever answered to. Both are real conflicts — the
               // second is the whole reason old names stay claimed.
-              const takenBySite = await siteOwnerBySlug(wanted, env);
+              // A SITE MAY RETURN TO ITS OWN STORAGE NAME (run 18, 2026-09-02).
+              // The storage slug is a site on the platform — this one — and
+              // asking "is that name a site?" answered yes and refused the way
+              // back as "taken by another site". It is taken by nobody else:
+              // the alias row for it, written when the site left, carries this
+              // site's own slug, which the alias check below already reads as
+              // no conflict. Only the site check needed telling.
+              const takenBySite = wanted === ownerSlug ? null : await siteOwnerBySlug(wanted, env);
               const takenByAlias = await aliasRowFor(env, wanted);
               const aliasConflict = takenByAlias && takenByAlias !== NO_ALIAS && takenByAlias.slug !== ownerSlug;
               // A LOOKUP WE COULD NOT MAKE IS NOT A FREE NAME. `aliasRowFor`

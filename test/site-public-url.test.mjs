@@ -142,6 +142,31 @@ test("a rename patches the head's origin in R2 and compiles nothing", async () =
   } finally { c.uninstall(); }
 });
 
+test("a site may return to its own storage name, and the head follows it back", async () => {
+  // RUN 18 (2026-09-02): the harness asked crookes-guitar back to fretwork-1
+  // and the lane answered "That name is already taken by another site" —
+  // the storage slug is a site, this one, and the site check did not know
+  // whose. The way back is the one rename that can never conflict.
+  const slug = "pub-url-back";
+  const c = installCompiler();
+  try {
+    await withWire({ answers: { [RENAME_TOOL.name]: { name: slug } }, current: [{ alias: "sunset-shoes" }] }, async ({ aliasWrites }) => {
+      const store = bucket(slug);
+      // The sidecar as the rename left it: naming the alias the site is at now.
+      store.store.set(siteMetaKey(slug), JSON.stringify({ description: "A stationer.", image: "", origin: addressOf("sunset-shoes"), routesCsv: "/", redirectsCsv: "", verify: [] }));
+      const { status, body } = await edit(slug, `Change the site address back to "${slug}"`, { store, layer: "rename" });
+      assert.equal(status, 200, "the way back to the storage name was refused: " + JSON.stringify(body));
+      assert.equal(body && body.url, addressOf(slug), "the reply's address is not the storage name: " + JSON.stringify(body));
+      assert.deepEqual(aliasWrites.map((r) => r && [r.alias, r.current]), [["sunset-shoes", false], [slug, true]],
+        "the rows did not demote the alias and promote the storage name: " + JSON.stringify(aliasWrites));
+      const side = sidecarWritten(store, slug);
+      assert.ok(side, "the way back never wrote the sidecar");
+      assert.equal(side.origin, addressOf(slug), "the head did not follow the site back: " + side.origin);
+      assert.equal(c.calls.length, 0, "the way back compiled");
+    });
+  } finally { c.uninstall(); }
+});
+
 test("every later publish keeps the new address: the spine asks the alias table", async () => {
   // A site renamed to sunset-shoes, then a colour change: the sidecar the
   // publish rewrites whole must carry the NEW address, or the first edit after

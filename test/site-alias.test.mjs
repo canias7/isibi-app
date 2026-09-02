@@ -189,6 +189,13 @@ test("THE CHAIN — resolution sits before the rewrite, and a rename republishes
   // hop 3: a name is not free just because we could not check. Handing one out
   // on a failed lookup is how two sites end up sharing an address.
   assert.match(w, /takenByAlias === null/, "a failed alias lookup reads as a free name");
+  // …AND A SITE'S OWN STORAGE NAME IS NEVER TAKEN FROM IT (run 18, 2026-09-02:
+  // the way back from crookes-guitar to fretwork-1 was refused as "taken by
+  // another site", because the storage slug IS a site — this one). The site
+  // check is skipped for the site's own slug; test/site-public-url.test.mjs
+  // drives the way back and reads the rows and the head.
+  assert.match(w, /wanted === ownerSlug \? null : await siteOwnerBySlug\(wanted, env\)/,
+    "the site check does not exempt the site's own storage name, so a rename cannot be undone");
 
   // hop 4: THE HEAD FOLLOWS THE ADDRESS WITHOUT A COMPILE. The canonical link
   // and og:url are read per request out of the R2 sidecar's `origin`; the
