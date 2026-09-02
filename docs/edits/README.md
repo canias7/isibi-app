@@ -31,4 +31,6 @@ disables the reveal first, so every section shows.
 
 | 10 | 2026-09-02 01:53 | sweep six (the whole lane sweep again, run 8, dispatched on the lane harness by mistake): every look lane answered "already looks like that" for 1 credit and published nothing; `tsx` → the six string names E A D G B E in a row under the hero, via the page rung. On sweep five this lane died because the model wrote a separate part file the edit path never sent; this time it kept the component in the page. Cost 7. | `11-sweep8-tsx.png` |
 
+| 11 | 2026-09-02 02:52 | the gap sweep (run 10, harness `gap`): `text` → "change the words 'Get your first lesson free' to 'Your first lesson is free'", sent through the real intent router, which picked the `text` rung. All four occurrences changed (header button, hero button, closing band, footer), published in 2.5 minutes. Cost 3: routing 2, the rung 1. | `12-gap-text.png` |
+
 `pages` ("Add a pricing page") ended sweep five: the verb lane read `add` and pointed at the addon route, which the queue does not run — cost 0, site untouched, so there is no screenshot. `slug` and `kind` have not run; both are held back until the owner names them.
