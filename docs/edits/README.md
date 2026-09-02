@@ -36,4 +36,6 @@ disables the reveal first, so every section shows.
 
 | 12 | 2026-09-02 02:54 | the gap sweep (run 10): `logo` → "use this picture as the logo in the header", with a striped test PNG attached. **The site did not change, and not for the reason the reply gave.** The lane stored the upload and the container compiled fine (23 files), then the queue's publish gate refused: the logo lane makes no model call, so no reserve was ever placed and the job's billing stayed `none`, which `edit_may_publish` reads as `unbilled`. The customer was told "That didn't compile". Cost 0. Filed. The picture is the unchanged site, kept by the runner. | `gap-02-logo.png` |
 
+| 13 | 2026-09-02 | the tab icon the `favicon` lane drew, read from the live site: a dark green circle with a white G. Kept here because a page capture cannot show it. | `13-favicon-green-g.svg` |
+
 `pages` ("Add a pricing page") ended sweep five: the verb lane read `add` and pointed at the addon route, which the queue does not run — cost 0, site untouched, so there is no screenshot. `slug` and `kind` have not run; both are held back until the owner names them.
