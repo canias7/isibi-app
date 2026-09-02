@@ -1636,7 +1636,9 @@ checker while never re-running the harness that actually proves the change has
 shipped red twice.
 
 **`unit tests` WAS RED ON EVERY PUSH TO MAIN FOR A DAY AND NOBODY READ IT
-(2026-09-02, four runs).** The `action` lane's corpus guard
+(2026-09-02, FIFTEEN runs, 12:25Z to 20:20Z — the fix's own commit message
+says four, which was the count before the whole history was read).** The
+`action` lane's corpus guard
 (`test/site-nav.test.mjs`, "applyAction over the whole corpus never writes a
 page TypeScript cannot parse") required the KIT's TypeScript — resolved from
 `builder/lovable/template/` — and CI's `npm ci` installs the ROOT's

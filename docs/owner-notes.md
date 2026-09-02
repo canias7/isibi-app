@@ -1703,7 +1703,8 @@ binds it.
 
 **And a red I found by reading CI after the push, which was not this
 change.** The `unit tests` workflow has failed on every push to main today —
-four runs — because one guard written this morning (the one that drives the
+fifteen runs, from 12:25 to 20:20 UTC (I first wrote "four", having read
+only the last page of runs) — because one guard written this morning (the one that drives the
 button-writer over the whole page corpus and parses every result) needed a
 copy of TypeScript that only exists where the kit is installed, and the CI
 runner never installs the kit. Green here every time, red there every time,
