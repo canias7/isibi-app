@@ -1105,3 +1105,47 @@ last three sweeps were dispatched from `main` and ran the old harness, which
 is why they called two working lanes lies. Merge the branch (it rolls the
 container; wait fifteen to twenty minutes before the next run) or dispatch
 from the branch. And say the word if you want `slug` or `kind` run.
+
+## 2026-09-02 — The whole sweep again by accident, then text and logo
+
+Three runs tonight, and the record of each.
+
+**Run 8 was the entire lane sweep a second time** — the harness box on the
+form was left at its default. You said wait for it, so it ran: nineteen
+lanes in nineteen minutes, 16 credits. It turned out to be a measurement
+worth having. Every look lane answered *"your site already looks like
+that"* for one credit and published nothing; the page-rung lanes escalated
+no-change for nothing. Asking twice costs almost nothing and changes
+nothing, which is how it should be. And `tsx` passed this time (the six
+string names under the hero): the model kept the component inside the page
+instead of writing a separate file the edit path never sends. One for two,
+and the task card for it stands.
+
+**Run 9 died on a space.** The harness box came through as `gap ` and the
+workflow compared the raw text — the confirm word's own trap from yesterday,
+one box over. Nothing spent. The workflow now reads the word trimmed and
+lowercased, and the guard drives that line under bash for real.
+
+**Run 10 was the gap sweep, text and logo, as you asked.**
+
+- **text works.** "Change the words *Get your first lesson free* to *Your
+  first lesson is free*" went through the real intent router, which picked
+  the text rung; all four places changed and the site published in two and a
+  half minutes. Three credits: two for routing, one for the rung.
+- **logo does not, and the reason is new.** The upload landed and the
+  container compiled the site — 23 files, status 200 — and then the queue's
+  own publish gate refused it. That gate lets a job publish only when it has
+  been billed or exempted, and the logo lane makes no model call, so nothing
+  ever billed it. Worse, the customer was told *"That didn't compile"*. The
+  same gate will refuse any free rung sent through the queue: taking a page
+  away and moving a page are also model-free. On a site that is not on the
+  allowlist the identical edit works, because the synchronous path has no
+  gate. Filed as a task card with the fix: mark the job exempt when its rung
+  spent nothing, rather than loosening the gate.
+
+Balance 274 → 255 across the three runs. Screenshots of every edit are in
+`docs/edits/`, rows 10 to 12.
+
+**Not run tonight, written and ready** in the same harness: cancel, move and
+move-back, remove, data, rules, backend — the last six on the lido cafe.
+Name them in the lanes box with `harness: gap` whenever you want them.

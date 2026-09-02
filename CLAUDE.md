@@ -728,8 +728,35 @@ what the work cost.
   credits**; sweep five alone (11 lanes, 26 minutes) 296 → 274. The harness
   fixes live on branch `claude/help-needed-ehlwlj`; a dispatch from `main` runs
   the old harness (done three times), so merge or dispatch from the branch.
-- **Balance: 274 credits** (read from the ledger 2026-09-02 00:16, after sweep
-  five). It was **0** on 08-29;
+  **Merged to main 2026-09-02 01:31.**
+- **THE GAP SWEEP (2026-09-02, `scripts/gap-sweep.mjs`, behind the
+  `harness: gap` input of `lane-sweep.yml` — one workflow file, because GitHub
+  lists only workflows that exist on the default branch; the harness word is
+  read trimmed and lowercased after run 9 died on `gap `).** The rungs no lane
+  reaches, on the EDIT PATH only (owner: *"IM TALKING ABOUT THE EDIT PATH, NOT
+  THE ADDON"*). Owner narrowed it to two cases; the others (cancel, move,
+  move-back, remove, data, rules, backend, the last six on `the-lido-cafe`)
+  are written and unrun. **`text` PROVEN** (run 10): the intent router picked
+  `text` for a wording change, all four occurrences changed, published in
+  2.5 min, **3 credits (routing 2, rung 1)**. **`logo` CANNOT PUBLISH THROUGH
+  THE QUEUE**: the lane makes no model call, so the consumer never places a
+  reserve and `billing` stays `none`; `edit_may_publish` grants only
+  `reserved` or `exempt`, answered `unbilled`, the spine returned
+  `not-granted`, and the lane's catch told the customer *"That didn't
+  compile"* — the container had compiled it (23 files, status 200). Filed.
+  **Every zero-cost rung queued will hit this gate** — `pages remove` and
+  `pages move` make no model call either. The synchronous path has no gate
+  (`if (job)`), so the identical edit works on a site off the allowlist.
+- **A SECOND FULL LANE SWEEP RAN BY MISTAKE (run 8, 2026-09-02 01:42, the
+  harness box left on `lane`)** and is the idempotence measurement: every look
+  lane answered *"already looks like that"* for 1 credit and published
+  nothing; theme and the four page-rung lanes escalated `no-change` for 0;
+  the four broken lanes failed identically and were refunded; **`tsx` passed
+  this time** (the model kept the component in the page instead of writing a
+  part file the edit path never sends — 1 for 2, the task card stands).
+  19 lanes, 19 minutes, 16 credits.
+- **Balance: 255 credits** (read from the ledger 2026-09-02 03:20, after run
+  10). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**
@@ -1256,6 +1283,21 @@ working. Billing follows the synchronous path: the reserve stands.
 **The general shape**: a state machine with a terminal state only for "shipped"
 and "failed" has no name for "answered, nothing to ship", and the nameless case
 falls to whichever sweeper finds it first.
+
+**A ZERO-COST RUNG CANNOT PUBLISH THROUGH THE QUEUE, AND THE REFUSAL WEARS
+THE COMPILE'S SENTENCE (2026-09-02, run 10, the logo lane).** The consumer
+reserves credits when a rung first reports model usage; a rung that makes no
+model call never does, so its job's `billing` stays `none`. `edit_may_publish`
+— the last check before anything is written — grants only `reserved` or
+`exempt`, so it answered `unbilled`, the spine returned `not-granted`, and the
+logo lane's own catch, written for a compile that failed, told the customer
+*"That didn't compile, so your site is untouched"* while the container had
+just compiled it. Two traps in one: a gate written for the paid rungs
+disqualifying the free one (the `look`/`logo` `no-backend` gate, one layer
+over), and a failure that cannot name itself — `detail: "unbilled"` was on
+the wire and the sentence collapsed it. The fix shape is to mark a job
+`exempt` before publishing when its rung spent nothing, not to loosen the
+gate: a job with no billing state is exactly what the gate exists to stop.
 
 **A PUSH TO MAIN ROLLS THE CONTAINER UNDER WHATEVER IS RUNNING (2026-09-01,
 the first lane sweep).** Two pushes that touched only `scripts/` and `test/`
