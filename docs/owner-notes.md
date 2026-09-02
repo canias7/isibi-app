@@ -1411,6 +1411,30 @@ that same id (bounded, thirty seconds). The site was right every time.
 `tsx`, `three`, `kind`, `slug` did not run. Re-dispatch with lanes
 `tsx,three,kind,slug` once the container has rolled from this push.
 
+## 2026-09-02 — Run 14: tsx and three proven, then my own check tripped
+
+You ran at 15:53. 238 → 226.
+
+- **tsx — PROVEN as an edit of the page's own code** (screenshot 18). The
+  word "Fingering" now sits above every one of the eight chord diagrams.
+  The page file came back byte-identical; only the component changed —
+  the exact case run 12 called "no change", fixed and now seen live. 8
+  credits.
+- **three — PUBLISHED, and the harness got it wrong.** "Make the pick
+  spin half as fast" went through as a component-only change too: 25
+  files, the canvas kept, the page file unchanged. My check for this lane
+  demanded a changed PAGE whenever the reply listed one, and a
+  component-only publish lists none, so it called a real publish a lie
+  and stopped the run. Fourth false alarm from the harness today, and this
+  one was mine to the letter: I had just taught the product that a
+  changed component is a change and not the harness. Fixed — any of the
+  three signs of a publish counts. Motion is not observable headless, so
+  there is no picture; the build id and the file count are the evidence.
+  4 credits.
+
+`kind` and `slug` did not run. Re-dispatch with lanes `kind,slug` once
+the container has rolled from this push.
+
 None of this is proven on the site yet; that is the run you are about to
 dispatch: wordmark, behavior, qr, action, tsx, then kind and slug, the two
 you named. In the workflow form: harness `lane`, lanes

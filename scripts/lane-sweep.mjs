@@ -306,9 +306,18 @@ export const CASES = [
   // AN EDIT OF THE SCENE THE SITE HAS (the 3D pick from sweep five). Motion is
   // not observable headless, so this reads the two things that are: the canvas
   // is still there, and the page's code moved on a real publish.
+  // A PART-ONLY CHANGE REPORTS `changed: []` AND `files: 25`. Run 14
+  // (2026-09-02) published the slower pick — the scene is a component, the
+  // page file came back byte-identical — and this check, keyed on the page
+  // list alone, called a real publish a lie and stopped the run. Any of the
+  // three signs of a publish counts, the same rule the edge wait uses.
   { lane: "three", ask: "Make the 3D guitar pick spin half as fast",
-    check: (b, a, r) => ({ ok: !!a.canvas && !!b.canvas && a.build !== b.build && (Array.isArray(r.changed) ? r.changed.length > 0 : a.html !== b.html),
-                           note: `canvas ${a.canvas ? "kept" : "GONE"}; ${Array.isArray(r.changed) ? "changed " + JSON.stringify(r.changed) : "html " + (a.html !== b.html ? "moved" : "unchanged")} (motion is not observable headless)` }) },
+    check: (b, a, r) => {
+      const changed = Array.isArray(r.changed) && r.changed.length > 0;
+      const shipped = changed || Number(r.files) > 0 || a.html !== b.html;
+      return { ok: !!a.canvas && !!b.canvas && a.build !== b.build && shipped,
+               note: `canvas ${a.canvas ? "kept" : "GONE"}; ${changed ? "changed " + JSON.stringify(r.changed) : Number(r.files) > 0 ? "files " + r.files + " (component only)" : "html " + (a.html !== b.html ? "moved" : "unchanged")} (motion is not observable headless)` };
+    } },
   { lane: "shape", ask: "Move the price list so it sits above the numbered steps",
     check: (b, a) => {
       const order = (s) => [s.slots.indexOf("price-list"), s.slots.indexOf("steps")];

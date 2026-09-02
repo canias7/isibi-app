@@ -291,6 +291,23 @@ test("a reply that shipped is never already-so, and the edge is waited for on an
   assert.match(gate, /body\.files/, "the edge wait ignores a reply that published files");
 });
 
+test("the three check accepts a component-only publish, and still refuses a scene that went or a build that did not move", () => {
+  // RUN 14 (2026-09-02): the slower pick published as a part-only change —
+  // `changed: []`, `files: 25`, the page byte-identical — and the check, keyed
+  // on the page list alone, called it a lie and stopped the run before kind
+  // and slug. Any of the three signs of a publish is a publish.
+  const c = CASES.find((x) => x.lane === "three");
+  const b = { canvas: true, build: "b1", html: "<html>x</html>" };
+  const a = { canvas: true, build: "b2", html: "<html>x</html>" };
+  assert.equal(c.check(b, a, { changed: [], files: 25 }).ok, true, "a component-only publish (files, no page listed) is refused");
+  assert.match(c.check(b, a, { changed: [], files: 25 }).note, /component only/, "the note does not say the change was in a component");
+  assert.equal(c.check(b, a, { changed: ["index.tsx"], files: 25 }).ok, true, "a page change is refused");
+  assert.equal(c.check(b, { ...a, html: "<html>y</html>" }, {}).ok, true, "a moved page with no reply fields is refused");
+  assert.equal(c.check(b, { ...a, canvas: false }, { changed: [], files: 25 }).ok, false, "a scene that went passes");
+  assert.equal(c.check(b, { ...a, build: "b1" }, { changed: [], files: 25 }).ok, false, "an unmoved build passes");
+  assert.equal(c.check(b, a, { changed: [], files: 0 }).ok, false, "nothing shipped and an unchanged page passes");
+});
+
 test("the qr check demands the page show the code, not only serve it", () => {
   // THE FIFTH SWEEP. /qr.svg decoded exactly to the payload asked for and the
   // page referenced it zero times: the lane bakes the file and nothing places

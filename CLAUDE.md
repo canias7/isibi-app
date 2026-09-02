@@ -840,6 +840,16 @@ what the work cost.
   edge false alarm; fixed at both ends (a real, differing id ends the wait;
   the snapshot is re-taken until it shows that id). The product was right
   every time. Re-dispatch `tsx,three,kind,slug`.
+  **RUN 14 (2026-09-02 15:53, `tsx,three,kind,slug`):** `tsx` **PROVEN as
+  an edit of the page's own code** — "Fingering" above all eight chord
+  diagrams, the page file byte-identical, only the component changed
+  (`docs/edits/18-*`, 8 credits); `three` **PUBLISHED** the same way (25
+  files, canvas kept, page unchanged, 4 credits) and **the harness's own
+  `three` check called it a lie** because it demanded a changed PAGE
+  whenever the reply listed one — a component-only publish lists none.
+  Fixed: any of `changed`/`files`/html-moved counts, the edge wait's own
+  rule. **The fourth harness false alarm of the day, and the product was
+  right in all four.** `kind`/`slug` did not run; re-dispatch `kind,slug`.
   **Not one lie from the
   product**; every "LIE" the harness printed was the harness (an edge race, an
   inline-svg assumption, an og:locale count) and each is now a case in

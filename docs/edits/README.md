@@ -48,4 +48,8 @@ Earlier in run 11: `wordmark` timed out on its Grok call (the 4-minute cap on a 
 
 | 17 | 2026-09-02 15:25 | run 13 (`action,tsx,three,kind,slug`, after the Grok top-up): `action` with both halves named — "Book a free lesson", ringing `tel:0114 496 0123`. The dial link run 11 sent to `/` is back, and the button renders as a `site-link` again. Cost 1. The harness then called this a lie off a stale read (one probe without the build header ended its edge wait at once) and stopped the run; the site was right, and the wait is fixed. | `17-sweep9-action-link.png` |
 
+| 18 | 2026-09-02 15:59 | run 14 (`tsx,three,kind,slug`): `tsx` as an EDIT of the page's own code — "Fingering" now sits above every one of the eight chord diagrams. The page file came back byte-identical; only the `chord-diagram` component changed, which is the part-only case the rung used to call "no change" (run 12). Cost 8. | `18-sweep10-tsx-fingering.png` |
+
+| 19 | 2026-09-02 16:03 | run 14: `three` — "make the 3D pick spin half as fast". Published (build `mtka3ufv` → `mtka8mgq`, 25 files, the canvas kept, the page file again byte-identical: the scene is a component). Motion is not observable headless, so there is no picture of it. The harness's own check then called this a lie because the reply listed no changed PAGE, and stopped the run before `kind` and `slug`; the check now counts a component-only publish. Cost 4. | (no capture) |
+
 `pages` ("Add a pricing page") ended sweep five: the verb lane read `add` and pointed at the addon route, which the queue does not run — cost 0, site untouched, so there is no screenshot. `slug` and `kind` have not run; both are held back until the owner names them.
