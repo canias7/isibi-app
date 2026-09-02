@@ -1635,6 +1635,22 @@ push.** Never push while a live run is in flight, and after any push wait
 checker while never re-running the harness that actually proves the change has
 shipped red twice.
 
+**`unit tests` WAS RED ON EVERY PUSH TO MAIN FOR A DAY AND NOBODY READ IT
+(2026-09-02, four runs).** The `action` lane's corpus guard
+(`test/site-nav.test.mjs`, "applyAction over the whole corpus never writes a
+page TypeScript cannot parse") required the KIT's TypeScript — resolved from
+`builder/lovable/template/` — and CI's `npm ci` installs the ROOT's
+dependencies only, so the guard failed in CI on the day it shipped and on
+every push after, green locally every time. The recorded "CI step that does
+not install what the tests import" trap, on a guard written the same day as
+the fix for it, and the recorded "read CI after a push" habit, skipped four
+times. Fixed by declaring `typescript` at the root (the version the template
+resolves) and letting the guard take either copy — it still REFUSES to skip,
+because a corpus scan that never runs in CI proves nothing there. Proven by
+hiding the template's copy and running the guard on the root's. **Read the
+`unit tests` run after every push; a red one is a day of pushes shipping
+unchecked.**
+
 **The container harness sees what the unit suite structurally cannot.** A CSS
 change, a compiled stylesheet, a rendered head, a real PNG's dimensions — all
 invisible to a source read. `site build` is the strongest free signal here.

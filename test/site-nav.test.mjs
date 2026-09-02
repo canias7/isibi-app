@@ -1372,10 +1372,21 @@ test("applyAction over the whole corpus never writes a page TypeScript cannot pa
   // THE MEASUREMENT THAT FOUND THE BUG, kept as the guard. The kit's own
   // TypeScript parses every result; a syntax error that was not there before is
   // a writer that broke a page.
+  // THE KIT'S TYPESCRIPT WHERE THE KIT IS INSTALLED, THE ROOT'S EVERYWHERE
+  // ELSE (2026-09-02). This required the template's copy and nothing else,
+  // and CI's `npm ci` installs the ROOT's dependencies only — so `unit tests`
+  // went red on every push to main the day this guard shipped, four runs,
+  // none read until a fifth push looked. The recorded trap ("a CI step that
+  // does not install what the tests import"), on the guard written the same
+  // day as the fix for it. `typescript` is a root devDependency now, at the
+  // version the template resolves, and the guard takes either — it still
+  // REFUSES to skip, because a corpus scan that never runs in CI proves
+  // nothing there.
   const req = createRequire(new URL("../builder/lovable/template/package.json", import.meta.url));
   let ts = null;
   try { ts = req("typescript"); } catch { ts = null; }
-  assert.ok(ts, "the kit's TypeScript is not installed — this guard cannot run");
+  if (!ts) { try { ts = createRequire(import.meta.url)("typescript"); } catch { ts = null; } }
+  assert.ok(ts, "neither the kit's nor the root's TypeScript is installed — this guard cannot run");
   const errs = (src) => (ts.transpileModule(src, { reportDiagnostics: true, fileName: "x.tsx", compilerOptions: { jsx: ts.JsxEmit.Preserve } }).diagnostics || []).length;
   let checked = 0, broke = [];
   for (const site of fs.readdirSync(CORPUS_DIR)) {

@@ -1700,3 +1700,13 @@ comment-only control survived. Thirteen test files went red on lifting the
 table definition out of the build's tool — each was reading it out of the
 old place — and each now reads it where it lives and checks the tool still
 binds it.
+
+**And a red I found by reading CI after the push, which was not this
+change.** The `unit tests` workflow has failed on every push to main today —
+four runs — because one guard written this morning (the one that drives the
+button-writer over the whole page corpus and parses every result) needed a
+copy of TypeScript that only exists where the kit is installed, and the CI
+runner never installs the kit. Green here every time, red there every time,
+and nobody looked. Fixed: TypeScript is declared at the root so the runner
+has it, and the guard uses either copy. Proven by hiding the kit's copy and
+running the guard on the root's.
