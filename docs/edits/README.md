@@ -44,4 +44,6 @@ disables the reveal first, so every section shows.
 
 Earlier in run 11: `wordmark` timed out on its Grok call (the 4-minute cap on a lane call — nothing charged, logo unchanged) and `behavior` was routed to its own lane for the first time and answered "already so" for an accordion that already closes the others. `tsx`, `kind` and `slug` did not run: the sweep stops on a LIE.
 
+| 16 | 2026-09-02 14:49 | run 12 (lanes `all`, after "add goes to addon"): `qr` as an EDIT — the caption changed to "Scan to ring and book"; the code itself is untouched (same 2,290 bytes, same number). The first proof of the qr lane editing what the site has rather than making one. Cost 1. | `16-sweep8-qr-caption.png` |
+
 `pages` ("Add a pricing page") ended sweep five: the verb lane read `add` and pointed at the addon route, which the queue does not run — cost 0, site untouched, so there is no screenshot. `slug` and `kind` have not run; both are held back until the owner names them.
