@@ -813,6 +813,24 @@ what the work cost.
   anchor no longer carried. All fixed in the tree with the digest fix
   (`knownAction`): 10 mutants, 10 killed, control survived. Re-dispatch:
   `wordmark,action,tsx,kind,slug`.
+  **RUN 12 (2026-09-02 14:38–14:56, lanes `all`, 247 → 238):** `qr`
+  **PROVEN AS AN EDIT** (caption changed, code untouched,
+  `docs/edits/16-*`); seven look lanes already-so, honestly; `wordmark`
+  timed out at the cap again (task 47); `action` no-change because run 11
+  had already set the words (the link is still `/` — the next ask must
+  NAME the link); `images` finds the hero slot now and fal has no balance
+  to buy a photo; **`tsx` escalated no-change on a PART-ONLY change** (the
+  model rewrote the component and handed the page back unchanged; the rung
+  compared pages only — `partMoved` now counts a new or differing part);
+  **`three` hit the add-only wall** because the page rung stores no design
+  field and the stored look said "no scene" while the page had a canvas —
+  `ADD_EVIDENCE` reads the page source (`SITE_QR`, a fiber `<Canvas>`) as
+  proof the thing exists; **from `shape` on, xAI answered 403: the owner's
+  Grok credits ran out**, and every customer sentence said "busy" —
+  `upstreamKind(detail, status)` now classes 401/402/403 as refused and
+  billing (on us, never "try again") and reads xAI's credit wording; every
+  caller passes the status, guarded. Sweep 11/11, control survived.
+  `kind`/`slug` never run under `all`. **Grok top-up before the next run.**
   **Not one lie from the
   product**; every "LIE" the harness printed was the harness (an edge race, an
   inline-svg assumption, an og:locale count) and each is now a case in

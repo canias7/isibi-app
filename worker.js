@@ -1267,9 +1267,18 @@ function briefErr(d) {
  * is a fixed provider string about OUR account, not about the request, and it
  * is the failure an operator can actually act on.
  */
-function upstreamKind(detail) {
+function upstreamKind(detail, status) {
+  // A REFUSED ACCOUNT IS NEVER "BUSY". Run 12 (2026-09-02) exhausted the
+  // owner's xAI credits mid-sweep; every call from `shape` on came back 403
+  // with a body this did not recognise, and every customer sentence said
+  // "The builder is busy — try again in a moment" — the one thing a refused
+  // key does not get better with. 401, 402 and 403 are answers about OUR key
+  // or OUR account whatever the body says, so they class with billing: on
+  // us, never the customer's to retry. The status is the caller's `e.status`.
+  const code = Number(status) || 0;
+  const refused = code === 401 || code === 402 || code === 403;
   let body = null;
-  try { body = JSON.parse(String(detail || "")); } catch { return { type: null, billing: false }; }
+  try { body = JSON.parse(String(detail || "")); } catch { return { type: null, refused, billing: refused }; }
   const err = body && body.error;
   const t = err && err.type;
   const msg = String((err && err.message) || "");
@@ -1278,6 +1287,7 @@ function upstreamKind(detail) {
   const type = /^[a-z_]{1,40}$/.test(String(t)) ? String(t) : null;
   return {
     type,
+    refused,
     // A CODE BEATS PROSE WHEN THERE IS ONE. `insufficient_quota` is the
     // canonical OpenAI-compatible token for an exhausted account and it is what
     // `xaiErrorDetail` surfaces as the type — stable across a provider
@@ -1285,8 +1295,13 @@ function upstreamKind(detail) {
     // does not use it, so this cannot fire on the other provider by accident.
     // Kept ALONGSIDE the wording match rather than replacing it: Anthropic
     // reports this in the message and only in the message.
-    billing: type === "insufficient_quota"
-      || /credit balance is too low|insufficient (?:credit|quota)|billing/i.test(msg),
+    // AND THE WORDING IS READ WIDER THAN ANTHROPIC'S. xAI's exhausted-account
+    // message names "credits" without any of the three phrases this matched;
+    // `xaiErrorDetail` already folds its body into this shape, so the words
+    // are the only thing left to widen. A 429 stays what it is: busy.
+    billing: refused
+      || type === "insufficient_quota"
+      || /credit balance is too low|insufficient (?:credit|quota)|billing|\bcredits?\b|\bquota\b|payment required/i.test(msg),
   };
 }
 
@@ -9602,6 +9617,17 @@ const QR_PLACE_ASK =
  */
 const ADD_ONLY_FIELDS = ["qr", "three"];
 
+/**
+ * THE MARK EACH OF THOSE LEAVES IN THE PAGE SOURCE when it exists on the site
+ * without a stored field — a code is placed through the `SITE_QR` binding, a
+ * scene is a fiber `<Canvas>`. The dispatched lanes store no design field, so
+ * the stored look alone under-reports what a site has (run 12, 2026-09-02).
+ */
+const ADD_EVIDENCE = {
+  qr: /\bSITE_QR\b/,
+  three: /@react-three\/fiber|<Canvas\b/,
+};
+
 /** Whether a stored look carries a real value for a field — not null, not "", not `{}`. */
 function hasLookField(look, field) {
   const v = look && look[field];
@@ -12201,7 +12227,7 @@ async function runResumedSiteBuild(env, ctx, id) {
     // 429 arrived wearing "the build failed", which is a refusal the customer
     // could have acted on reduced to one they cannot. `detail` is deliberately
     // NOT carried — it can quote the request, and the request is the brief.
-    const rk = upstreamKind(e && e.detail);
+    const rk = upstreamKind(e && e.detail, e && e.status);
     console.error("build resume: the build threw for", id, "act=" + decision.act, "why=" + (decision.why || "-"), String((e && e.stack) || (e && e.message) || e));
     out = packResult({
       status: 500, type: "application/json", uid: claimed.uid,
@@ -12882,7 +12908,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
           // are sending something they reject" (400), and without it a total
           // outage of the builder's main path is indistinguishable from a busy
           // minute. This one hid for three merges behind exactly that.
-          const kind = upstreamKind(e && e.detail);
+          const kind = upstreamKind(e && e.detail, e && e.status);
           return Response.json({
             ok: false,
             msg: e && e.truncated
@@ -13824,7 +13850,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
           // from the model writing an unusable page, and telling them apart
           // needed a Cloudflare log. Measured: both CI suites red on an upstream
           // 400 for forty minutes with nothing in any response to say why.
-          const kind = upstreamKind(e && e.detail);
+          const kind = upstreamKind(e && e.detail, e && e.status);
           pages.stage = "generate";
           pages.upstream = (e && e.status) || null;
           pages.upstreamType = kind.type;
@@ -18955,7 +18981,7 @@ async function handleRequest(request, env, ctx) {
             // provider and would fail the same way, at ~25 credits.
             const modelDown = (e, what) => {
               console.error("edit model call failed:", ownerSlug, eLayer, e && e.message);
-              const k = upstreamKind(e && e.detail);
+              const k = upstreamKind(e && e.detail, e && e.status);
               // OUR CEILING IS NOT THE MODEL BEING BUSY, and the build path has
               // asked this since `isCallTimeout` was written — see its own note:
               // a timeout carries no HTTP response, so `upstreamKind` has
@@ -19105,7 +19131,15 @@ async function handleRequest(request, env, ctx) {
                 try { const c = await readSiteConfig(env, ownerSlug, null); if (c.ok) wallLook = c.config.look; } catch { wallLook = null; }
                 if (wallLook) {
                   for (const f of ADD_ONLY_FIELDS) {
-                    if (pickedFields.includes(f) && !hasLookField(wallLook, f)) return escalate("addon", { field: f, layer: "addon" });
+                    // "EXISTS" IS A FACT ABOUT THE SITE, NOT ONLY ABOUT THE
+                    // STORED LOOK. fretwork-1's 3D pick was drawn by the page
+                    // rung in sweep five — `three` dispatches there and that
+                    // rung stores no design field — so the look said "no
+                    // scene" while the page had a canvas, and run 12 sent an
+                    // edit of it to the addon step. Either record counts: the
+                    // stored field, or the thing's own mark in the page source.
+                    const onPage = ADD_EVIDENCE[f] && eSrc.some((p) => ADD_EVIDENCE[f].test(String((p && p.source) || "")));
+                    if (pickedFields.includes(f) && !hasLookField(wallLook, f) && !onPage) return escalate("addon", { field: f, layer: "addon" });
                   }
                 }
               }
@@ -20591,7 +20625,7 @@ async function handleRequest(request, env, ctx) {
                 }), eSpec, eLook2.brand || ownerSlug, [], eModels.pages, eSrc, "page", target.path);
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
-                const pKind = upstreamKind(e && e.detail);
+                const pKind = upstreamKind(e && e.detail, e && e.status);
                 return Response.json({
                   ok: false, error: "generate", cost: 0,
                   msg: pKind.billing
@@ -20632,7 +20666,19 @@ async function handleRequest(request, env, ctx) {
               // instruction rewrite a page the customer never named. The prompt
               // says so too; this is the half that cannot be talked out of it.
               const wrote = (pValid.pages || []).find((p) => p.path === target.path);
-              if (!wrote || wrote.source === target.source) {
+              // A CHANGED COMPONENT IS A CHANGE. Run 12's tsx lane (2026-09-02)
+              // asked for a word inside the chord-diagram component; the model
+              // rewrote the PART and handed the page back as it was, and this
+              // read the unchanged page as "no change" — the honest answer to
+              // "the site already does that", given for an edit that was
+              // sitting in `parts`. A part that is new, or differs from the
+              // stored one, is a change even when the page is byte-identical.
+              const pStored = (pValid.parts && pValid.parts.length) ? await loadSiteParts(env, ownerSlug) : null;
+              const partMoved = !!pStored && pValid.parts.some((pt) => {
+                const s = pStored.find((x) => x && x.name === pt.name);
+                return !s || s.source !== pt.source;
+              });
+              if (!wrote || (wrote.source === target.source && !partMoved)) {
                 return escalate(wrote ? "no-change" : "no-page-back", { problems: pProblems.slice(0, 4) });
               }
               const pPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: wrote.source } : p));
@@ -20643,7 +20689,7 @@ async function handleRequest(request, env, ctx) {
               // sweep's `tsx` failure. Merged over what is stored, by name, and
               // handed to the spine, which sends and then stores them.
               const pParts = (pValid.parts && pValid.parts.length)
-                ? mergeParts(await loadSiteParts(env, ownerSlug), pValid.parts)
+                ? mergeParts(pStored, pValid.parts)
                 : null;
 
               const pPub = await publishStep(env, {
@@ -21093,7 +21139,7 @@ async function handleRequest(request, env, ctx) {
               aDesigned = d.input; aDesignUsage = d.usage;
             } catch (e) {
               console.error("addon design failed:", ownerSlug, e && e.message);
-              const aKind = upstreamKind(e && e.detail);
+              const aKind = upstreamKind(e && e.detail, e && e.status);
               return Response.json({
                 ok: false, error: "design", cost: 0,
                 msg: aKind.billing
@@ -21221,7 +21267,7 @@ async function handleRequest(request, env, ctx) {
               }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon");
             } catch (e) {
               console.error("addon generate failed:", ownerSlug, e && e.message);
-              const aKind = upstreamKind(e && e.detail);
+              const aKind = upstreamKind(e && e.detail, e && e.status);
               return Response.json({
                 ok: false, error: "generate", cost: 0,
                 msg: aKind.billing

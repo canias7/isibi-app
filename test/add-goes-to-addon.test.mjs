@@ -28,6 +28,11 @@ function blankComments(src) {
 }
 const W = blankComments(read("../worker.js"));
 const at = (src, needle, what) => { const i = src.indexOf(needle); assert.ok(i >= 0, `${what}: landmark "${needle}" is gone`); return i; };
+/** The fields the edit path may not create, read off the list itself. */
+const fieldsOf = (src) => {
+  const decl = src.slice(at(src, "const ADD_ONLY_FIELDS = [", "list"), src.indexOf("];", at(src, "const ADD_ONLY_FIELDS = [", "list")));
+  return [...decl.matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
+};
 
 // ── 1. THE EDIT ROUTE REFUSES TO CREATE ─────────────────────────────────────
 test("the edit path may not create a code or a scene the site lacks, and tsx is deliberately not on that list", () => {
@@ -64,6 +69,19 @@ test("the wall sits at the picker, before any step is planned, and names the add
   const gate = branch.slice(branch.indexOf("let wallLook = null;"), wall);
   assert.match(gate, /if \(wallLook\)/, "an unreadable config must not fire the wall");
   assert.match(gate, /catch \{ wallLook = null; \}/, "a throwing config read must not fire the wall");
+  // "EXISTS" IS READ OFF THE SITE, NOT ONLY THE STORED LOOK. Run 12
+  // (2026-09-02) sent an edit of fretwork-1's 3D pick to the addon step:
+  // the page rung had drawn it in sweep five and stores no design field.
+  // Each field names the mark it leaves in the page source, and the wall
+  // consults the pages before refusing.
+  assert.match(body, /!onPage/, "the wall does not consult the page source before refusing");
+  const ev = W.slice(at(W, "const ADD_EVIDENCE = {", "evidence"), W.indexOf("};", at(W, "const ADD_EVIDENCE = {", "evidence")));
+  for (const f of fieldsOf(W)) assert.match(ev, new RegExp("\\b" + f + ": /"), "no page-source mark for " + f);
+  assert.match(ev, /SITE_QR/, "a placed code's binding is not the qr mark");
+  assert.match(ev, /react-three\\\/fiber|<Canvas/, "a fiber canvas is not the three mark");
+  // On the loop body itself, never a byte window — the comment above the
+  // check is longer than any window a first draft would pick.
+  assert.match(body, /ADD_EVIDENCE\[f\]\.test\(String\(\(p && p\.source\) \|\| ""\)\)/, "the mark is not tested against every stored page");
   // The pages verb's `add` names the layer the same way.
   assert.match(W, /escalate\("addon", \{ field: "pages", verb: pv\.verb, layer: "addon" \}\)/, "a page addition does not name the addon layer");
 });

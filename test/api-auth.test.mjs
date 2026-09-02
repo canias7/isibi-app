@@ -546,9 +546,11 @@ const WORKER_SRC = _rf(new URL("../worker.js", import.meta.url), "utf8");
 
 /** The real function, lifted out of worker.js, which cannot be imported. */
 const upstreamKind = (() => {
-  const m = WORKER_SRC.match(/function upstreamKind\(detail\) \{[\s\S]*?\n\}/);
+  // `(detail, status)` since 2026-09-02: the HTTP status is the one thing a
+  // refused key always carries, whatever the body says.
+  const m = WORKER_SRC.match(/function upstreamKind\(detail, status\) \{[\s\S]*?\n\}/);
   assert.ok(m, "upstreamKind was not found in worker.js");
-  return new Function("detail", m[0].replace(/^function upstreamKind\(detail\) \{/, "") .replace(/\n\}$/, "") + "\n");
+  return new Function("detail", "status", m[0].replace(/^function upstreamKind\(detail, status\) \{/, "") .replace(/\n\}$/, "") + "\n");
 })();
 
 test("an upstream error type is passed through only when it is a plain token", () => {
@@ -566,6 +568,20 @@ test("an upstream error type is passed through only when it is a plain token", (
 test("the billing case is recognised, and nothing else is", () => {
   assert.equal(upstreamKind('{"error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API"}}').billing, true);
   assert.equal(upstreamKind('{"error":{"type":"invalid_request_error","message":"insufficient credit"}}').billing, true);
+  // A REFUSED KEY IS ON US, WHATEVER THE BODY SAYS. Run 12 (2026-09-02) ran
+  // the owner's xAI credits dry mid-sweep: 403 after 403 with a body this did
+  // not recognise, every one told the customer the builder was "busy".
+  for (const code of [401, 402, 403]) {
+    assert.equal(upstreamKind('{"error":{"type":null,"message":"Forbidden"}}', code).billing, true, code + " must class as our account");
+    assert.equal(upstreamKind('{"error":{"type":null,"message":"Forbidden"}}', code).refused, true, code + " must say it was refused");
+    assert.equal(upstreamKind("not json at all", code).billing, true, code + " with an unreadable body is still our account");
+  }
+  // xAI's own wording, as `xaiErrorDetail` hands it over.
+  assert.equal(upstreamKind('{"error":{"type":null,"message":"Your team doesn\'t have any credits yet"}}').billing, true);
+  assert.equal(upstreamKind('{"error":{"type":null,"message":"The team has run out of credits"}}').billing, true);
+  // And a rate limit is still busy, not billing: a 429 gets better on its own.
+  assert.equal(upstreamKind('{"error":{"type":"rate_limit_error","message":"slow down"}}', 429).billing, false);
+  assert.equal(upstreamKind('{"error":{"type":"rate_limit_error","message":"slow down"}}', 429).refused, false);
   // A 400 about the REQUEST is not a billing failure, and saying it is would
   // send somebody to top up an account that is already funded.
   assert.equal(upstreamKind('{"error":{"type":"invalid_request_error","message":"max_tokens: must be <= 8192"}}').billing, false);
@@ -577,7 +593,10 @@ test("the model's own message never reaches a caller", () => {
   // The whole reason `detail` is withheld. Whatever comes back, the only strings
   // that leave are ones this repo wrote.
   const out = upstreamKind('{"error":{"type":"invalid_request_error","message":"the brief said: Acme Dental, 42 High St"}}');
-  assert.deepEqual(Object.keys(out).sort(), ["billing", "type"]);
+  // Two booleans and one shape-checked token, and nothing else. `refused`
+  // joined on 2026-09-02 (a 401/402/403 is our account, never "busy").
+  assert.deepEqual(Object.keys(out).sort(), ["billing", "refused", "type"]);
+  for (const k of ["billing", "refused"]) assert.equal(typeof out[k], "boolean", k + " must be a boolean, never text");
   assert.ok(!JSON.stringify(out).includes("Acme"), JSON.stringify(out));
 });
 
@@ -593,7 +612,7 @@ test("the page-generation catch returns the stage, not only a note", () => {
   // for one specific assignment and a ternary across two lines walked past it.
   const rest = block
     .replace(/console\.error\([^;]*\);/, "")
-    .replace(/upstreamKind\(e && e\.detail\)/, "");
+    .replace(/upstreamKind\(e && e\.detail, e && e\.status\)/, "");
   assert.ok(!/e\.detail/.test(rest), "the raw upstream detail must not be returned: " + rest);
 });
 
@@ -624,7 +643,7 @@ test("the design catch returns the error's class, and its message only for a Ref
     .replace(/console\.error\([^;]*\);/, "")
     .replace(/\(e && e\.name\) === "ReferenceError" \? String\(\(e && e\.message\) \|\| ""\)\.slice\(0, \d+\) : undefined/, "");
   assert.ok(!/e\.message/.test(rest), "the raw error message must not be returned: " + rest);
-  assert.ok(!/e\.detail/.test(rest.replace(/upstreamKind\(e && e\.detail\)/, "")),
+  assert.ok(!/e\.detail/.test(rest.replace(/upstreamKind\(e && e\.detail, e && e\.status\)/, "")),
     "the raw upstream detail must not be returned: " + rest);
 });
 
@@ -1298,4 +1317,15 @@ test("the last of the audit lows: honest statuses, honest sentences, honest fiel
   // variable, which is exactly the throw this line was written after.
   assert.match(w, /sourceStored:\s*pages\.sourceStored === false \? false : undefined,/,
     "…and it never reaches the caller, or is read out of scope again");
+});
+
+test("every caller hands the classifier the HTTP status, so a refused key can never read as busy again", () => {
+  // The status is the one thing a 401/402/403 always carries; a caller that
+  // passes only the body sends the customer "try again in a moment" for an
+  // account that has run dry. Caught by a mutation sweep on 2026-09-02: one
+  // call site dropped the status and no guard noticed.
+  const code = WORKER_SRC.replace(/^\s*\/\/[^\n]*$/gm, (m) => " ".repeat(m.length)).replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+  const calls = [...code.matchAll(/upstreamKind\(([^)]*)\)/g)].filter((m) => !/^detail, status$/.test(m[1].trim()));
+  assert.ok(calls.length >= 7, "the observer is dead: too few classifier calls found (" + calls.length + ")");
+  for (const m of calls) assert.match(m[1], /e && e\.status/, "a classifier call without the status: upstreamKind(" + m[1] + ")");
 });

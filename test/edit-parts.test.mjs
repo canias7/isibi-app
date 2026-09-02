@@ -45,8 +45,12 @@ test("mergeParts lays fresh components over stored ones by name, keeping order",
 // ── THE PAGE RUNG CARRIES WHAT THE MODEL WROTE ────────────────────────────
 test("the page rung merges the edit's parts over the stored ones and hands them to the publish", () => {
   const rung = CODE.slice(at(CODE, 'if (eLayer === "page") {', "page rung"), at(CODE, "for (const step of steps) {", "page rung end"));
-  const merged = rung.indexOf("mergeParts(await loadSiteParts(env, ownerSlug), pValid.parts)");
-  assert.ok(merged > 0, "the page rung does not merge the model's parts over the stored ones");
+  // The stored list is read ONCE (`pStored`), for the no-change decision and
+  // the merge alike — the spelling moved from an inline load on 2026-09-02
+  // when the decision learned to read parts.
+  const loaded = rung.indexOf("const pStored = (pValid.parts && pValid.parts.length) ? await loadSiteParts(env, ownerSlug) : null;");
+  const merged = rung.indexOf("mergeParts(pStored, pValid.parts)");
+  assert.ok(loaded > 0 && merged > loaded, "the page rung does not merge the model's parts over the stored ones");
   const handed = rung.indexOf("parts: pParts || undefined");
   assert.ok(handed > merged, "the merged parts are not handed to the publish step");
   // GATED ON THERE BEING ANY: an edit that wrote none must not re-store the
@@ -54,6 +58,23 @@ test("the page rung merges the edit's parts over the stored ones and hands them 
   // parts" and strip the site's existing components.
   const gate = rung.slice(rung.lastIndexOf("const pParts", merged), merged);
   assert.match(gate, /pValid\.parts\.length/, "the merge is not gated on the edit having written any parts");
+});
+
+test("a changed component is a change, even when the page came back byte-identical", () => {
+  // Run 12's tsx lane (2026-09-02): the model rewrote the chord-diagram PART
+  // and handed the page back unchanged, and the rung escalated no-change —
+  // the edit was sitting in `parts` the whole time.
+  const rung = CODE.slice(at(CODE, 'if (eLayer === "page") {', "page rung"), at(CODE, "for (const step of steps) {", "page rung end"));
+  const moved = rung.indexOf("const partMoved = !!pStored && pValid.parts.some(");
+  const decide = rung.indexOf('return escalate(wrote ? "no-change" : "no-page-back"');
+  assert.ok(moved > 0 && decide > moved, "the no-change decision is made before the parts are compared");
+  const cond = rung.slice(rung.lastIndexOf("if (", decide), decide);
+  assert.match(cond, /wrote\.source === target\.source && !partMoved/, "an unchanged page with a changed part still reads as no-change");
+  assert.match(cond, /!wrote \|\|/, "a page that did not come back at all must still be no-page-back");
+  // The comparison is by name against the STORED source: a new part, or one
+  // whose source differs, is a move; an identical re-send is not.
+  const cmp = rung.slice(moved, rung.indexOf("});", moved));
+  assert.match(cmp, /return !s \|\| s\.source !== pt\.source;/, "the part comparison is not by stored source");
 });
 
 test("the page rung tells the model what the site already has: its components, marks and scene", () => {

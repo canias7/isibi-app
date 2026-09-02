@@ -1339,6 +1339,48 @@ killed. One guard was found passing on a comment (the addon test's
 escalation list still matched "no-backend" in the comment explaining its
 removal); comments are blanked there now and the absence is asserted.
 
+## 2026-09-02 — Run 12: every lane in order, and the Grok balance ran dry
+
+You dispatched at 14:38 with the lanes box on `all`, so it walked all
+nineteen in order rather than the five. Balance 247 → 238. What the site
+says:
+
+- **qr — PROVEN as an edit** (screenshot 16). The caption changed to "Scan
+  to ring and book"; the code itself unchanged, same number, same bytes.
+- **css, brand, description, favicon, lang, langs, behavior** — "already
+  looks like that", honest: sweeps one to five set all of these. 1–2 each.
+- **theme** — no-change escalate, already noir. 0.
+- **wordmark** — Grok timed out at the 4-minute cap again, nothing charged.
+  Task 47.
+- **action** — "That's already what the button says and where it goes."
+  The words are already "Book a free lesson" from run 11, so the rung had
+  nothing to do; the link is still `/` and this ask did not mention it.
+  The next ask has to name the link.
+- **images** — the hero is a slot now, which is the fix; then "one picture
+  couldn't be made": the fal balance is empty, so no photograph can be
+  bought. Refunded.
+- **backend** — honest refusal, no database. 0.
+- **tsx — a real gap, fixed.** The ask changed a word inside the
+  chord-diagram component; the model rewrote the PART and handed the page
+  back unchanged, and the rung read the unchanged page as "no change". A
+  new or differing part counts as a change now.
+- **three — my wall misfired, fixed.** The 3D pick was drawn by the page
+  rung in sweep five, and that rung stores no design field, so the stored
+  look said "no scene" while the page had a canvas; the wall sent an EDIT
+  of it to the addon step. The wall now reads the page too: a `SITE_QR`
+  binding or a fiber canvas in the source is proof the thing exists.
+- **shape, components, purpose, pages — your Grok credits ran out here.**
+  Every call from `shape` on came back 403 from xAI, exactly where the
+  arithmetic said it would. Nothing charged. And every one of those told
+  the customer "the builder is busy — try again in a moment", which is the
+  one thing a refused key does not get better with: a 401, 402 or 403 is
+  now classed as our account (on us, never the customer's to retry), and
+  xAI's wording about credits is read as billing.
+
+**Not run:** kind and slug (never under `all`). **Still to prove live:**
+tsx and three as edits, action with the link named, the addon step on a
+database-less site. All of that needs the Grok top-up first.
+
 None of this is proven on the site yet; that is the run you are about to
 dispatch: wordmark, behavior, qr, action, tsx, then kind and slug, the two
 you named. In the workflow form: harness `lane`, lanes
