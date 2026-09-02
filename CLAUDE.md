@@ -619,8 +619,22 @@ they are equal.** `slug` stays the storage key — every R2 prefix, every table,
 the dispatch script, and `SITE_SLUG` baked into the page (which addresses the
 site's own API, so it MUST stay the key). The one place the distinction is
 load-bearing is the canonical link and `og:url`: both are baked into the R2
-sidecar at publish time, so **a rename republishes** or the site tells every
-crawler its real address is the old one.
+sidecar at publish time — and are read per request out of its `origin`.
+**Two hops carry it, and until 2026-09-02 neither existed** — found by run 17,
+the first live rename (`fretwork-1` → `crookes-guitar`): the alias rows landed,
+both addresses answered the right way, and the new address served a canonical
+naming the old one. (1) `publicUrlFor(env, slug)` — `siteUrlFor` over
+`publicNameFor` — is the ONE reader of the public address: the spine, the
+build, the resume reply and the checkout return. Both publish sites had handed
+`siteUrlFor` the STORAGE slug, so even the republish the lane used to make
+would have baked the old address back, and so would every later colour change;
+`publicNameFor` had no consumer at all. (2) The rename lane patches that one
+sidecar key the moment the alias is current — the share and verify routes'
+pattern: the site's Worker reads its head out of the sidecar, so the R2 write
+IS the deployment — and no longer republishes (no container, nothing a lost
+lease can leave half-done). `test/site-public-url.test.mjs` DRIVES both through
+`worker.fetch` and reads the sidecar write; `site-alias.test.mjs` had read the
+chain and certified it.
 
 `site_aliases (alias PK, slug, uid, current)`, with **one current name per site
 enforced by a partial unique index** rather than by us — two rows claiming to be
@@ -862,6 +876,23 @@ what the work cost.
   defect. `slug` **NEVER RAN**: the full stop made `slug.` a name the
   harness did not know and `chooseLanes` dropped it silently — fixed, a
   stranger refuses before sign-in (see the trap). `crookes-guitar` is 404.
+  **RUN 17 (2026-09-02 17:38, `slug` alone, twelve minutes after a push):**
+  the rename LANDED on the addresses — `crookes-guitar` 200, `fretwork-1`
+  301 to it, alias rows old-then-new at 17:39:49 — and the queued job was
+  **LOST**: the consumer's heartbeat stopped at 17:40:37, inside the
+  container's roll window, the lease expired at 17:42:07 and `edit_sweep_lost`
+  refunded the 1 credit at 17:44:17; no trace row, `publish_started_at` null,
+  phase still `routing` (task #52 — the Worker's log is the only witness,
+  `container logs` pressed by hand). The harness said `failed` and the run
+  ended GREEN (fixed: `failed` is red). **And the canonical at the new address
+  still named the old one, which the lost publish did not cause** — see the
+  rename section: both hops were missing, and the harness's check read the
+  addresses and not the head (fixed: it reads the canonical, follows the
+  alias once at the start, and flips the target so the lane can run again).
+  **`fretwork-1` answers at `crookes-guitar.gofarther.app` now**; the harness
+  keeps `site: fretwork-1`, the storage slug the API keys on. The live head is
+  corrected by a free platform republish (`site_rebuild` row, no model call)
+  once the deploy carrying `publicUrlFor` is on.
   **Not one lie from the
   product**; every "LIE" the harness printed was the harness (an edge race, an
   inline-svg assumption, an og:locale count) and each is now a case in
@@ -1579,6 +1610,17 @@ money buys. A stranger now REFUSES before sign-in, naming itself and the
 real names; punctuation at the ends of a name is forgiven; both harnesses,
 because the workflow feeds one box to both. **A filter on a person's input
 is a silent drop; a check is a sentence.**
+
+**THE RENAME'S CANONICAL HOP — READ, CERTIFIED, NEVER WIRED (2026-09-02, run
+17).** `test/site-alias.test.mjs` had a case called "THE CHAIN" whose hop 4
+asserted the rename branch calls `publishStep`, and it did. What a source read
+could not see: the spine's `url:` handed `siteUrlFor` the STORAGE slug, so the
+republish rebaked the old address, and `publicNameFor` — written for exactly
+this — had no consumer anywhere. The harness's check read both addresses and
+never the head, so the one live proof passed on the half that worked. The
+`site-marks` shape again: **a chain asserted by reading is asserted at the
+layer below the break.** The guard now drives the route and reads the sidecar
+write, and the harness reads the canonical at the new address.
 
 ## Backlog
 

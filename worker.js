@@ -7348,8 +7348,11 @@ async function handleCheckout({ env, conn, slug, body, origin, schema }) {
   // A CUSTOM DOMAIN RETURNS TO ITSELF. An owner who paid for their own domain
   // must not have a paying customer bounced onto ours at the one moment they are
   // deciding whether the shop is real.
+  // THE PUBLIC ADDRESS (2026-09-02): a renamed shop returns its customer to
+  // the name on the van, not to a storage name that 301s them onward with the
+  // payment marker in the query.
   const base = isAppHostname(new URL(origin).hostname)
-    ? siteUrlFor(slug, origin)
+    ? await publicUrlFor(env, slug)
     : origin.replace(/\/+$/, "") + "/";
   const args = checkoutSessionArgs({
     slug, table: table.name, orderId,
@@ -8151,6 +8154,27 @@ async function publicNameFor(env, slug) {
     aliasCurrent.set(s, name || NO_ALIAS);
     return name || s;
   } catch { return s; }
+}
+
+/**
+ * THE SITE'S PUBLIC ADDRESS, FROM ITS PUBLIC NAME — the one expression every
+ * writer of the canonical uses (2026-09-02). `siteUrlFor` is pure and answers
+ * for whatever name it is handed, and both publish sites handed it the STORAGE
+ * slug: a renamed site's sidecar named the old address on every publish after
+ * the rename, and nothing on the platform consumed `publicNameFor` at all —
+ * the wiring trap at the one hop site-alias.mjs calls load-bearing. Found by
+ * the first live rename (run 17, fretwork-1 → crookes-guitar): the alias was
+ * live and the new address served a canonical naming the old one.
+ *
+ * `addressOf` is the base-and-name half, so the rename lane — which knows the
+ * new name for certain — cannot drift from what the spine derives. The pretty
+ * host is the public NAME; the `/s/<slug>/` form, which only exists while the
+ * site zone is dark, is keyed on the storage slug.
+ */
+function addressOf(name) { return siteUrlFor(name, "https://" + APP_ZONE); }
+async function publicUrlFor(env, slug) {
+  const name = await publicNameFor(env, slug);
+  return siteHostFor(name) ? addressOf(name) : addressOf(slug);
 }
 
 /** Forget both directions for one site — after a rename, in this isolate. */
@@ -10117,7 +10141,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     brand: (look && look.brand) || slug,
     description: (look && look.description) || undefined,
     image: await siteOgImage(env, slug, built.files),
-    url: siteUrlFor(slug, "https://" + APP_ZONE),
+    // THE PUBLIC ADDRESS, FROM THE PUBLIC NAME — not the storage slug, which
+    // is what this line passed until 2026-09-02, so every publish after a
+    // rename baked the old address back into the canonical. See `publicUrlFor`.
+    url: await publicUrlFor(env, slug),
     slug,
     // THE STORED VERIFICATION, carried on every publish path. The sidecar is
     // rewritten whole, so a path that omits this takes the owner's Search
@@ -10856,8 +10883,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         // show — so it has to be the one a customer would hand out, not the one
         // that happens to be convenient to build. `siteUrlFor` answers the
         // `<slug>.gofarther.app` form once that zone is live and the `/s/<slug>/`
-        // one until then, from the single switch in site-domains.mjs.
-        url: siteUrlFor(slug, "https://" + APP_ZONE),
+        // one until then, from the single switch in site-domains.mjs. FROM THE
+        // PUBLIC NAME (2026-09-02): a site rebuilt after a rename keeps its new
+        // canonical — see `publicUrlFor`.
+        url: await publicUrlFor(env, slug),
         // WHICH SITE THIS IS, so the bundle can address its own API from a custom
         // domain — where there is no `/s/<slug>/` in the path to read it from.
         slug,
@@ -13943,7 +13972,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             // real address and the rest is still being written. Not `ok: true`,
             // because nothing has published yet and a client reading that would
             // stop watching.
-            return Response.json({ ok: false, stage: "resuming", slug, url: siteUrlFor(env, slug), job: jobId,
+            // (`publicUrlFor` since 2026-09-02; this line handed `siteUrlFor` the
+            // env where it wanted a name, and answered `<slug>/s/[object Object]/`.)
+            return Response.json({ ok: false, stage: "resuming", slug, url: await publicUrlFor(env, slug), job: jobId,
               msg: "Your site is being written now — it takes a few minutes. There is a page at your address already; refresh it shortly." }, { status: 202 });
           } catch (e) {
             console.error("build: could not schedule the resume for", slug, String((e && e.message) || e));
@@ -19550,25 +19581,43 @@ async function handleRequest(request, env, ctx) {
               if (badNew) return escalate("rename-store", { detail: badNew });
               forgetAlias(ownerSlug, current, wanted);
 
-              // ── AND REPUBLISH, WHICH IS NOT OPTIONAL ──────────────────────
+              // ── AND THE HEAD FOLLOWS, WITHOUT A COMPILE ───────────────────
               //
-              // The canonical link and `og:url` are baked into the R2 sidecar at
-              // publish time. A renamed site whose sidecar still names the old
-              // address tells every crawler the old one is the real one — the
-              // "a wrong canonical is worse than none" case __root.tsx already
-              // argues, arriving through a new door. `recompileAndPublish` is the
-              // shared spine and recomputes it from the public name.
-              // THROUGH `publishStep`, NOT STRAIGHT TO THE SPINE. One publish
-              // per message is the law here (owner: "if the act was 2 things
-              // then 1 publish"), and a rename can arrive beside a colour change
-              // in the same sentence. The spine runs once below the loop; this
-              // hands it the pages and says the rung is done.
-              await publishStep(env, { slug: ownerSlug, pages: eSrc, label: "renamed to " + wanted });
+              // The canonical link and `og:url` are read per request out of the
+              // R2 sidecar's `origin`. Until 2026-09-02 this branch republished
+              // to move them — and the spine wrote that field FROM THE STORAGE
+              // SLUG at both publish sites, so the republish would have baked
+              // the old address straight back. The first live rename (run 17,
+              // fretwork-1 → crookes-guitar) then lost its publish to a consumer
+              // that died in the compile, and the new address served a canonical
+              // naming the old one: alias live, head stale, nothing to retry.
+              //
+              // Now the spine derives the origin through `publicUrlFor`, and
+              // this patches that one key the moment the alias is current — the
+              // share and verify routes' pattern: the site's own Worker reads
+              // its head out of the sidecar, so patching the key IS the
+              // deployment. No container, nothing to lose in a four-minute
+              // compile, nothing a lost lease can leave half-done. A rename
+              // beside a colour change in the same sentence still publishes
+              // once, through the other rung's `publishStep`.
+              //
+              // BEST-EFFORT, AND IT SAYS SO: the alias is live either way, and
+              // a failure here means the canonical follows at the next publish
+              // — a delay rather than a loss — which the reply then names.
+              let live = false;
+              try {
+                const cur = await env.SITES_BUCKET.get(siteMetaKey(ownerSlug));
+                const side = cur ? JSON.parse(await cur.text()) : {};
+                side.origin = addressOf(wanted);
+                await env.SITES_BUCKET.put(siteMetaKey(ownerSlug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
+                live = true;
+              } catch (e) { console.error("rename sidecar patch failed:", ownerSlug, e && e.message); }
               const addr = siteHostFor(wanted);
               return Response.json({
-                ok: true, layer: "rename", renamed: wanted, url: addr ? "https://" + addr + "/" : null,
+                ok: true, layer: "rename", renamed: wanted, url: addr ? "https://" + addr + "/" : null, live,
                 cost: await eCharge(rUsage),
-                msg: "Done — your site is now at " + (addr || wanted) + ". The old address still works and sends people to the new one.",
+                msg: "Done — your site is now at " + (addr || wanted) + ". The old address still works and sends people to the new one."
+                  + (live ? "" : " Search engines will pick up the new address with your next change."),
               });
             }
             if (eLayer === "nav") {

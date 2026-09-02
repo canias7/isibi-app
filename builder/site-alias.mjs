@@ -30,12 +30,17 @@
  * key). `publicName` is what a visitor types and what the site calls itself.
  *
  * The one place that distinction is load-bearing rather than cosmetic is the
- * canonical link and `og:url`: those are baked into the R2 sidecar at publish
- * time from `siteUrlFor(...)`, so a renamed site whose sidecar was computed from
- * its storage slug would tell every crawler that its real address is the old
- * one — which is the "a wrong canonical is worse than none" case __root.tsx
- * already argues. A rename therefore REPUBLISHES, and the sidecar is computed
- * from the public name.
+ * canonical link and `og:url`: those are read per request out of the R2
+ * sidecar's `origin`, so a sidecar computed from the storage slug tells every
+ * crawler that the site's real address is the old one — the "a wrong canonical
+ * is worse than none" case __root.tsx already argues. TWO HOPS CARRY IT, and
+ * until 2026-09-02 neither existed: the publish spine derives the sidecar's
+ * origin from the public name (`publicUrlFor` in worker.js), so every later
+ * publish keeps the new address; and the rename lane patches that one key the
+ * moment the alias is current — no container, nothing a lost lease can leave
+ * half-done. The first live rename (run 17) found both missing: the branch
+ * republished, the spine baked the storage slug, and the consumer died in the
+ * compile, so the new address served the old canonical.
  */
 
 /** How long a name may be, matching the build-time slug filter. */

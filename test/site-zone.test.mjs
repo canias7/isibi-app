@@ -247,7 +247,11 @@ test("og:url is the public address, not a hardcoded one", () => {
     w, /url: "https:\/\/gofarther\.dev\/s\/"/,
     "a link preview must show the address a customer would hand out, and that moves with the zone",
   );
-  assert.match(w, /url: siteUrlFor\(/);
+  // FROM THE PUBLIC NAME, since 2026-09-02: the spelling here was
+  // `url: siteUrlFor(` — the storage slug handed to a pure helper — until the
+  // first live rename served a canonical naming the old address. The one
+  // reader now asks the alias table; test/site-public-url.test.mjs drives it.
+  assert.match(w, /url: await publicUrlFor\(env, slug\)/, "the sidecar's origin is no longer derived from the site's public name");
 });
 
 // ── the setup path ───────────────────────────────────────────────────────────
@@ -423,8 +427,16 @@ test("a paying customer is returned to the site, not to a 404", () => {
     "the checkout return URL is back to assuming the platform mount");
   const at = w.indexOf("const base = isAppHostname(new URL(origin).hostname)");
   assert.ok(at > 0, "the checkout return URL no longer asks where the site is mounted");
-  const block = w.slice(at, at + 200);
-  assert.match(block, /siteUrlFor\(slug, origin\)/, "the platform case must resolve to the site's real address");
+  // Landmark to landmark rather than a byte window: the block grew a comment
+  // when it moved to the public name, and a fixed 200 bytes stopped short of
+  // the line it was written to check.
+  const close = w.indexOf(";", w.indexOf("origin.replace(", at));
+  assert.ok(close > at, "the custom-domain half of the return address is gone");
+  const block = w.slice(at, close);
+  // THE PUBLIC NAME, since 2026-09-02 — `siteUrlFor(slug, origin)` was the
+  // storage slug, which after a rename 301s a paying customer onward with the
+  // payment marker in the query.
+  assert.match(block, /await publicUrlFor\(env, slug\)/, "the platform case must resolve to the site's real, public address");
   assert.match(block, /origin\.replace\(/, "a custom domain must return to ITSELF, not to ours");
 });
 

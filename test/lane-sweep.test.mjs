@@ -203,12 +203,37 @@ test("a claimed success waits for the edge before the site is judged", () => {
   const gate = src.slice(gateAt, start);
   assert.match(gate, /body\.ok === true/, "the wait is not gated on a claimed success");
   assert.match(gate, /body\.moved/, "the wait is not gated on something having moved - an already-so would wait the full bound");
-  // The two held lanes publish without a `moved` list: a rebuild ships a whole
-  // new build, a rename republishes the head (canonical, og:url). Both are
-  // read after the edge, or the seventh sweep calls them liars the way the
+  // A followed rebuild ships a whole new build without a `moved` list, and is
+  // read after the edge, or the seventh sweep calls it a liar the way the
   // third called the theme lane one.
   assert.match(gate, /body\.hopped === "build"/, "a followed rebuild is judged before the edge serves it");
-  assert.match(gate, /c\.newSlug/, "a rename is judged before the edge serves the republished head");
+  // A RENAME MOVES THE ADDRESS, NOT THE BUILD (2026-09-02): the head is
+  // patched in R2 and nothing compiles, so `c.newSlug` LEFT this gate — the
+  // build-id wait would spin its full bound for an id that never moves — and
+  // the rename has a wait of its own, on the new address answering with its
+  // own canonical, after which the sweep reads the site at its new name.
+  assert.ok(!/c\.newSlug/.test(gate), "a rename waits for a build id that a rename never moves");
+  const rWait = src.indexOf("const tR = Date.now();");
+  assert.ok(rWait > start && rWait < snap, "the rename's own wait is missing, or sits outside the wait-then-snapshot order");
+  assert.match(src.slice(rWait - 200, rWait), /c\.newSlug/, "the rename wait is not gated on the rename case");
+  const rBody = src.slice(rWait, snap);
+  assert.match(rBody, /rel="canonical"/, "the rename wait does not read the canonical at the new address");
+  assert.match(rBody, /SITE = `https:\/\/\$\{newSlug\}\.gofarther\.app`/, "after a rename the sweep keeps reading the OLD address, which 301s");
+  // …and is judged with the build UNMOVED, by its own rule, before the generic
+  // one that reads an unmoved build as a lie.
+  const rv = src.indexOf("else if (c.newSlug) {");
+  const generic = src.indexOf("const moved = after.build !== before.build;");
+  assert.ok(rv > 0 && generic > rv, "a rename is judged by the generic rule, which calls an unmoved build a lie");
+  // The verdict's own expression, not the window: a sweep found `still`
+  // computed and then left out of the verdict, which the window could not see.
+  assert.match(src.slice(rv, generic), /verdict = chk\.ok && (?:still|after\.build === before\.build) \? "ok" : "LIE"/, "a rename that moved the build passes");
+  // AND THE FLIPPED ASK IS THE ONE SENT — the wiring hop: a target decided at
+  // run time and the case's fixed ask posted anyway would rename to a name
+  // the site already has and read as "refused as coded".
+  assert.match(src, /instruction: ask, layer: "look"/, "the runner posts the case's fixed ask rather than the one chosen at run time");
+  // A FAILED LANE IS A RED RUN (run 17): "failed" ended a green run.
+  const exitRule = src.slice(src.indexOf("const bad = results.filter"), src.indexOf("process.exit(bad.length"));
+  assert.match(exitRule, /failed/, "a failed lane leaves the run green");
   assert.match(src.slice(start, wait), /90000|60000|75000/, "the wait is unbounded");
   // A MISSING ID IS NOT A MOVED ID (run 13, 2026-09-02): one probe without
   // the header broke the wait at once and the snapshot read the old build,
@@ -244,10 +269,21 @@ test("the wordmark check reads the served mark's own bytes, since the brand link
 test("the held lanes are verified when named: a rename on both addresses, a rebuild on the site", () => {
   const slug = CASES.find((x) => x.lane === "slug");
   assert.equal(slug.newSlug, "crookes-guitar", "the rename case does not say which address it claims");
-  assert.equal(slug.check({}, {}, {}, { newStatus: 200, oldStatus: 301, oldLocation: "https://crookes-guitar.gofarther.app/" }).ok, true);
-  assert.equal(slug.check({}, {}, {}, { newStatus: 200, oldStatus: 200, oldLocation: "" }).ok, false, "an old address that still answers is not a rename");
-  assert.equal(slug.check({}, {}, {}, { newStatus: 404, oldStatus: 301, oldLocation: "https://crookes-guitar.gofarther.app/" }).ok, false, "a new address that does not answer is not a rename");
-  assert.equal(slug.check({}, {}, {}, { newStatus: 200, oldStatus: 301, oldLocation: "https://fretwork-1.gofarther.app/" }).ok, false, "a redirect elsewhere is not this rename");
+  // RE-RUNNABLE: the target flips to whichever name the site does not have.
+  assert.equal(slug.flip("fretwork-1", "fretwork-1"), "crookes-guitar");
+  assert.equal(slug.flip("crookes-guitar", "fretwork-1"), "fretwork-1", "a site already at the new name is not asked back to its storage name");
+  assert.match(slug.askFor("fretwork-1"), /"fretwork-1"/, "the flipped ask does not name the flipped target");
+  const ok = { newSlug: "crookes-guitar", newStatus: 200, oldStatus: 301, oldLocation: "https://crookes-guitar.gofarther.app/", newCanonical: "https://crookes-guitar.gofarther.app/" };
+  assert.equal(slug.check({}, {}, {}, ok).ok, true);
+  assert.equal(slug.check({}, {}, {}, { ...ok, oldStatus: 200, oldLocation: "" }).ok, false, "an old address that still answers is not a rename");
+  assert.equal(slug.check({}, {}, {}, { ...ok, newStatus: 404 }).ok, false, "a new address that does not answer is not a rename");
+  assert.equal(slug.check({}, {}, {}, { ...ok, oldLocation: "https://fretwork-1.gofarther.app/" }).ok, false, "a redirect elsewhere is not this rename");
+  // RUN 17'S EXACT STATE (2026-09-02): both addresses right, the head at the
+  // new one still naming the old. The alias was live; the sidecar was not.
+  assert.equal(slug.check({}, {}, {}, { ...ok, newCanonical: "https://fretwork-1.gofarther.app/" }).ok, false, "a new address whose canonical names the old one passes as a rename");
+  assert.equal(slug.check({}, {}, {}, { ...ok, newCanonical: "" }).ok, false, "a new address with no canonical passes as a rename");
+  // And the flipped direction judges by the same rule, with the names swapped.
+  assert.equal(slug.check({}, {}, {}, { newSlug: "fretwork-1", newStatus: 200, oldStatus: 301, oldLocation: "https://fretwork-1.gofarther.app/", newCanonical: "https://fretwork-1.gofarther.app/" }).ok, true);
   const kind = CASES.find((x) => x.lane === "kind");
   assert.equal(kind.hop, "build", "the kind case does not follow the escalate to the rebuild route");
   const b = { build: "a", html: "<h1>old</h1>", title: "Old", slots: [] };
@@ -275,9 +311,21 @@ test("the runner follows kind to the rebuild route only on that escalate, and re
   // The snapshot is taken AFTER the hop, so the site read is the rebuilt one.
   // (`let`, since run 13: a snapshot from a stale edge is re-taken.)
   assert.ok(src.indexOf("let after = await snapshot();") > watch, "the site is read before the rebuild finishes");
-  const both = src.indexOf("if (c.newSlug) {");
+  // The evidence block is the `if (c.newSlug) {` that reads `extra.oldLocation`
+  // (the rename wait, added 2026-09-02, opens on `body.ok === true && c.newSlug`).
+  const both = src.indexOf("    if (c.newSlug) {");
   assert.ok(both > 0 && src.indexOf("extra.oldLocation", both) > both, "the rename is not read off both addresses");
-  assert.match(src.slice(both, both + 600), /redirect: "manual"/, "the old address is followed, so its 301 can never be seen");
+  assert.match(src.slice(both, both + 900), /redirect: "manual"/, "the old address is followed, so its 301 can never be seen");
+  // THE OLD ADDRESS IS THE NAME THE SITE HAD, not SITE — which has moved on
+  // to the new name by the time the evidence is read — and the sweep then
+  // remembers the new name as the one a second rename flips away from.
+  assert.match(src.slice(both, both + 900), /https:\/\/\$\{PUBLIC\}\.gofarther\.app\//, "the old address is read from SITE, which already points at the new name");
+  assert.match(src.slice(both, both + 1200), /PUBLIC = newSlug/, "a second rename in the same run would flip from the wrong name");
+  // AND THE SWEEP FOLLOWS AN ALIAS ONCE AT THE START, so a renamed site is not
+  // read as "does not answer 200" through its own 301.
+  const follow = src.indexOf("let PUBLIC = SLUG;");
+  assert.ok(follow > 0 && follow < src.indexOf("let before = await snapshot();"), "the public name is not resolved before the first snapshot");
+  assert.match(src.slice(follow, follow + 700), /SITE = `https:\/\/\$\{PUBLIC\}\.gofarther\.app`/, "a 301 from the storage name is not followed to where the site lives");
 });
 
 test("the action check wants the words changed AND the link kept, read off the header's own button", () => {

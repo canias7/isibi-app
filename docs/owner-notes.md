@@ -1491,3 +1491,46 @@ survived — after a first round where two survived, because my tests only
 put the punctuation at the end of the whole list and the whole-string
 trim was catching it before the per-name one could. A stray dot before a
 comma is a case now.
+
+## 2026-09-02 — Run 17: the rename landed, the job was lost, and the head never moved
+
+You ran `slug` at 17:38, twelve minutes after my push — inside the
+container's roll. Read off the site and the tables, not the log:
+
+- **The addresses are right.** `crookes-guitar.gofarther.app` answers 200,
+  `fretwork-1.gofarther.app` 301s to it (subpaths too), and the alias rows
+  landed old-then-new at 17:39:49. Your site is at the new name.
+- **The queued job was lost.** The consumer's heartbeat stopped at 17:40:37
+  — inside the roll — the lease ran out at 17:42:07, and the sweeper
+  refunded the 1 credit at 17:44:17. Balance still 208. The harness
+  printed `failed` and the run went GREEN, which it must not; `failed` is
+  red now. What killed the consumer is task 52: the Worker's own log is
+  the only witness, and I cannot press "container logs" from here (403) —
+  it is free, one click, and 3 hours of log:
+  https://github.com/canias7/isibi-app/actions/workflows/container-logs.yml
+- **The canonical at the new address still said the old one** — and that
+  was NOT the lost publish. Two hops were missing at once: the publish
+  spine wrote the head's origin from the STORAGE slug (so even a finished
+  republish would have baked `fretwork-1` back in, and so would your next
+  colour change), and the rename's whole plan for moving the head was that
+  republish. `publicNameFor` existed and nothing used it. The guard for
+  this read the code and passed; the harness read both addresses and never
+  the head. Fixed both ways: one reader of the public address at every
+  writer of the canonical, and the rename patches the head's one key in R2
+  the moment the alias is current — no container, nothing to lose. A new
+  guard drives the route and reads the write.
+- **The live head gets fixed for free** once this deploy is on: a platform
+  republish row for fretwork-1 (no model call, no credits) rebakes the
+  canonical from the public name. I will do that and check it.
+
+The harness follows the 301 once at the start now (otherwise it reads your
+renamed site as "does not answer 200"), keeps `site: fretwork-1` — the
+storage name the API keys on — and flips the rename target, so a second
+`slug` run renames back to `fretwork-1` and proves the lane the whole way,
+head included. Same form values, lanes `slug`, budget `20`, after the
+container has rolled from the push.
+
+Sweep for this change: 13 mutants, 13 killed, comment-only control survived
+— after a first pass in which the control never applied (I had anchored it
+as a line comment on a block comment), which is a sweep with no control.
+Suite 4,805 green.

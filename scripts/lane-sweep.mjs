@@ -52,7 +52,10 @@ const ANON_KEY = process.env.SUPABASE_ANON_KEY ||
 const BASE = process.env.OWNER_BASE_URL || "https://gofarther.dev";
 const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 const SLUG = String(process.env.SWEEP_SLUG || "").trim().toLowerCase();
-const SITE = `https://${SLUG}.gofarther.app`;
+// `let`: the address the sweep reads follows a rename (see `PUBLIC` in main).
+// The API is still addressed by the storage slug; only where the SITE is read
+// moves.
+let SITE = `https://${SLUG}.gofarther.app`;
 const PICKER = String(process.env.SWEEP_PICKER || "grok").trim().toLowerCase();
 const BUDGET = Number(process.env.SWEEP_BUDGET || 80);
 const WANT = String(process.env.SWEEP_LANES || "all").trim().toLowerCase();
@@ -340,8 +343,20 @@ export const CASES = [
   // check reads its own two fetches (`x.newStatus`, `x.oldStatus`,
   // `x.oldLocation`), filled by the runner.
   { lane: "slug", held: "renames the site: the old address redirects for ever and the new one is claimed", ask: 'Change the site address to "crookes-guitar"', newSlug: "crookes-guitar",
-    check: (b, a, r, x) => ({ ok: x.newStatus === 200 && x.oldStatus >= 300 && x.oldStatus < 400 && /crookes-guitar/.test(String(x.oldLocation || "")),
-      note: `crookes-guitar.gofarther.app answers ${x.newStatus ?? "?"}; the old address answers ${x.oldStatus ?? "?"}${x.oldLocation ? " → " + x.oldLocation : ""}` }) },
+    // RE-RUNNABLE: the runner flips the target to whichever name the site does
+    // not have now — a site already answering at crookes-guitar is asked back
+    // to its storage name — because the lane refuses a rename to the name the
+    // site already has, and one proof must not put the lane beyond a second.
+    flip: (publicName, slug) => (publicName === "crookes-guitar" ? slug : "crookes-guitar"),
+    askFor: (name) => `Change the site address to "${name}"`,
+    // THE HEAD FOLLOWS THE ADDRESS, OR IT IS NOT A RENAME (run 17, 2026-09-02):
+    // both addresses answered the right way while the canonical at the new one
+    // still named the old — the alias was live and the sidecar was not.
+    // `x.newCanonical` is the canonical link read at the new address.
+    check: (b, a, r, x) => ({ ok: x.newStatus === 200 && x.oldStatus >= 300 && x.oldStatus < 400
+        && String(x.oldLocation || "").startsWith(`https://${x.newSlug}.gofarther.app/`)
+        && String(x.newCanonical || "") === `https://${x.newSlug}.gofarther.app/`,
+      note: `${x.newSlug}.gofarther.app answers ${x.newStatus ?? "?"}, canonical ${x.newCanonical || "(none)"}; the old address answers ${x.oldStatus ?? "?"}${x.oldLocation ? " → " + x.oldLocation : ""}` }) },
   // `kind` ESCALATES TO A BUILD, and the client follows it to the rebuild
   // route; so does the runner (`hop: "build"`), which is the only way to see
   // whether the site that comes back is the tool that was asked for.
@@ -398,6 +413,19 @@ async function main() {
   console.log(`balance at start: ${start}\n`);
 
   const results = [];
+  // THE ADDRESS THE SITE ANSWERS AT NOW (run 17, 2026-09-02). A renamed site
+  // 301s from its storage name, and every read here is `redirect: "manual"`
+  // so an old address's redirect can be SEEN — which would read the renamed
+  // site itself as "does not answer 200". So that one hop is followed ONCE,
+  // here, and the sweep reads the site where it lives. `PUBLIC` is the name
+  // the rename case flips away from.
+  let PUBLIC = SLUG;
+  {
+    const r = await fetch(SITE + "/", { redirect: "manual" }).catch(() => null);
+    const loc = r && r.status >= 300 && r.status < 400 ? String(r.headers.get("location") || "") : "";
+    const m = /^https:\/\/([a-z0-9-]+)\.gofarther\.app\//.exec(loc);
+    if (m && m[1] !== SLUG) { PUBLIC = m[1]; SITE = `https://${PUBLIC}.gofarther.app`; console.log(`${SLUG} answers at ${PUBLIC}.gofarther.app now (the storage name redirects there)\n`); }
+  }
   let before = await snapshot();
   if (before.status !== 200) { console.error(`the site does not answer 200 (${before.status}) — nothing to sweep against`); process.exit(1); }
   console.log(`site is up, build ${before.build}, lang=${before.lang}, title="${before.title}"\n`);
@@ -406,11 +434,15 @@ async function main() {
     const c = CASES.find((x) => x.lane === lane);
     const spent = start - (await balance());
     if (spent > BUDGET) { console.log(`BUDGET EXHAUSTED (${spent} > ${BUDGET}) — stopping before ${lane}`); break; }
-    console.log(`━━ ${lane}  "${c.ask}"`);
+    // THE RENAME'S TARGET IS CHOSEN AT RUN TIME — whichever name the site does
+    // not have now — so the lane can be proven again after it has run once.
+    const newSlug = typeof c.flip === "function" ? c.flip(PUBLIC, SLUG) : c.newSlug;
+    const ask = typeof c.askFor === "function" ? c.askFor(newSlug) : c.ask;
+    console.log(`━━ ${lane}  "${ask}"`);
     const bal0 = await balance();
     const t0 = Date.now();
     const p = await call("POST", `/api/site/${encodeURIComponent(SLUG)}/edit`,
-      { token: TOKEN, body: { instruction: c.ask, layer: "look", page: "", remove: false, rename: "", tab: false, picker: PICKER, idem: hex32() } });
+      { token: TOKEN, body: { instruction: ask, layer: "look", page: "", remove: false, rename: "", tab: false, picker: PICKER, idem: hex32() } });
     let reply = p; let job = "";
     if (p.status === 202 && p.json && p.json.job) {
       job = p.json.job;
@@ -473,7 +505,7 @@ async function main() {
     // that follows must show that same id, or it is re-taken: two requests a
     // second apart can land on two edges, one still on the previous script.
     let seen = "";
-    if (body.ok === true && ((Array.isArray(body.moved) && body.moved.length) || (Array.isArray(body.changed) && body.changed.length) || Number(body.files) > 0 || body.hopped === "build" || c.newSlug)) {
+    if (body.ok === true && ((Array.isArray(body.moved) && body.moved.length) || (Array.isArray(body.changed) && body.changed.length) || Number(body.files) > 0 || body.hopped === "build")) {
       const t1 = Date.now();
       while (Date.now() - t1 < 90000) {
         const probe = await site("/");
@@ -482,16 +514,39 @@ async function main() {
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
+    // A RENAME MOVES THE ADDRESS, NOT THE BUILD (2026-09-02): the head is
+    // patched in R2 and nothing compiles, so the build id is the one thing
+    // that must NOT move — `c.newSlug` left the gate above for that reason
+    // (it would spin the full bound for an id that never moves). What is
+    // waited for is the new address answering with its own canonical — the
+    // alias cache on another isolate can lag the row by a moment — bounded
+    // the same way. From then on the site is read at its new name.
+    if (body.ok === true && c.newSlug) {
+      const tR = Date.now();
+      while (Date.now() - tR < 90000) {
+        const nu = await fetch(`https://${newSlug}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
+        const html = nu && nu.status === 200 ? await nu.text().catch(() => "") : "";
+        if (attr(html, /<link rel="canonical" href="([^"]*)"/) === `https://${newSlug}.gofarther.app/`) break;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      SITE = `https://${newSlug}.gofarther.app`;
+    }
     let after = await snapshot();
     for (let i = 0; seen && after.build !== seen && i < 6; i++) {
       await new Promise((r) => setTimeout(r, 5000));
       after = await snapshot();
     }
-    // THE RENAME'S EVIDENCE: both addresses, read plainly.
+    // THE RENAME'S EVIDENCE: both addresses, read plainly — the old one by the
+    // name the site had when this lane began, since SITE has moved on.
     if (c.newSlug) {
-      const nu = await fetch(`https://${c.newSlug}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
-      const old = await fetch(SITE + "/", { redirect: "manual" }).catch(() => null);
+      const nu = await fetch(`https://${newSlug}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
+      const old = await fetch(`https://${PUBLIC}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
+      extra.newSlug = newSlug;
       extra.newStatus = nu ? nu.status : 0; extra.oldStatus = old ? old.status : 0; extra.oldLocation = old ? (old.headers.get("location") || "") : "";
+      // THE HEAD AT THE NEW ADDRESS (run 17): the alias can be live while the
+      // canonical still names the old name, and only this line can tell.
+      extra.newCanonical = nu && nu.status === 200 ? attr(await nu.text().catch(() => ""), /<link rel="canonical" href="([^"]*)"/) : "";
+      if (body.ok === true) PUBLIC = newSlug;
     }
     const claimedOk = body.ok === true;
     const escalated = body.escalate === true;
@@ -524,6 +579,14 @@ async function main() {
       verdict = "ok (already so)"; note = body.lookNote;
     }
     else if (!claimedOk) { verdict = "failed"; note = `${reply.status} ${String(body.error || "")} — ${String(body.detail || body.msg || reply.text || "").slice(0, 200)}`; }
+    // A RENAME IS JUDGED ON ITS ADDRESSES AND ITS HEAD, WITH THE BUILD UNMOVED:
+    // nothing compiles, so the generic rule below — which reads an unmoved
+    // build as a lie — would call every correct rename a liar.
+    else if (c.newSlug) {
+      const chk = c.check(before, after, body, extra);
+      const still = after.build === before.build;
+      verdict = chk.ok && still ? "ok" : "LIE"; note = chk.note + (still ? "" : " — AND THE BUILD MOVED, which a rename must not do");
+    }
     else {
       const chk = c.check(before, after, body, extra);
       const moved = after.build !== before.build;
@@ -545,7 +608,10 @@ async function main() {
   for (const r of results) console.log(r.lane.padEnd(12) + JSON.stringify(r.named).padEnd(22) + r.layer.padEnd(9) + String(r.cost).padEnd(6) + String(r.wall).padEnd(6) + r.verdict + (r.pickedRight ? "" : "  (picker named the wrong lane)"));
   console.log(`\nbalance ${start} → ${end}  (spent ${start - end})`);
   console.log(`\n${JSON.stringify(results)}`);
-  const bad = results.filter((r) => /LIE|NEEDS REVIEW|NO ANSWER/.test(r.verdict));
+  // A FAILED LANE IS A RED RUN (run 17, 2026-09-02): the slug lane's job was
+  // lost and refunded, the verdict said "failed", and the run ended green —
+  // the owner reads the colour, and green said the rename had worked.
+  const bad = results.filter((r) => /LIE|NEEDS REVIEW|NO ANSWER|^failed$/.test(r.verdict));
   process.exit(bad.length ? 1 : 0);
 }
 

@@ -190,17 +190,33 @@ test("THE CHAIN — resolution sits before the rewrite, and a rename republishes
   // on a failed lookup is how two sites end up sharing an address.
   assert.match(w, /takenByAlias === null/, "a failed alias lookup reads as a free name");
 
-  // hop 4: THE REPUBLISH, and it is not optional. The canonical link and og:url
-  // are baked into the R2 sidecar at publish time; a renamed site whose sidecar
-  // still names the old address tells every crawler the old one is real.
+  // hop 4: THE HEAD FOLLOWS THE ADDRESS WITHOUT A COMPILE. The canonical link
+  // and og:url are read per request out of the R2 sidecar's `origin`; the
+  // branch patches that one key the moment the alias is current (the share and
+  // verify routes' pattern). It used to republish instead — and the spine baked
+  // the STORAGE slug, so the republish would have named the old address anyway.
+  // Run 17 (2026-09-02), the first live rename: alias live, canonical stale.
   const branch = w.indexOf('if (eLayer === "rename") {');
   assert.ok(branch > 0, "there is no rename branch in the worker");
   const end = w.indexOf('if (eLayer === "nav") {', branch);
   assert.ok(end > branch, "the rename branch has no end — this window would run to the end of the file");
   const body = w.slice(branch, end);
-  assert.match(body, /publishStep\(/, "a rename does not republish, so its canonical keeps naming the old address");
-  // …through `publishStep`, not the spine directly: one publish per message.
-  assert.ok(!/recompileAndPublish\(/.test(body), "the rename branch calls the spine directly and would publish twice for a two-part message");
+  const patch = body.indexOf("side.origin = addressOf(wanted);");
+  assert.ok(patch > 0, "a rename does not patch the sidecar's origin, so its canonical keeps naming the old address");
+  assert.ok(patch > body.indexOf("const badNew = await putAlias(rows.promote);"), "the head is patched before the new name is current");
+  assert.match(body.slice(patch, patch + 300), /SITES_BUCKET\.put\(siteMetaKey\(ownerSlug\)/, "the patched sidecar is never written back");
+  assert.ok(!/publishStep\(|recompileAndPublish\(/.test(body), "the rename branch still republishes — a compile a lost lease can leave half-done, for a head one R2 write deploys");
+
+  // hop 5: EVERY WRITER OF THE CANONICAL DERIVES IT FROM THE PUBLIC NAME. Both
+  // publish sites passed `siteUrlFor` the storage slug, so a renamed site's next
+  // colour change would have put the old address straight back.
+  assert.ok(!/siteUrlFor\(slug, "https:\/\/" \+ APP_ZONE\)/.test(w), "a publish site still builds the sidecar's origin from the storage slug");
+  assert.ok(!/siteUrlFor\(env,/.test(w), "a caller hands siteUrlFor the env where it wants a name");
+  const uses = (w.match(/await publicUrlFor\(env, slug\)/g) || []).length;
+  assert.ok(uses >= 4, "the public address reaches fewer writers than it has (spine, build, resume reply, checkout return): " + uses);
+  const at = w.indexOf("async function publicUrlFor(");
+  assert.ok(at > 0, "there is no one reader of the public address");
+  assert.match(w.slice(at, w.indexOf("\n}", at)), /await publicNameFor\(env, slug\)/, "publicUrlFor does not ask the alias table");
 });
 
 test("a missing table degrades to exactly today's behaviour", () => {
