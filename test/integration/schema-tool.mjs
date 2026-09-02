@@ -32,7 +32,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
  */
 export async function readSchemaTool() {
   const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  const [fonts, plan, tokens, style, authored, registry, favicon, qr] = await Promise.all([
+  const [fonts, plan, tokens, style, authored, registry, favicon, qr, table] = await Promise.all([
     import(path.join(ROOT, "builder", "site-fonts.mjs")),
     import(path.join(ROOT, "builder", "site-plan.mjs")),
     import(path.join(ROOT, "builder", "site-tokens.mjs")),
@@ -41,8 +41,15 @@ export async function readSchemaTool() {
     import(path.join(ROOT, "builder", "site-theme-registry.mjs")),
     import(path.join(ROOT, "builder", "site-favicon.mjs")),
     import(path.join(ROOT, "builder", "site-qr.mjs")),
+    import(path.join(ROOT, "builder", "site-table.mjs")),
   ]);
   const scope = {
+    // THE ONE SHAPE OF A TABLE (2026-09-02) — `backend.tables.items`, lifted
+    // out of the literal so the ADD step can ask for a table without the
+    // build's designer. The REAL object, never a stub, for the reason this
+    // function's own header gives: the items ARE the field, and a stubbed
+    // one measures a tool asking for a table with no columns.
+    TABLE_ITEM: table.TABLE_ITEM,
     SITE_FONT_IDS: fonts.SHORTLIST.map((f) => f.id),
     // THE SIX AUTHORED PLAN FIELDS, where `SITE_FAMILY_IDS` and the two prompt
     // helpers used to be. `family` left `design_schema` on 2026-08-20 — the

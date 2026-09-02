@@ -45,7 +45,15 @@ test("the design_schema tool offers confirm, sms and payment per table", () => {
   // the failure this codebase has hit most often. Read off the real tool.
   const at = worker.indexOf('name: "design_schema"');
   assert.ok(at > 0, "the designer's tool is gone from worker.js");
-  const block = worker.slice(worker.indexOf("tables:", at), worker.indexOf("tables:", at) + 30000);
+  // THE PER-TABLE FIELDS LIVE IN THEIR OWN MODULE (2026-09-02): `TABLE_ITEM`
+  // in builder/site-table.mjs, shared with the ADD step and bound into the
+  // tool by name. Read where they live — and no longer through a 30,000-byte
+  // window, this repo's most-recorded own-goal — with the binding asserted so
+  // a module nobody sends cannot satisfy the rest.
+  const tablesAt = worker.indexOf("tables: {", at);
+  assert.ok(tablesAt > at, "the tool's `tables` property is gone");
+  assert.match(worker.slice(tablesAt, tablesAt + 2000), /items: TABLE_ITEM,/, "the tool no longer binds the shared table item");
+  const block = fs.readFileSync(new URL("../builder/site-table.mjs", import.meta.url), "utf8");
   for (const field of ["confirm", "sms", "payment"]) {
     assert.match(block, new RegExp("\\n\\s+" + field + ": \\{"),
       `the designer cannot declare ${field}, so no site can ever have it`);

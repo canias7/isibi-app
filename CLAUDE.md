@@ -693,8 +693,86 @@ repairs for the same reason — the first draft turned "déjà vu café" into
 
 ---
 
-**Still mixed, and next: the ADDON step**, which calls `designSiteSchema` with the
-same 84.8k build tool to add one page. **DELETE deferred** (owner's call).
+### THE ADD STEP IS ITS OWN PATH TOO (2026-09-02)
+
+Owner: *"ok now that you have a big idea of what we want, lets start building
+the addon part."* The addon route called `designSiteSchema` — the build's
+93,852-character tool anchored on the stored look — to add one page or one
+code, and read four fields off the answer (`tables`, `qr`, `three`, `tsx`);
+the plan it designed for the addition was thrown away and the page call got
+the customer's sentence and no plan. Now **`builder/site-add.mjs`, which
+imports nothing from `worker.js`** — the edit step's split, for the step that
+ADDS:
+
+```
+customer ──► pick_adds ──► add_to_site ──► the page call ──► ONE PUBLISH
+             picked model   one per kind    (addon mode)
+             1,936 chars    1 property
+             6 kinds        0 required
+```
+
+- **Six kinds, the intent router's own list**: `table` · `page` · `section` ·
+  `qr` · `three` act here; `photo` dispatches to the `picture` rung (the one
+  that places a photograph and prices it; this step never buys one). **Order
+  is run order** — a table before the page that shows it. `ADD_KINDS`,
+  `OWN_ADDS`, `DISPATCHED_ADDS`, `addLayer` — derive, don't trust.
+- **One tool per kind, one property, nothing required** — the wall, not the
+  rule: a `section` tool cannot re-theme the site because there is nowhere to
+  put the answer. Inside the property the kind's own `required` stands (a page
+  with no path is not a page). A four-part rule per kind (`is` · `yours` ·
+  `wide` · `keep`), `composeRule` refusing a missing part.
+- **What it shares with the build are SHAPES, never wording**: the table item
+  (**`TABLE_ITEM`, lifted out of `design_schema` into `builder/site-table.mjs`
+  for exactly this**, byte-identical on the wire — `readSchemaTool` binds it;
+  every guard that read the item's text out of worker.js reads it there now,
+  with the `items: TABLE_ITEM` binding asserted beside), `TSX_ITEM`, the kit's
+  `COMPONENT_MENU`, `TOOL_DIRECTIVE`. The `BEHAVIOR_ITEM` precedent.
+- **The fold (`foldAdds`) is the hop the old route never had**: the page call
+  gets a directive for the addition (file, route, LAYOUT, numbered bands, kit
+  parts, where it links from) riding the brief, and the union of kit parts
+  through `plan.components` so it is shown their exact props. `tsx` is
+  APPENDED to the stored list by name — the old `mergeLook(aLook, designed)`
+  REPLACED it, so a new part on a site that had one forgot the first on its
+  next revise. `qr`/`three`/`tables`/`seed` fold as before; `aDesigned` keeps
+  its name so the store-before-publish / revert-on-failure guards still read.
+- **Refusals are sentences, never climbs** (`addRefusal`, `alreadyReply`): a
+  code or a scene the site already carries — read the way the edit route's
+  wall reads it, stored look OR page source (`ADD_ONLY_FIELDS` and
+  `ADD_EVIDENCE`, the same two lists, so the two doors never bounce a customer
+  between them; `test/site-add.test.mjs` asserts every add-only field is a
+  kind); a table on a site with no database (refused BEFORE a call now); a
+  page the site has; a code with no destination; a section on a many-page
+  site that names no page (a one-page site lands on its page). Only a picker
+  that names nothing escalates to the revise. **A photo beside another kind
+  is set aside and said** (`skipped`), because the hop carries one sentence to
+  one rung.
+- **The browser hops sideways** on an escalate that names an edit layer
+  (`siteAddon` → `siteEdit`, handed-off), instead of falling to the ~25-credit
+  revise. An escalate naming nothing still falls.
+- **Every small call is the picker's model** (`aModels.quick`); every usage —
+  the picker's, each add's, the page call's, the seed net's — rides ONE
+  `pageCredits` (`...aDesignUsage`, a list now).
+- **On the wire**: 1,936 of picker + 1,299 (`three`) / 1,570 (`qr`) / 20,045
+  (`table`) / ~35,000 (`page`, `section` — the kit's menu is most of it),
+  against 93,852. **Every prompt is a placeholder**, marked so.
+- **NOT proven live.** `scripts/addon-sweep.mjs` behind `harness: addon` in
+  `lane-sweep.yml` (cases `section,page,table,qr,three,photo` on fretwork-1;
+  `table`/`qr`/`three` are driven to their honest refusals there, `photo` to
+  its hop; a page and a section are the two that publish) is what proves it.
+- **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
+  unapplied** — each a fix cut back to a failure (the cap, the run order, the
+  stored parts dropped, a page added twice, the home route reading as none,
+  a required kind, a silent missing rule part, unnumbered bands, a truncation
+  read as an answer, "already" off the look alone, a photo hop dropping the
+  page beside it, one bill of three, the kit parts never reaching the page
+  call, the sideways hop falling to the revise, the item unbound in the eval
+  scope, `payment` gone from the shared shape). **The guards that read the
+  table item's text out of worker.js went red on the lift — thirteen files,
+  every one anchored on the item living in the tool** — and each was
+  re-anchored on the property (the item where it lives, plus the `items:
+  TABLE_ITEM` binding asserted beside it), never appeased.
+
+**DELETE deferred** (owner's call).
 
 ---
 
@@ -1023,7 +1101,8 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 310/310** against the real container; the unit suite is 4,576.
+- **`site build` is 310/310** against the real container; the unit suite is 4,845
+  (2026-09-02, after the ADD step split).
   **Run it with nothing else of its own already running.** It binds a fixed port,
   so a leftover `build-server.mjs` from an earlier run makes the new one's
   `listen` throw and every streaming leg report "0 reports arrived" — six red

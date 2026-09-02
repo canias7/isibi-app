@@ -9,6 +9,12 @@
 # when the file exists on the default branch; this one does, and a dispatch
 # from a branch runs the branch's copy of it.
 #
+# AND THE ADDON SWEEP (2026-09-02), the third harness behind the same input:
+# one ask per KIND the ADD step can add (a section, a page, a table, a code, a
+# scene, a photograph), posted straight to the addon route and judged on the
+# live site. See scripts/addon-sweep.mjs. The addon route is synchronous —
+# not on the queue — so each case is one long request.
+#
 # COSTS REAL MONEY, BY DESIGN. Nothing here is free: every lane is a model call
 # and a publish, and the page-rung lanes are rewrites. Budgeted by the `budget`
 # input and stopped by the harness at the first reply that lies about the site.
@@ -33,11 +39,11 @@ on:
         required: true
         default: ''
       harness:
-        description: 'lane (one ask per design field) | gap (the rungs no lane reaches: text,logo,cancel,move,move-back,remove,data,rules,backend)'
+        description: 'lane (one ask per design field) | gap (the rungs no lane reaches: text,logo,cancel,move,move-back,remove,data,rules,backend) | addon (the ADD step, one ask per kind: section,page,table,qr,three,photo)'
         required: false
         default: 'lane'
       lanes:
-        description: 'all, or a comma list, typed exactly — a name that is not a lane refuses before anything is spent. Lane names for the lane harness (slug and kind only when named); case names for the gap harness.'
+        description: 'all, or a comma list, typed exactly — a name that is not a lane refuses before anything is spent. Lane names for the lane harness (slug and kind only when named); case names for the gap and addon harnesses.'
         required: false
         default: 'all'
       site:
@@ -111,7 +117,7 @@ jobs:
         # ONE LINE, because test/ci-browser-order.test.mjs reads the first line
         # of a run block and must see the script names there.
         run: |
-          H=$(printf '%s' "$SWEEP_HARNESS" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'); if [ "$H" = "gap" ]; then node scripts/gap-sweep.mjs; else node scripts/lane-sweep.mjs; fi
+          H=$(printf '%s' "$SWEEP_HARNESS" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'); if [ "$H" = "gap" ]; then node scripts/gap-sweep.mjs; elif [ "$H" = "addon" ]; then node scripts/addon-sweep.mjs; else node scripts/lane-sweep.mjs; fi
       # The pictures are the record the owner asked for, so they land whether
       # or not the sweep passed. Pushed to the DISPATCHED ref, which is what
       # `ref_name` is on a workflow_dispatch — a run from a branch writes to

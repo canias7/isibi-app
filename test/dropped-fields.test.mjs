@@ -15,6 +15,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { droppedFields, TOOL_TABLE_FIELDS } from "../site-schema.mjs";
+// THE ONE SHAPE OF A TABLE (2026-09-02): `design_schema`'s per-table item
+// lives in builder/site-table.mjs now, shared with the ADD step, so the truth
+// is IMPORTED rather than scraped out of worker.js — and the hop that puts it
+// on the wire is asserted beside it.
+import { TABLE_ITEM } from "../builder/site-table.mjs";
 
 const col = [{ name: "slot", type: "text" }];
 const one = (t) => droppedFields({ tables: [t] });
@@ -91,24 +96,21 @@ test("TOOL_TABLE_FIELDS matches the real tool, in BOTH directions", () => {
   // the one signal this feature exists to produce. A field removed from the
   // tool and left here hides a real reach. `worker.js` cannot be imported, so
   // the list lives in code and the truth is derived here.
+  // THE ITEM IS IMPORTED, NOT SCRAPED (2026-09-02). This walked the literal
+  // out of worker.js by text; the per-table shape is `TABLE_ITEM` in its own
+  // module now, so the names are read off the real object — and the binding
+  // that puts that object on the wire is asserted in the same breath, or a
+  // module nobody sends would satisfy this.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
     .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
   const at = w.indexOf('name: "design_schema"');
   assert.ok(at > 0, "the design_schema tool is gone — retarget this test");
-  const propsAt = w.indexOf("properties:", w.indexOf("tables:", at));
-  let depth = 0, start = w.indexOf("{", propsAt), end = start;
-  for (; end < w.length; end++) {
-    const c = w[end];
-    if (c === "{") depth++;
-    else if (c === "}") { depth--; if (!depth) { end++; break; } }
-  }
-  const props = w.slice(start, end);
-  const real = new Set();
-  for (const m of props.matchAll(/([a-zA-Z_]\w*)\s*:\s*\{/g)) {
-    const pre = props.slice(0, m.index);
-    if (pre.split("{").length - pre.split("}").length === 1) real.add(m[1]);
-  }
-  assert.ok(real.size > 15, "read only " + real.size + " fields off the tool — the scan is broken");
+  const tablesAt = w.indexOf("tables: {", at);
+  assert.ok(tablesAt > at, "the tool's `tables` property is gone — retarget this test");
+  assert.match(w.slice(tablesAt, w.indexOf("},", w.indexOf("items:", tablesAt))), /items: TABLE_ITEM/,
+    "the tool no longer binds TABLE_ITEM as its table item — the shape read below is not the one on the wire");
+  const real = new Set(Object.keys(TABLE_ITEM.properties));
+  assert.ok(real.size > 15, "read only " + real.size + " fields off the item — the shape is broken");
   assert.deepEqual([...real].sort(), [...TOOL_TABLE_FIELDS].sort(),
     "TOOL_TABLE_FIELDS and the design_schema tool disagree — one of them changed alone");
 });

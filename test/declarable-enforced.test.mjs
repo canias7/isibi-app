@@ -43,13 +43,35 @@ function balanced(src, from, open, close) {
   return null;
 }
 
-/** Every table property the design_schema tool offers the model. */
-function declarableProps() {
+/**
+ * The table item's source — `builder/site-table.mjs`, comments blanked.
+ *
+ * THE ITEM MOVED OUT OF worker.js ON 2026-09-02: `design_schema`'s per-table
+ * shape is `TABLE_ITEM` in its own module now, shared with the ADD step, and
+ * the tool binds it by name. Every scan here that read the item's text out of
+ * the tool reads it from the one place it lives instead; the binding that puts
+ * it on the wire is asserted once, below, so a module nobody sends cannot
+ * satisfy the rest.
+ */
+function tableItemSource() {
+  const src = blankComments(read("builder/site-table.mjs"));
+  assert.ok(src.indexOf("export const TABLE_ITEM = {") >= 0, "TABLE_ITEM is gone from builder/site-table.mjs — retarget this test");
+  return src;
+}
+
+test("the design_schema tool binds the shared table item", () => {
   const w = blankComments(read("worker.js"));
   const at = w.indexOf('name: "design_schema"');
   assert.ok(at > 0, "the design_schema tool is gone — retarget this test");
-  const tablesAt = w.indexOf("tables:", at);
-  const span = balanced(w, w.indexOf("properties:", tablesAt), "{", "}");
+  const tablesAt = w.indexOf("tables: {", at);
+  assert.ok(tablesAt > 0, "the tool's `tables` property is gone");
+  assert.match(w.slice(tablesAt, tablesAt + 2000), /items: TABLE_ITEM,/, "the tool no longer binds TABLE_ITEM — nothing read off that module is on the wire");
+});
+
+/** Every table property the design_schema tool offers the model. */
+function declarableProps() {
+  const w = tableItemSource();
+  const span = balanced(w, w.indexOf("properties:"), "{", "}");
   assert.ok(span, "could not read the table item's properties block");
   const props = w.slice(span[0], span[1]);
   const out = [];
@@ -167,9 +189,8 @@ test("mask is NOT declarable, because nothing can enforce it", () => {
   //
   // So the choice was a feature that lies or no feature. Same call, for the same
   // reason, that pulled `teamRead` and `teamScope` out when their enforcement went.
-  const w = blankComments(read("worker.js"));
-  const at = w.indexOf('name: "design_schema"');
-  const span = balanced(w, w.indexOf("properties:", w.indexOf("tables:", at)), "{", "}");
+  const w = tableItemSource();
+  const span = balanced(w, w.indexOf("properties:"), "{", "}");
   assert.ok(!declarableProps().includes("mask"),
     "mask is offered to the designer again — an owner asking for a phone number " +
     "to be redacted would get it served in full to every reader");
@@ -189,8 +210,10 @@ test("the designer is told publicView is what makes a listing browsable", () => 
   // Asserted because a rule nobody holds is one a later edit quietly drops, and
   // this one is invisible when it goes: the schema still applies, the database
   // still comes up, and the site simply cannot be built.
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("            publicView: {");
+  // OUT OF THE TABLE ITEM'S OWN MODULE (2026-09-02), anchored on the property
+  // rather than on twelve spaces of worker.js indentation.
+  const w = fs.readFileSync(new URL("../builder/site-table.mjs", import.meta.url), "utf8");
+  const at = w.search(/\n\s*publicView: \{/);
   assert.ok(at > 0, "the publicView field is gone from the designer's tool");
   const desc = w.slice(at, at + 2200);
   assert.match(desc, /VISITORS POST ROWS THAT OTHER VISITORS MUST BROWSE/,
@@ -376,6 +399,12 @@ test("no field the tool tells the model to omit is also required", () => {
   const src = read("worker.js");
   const w = blankNonCode(src, { strings: false });      // descriptions readable
   const struct = blankNonCode(src, { strings: true });  // braces countable
+  // THE PER-TABLE FIELDS LIVE IN THEIR OWN MODULE (2026-09-02): `TABLE_ITEM`
+  // in builder/site-table.mjs, bound into the tool by name — see
+  // `tableItemSource`. The same two views are taken of it, and the per-table
+  // pass below reads them; the top-level pass still reads worker.js.
+  const tableSrc = read("builder/site-table.mjs");
+  const tableViews = { w: blankNonCode(tableSrc, { strings: false }), struct: blankNonCode(tableSrc, { strings: true }) };
   // Found in `w`: `struct` has the literal blanked, so the anchor is not there.
   // Offsets are identical, so this index is valid against both.
   const at = w.indexOf('name: "design_schema"');
@@ -399,11 +428,17 @@ test("no field the tool tells the model to omit is also required", () => {
   assert.ok(OMIT.test(w.slice(at, schemaSpan[1])),
     "no omit-instruction found anywhere in the tool — the pattern has drifted, and this test now passes vacuously");
 
-  /** Every `name: { … }` directly inside a properties block, with its own text. */
-  const fieldsIn = (propsAt) => {
-    const span = balanced(struct, propsAt, "{", "}");
+  /**
+   * Every `name: { … }` directly inside a properties block, with its own text.
+   *
+   * OVER A PAIR OF VIEWS, passed in: the top-level fields are read out of
+   * worker.js and the per-table ones out of the table item's module, and the
+   * two scans are the same scan over different text.
+   */
+  const fieldsIn = (propsAt, views = { w, struct }) => {
+    const span = balanced(views.struct, propsAt, "{", "}");
     assert.ok(span, "could not read a properties block");
-    const props = struct.slice(span[0], span[1]);
+    const props = views.struct.slice(span[0], span[1]);
     const out = new Map();
     for (const m of props.matchAll(/([a-zA-Z_]\w*)\s*:\s*\{/g)) {
       const pre = props.slice(0, m.index);
@@ -413,7 +448,7 @@ test("no field the tool tells the model to omit is also required", () => {
       // NESTED BLOCKS CUT OUT FIRST. A field's body contains its children, so
       // `tables` inherited `access`'s "leave this out" and was reported as
       // contradicting itself. Only a field's OWN text may speak for it.
-      if (body) out.set(m[1], ownText(w.slice(span[0] + body[0], span[0] + body[1])));
+      if (body) out.set(m[1], ownText(views.w.slice(span[0] + body[0], span[0] + body[1])));
     }
     return out;
   };
@@ -428,24 +463,27 @@ test("no field the tool tells the model to omit is also required", () => {
    * the end of `properties`, and the scan stops at the `}` that closes the
    * object both keys live in, so a nested `required` cannot be picked up.
    */
-  const requiredAfter = (propsAt) => {
-    const span = balanced(struct, propsAt, "{", "}");
+  const requiredAfter = (propsAt, views = { w, struct }) => {
+    const span = balanced(views.struct, propsAt, "{", "}");
     let depth = 0;
-    for (let i = span[1]; i < struct.length; i++) {
-      const c = struct[i];
+    for (let i = span[1]; i < views.struct.length; i++) {
+      const c = views.struct[i];
       if (c === "{" || c === "[") depth++;
       else if (c === "]") depth--;
       else if (c === "}") { if (depth === 0) return []; depth--; }
-      else if (depth === 0 && c === "r" && struct.startsWith("required:", i)) {
-        const m = /required:\s*\[([^\]]*)\]/.exec(w.slice(i, i + 600));
+      else if (depth === 0 && c === "r" && views.struct.startsWith("required:", i)) {
+        const m = /required:\s*\[([^\]]*)\]/.exec(views.w.slice(i, i + 600));
         if (m) return [...m[1].matchAll(/"([a-zA-Z_]\w*)"/g)].map((x) => x[1]);
       }
     }
     return [];
   };
 
-  const tablesAt = struct.indexOf("tables:", at);
-  const perTable = struct.indexOf("properties:", tablesAt);
+  // The per-table block is the item's own `properties:` — the first in its
+  // module, since the module IS the item. The tool binds it by name; that hop
+  // is asserted by "the design_schema tool binds the shared table item" above.
+  const perTable = tableViews.struct.indexOf("properties:");
+  assert.ok(perTable > 0, "the table item has no properties block — retarget this test");
   const topLevel = struct.indexOf("properties:", struct.indexOf("input_schema:", at));
 
   // THE PREMISE THAT LETS A REVISE-SCOPED OMIT-INSTRUCTION STAND. There are two
@@ -466,9 +504,9 @@ test("no field the tool tells the model to omit is also required", () => {
 
   const checked = [];
   const onBuild = [];
-  for (const [where, propsAt] of [["per-table", perTable], ["top-level", topLevel]]) {
-    const fields = fieldsIn(propsAt);
-    const required = new Set(requiredAfter(propsAt));
+  for (const [where, propsAt, views] of [["per-table", perTable, tableViews], ["top-level", topLevel, { w, struct }]]) {
+    const fields = fieldsIn(propsAt, views);
+    const required = new Set(requiredAfter(propsAt, views));
     assert.ok(fields.size > 5, where + ": read only " + fields.size + " fields — the scan is broken");
     assert.ok(required.size > 0, where + ": read no required list — the scan is broken");
     for (const [name, body] of fields) {

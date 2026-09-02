@@ -481,7 +481,12 @@ test("the design tool offers webhooks, and its events are exactly the ones we de
   const at = worker.indexOf('name: "design_schema"');
   const end = worker.indexOf('tool_choice: { type: "tool", name: "design_schema" }');
   assert.ok(at > 0 && end > at, "design_schema could not be read — retarget this guard");
-  const tool = worker.slice(at, end);
+  // THE PER-TABLE FIELDS LIVE IN THEIR OWN MODULE (2026-09-02): `TABLE_ITEM`
+  // in builder/site-table.mjs, shared with the ADD step and bound into the
+  // tool by name — asserted here, so a module nobody sends cannot satisfy
+  // what follows; the field's own text is read where it lives.
+  assert.match(worker.slice(at, end), /items: TABLE_ITEM,/, "the tool no longer binds the shared table item");
+  const tool = fs.readFileSync(new URL("../builder/site-table.mjs", import.meta.url), "utf8");
   const decl = tool.indexOf("webhooks: {");
   assert.ok(decl > 0, "design_schema does not offer `webhooks` — the feature is undeclarable again");
 

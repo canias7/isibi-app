@@ -4050,7 +4050,12 @@ test("the designer can DECLARE the pair, or the whole grid is unreachable", () =
   // css field above it, which is this repo's most-recorded own-goal.
   const end = w.indexOf("const FRONTEND_SCHEMA_TOOL", at);
   assert.ok(end > at, "the frontend tool landmark moved — re-anchor this window");
-  const tool = w.slice(at, end);
+  // THE PER-TABLE FIELDS LIVE IN THEIR OWN MODULE (2026-09-02): the item is
+  // `TABLE_ITEM` in builder/site-table.mjs, shared with the ADD step, and the
+  // tool binds it by name. The vocabulary is read where it lives; the binding
+  // is asserted here so a module nobody sends cannot satisfy the rest.
+  assert.match(w.slice(at, end), /items: TABLE_ITEM,/, "the tool no longer binds the shared table item");
+  const tool = fs.readFileSync(new URL("../builder/site-table.mjs", import.meta.url), "utf8");
   for (const [field, values] of [["read", READ_LEVELS], ["write", WRITE_LEVELS]]) {
     assert.match(tool, new RegExp("\\n\\s+" + field + ": \\{"), "the designer cannot declare " + field);
     for (const v of values) {

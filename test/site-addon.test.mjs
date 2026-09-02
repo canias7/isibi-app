@@ -12,6 +12,8 @@ import {
   unlinkedPages, routeOf, addonReply, keptReply, rowLists, orderingMoved } from "../builder/site-addon.mjs";
 import { priorPagesBlock, pagesRequest, pagesPrompt, validatePages, SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import { EDIT_RULE } from "../builder/site-edit.mjs";
+// THE ADD STEP'S OWN RULE (2026-09-02) — the addon no longer reads EDIT_RULE.
+import { addRule } from "../builder/site-add.mjs";
 
 const page = (path, source) => ({ path: "src/routes/" + path, source });
 const SITE = [
@@ -293,7 +295,22 @@ test("the composer dispatches an addon and falls back on everything else", () =>
   assert.ok(to > from, "could not find the end of siteAddon");
   const b = CHAT.slice(from, to);
   assert.match(b, /'\/addon'/);
-  assert.match(b, /if \(a\.escalate\) return fallback\(\)/);
+  // THE ESCALATE BRANCH GREW A SIDEWAYS HOP (2026-09-02): the add step names
+  // the picture rung for a photograph, and the browser hands the same
+  // sentence to the edit route with the hop already spent. This pinned the
+  // one-line spelling `if (a.escalate) return fallback()`; what it holds is
+  // that an escalate is handled before the failure check, that a named layer
+  // other than the addon's own hops to `siteEdit` as handed-off, and that an
+  // unnamed one still falls to the revise.
+  const esc = b.indexOf("if (a.escalate) {");
+  assert.ok(esc > 0, "the escalate branch is gone");
+  const branch = b.slice(esc, b.indexOf("if (!r.ok || !a.ok)", esc));
+  assert.match(branch, /layer !== 'addon'/, "an escalate naming the addon itself would hop into the edit route");
+  // `[\s\S]*?` rather than `[^)]*`: the page argument is `String(a.page)`,
+  // whose own `)` is inside the object — a flat scan where depth matters.
+  assert.match(branch, /return siteEdit\(site, \{ \.\.\.\(d \|\| \{\}\), layer: layer,[\s\S]*?\}, instruction, origin, finish, fallback, undefined, true\)/,
+    "the hop does not carry the customer's own sentence to the named layer as a handed-off edit");
+  assert.match(branch, /return fallback\(\);\s*\}\s*$/, "an escalate that names no layer no longer falls to the revise");
   assert.ok(b.indexOf("a.escalate") < b.indexOf("!r.ok || !a.ok"),
     "the escalation check must run before the failure check");
   assert.match(b, /\}\)\.catch\(fallback\)/);
@@ -374,12 +391,17 @@ test("neither lane can publish an unbought image token", async () => {
     ["addon", block("\n          if (ad) {", "\n          if (tx) {")],
     ["page edit", block("\n            if (eLayer === \"page\") {", "\n            // A LAYER NOBODY IMPLEMENTS")],
   ]) {
-    // THE STATED ZERO SITS RIGHT BESIDE THE BRIEF. The page rung's call grew
-    // (2026-09-02) to carry the stored tsx/marks/scene beside the brief, so
-    // this is no longer pinned to the call's close: what must be true is that
-    // `images: 0` is the second thing said, not what is said after it.
-    assert.match(b, /briefWithLayout\(\{\s*brief: \w+,\s*images: 0\b/,
-      name + " does not tell the model there are no photographs");
+    // THE STATED ZERO SITS IN THE SAME CALL AS THE BRIEF. The page rung's call
+    // grew (2026-09-02) to carry the stored tsx/marks/scene beside the brief,
+    // and the addon's grew the same day to carry the designed addition and its
+    // component manifest — so this is pinned neither to the call's close nor
+    // to `images: 0` being the second key: what must be true is that the
+    // brief is the first thing said and `images: 0` is said in the same call.
+    const callAt = b.indexOf("briefWithLayout({");
+    assert.ok(callAt > 0, name + " no longer composes its brief through briefWithLayout");
+    const call = b.slice(callAt, b.indexOf("})", callAt));
+    assert.match(call, /^briefWithLayout\(\{\s*brief: \w+/, name + " does not lead the call with the brief");
+    assert.match(call, /\bimages: 0\b/, name + " does not tell the model there are no photographs");
     assert.match(b, /applyImages\(\w+\.pages, \{\}\)/,
       name + " does not sweep an unbought token before publishing");
   }
@@ -967,7 +989,11 @@ test("THE ADDON LANE HAS THE SEED NET, keeps the report, and bills the top-up on
   // Billed on the SAME variadic call as the design and pages usages: one bill,
   // one rounding, one floor — a third separately-rounded charge is the exact
   // overbilling that call was rewritten to end.
-  assert.match(w, /pageCredits\(aDesignUsage, aGen && aGen\.usage, aSeedUsage\)/,
+  // `aDesignUsage` IS A LIST SINCE THE ADD STEP (2026-09-02) — the picker's
+  // call and one per kind — and it is SPREAD onto the same variadic call, so
+  // the property this holds is unchanged: every model call of the addon on
+  // one bill, one rounding, one floor.
+  assert.match(w, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage\)/,
     "the top-up's usage is not billed, or is billed on its own rounding");
 
   // And the response says what happened — the build response's own three
@@ -990,6 +1016,15 @@ test("the designer is TOLD it may name an existing table, and told access is dis
   assert.match(EDIT_RULE, /PAYMENTS/);
   assert.match(EDIT_RULE, /publicView/);
   assert.match(EDIT_RULE, /access[^.]*discarded/i);
+  // AND THE ADD STEP'S OWN TABLE RULE SAYS THE SAME (2026-09-02): the addon
+  // no longer reads `EDIT_RULE` — that is the revise's — so the promise had
+  // to move with it, or the capability `mergeAddonSchema` keeps would be one
+  // nothing can ask for again.
+  const rule = addRule("table");
+  assert.match(rule, /table the site already has/i, "the add step is not told it may name an existing table");
+  assert.match(rule, /PAYMENT/, "…nor that payment is one of the things it may give one");
+  assert.match(rule, /public view/i, "…nor a public view");
+  assert.match(rule, /access[^.]*discarded/i, "…nor that an access answer on an existing table is discarded");
 });
 
 // ── THE SPEC-LEVEL TIERS ─────────────────────────────────────────────────────

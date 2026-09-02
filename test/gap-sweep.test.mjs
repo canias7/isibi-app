@@ -237,7 +237,11 @@ test("the workflow is dispatch-only, needs the word, selects the harness by inpu
   assert.ok(!/\n\s*push:/.test(WF), "a push trigger would make the expensive thing the default");
   assert.match(WF, /SWEEP_CONFIRM: \$\{\{ github\.event\.inputs\.confirm \}\}/);
   assert.match(WF, /harness:\n\s+description:[^\n]*\n\s+required: false\n\s+default: 'lane'/, "the harness input must default to the lane sweep");
-  assert.match(WF, /if \[ "\$H" = "gap" \]; then node scripts\/gap-sweep\.mjs; else node scripts\/lane-sweep\.mjs; fi/, "the input does not select the harness");
+  // THREE HARNESSES BEHIND ONE WORD (2026-09-02): the addon sweep joined as an
+  // `elif`. What this holds is that the gap word runs the gap script and the
+  // default still runs the lane sweep — any number of named harnesses between
+  // them is the point of the input, not a drift.
+  assert.match(WF, /if \[ "\$H" = "gap" \]; then node scripts\/gap-sweep\.mjs; (?:elif \[ "\$H" = "[a-z]+" \]; then node scripts\/[a-z-]+\.mjs; )*else node scripts\/lane-sweep\.mjs; fi/, "the input does not select the harness");
   const install = WF.indexOf("npm ci"); const browser = WF.indexOf("playwright install"); const run = WF.indexOf("node scripts/gap-sweep.mjs");
   assert.ok(install > 0 && browser > install && run > browser, "install, then browser, then the sweep");
   assert.match(WF, /permissions:\n  contents: write/, "the screenshot commit needs contents: write");

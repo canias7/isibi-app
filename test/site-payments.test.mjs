@@ -449,8 +449,14 @@ test("link 0: THE DESIGNER CAN DECLARE IT — otherwise the whole chain is unrea
   // designer's tool never offered them. Measured consequence: two customers
   // booked the same 14:00 slot and both were accepted.
   const src = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
-  const tool = src.slice(src.indexOf('name: "design_schema"'), src.indexOf('tool_choice: { type: "tool", name: "design_schema" }'));
-  assert.ok(tool.length > 500, "the design_schema tool must be findable");
+  const window = src.slice(src.indexOf('name: "design_schema"'), src.indexOf('tool_choice: { type: "tool", name: "design_schema" }'));
+  assert.ok(window.length > 500, "the design_schema tool must be findable");
+  // THE PER-TABLE FIELDS LIVE IN THEIR OWN MODULE (2026-09-02): `TABLE_ITEM`
+  // in builder/site-table.mjs, shared with the ADD step and bound into the
+  // tool by name — asserted here, so a module nobody sends cannot satisfy
+  // what follows; the field's own text is read where it lives.
+  assert.match(window, /items: TABLE_ITEM,/, "the tool no longer binds the shared table item");
+  const tool = fs.readFileSync(path.join(import.meta.dirname, "..", "builder", "site-table.mjs"), "utf8");
   assert.match(tool, /payment: \{/);
   assert.match(tool, /required: \["from"\]/);
   // The model must be told the platform owns these columns, or it will put

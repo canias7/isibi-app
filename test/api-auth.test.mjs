@@ -21,6 +21,11 @@ import { PLAN_FIELDS, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, T
 import { GIF_FIELD } from "../builder/site-favicon.mjs";
 import { QR_FIELD } from "../builder/site-qr.mjs";
 import { FAVICON_FIELD, WORDMARK_FIELD } from "../builder/site-favicon.mjs";
+// THE ONE SHAPE OF A TABLE (2026-09-02): `backend.tables.items` lives in its
+// own module now, shared with the ADD step. Bound for real below, and read as
+// text where a description of it is asserted.
+import { TABLE_ITEM } from "../builder/site-table.mjs";
+const TABLE_SRC = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "builder", "site-table.mjs"), "utf8");
 import { AUTHORED_AXES, ASKABLE as STYLE_AXES } from "../builder/site-style.mjs";
 import { authoredFieldSchema, AXIS_DECLS } from "../builder/site-authored.mjs";
 
@@ -329,9 +334,15 @@ test("the schema designer is told what makes a form able to accept a file", () =
   // description past that window and this went red on a change that had nothing
   // to do with it — the check was measuring a byte offset, not a fact.
   const tool = SRC.slice(i, SRC.indexOf('tool_choice: { type: "tool", name: "design_schema" }', i));
-  assert.match(tool, /A picture is a 'text' column whose value is a URL/);
-  assert.match(tool, /ONLY when the brief says the VISITOR sends a picture/);
-  assert.match(tool, /photo, image_url, avatar/);
+  // THE COLUMNS DESCRIPTION MOVED WITH THE TABLE ITEM (2026-09-02): the
+  // per-table shape is `TABLE_ITEM` in builder/site-table.mjs now, shared with
+  // the ADD step, and the tool binds it by name. So the wording is asserted
+  // where it lives, and the binding is asserted here — the text is on the
+  // wire only if both hold, and `readSchemaTool` evaluates the whole.
+  assert.match(tool, /items: TABLE_ITEM,/, "the tool no longer binds the shared table item, so its columns wording is not on the wire");
+  assert.match(TABLE_SRC, /A picture is a 'text' column whose value is a URL/);
+  assert.match(TABLE_SRC, /ONLY when the brief says the VISITOR sends a picture/);
+  assert.match(TABLE_SRC, /photo, image_url, avatar/);
 });
 
 test("every tool the model is given is a schema the API will accept", () => {
@@ -425,6 +436,9 @@ test("every tool the model is given is a schema the API will accept", () => {
   // rather than silently, which is the only reason it is still two lists.
   const REAL = {
     SEEDS_FIELD, PLAN_FIELDS, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, FAVICON_FIELD, WORDMARK_FIELD, GIF_FIELD, QR_FIELD,
+    // The table item (2026-09-02) — real, never the stub: it IS the shape the
+    // API has to accept, twenty-seven properties of it.
+    TABLE_ITEM,
     SITE_STYLE_AXES: STYLE_AXES, SITE_AUTHORED_AXES: AUTHORED_AXES,
     siteAuthoredSchema: authoredFieldSchema,
     SITE_AUTHORED_IMAGE: Object.entries(AXIS_DECLS).filter(([, v]) => v.image).map(([k]) => k),

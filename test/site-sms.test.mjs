@@ -258,9 +258,16 @@ test("the cooldown ledgers are SEPARATE", () => {
 });
 
 test("the DESIGNER can declare it, or nothing ever sends", () => {
-  const i = worker.indexOf("            sms: {");
+  // THE PER-TABLE FIELDS LIVE IN THEIR OWN MODULE (2026-09-02): `TABLE_ITEM`
+  // in builder/site-table.mjs, shared with the ADD step and bound into
+  // `design_schema` by name. Read where it lives, anchored on the property
+  // rather than on twelve spaces of worker.js indentation; the binding is
+  // asserted so a module nobody sends cannot satisfy the rest.
+  assert.match(worker, /items: TABLE_ITEM,/, "design_schema no longer binds the shared table item");
+  const item = fs.readFileSync(new URL("../builder/site-table.mjs", import.meta.url), "utf8");
+  const i = item.search(/\n\s*sms: \{/);
   assert.ok(i > 0, "the design_schema field exists");
-  const field = worker.slice(i, i + 3000);
+  const field = item.slice(i, i + 3000);
   assert.ok(/internal: true/.test(field), "the builder must be internal");
   assert.ok(/international/.test(field), "and the number must be international");
   assert.ok(/costs the owner money/.test(field), "and it is not free");

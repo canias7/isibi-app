@@ -28,27 +28,27 @@
         ┌─────▼─────┐    ┌──────▼─────┐    ┌──────▼──────┐
         │ EDIT STEP │    │ ADDON STEP │    │ DELETE STEP │
         │           │    │            │    │             │
-        │ ✅ SPLIT   │    │ ❌ STILL   │    │ ❌ NOT A    │
-        │  2026-08-29│    │  CALLS THE │    │  STEP AT    │
-        │           │    │  BUILD'S   │    │  ALL        │
-        │ pick_lanes│    │  DESIGNER  │    │             │
-        │  = THE    │    │            │    │ it's a flag │
-        │  FRONT    │    │ design_    │    │ (remove:    │
-        │  DOOR for │    │  schema    │    │  true) on   │
-        │  all 17   │    │  84.8k     │    │ page + logo │
-        │     ↓     │    │            │    │             │
-        │ 8 act here│    │            │    │             │
-        │ 6 dispatch│    │            │    │             │
-        │ 3 unbuilt │    │            │    │             │
+        │ ✅ SPLIT   │    │ ✅ SPLIT   │    │ ❌ NOT A    │
+        │  2026-08-29│    │  2026-09-02│    │  STEP AT    │
+        │           │    │            │    │  ALL        │
+        │ pick_lanes│    │ pick_adds  │    │             │
+        │  = THE    │    │  = WHICH   │    │ it's a flag │
+        │  FRONT    │    │  KIND of   │    │ (remove:    │
+        │  DOOR for │    │  thing     │    │  true) on   │
+        │  all 21   │    │     ↓      │    │ page + logo │
+        │     ↓     │    │ 5 act here │    │             │
+        │10 act here│    │ 1 dispatch │    │             │
+        │ 9 dispatch│    │  (photo)   │    │             │
+        │ 1 verb    │    │ then the   │    │             │
+        │ 1 escalate│    │ page call  │    │             │
         └───────────┘    └────────────┘    └─────────────┘
 ```
 
-**Status of the split (2026-08-29).** `EDIT` is done, and all seventeen of its
-lanes now act — eight in the edit path itself, six by dispatching to the layer
-that really does that work, three escalating under their own name because they
-are genuinely not built. `ADDON` is next and has the identical defect the edit
-step had. `DELETE` is deferred — owner's call: *"we are gonna worry about delete
-later"*.
+**Status of the split (2026-09-02).** `EDIT` is done — twenty-one lanes, all
+acting. `ADDON` is split too, the same way (`builder/site-add.mjs`, below):
+its own picker, one small designer per kind of thing a site can lack, and the
+build's designer never called from it again. `DELETE` is deferred — owner's
+call: *"we are gonna worry about delete later"*.
 
 **Where the line between EDIT and ADDON sits (owner, 2026-09-02).** *"Add will
 always go in addon"* — and *"tsx does exist tho, is literally everything on the
@@ -70,8 +70,8 @@ from an edit); and the addon step itself, which now keeps the look it designs
 the page call the bindings, hands parts to the spine, and no longer refuses a
 site without a database — a first build provisions none, so that refusal had
 sent every "add a QR code" on most of the platform to a rebuild. A table
-designed for such a site is a named refusal, not a climb. The addon still calls
-the build's designer: that half of the split is unchanged.
+designed for such a site is a named refusal, not a climb. The addon called the
+build's designer until later that day; it has its own step now (below).
 
 ---
 
@@ -226,11 +226,53 @@ shared blocks and are marked the same way.
 
 ---
 
-## The ADDON step — not yet split
+## The ADDON step — `builder/site-add.mjs` (split 2026-09-02)
 
-`worker.js` calls `designSiteSchema(env, aInstruction, aModels.design, {...})` to
-add one page or one table. Same 84.8k build tool, same build wording, same
-complaint. **Next.**
+Its own module, the edit step's shape. **It imports nothing from `worker.js`**
+and nothing from the build's tool; what it shares with the build are SHAPES
+from the modules both paths may read — the table item (`TABLE_ITEM`, lifted
+out of `design_schema` into `builder/site-table.mjs` for exactly this), the
+hand-written-part item (`TSX_ITEM`) and the kit's menu — never a description.
+
+```
+  customer ──► pick_adds ──┬──► add_to_site ──► the page call ──► ONE PUBLISH
+               picked model│    one per kind      (addon mode:
+               1.9k chars  │    one property      returns only what
+               6 kinds     │    0 required        is new or changed)
+                           └──► picture                 ← photo, one hop sideways
+```
+
+**Six kinds, the intent router's own list**: `table` · `page` · `section` ·
+`qr` · `three` act here, `photo` dispatches to the picture rung (the one that
+places a photograph and prices it; this step never buys one). Order is run
+order — a table before the page that shows it. Each acting kind has a
+four-part rule (`is` · `yours` · `wide` · `keep`), a shape of its own, and a
+tool with ONE property and nothing required, so a kind that cannot answer
+returns nothing and the route says so.
+
+**What was mixed, and what it cost.** The route called `designSiteSchema` —
+the build's 93,852-character tool anchored on the stored look — and read four
+fields off the answer (`tables`, `qr`, `three`, `tsx`). The plan it designed
+for the addition (purpose, sections, components) was thrown away; the page
+call got the customer's sentence and no plan. Now the fold (`foldAdds`) hands
+the page call a directive for the addition and the union of kit parts through
+`plan.components`, so the page writer is shown their exact props — the build's
+own design→page shape at an addition's size. On the wire: **1,936 characters
+of picker + one small tool (1,299 for a scene, 1,570 for a code, 20,045 for a
+table, ~35,000 for a page or a section, most of which is the kit's menu)**
+against 93,852.
+
+**Refusals are sentences, never climbs**: a code or a scene the site already
+carries (read the way the edit route's wall reads it — the stored look OR the
+page source), a table on a site with no database, a page the site already
+has, a code with no real destination. Every one is a named 422 with the door
+that does change it; only a picker that names nothing escalates to the revise.
+
+**Every prompt is a placeholder** (owner: *"i will tell you the prompt
+later"*), marked so in the module, one `hint` and four rule parts per kind.
+
+**Proven in the tree, NOT yet live** — `scripts/addon-sweep.mjs` behind
+`harness: addon` in `lane-sweep.yml` is what proves it on the site.
 
 ## The DELETE step — does not exist as a step
 

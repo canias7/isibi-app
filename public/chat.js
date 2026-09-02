@@ -11894,7 +11894,19 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
   }).then(async (r) => {
     const a = await r.json().catch(() => null);
     if (!a) return fallback();
-    if (a.escalate) return fallback();
+    if (a.escalate) {
+      // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this
+      // (2026-09-02): "add a photograph" is the picture rung's job, and the
+      // add step says so with the layer's name. Same sentence, same picker,
+      // handed to the edit route with the hop already spent — the addon route
+      // never escalates back here, so this cannot loop. An escalate that names
+      // no layer, or names the addon itself, still falls to the revise.
+      var layer = typeof a.layer === 'string' ? a.layer : '';
+      if (layer && layer !== 'addon') {
+        return siteEdit(site, { ...(d || {}), layer: layer, page: a.page ? String(a.page) : (d && d.page) }, instruction, origin, finish, fallback, undefined, true);
+      }
+      return fallback();
+    }
     if (!r.ok || !a.ok) {
       if (a.msg) { finish('⚠️ ' + a.msg); return; }
       return fallback();
@@ -11973,6 +11985,12 @@ function addonReplyText(a) {
   if (Array.isArray(a.tables) && a.tables.length) bits.push('now storing ' + a.tables.join(', '));
   let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
   out += photoNote(a.photos);
+  // A KIND SET ASIDE IS SAID (2026-09-02): a photograph asked for beside a
+  // page is the picture rung's job and did not ride this addition, so the
+  // customer is told to ask for it on its own rather than left looking for it.
+  if (Array.isArray(a.skipped) && a.skipped.indexOf('photo') >= 0) {
+    out += ' The photograph is a separate step — ask for it on its own and I’ll place it.';
+  }
   // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY. Keeping it quietly is the
   // silent partial this lane already had once: asked for gone, told it worked,
   // still there.

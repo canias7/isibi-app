@@ -336,7 +336,9 @@ outlier rather than the platform. The honest diagnosis was never "the model
 ignored a rule" — **there was no rule anywhere.** Now there is a field.
 
 
-**0. The edit step is finished except `slug`; ADDON is untouched.**
+**0. The edit step is finished (`slug` shipped 2026-09-02, and `forget` with
+it); ADDON was split off the build's designer the same day — see the dated
+entry at the end. What follows is the status as it stood on 2026-08-29.**
 Your drawing is at **`docs/architecture.md`**. **EDIT** now: 17 lanes, all
 addressable — 8 edited in the edit path itself, 6 dispatched to the rung that
 already does that work, `pages` acting through three verbs (add/remove/move),
@@ -1627,3 +1629,74 @@ lanes `forget`, same form otherwise, budget `20`. It costs about 1 credit
 (the routing call and the address call, no compile). After it,
 `crookes-guitar.gofarther.app` answers 404 and anyone could claim that
 name — including you again, by renaming to it.
+
+## 2026-09-02 — The addon step is its own path now
+
+You said: "ok now that you have a big idea of what we want, lets start
+building the addon part." Built, the same way the edit step was split on
+the 29th, and for the same reason.
+
+**What was wrong.** When a customer asked to add something — a page, a
+booking form, a QR code — the addon ran the BUILD's designer: the whole
+93,852-character tool that invents a business from nothing, pointed at a
+site that already exists, with twenty-one of its twenty-four questions
+about things the addition had no business touching. And it threw most of
+the answer away: it kept the tables and the code/scene and dropped the
+plan for the addition itself, so the step that writes the page got your
+sentence and nothing else.
+
+**What it is now** (`builder/site-add.mjs`, which borrows nothing from the
+build):
+
+1. A small picker reads the message and names WHAT is being added — one of
+   six kinds: a **table** (something to store), a **page**, a **section** on
+   a page it has, a **QR code**, a **3D scene**, a **photograph**.
+2. One small designer per kind, in your words for ADDING to a site that
+   exists: where it goes, what it is built from, what it leads with. Each has
+   one property and nothing required, so a kind that cannot answer says
+   nothing rather than inventing. The photograph is handed sideways to the
+   picture step, which already places one.
+3. The page call is told the addition — the file, the route, the bands top
+   to bottom, the kit parts and their exact props — and returns only what is
+   new or changed, as before.
+4. One publish, as before.
+
+**What it refuses, by name, instead of rebuilding your site**: a second QR
+code or 3D scene on a site that has one ("ask me to change it instead" —
+the same line the edit path draws from the other side, so the two never
+bounce you between them); a table on a site with no database (before any
+model call now); a page the site already has; a QR code with no real
+destination. A photograph asked for beside a page is set aside and said,
+so you ask for it on its own.
+
+**What it shares with the build**: only shapes. The definition of a table —
+its columns, who may read and write it, every guarantee — was lifted out of
+the build's tool into a module both steps read, byte-for-byte what was on
+the wire before, so there is one definition of a table on the platform and
+not two that drift.
+
+**What it costs on the wire**: about 1,900 characters of picker plus one
+small tool — 1,300 for a scene, 1,600 for a code, 20,000 for a table,
+~35,000 for a page or a section (the list of 2,112 kit parts is most of
+that) — against 93,852 before. Every prompt in it is a placeholder for
+yours.
+
+**NOT proven live.** Nothing here has run on a real site. The `lane sweep`
+workflow has a third harness for it: harness `addon`, lanes `all`, site
+`fretwork-1`, budget `40`. It posts one ask per kind straight to the addon
+route and reads the site after each. On fretwork-1, which has no database
+and already carries a code and a scene: the **section** and the **page**
+publish (a testimonials band on the home page; a pricing page, linked from
+the menu, with screenshots of both), **table / qr / three** are driven to
+their honest refusals, and **photo** hops to the picture step, which will
+say it cannot buy a photograph while the image balance is empty. Two
+publishes at Grok's addon prices — I would expect under 15 credits in all.
+**Wait 15–20 minutes after the push before running it**: this change
+touches `builder/`, so the container rolls, and the addon route compiles in
+the container.
+
+Mutation sweep, measured after the run: 19 mutants, 19 killed, the
+comment-only control survived. Thirteen test files went red on lifting the
+table definition out of the build's tool — each was reading it out of the
+old place — and each now reads it where it lives and checks the tool still
+binds it.
