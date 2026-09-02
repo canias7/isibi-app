@@ -27,4 +27,6 @@ disables the reveal first, so every section shows.
 
 | 08 | 2026-09-02 00:10 | sweep five: `components` → a new FAQ accordion with three questions, via the page rung. Cost 5. | `09-sweep5-components.png` |
 
-Later rows are added as the remaining lanes run.
+| 09 | 2026-09-02 00:15 | sweep five: `purpose` → "make the page about group lessons for adults rather than one-to-one". The hero copy, the price list (group lesson £30, small group of three £18, first lesson free "in a group") and the closing band were all rewritten toward groups, via the page rung. Cost 7. | `10-sweep5-purpose.png` |
+
+`pages` ("Add a pricing page") ended sweep five: the verb lane read `add` and pointed at the addon route, which the queue does not run — cost 0, site untouched, so there is no screenshot. `slug` and `kind` have not run; both are held back until the owner names them.
