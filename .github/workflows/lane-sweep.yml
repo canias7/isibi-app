@@ -104,8 +104,14 @@ jobs:
           GAP_DB_SLUG: ${{ github.event.inputs.dbsite }}
           GAP_BUDGET: ${{ github.event.inputs.budget }}
           GAP_SHOTS_DIR: docs/edits
+        # THE WORD IS READ AS A WORD. Run 9 typed `gap ` with a trailing space
+        # and the raw comparison ran the lane harness, which had no lanes named
+        # and died — the confirm word's own trap (2026-09-01), one input over.
+        # Whitespace and case are forgiven; any other word still means lane.
+        # ONE LINE, because test/ci-browser-order.test.mjs reads the first line
+        # of a run block and must see the script names there.
         run: |
-          if [ "$SWEEP_HARNESS" = "gap" ]; then node scripts/gap-sweep.mjs; else node scripts/lane-sweep.mjs; fi
+          H=$(printf '%s' "$SWEEP_HARNESS" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'); if [ "$H" = "gap" ]; then node scripts/gap-sweep.mjs; else node scripts/lane-sweep.mjs; fi
       # The pictures are the record the owner asked for, so they land whether
       # or not the sweep passed. Pushed to the DISPATCHED ref, which is what
       # `ref_name` is on a workflow_dispatch — a run from a branch writes to

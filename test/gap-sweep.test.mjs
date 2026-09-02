@@ -2,7 +2,10 @@
 // EDIT PATH the lane sweep cannot reach. Kept to properties, not spellings.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import zlib from "node:zlib";
 import { CASES, chooseCases, tinyPng, tinyPngDataUrl } from "../scripts/gap-sweep.mjs";
 import { CASES as LANE_CASES, confirmed } from "../scripts/lane-sweep.mjs";
@@ -191,12 +194,29 @@ test("a coded refusal gets its own word, decided before the generic escalate and
   assert.match(SRC.slice(coded, plainEscalate), /c\.expectError\.includes\(String\(body\.error\)\)/, "a 422 refusal is not recognised by its reason");
 });
 
+// THE HARNESS WORD IS READ AS A WORD. Run 9 (2026-09-02) came through as
+// `gap ` with a trailing space; the raw comparison ran the lane harness with
+// no lanes named and it died in a tenth of a second — the confirm word's own
+// trap, one input over. Driven for real: the selector line is lifted out of
+// the workflow and run under bash with a fake `node` that prints its script.
+test("the harness selector forgives whitespace and case, and any other word means lane", () => {
+  const line = (WF.match(/^\s+(H=\$\(printf[^\n]*\bfi)\s*$/m) || [])[1];
+  assert.ok(line, "the selector line moved — this test reads the real one");
+  const dir = mkdtempSync(path.join(tmpdir(), "harness-"));
+  writeFileSync(path.join(dir, "node"), "#!/bin/sh\necho \"$1\"\n", { mode: 0o755 });
+  const pick = (value) => execFileSync("bash", ["-c", line], {
+    env: { ...process.env, PATH: dir + ":" + process.env.PATH, SWEEP_HARNESS: value }, encoding: "utf8",
+  }).trim();
+  for (const v of ["gap", "gap ", " gap", "Gap", "GAP\n"]) assert.equal(pick(v), "scripts/gap-sweep.mjs", JSON.stringify(v));
+  for (const v of ["lane", "", "text,logo", "gap,lane"]) assert.equal(pick(v), "scripts/lane-sweep.mjs", JSON.stringify(v));
+});
+
 test("the workflow is dispatch-only, needs the word, selects the harness by input, installs before running, and pushes only to the ref it ran from", () => {
   assert.match(WF, /^on:\n  workflow_dispatch:/m);
   assert.ok(!/\n\s*push:/.test(WF), "a push trigger would make the expensive thing the default");
   assert.match(WF, /SWEEP_CONFIRM: \$\{\{ github\.event\.inputs\.confirm \}\}/);
   assert.match(WF, /harness:\n\s+description:[^\n]*\n\s+required: false\n\s+default: 'lane'/, "the harness input must default to the lane sweep");
-  assert.match(WF, /if \[ "\$SWEEP_HARNESS" = "gap" \]; then node scripts\/gap-sweep\.mjs; else node scripts\/lane-sweep\.mjs; fi/, "the input does not select the harness");
+  assert.match(WF, /if \[ "\$H" = "gap" \]; then node scripts\/gap-sweep\.mjs; else node scripts\/lane-sweep\.mjs; fi/, "the input does not select the harness");
   const install = WF.indexOf("npm ci"); const browser = WF.indexOf("playwright install"); const run = WF.indexOf("node scripts/gap-sweep.mjs");
   assert.ok(install > 0 && browser > install && run > browser, "install, then browser, then the sweep");
   assert.match(WF, /permissions:\n  contents: write/, "the screenshot commit needs contents: write");
