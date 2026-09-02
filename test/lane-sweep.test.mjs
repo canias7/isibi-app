@@ -219,6 +219,17 @@ test("a claimed success waits for the edge before the site is judged", () => {
   const rBody = src.slice(rWait, snap);
   assert.match(rBody, /rel="canonical"/, "the rename wait does not read the canonical at the new address");
   assert.match(rBody, /SITE = `https:\/\/\$\{newSlug\}\.gofarther\.app`/, "after a rename the sweep keeps reading the OLD address, which 301s");
+  // BOTH ADDRESSES, UP TO THE ALIAS CACHE'S LIFETIME (run 19): the old
+  // address kept serving the site for a while after the rename — an edge
+  // holding the row it cached before, 300 s per isolate — and a wait on the
+  // new address alone called a correct rename a lie.
+  assert.match(rBody, /https:\/\/\$\{PUBLIC\}\.gofarther\.app\//, "the rename wait does not watch the old address's redirect");
+  assert.match(rBody, /old\.status >= 300 && old\.status < 400/, "the old address is not required to redirect before the rename is judged");
+  // The break itself, not the window: a sweep can leave `oldOk` computed and
+  // drop it from the condition, which every line above still passes.
+  assert.match(rBody, /if \((?:headOk && oldOk|oldOk && headOk)\) break;/, "the wait ends before the old address redirects");
+  const bound = /Date\.now\(\) - tR < (\d+)/.exec(rBody);
+  assert.ok(bound && Number(bound[1]) >= 300000, "the rename wait is shorter than the alias cache's five-minute lifetime: " + (bound && bound[1]));
   // …and is judged with the build UNMOVED, by its own rule, before the generic
   // one that reads an unmoved build as a lie.
   const rv = src.indexOf("else if (c.newSlug) {");

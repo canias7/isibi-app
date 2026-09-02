@@ -521,12 +521,24 @@ async function main() {
     // waited for is the new address answering with its own canonical — the
     // alias cache on another isolate can lag the row by a moment — bounded
     // the same way. From then on the site is read at its new name.
+    // BOTH ADDRESSES, AND UP TO THE ALIAS CACHE'S LIFETIME (run 19,
+    // 2026-09-02): the new address answered with its own canonical within
+    // twenty seconds, and the OLD one still served the site — an edge holding
+    // the alias row it cached before the rename keeps serving it for up to
+    // five minutes (`aliasRoutes`, 300 s per isolate), and only the lane's own
+    // isolate forgets at once. This wait watched the new address alone and
+    // called a correct rename a lie. It holds until the new address answers
+    // 200 with its canonical AND the old one redirects to it, bounded a
+    // little past that lifetime.
     if (body.ok === true && c.newSlug) {
       const tR = Date.now();
-      while (Date.now() - tR < 90000) {
+      while (Date.now() - tR < 330000) {
         const nu = await fetch(`https://${newSlug}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
         const html = nu && nu.status === 200 ? await nu.text().catch(() => "") : "";
-        if (attr(html, /<link rel="canonical" href="([^"]*)"/) === `https://${newSlug}.gofarther.app/`) break;
+        const headOk = attr(html, /<link rel="canonical" href="([^"]*)"/) === `https://${newSlug}.gofarther.app/`;
+        const old = await fetch(`https://${PUBLIC}.gofarther.app/`, { redirect: "manual" }).catch(() => null);
+        const oldOk = !!old && old.status >= 300 && old.status < 400 && String(old.headers.get("location") || "").startsWith(`https://${newSlug}.gofarther.app/`);
+        if (headOk && oldOk) break;
         await new Promise((r) => setTimeout(r, 5000));
       }
       SITE = `https://${newSlug}.gofarther.app`;

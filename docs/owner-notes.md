@@ -1577,3 +1577,30 @@ lane cannot die this way again; any other lane's publish still can, and
 whether a job that made no model call may be re-run after a cancel is
 your call (retries are off because a redelivered edit re-buys its model
 calls).
+
+## 2026-09-02 — Run 19: the rename lane is proven end to end
+
+You ran `slug` at 14:53 (a little inside the window I asked you to wait
+out — it went fine). **Proven on the site**: the harness asked the way
+back to `fretwork-1`, the lane renamed it in 16 seconds for 1 credit,
+`fretwork-1.gofarther.app` answers 200 with its own canonical and og:url,
+and `crookes-guitar.gofarther.app` redirects to it. No container touched.
+Both held lanes, `kind` and `slug`, are now proven live; your site is
+back at its original address. Balance 207.
+
+The run still went red, and that was the harness — its fifth false alarm
+today, with the product right every time. It read the old address twenty
+seconds after the rename, when one edge was still serving the site there
+instead of redirecting: the row it had cached before the rename lives
+five minutes per isolate, and only the isolate that did the rename
+forgets at once. Two minutes later the redirect was everywhere. So a
+rename settles within five minutes across the platform — a fact worth
+knowing, now written down — and the harness waits for both addresses up
+to that lifetime before judging. If you want that lag shorter, the price
+is a Supabase read per uncached request; your call.
+
+What is left on this thread: the free republish only proves something
+while the site is at an alias, so it is optional now — one more `slug`
+run (to crookes-guitar) followed by a republish would show the publish
+spine baking the alias into the head live; the driven guard already
+proves it in the tree.

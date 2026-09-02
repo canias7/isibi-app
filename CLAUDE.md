@@ -634,7 +634,13 @@ pattern: the site's Worker reads its head out of the sidecar, so the R2 write
 IS the deployment — and no longer republishes (no container, nothing a lost
 lease can leave half-done). `test/site-public-url.test.mjs` DRIVES both through
 `worker.fetch` and reads the sidecar write; `site-alias.test.mjs` had read the
-chain and certified it.
+chain and certified it. **PROVEN LIVE by run 19** (fretwork-1 → crookes-guitar
+→ fretwork-1: 16 s, 1 credit, head right in the same second). **A rename
+settles everywhere within five minutes**: the alias caches are 300 s per
+isolate and only the lane's own isolate forgets at once, so an edge that cached
+the old row before the rename keeps serving the old name as current until its
+entry expires. A site may return to its own storage name (run 18 found the site
+check refusing it as "taken by another site").
 
 `site_aliases (alias PK, slug, uid, current)`, with **one current name per site
 enforced by a partial unique index** rather than by us — two rows claiming to be
@@ -915,6 +921,19 @@ what the work cost.
   already read that row as the site's own), refunded, and the run was RED —
   the first `failed` to show as one. **A rename touches no container now**,
   so the re-run needs only the Worker deploy, not the roll.
+  **RUN 19 (18:53, `slug` alone): `slug` PROVEN END TO END** — the way
+  back to `fretwork-1` in 16 s for 1 credit, the head patched in the same
+  second (canonical and og:url name the new address), `crookes-guitar`
+  301s to it, no container. **The harness called it a LIE — the fifth false
+  alarm today, and the product was right every time**: it read the old
+  address 20 s after the rename, when an edge still holding the alias row
+  it cached BEFORE the rename served the site instead of redirecting.
+  `aliasRoutes`/`aliasCurrent` live 300 s per isolate and only the lane's
+  own isolate forgets at once, so **a rename settles everywhere within five
+  minutes**; the harness now waits for both addresses up to that lifetime.
+  Shorter caches are the owner's call (a Supabase read per uncached request
+  is the price). **Both held lanes are proven live; the site is back at
+  `fretwork-1`.**
   **Not one lie from the
   product**; every "LIE" the harness printed was the harness (an edge race, an
   inline-svg assumption, an og:locale count) and each is now a case in
