@@ -481,3 +481,45 @@ test("an ok answer that published nothing is finalized, not left to be lost", ()
   // The decision stays in Postgres: this side never reads the publish columns.
   assert.doesNotMatch(fn, /published_at|publish_started_at/, "the consumer is deciding for itself whether publishing began");
 });
+
+// ── A FREE RUNG PUBLISHES ─────────────────────────────────────────────────
+//
+// Found live 2026-09-02 (gap sweep run 10, the logo lane on fretwork-1). The
+// consumer reserves credits when a rung first reports model usage; the logo
+// lane makes no model call, so its job's billing stayed `none`, and the gate —
+// which grants only `reserved` or `exempt` — refused a site the container had
+// just compiled. The customer was told it had not compiled.
+test("a rung that reserved nothing is marked exempt before the gate, and the gate still runs", () => {
+  const spine = CODE.slice(at(CODE, "async function recompileAndPublish", "spine"),
+                           at(CODE, "async function siteRedirectFor", "spine end"));
+  const exempt = spine.indexOf("edit_exempt");
+  const gate = spine.indexOf("edit_may_publish");
+  assert.ok(exempt > 0, "the spine never exempts a free rung");
+  assert.ok(gate > 0 && exempt < gate, "the exemption must come before the gate, or the gate refuses first");
+  // GUARDED ON THE COUNT, not unconditional: a job that reserved must reach
+  // the gate as `reserved`, and exempting it would be a free ride the database
+  // then has to refuse.
+  const cond = lastCondition(spine.slice(0, exempt));
+  assert.ok(cond && /reserves\(\) === 0/.test(cond), "the exemption is not gated on zero reserves: " + cond);
+  // AND THE REFUSAL IS OURS. Whatever the gate's reason, it is the queue's
+  // bookkeeping, and `compileMsg` must name it rather than blame the compile.
+  assert.match(spine.slice(gate, gate + 900), /error: "not-granted", ours: true/, "a refused publish is not marked as ours");
+});
+
+test("the reserve funnel counts only a reserve that landed", () => {
+  const start = CODE.indexOf('editRpc(env, "edit_reserve"');
+  assert.ok(start > 0, "the reserve call moved");
+  const funnel = CODE.slice(start, CODE.indexOf("collectCredits(eAuth", start));
+  const okCheck = funnel.indexOf("r.ok === true");
+  const note = funnel.indexOf("noteReserve()");
+  assert.ok(okCheck > 0 && note > okCheck, "the reserve is counted before, or without, the ok check");
+  assert.ok(funnel.indexOf("return 0") > note, "a refused reserve must still answer 0 after the counted branch");
+});
+
+test("compileMsg names a refused publish instead of blaming the compile", () => {
+  const start = CODE.indexOf("function compileMsg(");
+  const body = CODE.slice(start, CODE.indexOf("\n}\n", start));
+  assert.ok(body.length > 100, "compileMsg moved");
+  assert.match(body, /pub\.error === "not-granted"/, "a refused publish falls to the restarting sentence");
+  assert.match(body, /pub\.detail/, "the gate's reason is dropped from the sentence");
+});

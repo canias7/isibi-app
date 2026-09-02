@@ -738,8 +738,8 @@ what the work cost.
   move-back, remove, data, rules, backend, the last six on `the-lido-cafe`)
   are written and unrun. **`text` PROVEN** (run 10): the intent router picked
   `text` for a wording change, all four occurrences changed, published in
-  2.5 min, **3 credits (routing 2, rung 1)**. **`logo` CANNOT PUBLISH THROUGH
-  THE QUEUE**: the lane makes no model call, so the consumer never places a
+  2.5 min, **3 credits (routing 2, rung 1)**. **`logo` COULD NOT PUBLISH THROUGH
+  THE QUEUE (fixed the same night, see the trap; re-run pending)**: the lane makes no model call, so the consumer never places a
   reserve and `billing` stays `none`; `edit_may_publish` grants only
   `reserved` or `exempt`, answered `unbilled`, the spine returned
   `not-granted`, and the lane's catch told the customer *"That didn't
@@ -1295,9 +1295,16 @@ logo lane's own catch, written for a compile that failed, told the customer
 just compiled it. Two traps in one: a gate written for the paid rungs
 disqualifying the free one (the `look`/`logo` `no-backend` gate, one layer
 over), and a failure that cannot name itself — `detail: "unbilled"` was on
-the wire and the sentence collapsed it. The fix shape is to mark a job
-`exempt` before publishing when its rung spent nothing, not to loosen the
-gate: a job with no billing state is exactly what the gate exists to stop.
+the wire and the sentence collapsed it. **FIXED THE SAME NIGHT**, as a state
+rather than a looser gate: `edit_exempt` (migration `20260902034000`, read
+back into the live snapshot) marks a `none` job `exempt` for the consumer
+that holds its lease and refuses a job that has in fact reserved (`billed`);
+the job context counts successful reserves (`noteReserve` / `reserves()`);
+the spine exempts a zero-reserve job immediately before `edit_may_publish`;
+`not-granted` is now `ours: true` and `compileMsg` names the gate's reason.
+Section 16 of `scripts/edit-rpc-check.sql` drives it (7 checks, and its first
+draft filed the free job on a slug section 15 had just put under review — a
+site under review takes no new edits, so every check read `no-job`).
 
 **A PUSH TO MAIN ROLLS THE CONTAINER UNDER WHATEVER IS RUNNING (2026-09-01,
 the first lane sweep).** Two pushes that touched only `scripts/` and `test/`

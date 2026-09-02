@@ -1149,3 +1149,39 @@ Balance 274 → 255 across the three runs. Screenshots of every edit are in
 **Not run tonight, written and ready** in the same harness: cancel, move and
 move-back, remove, data, rules, backend — the last six on the lido cafe.
 Name them in the lanes box with `harness: gap` whenever you want them.
+
+## 2026-09-02 — Why the logo did not publish, and the fix
+
+You asked why. The short version: the edit worked and the queue's own
+bookkeeping refused to publish it.
+
+Every queued edit is charged by a reserve placed the moment a rung reports
+model usage. The last check before anything is written — a database function
+called `edit_may_publish` — lets a job through only if it has been billed or
+explicitly exempted. The logo lane makes no model call, so nothing ever
+reserved for it, its billing stayed at "none", and the gate answered
+"unbilled". The container had already compiled the site (23 files, status
+200). Worse, the lane's error handler was written for a failed compile, so
+you were told "That didn't compile". The real reason was in the reply's
+detail field, not in the sentence.
+
+**Fixed tonight, as a state rather than a looser gate.** A new database
+function, `edit_exempt`, marks a job exempt — for the consumer that holds its
+lease, and only while the job has not reserved; a job that has reserved is
+refused, so a wrong count can never make paid work free. The Worker counts
+successful reserves on the job and, just before the gate, exempts a job whose
+rungs reserved nothing. The refusal message now names the gate's reason
+instead of blaming the compile. The committed database check gained a
+section of seven checks for it, driven against the live database and rolled
+back; its first draft filed the test job on a site the previous section had
+just put under review, which is its own small lesson recorded in CLAUDE.md.
+
+The same fix covers taking a page away and moving a page, which are also
+model-free. It needs a deploy to reach the Worker, then one more run of
+`logo` through the gap harness to prove it on the site.
+
+**And the pictures you asked for.** A single page, `fretwork-1, edit by
+edit`, with every edit as a before-and-after pair, the changes a capture
+cannot show (tab icon, wordmark, QR, description, languages), and the lanes
+that produced no picture and why. Sent to you as a file; the captures
+themselves are in `docs/edits/`, now with row 00, the site as built.

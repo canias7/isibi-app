@@ -6630,6 +6630,7 @@ async function editRpc(env, fn, args) {
 function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "" }) {
   let cancelled = false;
   let beats = 0;
+  let reserves = 0;
   return {
     id, owner, budget, trace,
     // THE IMMUTABLE RECORD, carried so the front door can resolve identity from
@@ -6639,6 +6640,21 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "" }) {
     /** Has the customer asked to stop? Answered by the last heartbeat. */
     cancelled: () => cancelled,
     beats: () => beats,
+    /**
+     * How many times this job's rungs reserved credits — zero for a rung that
+     * made no model call, which is what the publish gate needs to know.
+     *
+     * FOUND LIVE 2026-09-02 (gap sweep run 10, the logo lane). The consumer
+     * reserves when a rung first reports model usage; a rung that never calls
+     * a model never does, so its job's billing stayed `none`, and
+     * `edit_may_publish` — which grants only `reserved` or `exempt` — refused
+     * a site the container had just compiled. Counted here rather than read
+     * back from the row, because the spine is already inside the publish and
+     * a second round trip to ask a question this isolate can answer is the
+     * same argument `beat` makes about the cancel.
+     */
+    reserves: () => reserves,
+    noteReserve() { reserves++; },
     /**
      * Renew the lease and pick up a cancel, in one round trip.
      *
@@ -9487,6 +9503,15 @@ async function fetchSiteFonts(families = []) {
  */
 function compileMsg(pub, theirs) {
   if (!pub || !pub.ours) return theirs;
+  // ── AND A THIRD (2026-09-02) ─────────────────────────────────────────────
+  //
+  // The queue's publish gate refused a site the container had just built (a
+  // free rung with no reserve, read as `unbilled`), and this function's
+  // fallback told the customer it had not compiled — a failure wearing another
+  // failure's sentence, the recorded trap. The gate's own reason rides along.
+  if (pub.error === "not-granted") {
+    return "That didn't go through — your change was built but couldn't be published (" + String(pub.detail || "the queue refused") + "), so nothing was changed. Nothing was charged.";
+  }
   // ── OUR FAULT IS TWO DIFFERENT FAULTS (2026-08-29) ──────────────────────
   //
   // `ours` is set by a COMPILE that never judged the code (the container killed
@@ -9989,11 +10014,34 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // AND IT MARKS `publish_started_at`, which is what makes everything after this
   // point un-refundable-by-default: from here the site Worker upload may or may
   // not have landed, and nobody outside can tell.
+  // ── A FREE RUNG IS EXEMPTED FIRST ───────────────────────────────────────
+  //
+  // The gate grants only a job that is `reserved` or `exempt`, and a rung that
+  // made no model call (the logo lane; a page taken away or moved) has reserved
+  // nothing, so its row still says `none`. Found live 2026-09-02: the container
+  // had compiled the logo edit and the gate refused it as `unbilled`, and the
+  // customer was told it had not compiled. So a job whose rungs reserved
+  // nothing is marked exempt, by the consumer that holds its lease — a state
+  // the rest of the ledger already understands — rather than the gate being
+  // loosened: a job with no billing state is exactly what the gate exists to
+  // stop. THE DATABASE HAS THE LAST WORD: `edit_exempt` refuses a job that has
+  // in fact reserved (`billed`), so a wrong count here cannot make paid work
+  // free, and the gate then reads the row as it always did.
+  //
+  // KEPT SHORT INSIDE THE BLOCK, because test/edit-queue.test.mjs reads the
+  // 400 characters before the gate for its `if (job` guard.
   if (job) {
+    if (typeof job.reserves === "function" && job.reserves() === 0) {
+      const ex = await editRpc(env, "edit_exempt", { p_id: job.id, p_owner: job.owner });
+      tm("publish:exempt", ex && ex.ok === true ? "ok" : "fail", { why: ex && ex.ok === true ? "no model call" : String((ex && ex.error) || "rpc") });
+    }
     const may = await editRpc(env, "edit_may_publish", { p_id: job.id, p_owner: job.owner, p_ttl: PUBLISH_LEASE_S });
     if (!may || may.granted !== true) {
       tm("publish:gate", "fail", { why: String((may && may.error) || "rpc") });
-      return { ok: false, error: "not-granted", detail: String((may && may.error) || "rpc") };
+      // OURS. Whatever the gate's reason — a lease lost, a cancel, a job the
+      // ledger never saw — it is the queue's bookkeeping and not the customer's
+      // change, and `compileMsg` names it rather than blaming the compile.
+      return { ok: false, error: "not-granted", ours: true, detail: String((may && may.error) || "rpc") };
     }
     tm("publish:gate", "ok");
   }
@@ -18823,7 +18871,12 @@ async function handleRequest(request, env, ctx) {
                 // the rule `collectCredits` already follows one line down: the
                 // work is done and refusing to hand it over because billing
                 // blinked costs the customer their change AND their credits.
-                return (r && r.ok === true) ? Number(r.charged) || 0 : 0;
+                // AND A RESERVE THAT LANDED IS COUNTED on the job, so the publish
+                // gate can tell a free rung from one whose reserve never ran.
+                // Counted only on `ok`: a refused or unanswered reserve leaves
+                // the row at `none`, and the gate must go on reading it that way.
+                if (r && r.ok === true) { if (typeof eJob.noteReserve === "function") eJob.noteReserve(); return Number(r.charged) || 0; }
+                return 0;
               }
               try { return await collectCredits(eAuth, pageCredits(...parts)); } catch { return 0; }
             };

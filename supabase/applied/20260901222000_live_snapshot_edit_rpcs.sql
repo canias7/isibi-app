@@ -487,3 +487,39 @@ begin
   end loop;
   return jsonb_build_object('ok', true, 'lost', n_lost, 'review', n_review, 'refunded', refunded);
 end; $function$;
+
+-- edit_exempt(p_id text, p_owner text, p_mint text)
+-- Added 2026-09-02 (20260902034000_edit_exempt_free_rung.sql); read back with
+-- pg_get_functiondef after applying, as the rule above says.
+CREATE OR REPLACE FUNCTION public.edit_exempt(p_id text, p_owner text, p_mint text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private', 'extensions'
+AS $function$
+declare j public.edit_jobs%rowtype;
+begin
+  if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
+  if p_owner is null or length(p_owner) < 4 then raise exception 'bad owner'; end if;
+  update public.edit_jobs
+     set billing = 'exempt', cost = 0, updated_at = now()
+   where id = p_id
+     and lease_owner = p_owner
+     and lease_expires_at > now()
+     and cancel_requested_at is null
+     and needs_review = false
+     and state not in ('done','failed','cancelled','lost')
+     and billing = 'none'
+   returning * into j;
+  if found then return jsonb_build_object('ok', true, 'billing', 'exempt', 'state', j.state); end if;
+  select * into j from public.edit_jobs where id = p_id;
+  if not found then return jsonb_build_object('ok', false, 'error', 'no-job'); end if;
+  return jsonb_build_object('ok', false, 'state', j.state, 'billing', j.billing,
+    'error', case when j.state in ('done','failed','cancelled','lost') then 'terminal'
+                  when j.cancel_requested_at is not null then 'cancelled'
+                  when j.needs_review then 'needs-review'
+                  when j.lease_owner is distinct from p_owner then 'lease-lost'
+                  when j.lease_expires_at <= now() then 'lease-expired'
+                  when j.billing <> 'none' then 'billed'
+                  else 'refused' end);
+end; $function$;

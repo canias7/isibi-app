@@ -38,6 +38,8 @@ declare
   j5 text := 'e_'||substr(md5(random()::text),1,20);
   j6 text := 'e_'||substr(md5(random()::text),1,20);
   j7 text := 'e_'||substr(md5(random()::text),1,20);
+  j8 text := 'e_'||substr(md5(random()::text),1,20);
+  j9 text := 'e_'||substr(md5(random()::text),1,20);
   r jsonb; b0 numeric; b1 numeric; n int; log text := '';
   ok_count int := 0;
 -- LAST RUN 2026-09-01 (late): ALL 48 CHECKS PASSED, rolled back. Section 15 was
@@ -301,6 +303,40 @@ begin
   if (r->>'error') <> 'needs-review' or b1 <> b0 then raise exception 'FAIL 41 (a mid-publish ok answer was not sent to review): % bal %', r, b1; end if;
   ok_count := ok_count + 7;
   log := log || format('15  unpublished ok      -> done/finalized, refund refused, mid-publish -> review%s', chr(10));
+
+  -- 16. A FREE RUNG IS EXEMPTED BEFORE THE GATE.
+  --
+  -- Found live 2026-09-02 (gap sweep run 10, the logo lane): a rung that makes
+  -- no model call reserves nothing, so the job's billing stayed `none`, the gate
+  -- answered `unbilled`, and a site the container had just built was refused.
+  -- The consumer that holds the lease marks such a job exempt; a stranger
+  -- cannot, and a job that has in fact reserved cannot be made free.
+  -- ON ITS OWN SITE: section 15 leaves j7 under review, and a site under
+  -- review takes no new edits (section 11) - so j8 on the same slug would
+  -- never exist and every check after it would read `no-job`.
+  r := public.edit_create(j8, u, slug||'-g', 'edit', 'idem-ffffffffffffffff', k);
+  if (r->>'ok') <> 'true' then raise exception 'FAIL 42a (could not file the free job): %', r; end if;
+  r := public.edit_claim(j8, 'ownerHHHH', 90, k);
+  r := public.edit_may_publish(j8, 'ownerHHHH', 90, k);
+  if (r->>'granted') <> 'false' or (r->>'error') <> 'unbilled' then raise exception 'FAIL 42 (an unbilled job was granted a publish): %', r; end if;
+  r := public.edit_exempt(j8, 'ownerXXXX', k);
+  if (r->>'error') <> 'lease-lost' then raise exception 'FAIL 43 (a stranger exempted the job): %', r; end if;
+  select balance into b0 from public.credits where user_id = u;
+  r := public.edit_exempt(j8, 'ownerHHHH', k);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'ok') <> 'true' or (r->>'billing') <> 'exempt' or b1 <> b0 then raise exception 'FAIL 44 (exempt refused or moved money): % bal % -> %', r, b0, b1; end if;
+  if (select count(*) from public.credit_events where ref like j8 || '%') <> 0 then raise exception 'FAIL 44b (exempt wrote a ledger row)'; end if;
+  r := public.edit_may_publish(j8, 'ownerHHHH', 90, k);
+  if (r->>'granted') <> 'true' then raise exception 'FAIL 45 (an exempt job was not granted a publish): %', r; end if;
+  -- AND A BILLED JOB CANNOT BE EXEMPTED: money that moved is not free.
+  r := public.edit_create(j9, u, slug||'-g', 'edit', 'idem-gggggggggggggggg', k);
+  r := public.edit_reserve(j9, 1, 2, k);
+  r := public.edit_claim(j9, 'ownerIIII', 90, k);
+  r := public.edit_exempt(j9, 'ownerIIII', k);
+  if (r->>'error') <> 'billed' then raise exception 'FAIL 46 (a reserved job was exempted): %', r; end if;
+  if (select billing from public.edit_jobs where id = j9) <> 'reserved' then raise exception 'FAIL 46b (billing moved off reserved)'; end if;
+  ok_count := ok_count + 7;
+  log := log || format('16  free rung exempt    -> unbilled refused, stranger refused, exempt granted, billed refused%s', chr(10));
 
   update private.mint set key_hash = keep;
   raise exception E'ALL % CHECKS PASSED (transaction rolled back)\n%', ok_count, log;
