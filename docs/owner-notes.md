@@ -1562,6 +1562,18 @@ No error, no exception, no last words — the isolate died silently
 mid-call. The log the script prints carries only messages; the outcome
 Cloudflare records for a killed invocation (CPU limit, memory, cancel)
 is a separate field it did not print. It does now — beside each line, and
-tallied at the end — so one more press of "container logs" before 16:39
-your time (the default window is three hours back) names the killed
-invocation, if Cloudflare recorded one.
+tallied at the end — and my push aimed the reader at that exact window,
+so no press was needed. **The answer: Cloudflare cancelled it.** The
+queue invocation carrying the job (started 13:39:35, the moment the job
+was filed) ended with outcome `canceled` at 13:40:49 after 75 seconds of
+wall time and a tenth of a second of CPU; the container call it had in
+flight ended `canceled` at 61 seconds. Not our code, not a CPU or memory
+limit, no exception — the platform evicted the isolate, nine minutes
+after the 13:31 deploy from my push. A cancellation runs no catch and no
+finally, which is why nothing refunded or finalized until the sweeper.
+So the "wait 15–20 minutes after a push" rule covers running queued jobs
+too, not just new container work. The rename no longer compiles, so that
+lane cannot die this way again; any other lane's publish still can, and
+whether a job that made no model call may be re-run after a cancel is
+your call (retries are off because a redelivered edit re-buys its model
+calls).

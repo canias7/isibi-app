@@ -886,11 +886,19 @@ what the work cost.
   container instance booted at 17:39:51, the consumer POSTed the compile at
   17:39:56, the heartbeat ran 41 s more, then NOTHING from our code until
   the sweeper at 17:44:18 — no error, no exception. A silent isolate death
-  mid-call. `container-logs.mjs` printed messages only; it now prints the
-  outcome Cloudflare records for a killed invocation (`$workers.outcome`:
-  exceededCpu, exceededMemory, exception, canceled) beside each line and
-  tallies them — the next press of the button, inside the 3-hour default
-  window, is the read. The harness said `failed` and the run
+  mid-call. **ANSWERED by an aimed read** (`container-logs.mjs` prints
+  `$workers.outcome` now, and `LOG_FROM`/`LOG_TO` aim the window, because
+  the newest-900 cap reaches only ~40 min back through the backup noise):
+  the queue invocation carrying the job (started 17:39:35, the job's own
+  creation) ended **`canceled`** at 17:40:49 after 74.7 s wall / 107 ms
+  CPU, and the container DO's fetch for it ended `canceled` at 61 s. Not
+  CPU, not memory, no exception: **the platform evicted the isolate, nine
+  minutes after the 17:31 deploy**. A cancellation runs no catch and no
+  finally, so nothing refunded or finalized until `edit_sweep_lost`. **The
+  15–20 minute post-push window is unsafe for RUNNING queued jobs too**,
+  not only for firing container work. Open (owner's call): the poll route
+  answering "interrupted" as soon as a running job's lease is past expiry,
+  and whether a canceled job that made no model call may be re-run. The harness said `failed` and the run
   ended GREEN (fixed: `failed` is red). **And the canonical at the new address
   still named the old one, which the lost publish did not cause** — see the
   rename section: both hops were missing, and the harness's check read the
