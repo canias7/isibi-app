@@ -25,4 +25,6 @@ disables the reveal first, so every section shows.
 
 | 07 | 2026-09-02 00:05 | sweep five: `shape` → the price list moved above the numbered steps, via the page rung. First capture with every section visible. Cost 3. | `08-sweep5-shape.png` |
 
+| 08 | 2026-09-02 00:10 | sweep five: `components` → a new FAQ accordion with three questions, via the page rung. Cost 5. | `09-sweep5-components.png` |
+
 Later rows are added as the remaining lanes run.
