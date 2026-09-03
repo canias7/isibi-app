@@ -1857,3 +1857,28 @@ Because it stopped there, `photo` has still not run. After the deploy and
 the roll, run it once more with lanes `photo`. Its balance is empty on
 the image side, so the honest outcome is the hop to the picture rung and
 that rung saying it could not buy one.
+
+## 2026-09-03 — Run 25: the photo hop is proven, and it shows a gap
+
+You ran `photo` at 11:15 UTC and the run came back green — the first
+addon run to do so. The addon step answered in 12 seconds that a
+photograph is the picture rung's job, the harness handed the same sentence
+to that rung, and the rung answered in 3 seconds that the page has no
+photograph slot to fill. Nothing was bought, nothing published, balance
+still 170, and fal was never asked — so your question about its credits
+did not come up this time.
+
+The gap that shows: since the rebuild on 09-02 the site is a booking tool
+with no photographs at all, and the picture rung can only swap or reframe
+a photograph that is already on the page. So "add a photograph of the
+teaching room" on this site goes addon → picture rung → "no slot", and in
+the app that falls to the full rewrite for something the middle rung
+should be able to do. The fix is a product decision: either the photo
+kind adds the place for the picture first (a figure, or a hero with an
+image), and the picture rung fills it, or the ask is treated as a
+component addition that carries the photograph. Your call; I have filed it
+and not built it.
+
+With that, every kind of the addon has run live: component, page and 3D
+publish; QR refuses honestly when the site has one; photo hops. The table
+kind has not been asked on a site that can take one.

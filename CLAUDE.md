@@ -713,7 +713,9 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
 
 - **Six kinds, the intent router's own list**: `table` · `page` · `component`
   · `qr` · `three` act here; `photo` dispatches to the `picture` rung (the one
-  that places a photograph and prices it; this step never buys one). **Order
+  that places a photograph and prices it; this step never buys one — and
+  that rung fills only a slot the page already has, which on a site with no
+  photograph is none: run 25, the gap below). **Order
   is run order** — a table before the page that shows it. `ADD_KINDS`,
   `OWN_ADDS`, `DISPATCHED_ADDS`, `addLayer` — derive, don't trust.
   **A SECTION IS A COMPONENT** (owner, 2026-09-02: *"section is just adding a
@@ -883,9 +885,26 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   guard requires for every refusal case by name. Sweep: **7 mutants, 7
   killed, control survived — one only after the guard it showed was
   missing** (a publish on a site that already carried the thing, which the
-  wall should have refused, passed with `!had` dropped). **`photo` has
-  still not run** — the run stopped on the verdict; re-dispatch **`photo`**
-  alone.
+  wall should have refused, passed with `!had` dropped).
+  **RUN 25 (2026-09-03 11:15Z, `photo`, 170 → 170): THE HOP IS PROVEN, AND
+  IT LANDS ON A RUNG THAT CANNOT PLACE A NEW PHOTOGRAPH** — the first green
+  addon run. The addon job answered its escalate in 12s (`layer: picture`,
+  `kind: photo`, 0 credits), the harness hopped to the edit route, and the
+  picture rung's queued job answered `no-slots` in 3s: the site has been a
+  `tool` since run 16's rebuild, built with 0 photographs, so there is no
+  `SafeImage` and no image prop for the rung to fill. Nothing bought,
+  nothing published; fal's balance was never asked. **THE GAP**: the ADD
+  line above says a photograph where there is none is the addon's to make,
+  but `photo` DISPATCHES to the picture rung, which only fills a slot that
+  exists — so on a site with no photograph, "add a photograph of the
+  teaching room" escalates twice (`layer`, then `no-slots`) and the browser
+  falls to the ~25-credit revise for a request the middle rung should
+  answer. The honest shape is a `component` addition (a figure or a hero
+  carrying the photograph) with the picture rung filling it afterwards, or
+  the `photo` kind adding the slot itself. **Owner's call; filed.** With
+  that, every addon kind has run live: `component` and `page` and `three`
+  publish, `qr` refuses honestly, `photo` hops; `table` has not been asked
+  on a site that can take one.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,
