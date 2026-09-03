@@ -241,12 +241,17 @@ export const CASES = [
       return { ok: !moved, note: moved ? "the build moved on a refusal" : "build unmoved" };
     } },
   // A SECOND CODE IS AN ADDITION (2026-09-03): the site's first code rings the
-  // number, this one opens the booking page, and each has its own file —
-  // `qr.svg`, then `qr-<name>.svg` — so the count of distinct code files on
-  // the page is what a publish must raise. A refusal (`add` with a reason, or
-  // the old `already`) is honest only while the build stays put.
+  // number, this one opens a page, and each has its own file — `qr.svg`, then
+  // `qr-<name>.svg` — so the count of distinct code files on the page is what
+  // a publish must raise. A refusal (`add` with a reason, or the old
+  // `already`) is honest only while the build stays put.
+  // THE PAGE IS NAMED BY ITS ROUTE'S OWN WORD (owner, 2026-09-03: "lets try
+  // that"). Runs 26–28 asked for "the booking page" and the designer answered
+  // nothing three times — the site's booking page is its home page, and its
+  // routes never say the word. The list is what this case proves; the
+  // customer's looser phrasing is a designer question and is tested apart.
   { name: "qr", kinds: ["qr"],
-    ask: "Add a QR code that opens the booking page",
+    ask: "Add a QR code that opens the prices page",
     mayRefuse: ["already", "add"],
     check: (b, a, r) => eitherWay(b, a, r, /\/qr(?:-[a-z0-9]+)?\.svg/g, "QR codes") },
   { name: "three", kinds: ["three"],

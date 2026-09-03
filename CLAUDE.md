@@ -1024,8 +1024,14 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   decline order was asserted by presence rather than position, so a keep
   moved past the `continue` — the one reply worth reading never kept —
   passed. Both guards now drive the case they name.
-  **Still not proven live** — the same dispatch after the deploy and the
+  **Still not proven live** — the next dispatch after the deploy and the
   roll is the proof, and if it declines a fourth time the log will say why.
+  **The harness's ask now names the page by its route's own word** (owner,
+  16:15Z: *"yeah lets try that"*): "Add a QR code that opens the prices
+  page". The list is what the case proves; "the booking page" — a customer's
+  looser phrasing for a home page headed "Book a guitar lesson" — is a
+  designer question, now answerable from the labelled note, and is tested
+  apart from the list.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,

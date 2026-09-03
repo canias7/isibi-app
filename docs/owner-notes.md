@@ -1990,5 +1990,9 @@ spending: the headline reader and the note driven case by case, 10
 mutants killed with the control surviving (two of them only after I
 fixed the tests they showed were weak), the whole suite green.
 
-Same run, same form, after this deploy and the roll. About 12 credits if
-it publishes; nothing if it declines again, and then we read the reason.
+Same form, after this deploy and the roll, and at your call the harness
+now asks for "a QR code that opens the prices page" — a page the site
+names by that word in its route — so the run proves the list first and
+leaves the looser "booking page" phrasing as a separate question. About
+12 credits if it publishes; nothing if it declines, and then we read the
+reason off the kept reply.
