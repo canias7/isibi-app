@@ -1669,7 +1669,12 @@ test("a killed compile is retried once, and only a kill is", async () => {
   assert.match(retry, /await compile\(\)/, "there is no second attempt");
   // AND IT SAYS WHOSE FAULT IT WAS, or the retry is invisible and the message
   // still accuses the customer.
-  assert.match(body, /ours: killed/, "the caller cannot tell our failure from theirs");
+  // RE-ANCHORED 2026-09-03: the spelling was `ours: killed && …` and went red
+  // when a timeout became ours as well (run 33). The property is that `ours`
+  // in the failure return DEPENDS ON the kill — and now on the timeout too.
+  const failure = body.slice(verdict, body.indexOf("// ── A RULE THAT SELECTS NOTHING DOES NOT SHIP YET", verdict));
+  assert.match(failure, /ours:[^,\n]*\bkilled\b/, "the caller cannot tell our failure from theirs");
+  assert.match(failure, /ours:[^,\n]*\btimedOut\b/, "a compile cut by the clock is not ours — the customer is blamed for our budget");
   assert.match(w, /function compileMsg\(/, "there is no single sentence for a failed compile");
   assert.equal((w.match(/function compileMsg\(/g) || []).length, 1);
   // AND THE HONEST SENTENCE IS IN IT. Asserting only that the function exists
