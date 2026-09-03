@@ -194,25 +194,39 @@ test("one bill; reserved before the publish under a job, collected after it sync
   const b = addonBlock();
   const bills = [...b.matchAll(/pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage\)/g)].length;
   assert.equal(bills, 1, `the bill is computed ${bills} times — one number, two paths`);
-  const bill = at(b, "const aBill = pageCredits(", "bill");
-  const reserve = at(b, 'editRpc(env, "edit_reserve"', "reserve");
-  const pub = at(b, "const aPub = await recompileAndPublish(env, {", "publish");
-  const collect = at(b, "collectCredits(aAuth, aBill)", "collect");
-  assert.ok(bill < reserve && reserve < pub, "the reserve does not sit between the bill and the publish — the gate would read the job as unbilled and exempt it");
-  assert.ok(pub < collect, "the synchronous charge precedes the publish, so a failed compile would cost");
-  // GUARDED ON THE JOB, EACH WAY ROUND — the condition itself, not the call's
-  // position: `if (false)` leaves a call exactly where a position check looks.
-  assert.equal(lastCondition(b.slice(0, reserve)), "aJob", "the reserve is not guarded on exactly the job");
-  assert.equal(lastCondition(b.slice(0, collect)), "!aJob", "the synchronous charge is not guarded on exactly no job — a queued addon would pay twice");
-  // COUNTED ONLY ON A RESERVE THAT LANDED, the edit route's rule.
-  const funnel = b.slice(reserve, pub);
-  const okAt = funnel.indexOf("r.ok === true");
-  const noted = funnel.indexOf("aJob.noteReserve()");
+  // RE-ANCHORED 2026-09-03: the reserve and the collect live in ONE closure
+  // now (`aCharge`), because a second answer takes money — the pageless one,
+  // a job or an internal function, which publishes nothing — and two copies
+  // of the reserve would be two lists of the same thing. The properties are
+  // unchanged: under a job the bill is reserved between the bill and the
+  // publish; synchronously it is collected after the publish; each is
+  // guarded on exactly the job, each way round; the reserve counts only on
+  // `ok`; the collect never fails the route.
+  const charge = at(b, "const aCharge = async (bill) => {", "charge");
+  const chargeEnd = b.indexOf("\n            };", charge);
+  assert.ok(chargeEnd > charge, "aCharge does not close");
+  const closure = b.slice(charge, chargeEnd);
+  const reserve = at(closure, 'editRpc(env, "edit_reserve"', "reserve");
+  assert.equal(lastCondition(closure.slice(0, reserve)), "aJob", "the reserve is not guarded on exactly the job");
+  const okAt = closure.indexOf("r.ok === true", reserve);
+  const noted = closure.indexOf("aJob.noteReserve()", reserve);
   assert.ok(okAt > 0 && noted > okAt, "the reserve is counted before, or without, the ok check");
-  assert.match(funnel, /aCost = Number\(r\.charged\) \|\| 0;/, "the reply's cost is not what the ledger charged");
-  // AND THE SYNCHRONOUS PATH STILL CHARGES THROUGH THE TOKEN — the flag-off
-  // route must bill exactly as it did.
-  assert.match(b, /try \{ aCost = await collectCredits\(aAuth, aBill\); \} catch \{ aCost = 0; \}/, "the synchronous charge lost its never-fail-the-route catch");
+  assert.match(closure, /return Number\(r\.charged\) \|\| 0;/, "the charge answered is not what the ledger charged");
+  assert.match(closure, /try \{ return await collectCredits\(aAuth, bill\); \} catch \{ return 0; \}/, "the synchronous charge lost its never-fail-the-route catch");
+  assert.equal((closure.match(/collectCredits\(/g) || []).length, 1);
+  const bill = at(b, "const aBill = pageCredits(", "bill");
+  const pub = at(b, "const aPub = await recompileAndPublish(env, {", "publish");
+  const reserveCall = at(b, "if (aJob) aCost = await aCharge(aBill);", "the page path's reserve");
+  const collectCall = at(b, "if (!aJob) aCost = await aCharge(aBill);", "the page path's collect");
+  assert.ok(bill < reserveCall && reserveCall < pub, "the reserve does not sit between the bill and the publish — the gate would read the job as unbilled and exempt it");
+  assert.ok(pub < collectCall, "the synchronous charge precedes the publish, so a failed compile would cost");
+  // AND THE PAGELESS ANSWER TAKES ITS MONEY THROUGH THE SAME CLOSURE, after
+  // the schema apply — the work that earns it — and before the page call.
+  const pageless = at(b, "if (pageless(aAnswers)) {", "pageless");
+  const apply = at(b, "aMade = await applySiteSchema(adb, merged);", "apply");
+  const gen = at(b, "aGen = await generateSitePages(", "page call");
+  assert.ok(charge > apply && pageless > charge && pageless < gen, "the pageless answer is not between the schema apply and the page call, after the charge closure");
+  assert.match(b.slice(pageless, gen), /const aCostNow = await aCharge\(pageCredits\(\.\.\.aDesignUsage, aSeedUsage\)\);/, "the pageless answer does not bill through aCharge");
 });
 
 test("the spine is handed the job and the trace, or a queued addon publishes past every gate", () => {

@@ -63,7 +63,7 @@
 // value here; nothing else in this repo reads them.
 
 import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, MAX_COMPONENTS, TOOL_DIRECTIVE } from "./site-plan.mjs";
-import { TABLE_ITEM } from "./site-table.mjs";
+import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "./site-table.mjs";
 import { routeOf } from "./site-addon.mjs";
 // THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
 // kind ADDS one beside the others and refuses only a duplicate.
@@ -122,7 +122,7 @@ export const ADD_DESIGN_RULE =
  * are generous. The rule per kind says "as many as they asked for, and not
  * one they did not", which is the ceiling that matters.
  */
-export const MAX_ADDS = 6;
+export const MAX_ADDS = 9;
 
 /** Pages one message may add — the page writer keeps six, so a seventh would be dropped there. */
 export const MAX_ADD_PAGES = 6;
@@ -133,6 +133,37 @@ export const MAX_ADD_COMPONENTS = 12;
 /** Tables one message may add. */
 export const MAX_ADD_TABLES = 6;
 
+/**
+ * ── THE BACKEND IS THE ADDON'S (owner, 2026-09-03) ──────────────────────────
+ *
+ * "the build step doesnt have backend so its gonna be on the addon step if
+ * needed, so lets add the backend stuff to the addon step and if customer
+ * touches it then neon db is created."
+ *
+ * A first build sends none of the four backend tiers, so every function a page
+ * calls, every outside service a page reads and every job that runs on a timer
+ * is added HERE, after the build — and the first of any of them on a site with
+ * no database is what makes the database (the route provisions before it
+ * applies). The three shapes below are the build's own items, lifted into
+ * `site-table.mjs` beside the table's for the same reason.
+ */
+/** Functions one message may add — a lookup, its cancel and its amend are three. */
+export const MAX_ADD_FUNCTIONS = 6;
+
+/** Outside connections one message may add. */
+export const MAX_ADD_APIS = 4;
+
+/** Scheduled jobs one message may add — the engine keeps eight per site. */
+export const MAX_ADD_JOBS = 4;
+
+/**
+ * The shortest interval a job may run at. `site-jobs.mjs` (`MIN_EVERY_MINUTES`)
+ * is the authority and rounds anything shorter up; this module may not import
+ * from the root, so the number is repeated here and a test holds the two
+ * together.
+ */
+export const MIN_JOB_MINUTES = 15;
+
 /** A page is at most this many bands, top to bottom. */
 export const MAX_SECTIONS = 12;
 
@@ -140,7 +171,46 @@ export const MAX_SECTIONS = 12;
 export const MAX_ADD_SEED_ROWS = 12;
 
 /** The kinds whose answer is a LIST of additions rather than one. */
-export const LIST_ADDS = ["table", "page", "component"];
+export const LIST_ADDS = ["table", "function", "api", "job", "page", "component"];
+
+/** The kinds that live in the site's DATABASE — the ones whose first addition makes one. */
+export const BACKEND_ADDS = ["table", "function", "api", "job"];
+
+/** The keys those kinds fold to on the designed spec — derived, so the two lists cannot drift. */
+export const BACKEND_KEYS = BACKEND_ADDS.map((k) => k + "s");
+
+/**
+ * Which backend tiers a fold designed — the keys of `BACKEND_KEYS` that carry
+ * at least one entry. Non-empty means the change touches the site's database,
+ * which on a site without one is the moment it gets one (the route provisions
+ * before it applies).
+ */
+export function backendDesigned(designed) {
+  const d = designed && typeof designed === "object" ? designed : {};
+  return BACKEND_KEYS.filter((k) => Array.isArray(d[k]) && d[k].length > 0);
+}
+
+/**
+ * Does this set of cleaned answers change NO page?
+ *
+ * A scheduled job runs on a timer and an `internal` function is called by the
+ * platform, never by a page — so a message that adds only those has nothing
+ * for the page call to write and nothing to publish: the database changes,
+ * the site's pages do not, and the route answers without a compile. Anything
+ * else — a table (shown somewhere), a connection (read by a page), a function a
+ * page calls, a page, a component, a code, a scene — is a page change.
+ * Nothing at all is not pageless: an empty answer is the route's `declined`.
+ */
+export function pageless(answers) {
+  const list = Array.isArray(answers) ? answers.filter((a) => a && typeof a === "object" && a.kind) : [];
+  if (!list.length) return false;
+  return list.every((a) => {
+    if (a.kind === "job") return true;
+    if (a.kind !== "function") return false;
+    const fns = Array.isArray(a.value) ? a.value : [];
+    return fns.length > 0 && fns.every((f) => f && f.internal === true);
+  });
+}
 
 /* ------------------------------------------------------------------ the adds */
 
@@ -228,6 +298,86 @@ const ADDS = {
         "NOTHING ELSE ABOUT THE SITE MOVES. This is the tables and their rows; the pages that show them are " +
         "designed beside them and written by the next step. If the change needs no table — it is words, a " +
         "component, a code — answer nothing here.",
+    },
+  },
+  // ── THE OTHER THREE TIERS OF THE BACKEND (owner, 2026-09-03) ────────────
+  //
+  // Each is the build's own item shape (`site-table.mjs`), wrapped in this
+  // step's framing: what THIS change needs, on a site that already exists. They
+  // run after `table` and before `page` because a page calls a function or
+  // reads a connection that has to exist first, exactly as it shows a table.
+  function: {
+    hint: "Something the DATABASE has to do for a page that a table's access alone cannot: look a booking up by its claim link, cancel or move one, take a booking into a slot that holds N people, receive data another system POSTs in (a `hook_` function). SQL the site's own database runs.",
+    shape: {
+      type: "array",
+      maxItems: MAX_ADD_FUNCTIONS,
+      items: FUNCTION_ITEM,
+    },
+    add: {
+      is: "The Postgres functions this change needs — each with its name, its arguments matched to the columns they are compared against, what it returns, and its SQL body over the site's own tables.",
+      yours:
+        "EVERY FUNCTION IS YOURS TO WRITE: a claim lookup, a cancel, an amend, a capacity-locked booking, a " +
+        "`hook_` receiver for another system, an `internal` builder a job calls. Its arguments are typed as the " +
+        "COLUMNS they meet — text for a date, a time, a token; integer for a count — and its body is plain SQL " +
+        "over the columns the site's tables are listed with. A scheduled job's builder is `internal: true`, takes " +
+        "no arguments and returns json: an array of {to, subject, body}, empty when nothing is due.",
+      wide:
+        "AS MANY FUNCTIONS AS THEY ASKED FOR — what the change needs — AND NOT ONE MORE. A lookup by claim link is one function; " +
+        "\"and let them cancel or move it\" is three. Never a function for something a table's read level " +
+        "already gives a page for free, and never a duplicate of one the site lists — that one exists and a " +
+        "page can call it already.",
+      keep:
+        "NOTHING ELSE ABOUT THE SITE MOVES. This is the functions; the table they read is the site's own or " +
+        "designed beside them, and the page that calls them is written by the next step. If the change needs " +
+        "no function — a page can do it with the hooks it already has — answer nothing here.",
+    },
+  },
+  api: {
+    hint: "An OUTSIDE service a page reads live — today's exchange rate, a courier's slots, a supplier's stock, the weather — with the owner's own key kept server-side. Not for anything a table can hold.",
+    shape: {
+      type: "array",
+      maxItems: MAX_ADD_APIS,
+      items: API_ITEM,
+    },
+    add: {
+      is: "The outside connections this change needs — each with the name a page calls it by, the whole request with `{{SECRET}}` where the owner's key goes and `{{param.x}}` where a page varies it, and how long one answer stays good.",
+      yours:
+        "EVERY CONNECTION IS YOURS TO WRITE, against the service's real request shape: the URL, the method a " +
+        "READ needs, the headers, the parameters a page may pass, the cache window. The owner pastes the key " +
+        "into Secrets; the platform makes the call and hands the page the answer as JSON.",
+      wide:
+        "AS MANY CONNECTIONS AS THE THINGS THEY NAMED, AND NOT ONE MORE. One outside service is one " +
+        "connection. NEVER one for data the site holds or could hold in a table, and never one that DOES " +
+        "something on the other side — an order, a message, a reservation — every answer here is cached and " +
+        "would run sometimes and not others.",
+      keep:
+        "NOTHING ELSE ABOUT THE SITE MOVES. This is the connections; the page that reads them is written by " +
+        "the next step. If the change needs no outside data — it is words, a table, a component — answer " +
+        "nothing here.",
+    },
+  },
+  job: {
+    hint: "Something the site does ON A TIMER with nobody there — a reminder text the day before, a weekly digest to the owner, chasing an unpaid invoice. A job runs an internal database function that returns the messages to send, so a job is a `job` AND a `function` unless the site already lists one that does it.",
+    shape: {
+      type: "array",
+      maxItems: MAX_ADD_JOBS,
+      items: JOB_ITEM,
+    },
+    add: {
+      is: "The scheduled jobs this change needs — each with its name, the internal function that returns its messages, and how often it runs, in minutes.",
+      yours:
+        "EVERY JOB IS YOURS TO SET: what it is for, which function decides who is due and what it says, and " +
+        "how often — 1440 for a daily reminder, 10080 for a weekly digest. The function it names must exist: " +
+        "one the site lists, or one you are declaring in this same change with `internal: true`, taking no " +
+        "arguments and returning json — an array of {to, subject, body}, empty when nothing is due.",
+      wide:
+        "AS MANY JOBS AS THEY ASKED FOR — the things that happen on a timer — AND NOT ONE MORE. A day-before reminder " +
+        "is one job. Never one for a site that only takes enquiries, and never more often than the message " +
+        "needs — the platform will not run one under 15 minutes.",
+      keep:
+        "NOTHING ELSE ABOUT THE SITE MOVES. A job changes no page; the owner adds their email or SMS key in " +
+        "Settings and it starts sending. If the change is not something that happens on a timer, answer " +
+        "nothing here.",
     },
   },
   page: {
@@ -525,7 +675,9 @@ export function pickTool(kinds = ADD_KINDS) {
             "not. One is the ordinary answer; two or more when the thing they asked for really is more than " +
             "one kind of thing: \"a booking page\" is a `page` AND a `table` (the form has to send its bookings " +
             "somewhere); \"a testimonials section\" is a `component` alone; \"an about page, a pricing page and " +
-            "a QR code\" is `page` and `qr` (the number of pages is the page designer's business, not yours). " +
+            "a QR code\" is `page` and `qr` (the number of pages is the page designer's business, not yours); " +
+            "\"remind students the day before\" is a `job` AND a `function` (the job runs a function that " +
+            "returns the messages). " +
             "Each name you add is a separate addition the customer pays for, so one added on a guess is " +
             "something they did not ask for.\n" +
             "If you cannot tell which kind they mean, name the single closest one.\n\n" +
@@ -774,13 +926,38 @@ export function siteNote(site) {
     lines.push("Its address is " + url + " — a code that opens one of its own pages carries that address with the " +
       "page's route (" + new URL(example, url).href + "), which is a real destination, never an invented one.");
   }
-  const tables = (Array.isArray(s.tables) ? s.tables : []).filter((t) => typeof t === "string" && t.trim()).slice(0, 24);
+  // EACH TABLE WITH ITS COLUMNS when the caller gives them (`columns`, keyed
+  // by table, each a list of "name type" strings): a function's body is SQL
+  // over these columns, and a `sql` function is parsed at CREATE — a guessed
+  // column is a function that fails to exist. Names alone when none are given,
+  // so a site described without them reads exactly as before.
+  const cols = s.columns && typeof s.columns === "object" && !Array.isArray(s.columns) ? s.columns : {};
+  const tables = (Array.isArray(s.tables) ? s.tables : []).filter((t) => typeof t === "string" && t.trim()).slice(0, 24)
+    .map((t) => {
+      const c = (Array.isArray(cols[t]) ? cols[t] : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 40);
+      return c.length ? t + " (" + c.join(", ") + ")" : t;
+    });
   // A SITE WITH NO DATABASE IS SAID IN AS MANY WORDS, and what it means is said
   // too: a table designed for it is refused by name, so the model should not
   // reach for one where a section would do.
+  // A SITE WITH NO DATABASE GETS ONE ON FIRST TOUCH (owner, 2026-09-03): the
+  // first table, function, connection or job designed for it is what makes
+  // it, so the note says so instead of refusing — the old sentence ("a table
+  // cannot be added to it in this step") was the wall this step no longer has.
   lines.push(s.hasDatabase
     ? (tables.length ? "It stores: " + tables.join(", ") + "." : "It has a database with no tables yet.")
-    : "It has NO database: nothing on it is stored, and a table cannot be added to it in this step.");
+    : "It has NO database yet: nothing on it is stored. The first table, function, outside connection or scheduled job you design for it creates one.");
+  // AND THE REST OF ITS BACKEND BY NAME (2026-09-03), so a designer adding a
+  // function, a connection or a job names a new one and a job can name a
+  // function the site has.
+  const namesOf = (k) => (Array.isArray(s[k]) ? s[k] : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 24);
+  const fns = namesOf("functions"), apis = namesOf("apis"), jobs = namesOf("jobs"), jobFns = namesOf("jobFns");
+  if (fns.length) lines.push("Its database functions are: " + fns.join(", ") + ".");
+  // THE ONES A JOB MAY RUN, said apart: a job names an internal function
+  // (no arguments, returns the messages), and `cleanAdd` refuses any other.
+  if (jobFns.length) lines.push("The functions a scheduled job may run are: " + jobFns.join(", ") + ".");
+  if (apis.length) lines.push("Its outside connections are: " + apis.join(", ") + ".");
+  if (jobs.length) lines.push("Its scheduled jobs are: " + jobs.join(", ") + ".");
   const has = [];
   // EVERY CODE BY NAME (2026-09-03), so a designer adding one can pick a name
   // the site does not use and a destination none of them already carries.
@@ -998,6 +1175,58 @@ export function cleanAdd(kind, value, site) {
         ctx.tables.push(name);
         return { ok: true, value: { table: { ...t, name, columns }, seed, shows: route(v.shows), exists } };
       }
+      // ── THE OTHER THREE TIERS (2026-09-03) ───────────────────────────────
+      //
+      // Cleaned to what the engine will take — `normalizeSchema` refuses the
+      // rest by name — and refused by name here for the three slips a model
+      // makes: no body, a job naming a function nobody has, a connection to a
+      // service that is not https. The engine's `CREATE OR REPLACE` means a
+      // function the site already lists is REPLACED when named; that is what
+      // "add a cancel beside the lookup" needs, and the reply says `altered`.
+      case "function": {
+        const name = str(v.name, 63).toLowerCase();
+        if (!TABLE_NAME.test(name) || ctx.functions.includes(name)) return { ok: false, why: "no-function" };
+        const body = str(v.body, 8000);
+        const returns = str(v.returns, 80);
+        if (!body || !returns) return { ok: false, why: "no-function" };
+        const args = (Array.isArray(v.args) ? v.args : [])
+          .filter((a) => a && typeof a === "object" && TABLE_NAME.test(str(a.name, 63).toLowerCase()) && str(a.type, 20))
+          .map((a) => ({ name: str(a.name, 63).toLowerCase(), type: str(a.type, 20) }));
+        const exists = (Array.isArray(s.functions) ? s.functions : []).map((x) => str(x, 63).toLowerCase()).includes(name);
+        ctx.functions.push(name);
+        return { ok: true, value: { name, args, returns, body, internal: v.internal === true, exists } };
+      }
+      case "api": {
+        const name = str(v.name, 63).toLowerCase();
+        if (!TABLE_NAME.test(name) || ctx.apis.includes(name)) return { ok: false, why: "no-api" };
+        const url = str(v.url, 2000);
+        if (!/^https:\/\/[^\s/]+/i.test(url)) return { ok: false, why: "bad-url" };
+        const method = str(v.method, 4).toUpperCase() === "POST" ? "POST" : "GET";
+        const headers = v.headers && typeof v.headers === "object" && !Array.isArray(v.headers)
+          ? Object.fromEntries(Object.entries(v.headers).filter(([k, x]) => typeof k === "string" && typeof x === "string").slice(0, 12)) : undefined;
+        const params = (Array.isArray(v.params) ? v.params : []).filter((p) => typeof p === "string" && TABLE_NAME.test(p)).slice(0, 12);
+        const cacheSeconds = Number.isFinite(Number(v.cacheSeconds)) ? Math.max(0, Math.min(3600, Math.round(Number(v.cacheSeconds)))) : undefined;
+        const exists = (Array.isArray(s.apis) ? s.apis : []).map((x) => str(x, 63).toLowerCase()).includes(name);
+        ctx.apis.push(name);
+        return { ok: true, value: { name, url, method, ...(headers ? { headers } : {}), ...(method === "POST" && str(v.body, 4000) ? { body: str(v.body, 4000) } : {}), params, ...(cacheSeconds !== undefined ? { cacheSeconds } : {}), exists } };
+      }
+      case "job": {
+        const name = str(v.name, 63).toLowerCase();
+        if (!TABLE_NAME.test(name) || ctx.jobs.includes(name)) return { ok: false, why: "no-job" };
+        const fn = str(v.fn, 63).toLowerCase();
+        // THE FUNCTION MUST EXIST AND BE INTERNAL — `site.jobFns` is that
+        // list: the site's stored internal functions plus the ones the
+        // `function` designer declared a call earlier in this same message
+        // (the route appends them as they are cleaned, because each kind is
+        // its own call and `ctx` never crosses one). The engine drops a job
+        // naming any other function, silently; this is the sentence for it.
+        const known = (Array.isArray(s.jobFns) ? s.jobFns : []).map((x) => str(x, 63).toLowerCase());
+        if (!TABLE_NAME.test(fn) || !known.includes(fn)) return { ok: false, why: "no-job-fn" };
+        const every = Number.isFinite(Number(v.everyMinutes)) ? Math.max(MIN_JOB_MINUTES, Math.round(Number(v.everyMinutes))) : MIN_JOB_MINUTES;
+        const exists = (Array.isArray(s.jobs) ? s.jobs : []).map((x) => str(x, 63).toLowerCase()).includes(name);
+        ctx.jobs.push(name);
+        return { ok: true, value: { name, fn, everyMinutes: every, exists } };
+      }
       case "qr": {
         let points = str(v.points, 1000);
         const label = str(v.label, 120);
@@ -1051,11 +1280,13 @@ export function cleanAdd(kind, value, site) {
   // with the first entry's reason — the same sentence a single bad answer
   // gets. A bare object is tolerated as a list of one.
   if (LIST_ADDS.includes(kind)) {
-    const cap = kind === "page" ? MAX_ADD_PAGES : kind === "table" ? MAX_ADD_TABLES : MAX_ADD_COMPONENTS;
+    const cap = kind === "page" ? MAX_ADD_PAGES : kind === "table" ? MAX_ADD_TABLES
+      : kind === "function" ? MAX_ADD_FUNCTIONS : kind === "api" ? MAX_ADD_APIS : kind === "job" ? MAX_ADD_JOBS
+      : MAX_ADD_COMPONENTS;
     const raw = Array.isArray(value) ? value : (isObj(value) ? [value] : []);
     const items = raw.filter(isObj).slice(0, cap);
     if (!items.length) return { ok: false, why: "nothing" };
-    const ctx = { paths: [], tables: [] };
+    const ctx = { paths: [], tables: [], functions: [], apis: [], jobs: [] };
     const kept = [], skipped = [];
     for (const v of items) {
       const r = one(v, ctx);
@@ -1088,6 +1319,11 @@ export function addRefusal(why, kind) {
     case "no-component": return "I couldn't tell which component to add — say what you want on the page: a form, a map, an FAQ, testimonials, a price list…";
     case "no-table": return "I couldn't tell what the site should store from that — say what a visitor sends in, or what the business keeps.";
     case "no-columns": return "That table would have nothing in it — say what it should hold.";
+    case "no-function": return "I couldn't turn that into a database function — say what it should look up, change or receive, and I'll write it.";
+    case "no-api": return "I couldn't tell which outside service to connect to — name the service and what the page should read from it.";
+    case "bad-url": return "An outside connection has to be an https address — that one isn't. Nothing was changed.";
+    case "no-job": return "I couldn't tell what should happen on a timer — say what to send, to whom, and how often.";
+    case "no-job-fn": return "That scheduled job names a function this site doesn't have — describe what it should send and I'll write both together.";
     case "no-destination": return "A QR code needs a real destination — a link, a phone number, a wifi network — and that wasn't in the message. Nothing was changed.";
     case "bad-destination": return "A QR code can carry a link, a phone number, an email address, a wifi network or plain text — not that. Nothing was changed.";
     case "no-such-page": return "That code would open a page this site doesn't have. Name one of its pages, or a link, a number or an address — nothing was changed.";
@@ -1166,6 +1402,32 @@ export function addDirective(kind, value, site) {
         "list it or submit to it through the hooks the rules describe, and nothing else on that page moves.");
       break;
     }
+    // THE OTHER THREE TIERS (2026-09-03). A function and a connection are
+    // things a PAGE calls, so the writer is told the name and the hook; a job
+    // runs on a timer and the page does not change for it.
+    case "function": {
+      const args = (Array.isArray(v.args) ? v.args : []).map((a) => a.name + ": " + a.type).join(", ");
+      out.push("## The function this change " + (v.exists ? "replaces" : "adds"));
+      out.push("- `" + v.name + "(" + args + ") -> " + v.returns + "` is live in the site's database" +
+        (v.internal
+          ? ", INTERNAL — the platform calls it (a job's message builder, a `hook_` receiver); no page calls it, and nothing on any page changes for it."
+          : ". Call it by NAME from the page that needs it — useRpc / useRpcAction / useClaimedRow / useCancelClaim / useAmendClaim, as the rules describe — and nothing else on that page moves."));
+      break;
+    }
+    case "api": {
+      const params = (Array.isArray(v.params) ? v.params : []).join(", ");
+      out.push("## The outside connection this change " + (v.exists ? "replaces" : "adds"));
+      out.push("- `" + v.name + "(" + params + ")` is served by the platform, which holds the key and makes the call. " +
+        "Read it from the page that needs it with `useApi(\"" + v.name + "\", { " + params + " })` and write the page against " +
+        "the service's real answer shape; nothing else on that page moves.");
+      break;
+    }
+    case "job": {
+      out.push("## The scheduled job this change " + (v.exists ? "replaces" : "adds"));
+      out.push("- `" + v.name + "` runs `" + v.fn + "()` every " + v.everyMinutes + " minutes and sends whatever it returns. " +
+        "It changes NO page: return nothing for it unless another addition in this change needs a page.");
+      break;
+    }
     case "qr": {
       const n = qrName(v.name, v.label) || "qr";
       out.push("## The code you are placing");
@@ -1210,6 +1472,7 @@ export function foldAdds(answers, priorLook, site) {
   const tsx = (Array.isArray(prior.tsx) ? prior.tsx : []).filter((t) => t && typeof t === "object" && typeof t.name === "string").map((t) => ({ ...t }));
   const tables = [];
   const seed = {};
+  const functions = [], apis = [], jobs = [];
   // THE UNIVERSAL RULE HEADS THE DIRECTIVE, once, before any addition — the
   // second of its two hops (the first is `ADD_SYSTEM`, to the designers).
   // Only when something is being added: an empty fold is an empty directive.
@@ -1233,6 +1496,15 @@ export function foldAdds(answers, priorLook, site) {
       tables.push(v.table);
       if (Array.isArray(v.seed) && v.seed.length) seed[v.table.name] = v.seed;
     }
+    // THE OTHER THREE TIERS (2026-09-03) fold as name-keyed lists, exactly as
+    // `mergeAddonSchema` carries them: only what was named, so the engine
+    // replaces those by name and keeps every other one the site has.
+    if (a.kind === "function" && v.name) functions.push({ name: v.name, args: v.args, returns: v.returns, body: v.body, internal: v.internal === true });
+    if (a.kind === "api" && v.name) {
+      const { exists, ...api } = v;
+      apis.push(api);
+    }
+    if (a.kind === "job" && v.name) jobs.push({ name: v.name, fn: v.fn, everyMinutes: v.everyMinutes });
     // APPENDED TO THE STORED LIST BY NAME (2026-09-03), never replacing it —
     // the `tsx` rule one loop up, for the same reason: a site with a code that
     // gets another must keep the first.
@@ -1244,6 +1516,9 @@ export function foldAdds(answers, priorLook, site) {
     if (a.kind === "three") designed.three = v.scene;
   }
   if (tables.length) { designed.tables = tables; designed.seed = seed; }
+  if (functions.length) designed.functions = functions;
+  if (apis.length) designed.apis = apis;
+  if (jobs.length) designed.jobs = jobs;
   // ONLY WHEN SOMETHING WAS DECLARED: an absent `tsx` means unchanged to the
   // merge, and re-sending the stored list unchanged is a no-op either way —
   // but a site with none and an answer with none must not store `[]`.

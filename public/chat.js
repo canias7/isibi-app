@@ -12029,6 +12029,17 @@ function sitePathOf(file) {
 // What the addon did, naming the pages — including the one they did not ask
 // about. The nav link is a page this lane touches on its own, and not saying so
 // is how a legitimate change reads as the site being altered behind them.
+/** A scheduled job as a customer reads it: its name and how often it runs. */
+function jobWords(j) {
+  if (!j || typeof j !== 'object' || !j.name) return '';
+  const m = Number(j.everyMinutes);
+  const every = !Number.isFinite(m) || m <= 0 ? ''
+    : m % 10080 === 0 ? (m === 10080 ? 'every week' : 'every ' + (m / 10080) + ' weeks')
+    : m % 1440 === 0 ? (m === 1440 ? 'every day' : 'every ' + (m / 1440) + ' days')
+    : m % 60 === 0 ? (m === 60 ? 'every hour' : 'every ' + (m / 60) + ' hours')
+    : 'every ' + m + ' minutes';
+  return j.name + (every ? ' (' + every + ')' : '');
+}
 function addonReplyText(a) {
   const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
   const changed = (Array.isArray(a.changed) ? a.changed : []).map(sitePathOf).filter(Boolean);
@@ -12038,7 +12049,27 @@ function addonReplyText(a) {
   if (removed.length) bits.push('removed ' + removed.join(', '));
   if (changed.length) bits.push('linked it from ' + changed.join(', '));
   if (Array.isArray(a.tables) && a.tables.length) bits.push('now storing ' + a.tables.join(', '));
+  // THE OTHER THREE TIERS OF THE BACKEND (2026-09-03): what the engine
+  // really made, by name — a function a page can call, an outside service
+  // the platform reads for it, a job on a timer — and, once, that the site
+  // got its own database for it.
+  if (Array.isArray(a.functions) && a.functions.length) bits.push('added the function' + (a.functions.length > 1 ? 's ' : ' ') + a.functions.join(', '));
+  if (Array.isArray(a.apis) && a.apis.length) bits.push('connected ' + a.apis.join(', '));
+  if (Array.isArray(a.jobs) && a.jobs.length) bits.push('scheduled ' + a.jobs.map(jobWords).filter(Boolean).join(', '));
   let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
+  if (a.provisioned === true) out += ' Your site has its own database now.';
+  // A FUNCTION THE DATABASE REFUSED IS SAID, with its own reason: the rest
+  // of the addition landed, and "added the function" would be a lie for
+  // this one. The server names it in `functionErrors`, never in `functions`.
+  for (const fe of (Array.isArray(a.functionErrors) ? a.functionErrors : []).slice(0, 3)) {
+    if (!fe || !fe.name) continue;
+    out += ' The function ' + fe.name + ' couldn’t be created' + (fe.error ? ' — ' + String(fe.error).slice(0, 140) : '') + '.';
+  }
+  // A CONNECTION WITH A KEY TO PASTE IS SAID, and where: it answers nothing
+  // until the owner's own key is in the vault.
+  if (Array.isArray(a.needsSecrets) && a.needsSecrets.length) {
+    out += ' To switch it on, add ' + a.needsSecrets.join(', ') + ' under Cloud → Secrets.';
+  }
   out += photoNote(a.photos);
   // A KIND SET ASIDE IS SAID (2026-09-02): a photograph asked for beside a
   // page is the picture rung's job and did not ride this addition, so the

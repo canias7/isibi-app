@@ -400,3 +400,119 @@ description:
   // `collect` table of customer phone numbers served to the public.
   required: ["name", "columns"],
 };
+
+// ── THE OTHER THREE SHAPES OF THE BACKEND (2026-09-03) ──────────────────────
+//
+// The build's `backend` has four tiers — tables, functions, apis, jobs — and a
+// first build sends none of them (owner, 2026-09-03: "the build step doesnt
+// have backend, so its gonna be on the addon step if needed"). So the ADD step
+// has to be able to ask for all four, and the same rule that lifted
+// `TABLE_ITEM` above applies to the other three: one shape, two framings, in
+// the module both paths may read. These are `design_schema`'s
+// `backend.functions.items`, `backend.apis.items` and `backend.jobs.items`,
+// moved with their own comments, and bound in worker.js by identity.
+
+export const JOB_ITEM = {
+  type: "object",
+  required: ["name", "fn", "everyMinutes"],
+  properties: {
+    name: { type: "string", description: "lowercase identifier, e.g. remind_tomorrow" },
+    fn: { type: "string", description: "The internal function returning the messages, e.g. bookings_due_tomorrow" },
+    everyMinutes: { type: "integer", description: "How often to run. 1440 = daily, 60 = hourly. Minimum 15." },
+  },
+};
+
+export const API_ITEM = {
+  type: "object",
+  required: ["name", "url"],
+  properties: {
+    name: { type: "string", description: "lowercase identifier the page calls by, e.g. exchange_rates" },
+    url: { type: "string", description: "https only. e.g. https://api.example.com/v1/latest?base={{param.base}}&key={{RATES_KEY}}" },
+    // A POST HERE IS STILL A READ, and the caching is why that has to
+    // be said. `normalizeApi` gives every declaration a 60-second
+    // window by default and `cacheKey` is slug|name|params — no method,
+    // no body — so a declared POST is sent ONCE and then answered from
+    // the store for a minute without contacting the service at all.
+    //
+    // Right for what this exists for: plenty of read endpoints require
+    // POST (GraphQL, some search and pricing APIs), and caching them is
+    // the whole point, since every uncached read spends the OWNER's own
+    // quota. Wrong the moment the POST does something — the first call
+    // lands, the next few silently do not, and it starts working again
+    // a minute later, which reads as the third party being flaky rather
+    // than as us not calling them.
+    //
+    // Not fixed by refusing to cache POSTs: that breaks the legitimate
+    // case and puts the owner's quota back on every page view. Fixed by
+    // saying the thing the model cannot infer from "POST only".
+    method: { type: "string", enum: ["GET", "POST"],
+      description: "GET unless the service's READ endpoint requires POST (GraphQL, some search and pricing APIs). " +
+        "NEVER use this to make something happen on the other side — send a message, place an order, reserve a slot. " +
+        "Every answer here is cached, so the request is made once and then answered from the store until the window " +
+        "expires: an action would run sometimes and not others. Outbound actions belong in a database function." },
+    headers: { type: "object", description: "e.g. {\"Authorization\":\"Bearer {{RATES_KEY}}\"}" },
+    body: { type: "string", description: "POST only. The request body, with the same {{SECRET}} and {{param.x}} placeholders." },
+    params: { type: "array", items: { type: "string" }, description: "Names a page may pass. Anything else is dropped." },
+    cacheSeconds: { type: "integer", description: "0-3600. How long one answer stays good. Every uncached read costs the owner." },
+  },
+};
+
+export const FUNCTION_ITEM = {
+  type: "object",
+  required: ["name", "returns", "body"],
+  properties: {
+    name: { type: "string", description: "lowercase identifier, e.g. booking_by_claim" },
+    // THE TWO HALVES OF THIS TOOL SPOKE DIFFERENT TYPE LANGUAGES. A
+    // column may be text/integer/real/boolean/json; an argument was
+    // offered seven types no column can ever be. A body compares its
+    // arguments to columns, so `{name:"d", type:"date"}` against a
+    // TEXT `slot_date` is `operator does not exist: text = date` — the
+    // function fails to CREATE, and the page's lookup is silently not
+    // there. Non-fatal and reported in `functionErrors`, so the site
+    // still builds without the capability it was asked for.
+    //
+    // The tool already knew this trap: its own example warned that a
+    // claim token is TEXT "not uuid". Somebody hit the uuid version and
+    // documented that one case; the date, numeric and bigint versions
+    // were left open.
+    //
+    // NARROWED IN WHAT IS OFFERED, NOT IN WHAT IS ACCEPTED. `date` and
+    // `timestamptz` are gone from this enum because NO column is ever
+    // either, so they can only be right via an explicit cast nothing
+    // asks for. The engine's own allow-list still takes them, so a
+    // schema stored before today re-applies on a revise exactly as it
+    // did — narrowing that too would break existing sites to tidy a
+    // prompt. `uuid` and `jsonb` STAY and are not oversights: `owner_id`
+    // and `team_id` really are UUID, and a `hook_*` handler takes
+    // exactly one jsonb payload.
+    //
+    // `integer` joins `int` because that is the word the columns use,
+    // and the engine has always accepted both — offering one spelling
+    // while the other half of the tool uses the other is the mismatch
+    // in miniature.
+    args: {
+      type: "array",
+      description: "Arguments, matched to the COLUMN each one is compared against. What a declared column really is in Postgres: " +
+        "`text` is TEXT · `integer` is INTEGER · `real` is REAL · `boolean` is INTEGER 0/1, NOT boolean · `json` is TEXT, NOT jsonb. " +
+        "The columns the platform adds: `id` is INTEGER, `owner_id` and `team_id` are UUID, and `created_at` and every other " +
+        "timestamp is TEXT in 'YYYY-MM-DD HH:MM:SS'. " +
+        "THERE IS NO DATE COLUMN — a date or a time lives in a TEXT column, so an argument matching one is `text`. " +
+        "A claim lookup takes one: {name:'tok', type:'text'} — the claim_token column is TEXT, so the argument matching it is text, not uuid.",
+      items: {
+        type: "object",
+        required: ["name", "type"],
+        properties: {
+          name: { type: "string" },
+          type: { type: "string", enum: ["text", "int", "integer", "bigint", "numeric", "boolean", "uuid", "json", "jsonb"] },
+        },
+      },
+    },
+    returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
+    body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
+    internal: { type: "boolean", description:
+      "Set true when the function is for the PLATFORM to call, never a page — a `confirm: {fn}` message builder, or a `hook_*` inbound webhook handler. " +
+      "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +
+      "email address and message, so left callable a stranger reads any customer's confirmation by guessing a number. " +
+      "Leave it off for anything a page calls by name, like a claim lookup." },
+  },
+};

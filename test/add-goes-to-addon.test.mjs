@@ -130,3 +130,24 @@ test("the addon merges the designed look, tells the page call the bindings, stor
   assert.match(b, /mergeParts\(await loadSiteParts\(env, ownerSlug\), aValid\.parts\)/, "the addon's parts are not merged over the stored ones");
   assert.match(b, /moved: aLookMoved,/, "the reply does not say which design fields the addon gave the site");
 });
+
+// ── 4. THE BACKEND IS THE ADDON'S TOO (owner, 2026-09-03) ───────────────────
+test("the router is told a database function, an outside service and a scheduled job are additions, and that a first one makes the database", () => {
+  // "the build step doesnt have backend so its gonna be on the addon step if
+  // needed … if customer touches it then neon db is created". The router's
+  // wording is the front door: a reminder the day before that reads as an
+  // edit lands on a rung that cannot make it. Read out of the router's own
+  // source with comments blanked — the comment above the sentence quotes it.
+  // The description is a double-quoted JS string, so the quotes around the
+  // intent names are escaped in the source — the landmarks carry the backslash.
+  const ask = blankComments(read("../builder/site-ask.mjs"));
+  const addon = at(ask, '\\"addon\\" — ADDING SOMETHING THE SITE DOES NOT HAVE YET.', "the addon description");
+  const edit = ask.indexOf('\\"edit\\" is for what the site ALREADY HAS, changed', addon);
+  assert.ok(edit > addon, "the edit sentence no longer follows the addon description");
+  const body = ask.slice(addon, edit);
+  assert.match(body, /ANYTHING THE SITE'S DATABASE HAS TO DO THAT IT DOES NOT DO YET/, "the router is not told the backend is an addition");
+  assert.match(body, /database function/, "a function is not named");
+  assert.match(body, /read live from an outside service/, "an outside connection is not named");
+  assert.match(body, /ON A TIMER/, "a scheduled job is not named");
+  assert.match(body, /A site with no database gets one the first time any of these is added/, "the router is not told a first touch makes the database");
+});

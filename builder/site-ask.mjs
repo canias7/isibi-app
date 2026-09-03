@@ -196,6 +196,14 @@ export const ASK_TOOL = {
           "something it has no table for, or a section, a QR code, a 3D scene, a form, a map or a photograph on a page " +
           "that does not have one. The page existing does not make it an edit: \"Add a testimonials section to the home " +
           "page\" is an addon, because the section does not exist yet.\n" +
+          // THE BACKEND IS THE ADDON'S TOO (owner, 2026-09-03): a first build
+          // sends none of it, so every function, outside connection and
+          // scheduled job a site gets is added after the build — and the
+          // first of any of them on a site with no database makes one.
+          "SO IS ANYTHING THE SITE'S DATABASE HAS TO DO THAT IT DOES NOT DO YET: a lookup or a cancel a page needs " +
+          "(a database function), something read live from an outside service — an exchange rate, a courier's " +
+          "slots, the weather — or something that happens ON A TIMER with nobody there: a reminder the day before, " +
+          "a weekly digest. A site with no database gets one the first time any of these is added.\n" +
           "\"edit\" is for what the site ALREADY HAS, changed: its words, colours, stylesheet, button, menu, pictures, " +
           "languages, what a control does — and its own code. Changing a component is an edit, because the page's code " +
           "always exists.\n\n" +

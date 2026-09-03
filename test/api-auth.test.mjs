@@ -24,7 +24,7 @@ import { FAVICON_FIELD, WORDMARK_FIELD } from "../builder/site-favicon.mjs";
 // THE ONE SHAPE OF A TABLE (2026-09-02): `backend.tables.items` lives in its
 // own module now, shared with the ADD step. Bound for real below, and read as
 // text where a description of it is asserted.
-import { TABLE_ITEM } from "../builder/site-table.mjs";
+import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
 const TABLE_SRC = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "builder", "site-table.mjs"), "utf8");
 import { AUTHORED_AXES, ASKABLE as STYLE_AXES } from "../builder/site-style.mjs";
 import { authoredFieldSchema, AXIS_DECLS } from "../builder/site-authored.mjs";
@@ -439,6 +439,10 @@ test("every tool the model is given is a schema the API will accept", () => {
     // The table item (2026-09-02) — real, never the stub: it IS the shape the
     // API has to accept, twenty-seven properties of it.
     TABLE_ITEM,
+    // AND THE OTHER THREE TIERS (2026-09-03), lifted beside it for the addon
+    // step: each IS a schema, so against the stub `backend.jobs.items` came
+    // back with no `type` and this check said so — the ninth time, loudly.
+    FUNCTION_ITEM, API_ITEM, JOB_ITEM,
     SITE_STYLE_AXES: STYLE_AXES, SITE_AUTHORED_AXES: AUTHORED_AXES,
     siteAuthoredSchema: authoredFieldSchema,
     SITE_AUTHORED_IMAGE: Object.entries(AXIS_DECLS).filter(([, v]) => v.image).map(([k]) => k),

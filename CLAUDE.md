@@ -448,7 +448,8 @@ is none). Until 2026-09-02 the router said the opposite in as many words
   `look`/`logo` dead gate again, one step over: a first build provisions
   none, so `no-backend` had sent every "add a QR code" on most of the
   platform to a rebuild. `{ tables: [] }` is the truth about such a site; a
-  table designed for it is a named 422, not a climb.
+  table designed for it was a named 422, not a climb — and **since 2026-09-03
+  it MAKES the database** (the backend entry in the ADD section below).
 The lane sweep's asks changed to match: `qr`, `three`, `tsx`, `components`
 now EDIT what fretwork-1 has (a caption, the pick's speed, the chord-diagram
 component, the accordion swapped), because "Add a QR code…" is an addon ask
@@ -456,7 +457,9 @@ and the harness posts straight to the edit route. Sweep: **23 mutants, 23
 killed, control survived** — two needed a guard that reads a call's own
 `if (` rather than its position, since `if (false)` leaves the call exactly
 where a position check looks for it. **The addon step has NOT run live on a
-database-less site yet**; a gap case for it is ~25 credits, owner's call.
+database-less site yet** — and since 2026-09-03 what it would do there is
+make the database (the backend entry below); the proof needs a frontend-only
+site on the allowlist, owner's call.
 
 ---
 
@@ -725,19 +728,21 @@ imports nothing from `worker.js`** — the edit step's split, for the step that
 ADDS:
 
 ```
-customer ──► pick_adds ──► add_to_site ──► the page call ──► ONE PUBLISH
-             picked model   one per kind    (addon mode)
-             1,936 chars    1 property
-             6 kinds        0 required
+customer ──► pick_adds ──► add_to_site ──► [make the db] ──► the page call ──► ONE PUBLISH
+             picked model   one per kind    first touch     (addon mode)
+             1,936 chars    1 property      then apply      a job alone: no page
+             9 kinds        0 required      the backend     call, no publish
 ```
 
-- **Six kinds, the intent router's own list**: `table` · `page` · `component`
-  · `qr` · `three` act here; `photo` dispatches to the `picture` rung (the one
-  that places a photograph and prices it; this step never buys one — and
-  that rung fills only a slot the page already has, which on a site with no
-  photograph is none: run 25, the gap below). **Order
-  is run order** — a table before the page that shows it. `ADD_KINDS`,
-  `OWN_ADDS`, `DISPATCHED_ADDS`, `addLayer` — derive, don't trust.
+- **Nine kinds, the intent router's own list**: `table` · `function` · `api`
+  · `job` · `page` · `component` · `qr` · `three` act here; `photo` dispatches
+  to the `picture` rung (the one that places a photograph and prices it; this
+  step never buys one — and that rung fills only a slot the page already has,
+  which on a site with no photograph is none: run 25, the gap below). **Order
+  is run order** — a table before the function that reads it, both before
+  the job that runs the function, all before the page that shows them.
+  `ADD_KINDS`, `OWN_ADDS`, `DISPATCHED_ADDS`, `BACKEND_ADDS`, `addLayer` —
+  derive, don't trust.
   **A SECTION IS A COMPONENT** (owner, 2026-09-02: *"section is just adding a
   new component, so its a tsx step that adds components"*). The page is a
   tsx file made of components; what a customer calls a section, a form, a
@@ -762,9 +767,11 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
 - **NO LOW LIMITS WHILE TESTING (owner: *"no limit on things that can be
   added, like the pages, new components, at least not a low limit for now
   since we are testing"*).** `MAX_ADDS` is the count of kinds (a message may
-  name every kind it asks for); `page`, `component` and `table` answer LISTS
-  (`LIST_ADDS`) capped at what a site can hold — `MAX_ADD_PAGES` 6 (the page
-  writer keeps six), `MAX_ADD_COMPONENTS` 12, `MAX_ADD_TABLES` 6 — and every
+  name every kind it asks for); `page`, `component`, `table`, `function`,
+  `api` and `job` answer LISTS (`LIST_ADDS`) capped at what a site can hold —
+  `MAX_ADD_PAGES` 6 (the page writer keeps six), `MAX_ADD_COMPONENTS` 12,
+  `MAX_ADD_TABLES` 6, `MAX_ADD_FUNCTIONS` 6, `MAX_ADD_APIS` 4, `MAX_ADD_JOBS`
+  4 (the engine keeps eight of each tier) — and every
   list rule says "as many as they asked for, and not one more". `cleanAdd`
   keeps every usable entry and names the rest (`skipped`, carried to the
   reply as `notAdded` with the refusal sentence); it refuses only when no
@@ -773,7 +780,9 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   (**`TABLE_ITEM`, lifted out of `design_schema` into `builder/site-table.mjs`
   for exactly this**, byte-identical on the wire — `readSchemaTool` binds it;
   every guard that read the item's text out of worker.js reads it there now,
-  with the `items: TABLE_ITEM` binding asserted beside), `TSX_ITEM`, the kit's
+  with the `items: TABLE_ITEM` binding asserted beside — **and the other three
+  tiers followed it on 2026-09-03: `FUNCTION_ITEM`, `API_ITEM`, `JOB_ITEM`,
+  seven more guards re-anchored the same way**), `TSX_ITEM`, the kit's
   `COMPONENT_MENU`, `TOOL_DIRECTIVE`. The `BEHAVIOR_ITEM` precedent.
 - **The fold (`foldAdds`) is the hop the old route never had**: the page call
   gets a directive for the addition (file, route, LAYOUT, numbered bands, kit
@@ -788,9 +797,12 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   wall reads it, stored look OR page source (`ADD_ONLY_FIELDS` and
   `ADD_EVIDENCE`, the same two lists, so the two doors never bounce a customer
   between them; `test/site-add.test.mjs` asserts every add-only field is a
-  kind); a table on a site with no database (refused BEFORE a call now); a
-  page the site has; a code with no destination; a section on a many-page
-  site that names no page (a one-page site lands on its page). Only a picker
+  kind); a page the site has; a code with no destination; a section on a
+  many-page site that names no page (a one-page site lands on its page); a
+  function with no body, a connection that is not https, a job naming a
+  function the site may not run. (A table on a site with no database was one
+  of these, refused before any call, until 2026-09-03 — it makes the database
+  now; the backend entry below.) Only a picker
   that names nothing escalates to the revise. **A photo beside another kind
   is set aside and said** (`skipped`), because the hop carries one sentence to
   one rung.
@@ -1074,6 +1086,69 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   vanishing, a page added twice in one answer, a list kind answering one
   thing, the page cap outrunning the page writer's, the route dropping the
   left-out entries from the reply.
+
+- **THE BACKEND IS THE ADDON'S, AND A SITE GETS ITS DATABASE ON FIRST TOUCH
+  (owner, 2026-09-03: *"the build step doesnt have backend so its gonna be on
+  the addon step if needed … if customer touches it then neon db is
+  created"*).** A first build sends none of the four backend tiers, so every
+  function a page calls, every outside service a page reads live and every
+  job that runs on a timer is added HERE. Three more kinds beside `table` —
+  `function` · `api` · `job` (`BACKEND_ADDS`), each the build's own item shape
+  (`FUNCTION_ITEM`, `API_ITEM`, `JOB_ITEM`, lifted into `builder/site-table.mjs`
+  beside the table's and bound in `design_schema` by identity — seven guards
+  that read those items' text out of worker.js went red on the lift and were
+  re-anchored on the item where it lives plus the `items: X_ITEM` binding,
+  never appeased) in this step's framing, a four-part rule each, lists capped
+  at 6 / 4 / 4 (the engine keeps eight of each tier). **The first of any of
+  the four designed for a site with no database MAKES the database**, through
+  the build route's own `ensureSiteBackend` (the slug's project, claimed
+  atomically, auth and the Data API on, idempotent on a retry), gated under a
+  job, before the schema is applied; a failed provision is a named 502 that
+  is `ours`, nothing charged, nothing changed, stage and scrubbed detail on
+  the wire. **The two `no-database` refusals are gone.** `backendDesigned`
+  (site-add.mjs, driven) decides "this change touches the database"; then
+  `mergeAddonSchema` → `normalizeSchema` → `applySiteSchema` add what is new
+  and leave what is there, a function is `CREATE OR REPLACE`d, the jobs are
+  registered by `persistSiteJobs`, and the reply says what the engine really
+  MADE: `functions` (only those that created — `made.functions`),
+  `apis`, `jobs`, `functionErrors` by name, `needsSecrets` (every
+  `{{SECRET}}` a new connection wants under Cloud → Secrets), `provisioned`;
+  `addonReplyText` says each ("scheduled remind_tomorrow (every day)",
+  "Your site has its own database now.").
+  **Three hops that were not obvious, each a sweep target:**
+  (1) **each kind is its own call, so the job designer must be TOLD the
+  function the function designer just declared** — the route appends designed
+  functions to `aSite.functions` (internal ones to `aSite.jobFns`, the only
+  kind the engine lets a job run) as they are cleaned, `siteNote` prints "The
+  functions a scheduled job may run are: …", and `cleanAdd("job")` admits a
+  job only against `jobFns`; without it every "remind them the day before"
+  designed the builder and then refused the job for naming a function the
+  site did not have. (2) **a job on a STORED internal function is re-attached
+  after `normalizeSchema`**, which keeps a job only when its function is
+  declared in the same spec — right for a build, a silent drop here, where a
+  stored function has no body to re-send (re-sending one would `CREATE OR
+  REPLACE` the live function with nothing). (3) **the function designer is
+  shown each table WITH its columns** (`aSite.columns`, "name type"): a `sql`
+  body is parsed at CREATE, so a guessed column is a function that does not
+  exist. **A job, or an internal function alone, changes no page**
+  (`pageless`, driven): the route bills the small calls through the ONE charge
+  closure (`aCharge`, shared with the page path — the reserve under a job, the
+  collect otherwise) and answers in the page path's shape with nothing added,
+  changed or moved, no page call, no compile. The intent router is told the
+  backend is an addition; the harness has a case per kind (`function`, `api`,
+  `job`, judged off the reply's own evidence by `blindBackend` because a
+  database leaves no mark on the page; the `job` case is `pageless` and the
+  runner does not wait for the edge on it); the workflow lists nine cases.
+  **Sweep: 54 mutants, 53 killed in the sweep's six files, the comment-only
+  control survived, none unapplied** — the one survivor (`design_schema`
+  binding `{ ...API_ITEM }` instead of the item) is killed by
+  `test/site-apis.test.mjs`'s binding guard, which sits outside that set, and
+  a copy is byte-identical on the wire either way. Full suite 4,889 green.
+  The replies as the customer reads them: `docs/edits/addon-backend-replies.png`.
+  **Not proven live**: the
+  three new kinds can be proven on fretwork-1 (~12–15 credits each for the
+  two that publish, ~2 for the job, owner's call); the provision needs a
+  frontend-only site on the allowlist.
 
 **DELETE deferred** (owner's call).
 

@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { normalizeConfirm, fill, esc, recipient, pickProvider, sendConfirmation, MAIL_PROVIDERS } from "../site-mail.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
+import { TABLE_ITEM, FUNCTION_ITEM } from "../builder/site-table.mjs";
 
 
 // Blank comments rather than removing them, so every index still lines up with
@@ -183,8 +184,17 @@ test("THE CHAIN: declare it, and it survives every layer to the send", () => {
   const schema = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
 
   // 1. the designer can declare it
+  //
+  // RE-ANCHORED 2026-09-03. This matched `/confirm: \{/` against the tool's
+  // SOURCE and was passing on prose: the table item had left worker.js for
+  // builder/site-table.mjs on 2026-09-02, and what the regex went on finding
+  // was the function item's description quoting "a `confirm: {fn}` message
+  // builder" — which left with the function item today. The property is the
+  // OBJECT: the shared table item offers `confirm`, and the design tool binds
+  // that item, so the offer is on the wire.
   const tool = worker.slice(worker.indexOf('name: "design_schema"'), worker.indexOf('tool_choice: { type: "tool", name: "design_schema" }'));
-  assert.match(tool, /confirm: \{/, "the design_schema tool must offer `confirm`");
+  assert.ok(TABLE_ITEM.properties.confirm && TABLE_ITEM.properties.confirm.type === "object", "the shared table item must offer `confirm`");
+  assert.match(tool, /items: TABLE_ITEM,/, "the design_schema tool no longer binds the shared table item, so `confirm` is not on the wire");
 
   // 2. it survives normalizeSchema's allow-list — where teamScope was silently
   //    dropped on every build while every other layer worked
@@ -331,7 +341,12 @@ test("THE CHAIN, function form: declarable end to end", () => {
   // name a function it has no way to mark internal, and an un-internal one is
   // dropped by the cross-reference above. That is the fifth-layer death this
   // repo keeps producing.
-  assert.match(tool, /fn: \{ type: "string"/, "the designer must be able to name a confirm function");
-  assert.match(tool, /internal: \{ type: "boolean"/, "and must be able to mark it internal");
+  // RE-ANCHORED 2026-09-03: both shapes live in builder/site-table.mjs now
+  // (the table item since 2026-09-02, the function item since today), so the
+  // OBJECTS are asked and the tool is asked to bind them.
+  assert.equal(TABLE_ITEM.properties.confirm.properties.fn.type, "string", "the designer must be able to name a confirm function");
+  assert.equal(FUNCTION_ITEM.properties.internal.type, "boolean", "and must be able to mark it internal");
+  assert.match(tool, /items: TABLE_ITEM,/, "the tool does not bind the table item");
+  assert.match(tool, /items: FUNCTION_ITEM,/, "the tool does not bind the function item");
   assert.match(worker, /callFn: async \(name, rowId\)/, "the Worker must supply the runner");
 });

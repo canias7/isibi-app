@@ -356,7 +356,11 @@ test("a POST really is cached like a GET — the premise of the wording below", 
 });
 
 test("the tool tells the model a POST here must not DO anything", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // RE-ANCHORED 2026-09-03: the api item lives in builder/site-table.mjs now
+  // (`API_ITEM`, lifted beside the table item for the addon step); the design
+  // tool BINDS it, asserted beside, so the wording read here is on the wire.
+  const w = fs.readFileSync(new URL("../builder/site-table.mjs", import.meta.url), "utf8");
+  assert.match(fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /items: API_ITEM,/, "the design tool no longer binds the shared api item, so this wording is not on the wire");
   const at = w.indexOf('method: { type: "string", enum: ["GET", "POST"]');
   assert.ok(at > 0, "the apis method field moved — retarget this test");
   // To the next field, never a byte count.

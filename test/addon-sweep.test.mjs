@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CASES, chooseCases, sitePathOf, watchJob } from "../scripts/addon-sweep.mjs";
+import { CASES, chooseCases, sitePathOf, watchJob, blindBackend } from "../scripts/addon-sweep.mjs";
 import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, addLayer } from "../builder/site-add.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
@@ -42,10 +42,9 @@ test("every kind has a case and every case names kinds the step has", () => {
 const REFUSAL_FIXTURES = {
   qr: { html: '<html><img src="/qr.svg" alt="Scan to ring and book"></html>', reply: { ok: true, added: [], changed: ["index.tsx"], moved: ["qr"] } },
   three: { html: "<html><canvas width=\"1096\" height=\"420\"></canvas></html>", reply: { ok: true, added: [], changed: ["index.tsx"], moved: ["three"] } },
-  // BLIND: a database leaves no mark on the page, so the table check cannot
-  // tell a right refusal from a wrong one — it holds only that a refusal
-  // leaves the build unmoved. Said here rather than pretended.
-  table: { html: "<html></html>", blind: true, reply: { ok: true, added: [], changed: ["index.tsx"], tables: ["bookings"] } },
+  // `table` LEFT THIS LIST ON 2026-09-03: a table is never refused for want
+  // of a database now (the first backend tier makes one), so the case has
+  // one honest outcome and is judged with the other backend tiers below.
 };
 
 test("every case can be judged, and judges the site rather than the reply", () => {
@@ -64,19 +63,14 @@ test("every case can be judged, and judges the site rather than the reply", () =
       const with_ = { ...same, html: fx.html };
       assert.equal(c.check(with_, { ...with_ }, {}, {}).ok, true, c.name + ": a refusal on a site that has the thing, build unmoved, is not the honest pass");
       assert.equal(c.check(with_, { ...with_, build: "b2" }, {}, {}).ok, false, c.name + ": a moved build on a refusal passes");
-      if (!fx.blind) {
-        assert.equal(c.check(same, { ...same }, {}, {}).ok, false, c.name + ": a refusal on a site WITHOUT the thing passes — the refusal was wrong");
-        assert.equal(c.check(same, { ...same, build: "b2" }, fx.reply, {}).ok, false, c.name + ": a claimed addition that left no trace on the page passes");
-        // A SECOND ONE IS NOT AN ADDITION: the wall should have refused a site
-        // that already carried the thing, so a publish there is a lie too.
-        // Found by a survivor: with `!had` dropped the guard was silent.
-        assert.equal(c.check(with_, { ...with_, build: "b2" }, fx.reply, {}).ok, false, c.name + ": a publish on a site that already had the thing passes — the wall should have refused");
-      }
+      assert.equal(c.check(same, { ...same }, {}, {}).ok, false, c.name + ": a refusal on a site WITHOUT the thing passes — the refusal was wrong");
+      assert.equal(c.check(same, { ...same, build: "b2" }, fx.reply, {}).ok, false, c.name + ": a claimed addition that left no trace on the page passes");
+      // A SECOND ONE IS NOT AN ADDITION: the wall should have refused a site
+      // that already carried the thing, so a publish there is a lie too.
+      // Found by a survivor: with `!had` dropped the guard was silent.
+      assert.equal(c.check(with_, { ...with_, build: "b2" }, fx.reply, {}).ok, false, c.name + ": a publish on a site that already had the thing passes — the wall should have refused");
       assert.equal(c.check(same, { ...with_, build: "b2" }, fx.reply, {}).ok, true, c.name + ": a real addition — not there, then there, build moved — is called a lie");
       assert.equal(c.check(same, { ...with_ }, fx.reply, {}).ok, false, c.name + ": a claimed addition with the build unmoved passes");
-      // A CLAIMED ADDITION THAT MADE NOTHING: the reply without its evidence.
-      const bare = { ...fx.reply, tables: [], moved: [] };
-      if (fx.blind) assert.equal(c.check(same, { ...with_, build: "b2" }, bare, {}).ok, false, c.name + ": a publish that made no table passes");
       continue;
     }
     if (c.hop) {
@@ -88,6 +82,66 @@ test("every case can be judged, and judges the site rather than the reply", () =
     assert.equal(v.ok, false, c.name + ": passes against a site that did not change");
     assert.equal(typeof v.note, "string", c.name + ": gives no note");
   }
+  // THE REFUSAL CASES ARE EXACTLY THE SINGLE FIELDS — a kind that left the
+  // wall (table, 2026-09-03) must have left this list too.
+  assert.deepEqual(CASES.filter((c) => Array.isArray(c.mayRefuse)).map((c) => c.name).sort(), Object.keys(REFUSAL_FIXTURES).sort());
+});
+
+// ── THE BACKEND TIERS ARE JUDGED OFF THE REPLY'S OWN EVIDENCE (2026-09-03) ──
+//
+// A database leaves no mark on the page a mirror can read, so a table, a
+// function, a connection and a job are judged on what the reply says the
+// engine MADE — with the one thing the page can show (a changed page on a
+// moved build) demanded where a page must call the thing, and the opposite
+// demanded of a job, which changes no page.
+test("the backend cases pass only on evidence, fail on a bare claim, and the job case fails on a moved build", () => {
+  const same = { build: "b1", status: 200, html: "<html></html>", text: "x", hrefs: ["/"], routes: ["/"] };
+  const moved = { ...same, build: "b2" };
+  const by = (n) => CASES.find((c) => c.name === n);
+  // THE JUDGE ITSELF, driven: a named thing on a changed page of a moved
+  // build passes; a job on an unmoved build passes; a reply that was not ok
+  // carries no evidence however full its list.
+  assert.equal(blindBackend(same, moved, { ok: true, functions: ["f"], changed: ["index.tsx"] }, "functions", true).ok, true);
+  assert.equal(blindBackend(same, same, { ok: true, jobs: [{ name: "j" }] }, "jobs", false).ok, true);
+  assert.equal(blindBackend(same, moved, { ok: false, functions: ["f"], changed: ["index.tsx"] }, "functions", true).ok, false, "a failed reply's list counts as evidence");
+  // A TABLE: the reply names one and the build moved; a claim with no table,
+  // or an unmoved build, is not a pass.
+  assert.equal(by("table").check(same, moved, { ok: true, tables: ["bookings"], added: [], changed: ["index.tsx"] }, {}).ok, true);
+  assert.equal(by("table").check(same, moved, { ok: true, tables: [], added: [], changed: ["index.tsx"] }, {}).ok, false, "a publish that made no table passes");
+  assert.equal(by("table").check(same, same, { ok: true, tables: ["bookings"] }, {}).ok, false, "an unmoved build passes");
+  assert.match(by("table").check(same, moved, { ok: true, tables: ["bookings"], provisioned: true }, {}).note, /got its database/, "a first-touch provision is not said in the note");
+  // A FUNCTION AND A CONNECTION: named in the reply, no creation error, and
+  // a page changed on a moved build — a page has to call it.
+  const fnOk = { ok: true, functions: ["bookings_on_day"], added: [], changed: ["index.tsx"] };
+  assert.equal(by("function").check(same, moved, fnOk, {}).ok, true);
+  assert.equal(by("function").check(same, moved, { ...fnOk, functions: [] }, {}).ok, false, "a publish that made no function passes");
+  assert.equal(by("function").check(same, moved, { ...fnOk, functionErrors: [{ name: "bookings_on_day", error: "column d does not exist" }] }, {}).ok, false, "a function the database refused passes");
+  assert.equal(by("function").check(same, moved, { ...fnOk, changed: [], added: [] }, {}).ok, false, "a function no page calls passes as a page change");
+  assert.equal(by("function").check(same, same, fnOk, {}).ok, false, "an unmoved build passes");
+  assert.equal(by("api").check(same, moved, { ok: true, apis: ["exchange_rate"], added: [], changed: ["prices.tsx"] }, {}).ok, true);
+  assert.equal(by("api").check(same, moved, { ok: true, apis: [], added: [], changed: ["prices.tsx"] }, {}).ok, false, "a publish that made no connection passes");
+  // A JOB: named, and the build UNMOVED — it changes no page; the honest
+  // answer publishes nothing, and a moved build is the lie.
+  const job = { ok: true, jobs: [{ name: "remind_tomorrow", fn: "bookings_due_tomorrow", everyMinutes: 1440 }], functions: ["bookings_due_tomorrow"], added: [], changed: [] };
+  assert.equal(by("job").pageless, true, "the job case is not marked pageless — the runner would wait for a build that will not come");
+  assert.equal(by("job").check(same, same, job, {}).ok, true, "the honest job answer — unmoved build — is called a lie");
+  assert.equal(by("job").check(same, moved, job, {}).ok, false, "a job that moved the build passes");
+  assert.equal(by("job").check(same, same, { ...job, jobs: [] }, {}).ok, false, "a job that scheduled nothing passes");
+  assert.equal(by("job").check(same, same, { ...job, functionErrors: [{ name: "bookings_due_tomorrow" }] }, {}).ok, false, "a job whose builder failed to create passes");
+  // Every backend case says it judged the reply, so a reader of the log
+  // knows the page was not the evidence.
+  for (const n of ["function", "api", "job"]) assert.match(by(n).check(same, moved, {}, {}).note, /judged off the reply/, n + ": the note pretends the page was read");
+  // And every pageless case is a backend case with no page in its ask's answer.
+  for (const c of CASES.filter((x) => x.pageless)) assert.ok(["job"].includes(c.name), c.name + ": marked pageless but its answer changes a page");
+});
+
+test("the runner does not wait for the edge on a pageless case, and judges it the other way round", () => {
+  assert.match(SRC, /if \(\(body\.ok === true && !c\.pageless\) \|\| extra\.hopOk\) \{/, "a pageless publish is waited for — ninety seconds looking for a build that will not come");
+  const branch = SRC.indexOf("else if (c.pageless) {");
+  const generic = SRC.indexOf("const moved = after.build !== before.build;\n      if (chk.ok && moved)", branch);
+  assert.ok(branch > 0 && generic > branch, "the pageless verdict does not come before the moved-build verdict");
+  assert.match(SRC.slice(branch, generic), /verdict = chk\.ok \? "ok" : "LIE"/, "a pageless case is not judged on its own check alone");
+  assert.match(SRC.slice(branch, generic), /the build MOVED on a change that touches no page/, "a moved build on a pageless case is not named in the note");
 });
 
 test("the component case is judged on the words landing on the page, not on the reply's claim", () => {
@@ -129,8 +183,9 @@ test("the harness posts to the addon route, follows one hop to the edit route, a
   assert.ok(!/react-build|react-revise|\/api\/site\/build/.test(SRC), "the harness reaches for the build route");
   // The hop is gated on the case AND on the reply naming that layer.
   assert.match(SRC, /if \(c\.hop && body\.escalate === true && body\.layer === c\.hop\)/, "the hop is not gated on the reply naming the case's layer");
-  // A claimed publish waits for the build id to move; a refusal is read at once.
-  assert.match(SRC, /if \(body\.ok === true \|\| extra\.hopOk\) \{/, "a publish is not waited for");
+  // A claimed publish waits for the build id to move; a refusal is read at
+  // once — and so is a pageless answer (2026-09-03), whose build never moves.
+  assert.match(SRC, /if \(\(body\.ok === true && !c\.pageless\) \|\| extra\.hopOk\) \{/, "a publish is not waited for");
   // Red on a lie, a lost answer, or a failure — never green by default.
   assert.match(SRC, /\/LIE\|NO ANSWER\|\^failed\$\/\.test\(r\.verdict\)/, "a failed case is a green run");
 });

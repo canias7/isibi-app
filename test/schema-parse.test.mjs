@@ -464,7 +464,12 @@ test("what the tool OFFERS as an argument type, the engine accepts", () => {
   // them. A type in the tool that the engine drops means the argument silently
   // vanishes from the function's signature, and the body then references a
   // parameter that does not exist.
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // RE-ANCHORED 2026-09-03: the function item lives in builder/site-table.mjs
+  // now (`FUNCTION_ITEM`, lifted beside the table item so the addon step can
+  // ask for it); the design tool BINDS it, which is asserted beside, so the
+  // wording read here is the wording on the wire.
+  const w = fs.readFileSync(new URL("../builder/site-table.mjs", import.meta.url), "utf8");
+  assert.match(fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /items: FUNCTION_ITEM,/, "the design tool no longer binds the shared function item, so this wording is not on the wire");
   const at = w.indexOf("Arguments, matched to the COLUMN");
   assert.ok(at > 0, "the args description moved — retarget this test");
   // FROM INSIDE THE BRACKETS, not from the property. Anchored at
@@ -493,8 +498,10 @@ test("what the tool OFFERS as an argument type, the engine accepts", () => {
 });
 
 test("no argument type is offered that no column can ever be matched to", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // The item lives in builder/site-table.mjs (2026-09-03) — see the test above.
+  const w = fs.readFileSync(new URL("../builder/site-table.mjs", import.meta.url), "utf8");
   const at = w.indexOf("Arguments, matched to the COLUMN");
+  assert.ok(at > 0, "the args description moved — retarget this test");
   const enumAt = w.indexOf("enum: [", w.indexOf('type: { type: "string", enum: [', at)) + "enum: [".length;
   const offered = [...w.slice(enumAt, w.indexOf("]", enumAt)).matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
 
@@ -520,8 +527,10 @@ test("no argument type is offered that no column can ever be matched to", () => 
 });
 
 test("the args description states what a declared column REALLY is", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // The item lives in builder/site-table.mjs (2026-09-03) — see two tests up.
+  const w = fs.readFileSync(new URL("../builder/site-table.mjs", import.meta.url), "utf8");
   const at = w.indexOf("Arguments, matched to the COLUMN");
+  assert.ok(at > 0, "the args description moved — retarget this test");
   const end = w.indexOf("items: {", at);
   assert.ok(end > at, "the args description could not be read whole");
   const desc = w.slice(at, end);

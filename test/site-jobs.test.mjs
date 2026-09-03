@@ -14,6 +14,7 @@ import { normalizeJob, dueJobs, shapeMessages, runJob, jobOutcome,
          MIN_EVERY_MINUTES, MAX_MESSAGES_PER_RUN, MAX_JOBS_PER_TICK } from "../site-jobs.mjs";
 import { recipient } from "../site-mail.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
+import { FUNCTION_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
 
 const noComments = (src) => src
   .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
@@ -271,8 +272,14 @@ test("THE CHAIN: a job is declarable and reaches the runner", () => {
 
   // 1. declarable — and the internal flag too, or the cross-reference below
   //    drops every job the model writes.
+  // RE-ANCHORED 2026-09-03: the job and function items live in
+  // builder/site-table.mjs now (lifted beside the table item for the addon
+  // step), so the OBJECTS are asked and the tool is asked to bind them.
   assert.match(tool, /jobs: \{/, "the designer must offer jobs");
-  assert.match(tool, /internal: \{ type: "boolean"/, "and the internal flag its function needs");
+  assert.match(tool, /items: JOB_ITEM,/, "the tool does not bind the shared job item");
+  assert.deepEqual(JOB_ITEM.required, ["name", "fn", "everyMinutes"]);
+  assert.equal(FUNCTION_ITEM.properties.internal.type, "boolean", "and the internal flag its function needs");
+  assert.match(tool, /items: FUNCTION_ITEM,/, "the tool does not bind the shared function item");
 
   // 2. survives the normaliser, only when the function exists AND is internal
   const F = { name: "due_tomorrow", returns: "json", language: "sql", body: "SELECT 1", internal: true, args: [] };

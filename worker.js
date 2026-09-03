@@ -4,7 +4,7 @@
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
-import { dueJobs, runJob, jobOutcome } from "./site-jobs.mjs";
+import { dueJobs, runJob, jobOutcome, normalizeJob } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
@@ -115,7 +115,7 @@ import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LA
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, backendDesigned, pageless } from "./builder/site-add.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -138,7 +138,7 @@ import { qrList, patchQr, qrRefusal, qrUnplaced } from "./builder/site-qr-list.m
 // THE ONE SHAPE OF A TABLE (2026-09-02), lifted out of `design_schema` so the
 // ADD step can ask for a table without the build's designer — see the header
 // of that file. The build's `tables` array keeps its own framing around it.
-import { TABLE_ITEM } from "./builder/site-table.mjs";
+import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "./builder/site-table.mjs";
 // THE 500 THEMES, BACK IN THE PRODUCT (2026-08-27, owner's call). The tool's
 // enum is `THEME_SHORTLIST` — 100 of the 500, the owner's second call the same
 // day ("do only 100 and keep the otherones there") — `themeFontPair` is where
@@ -4380,15 +4380,7 @@ const SITE_SCHEMA_TOOL = {
               "A text is what gets read for a day-before reminder from a barber, a garage or a restaurant; an email is right for a digest or anything long. Leave `channel` out for email. " +
               "The site owner pastes their own provider key in Settings — an email one, an SMS one, or both; until they do, that channel sends nothing and the other still goes. " +
               "Minimum interval is 15 minutes and anything shorter is rounded up to it — for a day-before reminder use 1440.",
-            items: {
-              type: "object",
-              required: ["name", "fn", "everyMinutes"],
-              properties: {
-                name: { type: "string", description: "lowercase identifier, e.g. remind_tomorrow" },
-                fn: { type: "string", description: "The internal function returning the messages, e.g. bookings_due_tomorrow" },
-                everyMinutes: { type: "integer", description: "How often to run. 1440 = daily, 60 = hourly. Minimum 15." },
-              },
-            },
+            items: JOB_ITEM,
           },
           apis: {
             type: "array",
@@ -4403,40 +4395,7 @@ const SITE_SCHEMA_TOOL = {
               "The response comes back exactly as the service sent it, so write the page against that service's real shape. " +
               "Set `cacheSeconds` to how long the answer stays good — an exchange rate is 3600, a stock level maybe 30 — " +
               "because every uncached read spends the owner's own quota.",
-            items: {
-              type: "object",
-              required: ["name", "url"],
-              properties: {
-                name: { type: "string", description: "lowercase identifier the page calls by, e.g. exchange_rates" },
-                url: { type: "string", description: "https only. e.g. https://api.example.com/v1/latest?base={{param.base}}&key={{RATES_KEY}}" },
-                // A POST HERE IS STILL A READ, and the caching is why that has to
-                // be said. `normalizeApi` gives every declaration a 60-second
-                // window by default and `cacheKey` is slug|name|params — no method,
-                // no body — so a declared POST is sent ONCE and then answered from
-                // the store for a minute without contacting the service at all.
-                //
-                // Right for what this exists for: plenty of read endpoints require
-                // POST (GraphQL, some search and pricing APIs), and caching them is
-                // the whole point, since every uncached read spends the OWNER's own
-                // quota. Wrong the moment the POST does something — the first call
-                // lands, the next few silently do not, and it starts working again
-                // a minute later, which reads as the third party being flaky rather
-                // than as us not calling them.
-                //
-                // Not fixed by refusing to cache POSTs: that breaks the legitimate
-                // case and puts the owner's quota back on every page view. Fixed by
-                // saying the thing the model cannot infer from "POST only".
-                method: { type: "string", enum: ["GET", "POST"],
-                  description: "GET unless the service's READ endpoint requires POST (GraphQL, some search and pricing APIs). " +
-                    "NEVER use this to make something happen on the other side — send a message, place an order, reserve a slot. " +
-                    "Every answer here is cached, so the request is made once and then answered from the store until the window " +
-                    "expires: an action would run sometimes and not others. Outbound actions belong in a database function." },
-                headers: { type: "object", description: "e.g. {\"Authorization\":\"Bearer {{RATES_KEY}}\"}" },
-                body: { type: "string", description: "POST only. The request body, with the same {{SECRET}} and {{param.x}} placeholders." },
-                params: { type: "array", items: { type: "string" }, description: "Names a page may pass. Anything else is dropped." },
-                cacheSeconds: { type: "integer", description: "0-3600. How long one answer stays good. Every uncached read costs the owner." },
-              },
-            },
+            items: API_ITEM,
           },
           functions: {
             type: "array",
@@ -4483,65 +4442,7 @@ const SITE_SCHEMA_TOOL = {
               "whatever the payload means: INSERT, UPDATE, or nothing. Make it IDEMPOTENT — senders retry, so declare a unique " +
               "column for the sender's own event/order id and use ON CONFLICT DO NOTHING, or the same delivery lands twice. " +
               "The `hook_` prefix is what makes it reachable; without it the function stays private to the platform.",
-            items: {
-              type: "object",
-              required: ["name", "returns", "body"],
-              properties: {
-                name: { type: "string", description: "lowercase identifier, e.g. booking_by_claim" },
-                // THE TWO HALVES OF THIS TOOL SPOKE DIFFERENT TYPE LANGUAGES. A
-                // column may be text/integer/real/boolean/json; an argument was
-                // offered seven types no column can ever be. A body compares its
-                // arguments to columns, so `{name:"d", type:"date"}` against a
-                // TEXT `slot_date` is `operator does not exist: text = date` — the
-                // function fails to CREATE, and the page's lookup is silently not
-                // there. Non-fatal and reported in `functionErrors`, so the site
-                // still builds without the capability it was asked for.
-                //
-                // The tool already knew this trap: its own example warned that a
-                // claim token is TEXT "not uuid". Somebody hit the uuid version and
-                // documented that one case; the date, numeric and bigint versions
-                // were left open.
-                //
-                // NARROWED IN WHAT IS OFFERED, NOT IN WHAT IS ACCEPTED. `date` and
-                // `timestamptz` are gone from this enum because NO column is ever
-                // either, so they can only be right via an explicit cast nothing
-                // asks for. The engine's own allow-list still takes them, so a
-                // schema stored before today re-applies on a revise exactly as it
-                // did — narrowing that too would break existing sites to tidy a
-                // prompt. `uuid` and `jsonb` STAY and are not oversights: `owner_id`
-                // and `team_id` really are UUID, and a `hook_*` handler takes
-                // exactly one jsonb payload.
-                //
-                // `integer` joins `int` because that is the word the columns use,
-                // and the engine has always accepted both — offering one spelling
-                // while the other half of the tool uses the other is the mismatch
-                // in miniature.
-                args: {
-                  type: "array",
-                  description: "Arguments, matched to the COLUMN each one is compared against. What a declared column really is in Postgres: " +
-                    "`text` is TEXT · `integer` is INTEGER · `real` is REAL · `boolean` is INTEGER 0/1, NOT boolean · `json` is TEXT, NOT jsonb. " +
-                    "The columns the platform adds: `id` is INTEGER, `owner_id` and `team_id` are UUID, and `created_at` and every other " +
-                    "timestamp is TEXT in 'YYYY-MM-DD HH:MM:SS'. " +
-                    "THERE IS NO DATE COLUMN — a date or a time lives in a TEXT column, so an argument matching one is `text`. " +
-                    "A claim lookup takes one: {name:'tok', type:'text'} — the claim_token column is TEXT, so the argument matching it is text, not uuid.",
-                  items: {
-                    type: "object",
-                    required: ["name", "type"],
-                    properties: {
-                      name: { type: "string" },
-                      type: { type: "string", enum: ["text", "int", "integer", "bigint", "numeric", "boolean", "uuid", "json", "jsonb"] },
-                    },
-                  },
-                },
-                returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
-                body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
-                internal: { type: "boolean", description:
-                  "Set true when the function is for the PLATFORM to call, never a page — a `confirm: {fn}` message builder, or a `hook_*` inbound webhook handler. " +
-                  "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +
-                  "email address and message, so left callable a stranger reads any customer's confirmation by guessing a number. " +
-                  "Leave it off for anything a page calls by name, like a claim lookup." },
-              },
-            },
+            items: FUNCTION_ITEM,
           },
           tables: {
             type: "array",
@@ -21072,7 +20973,10 @@ async function handleRequest(request, env, ctx) {
             // is the truth about a site with no database; `null` stays the
             // answer for a site that HAS one whose `_meta` could not be read,
             // because cannot-tell must never read as nothing-there.
-            const adb = await siteBackendBySlug(env, ownerSlug);
+            // `let`, SINCE 2026-09-03: the first backend tier designed for a
+            // site with no database MAKES one, below, and this is the
+            // connection everything after that point reads.
+            let adb = await siteBackendBySlug(env, ownerSlug);
 
             let aLook = null, aCss = "", aSpec = adb ? null : { tables: [] };
             try {
@@ -21130,6 +21034,20 @@ async function handleRequest(request, env, ctx) {
               // findable among routes that never say the word.
               labels: pageLabels(aSrc, aLook.pages),
               tables: ((aSpec && aSpec.tables) || []).map((t) => t && t.name).filter(Boolean),
+              // EACH TABLE'S COLUMNS, "name type" (2026-09-03), for the
+              // function designer: a `sql` body is parsed at CREATE, so a
+              // guessed column is a function that does not exist.
+              columns: Object.fromEntries(((aSpec && aSpec.tables) || []).filter((t) => t && t.name).map((t) => [t.name,
+                (Array.isArray(t.columns) ? t.columns : []).map((c) => (typeof c === "string" ? c : (c && c.name ? c.name + (c.type ? " " + c.type : "") : ""))).filter(Boolean)])),
+              // THE OTHER THREE TIERS BY NAME (2026-09-03): a designer adding
+              // one names a new one, and a job names a function the site has
+              // — an INTERNAL one, `jobFns`, which is the only kind the engine
+              // lets a job run. The `function` designer's own answers join
+              // both lists as they are cleaned, one kind further down.
+              functions: ((aSpec && aSpec.functions) || []).map((f) => f && f.name).filter(Boolean),
+              jobFns: ((aSpec && aSpec.functions) || []).filter((f) => f && f.name && f.internal).map((f) => f.name),
+              apis: ((aSpec && aSpec.apis) || []).map((a) => a && a.name).filter(Boolean),
+              jobs: ((aSpec && aSpec.jobs) || []).map((j) => j && j.name).filter(Boolean),
               hasDatabase: !!adb,
               // THE CODES BY NAME, the whole list — the designer that adds
               // one is shown what the site has so it names a new one, and
@@ -21193,15 +21111,10 @@ async function handleRequest(request, env, ctx) {
                 return Response.json({ ok: false, error: "already", kind: f, cost: 0, msg: alreadyReply(f) }, { status: 422 });
               }
             }
-            // A TABLE ON A SITE WITH NO DATABASE IS REFUSED BEFORE IT IS
-            // DESIGNED — the same named refusal the schema block below keeps
-            // for a designed one, a call earlier and for nothing.
-            if (aKinds.includes("table") && !adb) {
-              return Response.json({
-                ok: false, error: "no-database", cost: 0,
-                msg: "That needs somewhere to store things, and this site doesn't have a database yet — it needs a build that adds one first. Nothing was changed.",
-              }, { status: 422 });
-            }
+            // A TABLE ON A SITE WITH NO DATABASE IS NO LONGER REFUSED HERE
+            // (owner, 2026-09-03: "if customer touches it then neon db is
+            // created"): the first backend tier designed for such a site
+            // makes its database, in the schema block below.
             // ONE SMALL CALL PER KIND, in the picker's order (a table before
             // the page that shows it). A kind that answers nothing declined;
             // an answer refused by the cleaner is a sentence, never a climb.
@@ -21231,6 +21144,21 @@ async function handleRequest(request, env, ctx) {
               }
               for (const sk of Array.isArray(clean.skipped) ? clean.skipped : []) aNotAdded.push({ kind: k, ...sk, msg: addRefusal(sk.why, k) });
               aAnswers.push({ kind: k, value: clean.value });
+              // WHAT THE FUNCTION DESIGNER DECLARED IS TOLD TO THE DESIGNERS
+              // AFTER IT (2026-09-03). Each kind is its own call, and a job
+              // names its function BY NAME — so the functions just designed
+              // join the site's list, the internal ones `jobFns` as well,
+              // and the job designer a call later is shown them and
+              // `cleanAdd` admits them. Without this a message that asks for
+              // a reminder designs the builder and then refuses the job that
+              // runs it, as a function the site does not have.
+              if (k === "function") {
+                for (const f of Array.isArray(clean.value) ? clean.value : []) {
+                  if (!f || !f.name) continue;
+                  if (!aSite.functions.includes(f.name)) aSite.functions.push(f.name);
+                  if (f.internal === true && !aSite.jobFns.includes(f.name)) aSite.jobFns.push(f.name);
+                }
+              }
             }
             await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept });
             if (!aAnswers.length) {
@@ -21241,22 +21169,59 @@ async function handleRequest(request, env, ctx) {
             const aFold = foldAdds(aAnswers, aLook, aSite);
             const aDesigned = aFold.designed;
 
-            // A NEW TABLE, IF THIS CHANGE NEEDS ONE. No provisioning: the site
-            // has a database already, and every statement the engine emits is
-            // additive or IF NOT EXISTS, so applying a merged spec to a live
-            // database adds what is new and leaves what is there. Seeding is
-            // best-effort and skips a table that already has rows, exactly as
-            // it does on a revise.
+            // ── THE BACKEND, ANY TIER OF IT, AND A DATABASE ON FIRST TOUCH ──
+            //
+            // Owner, 2026-09-03: "the build step doesnt have backend so its
+            // gonna be on the addon step if needed … if customer touches it
+            // then neon db is created". A first build sends none of the four
+            // tiers, so a table, a function, an outside connection or a
+            // scheduled job is added HERE — and the first of any of them on a
+            // site with no database is what makes the database. This block
+            // refused a designed table on such a site by name, twice (once
+            // before the design, once here); now it provisions, through the
+            // build route's own call — the slug's own Neon project, claimed
+            // atomically, auth and the Data API enabled, idempotent on a
+            // retry — and applies to what it made.
+            //
+            // Every statement the engine emits is additive or IF NOT EXISTS,
+            // so applying a merged spec to a live database adds what is new
+            // and leaves what is there; a function is CREATE OR REPLACE, so
+            // one named again is replaced. Seeding is best-effort and skips a
+            // table that already has rows, exactly as it does on a revise.
+            const aBackend = backendDesigned(aDesigned);
             let aTables = [], aAltered = [], aSeeded = null, aSeedUsage = null, aSeedTopUp = null;
-            if (aDesigned && Array.isArray(aDesigned.tables) && aDesigned.tables.length) {
-              // A TABLE ON A SITE WITH NO DATABASE IS A CONSIDERED REFUSAL, not
-              // a climb: the rung above would rebuild the whole site to get
-              // one. Said by name, so the customer knows what to ask for.
+            let aProvisioned = false, aFunctions = [], aFnErrors = [], aApis = [], aJobs = [], aSecrets = [];
+            if (aBackend.length) {
               if (!adb) {
-                return Response.json({
-                  ok: false, error: "no-database", cost: 0,
-                  msg: "That needs somewhere to store things, and this site doesn't have a database yet — it needs a build that adds one first. Nothing was changed.",
-                }, { status: 422 });
+                // MAY THE DATABASE BE MADE? (async path) A cold provision is
+                // tens of seconds of Neon calls; the cancel and the budget are
+                // re-asked before it, as they are before the page call.
+                const aGateProv = aJob ? aJob.gate("editing") : null;
+                if (aGateProv && !aGateProv.go) return await editStopped(env, { job: aJob, why: aGateProv.why, phase: "editing", trace: editTrace, ctx });
+                aMark("provision", "start", { tiers: aBackend });
+                try {
+                  adb = await ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark("prov:" + n, "ok"));
+                  aProvisioned = true;
+                  aMark("provision", "ok");
+                } catch (e) {
+                  aMark("provision", "fail", { stage: (e && e.stage) || null });
+                  console.error("addon provision failed:", ownerSlug, e && e.status, e && (e.detail || e.message));
+                  // NOTHING CHARGED, NOTHING CHANGED: the small calls are the
+                  // only spend so far and they are collected only after the
+                  // work lands. The status and the stage are the diagnosis,
+                  // the build route's own rule — a dead key, a quota and Neon
+                  // being down each need a different fix and read alike
+                  // without them. Ours, never "try describing it differently".
+                  return Response.json({
+                    ok: false, error: "provision", cost: 0, ours: true,
+                    msg: "That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.",
+                    upstream: (e && e.status) || null, stage: (e && e.stage) || null,
+                    detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
+                  }, { status: 502 });
+                }
+                // A DATABASE JUST MADE STORES NOTHING — the honest spec, the
+                // one a site with no database was described by above.
+                aSpec = { tables: [] };
               }
               // A TABLE THE SITE ALREADY HAS CAN NOW BE ALTERED, narrowly. The
               // concat this replaces fed `normalizeSchema`, whose dedup is
@@ -21274,6 +21239,22 @@ async function handleRequest(request, env, ctx) {
               const folded = mergeAddonSchema(aSpec.tables || [], aDesigned);
               aAltered = folded.altered;
               const merged = normalizeSchema(folded.spec);
+              // A JOB THAT RUNS A FUNCTION THE SITE ALREADY HAS (2026-09-03).
+              // `normalizeSchema` keeps a job only when its function is
+              // declared IN THE SAME SPEC and internal — right for a build,
+              // where the spec is the whole backend, and a silent drop here,
+              // where the spec is only what this message designed and a
+              // stored function has no body to re-send (re-sending one would
+              // CREATE OR REPLACE the live function with nothing). `cleanAdd`
+              // admitted the job against the stored internal names, so it is
+              // re-attached here through the engine's own reader, and only
+              // when the stored function really is internal.
+              for (const raw of Array.isArray(folded.spec.jobs) ? folded.spec.jobs : []) {
+                const j = normalizeJob(raw);
+                if (!j || (merged.jobs || []).some((x) => x.name === j.name)) continue;
+                const stored = ((aSpec && aSpec.functions) || []).find((f) => f && f.internal && String(f.name).toLowerCase() === j.fn);
+                if (stored) merged.jobs = [...(merged.jobs || []), j];
+              }
               // THE SEED NET, on the lane that ADDS display tables to LIVE
               // sites. The build path grew this on 2026-08-12 (the designer
               // omits its own required `seed` — measured twice) and this lane
@@ -21285,21 +21266,26 @@ async function handleRequest(request, env, ctx) {
               // already has rows, so buying rows for one spends a Haiku call
               // on rows that are immediately discarded.
               let aSeed = aDesigned.seed;
-              const aTop = await topUpSeed(
-                { send: aQuick("seed") },
-                { brief: aInstruction, spec: { ...aDesigned, tables: (aDesigned.tables || []).filter((t) => t && folded.added.includes(t.name)) }, seed: aSeed,
-                  model: modelsFor(ab && ab.picker).quick },
-              );
-              if (aTop.gaps.length) {
-                // Same as the build lane: without `failed` a dead provider and a
-                // junk answer are one message. See the note there.
-                aSeedTopUp = { gaps: aTop.gaps, filled: Object.keys(aTop.rows), ...(aTop.failed === true ? { failed: true } : {}) };
-                console.log("addon seed top-up:", ownerSlug, JSON.stringify(aSeedTopUp));
+              // ONLY WHEN A TABLE WAS ADDED: a function, a connection or a job
+              // has no rows to buy, and the net is a model call.
+              if (folded.added.length) {
+                const aTop = await topUpSeed(
+                  { send: aQuick("seed") },
+                  { brief: aInstruction, spec: { ...aDesigned, tables: (aDesigned.tables || []).filter((t) => t && folded.added.includes(t.name)) }, seed: aSeed,
+                    model: modelsFor(ab && ab.picker).quick },
+                );
+                if (aTop.gaps.length) {
+                  // Same as the build lane: without `failed` a dead provider and a
+                  // junk answer are one message. See the note there.
+                  aSeedTopUp = { gaps: aTop.gaps, filled: Object.keys(aTop.rows), ...(aTop.failed === true ? { failed: true } : {}) };
+                  console.log("addon seed top-up:", ownerSlug, JSON.stringify(aSeedTopUp));
+                }
+                if (Object.keys(aTop.rows).length) aSeed = mergeSeed(aSeed, aTop.rows);
+                aSeedUsage = aTop.usage;
               }
-              if (Object.keys(aTop.rows).length) aSeed = mergeSeed(aSeed, aTop.rows);
-              aSeedUsage = aTop.usage;
+              let aMade = null;
               try {
-                await applySiteSchema(adb, merged);
+                aMade = await applySiteSchema(adb, merged);
                 // WHAT WAS CREATED, not what was NAMED. This read every table
                 // the designer mentioned, which was harmless while an existing
                 // one could not be touched and became a lie the moment it could:
@@ -21309,7 +21295,26 @@ async function handleRequest(request, env, ctx) {
                 aSpec = (await loadSiteSchema(adb).catch(() => null)) || merged;
               } catch (e) {
                 console.error("addon schema apply failed:", ownerSlug, e && (e.detail || e.message));
-                return Response.json({ ok: false, error: "schema", cost: 0, msg: "That change needed a new table and it couldn't be created — your site is untouched." }, { status: 502 });
+                return Response.json({ ok: false, error: "schema", cost: 0, msg: "That change needed the site's database and it couldn't be applied — your site is untouched." }, { status: 502 });
+              }
+              // WHAT THE ENGINE MADE, by the names THIS message designed — the
+              // build response's own reading of `made.functions` (a function
+              // that failed to CREATE is in `functionErrors`, not here), the
+              // connections and the jobs the merge kept, and every `{{SECRET}}`
+              // a new connection needs, so the reply can say what to paste.
+              const aNamed = (k) => (Array.isArray(aDesigned[k]) ? aDesigned[k] : []).map((x) => x && String(x.name || "").toLowerCase()).filter(Boolean);
+              const aMadeFns = Array.isArray(aMade && aMade.functions) ? aMade.functions : [];
+              aFunctions = aNamed("functions").filter((n) => aMadeFns.includes(n));
+              aFnErrors = Array.isArray(aMade && aMade.functionErrors) ? aMade.functionErrors.slice(0, 6) : [];
+              aApis = (merged.apis || []).map((a) => a.name).filter((n) => aNamed("apis").includes(n));
+              aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => ({ name: j.name, fn: j.fn, everyMinutes: j.everyMinutes }));
+              aSecrets = [...new Set((merged.apis || []).filter((a) => aApis.includes(a.name)).flatMap((a) => secretsNeeded(a)))];
+              // REGISTER THE JOBS — the build route's own call, best-effort
+              // and non-fatal for its reason: the database is live and a job
+              // that did not register is a job the next publish registers.
+              if (aJobs.length) {
+                try { await persistSiteJobs(env, ou.id, ownerSlug, merged.jobs); aMark("jobs", "ok", { n: aJobs.length }); }
+                catch (e) { console.error("addon jobs persist:", ownerSlug, e && e.message); }
               }
               // THE REPORT IS KEPT, not discarded — `{seeded, skipped}` is the
               // only thing that can say why a new table arrived empty, and the
@@ -21317,6 +21322,65 @@ async function handleRequest(request, env, ctx) {
               // itself here any more than it could on the build path.
               try { aSeeded = await seedSiteRows(adb, merged, aSeed); }
               catch (e) { console.error("addon seeding failed:", ownerSlug, e && e.message); }
+            }
+
+            // ── THE BILL, AND WHEN IT IS TAKEN ────────────────────────────
+            //
+            // VARIADIC, NOT SEPARATE CALLS ADDED. `pageCredits` takes several
+            // usages precisely so they land on one bill with ONE rounding and
+            // ONE 1-credit floor — its own comment says adding
+            // separately-rounded results "would charge twice for the
+            // rounding". Measured against the real module: a typical
+            // design + pages pair billed 20 summed against 19 priced
+            // together, and two tiny calls billed 2 against 1. The picker's
+            // call, one per kind, the page call and the seed net, spread onto
+            // the same one bill.
+            //
+            // WHEN differs by path, and it has to. Synchronously the bill is
+            // collected AFTER the work lands, on measured usage, so a compile
+            // that fails costs nothing — the rule this route has always had.
+            // Under a job it is RESERVED BEFORE the publish, because the gate
+            // the spine asks (`edit_may_publish`) grants only a job that is
+            // `reserved` or `exempt`: a job that reserved nothing would be
+            // exempted as a free rung and ship for nothing. The consumer
+            // refunds the reserve if the publish does not land, which is the
+            // same outcome by the other road. ONE FUNCTION for both roads
+            // (2026-09-03), because two answers now take money — the page
+            // path below and the pageless one right here — and the reserve
+            // is counted only on `ok`, the edit route's rule: a reserve that
+            // did not land leaves the row at `none` and the gate reads it so,
+            // and a ledger that will not answer must not fail the addition.
+            const aCharge = async (bill) => {
+              if (aJob) {
+                const r = await editRpc(env, "edit_reserve", { p_id: aJob.id, p_seq: 1, p_cost: bill });
+                if (r && r.ok === true) { if (typeof aJob.noteReserve === "function") aJob.noteReserve(); return Number(r.charged) || 0; }
+                return 0;
+              }
+              try { return await collectCredits(aAuth, bill); } catch { return 0; }
+            };
+
+            // ── A CHANGE THAT TOUCHES NO PAGE ANSWERS HERE (2026-09-03) ──
+            //
+            // A scheduled job, or an internal function only the platform
+            // calls, changes the database and not one page: there is nothing
+            // for the page call to write and nothing for the container to
+            // compile, so the route bills the small calls and answers, the
+            // site's pages exactly as they were. The decision is `pageless`
+            // in site-add.mjs, where it is driven; the shape of the answer is
+            // the page path's, with nothing added, changed or moved, so one
+            // reader (`addonAnswer`) reads both.
+            if (pageless(aAnswers)) {
+              const aCostNow = await aCharge(pageCredits(...aDesignUsage, aSeedUsage));
+              return Response.json({
+                ok: true,
+                kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
+                notAdded: aNotAdded.length ? aNotAdded.slice(0, 6) : undefined,
+                added: [], changed: [], removed: [], moved: [],
+                functions: aFunctions, jobs: aJobs,
+                functionErrors: aFnErrors.length ? aFnErrors : undefined,
+                provisioned: aProvisioned || undefined,
+                cost: aCostNow,
+              });
             }
 
             // ── THE DESIGNED LOOK IS KEPT — this is the step that ADDS ──────
@@ -21478,39 +21542,15 @@ async function handleRequest(request, env, ctx) {
             const aGatePub = aJob ? aJob.gate("build") : null;
             if (aGatePub && !aGatePub.go) return await editStopped(env, { job: aJob, why: aGatePub.why, phase: "build", trace: editTrace, ctx });
 
-            // ── THE BILL, AND WHEN IT IS TAKEN ────────────────────────────
+            // ── THE BILL ON THE PAGE PATH ─────────────────────────────────
             //
-            // VARIADIC, NOT SEPARATE CALLS ADDED. `pageCredits` takes several
-            // usages precisely so they land on one bill with ONE rounding and
-            // ONE 1-credit floor — its own comment says adding
-            // separately-rounded results "would charge twice for the
-            // rounding". Measured against the real module: a typical
-            // design + pages pair billed 20 summed against 19 priced
-            // together, and two tiny calls billed 2 against 1. The picker's
-            // call, one per kind, the page call and the seed net, spread onto
-            // the same one bill.
-            //
-            // WHEN differs by path, and it has to. Synchronously the bill is
-            // collected AFTER the publish, on measured usage, so a compile
-            // that fails costs nothing — the rule this route has always had.
-            // Under a job it is RESERVED BEFORE the publish, because the gate
-            // the spine asks (`edit_may_publish`) grants only a job that is
-            // `reserved` or `exempt`: a job that reserved nothing would be
-            // exempted as a free rung and ship for nothing. The consumer
-            // refunds the reserve if the publish does not land, which is the
-            // same outcome by the other road. Every usage is known by this
+            // `aCharge` above says when and why. Every usage is known by this
             // line — the page call was the last model call — so it is the
-            // same number either way.
+            // same number either way: reserved here under a job, collected
+            // after the publish otherwise.
             const aBill = pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);
             let aCost = 0;
-            if (aJob) {
-              const r = await editRpc(env, "edit_reserve", { p_id: aJob.id, p_seq: 1, p_cost: aBill });
-              // COUNTED ONLY ON `ok`, the edit route's rule: a reserve that
-              // did not land leaves the row at `none` and the gate reads it
-              // so. And a ledger that will not answer must not fail the
-              // addition — the work is done.
-              if (r && r.ok === true) { if (typeof aJob.noteReserve === "function") aJob.noteReserve(); aCost = Number(r.charged) || 0; }
-            }
+            if (aJob) aCost = await aCharge(aBill);
 
             // STORED NOW, NOT EARLIER: every refusal above leaves the site
             // exactly as it was, and the publish below is the only thing that
@@ -21565,7 +21605,7 @@ async function handleRequest(request, env, ctx) {
             // from the one price table — the same one bill, taken now because
             // a compile that failed above cost nothing. A job reserved it
             // before the publish (see `aBill`) and is not charged twice.
-            if (!aJob) { try { aCost = await collectCredits(aAuth, aBill); } catch { aCost = 0; } }
+            if (!aJob) aCost = await aCharge(aBill);
             return Response.json({
               ok: true,
               // What was added, by kind, and what was set aside for another
@@ -21580,6 +21620,18 @@ async function handleRequest(request, env, ctx) {
               moved: aLookMoved,
               photos: aSlots,
               tables: aTables, altered: aAltered,
+              // THE OTHER THREE TIERS (2026-09-03), what the engine really
+              // made of each, a function that could not be created by name,
+              // the secrets a new connection needs pasted in, and whether
+              // this addition gave the site its database. Absent when the
+              // addon declared none, so an ordinary page addon's response is
+              // byte-identical to before.
+              functions: aFunctions.length ? aFunctions : undefined,
+              apis: aApis.length ? aApis : undefined,
+              jobs: aJobs.length ? aJobs : undefined,
+              functionErrors: aFnErrors.length ? aFnErrors : undefined,
+              needsSecrets: aSecrets.length ? aSecrets : undefined,
+              provisioned: aProvisioned || undefined,
               // What the seeding DID, the build response's own three fields:
               // rows per table, why a table was passed over, and whether the
               // net had to buy rows the designer omitted. Absent when the

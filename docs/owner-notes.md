@@ -2021,3 +2021,40 @@ The three declines before this cost nothing in credits and bought three
 real improvements to the step that adds things: it now knows the site's
 address, what each page calls itself, and keeps every designer's answer
 so a refusal can be read.
+
+## 2026-09-03 — The backend is on the addon step, and a site gets its database the first time it needs one
+
+You said: the build step has no backend, so it goes on the addon step,
+and if a customer touches it the Neon database gets created. Done, in
+the tree, nothing spent.
+
+Three new kinds of thing the addon step can add, beside the table it
+could already add: a database function (a lookup, a cancel, something
+the database has to do for a page), an outside connection (a rate, a
+courier's slots, the weather — read live, the owner's key kept
+server-side) and a scheduled job (a reminder the day before, a weekly
+digest — it runs a function that returns the messages). They use the
+same shapes the build's designer would have used, so nothing about what
+a function or a job IS has two copies.
+
+The database on first touch: the first table, function, connection or
+job designed for a site that has none makes its Neon database, the same
+way a build does, then applies to it. The two places the step used to
+refuse "this site has no database" are gone. If the database cannot be
+made, the customer is told it is on us and nothing is charged.
+
+Two things I had to get right that were not obvious. The job designer
+and the function designer are separate calls, so when someone asks for
+"a reminder the day before", the function that decides who is due is
+designed first and the job designer is then TOLD about it — otherwise it
+refused every job as naming a function the site did not have. And a job
+alone changes no page, so it answers without building anything: the
+site's pages stay exactly as they were, and the reply says "scheduled
+remind_tomorrow (every day)".
+
+What it costs to prove: the harness has three new cases for fretwork-1
+(a lookup shown on the home page, a live exchange rate on the prices
+page, a daily reminder) at roughly 12–15 credits each for the two that
+publish and a couple for the job, which publishes nothing. Proving the
+database-on-first-touch needs a site with no database on the allowlist,
+which is your call — fretwork-1 has had one since run 16.

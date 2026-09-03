@@ -1,7 +1,7 @@
 // The addon sweep: one real ask per KIND the ADD step can add (a component, a
-// page, a table, a code, a scene, a photograph), posted straight to the addon
-// route on a live site, and after each the SITE is read to see whether the
-// thing is there.
+// page, a table, a database function, an outside connection, a scheduled job,
+// a code, a scene, a photograph), posted straight to the addon route on a live
+// site, and after each the SITE is read to see whether the thing is there.
 //
 // ── WHY A THIRD HARNESS ────────────────────────────────────────────────────
 //
@@ -183,13 +183,39 @@ export function eitherWay(b, a, r, mark, what) {
            note: `${before ? what + " was on the page, so the refusal was right" : "NO " + what + " on the page, so the refusal was wrong"}; build ${moved ? "moved on a refusal" : "unmoved"}` };
 }
 
+/**
+ * A backend tier — a function, a connection, a job — judged off the REPLY's
+ * own evidence, because none of them leaves a mark on the page a mirror can
+ * read: a function is a row in the site's database, a connection is read by
+ * the page at runtime, a job runs on a timer. `field` is the reply's list
+ * (`functions`, `apis`, `jobs`); it must name at least one thing, and no
+ * function may have failed to create. What the page path CAN show is a moved
+ * build with a page changed — a page calling the function, a page reading the
+ * connection — so `pageChange` demands that; a job changes no page, and there
+ * the build must NOT have moved. Said in the note rather than pretended.
+ */
+export function blindBackend(b, a, r, field, pageChange) {
+  const got = r && r.ok === true && Array.isArray(r[field]) ? r[field] : [];
+  const names = got.map((x) => (x && typeof x === "object" ? x.name : x)).filter(Boolean);
+  const errs = r && Array.isArray(r.functionErrors) ? r.functionErrors : [];
+  const moved = a.build !== b.build;
+  const pages = [].concat(Array.isArray(r && r.changed) ? r.changed : [], Array.isArray(r && r.added) ? r.added : []).map(sitePathOf).filter(Boolean);
+  const pageOk = pageChange ? (moved && pages.length > 0) : !moved;
+  return { ok: names.length > 0 && errs.length === 0 && pageOk,
+           note: `${field}: ${JSON.stringify(names)}${errs.length ? "; FAILED to create " + JSON.stringify(errs.map((e) => e && e.name)) : ""}` +
+                 `; pages ${JSON.stringify(pages)}; build ${moved ? "moved" : "unmoved"}${pageChange ? "" : " (a job changes no page)"}` +
+                 `; judged off the reply — the database leaves no mark on the page` };
+}
+
 // ── THE CASES ──────────────────────────────────────────────────────────────
 //
 // One per kind. `ask` is what a customer would type. `kinds` is what the
 // picker must name (any of them). `check(before, after, reply, extra)`
 // answers { ok, note } about the SITE. `mayRefuse` names the refusal that is
 // the CORRECT answer on this site — a pass with a note, never a failure.
-// `hop` names the edit layer the reply must escalate to.
+// `hop` names the edit layer the reply must escalate to. `pageless` marks a
+// case whose right answer changes no page: the build must stay put and the
+// runner does not wait for the edge.
 export const CASES = [
   // A SECTION IS A COMPONENT (owner, 2026-09-02): the ask is a customer's
   // word for it; the step names a kit component or writes one.
@@ -229,17 +255,35 @@ export const CASES = [
   // honest only when the thing was really there and the build stayed put; a
   // publish is honest only when it was not there, is now, and the build
   // moved. `mayRefuse` still names the refusal the route really emits.
+  // A TABLE IS NEVER REFUSED FOR WANT OF A DATABASE NOW (owner, 2026-09-03):
+  // the first backend tier on a site without one makes it. So this case has
+  // one honest outcome, a publish that made a table — and on a site with no
+  // database it also carries `provisioned: true`, which the note prints.
   { name: "table", kinds: ["table", "page", "component"],
     ask: "Add a booking form so students can book a trial lesson with their name, email and preferred day",
-    mayRefuse: ["no-database"],
     check: (b, a, r) => {
       const moved = a.build !== b.build;
-      if (r && r.ok === true) {
-        const tables = Array.isArray(r.tables) ? r.tables : [];
-        return { ok: moved && tables.length > 0, note: `made ${JSON.stringify(tables)}; build ${moved ? "moved" : "unmoved"}` };
-      }
-      return { ok: !moved, note: moved ? "the build moved on a refusal" : "build unmoved" };
+      const tables = r && r.ok === true && Array.isArray(r.tables) ? r.tables : [];
+      return { ok: moved && tables.length > 0, note: `made ${JSON.stringify(tables)}${r && r.provisioned ? " — and the site got its database for it" : ""}; build ${moved ? "moved" : "unmoved"}` };
     } },
+  // ── THE OTHER THREE TIERS OF THE BACKEND (owner, 2026-09-03) ──────────
+  //
+  // Each judged by `blindBackend`. The function is one a page calls, so a
+  // page must have changed; the connection needs no key (Frankfurter is an
+  // open rates API), so the page can read it the moment it is published; the
+  // job's builder is designed beside it — the picker names `function` too —
+  // and the route answers without a compile, so the build must stay put. The
+  // registered job fires on the runner's tick against the owner's own (unset)
+  // mail key, so it sends nothing until a key is pasted in.
+  { name: "function", kinds: ["function", "component", "page"],
+    ask: "Add a lookup so a student can check whether a day still has space: a function that counts the bookings on a given preferred day, shown on the home page",
+    check: (b, a, r) => blindBackend(b, a, r, "functions", true) },
+  { name: "api", kinds: ["api", "component", "page"],
+    ask: "Show today's GBP to EUR exchange rate on the prices page, read live from https://api.frankfurter.app/latest?from=GBP&to=EUR (no key needed)",
+    check: (b, a, r) => blindBackend(b, a, r, "apis", true) },
+  { name: "job", kinds: ["job", "function"], pageless: true,
+    ask: "Every day, email each student a reminder the day before their lesson",
+    check: (b, a, r) => blindBackend(b, a, r, "jobs", false) },
   // A SECOND CODE IS AN ADDITION (2026-09-03): the site's first code rings the
   // number, this one opens a page, and each has its own file — `qr.svg`, then
   // `qr-<name>.svg` — so the count of distinct code files on the page is what
@@ -397,7 +441,10 @@ async function main() {
     // THE EDGE IS NOT THE DATABASE: a claimed publish waits for the build id
     // to move, bounded; a refusal must NOT move it and is read at once.
     let seen = "";
-    if (body.ok === true || extra.hopOk) {
+    // A PAGELESS CASE IS NOT WAITED FOR: its right answer moves nothing, and
+    // ninety seconds of looking for a build that will not come is the
+    // instrument, not the product.
+    if ((body.ok === true && !c.pageless) || extra.hopOk) {
       const t1 = Date.now();
       while (Date.now() - t1 < 90000) {
         const probe = await site("/");
@@ -455,6 +502,13 @@ async function main() {
         console.log(`   the ${r.kind} designer ${r.answered ? "answered" : "answered NOTHING"} (${r.stop_reason || "?"}): ${said.slice(0, 600) || "(empty reply)"}`);
       }
       if (!replies.length) console.log(`   (no kept reply to read: ${kept.status} ${String((kept.json && kept.json.why) || "").slice(0, 120)})`);
+    }
+    // A PAGELESS CASE IS JUDGED THE OTHER WAY ROUND (2026-09-03): a job
+    // changes no page, so an ok reply with the build UNMOVED is the honest
+    // outcome and a moved build is the lie.
+    else if (c.pageless) {
+      const chk = c.check(before, after, body, extra);
+      verdict = chk.ok ? "ok" : "LIE"; note = chk.note + (after.build !== before.build ? " — the build MOVED on a change that touches no page" : "");
     }
     else {
       const chk = c.check(before, after, body, extra);

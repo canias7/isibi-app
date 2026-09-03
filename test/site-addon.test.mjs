@@ -247,19 +247,40 @@ test("the addon route exists, is dispatched, and reaches the module", () => {
     "generateSitePages is not called in addon mode — it would re-emit every page");
 });
 
-test("the addon lane never provisions, and charges only after publishing", () => {
+test("the addon lane provisions ONLY on first touch of the backend, and charges only after the work lands", () => {
   const raw = addonBlock();
   const b = raw.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => " ".repeat(m.length));
   assert.equal(b.length, raw.length, "blanking must preserve offsets");
-  // The site already has a database. Provisioning here would be a second path
-  // that can create a Neon project, which is the leak site-provision.mjs exists
-  // to prevent.
-  assert.ok(!b.includes("ensureSiteBackend"), "the addon lane must not provision");
-  const spend = b.indexOf("collectCredits(");
-  assert.ok(spend > 0, "the addon lane spends nothing");
-  assert.ok(b.indexOf("recompileAndPublish(") > 0 && b.indexOf("recompileAndPublish(") < spend,
-    "the charge must come after the publish");
+  // RE-ANCHORED 2026-09-03. This held `!b.includes("ensureSiteBackend")` —
+  // "the site already has a database; provisioning here would be a second
+  // path that can create a Neon project". The owner's call moved the whole
+  // backend onto this step ("if customer touches it then neon db is created"),
+  // so the lane DOES provision now — through the build route's own call, the
+  // one path that claims the slug atomically and drops an orphaned project —
+  // and the property that survives is the narrow one: ONLY when a backend
+  // tier was designed AND the site has no database. One call, under exactly
+  // that guard, and nothing on the page-only path reaches it.
+  const provs = [...b.matchAll(/ensureSiteBackend\(/g)];
+  assert.equal(provs.length, 1, "the addon lane provisions in " + provs.length + " places — one path that can create a Neon project");
+  const prov = provs[0].index;
+  const tier = b.lastIndexOf("if (aBackend.length) {", prov);
+  const guard = b.lastIndexOf("if (!adb) {", prov);
+  assert.ok(tier > 0 && guard > tier, "the provision is not under `no backend tier designed → no database → make one`");
+  assert.ok(!/\n\s*\}\s*\n[\s\S]*\bif \(/.test(b.slice(guard, prov).replace(/if \(aGateProv && !aGateProv\.go\)[^\n]*/, "")), "something between the no-database guard and the provision closes it");
+  assert.match(b.slice(prov, prov + 200), /ensureSiteBackend\(env, ownerSlug, ou\.id, aInstruction,/, "the provision is not for THIS site by ITS owner");
+  // MONEY: one place it leaves the ledger (`aCharge`), the synchronous
+  // page-path charge after the publish, the pageless charge after the
+  // schema apply — never before the work that earns it.
   assert.equal((b.match(/collectCredits\(/g) || []).length, 1, "one place money leaves the ledger");
+  const charge = b.indexOf("const aCharge = async (bill) => {");
+  assert.ok(charge > 0 && b.indexOf("collectCredits(", charge) < b.indexOf("};", charge), "the ledger call is not inside aCharge");
+  const pub = b.indexOf("recompileAndPublish(");
+  const sync = b.indexOf("if (!aJob) aCost = await aCharge(aBill);");
+  assert.ok(pub > 0 && sync > pub, "the synchronous charge does not come after the publish");
+  const apply = b.indexOf("aMade = await applySiteSchema(adb, merged);");
+  const pageless = b.indexOf("if (pageless(aAnswers)) {");
+  assert.ok(apply > 0 && pageless > apply && pageless < pub, "the pageless answer is not after the schema apply and before the publish");
+  assert.match(b.slice(pageless, b.indexOf("\n            }\n", pageless)), /await aCharge\(pageCredits\(\.\.\.aDesignUsage, aSeedUsage\)\)/, "the pageless answer does not bill the small calls through the one charge");
 });
 
 test("a failed addon leaves the site untouched, and an unusable one escalates", () => {
@@ -286,9 +307,18 @@ test("a failed addon leaves the site untouched, and an unusable one escalates", 
   assert.ok(meta > 0, "the addon no longer reads the site's schema");
   assert.match(code.slice(code.lastIndexOf("if (adb)", meta), meta), /^if \(adb\)/, "the schema read is not gated on there being a database");
   assert.match(code, /aSpec = adb \? null : \{ tables: \[\] \}/, "a site with no database is not given an honest empty spec");
-  const tables = code.indexOf("if (aDesigned && Array.isArray(aDesigned.tables) && aDesigned.tables.length) {");
-  const refuse = code.indexOf('error: "no-database"', tables);
-  assert.ok(tables > 0 && refuse > tables && refuse < code.indexOf("mergeAddonSchema(", tables), "a designed table on a site with no database must be refused by name before any schema work");
+  // RE-ANCHORED 2026-09-03: this held that a designed table on a site with
+  // no database was refused by name (`no-database`) before any schema work.
+  // The owner moved the backend onto this step and a site gets its database
+  // on first touch, so the refusal is GONE — both copies — and what sits
+  // where it sat is the provision: after the fold, before the schema work,
+  // under the same `!adb`.
+  assert.ok(!code.includes('error: "no-database"'), "the addon still refuses a table for want of a database — the first backend tier makes one now");
+  const tiers = code.indexOf("const aBackend = backendDesigned(aDesigned);");
+  const prov = code.indexOf("adb = await ensureSiteBackend(", tiers);
+  const schema = code.indexOf("mergeAddonSchema(", tiers);
+  assert.ok(tiers > 0 && prov > tiers && schema > prov, "the database is not made between the fold and the schema work");
+  assert.match(code.slice(prov, schema), /aSpec = \{ tables: \[\] \};/, "a database just made is not described as storing nothing");
 });
 
 test("the composer dispatches an addon and falls back on everything else", () => {
@@ -718,13 +748,29 @@ test("the addon reply is DRIVEN, not grepped", () => {
     const end = chat.indexOf("\n}", at);
     return chat.slice(at, end + 2);
   };
-  const reply = new Function([cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("addonReplyText")].join("\n") +
+  const reply = new Function([cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("jobWords"), cut("addonReplyText")].join("\n") +
     "\nreturn addonReplyText;")();
   const gone = reply({ added: [], changed: [], removed: ["src/routes/prices.tsx"] });
   assert.match(gone, /removed \/prices/, gone);
   const kept = reply({ added: ["src/routes/g.tsx"], kept: [{ path: "src/routes/index.tsx", why: "home" }] });
   assert.match(kept, /I left \//, "a page we refused to delete is kept silently: " + kept);
   assert.match(reply({ added: [], problems: ["g.tsx: names a colour"] }), /names a colour/);
+  // THE BACKEND TIERS (2026-09-03): what the engine made, by name; a job with
+  // how often it runs, in a customer's words; the database the site got; a
+  // function the database refused, with its reason; the key to paste, and
+  // where. A pageless reply — a job alone — still reads as done.
+  const backend = reply({ added: [], changed: ["src/routes/index.tsx"], functions: ["bookings_on_day"], apis: ["exchange_rate"],
+    jobs: [{ name: "remind_tomorrow", fn: "bookings_due_tomorrow", everyMinutes: 1440 }, { name: "weekly", everyMinutes: 10080 }, { name: "often", everyMinutes: 45 }],
+    provisioned: true, functionErrors: [{ name: "broken_one", error: "column d does not exist" }], needsSecrets: ["RATES_KEY"] });
+  assert.match(backend, /added the function bookings_on_day/, backend);
+  assert.match(backend, /connected exchange_rate/, backend);
+  assert.match(backend, /scheduled remind_tomorrow \(every day\), weekly \(every week\), often \(every 45 minutes\)/, backend);
+  assert.match(backend, /Your site has its own database now\./, backend);
+  assert.match(backend, /The function broken_one couldn’t be created — column d does not exist\./, backend);
+  assert.match(backend, /add RATES_KEY under Cloud → Secrets/, backend);
+  assert.match(reply({ added: [], changed: [], moved: [], jobs: [{ name: "j", everyMinutes: 60 }] }), /^✅ Done — scheduled j \(every hour\)\./, "a job alone does not read as done");
+  const plain = reply({ added: ["src/routes/g.tsx"], changed: [] });
+  assert.ok(!/function|connected|scheduled|database|Secrets/.test(plain), "an ordinary addition mentions the backend: " + plain);
 });
 
 test("a removed page leaves the picker", () => {
@@ -1038,7 +1084,12 @@ test("THE ADDON LANE HAS THE SEED NET, keeps the report, and bills the top-up on
   // — the seed fields sit above it in the literal.
   const respAt = w.indexOf("added: aMerge.added", at);
   assert.ok(respAt > 0, "the addon response literal moved — rescope this");
-  const resp = w.slice(respAt, respAt + 1400);
+  // LANDMARK TO LANDMARK, not a byte count (the recorded trap; this was
+  // `respAt + 1400` and went red on 2026-09-03 when six honest fields — the
+  // backend tiers — landed above the seed fields in the literal).
+  const respEnd = w.indexOf("unlinkedPages(", respAt);
+  assert.ok(respEnd > respAt, "the response literal's closing landmark is gone");
+  const resp = w.slice(respAt, respEnd);
   assert.match(resp, /seeded: aSeeded \? aSeeded\.seeded : undefined/, "the response drops the row counts");
   assert.match(resp, /seedSkipped:/, "the response drops the skip reasons");
   assert.match(resp, /seedTopUp: aSeedTopUp \|\| undefined/, "the response cannot say the net fired");

@@ -50,6 +50,12 @@ export async function readSchemaTool() {
     // function's own header gives: the items ARE the field, and a stubbed
     // one measures a tool asking for a table with no columns.
     TABLE_ITEM: table.TABLE_ITEM,
+    // AND THE OTHER THREE TIERS OF THE BACKEND (2026-09-03) — `functions`,
+    // `apis` and `jobs` items, lifted the same way for the ADD step, which
+    // makes the backend now that a first build sends none of it.
+    FUNCTION_ITEM: table.FUNCTION_ITEM,
+    API_ITEM: table.API_ITEM,
+    JOB_ITEM: table.JOB_ITEM,
     SITE_FONT_IDS: fonts.SHORTLIST.map((f) => f.id),
     // THE SIX AUTHORED PLAN FIELDS, where `SITE_FAMILY_IDS` and the two prompt
     // helpers used to be. `family` left `design_schema` on 2026-08-20 — the

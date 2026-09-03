@@ -235,20 +235,59 @@ out of `design_schema` into `builder/site-table.mjs` for exactly this), the
 hand-written-part item (`TSX_ITEM`) and the kit's menu — never a description.
 
 ```
-  customer ──► pick_adds ──┬──► add_to_site ──► the page call ──► ONE PUBLISH
-               picked model│    one per kind      (addon mode:
-               1.9k chars  │    one property      returns only what
-               6 kinds     │    0 required        is new or changed)
+  customer ──► pick_adds ──┬──► add_to_site ──► [make the database] ──► the page call ──► ONE PUBLISH
+               picked model│    one per kind      first touch only      (addon mode:
+               1.9k chars  │    one property      then apply the        returns only what
+               9 kinds     │    0 required        backend               is new or changed)
+                           │                                          a job alone: no page call, no publish
                            └──► picture                 ← photo, one hop sideways
 ```
 
-**Six kinds, the intent router's own list**: `table` · `page` · `component` ·
-`qr` · `three` act here, `photo` dispatches to the picture rung (the one that
-places a photograph and prices it; this step never buys one). Order is run
-order — a table before the page that shows it. Each acting kind has a
-four-part rule (`is` · `yours` · `wide` · `keep`), a shape of its own, and a
-tool with ONE property and nothing required, so a kind that cannot answer
-returns nothing and the route says so.
+**Nine kinds, the intent router's own list**: `table` · `function` · `api` ·
+`job` · `page` · `component` · `qr` · `three` act here, `photo` dispatches to
+the picture rung (the one that places a photograph and prices it; this step
+never buys one). Order is run order — a table before the function that reads
+it, both before the job that runs the function, all before the page that
+shows them. Each acting kind has a four-part rule (`is` · `yours` · `wide` ·
+`keep`), a shape of its own, and a tool with ONE property and nothing
+required, so a kind that cannot answer returns nothing and the route says so.
+
+**The backend is the addon's, and a site gets its database on first touch**
+(owner, 2026-09-03: *"the build step doesnt have backend so its gonna be on
+the addon step if needed … if customer touches it then neon db is
+created"*). A first build sends none of the four backend tiers, so every
+function a page calls, every outside service a page reads live and every job
+that runs on a timer is added HERE — three more kinds beside `table`, each
+the build's own item shape (`FUNCTION_ITEM`, `API_ITEM`, `JOB_ITEM`, lifted
+into `builder/site-table.mjs` beside the table's and bound in the build tool
+by identity) in this step's framing. The first of any of the four designed
+for a site with no database MAKES the database, through the build route's
+own call (`ensureSiteBackend`: the slug's project, claimed atomically, auth
+and the Data API enabled, idempotent on a retry), before the schema is
+applied to it; a failed provision is a named 502 that is ours, nothing
+charged, nothing changed. The two `no-database` refusals are gone. Then the
+engine's own reader (`normalizeSchema` → `applySiteSchema`) adds what is new
+and leaves what is there, a function is `CREATE OR REPLACE`d, the jobs are
+registered by the build route's own `persistSiteJobs`, and the reply says
+what the engine really MADE — `functions` (only the ones that created),
+`apis`, `jobs`, `functionErrors` by name, `needsSecrets` (every `{{SECRET}}` a
+new connection wants pasted under Cloud → Secrets), `provisioned`. **Each kind
+is its own call, so the job designer has to be told the function the function
+designer just declared**: the route appends designed functions to the site's
+lists as they are cleaned (`jobFns` for the internal ones — the only kind the
+engine lets a job run), the note prints them, and `cleanAdd` admits a job
+only against that list. A job naming a STORED internal function is
+re-attached after `normalizeSchema` (which keeps a job only when its function
+is declared in the same spec, and a stored function has no body to re-send).
+The function designer is shown each table WITH its columns (`name type`),
+because a `sql` body is parsed at CREATE and a guessed column is a function
+that does not exist. **A job, or an internal function alone, changes no page**
+(`pageless`): the route bills the small calls through the one charge
+(`aCharge`, shared with the page path) and answers without a compile, the
+site's pages exactly as they were. Not proven live yet — the addon harness has
+a case per kind (`function`, `api`, `job`, judged off the reply's own evidence
+because a database leaves no mark on the page), and the provision needs a
+frontend-only site on the allowlist, the owner's call.
 
 **A site carries several QR codes** (owner, 2026-09-03: *"it should carry
 more"*). The stored field is a list of named codes, `{ name, points, label }`,
@@ -299,11 +338,14 @@ page writer keeps six — twelve components, six tables), each rule reading "as
 many as they asked for, and not one more". An entry that cannot be added is
 left out and named in the reply; the rest go in.
 
-**Refusals are sentences, never climbs**: a code or a scene the site already
-carries (read the way the edit route's wall reads it — the stored look OR the
-page source), a table on a site with no database, a page the site already
-has, a code with no real destination. Every one is a named 422 with the door
-that does change it; only a picker that names nothing escalates to the revise.
+**Refusals are sentences, never climbs**: a scene the site already carries
+(read the way the edit route's wall reads it — the stored look OR the page
+source), a page the site already has, a code with no real destination or a
+duplicate of one it has, a function with no body, a connection that is not
+https, a job naming a function the site may not run. Every one is a named 422
+with the door that does change it; only a picker that names nothing escalates
+to the revise. (A table on a site with no database was one of these until
+2026-09-03; it makes the database now.)
 
 **Every prompt is a placeholder** (owner: *"i will tell you the prompt
 later"*), marked so in the module, one `hint` and four rule parts per kind.
