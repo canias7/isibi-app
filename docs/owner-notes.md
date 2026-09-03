@@ -2179,3 +2179,32 @@ rolled with it: nothing that builds should be fired before about 20:05
 UTC. The paid smokes did not run (no opt-in marker), as intended. This
 note goes to the branch only, so it does not roll the container again for
 a line of prose; main picks it up with the next real change.
+
+## 2026-09-03 — run 30, the first live test of the backend kinds
+
+You dispatched at 20:01 UTC (table, function, api, job on fretwork-1).
+The first case published and the harness stopped the run, calling it a
+lie. Read off the site, it was not one.
+
+**What happened.** The ask was "add a booking form so students can book a
+trial lesson". fretwork-1 already has a bookings table and a form on it
+(run 16's rebuild made both), so the designer did the right thing: it
+added a trial-lesson form as a section, writing into the table the site
+already has, and made no new table. The harness's table case insisted on
+a new table and stopped everything behind it. Sixteen credits, 157 → 141;
+the form is on the site (`docs/edits/addon-run30-trial-form.png`).
+function, api and job never ran and spent nothing.
+
+**Two things proven for free on the way.** The republish put today's kit
+on fretwork-1, so its forms now carry the one-press key; and earlier I
+pressed the same booking twice by hand against the live site and the
+second press was answered from memory without a second row.
+
+**Fixed in the harness, not the product**: the table case now asks for a
+waiting list (name, email, instrument), which no table the site has can
+hold, so a new table is the only honest answer. On the branch, not main,
+so the container does not roll for a harness change.
+
+**Next click**: the same page, "Use workflow from" the branch
+`claude/help-needed-ehlwlj` this time, same fields, lanes
+`table,function,api,job`. Roughly 30 to 45 credits from 141.

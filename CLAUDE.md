@@ -1262,8 +1262,35 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   and the per-row retry's outage stop was never driven (the batch-level one
   was); one never applied until its anchor was re-spelled (`—` in the
   source, a dash in the sweep). `test/site-csv`, `site-import`, `site-idem`,
-  `member-reset`, and the jobs suite. **Nothing proven live**; every
-  endpoint contract is Better Auth's documented one, read this session.
+  `member-reset`, and the jobs suite. Every endpoint contract is Better
+  Auth's documented one, read this session. Deployed 19:44Z (run 2011).
+  **ONE SUBMISSION, ONCE IS PROVEN LIVE, BOTH HALVES, FOR 0 CREDITS**: two
+  POSTs with one key to fretwork-1's `bookings` (19:59Z) — the first 201,
+  the second 201 with `x-idempotent-replay: 1` and an identical body, the
+  row written once; and run 30's republish put the new kit on the site, so
+  its bundle carries `Idempotency-Key` now. The import, the reset and the
+  code are not proven live (the owner's token, an inbox).
+- **RUN 30 (2026-09-03 20:01Z, `harness: addon`, `table,function,api,job`,
+  157 → 141): THE TABLE CASE WAS THE HARNESS'S TENTH FALSE ALARM, AND THE
+  PRODUCT WAS RIGHT AGAIN.** The ask, "Add a booking form so students can
+  book a trial lesson with their name, email and preferred day", landed on
+  a site whose rebuild in run 16 had ALREADY given it a `bookings` table and
+  a form on it. The picker named `component`, the designer added a
+  trial-lesson form writing `{name, email, appointment_date, notes: "Trial
+  lesson"}` into the table the site had — its own rule: "a second table for
+  a thing one of them already holds is a site that disagrees with itself" —
+  and published in 659 s for 16 credits, `mtlrs753-4k2o86` →
+  `mtlyl3y7-iu4asu`, "Book a trial" and "preferred day" on the page
+  (`docs/edits/addon-run30-trial-form.png`). The harness's check demanded
+  `tables.length > 0`, printed "the addition is not on the site; made []"
+  and STOPPED the run, so `function`, `api` and `job` never ran and spent
+  nothing. **Fixed in the harness, not the product**: the case asks for a
+  thing no table the site has can hold (a waiting list with the instrument
+  played), and a publish that made no table now says what that can mean.
+  `test/addon-sweep.test.mjs` pins the ask away from the form the site has
+  and drives the check both ways. **Re-dispatch `table,function,api,job`
+  FROM THE BRANCH** — the harness runs from whichever ref is picked, and a
+  push to main would roll the container for a harness-only change.
 
 **DELETE deferred** (owner's call).
 

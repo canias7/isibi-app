@@ -285,3 +285,25 @@ test("the workflow runs this harness behind the `addon` word and says what it co
   // exists.
   assert.match(WF, new RegExp("harness:\\n\\s+description: '[^']*addon \\(the ADD step[^']*" + CASES.map((c) => c.name).join(",")), "the harness input does not name the addon sweep and its cases, in order");
 });
+
+// ── the table case, after run 30 (2026-09-03) ────────────────────────────────
+
+test("the table case asks for a thing no table the site has can hold, and passes only on a table made", () => {
+  // Run 30 asked for "a booking form" on a site that already had a bookings
+  // table; the designer reused it (right) and the check called it a LIE and
+  // stopped the run. The ask is what makes a table the honest answer, so the
+  // ask is pinned to name something the site's tables cannot hold and NOT the
+  // thing they already do.
+  const c = CASES.find((x) => x.name === "table");
+  assert.ok(c, "no table case");
+  assert.match(c.ask, /waiting list/i, "the ask no longer names a thing the site cannot already store");
+  assert.doesNotMatch(c.ask, /booking form/i, "the ask names the form fretwork-1 already has, which makes a component the right answer and the check wrong");
+  const before = { build: "b1", text: "", routes: ["/"] };
+  const moved = { build: "b2", text: "", routes: ["/"] };
+  assert.equal(c.check(before, moved, { ok: true, tables: ["waitlist"] }, {}).ok, true, "a made table on a moved build is the pass");
+  assert.equal(c.check(before, { ...before }, { ok: true, tables: ["waitlist"] }, {}).ok, false, "a table with no publish is not");
+  const reuse = c.check(before, moved, { ok: true, tables: [] }, {});
+  assert.equal(reuse.ok, false);
+  assert.match(reuse.note, /made no table/, "a publish without a table must say what that can mean, not only 'made []'");
+  assert.match(c.check(before, moved, { ok: true, tables: ["waitlist"], provisioned: true }, {}).note, /got its database/);
+});

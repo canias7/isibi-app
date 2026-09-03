@@ -259,12 +259,24 @@ export const CASES = [
   // the first backend tier on a site without one makes it. So this case has
   // one honest outcome, a publish that made a table — and on a site with no
   // database it also carries `provisioned: true`, which the note prints.
+  // THE ASK NAMES A THING NO TABLE THE SITE HAS CAN HOLD (run 30, 2026-09-03,
+  // 16 credits). It used to ask for "a booking form so students can book a
+  // trial lesson", on a site whose rebuild in run 16 had ALREADY given it a
+  // `bookings` table and a form on it — so the designer, following its own
+  // rule that "a second table for a thing one of them already holds is a
+  // site that disagrees with itself", added a trial-lesson form as a
+  // COMPONENT writing `{name, email, appointment_date, notes}` into the
+  // table the site had, and made no table. The right answer. This check
+  // demanded `tables.length > 0`, called it a LIE and stopped the run before
+  // the three cases behind it. The tenth harness false alarm on a product
+  // that was right; the case proves a TABLE only when the ask needs one.
   { name: "table", kinds: ["table", "page", "component"],
-    ask: "Add a booking form so students can book a trial lesson with their name, email and preferred day",
+    ask: "Add a waiting list: when a week is full, a student leaves their name, email and the instrument they play, and I read the list",
     check: (b, a, r) => {
       const moved = a.build !== b.build;
       const tables = r && r.ok === true && Array.isArray(r.tables) ? r.tables : [];
-      return { ok: moved && tables.length > 0, note: `made ${JSON.stringify(tables)}${r && r.provisioned ? " — and the site got its database for it" : ""}; build ${moved ? "moved" : "unmoved"}` };
+      return { ok: moved && tables.length > 0,
+               note: `made ${JSON.stringify(tables)}${r && r.provisioned ? " — and the site got its database for it" : ""}${!tables.length && moved ? " (a publish that made no table: either the designer reused one the site has, which is right only if the ask fits it, or the table was dropped on the way)" : ""}; build ${moved ? "moved" : "unmoved"}` };
     } },
   // ── THE OTHER THREE TIERS OF THE BACKEND (owner, 2026-09-03) ──────────
   //
