@@ -360,8 +360,22 @@ async function main() {
     let after = await snapshot();
     for (let i = 0; seen && after.build !== seen && i < 6; i++) { await sleep(5000); after = await snapshot(); }
     // THE NEW PAGE'S EVIDENCE: the route the reply named, read live.
+    //
+    // AND THE SITEMAP IS ITS OWN OBJECT AT THE EDGE (run 23, 2026-09-03). The
+    // document's build id had moved, and `/sitemap.xml`, cached separately,
+    // still answered the old list: read two seconds after the publish it
+    // lacked `/prices`, read a minute later it had it. The page case called a
+    // real page a LIE on that — the seventh edge false alarm, and the product
+    // was right again. So the snapshot is re-taken, bounded, until the
+    // sitemap lists every new route, the rule the build id already gets, one
+    // object over; only then are the routes read and the verdict given.
     if (body.ok === true) {
       extra.newRoutes = (Array.isArray(body.added) ? body.added : []).map(sitePathOf).filter(Boolean);
+      const t2 = Date.now();
+      while (extra.newRoutes.some((p) => !after.routes.includes(p)) && Date.now() - t2 < 90000) {
+        await sleep(5000);
+        after = await snapshot();
+      }
       extra.newStatuses = {};
       for (const p of extra.newRoutes) extra.newStatuses[p] = (await site(p)).status;
     }

@@ -142,6 +142,25 @@ test("watchJob answers on the poll's four voices, from the arguments it is hande
   assert.match(fn, /call\("GET", p, \{ token \}\)/, "the default reader does not send the token it was handed");
 });
 
+// ── THE SITEMAP IS ITS OWN OBJECT AT THE EDGE (run 23, 2026-09-03) ──────────
+//
+// The build id had moved and the sitemap, cached separately, still listed the
+// old routes for a while; the page case read it two seconds after the publish
+// and called a real page a LIE. The snapshot is re-taken until the sitemap
+// lists every new route, bounded, before the routes are read and judged.
+test("a new route's sitemap listing is re-read, bounded, before the page case is judged", () => {
+  const routes = SRC.indexOf("extra.newRoutes = (Array.isArray(body.added)");
+  const judged = SRC.indexOf("const chk = c.check(before, after, body, extra);", routes);
+  assert.ok(routes > 0 && judged > routes, "the new-route evidence or the verdict moved");
+  const win = SRC.slice(routes, judged);
+  const wait = win.match(/while \(extra\.newRoutes\.some\(\(p\) => !after\.routes\.includes\(p\)\) && Date\.now\(\) - t2 < (\d+)\)/);
+  assert.ok(wait, "the sitemap is not re-read until it lists the new routes");
+  assert.ok(Number(wait[1]) >= 60000, "the sitemap wait is shorter than an edge cache can lag");
+  const retake = win.indexOf("after = await snapshot();");
+  assert.ok(retake > 0, "the wait does not re-take the snapshot the verdict reads");
+  assert.ok(win.indexOf("extra.newStatuses = {}") > retake, "the routes are read before the sitemap settles");
+});
+
 test("chooseCases refuses a stranger before anything is spent and forgives punctuation", () => {
   assert.deepEqual(chooseCases("all", CASES), CASES.map((c) => c.name));
   assert.deepEqual(chooseCases(" page, component. ", CASES), ["page", "component"]);

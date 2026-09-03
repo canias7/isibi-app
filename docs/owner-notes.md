@@ -1796,3 +1796,36 @@ product was right, the instrument was not.
 The other four cases never ran. When the deploy is on and the roll is
 over, run it again with lanes `page,qr,three,photo` — not `component`,
 which would add a second set of quotes to a page that has one now.
+
+## 2026-09-03 — Run 23: the prices page is live, and the harness misread the sitemap
+
+You ran `page,qr,three,photo` at 10:00 UTC. The page case went through the
+queue cleanly: receipt in 2.9 seconds, 13 credits reserved just before the
+publish, live at 10:08:01 — 6 minutes 39 seconds — balance 195 → 182. The
+new page is real: `/prices`, "Lesson Prices" in the header and footer, a
+heading, and the kit's price list reading the site's own `lessons` table —
+the one the rebuild seeded — so it shows First lesson £0, Group of three
+£18, One-to-one £30, Hour one-to-one £40 (screenshot in the chat and at
+`docs/edits/addon-run23-page.png`). One thing for you to judge: the ask
+named "a 30-minute lesson, an hour, and a block of five", and the page
+kept that sentence as its subline but listed the site's own lessons rather
+than inventing three prices. The data is the site's; the wording is the
+ask's.
+
+The harness called it a LIE, and it was wrong: it read the sitemap two
+seconds after the publish, and the edge, which caches the sitemap
+separately from the page, still served the old list — a minute later it
+listed `/prices`. That is the seventh time the edge has fooled the harness
+and the seventh time the product was right. Fixed: the harness now
+re-reads the sitemap, bounded, until it lists every new route before it
+judges. Sweep: 4 mutants, 4 killed, control survived.
+
+Because it stopped on that verdict, `qr`, `three` and `photo` have still
+not run. Once the deploy and the roll are done, run it again with lanes
+`qr,three,photo`.
+
+And a note on my own instrument, for the record: a mirror of the served
+page in this sandbox showed the price list EMPTY, and for ten minutes that
+read as a defect. The rows come through the site's own data path, which a
+mirror cannot reach. I read them through that path and served them to the
+mirror before believing the screenshot.

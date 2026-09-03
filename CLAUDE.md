@@ -834,9 +834,34 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   parameter both callers pass, the reader and the sleep are injectable, and
   the loop's four answers are DRIVEN in `test/addon-sweep.test.mjs` (a
   guard that reads the text for `TOKEN` beside it). Sweep: **7 mutants, 7
-  killed, control survived.** The other four cases never ran; re-dispatch
-  **`page,qr,three,photo`** (NOT `component` — it would add a second set of
-  quotes) after the deploy carrying the harness fix and the roll.
+  killed, control survived.** The other four cases never ran.
+  **RUN 23 (2026-09-03 10:00Z, `page,qr,three,photo`, 195 → 182): `page`
+  PROVEN THROUGH THE QUEUE** — receipt 2.9s (job `a2440b15…`), reserved
+  **13** before the publish, published 10:08:01, **6m39s from POST to
+  live**, `mtlbyjzt-6c6lf7` → `mtld0p1h-llm1ci`, `prices.tsx` added and
+  `index.tsx` changed (the nav link), 30 files. `/prices` is a real page:
+  the shell, a `SectionHeader`, and the kit's `PriceList` over
+  `useRows("lessons")` — the table run 16's rebuild seeded — four rows,
+  £0/£18/£30/£40 (`docs/edits/addon-run23-page.png`, rendered with the live
+  rows); one `problems` note (no `head` on the route). The ask said "a
+  30-minute lesson, an hour, a block of five"; the page kept that sentence
+  as its subline and listed the site's OWN lessons instead of inventing
+  three — the data is the site's, the wording is the ask's (owner's call
+  whether that is the right answer). **The harness called it a LIE**: it
+  read `/sitemap.xml` two seconds after the publish and the edge, which
+  caches the sitemap separately from the document, still served the old
+  list; a minute later it listed `/prices`. The seventh edge false alarm,
+  the product right again. Fixed: the snapshot is re-taken, bounded 90 s,
+  until the sitemap lists every new route, before the routes are read and
+  the verdict given (`test/addon-sweep.test.mjs`; sweep **4 mutants, 4
+  killed, control survived**). **The run stopped on that verdict, so `qr`,
+  `three` and `photo` have still not run** — re-dispatch **`qr,three,photo`**
+  after the deploy carrying the fix and the roll. And a mirror of the served
+  page in this sandbox showed an EMPTY price list for ten minutes — its rows
+  come through the site's own `/api/db/<slug>/data/` path, which a mirror
+  cannot reach — **a page whose content is fetched is not judged from its
+  HTML**; the rows were read through that path and served to the mirror
+  before the screenshot was believed.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,
@@ -1157,8 +1182,8 @@ what the work cost.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 195 credits** (read from the ledger 2026-09-03 09:36Z, after run
-  22's first queued addon reserved 12). It was **0** on 08-29;
+- **Balance: 182 credits** (read from the ledger 2026-09-03 10:08Z, after run
+  23's page addon reserved 13). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**
