@@ -2218,3 +2218,9 @@ the branch, and the "Use workflow from" dropdown is what picks it: it has
 to say `claude/help-needed-ehlwlj`, not main, until the branch is merged.
 I am holding the merge until after the run so the container does not roll
 under it.
+
+**Run 32 (22:16 UTC) was the same run a third time**, from main again:
+17 credits, 125 → 108, the same trial form re-placed, the same stop.
+Rather than depend on the dropdown, the fixed harness is now merged to
+main, so the next run works from either ref. That push deploys and rolls
+the container; the time to dispatch is in the chat.
