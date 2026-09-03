@@ -270,8 +270,13 @@ export const CASES = [
   // demanded `tables.length > 0`, called it a LIE and stopped the run before
   // the three cases behind it. The tenth harness false alarm on a product
   // that was right; the case proves a TABLE only when the ask needs one.
+  // A THIRD SUBJECT (run 33, 2026-09-03): the waiting-list ask reached the
+  // schema apply and then the publish timed out, so fretwork-1's database may
+  // carry a waiting-list table no page shows. Asked again, the designer would
+  // rightly reuse it and make no table — the run-30 shape once more. This
+  // names a thing nothing on the site holds; the leftover is noted, not used.
   { name: "table", kinds: ["table", "page", "component"],
-    ask: "Add a waiting list: when a week is full, a student leaves their name, email and the instrument they play, and I read the list",
+    ask: "Add a second-hand gear board: a student lists a guitar for sale with the make, the price and their email, and I read the list",
     check: (b, a, r) => {
       const moved = a.build !== b.build;
       const tables = r && r.ok === true && Array.isArray(r.tables) ? r.tables : [];
@@ -517,6 +522,12 @@ async function main() {
       }
       if (!replies.length) console.log(`   (no kept reply to read: ${kept.status} ${String((kept.json && kept.json.why) || "").slice(0, 120)})`);
     }
+    // A VERDICT ALREADY GIVEN STANDS (run 33, 2026-09-03). This chain used
+    // to run for every reply, so a `failed` from the chain above — a 422
+    // with the route's own error and detail — was overwritten by the branch
+    // below with "reply says ok but the build did not move", said of a reply
+    // that said ok: false. The compile timeout read as a lie for an hour.
+    else if (verdict) { /* judged above; nothing to add */ }
     // A PAGELESS CASE IS JUDGED THE OTHER WAY ROUND (2026-09-03): a job
     // changes no page, so an ok reply with the build UNMOVED is the honest
     // outcome and a moved build is the lie.

@@ -6276,6 +6276,12 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "" }) {
     gate(phase) {
       if (cancelled) return { go: false, why: "cancelled" };
       if (budget && budget.expired()) return { go: false, why: "budget" };
+      // A PUBLISH NEEDS ROOM, NOT JUST TIME (run 33, 2026-09-03). With 235s
+      // left the old gate said go, and the compile — capped at what is left
+      // minus the reserves — was cut at 129s of the 157s it needed. Below the
+      // floor a publish is refused here, before the reserve and before the
+      // container, and the reply says it ran out of time.
+      if (phase === "build" && budget && typeof budget.canPublish === "function" && !budget.canPublish()) return { go: false, why: "time" };
       return { go: true, phase };
     },
   };
@@ -9251,6 +9257,15 @@ function compileMsg(pub, theirs) {
   // collapsed it. Both still say our side, try again, nothing charged: the
   // difference is whether a retry is waiting for a build service or for a read
   // that is not going to start working on its own.
+  // ── AND A FOURTH (run 33, 2026-09-03): THE CLOCK ─────────────────────────
+  //
+  // A compile cut by the job's own deadline is neither a broken page nor a
+  // restarting container. It read as "didn't compile — try describing it
+  // differently" — the customer's words blamed for our budget — and, before
+  // that sentence, as a container restart. The spine now says `timedOut`.
+  if (pub.timedOut) {
+    return "That didn't go through — it took longer than the time we allow for one change, so nothing was changed. Nothing was charged. Try again, or ask for it in two smaller steps.";
+  }
   return pub.error === "read"
     ? "That didn't go through — we couldn't read your site's saved design, so nothing was changed. Nothing was charged."
     : "That didn't go through — our build service was restarting. Try again in a moment; nothing was charged.";
@@ -9737,7 +9752,15 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // TIMED OUT OR DISCONNECTED, told apart by the error's class rather than
       // its message, which differs between runtimes.
       tm("container", "fail", { name: String((e && e.name) || "Error"), aborted: (e && (e.name === "TimeoutError" || e.name === "AbortError")) || false });
-      return { ok: false, error: String((e && e.message) || "the build service did not answer") };
+      // THE CLOCK, TOLD APART FROM THE CODE (run 33, 2026-09-03). A compile
+      // cut by its own deadline used to come back as a plain error string and
+      // reach the customer as "didn't compile — try describing it
+      // differently", which blamed their words for our clock. The class
+      // carries it, and the sentence reads it.
+      return {
+        ok: false, error: String((e && e.message) || "the build service did not answer"),
+        timedOut: !!(e && (e.name === "TimeoutError" || e.name === "AbortError")),
+      };
     }
   };
   let built = await compile();
@@ -9750,8 +9773,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // AND IT SAYS WHOSE FAULT IT WAS. `killed` is the difference between "your
     // change has an error in it" and "our container went away twice" — and the
     // caller turns that into the sentence the owner reads.
+    // A TIMEOUT IS OURS TOO: the code was never judged, the clock ran out.
+    const timedOut = !!(built && built.timedOut);
     return {
-      ok: false, error: "compile", ours: killed && wasKilled(built && built.error),
+      ok: false, error: "compile", ours: (killed && wasKilled(built && built.error)) || timedOut, timedOut,
       detail: String((built && built.error) || "").slice(0, 200),
     };
   }
@@ -11349,6 +11374,10 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg }) {
     review: review || undefined,
     msg: msg || (why === "cancelled"
       ? "I stopped that edit before anything was published — your site is untouched and you haven't been charged."
+      // THE PUBLISH FLOOR (run 33, 2026-09-03): refused before the reserve
+      // and before the container, so nothing was charged and nothing ran.
+      : why === "time"
+        ? "That took longer than the time we allow for one change, so I stopped before publishing — your site is untouched and nothing was charged. Try again, or ask for it in two smaller steps."
       : review
         ? "That edit stopped while it was publishing and I can't tell yet whether it went live, so I've paused " +
           "edits on this site until that's settled."

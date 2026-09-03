@@ -2224,3 +2224,23 @@ under it.
 Rather than depend on the dropdown, the fixed harness is now merged to
 main, so the next run works from either ref. That push deploys and rolls
 the container; the time to dispatch is in the chat.
+
+**Run 33 (23:17 UTC, the fixed harness): nothing charged, and a real bug
+found.** The waiting-list ask picked a table AND a form, both designers
+answered, the page took six and a half minutes on Grok, and the publish
+began with under four minutes of the job's thirteen left. The compile is
+only allowed what is left minus the reserves, so it was cut at 129
+seconds of the 157 it needed. The site was untouched and the credits
+came straight back (108 → 108), but the reply blamed the customer's
+wording for our clock, and the harness called an honest failure a lie.
+
+Fixed, all four from measurements rather than guesses: the job clock is
+fourteen minutes instead of thirteen (the teardown room was a 120-second
+guess; it measured 4 seconds), the sweep reserve is 60 seconds instead of
+90 (it measured 39), a publish that cannot fit is refused before it
+starts and says "took longer than the time we allow… nothing was
+charged", and a compile cut by the clock now says so instead of "didn't
+compile". The waiting-list table may be sitting in fretwork-1's database
+with no page showing it, so the test asks for a third thing next time, a
+second-hand gear board. This has to go to main and roll the container
+once more; the time to run is in the chat.

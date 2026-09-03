@@ -43,24 +43,36 @@ export const CONSUMER_CEILING_MS = 900000;
  * The same goes for the publish lease. That separation is structural here:
  * `makeEditBudget` closes over its start and exposes no setter.
  *
- * The 120 seconds between this and the ceiling is the isolate's own teardown
- * room — the terminal state write, the refund and the trace, which all have to
- * complete AFTER the deadline fires.
+ * The room between this and the ceiling is the isolate's own teardown — the
+ * terminal state write, the refund and the trace, which all have to complete
+ * AFTER the deadline fires. It was 120 seconds, a guess; run 33 (2026-09-03)
+ * MEASURED it: the container call aborted at 674.5s of the job and the terminal
+ * state was written 4.3s later. Sixty seconds is fourteen times that.
+ *
+ * FOURTEEN MINUTES, not thirteen, since run 33. An addon that names two kinds
+ * — a table and the form that writes to it — is a picker, two designers, a
+ * page call (390s on Grok) and a compile (157s measured on run 32), and under
+ * thirteen minutes the compile began with 235s left and was cut at 129s by the
+ * reserves below. The minute this adds is the difference between that addon
+ * landing and it failing after eleven minutes with nothing to show.
  */
-export const EDIT_JOB_MS = 780000;
+export const EDIT_JOB_MS = 840000;
 
 /**
  * Held back for the publish sweep: the dist write, the archive, the source, the
  * landmarks and the site Worker upload.
  *
- * CONSERVATIVE AND UNMEASURED, AND SAID SO. The R2 publish phase has never been
- * timed on its own — `PUBLISH_RESERVE_MS` on the build path covers compile plus
- * container plus pages, which is a different quantity. The trace records
- * `publish` from the first run so this becomes a measurement instead of a guess;
- * until then it is deliberately generous, because the cost of it being too small
- * is a job that dies mid-publish and needs a human.
+ * MEASURED NOW (2026-09-03, run 32's trace): from the container answering to
+ * `publish:1 ok` — the dist write (31 objects), the archive, the source, the
+ * landmarks and the site Worker upload — took 38.8 seconds. It was 90 seconds
+ * while it was a guess, and the guess was paid for on run 33: the compile is
+ * capped at what is left MINUS this, and 90 seconds of reserve for a 39-second
+ * sweep is what turned a 157-second compile into a 129-second cap. Sixty is
+ * the measurement with half again on top; the cost of it being too small is a
+ * job that dies mid-publish and needs a human, so it is not the measurement
+ * itself.
  */
-export const PUBLISH_RESERVE_MS = 90000;
+export const PUBLISH_RESERVE_MS = 60000;
 
 /**
  * Held back for recording the outcome: the terminal state, the refund, the
@@ -102,6 +114,19 @@ export const MIN_BUILD_MS = 180000;
 export const MIN_VERIFY_MS = 10000;
 export const CORRECT_FLOOR_MS =
   MIN_CORRECT_MS + MIN_BUILD_MS + MIN_VERIFY_MS + PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS;
+
+/**
+ * The floor under a PUBLISH — a compile, the sweep, the terminal writes.
+ *
+ * Run 33 (2026-09-03) is why this exists apart from `expired()`: the addon's
+ * publish gate asked only "is there any time left?", there was (235s), the
+ * compile was started, and `capMs` — correctly holding the reserves back —
+ * cut it at 129s when it needed 157s. Eleven minutes of model work ended in a
+ * timeout wearing the compile's sentence, refunded, with nothing to show. A
+ * publish that cannot fit is refused BEFORE it starts, by name, and the reply
+ * says it ran out of time rather than that the code did not compile.
+ */
+export const PUBLISH_FLOOR_MS = MIN_BUILD_MS + PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS;
 
 // ── THE LEASE ──────────────────────────────────────────────────────────────
 
@@ -208,6 +233,12 @@ export function makeEditBudget(totalMs = EDIT_JOB_MS, now = () => Date.now()) {
      * spent their credits to reach the same place.
      */
     canCorrect: () => left() >= CORRECT_FLOOR_MS,
+    /**
+     * May a PUBLISH start? Asked at the last gate before anything is written.
+     * Below the floor the compile would be cut by its own cap (run 33), so the
+     * honest answer is to stop here, charge nothing, and say why.
+     */
+    canPublish: () => left() >= PUBLISH_FLOOR_MS,
   };
 }
 

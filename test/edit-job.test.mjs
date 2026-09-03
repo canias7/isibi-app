@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   EDIT_JOB_KIND, CONSUMER_CEILING_MS, EDIT_JOB_MS, PUBLISH_RESERVE_MS,
-  TERMINAL_RESERVE_MS, CORRECT_FLOOR_MS, MIN_CORRECT_MS, MIN_BUILD_MS, MIN_VERIFY_MS,
+  TERMINAL_RESERVE_MS, CORRECT_FLOOR_MS, PUBLISH_FLOOR_MS, MIN_CORRECT_MS, MIN_BUILD_MS, MIN_VERIFY_MS,
   LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S, PUBLISH_LEASE_S,
   EDIT_PHASES, TERMINAL_STATES, isTerminalEdit,
   makeEditBudget, cleanIdemKey, newLeaseOwner, editAsyncOn, editAsyncFor, readCanaryList,
@@ -353,4 +353,42 @@ test("no build route reads the canary configuration", () => {
   // AND EXACTLY ONE, which is the stronger statement: a second reader anywhere
   // is a second place the canary could be widened.
   assert.equal(readers.size, 1, `the canary config is read in ${readers.size} places: ${[...readers].join(", ")}`);
+});
+
+// ── the publish floor (run 33, 2026-09-03) ──────────────────────────────────
+
+test("a publish needs room, not just time: the floor is the compile, the sweep and the terminal writes", () => {
+  // Run 33: 235s left, the old gate said go, and the compile — capped at what
+  // was left minus the reserves — was cut at 129s of the 157s it needed.
+  assert.equal(PUBLISH_FLOOR_MS, MIN_BUILD_MS + PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS);
+  let t = 0;
+  const b = makeEditBudget(EDIT_JOB_MS, () => t);
+  assert.equal(b.canPublish(), true);
+  t = EDIT_JOB_MS - PUBLISH_FLOOR_MS;
+  assert.equal(b.canPublish(), true, "exactly the floor is enough");
+  t += 1;
+  assert.equal(b.canPublish(), false, "one millisecond under the floor is not");
+  // And the floor is below the point where `expired()` would already refuse,
+  // or it would never be the thing that answers.
+  assert.ok(PUBLISH_FLOOR_MS > PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS);
+  // Run 33's shape fits now: the publish began at 545s; with fourteen minutes
+  // the compile cap is what is left minus the reserves, and it must clear the
+  // 157s a compile measured on run 32.
+  const left = EDIT_JOB_MS - 545000;
+  assert.ok(left >= PUBLISH_FLOOR_MS, "run 33's publish would still be refused by the floor");
+  assert.ok(left - PUBLISH_RESERVE_MS - TERMINAL_RESERVE_MS >= 157000 + 30000,
+    "run 33's compile (157s) would still be cut by its cap, with no margin for a cold container");
+});
+
+test("the numbers are measurements, not guesses: the sweep reserve covers the measured sweep, the teardown room the measured teardown", () => {
+  // Run 32's trace: container answered at 521.3s, publish:1 ok at 560.1s —
+  // the R2 sweep took 38.8s. Run 33: the deadline fired at 674.5s and the
+  // terminal state was written 4.3s later.
+  assert.ok(PUBLISH_RESERVE_MS >= 38800 * 1.5, "the sweep reserve is under the measured sweep with half again");
+  // AND NOT ABOVE TWICE IT: a reserve far past the measurement is what cut
+  // run 33's compile — every second held back here is a second the compile
+  // is not allowed. The old 90s was 2.3 times the sweep.
+  assert.ok(PUBLISH_RESERVE_MS <= 38800 * 2, "the sweep reserve is more than twice the measured sweep, starving the compile");
+  assert.ok(CONSUMER_CEILING_MS - EDIT_JOB_MS >= 4300 * 10, "the teardown room is under ten times the measured teardown");
+  assert.ok(CONSUMER_CEILING_MS - EDIT_JOB_MS <= 120000, "the teardown room is back to a guess");
 });

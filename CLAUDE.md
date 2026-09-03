@@ -1299,6 +1299,37 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   fix on the branch is not a fix until the run is dispatched from the
   branch.** Merged to main after run 32 for that reason, at the price of a
   container roll, so the next dispatch works from either ref.
+  **RUN 33 (23:17Z, from main at the fixed harness, 108 → 108): THE
+  WAITING-LIST ASK RAN OUT OF CLOCK, AND THE CLOCK WAS OURS.** The picker
+  named `table` AND `component` (a table and the form that writes to it),
+  both designers answered (19 s and 94 s), the page call took 390 s on Grok,
+  and the publish began at 545 s with 235 s of the thirteen-minute job left
+  — past `expired()`, so the gate said go — and the container call, capped
+  at what was left MINUS the two reserves (90 + 15 s), was cut at 129 s of
+  the 157 s a compile measured on run 32. 681 s, `TimeoutError`, `billing:
+  refunded`, 0 credits, and the reply said "That addition didn't compile —
+  try describing it differently": the customer's words blamed for our
+  budget, and the harness then overwrote the route's own `failed` with
+  "LIE: reply says ok". Read out of `edit_jobs.result` and the trace, not
+  the log. **Four fixes, each a measurement**: `EDIT_JOB_MS` 780 → 840 s
+  (the teardown room was a 120 s guess; run 33 measured 4.3 s from the
+  deadline to the terminal write); `PUBLISH_RESERVE_MS` 90 → 60 s (the R2
+  sweep measured 38.8 s on run 32's trace); a **publish floor** —
+  `PUBLISH_FLOOR_MS` = compile 180 + sweep 60 + terminal 15 s, asked by the
+  job gate for the `build` phase BEFORE the reserve, answered `time` with
+  its own sentence, nothing charged; and the spine's container catch
+  carries `timedOut`, which `compileMsg` reads before the read/restarting
+  fallback. With the new numbers run 33's shape has a 220 s compile cap
+  against 157 s measured. The waiting-list table may sit in fretwork-1's
+  database with no page showing it — the schema is applied before the page
+  call and is not reverted on a failed publish (the look is) — so the
+  harness's table ask names a third subject, a second-hand gear board.
+  `test/publish-clock.test.mjs` and `test/edit-job.test.mjs` pin the four.
+  **Sweep: 12 mutants, 12 killed, control survived** — one (the reserve back
+  to 90 s) survived the first pass because the longer clock alone makes run
+  33's shape fit; the reserve is now bounded from ABOVE too, at twice the
+  measured sweep, since every second held back is a second the compile is
+  denied. Deploy and re-dispatch `table,function,api,job` after the roll.
   **RUN 31 (20:26Z, 141 → 125) WAS THE SAME RUN AGAIN, DISPATCHED FROM
   MAIN** before the fix was on it: the old ask, the same `component`
   answer (the form re-placed below the chords, still one band), 503 s,

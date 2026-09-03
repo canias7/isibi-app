@@ -296,8 +296,8 @@ test("the table case asks for a thing no table the site has can hold, and passes
   // thing they already do.
   const c = CASES.find((x) => x.name === "table");
   assert.ok(c, "no table case");
-  assert.match(c.ask, /waiting list/i, "the ask no longer names a thing the site cannot already store");
-  assert.doesNotMatch(c.ask, /booking form/i, "the ask names the form fretwork-1 already has, which makes a component the right answer and the check wrong");
+  assert.match(c.ask, /for sale/i, "the ask no longer names a thing the site cannot already store");
+  assert.doesNotMatch(c.ask, /booking form|waiting list/i, "the ask names a thing fretwork-1 already holds (its booking form; the waiting-list table run 33 may have left), which makes a component the right answer and the check wrong");
   const before = { build: "b1", text: "", routes: ["/"] };
   const moved = { build: "b2", text: "", routes: ["/"] };
   assert.equal(c.check(before, moved, { ok: true, tables: ["waitlist"] }, {}).ok, true, "a made table on a moved build is the pass");
