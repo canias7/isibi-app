@@ -1829,3 +1829,31 @@ page in this sandbox showed the price list EMPTY, and for ten minutes that
 read as a defect. The rows come through the site's own data path, which a
 mirror cannot reach. I read them through that path and served them to the
 mirror before believing the screenshot.
+
+## 2026-09-03 — Run 24: the 3D guitar is live, the QR was refused honestly, and my checks were stale
+
+You ran `qr,three,photo` at 10:48 UTC. The QR ask was refused in 20
+seconds for nothing — "this site already has a QR code, ask me to change
+where it points" — which is the right answer; the site has one. The 3D
+ask went through the queue and published: 12 credits reserved before the
+publish, live at 10:57:34, 8 minutes 14 seconds, balance 182 → 170. It is
+a real scene: a guitar you drag to turn, under the booking heading, in
+the site's own type (screenshot in the chat and at
+`docs/edits/addon-run24-three.png`). Adding was right, because the
+rebuild on 09-02 had redrawn the earlier scene away.
+
+The harness called it a LIE, and again the harness was wrong: the QR, 3D
+and table cases were written for the site as it was on 09-02 — no
+database, a code and a scene already on the page — so each check only
+knew how to pass a refusal. Now each judges both outcomes off the page: a
+refusal is honest only when the thing was really there and the build
+stayed put; a publish only when it was not there, is now, and the build
+moved. That is the eighth time the harness has been the one at fault, and
+the product has been right every time. Sweep: 7 mutants, 7 killed, control
+survived — one only after I added the check it showed was missing (a
+second scene on a page that has one must read as a lie, not a pass).
+
+Because it stopped there, `photo` has still not run. After the deploy and
+the roll, run it once more with lanes `photo`. Its balance is empty on
+the image side, so the honest outcome is the hop to the picture rung and
+that rung saying it could not buy one.

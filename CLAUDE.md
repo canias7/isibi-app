@@ -862,6 +862,30 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   cannot reach — **a page whose content is fetched is not judged from its
   HTML**; the rows were read through that path and served to the mirror
   before the screenshot was believed.
+  **RUN 24 (2026-09-03 10:48Z, `qr,three,photo`, 182 → 170): `qr` REFUSED
+  HONESTLY, `three` PROVEN THROUGH THE QUEUE** — `qr` answered `already`
+  in 19.9s for nothing ("This site already has a QR code — ask me to
+  change where it points…"), build unmoved; `three` filed at 10:49:23,
+  reserved **12**, published 10:57:34 — **8m14s**, `mtld0p1h-llm1ci` →
+  `mtlesaq6-sz6j1q`, `index.tsx` changed, `moved: ["three"]`, 30 files —
+  a `<canvas>` under the booking heading, "A guitar you can turn / Drag
+  with the mouse to spin it round", real three.js (`docs/edits/
+  addon-run24-three.png`, software WebGL). **The right answer was to ADD**:
+  run 16's rebuild had redrawn the earlier scene away and stored no
+  `three`, so the wall found nothing on the look or the page. **And the
+  harness called it a LIE** — the `qr`/`three`/`table` cases were written
+  for the site of 2026-09-02 (no database, a code and a scene on the page)
+  and their checks accepted only the refusal; the eighth false alarm. Fixed:
+  `eitherWay` judges both outcomes off the page — a refusal is honest only
+  when the mark (`qr.svg`, `<canvas>`) was there and the build stayed put; a
+  publish only when it was not, is now, and the build moved; `table` reads
+  the reply's `tables`. Driven per case from `REFUSAL_FIXTURES`, which the
+  guard requires for every refusal case by name. Sweep: **7 mutants, 7
+  killed, control survived — one only after the guard it showed was
+  missing** (a publish on a site that already carried the thing, which the
+  wall should have refused, passed with `!had` dropped). **`photo` has
+  still not run** — the run stopped on the verdict; re-dispatch **`photo`**
+  alone.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,
@@ -1182,8 +1206,8 @@ what the work cost.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 182 credits** (read from the ledger 2026-09-03 10:08Z, after run
-  23's page addon reserved 13). It was **0** on 08-29;
+- **Balance: 170 credits** (read from the ledger 2026-09-03 10:55Z, after run
+  24's three addon reserved 12). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**

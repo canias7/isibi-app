@@ -158,6 +158,26 @@ async function snapshot() {
   };
 }
 
+/**
+ * A thing the site either has or gets — judged off the page, both ways.
+ *
+ * `mark` is the thing's trace in the served HTML (a QR's `qr.svg`, a scene's
+ * `<canvas>`). A refusal is honest only when the mark was already on the page
+ * and the build stayed put; a publish is honest only when the mark was NOT on
+ * the page before, is on it after, and the build moved.
+ */
+export function eitherWay(b, a, r, mark, what) {
+  const had = mark.test(String(b.html || ""));
+  const has = mark.test(String(a.html || ""));
+  const moved = a.build !== b.build;
+  if (r && r.ok === true) {
+    return { ok: !had && has && moved,
+             note: `${what} ${had ? "was already on the page" : "was not on the page before"}, ${has ? "is on it now" : "is NOT on it now"}; build ${moved ? "moved" : "unmoved"}` };
+  }
+  return { ok: had && !moved,
+           note: `${had ? what + " was on the page, so the refusal was right" : "NO " + what + " on the page, so the refusal was wrong"}; build ${moved ? "moved on a refusal" : "unmoved"}` };
+}
+
 // ── THE CASES ──────────────────────────────────────────────────────────────
 //
 // One per kind. `ask` is what a customer would type. `kinds` is what the
@@ -191,24 +211,38 @@ export const CASES = [
       return { ok: !!(served && listed && linked && a.build !== b.build),
                note: `added ${JSON.stringify(fresh)}; answers ${JSON.stringify(statuses)}; ${listed ? "all in" : "NOT all in"} the sitemap; ${linked ? "all linked" : "NOT all linked"} from the home page` };
     } },
+  // ── EITHER ANSWER CAN BE HONEST, AND THE SITE SAYS WHICH (run 24) ──────
+  //
+  // These three were written for the site as it stood on 2026-09-02 — no
+  // database, a code and a scene already on the page — and each check
+  // accepted ONLY the refusal: "the build moved on a refusal" was its one
+  // sentence. Run 16's rebuild gave the site a database and redrew the
+  // scene away, so on run 24 "add a 3D model" was the right thing to ADD,
+  // the step added it (a canvas, "drag to turn", 12 credits), and the check
+  // called the publish a LIE. The eighth harness false alarm, the product
+  // right again. So each judges BOTH outcomes off the site: a refusal is
+  // honest only when the thing was really there and the build stayed put; a
+  // publish is honest only when it was not there, is now, and the build
+  // moved. `mayRefuse` still names the refusal the route really emits.
   { name: "table", kinds: ["table", "page", "component"],
     ask: "Add a booking form so students can book a trial lesson with their name, email and preferred day",
-    // fretwork-1 has no database, so the honest answer is the named refusal.
     mayRefuse: ["no-database"],
-    check: (b, a) => ({ ok: a.build === b.build, note: a.build === b.build ? "build unmoved" : "the build moved on a refusal" }) },
+    check: (b, a, r) => {
+      const moved = a.build !== b.build;
+      if (r && r.ok === true) {
+        const tables = Array.isArray(r.tables) ? r.tables : [];
+        return { ok: moved && tables.length > 0, note: `made ${JSON.stringify(tables)}; build ${moved ? "moved" : "unmoved"}` };
+      }
+      return { ok: !moved, note: moved ? "the build moved on a refusal" : "build unmoved" };
+    } },
   { name: "qr", kinds: ["qr"],
     ask: "Add a QR code that opens the booking page",
-    // The site already carries a code (sweep five placed it), so the add step
-    // must refuse a second and name the edit path.
     mayRefuse: ["already"],
-    check: (b, a) => ({ ok: a.build === b.build, note: a.build === b.build ? "build unmoved" : "the build moved on a refusal" }) },
+    check: (b, a, r) => eitherWay(b, a, r, /qr\.svg|SITE_QR/i, "a code") },
   { name: "three", kinds: ["three"],
     ask: "Add a 3D model of a guitar you can spin round with the mouse",
-    // The site already carries a scene — drawn by the page rung in sweep five,
-    // stored as no design field — so "already" here proves the page-source
-    // half of the mirror.
     mayRefuse: ["already"],
-    check: (b, a) => ({ ok: a.build === b.build, note: a.build === b.build ? "build unmoved" : "the build moved on a refusal" }) },
+    check: (b, a, r) => eitherWay(b, a, r, /<canvas\b/i, "a scene") },
   { name: "photo", kinds: ["photo"], hop: "picture",
     ask: "Add a photograph of the teaching room to the home page",
     // The add step hands a photograph to the picture rung. The hop itself is

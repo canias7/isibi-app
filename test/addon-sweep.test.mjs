@@ -36,18 +36,47 @@ test("every kind has a case and every case names kinds the step has", () => {
   assert.ok(ADD_KINDS.length >= 6, "the observer is alive");
 });
 
+// The trace each refusal case reads off the page, and the reply a real
+// addition of it carries — derived per case, so a case added without one
+// fails the guard below by name rather than passing vacuously.
+const REFUSAL_FIXTURES = {
+  qr: { html: '<html><img src="/qr.svg" alt="Scan to ring and book"></html>', reply: { ok: true, added: [], changed: ["index.tsx"], moved: ["qr"] } },
+  three: { html: "<html><canvas width=\"1096\" height=\"420\"></canvas></html>", reply: { ok: true, added: [], changed: ["index.tsx"], moved: ["three"] } },
+  // BLIND: a database leaves no mark on the page, so the table check cannot
+  // tell a right refusal from a wrong one — it holds only that a refusal
+  // leaves the build unmoved. Said here rather than pretended.
+  table: { html: "<html></html>", blind: true, reply: { ok: true, added: [], changed: ["index.tsx"], tables: ["bookings"] } },
+};
+
 test("every case can be judged, and judges the site rather than the reply", () => {
   const same = { build: "b1", status: 200, html: "<html></html>", text: "Sheffield Beginner Guitar", hrefs: ["/"], routes: ["/"] };
   for (const c of CASES) {
     assert.equal(typeof c.ask, "string", c.name + ": no ask");
     assert.ok(c.ask.trim().length > 10, c.name + ": an ask too short to route");
     assert.equal(typeof c.check, "function", c.name + ": no check");
-    // A refusal case passes on an unmoved build — that is its whole claim —
-    // and the hop case passes on the hop; the rest must FAIL against a site
-    // that did not change.
+    // A REFUSAL CASE IS JUDGED BOTH WAYS (run 24): a refusal is honest only
+    // when the thing was already on the page and the build stayed put; a
+    // publish is honest only when it was not there, is now, and the build
+    // moved. The refusal-only shape called run 24's real scene a LIE.
     if (Array.isArray(c.mayRefuse)) {
-      assert.equal(c.check(same, { ...same }, {}, {}).ok, true, c.name + ": an unmoved build is not the honest-refusal pass");
-      assert.equal(c.check(same, { ...same, build: "b2" }, {}, {}).ok, false, c.name + ": a moved build on a refusal passes");
+      const fx = REFUSAL_FIXTURES[c.name];
+      assert.ok(fx, c.name + ": a refusal case with no two-way fixture — add one, or the check cannot be driven both ways");
+      const with_ = { ...same, html: fx.html };
+      assert.equal(c.check(with_, { ...with_ }, {}, {}).ok, true, c.name + ": a refusal on a site that has the thing, build unmoved, is not the honest pass");
+      assert.equal(c.check(with_, { ...with_, build: "b2" }, {}, {}).ok, false, c.name + ": a moved build on a refusal passes");
+      if (!fx.blind) {
+        assert.equal(c.check(same, { ...same }, {}, {}).ok, false, c.name + ": a refusal on a site WITHOUT the thing passes — the refusal was wrong");
+        assert.equal(c.check(same, { ...same, build: "b2" }, fx.reply, {}).ok, false, c.name + ": a claimed addition that left no trace on the page passes");
+        // A SECOND ONE IS NOT AN ADDITION: the wall should have refused a site
+        // that already carried the thing, so a publish there is a lie too.
+        // Found by a survivor: with `!had` dropped the guard was silent.
+        assert.equal(c.check(with_, { ...with_, build: "b2" }, fx.reply, {}).ok, false, c.name + ": a publish on a site that already had the thing passes — the wall should have refused");
+      }
+      assert.equal(c.check(same, { ...with_, build: "b2" }, fx.reply, {}).ok, true, c.name + ": a real addition — not there, then there, build moved — is called a lie");
+      assert.equal(c.check(same, { ...with_ }, fx.reply, {}).ok, false, c.name + ": a claimed addition with the build unmoved passes");
+      // A CLAIMED ADDITION THAT MADE NOTHING: the reply without its evidence.
+      const bare = { ...fx.reply, tables: [], moved: [] };
+      if (fx.blind) assert.equal(c.check(same, { ...with_, build: "b2" }, bare, {}).ok, false, c.name + ": a publish that made no table passes");
       continue;
     }
     if (c.hop) {
