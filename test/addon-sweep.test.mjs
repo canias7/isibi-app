@@ -61,6 +61,23 @@ test("every case can be judged, and judges the site rather than the reply", () =
   }
 });
 
+test("the component case is judged on the words landing on the page, not on the reply's claim", () => {
+  // FOUND BY A MUTANT: with the words check cut to `true`, the guard above
+  // still passed, because it only drives the check against a site that did
+  // not change — where `changed: []` fails it for another reason. A reply
+  // that CLAIMS the home page changed, on a build that moved, with not a
+  // word of the addition on the page, is the lie this check exists to catch.
+  const c = CASES.find((x) => x.name === "component");
+  const before = { build: "b1", text: "Sheffield Beginner Guitar. Lessons in Crookes.", hrefs: [], routes: ["/"] };
+  const claimed = { ok: true, changed: ["index.tsx"], added: [] };
+  const unchanged = { ...before, build: "b2" };
+  assert.equal(c.check(before, unchanged, claimed, {}).ok, false, "a claimed change with no new words on the page passes");
+  const landed = { ...before, build: "b2", text: before.text + " What students say. " + "A great teacher, patient and clear. ".repeat(4) };
+  assert.equal(c.check(before, landed, claimed, {}).ok, true, "the real thing is called a lie");
+  assert.equal(c.check(before, landed, { ok: true, changed: [], added: [] }, {}).ok, false, "words on the page with no page claimed changed passes");
+  assert.equal(c.check(before, { ...landed, build: "b1" }, claimed, {}).ok, false, "an unmoved build passes");
+});
+
 test("the refusal cases are driven to refusals the route really emits, and the hop names a real edit layer", () => {
   const b = W.slice(W.indexOf("\n          if (ad) {"), W.indexOf("\n          if (tx) {"));
   assert.ok(b.length > 1000, "the addon block is gone");
@@ -91,7 +108,7 @@ test("the harness posts to the addon route, follows one hop to the edit route, a
 
 test("chooseCases refuses a stranger before anything is spent and forgives punctuation", () => {
   assert.deepEqual(chooseCases("all", CASES), CASES.map((c) => c.name));
-  assert.deepEqual(chooseCases(" page, section. ", CASES), ["page", "section"]);
+  assert.deepEqual(chooseCases(" page, component. ", CASES), ["page", "component"]);
   assert.deepEqual(chooseCases("qr,qr", CASES), ["qr"]);
   assert.throws(() => chooseCases("page,nope", CASES), /not a case: "nope"/);
 });
@@ -106,5 +123,8 @@ test("the workflow runs this harness behind the `addon` word and says what it co
   const run = WF.split("\n").find((l) => /node scripts\/lane-sweep\.mjs/.test(l));
   assert.ok(run, "the sweep's run line is gone");
   assert.match(run, /"addon" \]; then node scripts\/addon-sweep\.mjs/, "the `addon` word does not run this harness");
-  assert.match(WF, /harness:\n\s+description: '[^']*addon \(the ADD step[^']*section,page,table,qr,three,photo/, "the harness input does not name the addon sweep and its cases");
+  // DERIVED FROM THE CASES, so a renamed kind (section → component, the
+  // owner's framing) cannot leave the form describing a case that no longer
+  // exists.
+  assert.match(WF, new RegExp("harness:\\n\\s+description: '[^']*addon \\(the ADD step[^']*" + CASES.map((c) => c.name).join(",")), "the harness input does not name the addon sweep and its cases, in order");
 });

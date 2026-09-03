@@ -711,11 +711,20 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
              6 kinds        0 required
 ```
 
-- **Six kinds, the intent router's own list**: `table` · `page` · `section` ·
-  `qr` · `three` act here; `photo` dispatches to the `picture` rung (the one
+- **Six kinds, the intent router's own list**: `table` · `page` · `component`
+  · `qr` · `three` act here; `photo` dispatches to the `picture` rung (the one
   that places a photograph and prices it; this step never buys one). **Order
   is run order** — a table before the page that shows it. `ADD_KINDS`,
   `OWN_ADDS`, `DISPATCHED_ADDS`, `addLayer` — derive, don't trust.
+  **A SECTION IS A COMPONENT** (owner, 2026-09-02: *"section is just adding a
+  new component, so its a tsx step that adds components"*). The page is a
+  tsx file made of components; what a customer calls a section, a form, a
+  map or an FAQ is a component the page does not have yet. The kind names
+  THE component — a kit part by name (the page call is shown its exact
+  props) or one written for this site (`TSX_ITEM`, the build's own escape
+  hatch, landing in `parts`) — and where on which page. An answer naming
+  neither is refused (`no-component`): a band the page writer would have to
+  invent is the reading the owner corrected.
 - **One tool per kind, one property, nothing required** — the wall, not the
   rule: a `section` tool cannot re-theme the site because there is nowhere to
   put the answer. Inside the property the kind's own `required` stands (a page
@@ -756,9 +765,10 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   (`table`) / ~35,000 (`page`, `section` — the kit's menu is most of it),
   against 93,852. **Every prompt is a placeholder**, marked so.
 - **NOT proven live.** `scripts/addon-sweep.mjs` behind `harness: addon` in
-  `lane-sweep.yml` (cases `section,page,table,qr,three,photo` on fretwork-1;
-  `table`/`qr`/`three` are driven to their honest refusals there, `photo` to
-  its hop; a page and a section are the two that publish) is what proves it.
+  `lane-sweep.yml` (cases `component,page,table,qr,three,photo` on
+  fretwork-1; `table`/`qr`/`three` are driven to their honest refusals there,
+  `photo` to its hop; a page and a component are the two that publish) is
+  what proves it.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,
@@ -771,6 +781,13 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   every one anchored on the item living in the tool** — and each was
   re-anchored on the property (the item where it lives, plus the `items:
   TABLE_ITEM` binding asserted beside it), never appeased.
+  **The section→component reframe's own sweep: 6 mutants, 6 killed, control
+  survived — one after a guard was added for it.** The harness's component
+  check cut to "words landed = true" survived, because the guard drove the
+  check only against an unchanged site, where `changed: []` fails it for
+  another reason: the recorded "a guard proves the branch it drives" shape.
+  It is driven now with a reply that claims the change on a moved build and
+  no new words on the page, which is the lie the check exists to catch.
 
 **DELETE deferred** (owner's call).
 
@@ -1101,7 +1118,7 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 310/310** against the real container; the unit suite is 4,845
+- **`site build` is 310/310** against the real container; the unit suite is 4,846
   (2026-09-02, after the ADD step split).
   **Run it with nothing else of its own already running.** It binds a fixed port,
   so a leftover `build-server.mjs` from an earlier run makes the new one's

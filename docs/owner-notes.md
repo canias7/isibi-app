@@ -1649,8 +1649,11 @@ sentence and nothing else.
 build):
 
 1. A small picker reads the message and names WHAT is being added — one of
-   six kinds: a **table** (something to store), a **page**, a **section** on
-   a page it has, a **QR code**, a **3D scene**, a **photograph**.
+   six kinds: a **table** (something to store), a **page**, a **component**
+   on a page it has (your call the same evening: "section is just adding a
+   new component, so its a tsx step that adds components" — the kind names
+   the component, from the kit or written for the site, and an answer that
+   names none is refused), a **QR code**, a **3D scene**, a **photograph**.
 2. One small designer per kind, in your words for ADDING to a site that
    exists: where it goes, what it is built from, what it leads with. Each has
    one property and nothing required, so a kind that cannot answer says
@@ -1711,3 +1714,12 @@ runner never installs the kit. Green here every time, red there every time,
 and nobody looked. Fixed: TypeScript is declared at the root so the runner
 has it, and the guard uses either copy. Proven by hiding the kit's copy and
 running the guard on the root's.
+
+**Section → component, the same evening.** Your correction — "section is
+just adding a new component, so its a tsx step that adds components" —
+is in: the kind is `component`, it names the component (from the kit, or
+written for the site), and an answer that names none is refused rather
+than handed to the page writer to invent. Sweep for the change: 6
+mutants, 6 killed, control survived — one only after I added the guard it
+showed was missing (the harness could have stopped checking that the new
+words actually landed on the page and nothing would have noticed).

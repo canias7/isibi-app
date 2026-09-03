@@ -23,8 +23,10 @@
 //
 // This module imports NOTHING from worker.js and nothing from the build's
 // tool. Every word here is written for somebody ADDING to a site that exists:
-// a page it has no page for, a section on a page it has, a table it has no
-// table for, a QR code, a 3D scene, a photograph where there is none. What it
+// a page it has no page for, a component on a page it has (owner, 2026-09-02:
+// "section is just adding a new component, so its a tsx step that adds
+// components"), a table it has no table for, a QR code, a 3D scene, a
+// photograph where there is none. What it
 // shares with the build are SHAPES, never wording — the table item
 // (`TABLE_ITEM`), the hand-written-component item (`TSX_ITEM`), the kit's
 // menu — from the modules both paths may read, exactly as `site-lanes.mjs`
@@ -49,7 +51,7 @@
 //
 // ── THE WALL, NOT THE RULE ───────────────────────────────────────────────────
 //
-// A `section` add cannot re-theme the site or rename it, not because it is
+// A `component` add cannot re-theme the site or rename it, not because it is
 // told not to but because its tool has one property and there is nowhere to
 // put the answer. This repo's record is that a rule in prose is one a model
 // eventually reads past; a property that does not exist is not.
@@ -121,9 +123,14 @@ export const ADD_LAYER = { picture: "picture" };
  * The list is the intent router's own promise (`site-ask.mjs`: "a page it has
  * no page for, a table it needs to STORE something it has no table for, or a
  * section, a QR code, a 3D scene, a form, a map or a photograph on a page that
- * does not have one"). A form and a map are sections; the rest are here by
- * name. Order is run order: a table before the page that shows it, so the page
- * call sees the schema; a code and a scene after the page they land on.
+ * does not have one"). A section, a form and a map are COMPONENTS — the
+ * owner's framing (2026-09-02): "section is just adding a new component, so
+ * its a tsx step that adds components". The page is source; what is added to
+ * it is a component, picked from the kit by name or written for this site
+ * when the kit has not got it, and the step that writes pages puts it in the
+ * tsx. The rest are here by name. Order is run order: a table before the page
+ * that shows it, so the page call sees the schema; a code and a scene after
+ * the page they land on.
  *
  * `hint`  — one line, for the picker: how a customer's sentence points here.
  * `shape` — this kind's own object: what designing the addition means.
@@ -250,11 +257,21 @@ const ADDS = {
       keep:
         "THE REST OF THE SITE STAYS AS IT IS. The one page that changes beside this is the page that links to it, " +
         "and only its link. If what they asked for belongs on a page the site already has, answer nothing here — " +
-        "that is a section, not a page.",
+        "that is a component, not a page.",
     },
   },
-  section: {
-    hint: "A SECTION on a page the site already has — a band it does not have yet: testimonials, a form, a map, a price list, an FAQ, opening hours, a gallery strip. The page existing does not make it an edit; the band does not exist yet.",
+  // ── A SECTION IS A COMPONENT, AND ADDING ONE IS A TSX STEP ─────────────
+  //
+  // Owner, 2026-09-02: "section is just adding a new component, so its a
+  // tsx step that adds components". The page is a tsx file made of
+  // components; what a customer calls a section, a form, a map or an FAQ is
+  // a COMPONENT that page does not have yet. So this kind names THE
+  // component — one of the kit's 2,112 parts by name, or one written for
+  // this site when the kit has not got it (the `tsx` escape hatch, the
+  // build's own) — and where on which page it goes. The step that writes
+  // pages puts it in the tsx; a part written for this site lands in `parts`.
+  component: {
+    hint: "A NEW COMPONENT on a page the site already has — what a customer calls a section, a band or a block: testimonials, a form, a map, an FAQ, opening hours, a price list, a gallery strip, a countdown. From the kit, or written for this site when the kit has not got it. The page existing does not make it an edit; the component is not on it yet.",
     shape: {
       type: "object",
       properties: {
@@ -268,18 +285,19 @@ const ADDS = {
             "Where on that page, in the page's own terms — \"after the opening band\", \"above the contact " +
             "details\", \"at the bottom, before the footer\". Say it by what is around it.",
         },
-        purpose: {
+        does: {
           type: "string",
-          description: "One line: what this band shows and what it is for — the thing a visitor gets from it.",
+          description: "One line: what this component shows and what it is for — the thing a visitor gets from it.",
         },
         components: {
           type: "array",
           items: { type: "string" },
           maxItems: MAX_COMPONENTS,
           description:
-            "The kit parts this ONE band is built from — usually one to three. The step that writes it is " +
-            "shown the props of what you name here and nothing else. Naming a component that does not exist " +
-            "is refused and costs nothing.\n" +
+            "THE KIT COMPONENT THIS IS, by name — usually exactly one, plus a part it needs around it at most. " +
+            "The step that writes the page is shown the props of what you name here and nothing else, so the " +
+            "name IS the addition. Naming a component that does not exist is refused and costs nothing; if the " +
+            "kit has not got it, leave this empty and write it in `tsx` instead.\n" +
             "Pick from these — the whole kit, most-commonly-needed first:\n" + COMPONENT_MENU.join(", ") + ".",
         },
         tsx: {
@@ -287,25 +305,28 @@ const ADDS = {
           items: TSX_ITEM,
           maxItems: MAX_TSX,
           description:
-            "ONLY when this band needs a part the kit has not got — something you searched the list above for " +
-            "and could not find. Leave it out for nearly every section.",
+            "A COMPONENT WRITTEN FOR THIS SITE, only when the kit has not got it — something you searched the " +
+            "list above for and could not find. It is real code that will be written, so name it, say what it " +
+            "does and what the kit could not, and give its props; the page is written to call it.",
         },
       },
-      required: ["page", "purpose", "components"],
+      required: ["page", "does"],
     },
     add: {
-      is: "The new band — which page, where on it, what it shows, and the kit parts it is built from.",
+      is: "The component the page is getting — which page, where on it, what it shows, and which component it is: a kit part by name, or one written for this site.",
       yours:
-        "ANY BAND AT ALL: a form, a map, a strip of photographs, a table of prices, a set of quotes, a timeline, " +
-        "a calendar, something no other site has — from the kit or written for this site. Put it wherever on " +
-        "the page it belongs.",
+        "ANY COMPONENT AT ALL: a form, a map, a strip of photographs, a table of prices, a set of quotes, a " +
+        "timeline, a calendar, a countdown, something no other site has — one of the kit's 2,112 parts, or " +
+        "written for this site when none of them is it. Put it wherever on the page it belongs.",
       wide:
-        "ONE BAND, ON ONE PAGE. \"Add testimonials\" is one band of quotes, not quotes on every page, not a " +
-        "quotes band plus a trust strip plus a call to action to round it off. Do not re-plan the page around " +
-        "it: the bands the page already has stay where they are, and the new one goes between them.",
+        "ONE COMPONENT, ON ONE PAGE. \"Add testimonials\" is one testimonials component, not quotes on every " +
+        "page, not a quotes block plus a trust strip plus a call to action to round it off. Do not re-plan the " +
+        "page around it: what the page already has stays where it is, and the new component goes between. " +
+        "A form that SENDS somewhere needs a table the site has; on a site with no database, a component that " +
+        "submits is a control that silently does nothing — choose one that does not, or answer nothing.",
       keep:
-        "EVERYTHING ELSE ON THAT PAGE — every other band, every sentence — comes back exactly as it is. If what " +
-        "they asked for is a whole page of its own, answer nothing here; that is a page, not a section.",
+        "EVERYTHING ELSE ON THAT PAGE — every other component, every sentence — comes back exactly as it is. " +
+        "If what they asked for is a whole page of its own, answer nothing here; that is a page, not a component.",
     },
   },
   qr: {
@@ -436,9 +457,9 @@ export function pickTool(kinds = ADD_KINDS) {
           description:
             "The kind or kinds of thing this message asks to add. ONE IS THE ORDINARY ANSWER. Name a second " +
             "only when the thing they asked for really is two things: \"a booking page\" is a `page` AND a " +
-            "`table` (the form has to send its bookings somewhere); \"a testimonials band\" is a `section` " +
-            "alone. Each name you add is a separate addition the customer pays for, so one added on a guess " +
-            "is something they did not ask for.\n" +
+            "`table` (the form has to send its bookings somewhere); \"a testimonials section\" is a " +
+            "`component` alone. Each name you add is a separate addition the customer pays for, so one added " +
+            "on a guess is something they did not ask for.\n" +
             "NEVER NAME EVERYTHING. If you cannot tell which kind they mean, name the single closest one.\n\n" +
             "The kinds:\n" + lines.join("\n"),
         },
@@ -793,12 +814,19 @@ export function cleanAdd(kind, value, site) {
       if (!sections.length && !components.length) return { ok: false, why: "no-plan" };
       return { ok: true, value: { path, file: fileOfRoute(path), name, purpose, sections, components, tsx: parts(v.tsx), link: str(v.link, 200) } };
     }
-    case "section": {
+    case "component": {
       const page = onPage(v.page);
       if (!page) return { ok: false, why: "no-page" };
-      const purpose = str(v.purpose, 300);
-      if (!purpose) return { ok: false, why: "no-plan" };
-      return { ok: true, value: { page, where: str(v.where, 200), purpose, components: names(v.components, MAX_COMPONENTS), tsx: parts(v.tsx) } };
+      const does = str(v.does, 300);
+      if (!does) return { ok: false, why: "no-plan" };
+      const components = names(v.components, MAX_COMPONENTS);
+      const tsx = parts(v.tsx);
+      // THE COMPONENT IS THE ADDITION: an answer that names none — no kit
+      // part and nothing written for this site — is a band the page writer
+      // would have to invent, which is the old "section" reading the owner
+      // corrected. Refused by name.
+      if (!components.length && !tsx.length) return { ok: false, why: "no-component" };
+      return { ok: true, value: { page, where: str(v.where, 200), does, components, tsx } };
     }
     case "table": {
       const t = v.table && typeof v.table === "object" && !Array.isArray(v.table) ? v.table : null;
@@ -844,6 +872,7 @@ export function addRefusal(why, kind) {
     case "no-path": return "I couldn't tell what address the new page should have — say it, like /gallery.";
     case "no-page": return "I couldn't tell which page that goes on — name the page.";
     case "no-plan": return "I couldn't work out what to put on it from that — say what it should show.";
+    case "no-component": return "I couldn't tell which component to add — say what you want on the page: a form, a map, an FAQ, testimonials, a price list…";
     case "no-table": return "I couldn't tell what the site should store from that — say what a visitor sends in, or what the business keeps.";
     case "no-columns": return "That table would have nothing in it — say what it should hold.";
     case "no-destination": return "A QR code needs a real destination — a link, a phone number, a wifi network — and that wasn't in the message. Nothing was changed.";
@@ -895,13 +924,16 @@ export function addDirective(kind, value, site) {
       out.push("- Link it from " + (v.link || "the header menu") + ": return that page too, with the link added and nothing else changed.");
       break;
     }
-    case "section": {
-      out.push("## The section you are adding");
+    case "component": {
+      const kit = Array.isArray(v.components) ? v.components : [];
+      const own = Array.isArray(v.tsx) ? v.tsx : [];
+      out.push("## The component you are adding");
       out.push("- On " + at(v.page) + ", " + (v.where || "where it belongs in the page's order") + ".");
-      out.push("LAYOUT — " + v.purpose + ".");
+      out.push("- " + v.does + ".");
       if (s.kind === "tool") out.push(TOOL_DIRECTIVE);
-      if (Array.isArray(v.components) && v.components.length) out.push("Reach first for: " + v.components.join(", ") + ".");
-      out.push("- Return that ONE page with the band added between the bands it has; every other band and every sentence byte-identical. No new file.");
+      if (kit.length) out.push("- The kit component" + (kit.length === 1 ? "" : "s") + ": " + kit.join(", ") + " — its exact props are listed above; call it, do not rewrite it.");
+      if (own.length) out.push("- Written for this site: " + own.map((p) => p.name + " (" + p.props + ")").join("; ") + " — write it as a part and call it from the page.");
+      out.push("- Return that ONE page with the component added between what it has; every other component and every sentence byte-identical. No new page file.");
       break;
     }
     case "table": {

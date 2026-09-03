@@ -1,6 +1,7 @@
-// The addon sweep: one real ask per KIND the ADD step can add, posted straight
-// to the addon route on a live site, and after each the SITE is read to see
-// whether the thing is there.
+// The addon sweep: one real ask per KIND the ADD step can add (a component, a
+// page, a table, a code, a scene, a photograph), posted straight to the addon
+// route on a live site, and after each the SITE is read to see whether the
+// thing is there.
 //
 // ── WHY A THIRD HARNESS ────────────────────────────────────────────────────
 //
@@ -128,7 +129,9 @@ async function snapshot() {
 // the CORRECT answer on this site — a pass with a note, never a failure.
 // `hop` names the edit layer the reply must escalate to.
 export const CASES = [
-  { name: "section", kinds: ["section"],
+  // A SECTION IS A COMPONENT (owner, 2026-09-02): the ask is a customer's
+  // word for it; the step names a kit component or writes one.
+  { name: "component", kinds: ["component"],
     ask: "Add a testimonials section to the home page with three short quotes from beginner students",
     check: (b, a, r) => {
       const changed = (Array.isArray(r.changed) ? r.changed : []).map(sitePathOf);
@@ -149,7 +152,7 @@ export const CASES = [
       return { ok: !!(one && served && listed && linked && a.build !== b.build),
                note: `added ${JSON.stringify(fresh)}; ${one || "(no route)"} answers ${x.newStatus}; ${listed ? "in" : "NOT in"} the sitemap; ${linked ? "linked" : "NOT linked"} from the home page` };
     } },
-  { name: "table", kinds: ["table", "page", "section"],
+  { name: "table", kinds: ["table", "page", "component"],
     ask: "Add a booking form so students can book a trial lesson with their name, email and preferred day",
     // fretwork-1 has no database, so the honest answer is the named refusal.
     mayRefuse: ["no-database"],

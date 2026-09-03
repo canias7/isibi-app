@@ -10,8 +10,8 @@
 # from a branch runs the branch's copy of it.
 #
 # AND THE ADDON SWEEP (2026-09-02), the third harness behind the same input:
-# one ask per KIND the ADD step can add (a section, a page, a table, a code, a
-# scene, a photograph), posted straight to the addon route and judged on the
+# one ask per KIND the ADD step can add (a component, a page, a table, a code,
+# a scene, a photograph), posted straight to the addon route and judged on the
 # live site. See scripts/addon-sweep.mjs. The addon route is synchronous —
 # not on the queue — so each case is one long request.
 #
@@ -39,7 +39,7 @@ on:
         required: true
         default: ''
       harness:
-        description: 'lane (one ask per design field) | gap (the rungs no lane reaches: text,logo,cancel,move,move-back,remove,data,rules,backend) | addon (the ADD step, one ask per kind: section,page,table,qr,three,photo)'
+        description: 'lane (one ask per design field) | gap (the rungs no lane reaches: text,logo,cancel,move,move-back,remove,data,rules,backend) | addon (the ADD step, one ask per kind: component,page,table,qr,three,photo)'
         required: false
         default: 'lane'
       lanes:

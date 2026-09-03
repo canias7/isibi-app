@@ -74,8 +74,11 @@ test("the kinds are two disjoint groups that cover the list, and a dispatched ki
     const layer = addLayer(k);
     assert.ok(EDIT_LAYERS.includes(layer), `${k} dispatches to "${layer}", which is not an edit layer the route has`);
   }
-  // The intent router promises these by name; each is a kind or a section.
-  for (const k of ["page", "table", "section", "qr", "three", "photo"]) assert.ok(ADD_KINDS.includes(k), "no kind for " + k);
+  // The intent router promises these by name; a section, a form and a map
+  // are components (owner, 2026-09-02: "section is just adding a new
+  // component, so its a tsx step that adds components").
+  for (const k of ["page", "table", "component", "qr", "three", "photo"]) assert.ok(ADD_KINDS.includes(k), "no kind for " + k);
+  assert.ok(!ADD_KINDS.includes("section"), "a section is a component, not a kind of its own");
   // `Object.hasOwn`, never truthiness — the Stripe plan lookup's bug.
   assert.equal(addLayer("constructor"), null);
   assert.equal(addLayer(["photo"]), null);
@@ -120,7 +123,7 @@ test("the table kind asks for the ONE table shape the build asks for — by iden
   assert.deepEqual(build.input_schema.properties.backend.properties.tables.items, TABLE_ITEM,
     "the build tool's table item is not the shared one — two shapes of a table again");
   // …and the part shape, for the two kinds that may declare one.
-  for (const k of ["page", "section"]) {
+  for (const k of ["page", "component"]) {
     assert.equal(addTool(k).input_schema.properties[k].properties.tsx.items, TSX_ITEM, k + " declares parts in a shape of its own");
     assert.equal(addTool(k).input_schema.properties[k].properties.tsx.maxItems, MAX_TSX);
     assert.equal(addTool(k).input_schema.properties[k].properties.components.maxItems, MAX_COMPONENTS);
@@ -195,7 +198,7 @@ test("the picking request and the add request are cached where they must be and 
   assert.equal(p.tool_choice.name, "pick_adds");
   assert.ok(p.tools[0].cache_control && p.system[0].cache_control, "the picker's fixed blocks are not cached");
   assert.match(p.messages[0].content, /^The site is called X\.\n\nTheir message:\nAdd a gallery page$/);
-  const a = addRequest({ kind: "section", message: "x".repeat(MAX_MESSAGE + 50), site: SITE, model: "sentinel-model" });
+  const a = addRequest({ kind: "component", message: "x".repeat(MAX_MESSAGE + 50), site: SITE, model: "sentinel-model" });
   assert.equal(a.model, "sentinel-model");
   assert.equal(a.tool_choice.name, "add_to_site");
   assert.ok(a.tools[0].cache_control && a.system[0].cache_control, "the add's fixed blocks are not cached");
@@ -221,9 +224,9 @@ test("the site note says names, not contents, and says a missing database out lo
 
 test("pickAdds and runAdd are driven through a fake send: a throw is carried, a truncation is named, a decline is nothing", async () => {
   const sent = [];
-  const send = async (req) => { sent.push(req); return toolReply("pick_adds", { kinds: ["section"] }); };
+  const send = async (req) => { sent.push(req); return toolReply("pick_adds", { kinds: ["component"] }); };
   const picked = await pickAdds({ send }, { message: "Add testimonials", model: "m1" });
-  assert.deepEqual(picked.kinds, ["section"]);
+  assert.deepEqual(picked.kinds, ["component"]);
   assert.equal(picked.usage.model, "m1", "the usage is not tagged with the model that was sent");
   assert.equal(picked.usage.cacheRead, 100);
   assert.equal(sent.length, 1);
@@ -234,16 +237,16 @@ test("pickAdds and runAdd are driven through a fake send: a throw is carried, a 
   const failed = await pickAdds({ send: async () => { throw boom; } }, { message: "x" });
   assert.equal(failed.failed, true); assert.equal(failed.error, boom); assert.deepEqual(failed.kinds, []);
 
-  const ran = await runAdd({ send: async () => toolReply("add_to_site", { section: { page: "/", purpose: "quotes", components: ["testimonial"] } }) },
-    { kind: "section", message: "x", site: SITE, model: "m2" });
+  const ran = await runAdd({ send: async () => toolReply("add_to_site", { component: { page: "/", does: "quotes", components: ["testimonial"] } }) },
+    { kind: "component", message: "x", site: SITE, model: "m2" });
   assert.equal(ran.failed, false);
-  assert.deepEqual(ran.value, { page: "/", purpose: "quotes", components: ["testimonial"] });
+  assert.deepEqual(ran.value, { page: "/", does: "quotes", components: ["testimonial"] });
   assert.equal(ran.usage.model, "m2");
-  const cut = await runAdd({ send: async () => toolReply("add_to_site", { section: {} }, { stop_reason: "max_tokens" }) }, { kind: "section", message: "x", site: SITE, model: "m2" });
+  const cut = await runAdd({ send: async () => toolReply("add_to_site", { component: {} }, { stop_reason: "max_tokens" }) }, { kind: "component", message: "x", site: SITE, model: "m2" });
   assert.equal(cut.failed, true); assert.equal(cut.error.truncated, true); assert.ok(cut.usage, "a truncated call's usage is dropped, so it is not billed");
-  const dead = await runAdd({ send: async () => { throw boom; } }, { kind: "section", message: "x", site: SITE, model: "m2" });
+  const dead = await runAdd({ send: async () => { throw boom; } }, { kind: "component", message: "x", site: SITE, model: "m2" });
   assert.equal(dead.failed, true); assert.equal(dead.error, boom);
-  const declined = await runAdd({ send: async () => toolReply("add_to_site", { section: null }) }, { kind: "section", message: "x", site: SITE, model: "m2" });
+  const declined = await runAdd({ send: async () => toolReply("add_to_site", { component: null }) }, { kind: "component", message: "x", site: SITE, model: "m2" });
   assert.equal(declined.failed, false); assert.equal(declined.value, undefined);
   assert.equal(readAddAnswer(toolReply("add_to_site", {}), "page"), undefined);
   assert.equal(addUsage({}, "m"), null);
@@ -283,13 +286,21 @@ test("cleanAdd: a page is repaired where it can be and refused where a guess wou
   assert.equal(cleanAdd("nope", {}, SITE).why, "no-kind");
 });
 
-test("cleanAdd: a section lands on the one page a one-page site has, and is refused on a many-page site it cannot name", () => {
-  const one = cleanAdd("section", { page: "/testimonials", purpose: "quotes", components: ["testimonial"], where: "after the hero" }, SITE);
+test("cleanAdd: a component lands on the one page a one-page site has, is refused on a many-page site it cannot name, and IS a component", () => {
+  const one = cleanAdd("component", { page: "/testimonials", does: "quotes", components: ["testimonial"], where: "after the hero" }, SITE);
   assert.equal(one.ok, true); assert.equal(one.value.page, "/"); assert.equal(one.value.where, "after the hero");
-  assert.equal(cleanAdd("section", { page: "/nope", purpose: "quotes", components: [] }, MULTI).why, "no-page");
-  assert.equal(cleanAdd("section", { page: "about", purpose: "quotes", components: [] }, MULTI).value.page, "/about");
-  assert.equal(cleanAdd("section", { purpose: "quotes", components: [] }, MULTI).value.page, "/", "no page named on a site with a home page is the home page");
-  assert.equal(cleanAdd("section", { page: "/", components: ["x"] }, SITE).why, "no-plan");
+  assert.deepEqual(one.value.components, ["testimonial"]);
+  assert.equal(cleanAdd("component", { page: "/nope", does: "quotes", components: ["testimonial"] }, MULTI).why, "no-page");
+  assert.equal(cleanAdd("component", { page: "about", does: "quotes", components: ["testimonial"] }, MULTI).value.page, "/about");
+  assert.equal(cleanAdd("component", { does: "quotes", components: ["testimonial"] }, MULTI).value.page, "/", "no page named on a site with a home page is the home page");
+  assert.equal(cleanAdd("component", { page: "/", components: ["x"] }, SITE).why, "no-plan");
+  // THE COMPONENT IS THE ADDITION (owner: "a tsx step that adds components"):
+  // an answer that names no kit part and writes none is a band the page
+  // writer would have to invent — the reading the owner corrected.
+  assert.equal(cleanAdd("component", { page: "/", does: "quotes", components: [] }, SITE).why, "no-component");
+  assert.equal(cleanAdd("component", { page: "/", does: "quotes", components: ["not a name"] }, SITE).why, "no-component");
+  const own = cleanAdd("component", { page: "/", does: "a tide clock", components: [], tsx: [{ name: "tide-clock", does: "shows the tide", props: "port: string" }] }, SITE);
+  assert.equal(own.ok, true); assert.deepEqual(own.value.components, []); assert.equal(own.value.tsx[0].name, "tide-clock");
 });
 
 test("cleanAdd: a table needs a name and columns unless it gives an existing table payment or a public view", () => {
@@ -333,11 +344,18 @@ test("the directive says what is new, where it goes and what it is built from �
   assert.match(d, /Link it from the header menu/);
   assert.ok(!d.includes(TOOL_DIRECTIVE), "a shopfront got the tool block");
   assert.ok(addDirective("page", page, { ...SITE, kind: "tool" }).includes(TOOL_DIRECTIVE), "a tool site did not get the tool block");
-  const section = cleanAdd("section", { page: "/", where: "after the hero", purpose: "quotes", components: ["testimonial"] }, SITE).value;
-  const s = addDirective("section", section, SITE);
+  const component = cleanAdd("component", { page: "/", where: "after the hero", does: "quotes from students", components: ["testimonial"] }, SITE).value;
+  const s = addDirective("component", component, SITE);
+  assert.match(s, /^## The component you are adding/);
   assert.match(s, /On the home page \(index\.tsx\), after the hero/);
-  assert.match(s, /byte-identical/); assert.match(s, /No new file/);
-  assert.ok(addDirective("section", section, { ...SITE, kind: "tool" }).includes(TOOL_DIRECTIVE));
+  assert.match(s, /quotes from students/);
+  assert.match(s, /The kit component: testimonial — its exact props are listed above; call it, do not rewrite it/);
+  assert.match(s, /byte-identical/); assert.match(s, /No new page file/);
+  assert.ok(addDirective("component", component, { ...SITE, kind: "tool" }).includes(TOOL_DIRECTIVE));
+  // One written for this site is named as a part, with its props.
+  const own = addDirective("component", { page: "/", where: "", does: "the tide", components: [], tsx: [{ name: "tide-clock", does: "x", props: "port: string" }] }, SITE);
+  assert.match(own, /Written for this site: tide-clock \(port: string\) — write it as a part and call it from the page/);
+  assert.ok(!/The kit component/.test(own), "a part written for this site is not called a kit component");
   const table = cleanAdd("table", { table: { name: "bookings", columns: [{ name: "when" }] }, seed: [{ when: "x" }], shows: "/book" }, DB).value;
   const t = addDirective("table", table, DB);
   assert.match(t, /`bookings`/); assert.match(t, /1 starter rows/); assert.match(t, /\/book \(book\.tsx\)/); assert.match(t, /changes|adds/);
@@ -352,7 +370,7 @@ test("foldAdds appends the parts by name over the stored ones, folds the tables 
   const answers = [
     { kind: "table", value: cleanAdd("table", { table: { name: "bookings", columns: [{ name: "when" }] }, seed: [{ when: "x" }], shows: "/book" }, DB).value },
     { kind: "page", value: cleanAdd("page", { path: "/book", name: "Book", purpose: "book", sections: ["form"], components: ["site-chrome", "form-shell"], tsx: [{ name: "slot-picker", does: "picks", props: "s" }, { name: "chord-diagram", does: "chords, redone", props: "p2" }] }, SITE).value },
-    { kind: "section", value: cleanAdd("section", { page: "/", purpose: "quotes", components: ["testimonial", "site-chrome"] }, SITE).value },
+    { kind: "component", value: cleanAdd("component", { page: "/", does: "quotes", components: ["testimonial", "site-chrome"] }, SITE).value },
     { kind: "qr", value: { points: "tel:0114", label: "Ring", page: "/", where: "" } },
     { kind: "three", value: { scene: "a pick", page: "/" } },
     null, { kind: "photo" },
@@ -379,7 +397,7 @@ test("foldAdds appends the parts by name over the stored ones, folds the tables 
 });
 
 test("every refusal token has a sentence of its own, and the already-reply names the door that changes it", () => {
-  const tokens = ["page-exists", "no-path", "no-page", "no-plan", "no-table", "no-columns", "no-destination", "no-scene"];
+  const tokens = ["page-exists", "no-path", "no-page", "no-plan", "no-component", "no-table", "no-columns", "no-destination", "no-scene"];
   const seen = new Set();
   for (const t of tokens) {
     const s = addRefusal(t, "page");

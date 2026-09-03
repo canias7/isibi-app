@@ -242,13 +242,20 @@ hand-written-part item (`TSX_ITEM`) and the kit's menu — never a description.
                            └──► picture                 ← photo, one hop sideways
 ```
 
-**Six kinds, the intent router's own list**: `table` · `page` · `section` ·
+**Six kinds, the intent router's own list**: `table` · `page` · `component` ·
 `qr` · `three` act here, `photo` dispatches to the picture rung (the one that
 places a photograph and prices it; this step never buys one). Order is run
 order — a table before the page that shows it. Each acting kind has a
 four-part rule (`is` · `yours` · `wide` · `keep`), a shape of its own, and a
 tool with ONE property and nothing required, so a kind that cannot answer
 returns nothing and the route says so.
+
+**A section is a component** (owner, 2026-09-02: *"section is just adding a
+new component, so its a tsx step that adds components"*). The page is a tsx
+file made of components, so what a customer calls a section, a form, a map or
+an FAQ is a component the page does not have yet: the kind names it — a kit
+part by name, or one written for this site — and where on which page, and the
+page call puts it in the tsx. An answer naming no component is refused.
 
 **What was mixed, and what it cost.** The route called `designSiteSchema` —
 the build's 93,852-character tool anchored on the stored look — and read four
