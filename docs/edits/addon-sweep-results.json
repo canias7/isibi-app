@@ -1,0 +1,19 @@
+{
+  "at": "2026-09-03T01:29:47.601Z",
+  "site": "fretwork-1",
+  "start": 207,
+  "end": 207,
+  "results": [
+    {
+      "name": "component",
+      "kinds": [],
+      "verdict": "NO ANSWER",
+      "note": "the request died: ECONNRESET",
+      "cost": 0,
+      "wall": 258,
+      "build": "mtkckb7z-znn7zw",
+      "pickedRight": true,
+      "shots": []
+    }
+  ]
+}
