@@ -111,6 +111,13 @@ test("every field the edit path refuses to create has a kind here, and the route
   // …and the addon's picker is shown the site's codes as the LIST, so the
   // designer names a new one against every name and destination it has.
   assert.match(b, /qr: qrList\(aLook\.qr\),/, "the addon's site note is not handed the stored codes as a list");
+  // …AND THE SITE'S OWN ADDRESS (run 26, 2026-09-03), read by the one reader
+  // of the public address, so a code that opens one of the site's pages has
+  // a real destination — the designer answered nothing without it. A read
+  // that fails leaves it blank rather than refusing every other kind.
+  assert.match(b, /let aUrl = "";\s*try \{ aUrl = await publicUrlFor\(env, ownerSlug\); \} catch \{ aUrl = ""; \}/, "the addon does not read the site's public address, or a failed read is not blank");
+  const siteLit = b.slice(b.indexOf("const aSite = {"), b.indexOf("};", b.indexOf("const aSite = {")));
+  assert.match(siteLit, /\burl: aUrl,/, "the site note is not handed the address");
   // …and "has" is read the way the wall reads it: the stored look OR the page.
   assert.match(b, /aHas\[f\] = hasLookField\(aLook, f\) \|\| \(aSrc \|\| \[\]\)\.some\(\(p\) => ADD_EVIDENCE\[f\]\.test/, "the addon reads 'already has' off the stored look alone — run 12's misfire");
 });
@@ -293,6 +300,19 @@ test("the site note says names, not contents, and says a missing database out lo
   assert.match(db, /parts written for it: chord-diagram/);
   assert.ok(!/\{|\[/.test(db), "the note prints a structure rather than names");
   assert.match(siteNote(null), /\(unnamed\)/);
+  // ITS ADDRESS (run 26, 2026-09-03): the QR designer answered nothing for
+  // "a code that opens the booking page" because it may not invent a
+  // destination and was never told where the site lives. Said with one of
+  // the site's real pages resolved as the example, and only when there is
+  // an address to say.
+  const addressed = siteNote({ ...MULTI, url: "https://fretwork-1.gofarther.app/" });
+  assert.match(addressed, /Its address is https:\/\/fretwork-1\.gofarther\.app\/ — /, "the designer is not told the site's address");
+  assert.match(addressed, /\(https:\/\/fretwork-1\.gofarther\.app\/about\)/, "the example is not one of the site's own pages resolved against the address");
+  assert.match(addressed, /real destination/, "the note does not say the site's own pages are real destinations");
+  assert.match(siteNote({ ...SITE, url: "https://x.test" }), /\(https:\/\/x\.test\/\)/, "a one-page site's example is not its home page");
+  assert.ok(!/address/.test(siteNote(SITE)), "a site with no address is told one");
+  assert.ok(!/address/.test(siteNote({ ...SITE, url: "fretwork-1.gofarther.app" })), "a bare host is used as an address");
+  assert.ok(!/address/.test(siteNote({ ...SITE, url: ["https://x.test"] })), "an array was coerced to an address");
 });
 
 test("pickAdds and runAdd are driven through a fake send: a throw is carried, a truncation is named, a decline is nothing", async () => {
@@ -453,6 +473,22 @@ test("cleanAdd: a code needs both halves and a name the site does not use; a sce
   assert.equal(cleanAdd("qr", { name: "qr", points: "https://x.test", label: "Menu" }, LEGACY).why, "same-name", "the old single code is not read as the name `qr`");
   const FULL = { ...SITE, qr: Array.from({ length: MAX_QRS }, (_, i) => ({ name: "c" + i, points: "https://x.test/" + i, label: "L" + i })) };
   assert.equal(cleanAdd("qr", { name: "more", points: "https://y.test", label: "More" }, FULL).why, "too-many");
+  // THE SITE'S OWN PAGES ARE REAL DESTINATIONS (run 26, 2026-09-03): a bare
+  // route is resolved against the site's address; a route the site lacks, or
+  // an address the route could not read, is a named refusal, never a guess.
+  const AT = { ...MULTI, url: "https://fretwork-1.gofarther.app/" };
+  assert.equal(cleanAdd("qr", { points: "/about", label: "About us" }, AT).value.points, "https://fretwork-1.gofarther.app/about", "a route of the site's own is not resolved against its address");
+  assert.equal(cleanAdd("qr", { points: "/", label: "Book a lesson" }, AT).value.points, "https://fretwork-1.gofarther.app/", "the home page is not a destination");
+  assert.equal(cleanAdd("qr", { points: "/About/", label: "About" }, AT).value.points, "https://fretwork-1.gofarther.app/about", "a route is not normalised the way the site's own are");
+  assert.equal(cleanAdd("qr", { points: "/nope", label: "x" }, AT).why, "no-such-page", "a code pointing at a page the site lacks is not refused");
+  assert.equal(cleanAdd("qr", { points: "/about", label: "x" }, MULTI).why, "no-address", "a route with no address to resolve against is not refused");
+  assert.equal(cleanAdd("qr", { points: "https://elsewhere.test/x", label: "x" }, AT).value.points, "https://elsewhere.test/x", "a full URL is rewritten");
+  assert.equal(cleanAdd("qr", { points: "tel:0114", label: "x" }, AT).value.points, "tel:0114", "a non-URL destination is rewritten");
+  // …and the designer is TOLD both halves of that: the tool says a route is a
+  // real answer, and the rule says the site's own pages are not invented —
+  // without either, run 26's model answers nothing again, honestly.
+  assert.match(addTool("qr").input_schema.properties.qr.properties.points.description, /route/, "the tool does not say a route of the site's own is an answer");
+  assert.match(addRule("qr"), /own pages are NOT invented/, "the rule does not except the site's own pages from never-invent");
   const three = cleanAdd("three", { scene: "a spinning pick", page: "/" }, SITE);
   assert.deepEqual(three, { ok: true, value: { scene: "a spinning pick", page: "/" } });
   assert.equal(cleanAdd("three", { page: "/" }, SITE).why, "no-scene");
@@ -541,7 +577,10 @@ test("every refusal token has a sentence of its own, and the already-reply names
     // The QR list's own refusals (2026-09-03): a code the site cannot take
     // another of, by name or by destination; a destination a QR may not
     // carry; a caption that yields no name; a site at the ceiling.
-    "bad-destination", "no-name", "same-name", "same-code", "too-many"];
+    "bad-destination", "no-name", "same-name", "same-code", "too-many",
+    // Run 26: a code opening one of the site's own pages — a page it lacks,
+    // or an address the route could not read.
+    "no-such-page", "no-address"];
   const seen = new Set();
   for (const t of tokens) {
     const s = addRefusal(t, "page");

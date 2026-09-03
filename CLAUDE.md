@@ -957,6 +957,37 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   **Not proven live yet** — the next `harness: addon` run with lanes `qr` on
   fretwork-1 (~12 credits, the site has one code that rings the number, the
   ask adds one that opens the booking page) is what proves it.
+  **RUN 26 (2026-09-03 12:53Z, `qr`, 170 → 170): THE DESIGNER ANSWERED
+  NOTHING, HONESTLY.** The first time the `qr` designer has ever run live
+  (runs 21–24 never reached it: the wall refused first). The picker named
+  `qr` in 23 s, the designer answered nothing in 21 s, the route answered
+  422 `declined` ("I couldn't work out what to add from that"), cost 0,
+  build unmoved (job `add453b86…`, trace `e_mtlj0cy29y1ubo1a`, `add:qr`
+  `answered: false`). **The cause was in the prompt, read back locally
+  without a model call**: the note told the designer the site's PAGES
+  (`/`, `/prices`) and never its ADDRESS, the tool said `points` is "a full
+  URL", and the rule says NEVER INVENT THE DESTINATION — so "a code that
+  opens the booking page" had no destination it had been given, and
+  answering nothing is exactly what the rule asks. The rule is right; the
+  note was missing the one fact that makes a site's own pages real.
+  **Fixed**: the addon block reads `publicUrlFor(env, ownerSlug)` — the one
+  reader of the public address — into `aSite.url` (blank on a failed read,
+  never a refusal); `siteNote` prints "Its address is … — a code that opens
+  one of its own pages carries that address with the page's route (…)", with
+  one of the site's real pages resolved as the example; `cleanAdd` resolves
+  a bare route against that address (`siteAddress`), refusing `no-such-page`
+  for a route the site lacks and `no-address` when none could be read —
+  never a guessed origin; the tool's `points` says a route is an answer and
+  the rule excepts the site's own pages from never-invent. Driven in
+  `test/site-add.test.mjs` (the note, the resolution, both refusals, the
+  worker hop read). **Sweep: 8 mutants, 8 killed, none unapplied, the
+  comment-only control survived** — the address not handed, never read,
+  left out of the note, a route not resolved, a missing page accepted, a
+  missing address guessed as an origin, the tool silent on routes, the rule
+  keeping never-invent whole. **Still not proven live** — the same
+  dispatch after the deploy and the roll is the proof. The owner dispatched
+  run 26 four minutes after the deploy, inside the roll window; it did not
+  matter this time only because nothing reached the container.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,

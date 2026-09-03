@@ -400,7 +400,8 @@ const ADDS = {
           type: "string",
           description:
             "The exact string the code carries: a full URL, `tel:` a number, `mailto:` an address, " +
-            "`WIFI:T:WPA;S:<network>;P:<password>;;`, `geo:lat,lng`, or plain text.",
+            "`WIFI:T:WPA;S:<network>;P:<password>;;`, `geo:lat,lng`, or plain text. One of the site's OWN pages " +
+            "is a real destination: answer its route (\"/\", \"/prices\") and it is resolved against the site's address.",
         },
         label: { type: "string", description: "The few words printed beside it, telling a visitor why they would scan it." },
         page: { type: "string", description: "The page it goes on, as its route — \"/\" for the home page." },
@@ -416,9 +417,11 @@ const ADDS = {
         "drawn for you from these; you never draw one.",
       wide:
         "NEVER INVENT THE DESTINATION. A QR is the one thing on a page a visitor cannot read before acting on " +
-        "it, so a made-up URL or a guessed wifi password sends real people somewhere that does not exist. If " +
-        "their message gives you no real destination, answer nothing and the site is left as it is — that is " +
-        "the right answer, not a failure.",
+        "it, so a made-up URL or a guessed wifi password sends real people somewhere that does not exist. The " +
+        "site's own pages are NOT invented: its address and its routes are in front of you, so a code that opens " +
+        "one of them points at that page by its route. If their message gives you no real destination — not one " +
+        "of the site's pages, not a number, address, network or link they gave — answer nothing and the site is " +
+        "left as it is; that is the right answer, not a failure.",
       keep:
         "ONE NEW CODE, AND NOTHING ELSE ON THE PAGE MOVES. Placing it is the only change to the page it lands " +
         "on, and the codes the site already has stay exactly where and what they are.",
@@ -681,6 +684,18 @@ const ADD_SYSTEM =
   "addition invented to fill the silence is one they did not ask for.";
 
 /**
+ * The site's public address as a base a route can be resolved against, or ""
+ * when the caller had none — an `https:` origin only, ending in a slash so
+ * `new URL("/prices", url)` lands on the site rather than on a scheme.
+ */
+export function siteAddress(v) {
+  if (typeof v !== "string") return "";
+  const s = v.trim();
+  if (!/^https?:\/\/[^/\s]+/i.test(s)) return "";
+  try { return new URL(s).origin + "/"; } catch { return ""; }
+}
+
+/**
  * WHAT THE SITE IS, for the model that designs an addition to it.
  *
  * NAMES, NOT CONTENTS. The routes, the table names, what the site already
@@ -699,6 +714,17 @@ export function siteNote(site) {
     : "It is a shopfront: a site that persuades a visitor.");
   const pages = (Array.isArray(s.pages) ? s.pages : []).filter((p) => typeof p === "string" && p.trim()).slice(0, 24);
   lines.push(pages.length ? "Its pages are: " + pages.join(", ") + "." : "It has no pages yet.");
+  // ITS ADDRESS, so its own pages are real destinations (run 26, 2026-09-03).
+  // The QR kind's rule forbids inventing a destination, and without this line
+  // "a code that opens the booking page" had none: the model answered nothing,
+  // which the rule told it to. A route of the site's own is that address plus
+  // the route, said in as many words with one of its real pages as the example.
+  const url = siteAddress(s.url);
+  if (url) {
+    const example = pages.find((p) => p !== "/") || "/";
+    lines.push("Its address is " + url + " — a code that opens one of its own pages carries that address with the " +
+      "page's route (" + new URL(example, url).href + "), which is a real destination, never an invented one.");
+  }
   const tables = (Array.isArray(s.tables) ? s.tables : []).filter((t) => typeof t === "string" && t.trim()).slice(0, 24);
   // A SITE WITH NO DATABASE IS SAID IN AS MANY WORDS, and what it means is said
   // too: a table designed for it is refused by name, so the model should not
@@ -920,9 +946,23 @@ export function cleanAdd(kind, value, site) {
         return { ok: true, value: { table: { ...t, name, columns }, seed, shows: route(v.shows), exists } };
       }
       case "qr": {
-        const points = str(v.points, 1000);
+        let points = str(v.points, 1000);
         const label = str(v.label, 120);
         if (!points || !label) return { ok: false, why: "no-destination" };
+        // THE SITE'S OWN PAGES ARE REAL DESTINATIONS (run 26, 2026-09-03). A
+        // route answered bare ("/prices") is resolved against the site's
+        // address — the designer is shown both — so a code that opens one of
+        // its pages is never "invented". A route the site does not have is
+        // refused by name, because a QR on a live site pointing at a 404 is
+        // exactly the failure the never-invent rule exists for; and a site
+        // whose address could not be read refuses rather than guessing one.
+        if (points.startsWith("/")) {
+          const own = route(points);
+          if (!own || !have.includes(own)) return { ok: false, why: "no-such-page" };
+          const base = siteAddress(s.url);
+          if (!base) return { ok: false, why: "no-address" };
+          points = new URL(own, base).href;
+        }
         // THE SAME READER THE DRAWING USES, asked here so a code that cannot be
         // drawn is refused by name rather than silently missing from the site.
         if (!readQrText(points).text) return { ok: false, why: "bad-destination" };
@@ -997,6 +1037,8 @@ export function addRefusal(why, kind) {
     case "no-columns": return "That table would have nothing in it — say what it should hold.";
     case "no-destination": return "A QR code needs a real destination — a link, a phone number, a wifi network — and that wasn't in the message. Nothing was changed.";
     case "bad-destination": return "A QR code can carry a link, a phone number, an email address, a wifi network or plain text — not that. Nothing was changed.";
+    case "no-such-page": return "That code would open a page this site doesn't have. Name one of its pages, or a link, a number or an address — nothing was changed.";
+    case "no-address": return "I couldn't read this site's own address just now, so a code opening one of its pages can't be made yet — try again in a moment. Nothing was changed.";
     case "no-name": return "I couldn't give that QR code a name — say what it is for in a word or two, like \"wifi\" or \"booking\".";
     case "same-name": return "This site already has a QR code with that name — ask me to change it, or give the new one a different name.";
     case "same-code": return "This site already has a QR code pointing there — ask me to change where it sits or what it says instead.";

@@ -1921,3 +1921,35 @@ Not proven live yet. After the deploy and the 15–20 minute roll, run
 confirm `spend`, about 12 credits). The site has one code that rings the
 number; the ask adds one that opens the booking page, and the harness now
 expects two code files on the page rather than a refusal.
+
+## 2026-09-03 — Run 26: the second code was declined, and the reason was ours
+
+You ran `qr` at 12:53 UTC. Nothing was charged and the site did not
+move: the step understood the ask (it named the QR kind in 23 seconds)
+and then the designer answered nothing, so you got "I couldn't work out
+what to add from that". That is the first time this designer has ever
+run for real; the earlier runs were turned away before reaching it.
+
+I read the exact words it was given, without spending a model call. It
+was told the site's pages and never the site's address, and its own rule
+says never to invent where a code points. "A QR code that opens the
+booking page" therefore had no destination it had actually been given,
+and answering nothing is what the rule tells it to do. The rule is right;
+the briefing was missing one fact.
+
+Fixed: the step now tells the designer the site's address, in as many
+words, with one of its real pages spelled out as the example; a code that
+names one of the site's own pages is resolved against that address; a
+code naming a page the site does not have is refused by name rather than
+pointed at a dead page; and if the address cannot be read the answer is
+"try again in a moment", never a guess.
+
+Checked without spending: the new note and the resolution driven case by
+case, 8 mutants killed with the control surviving, the whole suite green.
+
+Still not proven live. The same run again, after this deploy and the
+15–20 minute roll, is the proof — the same form, about 12 credits. One
+more thing for next time: you started run 26 four minutes after the
+deploy, inside the roll window. It made no difference this time only
+because the run never reached the build container; a run that publishes
+can be lost that way (run 17 was).

@@ -21076,8 +21076,19 @@ async function handleRequest(request, env, ctx) {
             for (const f of ADD_ONLY_FIELDS) {
               aHas[f] = hasLookField(aLook, f) || (aSrc || []).some((p) => ADD_EVIDENCE[f].test(String((p && p.source) || "")));
             }
+            // THE SITE'S OWN ADDRESS (run 26, 2026-09-03): the QR designer is
+            // forbidden to invent a destination, and "a code that opens the
+            // booking page" has none unless it is told where the site lives —
+            // it answered nothing, honestly, for the site's own home page.
+            // `publicUrlFor` is the one reader of the public address (the
+            // spine, the build, the resume reply, the checkout return); a read
+            // that fails leaves it blank, and the note says so, rather than
+            // refusing every other kind over an address.
+            let aUrl = "";
+            try { aUrl = await publicUrlFor(env, ownerSlug); } catch { aUrl = ""; }
             const aSite = {
               name: aLook.brand || ownerSlug,
+              url: aUrl,
               kind: aLook.kind === "tool" ? "tool" : "shopfront",
               pages: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
               tables: ((aSpec && aSpec.tables) || []).map((t) => t && t.name).filter(Boolean),
