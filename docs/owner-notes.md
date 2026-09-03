@@ -1770,3 +1770,29 @@ One thing worth knowing before you fire it: the addition now takes the same
 shape on your screen as a queued edit — a receipt at once, then the reply
 when the job finishes, minutes later. The harness prints "queued …;
 watching" and then the job's own answer.
+
+## 2026-09-03 — Run 22: the queued addon is live, and my harness fell over
+
+You ran it at 09:32 UTC. The first case, "add a testimonials section to
+the home page with three short quotes from beginner students", got its
+receipt in 2.9 seconds, and the addition ran off the connection exactly as
+designed: the job reserved 12 credits just before the publish, published
+at 09:38:23, and finalized — 5 minutes 36 seconds from the POST to the
+live site, balance 207 → 195. The three quotes sit under the QR block in
+the site's own cards (screenshot in the chat and at
+`docs/edits/addon-run22-component.png`). That is the queued addon proven
+end to end, on the first kind.
+
+Then the harness died five seconds after printing "watching": the watch I
+added sat outside `main` and read a name that only exists inside it, so
+the first poll threw and the run went red while the job it had stopped
+watching went on to publish. Nothing the checks read could see that; only
+running the watch could, and nothing did. Fixed: the watch takes the token
+as an argument, and a test now drives it with fake polls — the reply, a
+404, a lost job, a watch that runs out. Sweep: 7 mutants, 7 killed,
+control survived. The same lesson as the five edge false alarms: the
+product was right, the instrument was not.
+
+The other four cases never ran. When the deploy is on and the roll is
+over, run it again with lanes `page,qr,three,photo` — not `component`,
+which would add a second set of quotes to a page that has one now.

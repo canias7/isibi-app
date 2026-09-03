@@ -303,9 +303,12 @@ the spine handed the job. The browser watches the receipt through the one
 watcher with the addon's own reader; the harness sends a retry key and
 watches the same way.
 
-**Proven in the tree, NOT yet live** — `scripts/addon-sweep.mjs` behind
-`harness: addon` in `lane-sweep.yml` is what proves it on the site. Run 21 is
-the one time it has been fired, and it never reached the route's answer.
+**Proven live on run 22 (2026-09-03) for the `component` kind**: a
+testimonials section on fretwork-1, filed as a job, published 5m36s later
+for 12 credits, read off the served page. `page`, `qr`, `three` and `photo`
+are what the next dispatch of `scripts/addon-sweep.mjs` (`harness: addon`
+in `lane-sweep.yml`) proves; run 22's harness crashed on its own watch after
+the receipt, so those four have not run.
 
 ## The DELETE step — does not exist as a step
 

@@ -99,13 +99,26 @@ const hex32 = () => Array.from({ length: 32 }, () => "0123456789abcdef"[Math.flo
  * looks, which outlasts the consumer's own ceiling; null means nothing terminal
  * arrived inside that, which the caller reports as NO ANSWER rather than as a
  * refusal.
+ *
+ * THE TOKEN IS A PARAMETER, NOT A CAPTURE (run 22, 2026-09-03). The first cut
+ * sat here at module scope and read `TOKEN`, which is a local of `main` — so
+ * the first poll threw `ReferenceError: TOKEN is not defined` five seconds
+ * after printing "watching", the harness died, and the job it had stopped
+ * watching went on to publish (12 credits, 5m36s, the testimonials on the
+ * page). Nothing static catches a free identifier that happens to be defined
+ * somewhere else in the file, which is why `get` and `nap` are injectable:
+ * the loop's four answers are DRIVEN in test/addon-sweep.test.mjs, and the
+ * guard there also reads that this function never names `TOKEN`.
  */
-async function watchJob(job) {
-  for (let i = 0; i < 180; i++) {
-    await sleep(5000);
-    const q = await call("GET", `/api/site/edit/${job}`, { token: TOKEN });
+export async function watchJob(job, token, { get, nap, looks = 180 } = {}) {
+  const read = get || ((p) => call("GET", p, { token }));
+  const wait = nap || (() => sleep(5000));
+  for (let i = 0; i < looks; i++) {
+    await wait();
+    const q = await read(`/api/site/edit/${job}`);
+    if (!q) continue;
     if (q.status === 404) return q;
-    if ((q.headers["x-gf-edit"] || "") === "final") return q;
+    if (((q.headers && q.headers["x-gf-edit"]) || "") === "final") return q;
     if (q.json && ["failed", "cancelled", "lost"].includes(q.json.status)) return q;
   }
   return null;
@@ -302,7 +315,7 @@ async function main() {
     // this reads `p` exactly as before.
     if (p.status === 202 && p.json && p.json.job) {
       console.log(`   queued ${p.json.job}; watching`);
-      const fin = await watchJob(p.json.job);
+      const fin = await watchJob(p.json.job, TOKEN);
       p = fin ? { ...fin, ms: Date.now() - t0 } : { status: 0, ms: Date.now() - t0, json: null, text: "", headers: {}, why: "no answer inside the watch" };
       console.log(`   the job answered ${p.status} in ${(p.ms / 1000).toFixed(1)}s`);
     }
@@ -321,7 +334,7 @@ async function main() {
       let reply = e;
       if (e.status === 202 && e.json && e.json.job) {
         console.log(`   hopped to ${c.hop}; queued ${e.json.job}`);
-        reply = await watchJob(e.json.job);
+        reply = await watchJob(e.json.job, TOKEN);
       } else {
         console.log(`   hopped to ${c.hop}; synchronous answer ${e.status}`);
       }

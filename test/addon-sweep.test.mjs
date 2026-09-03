@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CASES, chooseCases, sitePathOf } from "../scripts/addon-sweep.mjs";
+import { CASES, chooseCases, sitePathOf, watchJob } from "../scripts/addon-sweep.mjs";
 import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, addLayer } from "../builder/site-add.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
@@ -104,6 +104,42 @@ test("the harness posts to the addon route, follows one hop to the edit route, a
   assert.match(SRC, /if \(body\.ok === true \|\| extra\.hopOk\) \{/, "a publish is not waited for");
   // Red on a lie, a lost answer, or a failure — never green by default.
   assert.match(SRC, /\/LIE\|NO ANSWER\|\^failed\$\/\.test\(r\.verdict\)/, "a failed case is a green run");
+});
+
+// ── THE WATCH, DRIVEN (run 22, 2026-09-03) ─────────────────────────────────
+//
+// The first cut of `watchJob` sat at module scope and read `TOKEN`, a local of
+// `main`: the first poll threw a ReferenceError five seconds after "watching",
+// the harness died, and the job it had stopped watching went on to publish.
+// Nothing static catches a free identifier that happens to be defined elsewhere
+// in the file, so the loop is driven here with an injected reader and no sleep,
+// and its text is read for the one name it must not use.
+test("watchJob answers on the poll's four voices, from the arguments it is handed", async () => {
+  const seq = (answers) => { let i = 0; return async () => answers[Math.min(i++, answers.length - 1)]; };
+  const nap = async () => {};
+  const running = { status: 202, headers: {}, json: { status: "claimed" } };
+  const final = { status: 200, headers: { "x-gf-edit": "final" }, json: { ok: true } };
+  // THE STORED REPLY, however many running polls precede it.
+  assert.deepEqual(await watchJob("j1", "t", { get: seq([running, running, final]), nap }), final);
+  // A 404 ENDS THE WATCH; a terminal state with no stored reply ends it too.
+  assert.equal((await watchJob("j1", "t", { get: seq([{ status: 404, headers: {}, json: null }]), nap })).status, 404);
+  assert.equal((await watchJob("j1", "t", { get: seq([{ status: 202, headers: {}, json: { status: "lost" } }]), nap })).json.status, "lost");
+  // A WATCH THAT RUNS OUT ANSWERS NULL — NO ANSWER, never a refusal.
+  assert.equal(await watchJob("j1", "t", { get: seq([running]), nap, looks: 3 }), null);
+  // A POLL THAT FAILED IS NOT A JOB THAT FAILED: a null read is polled past.
+  assert.deepEqual(await watchJob("j1", "t", { get: seq([null, final]), nap }), final);
+  // THE PATH IT POLLS COMES FROM THE JOB IT WAS HANDED.
+  let seen = null;
+  await watchJob("abc123", "t", { get: async (p) => { seen = p; return final; }, nap });
+  assert.equal(seen, "/api/site/edit/abc123");
+  // AND THE TOKEN IS THE PARAMETER: the function's own text never names the
+  // local it cannot see, and the default reader sends what it was given.
+  const open = SRC.indexOf("export async function watchJob(job, token,");
+  const shut = SRC.indexOf("\n}\n", open);
+  assert.ok(open > 0 && shut > open, "watchJob moved");
+  const fn = SRC.slice(open, shut);
+  assert.doesNotMatch(fn, /\bTOKEN\b/, "watchJob reads TOKEN, which is a local of main and not in scope here");
+  assert.match(fn, /call\("GET", p, \{ token \}\)/, "the default reader does not send the token it was handed");
 });
 
 test("chooseCases refuses a stranger before anything is spent and forgives punctuation", () => {

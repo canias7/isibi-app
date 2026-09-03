@@ -284,18 +284,23 @@ test("addonAnswer reads the stored reply the way the synchronous tail did, and n
 test("the harness sends a key, watches a filed job to its stored reply, and its watch outlasts the consumer", () => {
   assert.match(HARNESS, /\/addon`, \{ token: TOKEN, body: \{ instruction: c\.ask, picker: PICKER, idem: hex32\(\) \} \}\)/, "the addon POST carries no retry key — the route refuses a queued addition without one");
   assert.match(HARNESS, /if \(p\.status === 202 && p\.json && p\.json\.job\) \{/, "a 202 receipt is judged as the reply");
-  const watches = (HARNESS.match(/await watchJob\(/g) || []).length;
-  assert.equal(watches, 2, `watchJob is awaited ${watches} times — the addition and the photo hop share one watch`);
-  const fn = between(HARNESS, "\nasync function watchJob(job)", "\n}\n", "watchJob");
+  // BOTH CALLERS HAND THE WATCH THE TOKEN (run 22): the watch sits at module
+  // scope, the token is a local of `main`, and the first cut read `TOKEN`
+  // from inside the watch — a ReferenceError on the first poll, five seconds
+  // after "watching", while the job it stopped watching went on to publish.
+  const watches = (HARNESS.match(/await watchJob\([^)]*, TOKEN\)/g) || []).length;
+  assert.equal(watches, 2, `watchJob is awaited with the token ${watches} times — the addition and the photo hop share one watch`);
+  const fn = between(HARNESS, "\nexport async function watchJob(job, token,", "\n}\n", "watchJob");
+  assert.doesNotMatch(fn, /\bTOKEN\b/, "the watch reads TOKEN, which is not in scope where it is defined");
   assert.match(fn, /x-gf-edit/, "the watch does not read the poll's final header");
   assert.match(fn, /q\.status === 404/, "a 404 is polled past");
   assert.match(fn, /\["failed", "cancelled", "lost"\]/, "a terminal state with no stored reply is polled past");
-  // BOUNDED, AND LONGER THAN THE CONSUMER MAY RUN — derived from the loop and
-  // the sleep, against the module's own ceiling, so a shorter watch cannot
-  // report a job that finished late as NO ANSWER.
-  const loop = fn.match(/for \(let i = 0; i < (\d+); i\+\+\)/);
-  const nap = fn.match(/await sleep\((\d+)\)/);
-  assert.ok(loop && nap, "the watch loop or its sleep moved");
+  // BOUNDED, AND LONGER THAN THE CONSUMER MAY RUN — derived from the loop's
+  // default and the sleep, against the module's own ceiling, so a shorter
+  // watch cannot report a job that finished late as NO ANSWER.
+  const loop = fn.match(/looks = (\d+)/);
+  const nap = fn.match(/sleep\((\d+)\)/);
+  assert.ok(loop && nap, "the watch's default look count or its sleep moved");
   assert.ok(Number(loop[1]) * Number(nap[1]) >= CONSUMER_CEILING_MS, `the watch gives up after ${Number(loop[1]) * Number(nap[1])}ms, before the consumer's ${CONSUMER_CEILING_MS}ms ceiling`);
   // NO ANSWER, NOT A REFUSAL, when nothing terminal arrived inside the watch.
   assert.match(HARNESS, /why: "no answer inside the watch"/, "a watch that ran out is not reported as NO ANSWER");

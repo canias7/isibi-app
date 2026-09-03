@@ -816,14 +816,27 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   went red for the change and were re-anchored, not appeased — each pinned
   to a spelling (`ed ?`, `return editAnswer(`, `!r.ok`, `"addon")`, the
   siteAddon window) and each now names which spelling moved and why.
-  **Still NOT proven live** —
-  `scripts/addon-sweep.mjs` behind `harness: addon` in `lane-sweep.yml`
-  (cases `component,page,table,qr,three,photo` on fretwork-1; `table`/`qr`/
-  `three` are driven to their honest refusals there, `photo` to its hop; a
-  page and a component are the two that publish) is what proves it, after
-  the deploy carrying the fork is on — and EVERY push rolls the container
-  (the trap below), so the 15–20 minutes apply before firing it: a queued
-  job caught under the roll is evicted, as run 17 was.
+  **RUN 22 (2026-09-03 09:32Z, `harness: addon`, `component,page,qr,three,
+  photo`, 207 → 195): THE QUEUED ADDON IS PROVEN LIVE ON ITS FIRST CASE** —
+  the receipt came back in 2.9s (job `c41d969c…`, `op: addon`), the consumer
+  claimed it, reserved **12 credits** at 09:36:12 immediately before the
+  publish, published at 09:38:23 and finalized — **5m36s from POST to a
+  live site**, `x-site-build` `mtkckb7z-znn7zw` → `mtlbyjzt-6c6lf7`, reply
+  `ok` with `index.tsx` changed, 25 files, render check clean. Three short
+  quotes from beginner students sit under the QR block in the site's own
+  cards (`docs/edits/addon-run22-component.png`, read off the served page).
+  **AND THE HARNESS DIED FIVE SECONDS AFTER PRINTING "watching"**:
+  `watchJob` sat at module scope and read `TOKEN`, a local of `main`, so the
+  first poll threw `ReferenceError: TOKEN is not defined`; the run ended
+  red at 09:32:54 with no results file while the job it had stopped
+  watching went on to publish. Same family as the five edge false alarms:
+  the product was right, the instrument was not. Fixed: the token is a
+  parameter both callers pass, the reader and the sleep are injectable, and
+  the loop's four answers are DRIVEN in `test/addon-sweep.test.mjs` (a
+  guard that reads the text for `TOKEN` beside it). Sweep: **7 mutants, 7
+  killed, control survived.** The other four cases never ran; re-dispatch
+  **`page,qr,three,photo`** (NOT `component` — it would add a second set of
+  quotes) after the deploy carrying the harness fix and the roll.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,
@@ -1144,8 +1157,8 @@ what the work cost.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 208 credits** (read from the ledger 2026-09-02 17:12, after run
-  16). It was **0** on 08-29;
+- **Balance: 195 credits** (read from the ledger 2026-09-03 09:36Z, after run
+  22's first queued addon reserved 12). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**
@@ -1871,6 +1884,17 @@ did not move. **When an infrastructure limit is found on one route, list
 every route that runs under it before fixing one.** The tell was in the
 tree the whole time: the addon harness's own `node:https` comment said "an
 addon outlives 300s" while posting synchronously to a route that could not.
+
+**A FREE IDENTIFIER THAT HAPPENS TO BE DEFINED SOMEWHERE ELSE IN THE FILE
+(2026-09-03, run 22).** The harness's `watchJob` was lifted to module scope
+so two callers could share it, and kept reading `TOKEN` — a local of
+`main`, where the inline loop it replaced had lived. `node --check` passes
+(a free name is legal), the guard read the function's text and found every
+landmark, the sweep killed every mutant, and the first real call threw
+`ReferenceError` five seconds into the run. **A function moved out of the
+scope it was written in must be DRIVEN once, with its inputs handed in**;
+a text read cannot see scope. The fix shape is the parameter, and the
+guard is the call.
 
 ## Backlog
 
