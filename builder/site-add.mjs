@@ -65,6 +65,9 @@
 import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, MAX_COMPONENTS, TOOL_DIRECTIVE } from "./site-plan.mjs";
 import { TABLE_ITEM } from "./site-table.mjs";
 import { routeOf } from "./site-addon.mjs";
+// THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
+// kind ADDS one beside the others and refuses only a duplicate.
+import { qrList, qrName, readQrText, MAX_QRS } from "./site-qr-list.mjs";
 import { modelsFor } from "./build-models.mjs";
 
 /** The picked model, never a hardcoded one — the rule `site-lanes.mjs` states at length. */
@@ -383,10 +386,16 @@ const ADDS = {
     },
   },
   qr: {
-    hint: "A QR CODE on the site — a square a visitor scans to join the wifi, ring the number, open the menu, find the place. Only when the site has none.",
+    hint: "A QR CODE on the site — a square a visitor scans to join the wifi, ring the number, open the menu, find the place. Another beside the codes it has is fine: each has its own name and points somewhere none of the others do.",
     shape: {
       type: "object",
       properties: {
+        name: {
+          type: "string",
+          description:
+            "A short handle for this code, unique on the site: \"wifi\", \"booking\", \"menu\". Lowercase letters " +
+            "and digits only, and not one the site already uses.",
+        },
         points: {
           type: "string",
           description:
@@ -397,10 +406,10 @@ const ADDS = {
         page: { type: "string", description: "The page it goes on, as its route — \"/\" for the home page." },
         where: { type: "string", description: "Where on that page — \"in the contact band\", \"beside the opening hours\"." },
       },
-      required: ["points", "label"],
+      required: ["name", "points", "label"],
     },
     add: {
-      is: "The code the site is getting — what scanning it does, the caption beside it, and where on which page it sits.",
+      is: "The code the site is getting — its name, what scanning it does, the caption beside it, and where on which page it sits.",
       yours:
         "BOTH HALVES AND THE PLACE ARE YOURS: point it at whatever they named, caption it in the site's own " +
         "voice, put it where a visitor standing in front of the business would look for it. The code itself is " +
@@ -411,7 +420,8 @@ const ADDS = {
         "their message gives you no real destination, answer nothing and the site is left as it is — that is " +
         "the right answer, not a failure.",
       keep:
-        "ONE CODE, AND NOTHING ELSE ON THE PAGE MOVES. Placing it is the only change to the page it lands on.",
+        "ONE NEW CODE, AND NOTHING ELSE ON THE PAGE MOVES. Placing it is the only change to the page it lands " +
+        "on, and the codes the site already has stay exactly where and what they are.",
     },
   },
   three: {
@@ -697,7 +707,13 @@ export function siteNote(site) {
     ? (tables.length ? "It stores: " + tables.join(", ") + "." : "It has a database with no tables yet.")
     : "It has NO database: nothing on it is stored, and a table cannot be added to it in this step.");
   const has = [];
-  if (s.qr) has.push("a QR code" + (str(s.qr.label, 80) ? " (\"" + str(s.qr.label, 80) + "\")" : ""));
+  // EVERY CODE BY NAME (2026-09-03), so a designer adding one can pick a name
+  // the site does not use and a destination none of them already carries.
+  const codes = qrList(s.qr);
+  if (codes.length) {
+    has.push((codes.length === 1 ? "a QR code" : codes.length + " QR codes") + ": " +
+      codes.map((c) => "`" + c.name + "` (\"" + str(c.label, 80) + "\", scanning it: " + str(c.points, 80) + ")").join(", "));
+  }
   if (s.three) has.push("a 3D scene");
   const parts = (Array.isArray(s.tsx) ? s.tsx : []).map((t) => (t && typeof t === "object" ? str(t.name, 60) : "")).filter(Boolean);
   if (parts.length) has.push("parts written for it: " + parts.join(", "));
@@ -907,7 +923,20 @@ export function cleanAdd(kind, value, site) {
         const points = str(v.points, 1000);
         const label = str(v.label, 120);
         if (!points || !label) return { ok: false, why: "no-destination" };
-        return { ok: true, value: { points, label, page: onPage(v.page), where: str(v.where, 200) } };
+        // THE SAME READER THE DRAWING USES, asked here so a code that cannot be
+        // drawn is refused by name rather than silently missing from the site.
+        if (!readQrText(points).text) return { ok: false, why: "bad-destination" };
+        // NAMED, AND NOT ONE THE SITE HAS (2026-09-03, a site carries several):
+        // the name is the file and the binding, derived from the caption when
+        // the answer gave none; a second code pointing where an existing one
+        // does is the one addition refused — the edit lane changes that one.
+        const name = qrName(v.name, label);
+        if (!name) return { ok: false, why: "no-name" };
+        const codes = qrList(s.qr);
+        if (codes.length >= MAX_QRS) return { ok: false, why: "too-many" };
+        if (codes.some((c) => c.name === name)) return { ok: false, why: "same-name" };
+        if (codes.some((c) => c.points.toLowerCase() === points.toLowerCase())) return { ok: false, why: "same-code" };
+        return { ok: true, value: { name, points, label, page: onPage(v.page), where: str(v.where, 200) } };
       }
       case "three": {
         const scene = str(v.scene, 600);
@@ -967,6 +996,11 @@ export function addRefusal(why, kind) {
     case "no-table": return "I couldn't tell what the site should store from that — say what a visitor sends in, or what the business keeps.";
     case "no-columns": return "That table would have nothing in it — say what it should hold.";
     case "no-destination": return "A QR code needs a real destination — a link, a phone number, a wifi network — and that wasn't in the message. Nothing was changed.";
+    case "bad-destination": return "A QR code can carry a link, a phone number, an email address, a wifi network or plain text — not that. Nothing was changed.";
+    case "no-name": return "I couldn't give that QR code a name — say what it is for in a word or two, like \"wifi\" or \"booking\".";
+    case "same-name": return "This site already has a QR code with that name — ask me to change it, or give the new one a different name.";
+    case "same-code": return "This site already has a QR code pointing there — ask me to change where it sits or what it says instead.";
+    case "too-many": return "This site already carries as many QR codes as it can — ask me to change one of them instead.";
     case "no-scene": return "I couldn't tell what the 3D scene should show — say what it is and where it goes.";
     default: return "I couldn't work out what to add from that" + (kind ? " (" + kind + ")" : "") + " — say what you want on the site and where.";
   }
@@ -979,7 +1013,8 @@ export function addRefusal(why, kind) {
  * customer between them.
  */
 export function alreadyReply(kind) {
-  if (kind === "qr") return "This site already has a QR code — ask me to change where it points or what it says instead.";
+  // `qr` LEFT THIS ON 2026-09-03: a site carries several codes, so a second is
+  // an addition; only a duplicate is refused, and `cleanAdd` names that.
   if (kind === "three") return "This site already has a 3D scene — ask me to change what it shows instead.";
   return "This site already has one of those — ask me to change it instead.";
 }
@@ -1037,9 +1072,12 @@ export function addDirective(kind, value, site) {
       break;
     }
     case "qr": {
+      const n = qrName(v.name, v.label) || "qr";
       out.push("## The code you are placing");
-      out.push("- On " + at(v.page) + ", " + (v.where || "in the contact or closing band, where a visitor would look for it") +
-        " — the marks block above says how it is rendered (`SITE_QR`, `SITE_QR_LABEL`). Return that one page; nothing else on it moves.");
+      out.push("- `SITE_QRS." + n + "` (its caption is `SITE_QRS." + n + ".label`) on " + at(v.page) + ", " +
+        (v.where || "in the contact or closing band, where a visitor would look for it") +
+        " — the marks block above says how a code is rendered. The site's other codes stay where they are. " +
+        "Return that one page; nothing else on it moves.");
       break;
     }
     case "three": {
@@ -1100,7 +1138,14 @@ export function foldAdds(answers, priorLook, site) {
       tables.push(v.table);
       if (Array.isArray(v.seed) && v.seed.length) seed[v.table.name] = v.seed;
     }
-    if (a.kind === "qr") designed.qr = { points: v.points, label: v.label };
+    // APPENDED TO THE STORED LIST BY NAME (2026-09-03), never replacing it —
+    // the `tsx` rule one loop up, for the same reason: a site with a code that
+    // gets another must keep the first.
+    if (a.kind === "qr") {
+      const name = qrName(v.name, v.label);
+      const cur = Array.isArray(designed.qr) ? designed.qr : qrList(prior.qr);
+      if (name && !cur.some((c) => c.name === name)) designed.qr = [...cur, { name, points: v.points, label: v.label }];
+    }
     if (a.kind === "three") designed.three = v.scene;
   }
   if (tables.length) { designed.tables = tables; designed.seed = seed; }

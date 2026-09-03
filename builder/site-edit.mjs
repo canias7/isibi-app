@@ -33,6 +33,7 @@ import { PLAN_EDIT_FIELDS } from "./site-plan.mjs";
 import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { cleanFavicon, readWordmark } from "./site-favicon.mjs";
+import { qrList } from "./site-qr-list.mjs";
 
 /**
  * The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths.
@@ -348,13 +349,22 @@ export function currentStateNote(current) {
     lines.push("its animated mark (an SVG you drew — to change it, return `gif` as a whole new document; " +
       "to keep it, omit `gif`):\n" + anim);
   }
-  // AND THE QR, BOTH HALVES. Shown together because they are stored together and
-  // replaced together: a model told only the caption re-answers `points` from
-  // nothing, and a QR pointing at an invented URL is the one failure on this
-  // whole list a visitor cannot see coming — they point a camera and trust it.
-  const q = c.qr && typeof c.qr === "object" && !Array.isArray(c.qr) ? c.qr : null;
-  if (q && str(q.points)) {
-    lines.push("its QR code: \"" + str(q.label).slice(0, 60) + "\" pointing at " + str(q.points).slice(0, 200));
+  // AND THE QR CODES, EVERY ONE BY NAME, BOTH HALVES. Shown together because
+  // they are stored together and replaced together: a model told only the
+  // caption re-answers `points` from nothing, and a QR pointing at an invented
+  // URL is the one failure on this whole list a visitor cannot see coming —
+  // they point a camera and trust it. A LIST since 2026-09-03 (owner: "it
+  // should carry more"); `qrList` reads the old single code as one entry named
+  // `qr`, so a site published before then is described exactly as it was.
+  const codes = qrList(c.qr);
+  if (codes.length) {
+    lines.push(
+      (codes.length === 1 ? "its QR code" : "its " + codes.length + " QR codes") +
+        " (to change one, name it in `qr`; to keep them all, omit `qr`):",
+    );
+    for (const q of codes) {
+      lines.push("  - `" + q.name + "`: \"" + str(q.label).slice(0, 60) + "\" pointing at " + str(q.points).slice(0, 200));
+    }
   }
   const tables = Array.isArray(c.tables) ? c.tables.map(str).filter(Boolean).slice(0, 24) : [];
   if (tables.length) lines.push("tables it already has: " + tables.join(", "));
@@ -799,6 +809,12 @@ const FIELD_KEEPS = {
   // designed value already leads the chain, so `[]` winning there is this
   // same rule, not a second one.
   images: (v) => Array.isArray(v),
+  // THE QR CODES ARE A LIST (2026-09-03), and the one stored as a single
+  // object on every site before that day is the same list read through
+  // `qrList` — so a legacy value keeps counting, an answered list with at
+  // least one real code counts, and `[]` or junk does not replace a good
+  // stored list. Same single-validator rule as the four above it.
+  qr: (v) => qrList(v).length > 0,
 };
 
 export function keepsValue(field, v) {

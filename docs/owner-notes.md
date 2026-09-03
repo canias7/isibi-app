@@ -1882,3 +1882,42 @@ and not built it.
 With that, every kind of the addon has run live: component, page and 3D
 publish; QR refuses honestly when the site has one; photo hops. The table
 kind has not been asked on a site that can take one.
+
+## 2026-09-03 — A site carries several QR codes
+
+You asked whether a site could have two or more codes, and said it should.
+It can now. A site keeps a list of named codes — `booking`, `wifi`, `menu`
+— each drawn to its own file and each reachable by name from the page.
+Anything published before today keeps working unchanged: its one code is
+read as the first entry, under the file and the name it always had.
+
+What that changes for a customer: "add a QR code that opens the booking
+page" on a site that already has one is an addition now, not a refusal.
+The only refusals left are honest ones — a second code pointing exactly
+where an existing one points, a name the site already uses, a destination
+a QR must not carry, or a site already at six. "Change the wifi code's
+caption" edits that one code and leaves the others exactly as they were;
+on a site with several, an ask that does not say which one gets asked
+which, never guessed, because a code pointing at an invented address is
+the one mistake a visitor cannot see coming. And when a code has been
+made but no page shows it yet, the page step is told exactly which codes
+to place, by name.
+
+What I tested: the new module driven case by case; the real build service
+compiled a site carrying two codes (both files on the site, both captions
+in the page) and a site sent the old single-code payload (still one file,
+no ghost second); the whole unit suite, 4,879 tests, green. Sweep: 22 mutants, 22 killed,
+the comment-only control survived.
+
+One thing the suite caught that no reading of the code could have: the
+container image did not copy the new file. The build service imports it,
+so the service would have died at start-up on the first build after the
+deploy, and you would have seen "our build service was restarting". The
+check that compares what the container imports with what the image
+carries went red in the same run. Fixed before anything was pushed.
+
+Not proven live yet. After the deploy and the 15–20 minute roll, run
+`harness: addon` with lanes `qr` on `fretwork-1` (Grok, budget 80,
+confirm `spend`, about 12 credits). The site has one code that rings the
+number; the ask adds one that opens the booking page, and the harness now
+expects two code files on the page rather than a refusal.

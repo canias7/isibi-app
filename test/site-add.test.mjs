@@ -28,6 +28,7 @@ import { TSX_ITEM, MAX_TSX, MAX_COMPONENTS, TOOL_DIRECTIVE } from "../builder/si
 import { MAX_PAGES } from "../builder/page-gen.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
+import { MAX_QRS } from "../builder/site-qr-list.mjs";
 import {
   ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
@@ -91,12 +92,25 @@ test("every field the edit path refuses to create has a kind here, and the route
   const fields = [...decl.matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
   assert.ok(fields.length >= 2, "the edit path's add-only list is empty — this test scans nothing");
   for (const f of fields) assert.ok(OWN_ADDS.includes(f), `the edit path sends "${f}" to the addon and the add step cannot make one`);
-  // THE MIRROR OF THE WALL: the same list, read in the addon block, refuses a
-  // second code or scene and names the door that changes the first.
+  // THE MIRROR OF THE WALL, NARROWED (2026-09-03): the addon block refuses a
+  // second of what a site carries ONE of — `SINGLE_FIELDS`, which is `three`
+  // alone now that a site carries several QR codes — and names the door that
+  // changes the first. `qr` stays on `ADD_ONLY_FIELDS` (the edit path may not
+  // CREATE one) and comes off the single list (the addon may add another);
+  // both facts are asserted, because either list drifting is a customer
+  // bounced between the two doors.
   const b = W.slice(at(W, "if (ad) {", "addon"), at(W, "if (tx) {", "addon end"));
-  const loop = b.indexOf("for (const f of ADD_ONLY_FIELDS) {\n              if (aKinds.includes(f) && aHas[f]) {");
-  assert.ok(loop > 0, "the addon does not refuse a kind the site already has off the edit path's own list");
+  const loop = b.indexOf("for (const f of SINGLE_FIELDS) {\n              if (aKinds.includes(f) && aHas[f]) {");
+  assert.ok(loop > 0, "the addon does not refuse a kind the site carries one of, off the single-field list");
   assert.match(b.slice(loop, b.indexOf("}", b.indexOf("}", loop) + 1) + 1), /alreadyReply\(f\)/, "the refusal does not name the door that changes it");
+  const single = W.slice(at(W, "const SINGLE_FIELDS = [", "single"), W.indexOf("];", at(W, "const SINGLE_FIELDS = [", "single")));
+  const singles = [...single.matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(singles, ["three"], "the fields a site carries one of");
+  assert.ok(fields.includes("qr") && !singles.includes("qr"), "a QR code must be add-only for the edit path AND addable again for the addon");
+  for (const f of singles) assert.ok(fields.includes(f), "a single field the edit path may create: " + f);
+  // …and the addon's picker is shown the site's codes as the LIST, so the
+  // designer names a new one against every name and destination it has.
+  assert.match(b, /qr: qrList\(aLook\.qr\),/, "the addon's site note is not handed the stored codes as a list");
   // …and "has" is read the way the wall reads it: the stored look OR the page.
   assert.match(b, /aHas\[f\] = hasLookField\(aLook, f\) \|\| \(aSrc \|\| \[\]\)\.some\(\(p\) => ADD_EVIDENCE\[f\]\.test/, "the addon reads 'already has' off the stored look alone — run 12's misfire");
 });
@@ -109,7 +123,11 @@ test("the step imports nothing from worker.js and carries none of the build's to
   assert.ok(imports.length >= 3, "the import list is empty — the scan is broken");
   for (const from of imports) {
     assert.ok(!/worker\.js/.test(from), "the add step imports from worker.js: " + from);
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs"].includes(from),
+    // `site-qr-list.mjs` (2026-09-03) is a SHAPE module in the `BEHAVIOR_ITEM`
+    // / `TABLE_ITEM` sense — the QR list's names, files and reader, imported
+    // by the build (through site-qr.mjs), the container, the page writer and
+    // the edit route alike, and carrying no wording of any path's.
+    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
   }
   for (const word of ["design_schema", "SITE_SCHEMA", "designSiteSchema", "You design", "EDIT_RULE", "currentStateNote"]) {
@@ -258,10 +276,19 @@ test("the site note says names, not contents, and says a missing database out lo
   assert.match(none, /NO database/);
   assert.match(none, /Its pages are: \//);
   assert.match(none, /shopfront/);
-  const db = siteNote({ ...DB, kind: "tool", qr: { label: "Scan to ring" }, three: "a pick", tsx: [{ name: "chord-diagram" }] });
+  const db = siteNote({ ...DB, kind: "tool", qr: [{ name: "ring", points: "tel:0114", label: "Scan to ring" }], three: "a pick", tsx: [{ name: "chord-diagram" }] });
   assert.match(db, /It stores: bookings\./);
   assert.match(db, /WORKING TOOL/);
-  assert.match(db, /QR code \("Scan to ring"\)/);
+  // EVERY CODE BY NAME, WITH BOTH HALVES (2026-09-03): the designer adding a
+  // code has to pick a name the site does not use and a destination it does
+  // not already carry, so it is shown all of each.
+  assert.match(db, /a QR code: `ring` \("Scan to ring", scanning it: tel:0114\)/);
+  const two = siteNote({ ...DB, qr: [{ name: "ring", points: "tel:0114", label: "Ring" }, { name: "wifi", points: "WIFI:T:WPA;S:x;P:y;;", label: "Wifi" }] });
+  assert.match(two, /2 QR codes: `ring` \(.*\), `wifi` \(/);
+  // The old single code reads as one named `qr` — a site published before the
+  // list is described exactly as it is.
+  assert.match(siteNote({ ...DB, qr: { points: "tel:0114", label: "Ring" } }), /a QR code: `qr` \("Ring"/);
+  assert.ok(!/QR/.test(siteNote({ ...DB, qr: { label: "half" } })), "a code with no destination is not a code the site carries");
   assert.match(db, /3D scene/);
   assert.match(db, /parts written for it: chord-diagram/);
   assert.ok(!/\{|\[/.test(db), "the note prints a structure rather than names");
@@ -399,12 +426,33 @@ test("cleanAdd: a table needs a name and columns unless it gives an existing tab
   assert.equal(cleanAdd("table", {}, DB).why, "no-table");
 });
 
-test("cleanAdd: a code needs both halves and a scene needs a description; each lands on a page", () => {
+test("cleanAdd: a code needs both halves and a name the site does not use; a scene needs a description; each lands on a page", () => {
   const qr = cleanAdd("qr", { points: " tel:0114 ", label: "Ring", page: "/x", where: "contact" }, SITE);
-  assert.deepEqual(qr, { ok: true, value: { points: "tel:0114", label: "Ring", page: "/", where: "contact" } });
+  assert.deepEqual(qr, { ok: true, value: { name: "ring", points: "tel:0114", label: "Ring", page: "/", where: "contact" } });
   assert.equal(cleanAdd("qr", { label: "Ring" }, SITE).why, "no-destination");
   assert.equal(cleanAdd("qr", { points: "tel:0114" }, SITE).why, "no-destination");
   assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring", page: "/nope" }, MULTI).value.page, "", "a page it cannot name is left for the page call to decide");
+  // ── A SITE CARRIES SEVERAL (owner, 2026-09-03) ──────────────────────────
+  // The name is an identifier the page writes after a dot, derived from the
+  // caption when the answer gave none; what is refused is not "a second
+  // code" but a second code with a name or a destination the site already
+  // has, a destination a QR may not carry, a caption that yields no name, and
+  // a site already at the ceiling.
+  assert.equal(cleanAdd("qr", { name: "Join our wifi!", points: "WIFI:T:WPA;S:x;P:y;;", label: "Wifi" }, SITE).value.name, "joinourwifi", "the name is not made an identifier");
+  assert.equal(cleanAdd("qr", { points: "javascript:alert(1)", label: "Ring" }, SITE).why, "bad-destination");
+  assert.equal(cleanAdd("qr", { points: "tel:0114", label: "!!!" }, SITE).why, "no-name");
+  const ONE = { ...SITE, qr: [{ name: "ring", points: "tel:0114", label: "Ring" }] };
+  assert.equal(cleanAdd("qr", { points: "TEL:0114", label: "Call us" }, ONE).why, "same-code", "a second code pointing where one already does is not refused");
+  assert.equal(cleanAdd("qr", { points: "https://x.test", label: "Ring" }, ONE).why, "same-name", "a second code under a name the site has is not refused");
+  const second = cleanAdd("qr", { name: "wifi", points: "WIFI:T:WPA;S:x;P:y;;", label: "Join the wifi" }, ONE);
+  assert.equal(second.ok, true, "a second code with its own name and destination is refused: " + second.why);
+  // The old single code reads as one named `qr`, so a site published before
+  // the list can take a second and cannot take another `qr`.
+  const LEGACY = { ...SITE, qr: { points: "tel:0114", label: "Ring" } };
+  assert.equal(cleanAdd("qr", { points: "https://x.test", label: "Menu" }, LEGACY).ok, true);
+  assert.equal(cleanAdd("qr", { name: "qr", points: "https://x.test", label: "Menu" }, LEGACY).why, "same-name", "the old single code is not read as the name `qr`");
+  const FULL = { ...SITE, qr: Array.from({ length: MAX_QRS }, (_, i) => ({ name: "c" + i, points: "https://x.test/" + i, label: "L" + i })) };
+  assert.equal(cleanAdd("qr", { name: "more", points: "https://y.test", label: "More" }, FULL).why, "too-many");
   const three = cleanAdd("three", { scene: "a spinning pick", page: "/" }, SITE);
   assert.deepEqual(three, { ok: true, value: { scene: "a spinning pick", page: "/" } });
   assert.equal(cleanAdd("three", { page: "/" }, SITE).why, "no-scene");
@@ -458,7 +506,12 @@ test("foldAdds appends the parts by name over the stored ones, folds the tables 
     "the stored part is dropped, or the new one is not appended, or a re-declared one is not merged by name");
   assert.deepEqual(f.designed.tables.map((t) => t.name), ["bookings"]);
   assert.deepEqual(f.designed.seed, { bookings: [{ when: "x" }] });
-  assert.deepEqual(f.designed.qr, { points: "tel:0114", label: "Ring" });
+  // A LIST, APPENDED (2026-09-03): the fold hands the merge the stored codes
+  // plus the new one, named from its caption when the answer gave none.
+  assert.deepEqual(f.designed.qr, [{ name: "ring", points: "tel:0114", label: "Ring" }]);
+  const kept = foldAdds([{ kind: "qr", value: { name: "wifi", points: "WIFI:T:WPA;S:x;P:y;;", label: "Wifi" } }], { qr: { points: "tel:0114", label: "Ring" } }, SITE);
+  assert.deepEqual(kept.designed.qr.map((c) => c.name), ["qr", "wifi"], "the stored code is dropped when another is added, or the old single code is not read as `qr`");
+  assert.deepEqual(kept.designed.qr[0], { name: "qr", points: "tel:0114", label: "Ring" }, "the stored code does not come through character for character");
   assert.equal(f.designed.three, "a pick");
   assert.deepEqual(f.components, ["site-chrome", "form-shell", "testimonial"]);
   assert.deepEqual(f.files, ["book.tsx"]);
@@ -484,7 +537,11 @@ test("foldAdds appends the parts by name over the stored ones, folds the tables 
 });
 
 test("every refusal token has a sentence of its own, and the already-reply names the door that changes it", () => {
-  const tokens = ["page-exists", "no-path", "no-page", "no-plan", "no-component", "no-table", "no-columns", "no-destination", "no-scene"];
+  const tokens = ["page-exists", "no-path", "no-page", "no-plan", "no-component", "no-table", "no-columns", "no-destination", "no-scene",
+    // The QR list's own refusals (2026-09-03): a code the site cannot take
+    // another of, by name or by destination; a destination a QR may not
+    // carry; a caption that yields no name; a site at the ceiling.
+    "bad-destination", "no-name", "same-name", "same-code", "too-many"];
   const seen = new Set();
   for (const t of tokens) {
     const s = addRefusal(t, "page");
@@ -494,9 +551,16 @@ test("every refusal token has a sentence of its own, and the already-reply names
   }
   assert.match(addRefusal("nothing", "page"), /\(page\)/);
   assert.match(addRefusal("no-destination"), /Nothing was changed/);
-  assert.match(alreadyReply("qr"), /already has a QR code/); assert.match(alreadyReply("qr"), /change/);
   assert.match(alreadyReply("three"), /already has a 3D scene/);
   assert.match(alreadyReply("x"), /already has/);
+  // NO "ALREADY" SENTENCE FOR A QR CODE (2026-09-03): a site carries several,
+  // so a second is an addition and the only refusals are the duplicates
+  // `cleanAdd` names. A named sentence here would be a door back to the wall
+  // that run 24 measured refusing an honest addition.
+  assert.ok(!/QR/.test(alreadyReply("qr")), "a second QR code is refused as 'already' — a site carries several");
+  assert.match(addRefusal("same-code"), /already has a QR code pointing there/);
+  assert.match(addRefusal("same-name"), /with that name/);
+  assert.match(addRefusal("too-many"), /as many QR codes as it can/);
 });
 
 // ── THE WIRING ───────────────────────────────────────────────────────────────

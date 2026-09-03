@@ -517,29 +517,39 @@ const LANES = {
   // CAPTION, not a picture. The code itself is generated from those at build
   // time, so changing where it points is changing two short strings — which is
   // the cheapest kind of edit there is, and would be absurd as a page rewrite.
+  //
+  // A SITE CARRIES SEVERAL (owner, 2026-09-03: "it should carry more"), so the
+  // stored value is a LIST of named codes and this lane answers a PATCH to one
+  // of them: which code, and what changes about it. Never the list — a model
+  // handing back a whole list is a model that can drop an entry, and a dropped
+  // code is a printed card that stops working. `patchQr` folds the patch over
+  // the stored list where the lane's answer is read.
   qr: {
-    hint: "THE QR CODE — where scanning it takes you, or what the words beside it say. Also taking it off the site.",
+    hint: "A QR CODE the site has — where scanning it takes you, or what the words beside it say. Which one, when the site has several.",
     shape: {
       type: "object",
       properties: {
-        points: { type: "string", description: "What scanning it does — a full URL, or `tel:`, `mailto:`, `WIFI:`, or plain text." },
-        label: { type: "string", description: "The few words printed beside it." },
+        name: { type: "string", description: "WHICH code, by the name it has in the list you were shown. A site with one code needs no name." },
+        points: { type: "string", description: "What scanning it does — a full URL, or `tel:`, `mailto:`, `WIFI:`, or plain text. Only when that is what they asked to change." },
+        label: { type: "string", description: "The few words printed beside it. Only when that is what they asked to change." },
       },
-      required: ["points", "label"],
+      required: [],
     },
     edit: {
-      is: "Where the site's QR code points and what it is called, as they should be after their change.",
+      is: "ONE of the site's QR codes — which one, and where it points or what it is called, as they should be " +
+        "after the change. The site's codes are in front of you as a list; answer the one they mean.",
       yours:
-        "BOTH HALVES ARE YOURS TO CHANGE. Point it somewhere else, reword the caption, or both — whatever " +
-        "they asked for. The code itself is drawn for you from these two values; you never draw one.",
+        "BOTH HALVES OF THAT ONE CODE ARE YOURS TO CHANGE. Point it somewhere else, reword the caption, or both — " +
+        "whatever they asked for. The code itself is drawn for you from these values; you never draw one.",
       wide:
         "NEVER INVENT A DESTINATION. This is the one field where a plausible guess is worse than a refusal: " +
         "a QR is the one thing on a page a visitor cannot read before acting on it, so a made-up URL is a " +
-        "customer sending people somewhere that does not exist. If they asked to reword the caption, change " +
-        "the caption and hand `points` back exactly as it was.",
+        "customer sending people somewhere that does not exist. If they asked to reword the caption, answer " +
+        "`label` and leave `points` out.",
       keep:
-        "THE HALF THEY DID NOT MENTION COMES BACK UNCHANGED, character for character. A reworded caption " +
-        "must not quietly re-point the code, and a re-pointed code must not quietly reword the caption.",
+        "THE HALF THEY DID NOT MENTION IS LEFT OUT, and every other code on the site stays exactly as it is — " +
+        "you answer one code, never the list. A reworded caption must not quietly re-point the code, and a " +
+        "re-pointed code must not quietly reword the caption.",
     },
   },
 

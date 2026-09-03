@@ -167,15 +167,20 @@ async function snapshot() {
  * the page before, is on it after, and the build moved.
  */
 export function eitherWay(b, a, r, mark, what) {
-  const had = mark.test(String(b.html || ""));
-  const has = mark.test(String(a.html || ""));
+  // COUNTED, NOT MERELY FOUND (2026-09-03): a site carries several QR codes,
+  // so "add a code" on a site that has one is a publish that leaves MORE marks
+  // on the page, not a mark where there was none. `mark` is a global regex;
+  // distinct matches are counted, so one file referenced twice is one code.
+  const count = (html) => new Set([...String(html || "").matchAll(mark)].map((m) => m[0])).size;
+  const before = count(b.html);
+  const after = count(a.html);
   const moved = a.build !== b.build;
   if (r && r.ok === true) {
-    return { ok: !had && has && moved,
-             note: `${what} ${had ? "was already on the page" : "was not on the page before"}, ${has ? "is on it now" : "is NOT on it now"}; build ${moved ? "moved" : "unmoved"}` };
+    return { ok: after > before && moved,
+             note: `${what}: ${before} on the page before, ${after} after; build ${moved ? "moved" : "unmoved"}` };
   }
-  return { ok: had && !moved,
-           note: `${had ? what + " was on the page, so the refusal was right" : "NO " + what + " on the page, so the refusal was wrong"}; build ${moved ? "moved on a refusal" : "unmoved"}` };
+  return { ok: before > 0 && !moved,
+           note: `${before ? what + " was on the page, so the refusal was right" : "NO " + what + " on the page, so the refusal was wrong"}; build ${moved ? "moved on a refusal" : "unmoved"}` };
 }
 
 // ── THE CASES ──────────────────────────────────────────────────────────────
@@ -235,14 +240,19 @@ export const CASES = [
       }
       return { ok: !moved, note: moved ? "the build moved on a refusal" : "build unmoved" };
     } },
+  // A SECOND CODE IS AN ADDITION (2026-09-03): the site's first code rings the
+  // number, this one opens the booking page, and each has its own file —
+  // `qr.svg`, then `qr-<name>.svg` — so the count of distinct code files on
+  // the page is what a publish must raise. A refusal (`add` with a reason, or
+  // the old `already`) is honest only while the build stays put.
   { name: "qr", kinds: ["qr"],
     ask: "Add a QR code that opens the booking page",
-    mayRefuse: ["already"],
-    check: (b, a, r) => eitherWay(b, a, r, /qr\.svg|SITE_QR/i, "a code") },
+    mayRefuse: ["already", "add"],
+    check: (b, a, r) => eitherWay(b, a, r, /\/qr(?:-[a-z0-9]+)?\.svg/g, "QR codes") },
   { name: "three", kinds: ["three"],
     ask: "Add a 3D model of a guitar you can spin round with the mouse",
     mayRefuse: ["already"],
-    check: (b, a, r) => eitherWay(b, a, r, /<canvas\b/i, "a scene") },
+    check: (b, a, r) => eitherWay(b, a, r, /<canvas\b/g, "a scene") },
   { name: "photo", kinds: ["photo"], hop: "picture",
     ask: "Add a photograph of the teaching room to the home page",
     // The add step hands a photograph to the picture rung. The hop itself is

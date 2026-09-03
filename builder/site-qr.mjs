@@ -31,48 +31,14 @@
  * is a single element the page can colour with one rule.
  */
 import qrcode from "qrcode-generator";
-
-/**
- * What a QR may carry. Long payloads need a denser code, and a dense code
- * printed small does not scan — the cap is a scanning limit, not a storage one.
- */
-export const MAX_QR_TEXT = 300;
-
-/**
- * The schemes a site's own QR may point at.
- *
- * NOT A SECURITY BOUNDARY IN THE USUAL SENSE — a phone camera will not execute a
- * `javascript:` URL, so the risk is not code running. It is that a QR is the one
- * thing on a page a visitor CANNOT read before acting on it: they point a camera
- * and trust what comes back. So the payload is held to what a business QR
- * honestly is, and anything else is refused rather than quietly encoded.
- *
- * Plain text with no scheme at all is allowed and is a real answer — a wifi
- * password, a table number, a stall's name.
- */
-const OK_SCHEME = /^(?:https?:|mailto:|tel:|sms:|geo:|WIFI:|BEGIN:VCARD)/i;
-const BAD_SCHEME = /^(?:javascript|data|vbscript|file|blob):/i;
-
-/**
- * Refuse WHOLE, like the favicon, and say why.
- *
- * A site with a refused QR simply has no QR — the same contract every drawn mark
- * on this platform has, and for the same reason: half a QR is a picture that
- * wastes a visitor's attention and then fails.
- */
-export function readQrText(v) {
-  if (typeof v !== "string") return { text: null, why: "not text" };
-  const s = v.trim();
-  if (!s) return { text: null, why: "empty" };
-  if (s.length > MAX_QR_TEXT) return { text: null, why: "over " + MAX_QR_TEXT + " characters" };
-  if (BAD_SCHEME.test(s)) return { text: null, why: "a scheme a QR must never carry" };
-  // A colon early in the string is a scheme; no colon is plain text, which is
-  // fine. This is deliberately not "does it look like a URL" — `geo:` and
-  // `WIFI:` are real business QRs and neither is one.
-  const scheme = /^[A-Za-z][A-Za-z0-9+.-]*:/.exec(s);
-  if (scheme && !OK_SCHEME.test(s)) return { text: null, why: "the scheme " + scheme[0] };
-  return { text: s, why: null };
-}
+// THE LIST, THE NAMES AND THE PAYLOAD RULE LIVE ONE MODULE OVER (2026-09-03),
+// dependency-free, because the container writes the files and cannot import
+// this module's encoder. Forwarded here so every existing reader keeps its
+// import path — in the TWO-LINE form, because `export { X } from` binds nothing
+// locally and `qrSvg` below calls `readQrText` (the ReferenceError
+// `test/worker-imports.test.mjs` exists for).
+import { MAX_QR_TEXT, MAX_QRS, readQrText, QR_NAME, QR_FILE, qrName, qrFile, qrList, patchQr, qrRefusal, qrUnplaced } from "./site-qr-list.mjs";
+export { MAX_QR_TEXT, MAX_QRS, readQrText, QR_NAME, QR_FILE, qrName, qrFile, qrList, patchQr, qrRefusal, qrUnplaced };
 
 /**
  * The matrix as one `<path>`, merging horizontal runs.
@@ -163,16 +129,30 @@ export function qrSvg(text, { quiet = 4 } = {}) {
  * property it actually governs. The owner's call when asked was to give the
  * brief a real destination rather than relax that rule, and this respects it.
  */
-export const QR_FIELD = {
+/**
+ * ONE CODE, as an item of the list below. Shared with the addon step's `qr`
+ * kind by shape — the edit lane answers a PATCH to one of these by name.
+ *
+ * `name` IS WHAT MAKES SEVERAL POSSIBLE (owner, 2026-09-03: "it should carry
+ * more"): it names the file (`qr-wifi.svg`) and the binding the page reads
+ * (`SITE_QRS.wifi`), so two codes on one site never fight over one slot.
+ */
+export const QR_ITEM = {
   type: "object",
   properties: {
+    name: {
+      type: "string",
+      description:
+        "A short handle for THIS code, unique on the site: \"wifi\", \"booking\", \"menu\". Lowercase " +
+        "letters and digits only — it names the file and the binding the page reads it through.",
+    },
     points: {
       type: "string",
       description:
         "What scanning it does, as the exact string the code carries. A full URL (\"https://…\"); " +
         "`WIFI:T:WPA;S:<network>;P:<password>;;` to join a network; `tel:` a number; `mailto:` an address; " +
         "`geo:lat,lng` a place. NEVER INVENT IT — a QR is the one thing on a page a visitor cannot read " +
-        "before acting on it, so it carries something the brief actually gives you, or this whole field is " +
+        "before acting on it, so it carries something the brief actually gives you, or this code is " +
         "left out.",
     },
     label: {
@@ -182,16 +162,23 @@ export const QR_FIELD = {
         "\"Book a table\", \"Join our wifi\". A QR with no caption is a black square nobody points a camera at.",
     },
   },
-  required: ["points", "label"],
+  required: ["name", "points", "label"],
+};
+
+export const QR_FIELD = {
+  type: "array",
+  items: QR_ITEM,
+  maxItems: MAX_QRS,
   description:
-    "A QR CODE ON THE PAGE — a square a visitor points their phone at to get something they would " +
+    "THE QR CODES ON THE PAGE — squares a visitor points their phone at to get something they would " +
     "otherwise have to type. OMIT THIS FIELD ENTIRELY unless the brief gives you a real destination for " +
-    "one; that is the right answer for most sites.\n" +
+    "one; that is the right answer for most sites. A site may carry several, one per real destination " +
+    "the brief gives — the wifi, the booking link, the menu — each with its own name.\n" +
     "WHAT IT IS FOR: the moment somebody is standing in front of the business, phone in hand, and the " +
     "alternative is copying a password off a screen, keying a long address, or asking a person who is not " +
     "there. A wifi network they can join by pointing a camera. A number they can ring without typing it. " +
     "A place they can walk to. If the brief describes that moment, this field is the answer to it — the " +
-    "words the page prints beside it are what make somebody bother, so say those too.\n" +
-    "IT IS DRAWN FOR YOU. Say what it carries and what it is called; the code is generated at build time " +
-    "and placed on the page, so you never draw one and never need a library for it.",
+    "words the page prints beside each code are what make somebody bother, so say those too.\n" +
+    "THEY ARE DRAWN FOR YOU. Say what each carries and what it is called; the codes are generated at " +
+    "build time and placed on the page, so you never draw one and never need a library for it.",
 };

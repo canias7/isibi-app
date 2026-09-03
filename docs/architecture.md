@@ -250,6 +250,20 @@ four-part rule (`is` · `yours` · `wide` · `keep`), a shape of its own, and a
 tool with ONE property and nothing required, so a kind that cannot answer
 returns nothing and the route says so.
 
+**A site carries several QR codes** (owner, 2026-09-03: *"it should carry
+more"*). The stored field is a list of named codes, `{ name, points, label }`,
+each drawn to its own file (`qr-wifi.svg`) and reached by name
+(`SITE_QRS.wifi`); the old single code reads as one entry named `qr`, keeping
+`qr.svg` and `SITE_QR`, so nothing published before the list changes. The
+addon APPENDS a code and refuses only a duplicate — the same name or the same
+destination as one the site has — so `three` is now the one thing a site
+carries one of (`SINGLE_FIELDS`). The edit lane answers a PATCH to one code by
+name, never the list (a model handing back a list can drop an entry, and a
+dropped code is a printed card that stops working), folded over the stored
+list in the Worker; the page step that places codes asks for exactly the ones
+no page shows, by name. `builder/site-qr-list.mjs` holds the names, the files
+and the reader, dependency-free because the container imports it too.
+
 **A section is a component** (owner, 2026-09-02: *"section is just adding a
 new component, so its a tsx step that adds components"*). The page is a tsx
 file made of components, so what a customer calls a section, a form, a map or
@@ -303,12 +317,16 @@ the spine handed the job. The browser watches the receipt through the one
 watcher with the addon's own reader; the harness sends a retry key and
 watches the same way.
 
-**Proven live on run 22 (2026-09-03) for the `component` kind**: a
-testimonials section on fretwork-1, filed as a job, published 5m36s later
-for 12 credits, read off the served page. `page`, `qr`, `three` and `photo`
-are what the next dispatch of `scripts/addon-sweep.mjs` (`harness: addon`
-in `lane-sweep.yml`) proves; run 22's harness crashed on its own watch after
-the receipt, so those four have not run.
+**Proven live on runs 22–25 (2026-09-03), every kind**: `component` (a
+testimonials section on fretwork-1, published 5m36s after the receipt for 12
+credits), `page` (`/prices` over the site's own lessons table, 6m39s, 13),
+`three` (a guitar you drag to turn, 8m14s, 12) — each filed as a job and read
+off the served page; `qr` refused honestly while a site carried one code
+(before the list above); `photo` hopped to the picture rung, which answered
+`no-slots` on a site with no photograph (a gap, filed). `scripts/addon-sweep.mjs`
+(`harness: addon` in `lane-sweep.yml`) is the instrument, and every "LIE" it
+printed was the instrument — each is a case in `test/addon-sweep.test.mjs`
+now. The `table` kind has not been asked on a site that can take one.
 
 ## The DELETE step — does not exist as a step
 

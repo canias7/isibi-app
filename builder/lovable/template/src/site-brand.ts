@@ -35,6 +35,12 @@ export const SITE_LOGO = "";
 export const SITE_ANIMATED = "";
 export const SITE_QR = "";
 export const SITE_QR_LABEL = "";
+// EVERY QR CODE THE SITE CARRIES, BY NAME (2026-09-03, a site carries several):
+// `SITE_QRS.wifi` is `{ src, label }` for the code called `wifi`. `SITE_QR` and
+// `SITE_QR_LABEL` above still name the FIRST one, so a page written before
+// there was a list keeps working. Empty in the template for the reason the
+// three above are: a page using it must build standalone.
+export const SITE_QRS: Readonly<Record<string, { src: string; label: string }>> = {};
 // The document's language. A REFUSAL RATHER THAN A DEFAULT lives one layer up in
 // `normalizeLang` — a site whose language could not be established keeps
 // whatever it had, and the template's own answer is English.

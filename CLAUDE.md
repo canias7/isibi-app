@@ -291,18 +291,38 @@ Only `tsx`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
   that cannot *write* `href` could animate one in — `attributeName` is checked
   against the same set the scanner admits, and `animateMotion` is refused
   outright (its child is `<mpath href>`).
-- **`qr`** (2026-08-29, owner: *"qr code maker as optional"*) — `{ points, label
-  }`, both required. **We draw it, the model never does**: a QR is Reed-Solomon
+- **`qr`** (2026-08-29, owner: *"qr code maker as optional"*; **A LIST SINCE
+  2026-09-03**, owner: *"it should carry more"*) — up to `MAX_QRS` (6) named
+  codes, each `{ name, points, label }`, all three required. **We draw them, the
+  model never does**: a QR is Reed-Solomon
   over a spec with 40 sizes and 8 masks, and its failure mode is a code that
   looks perfect and does not scan — unfalsifiable by every instrument here except
   a phone. `qrcode-generator` (one file, no deps) is bundled into the Worker;
   `qrSvg` emits ONE `<path>` merging horizontal runs (**4,206 chars vs the
-  library's 8,464** for a real URL). Generated at build time from the two stored
+  library's 8,464** for a real URL). Generated at build time from the stored
   strings, never stored as a picture — a stored SVG would be a second copy of
   `points` that can disagree with it. `test/site-marks.test.mjs` re-derives the
   module set from the emitted path and compares it against the library's own
   `isDark`, which is the only ground truth available without a camera. The
   payload is held to real business schemes; `javascript:` and `data:` are refused.
+  **The name is the file and the binding**: `qr-wifi.svg` and `SITE_QRS.wifi`
+  (`{ src, label }`), an identifier — lowercase letters and digits, `QR_NAME` —
+  because `SITE_QRS.join-our-wifi` is a subtraction to JavaScript. **The old
+  single code reads as one entry named `qr`** through `qrList`, keeping `qr.svg`
+  and `SITE_QR`/`SITE_QR_LABEL`, so every site published before the list serves
+  the bytes it served; nothing migrates, and the store becomes a list the first
+  time a lane or the addon answers. `builder/site-qr-list.mjs` (the names, the
+  files, `qrList`, `patchQr`, `qrUnplaced`, the refusal sentences) is
+  DEPENDENCY-FREE because the container imports it to name the files — **and the
+  image must COPY it** (see the trap: the suite's import walk caught it missing
+  from the Dockerfile the hour it was written). The edit lane answers a PATCH to
+  one code by name, never the list; the addon appends one and refuses only a
+  duplicate (same name or same destination); the look branch's place step asks
+  the page rung for the codes no page shows, by name (`qrPlaceAsk`). `three` is
+  now the one field a site carries one of (`SINGLE_FIELDS`); `qr` stays on
+  `ADD_ONLY_FIELDS`, because the edit path still may not CREATE one.
+  `test/site-qr-list.test.mjs` drives the module and reads every hop; the
+  container harness compiles a two-code site AND the pre-list single payload.
 - **`three`** — a 3D/WebGL element, optional the way `css` is, absent on nearly
   every site. **Fully wired 2026-08-30**, and it took TWO hops because it shipped
   needing both: onto `EDIT_FIELDS` so `mergeLook` stops discarding it, and into
@@ -905,6 +925,38 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   that, every addon kind has run live: `component` and `page` and `three`
   publish, `qr` refuses honestly, `photo` hops; `table` has not been asked
   on a site that can take one.
+- **A SITE CARRIES SEVERAL QR CODES (owner, 2026-09-03: *"But a site cant
+  have 2 or more qr codes?" … "Yes, it should carry more"*).** Run 24's honest
+  refusal was a consequence of the SHAPE — one `{ points, label }`, one file,
+  one binding, nowhere to keep a second — not a rule anybody chose. The shape
+  is in the `qr` bullet of the design section; what changed on THIS path: the
+  `qr` kind answers `name` (required, derived from the caption when the model
+  gives none), `cleanAdd` refuses `same-name` / `same-code` / `no-name` /
+  `bad-destination` / `too-many` against the STORED list (read through
+  `qrList`, so a pre-list site's one code counts as `qr`), `foldAdds` APPENDS
+  by name — the `tsx` rule, for the same reason — `siteNote` lists every code
+  with both halves, the directive names `SITE_QRS.<name>`, the already-wall
+  iterates `SINGLE_FIELDS` (`three` alone) and `alreadyReply("qr")` is gone.
+  The harness's `qr` case counts DISTINCT code files on the page, so a second
+  code is a publish and a refusal is honest only with a code there and the
+  build unmoved. **Taking a code OFF is the deferred DELETE step, not the
+  lane**: the old hint said "also taking it off the site" with no mechanism
+  behind it — `CLEARABLE_LISTS` is `langs` alone and `hasValue({})` is
+  silence — so the new hint no longer promises it. **Sweep: 22 mutants, 22
+  killed, none unapplied, the comment-only control survived** — each a hop cut
+  back (the first code's file moving, the old single code dropped at the
+  reader, at the container and at the note, a repeated name kept, a guess on
+  a site with several, a bad destination stored, the old binding counting for
+  every code, the patch stored AS the list, the already-wall back on `qr`,
+  the evidence reading the old binding only, the place step firing with
+  nothing to place, the addon note handed the object, both codes written to
+  one file, a same-destination code allowed, the fold replacing, the
+  directive and the note listing the first code only, the merge keeping junk,
+  the lane compelling a name, the harness counting any code, the image
+  without the module). Full suite 4,879.
+  **Not proven live yet** — the next `harness: addon` run with lanes `qr` on
+  fretwork-1 (~12 credits, the site has one code that rings the number, the
+  ask adds one that opens the booking page) is what proves it.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,
@@ -1259,8 +1311,8 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 310/310** against the real container; the unit suite is 4,863
-  (2026-09-03, after the addon queue fork).
+- **`site build` is 310/310** against the real container; the unit suite is 4,879
+  (2026-09-03, after the QR list).
   **Run it with nothing else of its own already running.** It binds a fixed port,
   so a leftover `build-server.mjs` from an earlier run makes the new one's
   `listen` throw and every streaming leg report "0 reports arrived" — six red
@@ -1963,6 +2015,21 @@ landmark, the sweep killed every mutant, and the first real call threw
 scope it was written in must be DRIVEN once, with its inputs handed in**;
 a text read cannot see scope. The fix shape is the parameter, and the
 guard is the call.
+
+**A MODULE THE CONTAINER IMPORTS AND THE IMAGE DID NOT CARRY (2026-09-03, the
+QR list).** `site-qr-list.mjs` was written dependency-free precisely so the
+container could import it; `build-server.mjs` imported it; every guard on the
+container's write loop passed by reading the source; and the Dockerfile's COPY
+line did not name it. The image would have built, the service would have died
+at import with MODULE_NOT_FOUND on the first build after the deploy, and the
+customer would have read it as *"our build service was restarting"* — the
+sentence that has already hidden two other causes. `test/dockerfile.test.mjs`'s
+transitive import walk (written 2026-08-20 for this exact shape) went red in
+the same suite run. **It is the one guard here that compares the consumer's
+ENVIRONMENT with the code**, the CI-install trap's lesson one layer down: a
+new import in a container module is a new name on that COPY line, and only a
+check that derives the list from the imports notices. The source reads in
+`site-marks` and `site-qr-list` could never have.
 
 ## Backlog
 

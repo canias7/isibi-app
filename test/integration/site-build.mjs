@@ -511,8 +511,17 @@ function Home() {
 // ever drift from what `writeSiteBrand` emits, this stops compiling — which is
 // the failure the directive's own comment warns about ("a page that guesses
 // `SITE_GIF` does not compile, and the failure blames the page").
+//
+// AND A SECOND CODE BY NAME (2026-09-03, owner: "it should carry more"). The
+// first code keeps its old bindings — every page written before the list reads
+// `SITE_QR` — and the second is reached through `SITE_QRS.<name>`, the record
+// the container emits per code. Both halves have to compile against the
+// generated module AND against the checked-in stub, which is why `SITE_QRS` is
+// typed in both as a `Record<string, { src, label }>`: an unannotated `{}` would
+// make `SITE_QRS.care` a type error in the stub and the page would fail
+// standalone.
 const MARKS_INDEX = `import { createFileRoute } from "@tanstack/react-router";
-import { SITE_ANIMATED, SITE_QR, SITE_QR_LABEL } from "@/site-brand";
+import { SITE_ANIMATED, SITE_QR, SITE_QR_LABEL, SITE_QRS } from "@/site-brand";
 
 export const Route = createFileRoute("/")({ component: Marks });
 
@@ -525,6 +534,12 @@ function Marks() {
         <figure className="mt-8">
           <img src={SITE_QR} alt={SITE_QR_LABEL} className="h-40 w-40" />
           <figcaption className="mt-2 text-sm text-muted-foreground">{SITE_QR_LABEL}</figcaption>
+        </figure>
+      )}
+      {SITE_QRS.care && (
+        <figure className="mt-8">
+          <img src={SITE_QRS.care.src} alt={SITE_QRS.care.label} className="h-40 w-40" />
+          <figcaption className="mt-2 text-sm text-muted-foreground">{SITE_QRS.care.label}</figcaption>
         </figure>
       )}
     </main>
@@ -2594,13 +2609,17 @@ function H() { return <main><h1>Promised imports</h1></main>; }
     // repo's fixture-shape trap, which has already shipped a wrong canonical URL
     // for a day.
     //
-    // The container takes the QR as `{ svg, label }` — which is what the Worker's
-    // `qrPayload` hands it after turning the designed `{ points, label }` into a
-    // drawing. Sending that shape is what makes this the Worker's real payload
-    // rather than a shape only this test produces.
+    // The container takes the QR as `[{ name, svg, label }]` — which is what the
+    // Worker's `qrPayload` hands it after turning the designed list of
+    // `{ name, points, label }` into drawings (one `{ svg, label }` before
+    // 2026-09-03, which the container still reads as one code named `qr` —
+    // the second case below sends exactly that). Sending that shape is what
+    // makes this the Worker's real payload rather than a shape only this test
+    // produces.
     const { qrSvg } = await import("../../builder/site-qr.mjs");
     const { cleanGif } = await import("../../builder/site-favicon.mjs");
     const drawn = qrSvg("https://ashgrove-1.gofarther.app/c/AG-0161");
+    const drawn2 = qrSvg("https://ashgrove-1.gofarther.app/care");
     const mark = cleanGif('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
       '<rect width="64" height="64" rx="8" fill="#2b2118"/>' +
       '<g fill="none" stroke="#d8c9a8" stroke-width="4" stroke-linecap="round">' +
@@ -2612,6 +2631,8 @@ function H() { return <main><h1>Promised imports</h1></main>; }
     // nothing, which is this repo's vacuous-assertion trap.
     ok("the QR producer drew something to send", typeof drawn.svg === "string" && drawn.svg.length > 100,
       "why=" + String(drawn.why || "-"));
+    ok("…and a second, different code for the list", typeof drawn2.svg === "string" && drawn2.svg !== drawn.svg,
+      "why=" + String(drawn2.why || "-"));
     ok("the animated mark was admitted by the real scanner", typeof mark.svg === "string" && mark.svg.length > 50,
       "why=" + String(mark.why || "-"));
 
@@ -2619,9 +2640,12 @@ function H() { return <main><h1>Promised imports</h1></main>; }
       files: { "index.tsx": MARKS_INDEX },
       slug: "both-marks", ...themeAsSeeds("broadsheet"),
       gif: mark.svg,
-      qr: { svg: drawn.svg, label: "Scan for the care guide" },
+      qr: [
+        { name: "qr", svg: drawn.svg, label: "Scan for the care guide" },
+        { name: "care", svg: drawn2.svg, label: "Scan for the chair's own page" },
+      ],
     });
-    ok("A SITE CARRYING AN ANIMATED MARK AND A QR BUILDS — neither had ever been compiled",
+    ok("A SITE CARRYING AN ANIMATED MARK AND TWO QR CODES BUILDS — no list had ever been compiled",
       marks.ok === true,
       "stage=" + marks.stage + " error=" + String(marks.error || "").slice(0, 400));
 
@@ -2634,7 +2658,9 @@ function H() { return <main><h1>Promised imports</h1></main>; }
       // log and is broken on the screen.
       ok("…and the animated mark is in the published files",
         names.some((n) => n.endsWith("animated.svg")), names.filter((n) => n.endsWith(".svg")).join(", ") || "(no svg)");
-      ok("…and so is the QR", names.some((n) => n.endsWith("qr.svg")),
+      ok("…and so is the first QR, under the file every older page points at", names.some((n) => n.endsWith("qr.svg")),
+        names.filter((n) => n.endsWith(".svg")).join(", ") || "(no svg)");
+      ok("…and the second, under its own name", names.some((n) => n.endsWith("qr-care.svg")),
         names.filter((n) => n.endsWith(".svg")).join(", ") || "(no svg)");
 
       // AND THE PAGE REALLY REFERENCES THEM, which is the half a file listing
@@ -2642,11 +2668,32 @@ function H() { return <main><h1>Promised imports</h1></main>; }
       // show them compiled its guards away.
       const js = Object.entries(marks.files || {})
         .filter(([k]) => k.endsWith(".js")).map(([, v]) => v.t || "").join("\n");
-      ok("…and the built page points at both paths",
-        js.includes("/animated.svg") && js.includes("/qr.svg"),
-        "animated=" + js.includes("/animated.svg") + " qr=" + js.includes("/qr.svg"));
-      ok("…and the QR caption survived as the image's alt text",
-        js.includes("Scan for the care guide"), "caption not found in the bundle");
+      ok("…and the built page points at all three paths",
+        js.includes("/animated.svg") && js.includes("/qr.svg") && js.includes("/qr-care.svg"),
+        "animated=" + js.includes("/animated.svg") + " qr=" + js.includes("/qr.svg") + " care=" + js.includes("/qr-care.svg"));
+      ok("…and both QR captions survived as the images' alt text",
+        js.includes("Scan for the care guide") && js.includes("Scan for the chair's own page"), "a caption not found in the bundle");
+    }
+
+    // THE OLD SINGLE-CODE PAYLOAD, which every Worker before the list sent and
+    // which a Worker deployed before the container rolls still sends for the
+    // 15–20 minutes the two are apart: read as one code named `qr`, so the
+    // page's `SITE_QR` keeps its file and `SITE_QRS.care` is honestly absent.
+    const legacy = await post({
+      files: { "index.tsx": MARKS_INDEX },
+      slug: "one-mark", ...themeAsSeeds("broadsheet"),
+      qr: { svg: drawn.svg, label: "Scan for the care guide" },
+    });
+    ok("a site sent the pre-list single QR still builds", legacy.ok === true,
+      "stage=" + legacy.stage + " error=" + String(legacy.error || "").slice(0, 400));
+    if (legacy.ok) {
+      const names = Object.keys(legacy.files || {});
+      const js = Object.entries(legacy.files || {})
+        .filter(([k]) => k.endsWith(".js")).map(([, v]) => v.t || "").join("\n");
+      ok("…and serves it under the file it always had", names.some((n) => n.endsWith("qr.svg")) && js.includes("/qr.svg"),
+        names.filter((n) => n.endsWith(".svg")).join(", ") || "(no svg)");
+      ok("…and ships no file for a code it was not sent", !names.some((n) => n.endsWith("qr-care.svg")),
+        names.filter((n) => n.endsWith(".svg")).join(", "));
     }
   }
 

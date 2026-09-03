@@ -45,6 +45,9 @@ import { dirFor, initialsMark, normalizeLang, siteIconFrom } from "./site-identi
 // two layers, version skew and hand-written payloads reach this one directly,
 // and the mark is an SVG document served from the site's own origin.
 import { cleanFavicon, readWordmark, cleanGif } from "./site-favicon.mjs";
+// THE QR LIST'S NAME AND FILE RULES — the dependency-free half of the QR
+// module, so this container never has to carry the encoder (2026-09-03).
+import { QR_NAME, QR_FILE, qrFile, MAX_QRS } from "./site-qr-list.mjs";
 import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { runStep } from "./run-step.mjs";
@@ -391,8 +394,15 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
   // delete is unconditional and the write is not — a site that stopped having an
   // animated mark must actually stop having one.
   const gifPath = path.join(APP, "public", "animated.svg");
-  const qrPath = path.join(APP, "public", "qr.svg");
-  for (const p of [gifPath, qrPath]) { try { fs.rmSync(p, { force: true }); } catch {} }
+  const publicDir = path.join(APP, "public");
+  try { fs.rmSync(gifPath, { force: true }); } catch {}
+  // EVERY CODE'S FILE, WHATEVER IT WAS NAMED (2026-09-03, a site carries
+  // several): `qr.svg` and every `qr-<name>.svg`, matched by the one pattern
+  // the list module owns — so a code written under a name this build does not
+  // send cannot survive from the previous site into this one.
+  try {
+    for (const f of fs.readdirSync(publicDir)) if (QR_FILE.test(f)) fs.rmSync(path.join(publicDir, f), { force: true });
+  } catch {}
   // The drawn logo's file, deleted per build for the reason the icon's is one
   // line up: this container is long-lived and a stale one is one site's
   // wordmark in another's header.
@@ -545,15 +555,32 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
       }
     } catch (e) { console.error("animated mark failed:", e && e.message); }
   }
+  // ── THE CODES, AS A LIST ──────────────────────────────────────────────
+  //
+  // The Worker's `qrPayload` hands `[{ name, svg, label }]`; the old single
+  // `{ svg, label }` is read as one code named `qr`, so a Worker from before
+  // today still writes the file it always wrote. Each code gets its own file
+  // under `qrFile(name)` — `qr.svg` for the name `qr`, `qr-<name>.svg`
+  // otherwise — and the page reaches it by name through `SITE_QRS`. The FIRST
+  // one is also `SITE_QR`/`SITE_QR_LABEL`, for every page written before
+  // there was a list. A name the rule refuses, or one already written, is
+  // skipped rather than guessed: a file under a wrong name is a page pointing
+  // at a 404.
   let qrValue = "", qrLabel = "";
-  if (qr && typeof qr === "object" && typeof qr.svg === "string" && /^<svg[\s>]/.test(qr.svg.trim())) {
+  const qrEntries = [];
+  const qrRaw = Array.isArray(qr) ? qr : (qr && typeof qr === "object" ? [{ name: "qr", ...qr }] : []);
+  for (const e of qrRaw) {
+    if (!e || typeof e !== "object" || typeof e.svg !== "string" || !/^<svg[\s>]/.test(e.svg.trim())) continue;
+    const name = typeof e.name === "string" && QR_NAME.test(e.name) ? e.name : null;
+    if (!name || qrEntries.some((x) => x.name === name)) continue;
     try {
-      fs.mkdirSync(path.dirname(qrPath), { recursive: true });
-      fs.writeFileSync(qrPath, qr.svg);
-      qrValue = "/qr.svg";
-      qrLabel = typeof qr.label === "string" ? qr.label.slice(0, 80) : "";
-    } catch (e) { console.error("qr write failed:", e && e.message); }
+      fs.mkdirSync(publicDir, { recursive: true });
+      fs.writeFileSync(path.join(publicDir, qrFile(name)), e.svg);
+      qrEntries.push({ name, src: "/" + qrFile(name), label: typeof e.label === "string" ? e.label.slice(0, 80) : "" });
+    } catch (err) { console.error("qr write failed:", name, err && err.message); }
+    if (qrEntries.length >= MAX_QRS) break;
   }
+  if (qrEntries.length) { qrValue = qrEntries[0].src; qrLabel = qrEntries[0].label; }
   const titleValue = typeof title === "string" && title.trim() ? title.trim().slice(0, 120) : "App";
   // THE SLUG IS THE ONE VALUE HERE THAT IS NOT DECORATION. `siteSlug()` reads it
   // off the head on a custom domain, where there is no `/s/<slug>/` path to learn
@@ -619,6 +646,10 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
       "export const SITE_ANIMATED = " + JSON.stringify(gifValue) + ";\n" +
       "export const SITE_QR = " + JSON.stringify(qrValue) + ";\n" +
       "export const SITE_QR_LABEL = " + JSON.stringify(qrLabel) + ";\n" +
+      // EVERY CODE BY NAME (2026-09-03). Typed as the template declares it, so
+      // a page reading `SITE_QRS.wifi.src` compiles against both.
+      "export const SITE_QRS: Readonly<Record<string, { src: string; label: string }>> = " +
+        JSON.stringify(Object.fromEntries(qrEntries.map((e) => [e.name, { src: e.src, label: e.label }]))) + ";\n" +
       "export const SITE_LANG = " + JSON.stringify(langValue) + ";\n" +
       // ANNOTATED for the reason `SITE_PAGE_TRANSITION` below is: an unannotated const has
       // the LITERAL type of whichever value was written, so a comparison against

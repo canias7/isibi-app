@@ -39,6 +39,7 @@ import { callBuilderModel } from "./build-call.mjs";
 // container's prerender and the published route manifest. This file kept a
 // private copy and it was wrong twice — see the note at `live` below.
 import { routeOf } from "./site-addon.mjs";
+import { qrList } from "./site-qr-list.mjs";
 // One worked call per primitive, mined out of the demos by
 // builder/gen-chart-usage.mjs. This is what the 1,140 demo files are FOR: they
 // are the only place in the repo these APIs are called, and they compile, so
@@ -2046,14 +2047,24 @@ export function marksDirective({ gif, qr } = {}) {
       "  guard it: `{SITE_ANIMATED && …}`. It is decoration, so it takes an EMPTY alt and never carries meaning",
       "  the words do not already carry.");
   }
-  if (qr && typeof qr === "object" && typeof qr.label === "string") {
+  // THE CODES, BY NAME (2026-09-03, a site carries several). Every one the
+  // site has is listed with its binding, so a page can place the wifi code by
+  // the till and the booking code by the door — and the one example is written
+  // with the first code's name, which the writer swaps for the others.
+  const codes = qrList(qr);
+  if (codes.length) {
+    const n = codes[0].name;
     lines.push(
-      "- A QR CODE is on this site, at `SITE_QR` with its caption at `SITE_QR_LABEL` (both from",
-      "  `@/site-brand`). Show them TOGETHER — the code with the caption printed beside or beneath it — and",
-      "  guard on `SITE_QR`. Give the image `alt={SITE_QR_LABEL}`. Print it no smaller than about 120px:",
-      "  a QR below that does not scan, which is a failure nobody sees until somebody tries it in a room.",
-      "  To caption it: `<Figure caption={SITE_QR_LABEL}><img src={SITE_QR} alt={SITE_QR_LABEL} /></Figure>`",
-      "  from `@/components/ui/figure` — it takes the image as its child.");
+      "- " + (codes.length === 1 ? "A QR CODE is" : codes.length + " QR CODES are") + " on this site, in `SITE_QRS` from `@/site-brand` — an",
+      "  object keyed by each code's name, every entry `{ src, label }`. (`SITE_QR` and `SITE_QR_LABEL` still name",
+      "  the FIRST one, for pages already written against them.) The codes:");
+    for (const c of codes) lines.push("    `SITE_QRS." + c.name + "` — caption \"" + c.label + "\", scanning it: " + c.points.slice(0, 80));
+    lines.push(
+      "  Show each one WITH its caption printed beside or beneath it, guarded on its entry, and give the image",
+      "  `alt={SITE_QRS." + n + ".label}`. Print a code no smaller than about 120px: a QR below that does not scan,",
+      "  which is a failure nobody sees until somebody tries it in a room. To caption one:",
+      "  `<Figure caption={SITE_QRS." + n + ".label}><img src={SITE_QRS." + n + ".src} alt={SITE_QRS." + n + ".label} /></Figure>`",
+      "  from `@/components/ui/figure` — it takes the image as its child; write the other codes' names in place of `" + n + "`.");
   }
   if (!lines.length) return "";
   return ["## Marks this site already has", "", ...lines].join("\n");

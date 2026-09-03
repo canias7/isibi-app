@@ -120,19 +120,29 @@ test("a rung's parts survive a later rung's publish in the same message, and rea
 });
 
 // ── THE QR IS PLACED ──────────────────────────────────────────────────────
-test("the look branch adds a page step to place the QR when the page does not show it, with its own ask", () => {
+test("the look branch adds a page step to place the QR codes no page shows, named, with its own ask", () => {
+  // RE-ANCHORED 2026-09-03, when one code became a list: the step used to be
+  // gated on the page lacking `SITE_QR` and carried one fixed ask
+  // (`QR_PLACE_ASK`); now `qrUnplaced` names the codes no page shows and
+  // `qrPlaceAsk(names)` asks for exactly those. The property is the same —
+  // a stored code no page shows gets a page step of its own, and the ask
+  // names the binding rather than inviting a drawing.
   const look = CODE.slice(at(CODE, "const acting = pickedFields.filter", "look dispatch"), at(CODE, 'if (pickedFields.includes("pages"))', "pages verb"));
-  const step = look.indexOf('steps.push({ layer: "page", page: fallbackPage, fields: ["qr"], instruction: QR_PLACE_ASK })');
-  assert.ok(step > 0, "no QR placement step");
-  const cond = look.slice(look.lastIndexOf("if (", step), step);
-  assert.match(cond, /pickedFields\.includes\("qr"\)/, "the step is not gated on the qr lane having been picked");
-  assert.match(cond, /SITE_QR/, "the step is not gated on the page lacking the binding");
-  assert.match(cond, /!eSrc\.some/, "the gate must be that NO page shows the code");
-  // The ask names both bindings exactly, as marksDirective does, and never asks
-  // for a code to be drawn.
-  const ask = CODE.slice(at(CODE, "const QR_PLACE_ASK =", "ask"), CODE.indexOf(";", at(CODE, "const QR_PLACE_ASK =", "ask")));
-  assert.match(ask, /SITE_QR\b/); assert.match(ask, /SITE_QR_LABEL/); assert.match(ask, /@\/site-brand/);
+  const step = look.indexOf('steps.push({ layer: "page", page: fallbackPage, fields: ["qr"], instruction: qrPlaceAsk(unplaced) })');
+  assert.ok(step > 0, "no QR placement step, or it no longer asks for the unplaced codes by name");
+  const gate = look.slice(look.lastIndexOf('if (pickedFields.includes("qr")', step), step);
+  assert.ok(gate.length > 0 && gate.length < 600, "the step is not gated on the qr lane having been picked");
+  assert.match(gate, /const unplaced = qrUnplaced\(qrList\(wallLook && wallLook\.qr\), eSrc\)/,
+    "the unplaced codes are not derived from the stored list against every page");
+  assert.match(gate, /if \(unplaced\.length\)/, "the step must fire only when some code is on no page");
+  // The ask names the binding exactly, as marksDirective does, names the
+  // component that takes children, and never asks for a code to be drawn.
+  const fn = at(CODE, "function qrPlaceAsk(names) {", "ask");
+  const ask = CODE.slice(fn, CODE.indexOf("\n}\n", fn));
+  assert.match(ask, /SITE_QRS\./); assert.match(ask, /@\/site-brand/); assert.match(ask, /@\/components\/ui\/figure/);
+  assert.match(ask, /120px/, "nothing tells the rung a code printed too small does not scan");
   assert.ok(!/draw|generate a qr|make a qr/i.test(ask), "the ask must not invite the model to draw its own code");
+  assert.match(ask, /Change nothing else on the page/, "the ask does not bound the rung to the placement");
 });
 
 test("a step's own ask replaces the customer's sentence for that step only", () => {

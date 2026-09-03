@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { cleanGif, cleanFavicon, GIF_TAGS, GIF_ATTRS, GIF_ANIMATABLE, MAX_GIF, GIF_FIELD, FAVICON_ATTRS } from "../builder/site-favicon.mjs";
-import { qrSvg, readQrText, QR_FIELD, MAX_QR_TEXT } from "../builder/site-qr.mjs";
+import { qrSvg, readQrText, QR_FIELD, MAX_QR_TEXT, MAX_QRS } from "../builder/site-qr.mjs";
 import { EDIT_FIELDS, currentStateNote, mergeLook } from "../builder/site-edit.mjs";
 import { OWN_LANES, LANE_FIELDS, editTool, laneRule } from "../builder/site-lanes.mjs";
 import { marksDirective, briefWithLayout, sceneDirective, pageRulesFor } from "../builder/page-gen.mjs";
@@ -163,12 +163,17 @@ test("the field refuses to invent a destination", () => {
   // That is this repo's most repeated own-goal, so it now asks what must be TRUE:
   // the destination rule is stated, and omitting is named as the alternative to
   // inventing.
-  const pts = QR_FIELD.properties.points.description;
+  // A LIST OF NAMED CODES SINCE 2026-09-03 (owner: "it should carry more"):
+  // the rules live on the ITEM now, and the item's `name` is what makes two
+  // codes on one site possible — it names the file and the binding.
+  assert.equal(QR_FIELD.type, "array", "the design field is no longer a list of codes");
+  assert.equal(QR_FIELD.maxItems, MAX_QRS, "the list's ceiling is not the module's");
+  const pts = QR_FIELD.items.properties.points.description;
   assert.match(pts, /NEVER INVENT/i, "the rule against inventing a destination is gone from `points`");
   assert.match(pts, /(left out|leave[^.]*out|omit)/i,
     "nothing tells the model to omit the QR rather than invent one — inventing is the failure this guards");
-  assert.deepEqual([...QR_FIELD.required].sort(), ["label", "points"],
-    "a QR may now be declared without its caption — a black square nobody scans");
+  assert.deepEqual([...QR_FIELD.items.required].sort(), ["label", "name", "points"],
+    "a QR may now be declared without its caption (a black square nobody scans) or without its name (no file, no binding)");
 });
 
 /* ── the chain, for both, end to end ────────────────────────────────────── */
@@ -188,10 +193,18 @@ test("THE CHAIN — both marks reach the site, and survive every later publish",
   for (const k of ["gif", "qr"]) {
     assert.ok(EDIT_FIELDS.includes(k), "hop 2: `" + k + "` is not stored, so the merge discards it");
   }
-  // The merge really carries them.
-  const m = mergeLook(null, { gif: ANIM, qr: { points: "https://x.test", label: "Menu" } }, null, {});
+  // The merge really carries them — the list, and the old single code that
+  // every site published before 2026-09-03 stores, which must survive every
+  // later merge exactly as `gif` does or those sites lose their code.
+  const CODES = [{ name: "menu", points: "https://x.test", label: "Menu" }, { name: "wifi", points: "WIFI:T:WPA;S:x;P:y;;", label: "Wifi" }];
+  const m = mergeLook(null, { gif: ANIM, qr: CODES }, null, {});
   assert.equal(m.gif, ANIM, "hop 2: the animated mark does not survive the merge");
-  assert.deepEqual(m.qr, { points: "https://x.test", label: "Menu" }, "hop 2: the QR does not survive the merge");
+  assert.deepEqual(m.qr, CODES, "hop 2: the QR list does not survive the merge");
+  const legacy = mergeLook({ qr: { points: "https://x.test", label: "Menu" } }, { brand: "x" }, null, {});
+  assert.deepEqual(legacy.qr, { points: "https://x.test", label: "Menu" }, "hop 2: a site's old single code is stripped by an unrelated merge");
+  // `null`, which is what the merge stores for every field with no usable
+  // value (`order.find(…) ?? null`) — and what `hasLookField` reads as absent.
+  assert.equal(mergeLook(null, { qr: [{ name: "half", label: "no destination" }] }, null, {}).qr, null, "hop 2: a list with no usable code is stored");
 
   const w = bare(worker);
   // BOTH PAYLOADS — the build's and the spine's. The spine is the half that is
@@ -212,20 +225,27 @@ test("THE CHAIN — both marks reach the site, and survive every later publish",
   // ONE function draws the QR for both payloads, so the two cannot disagree.
   assert.equal([...w.matchAll(/function qrPayload\(/g)].length, 1, "there is not exactly one QR payload builder");
 
-  // hop 4: the container writes them, and DELETES first.
+  // hop 4: the container writes them, and DELETES first. The QR half was one
+  // file (`qrPath`) until 2026-09-03; now every code has its own file under the
+  // list module's rule, and the delete matches that rule over the directory —
+  // so a code written under a name this build does not send cannot survive
+  // from the previous site into this one.
   const s = bare(server);
   assert.match(s, /const gifPath = path\.join\(APP, "public", "animated\.svg"\)/, "hop 4: the animated mark has no file");
-  assert.match(s, /const qrPath = path\.join\(APP, "public", "qr\.svg"\)/, "hop 4: the QR has no file");
-  // ASSERTED AS THE PROPERTY — both paths are rmSync'd — rather than as the exact
-  // punctuation of one line, which is how a guard goes red for a reformat.
-  assert.match(s, /\[gifPath, qrPath\][\s\S]{0,120}rmSync/,
-    "hop 4: the files are not deleted per build, so one site's mark appears on another's");
+  assert.match(s, /rmSync\(gifPath/, "hop 4: the animated mark is not deleted per build, so one site's mark appears on another's");
+  assert.match(s, /readdirSync\(publicDir\)\) if \(QR_FILE\.test\(f\)\) fs\.rmSync/,
+    "hop 4: the QR files are not deleted per build by the list module's own pattern");
+  assert.match(s, /writeFileSync\(path\.join\(publicDir, qrFile\(name\)\), e\.svg\)/,
+    "hop 4: a code is not written to the file its name gives it — the page would point at a 404");
+  assert.match(s, /import \{ QR_NAME, QR_FILE, qrFile, MAX_QRS \} from "\.\/site-qr-list\.mjs"/,
+    "hop 4: the container names the files by a rule of its own rather than the list module's");
   // …and re-validates the drawn one, because this route also takes hand-written
   // payloads and what it writes is served from the site's own origin.
   assert.match(s, /cleanGif\(gif\)/, "hop 4: the container writes a model-drawn document without validating it");
 
-  // hop 5: the page can reach them, and the binding exists in the template too.
-  for (const b of ["SITE_ANIMATED", "SITE_QR", "SITE_QR_LABEL"]) {
+  // hop 5: the page can reach them, and the binding exists in the template too
+  // — the first code's old names AND the list by name.
+  for (const b of ["SITE_ANIMATED", "SITE_QR", "SITE_QR_LABEL", "SITE_QRS"]) {
     assert.ok(s.includes(b), "hop 5: the container never emits `" + b + "`");
     assert.ok(brand.includes("export const " + b), "hop 5: `" + b + "` is missing from the template, so a page using it will not build standalone");
   }
@@ -233,19 +253,22 @@ test("THE CHAIN — both marks reach the site, and survive every later publish",
   // hop 6: the page WRITER is told they exist — without this the files are
   // served to nobody, which from outside looks exactly like the design step
   // never having answered.
-  const d = marksDirective({ gif: ANIM, qr: { points: "https://x.test", label: "Menu" } });
+  const d = marksDirective({ gif: ANIM, qr: CODES });
   assert.match(d, /SITE_ANIMATED/, "hop 6: the writer is never told the animated mark exists");
-  assert.match(d, /SITE_QR_LABEL/, "hop 6: the writer is never told the QR's caption exists");
+  assert.match(d, /SITE_QRS\.menu\.label/, "hop 6: the writer is never told a code's caption binding exists");
+  assert.match(d, /SITE_QRS\.wifi/, "hop 6: the writer is told the first code only — the second is served to nobody");
   assert.match(d, /120px/, "hop 6: nothing tells the writer a QR printed too small does not scan");
+  assert.match(marksDirective({ qr: { points: "https://x.test", label: "Menu" } }), /SITE_QRS\.qr\b/,
+    "hop 6: a site's old single code is not offered to the writer under its name `qr`");
   assert.equal(marksDirective({}), "", "a site with neither mark still sends the directive");
   // …AND IT ACTUALLY REACHES THE BRIEF. Found by a sweep: deleting the push in
   // `briefWithLayout` SURVIVED, because everything above tests the directive
   // BUILDER and the call ARGUMENTS and nothing tested the join between them.
   // That is the wiring trap in miniature — every piece right, one hop cut — and
   // it is exactly what this file exists to catch.
-  const joined = briefWithLayout({ brief: "a cafe", gif: ANIM, qr: { points: "https://x.test", label: "Menu" } });
+  const joined = briefWithLayout({ brief: "a cafe", gif: ANIM, qr: CODES });
   assert.match(joined, /SITE_ANIMATED/, "hop 6: the directive is built and never joined into the brief the model reads");
-  assert.match(joined, /SITE_QR_LABEL/, "hop 6: the QR half of the directive never reaches the brief");
+  assert.match(joined, /SITE_QRS\.menu/, "hop 6: the QR half of the directive never reaches the brief");
   const without = briefWithLayout({ brief: "a cafe" });
   assert.ok(!/SITE_QR|SITE_ANIMATED/.test(without), "a site with neither mark is told about them anyway");
   const callAt = w.indexOf("briefWithLayout({");
@@ -364,7 +387,10 @@ test("THE 3D SCENE REACHES THE PAGE WRITER — the hop `three` shipped without, 
 // red for the change. Pinning the spelling is this repo's most repeated own-goal.
 test("the component the QR directive names really accepts children", async () => {
   const { marksDirective } = await import("../builder/page-gen.mjs");
-  const text = marksDirective({ qr: { label: "Scan for the wifi" } });
+  // BOTH HALVES IN THE FIXTURE: since the list (2026-09-03) a code without a
+  // destination is not a code, so a caption-only fixture produces no directive
+  // and this guard would be reading an empty string.
+  const text = marksDirective({ qr: { points: "WIFI:T:WPA;S:x;P:y;;", label: "Scan for the wifi" } });
   assert.ok(text, "the QR directive produced nothing — this guard is reading the wrong shape");
 
   // THE COMPONENT AND ITS FILE, READ OUT OF THE DIRECTIVE'S OWN EXAMPLE rather
@@ -464,7 +490,7 @@ test("…and the destination rule survives, stated once, on the property it gove
   // on `points`, which is the property that actually carries the destination —
   // rather than three times across a field that also has to decide whether to
   // exist at all.
-  assert.match(QR_FIELD.properties.points.description, /NEVER INVENT IT/,
+  assert.match(QR_FIELD.items.properties.points.description, /NEVER INVENT IT/,
     "a QR may invent its destination now — that is a product decision and not a wording tidy-up");
   assert.doesNotMatch(QR_FIELD.description, /NEVER INVENT/,
     "the destination rule is back in the top-level description as well as on `points` — said twice, it is " +

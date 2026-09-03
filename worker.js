@@ -131,6 +131,10 @@ import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTIO
 // the container at the write — this file only carries the answer through.
 import { FAVICON_FIELD, WORDMARK_FIELD } from "./builder/site-favicon.mjs";
 import { QR_FIELD, qrSvg } from "./builder/site-qr.mjs";
+// THE LIST OF CODES A SITE CARRIES (2026-09-03) — read, patched and placed by
+// name. Dependency-free on purpose: the container imports the same module to
+// name the files, so what is drawn here and what is written there agree.
+import { qrList, patchQr, qrRefusal, qrUnplaced } from "./builder/site-qr-list.mjs";
 // THE ONE SHAPE OF A TABLE (2026-09-02), lifted out of `design_schema` so the
 // ADD step can ask for a table without the build's designer — see the header
 // of that file. The build's `tables` array keeps its own framing around it.
@@ -8565,18 +8569,24 @@ async function loadGenAnswer(env, slug) {
  * storing the SVG would be a second copy of `points` that can disagree with it,
  * and the one thing worse than no QR is a QR pointing at the previous URL.
  *
- * A REFUSED PAYLOAD YIELDS `undefined`, so the site simply has no QR — the same
- * refuse-whole contract every drawn mark here has. `qrSvg` already refuses a
- * scheme a QR must never carry, an over-long payload and one that will not fit.
+ * A REFUSED PAYLOAD YIELDS NO ENTRY, so the site simply has no such QR — the
+ * same refuse-whole contract every drawn mark here has. `qrSvg` already refuses
+ * a scheme a QR must never carry, an over-long payload and one that will not fit.
+ *
+ * A LIST SINCE 2026-09-03 (owner: "it should carry more"): one entry per stored
+ * code, `{ name, svg, label }`, in the stored order, and `undefined` when none
+ * draws. `qrList` reads the old single `{ points, label }` as one code named
+ * `qr`, whose file the container still calls `qr.svg` — so a site published
+ * before the list serves the bytes it always served.
  */
 function qrPayload(qr) {
-  if (!qr || typeof qr !== "object" || Array.isArray(qr)) return undefined;
-  const points = typeof qr.points === "string" ? qr.points : "";
-  const label = typeof qr.label === "string" ? qr.label.trim().slice(0, 80) : "";
-  if (!points || !label) return undefined;
-  const drawn = qrSvg(points);
-  if (!drawn.svg) { console.warn("qr refused:", drawn.why); return undefined; }
-  return { svg: drawn.svg, label };
+  const out = [];
+  for (const c of qrList(qr)) {
+    const drawn = qrSvg(c.points);
+    if (!drawn.svg) { console.warn("qr refused:", c.name, drawn.why); continue; }
+    out.push({ name: c.name, svg: drawn.svg, label: c.label });
+  }
+  return out.length ? out : undefined;
 }
 
 const PARTS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/parts.json";
@@ -9269,17 +9279,29 @@ async function translateStrings(env, tag, strings) {
 const publishSpine = (...a) => recompileAndPublish(...a);
 
 /**
- * THE ASK THE LOOK BRANCH GIVES THE PAGE RUNG TO PLACE THE QR.
+ * THE ASK THE LOOK BRANCH GIVES THE PAGE RUNG TO PLACE THE QR CODES NO PAGE
+ * SHOWS YET.
  *
  * Fixed words rather than the customer's, because the customer asked for a
  * code and this step is the page change that shows it. Names the bindings
- * exactly (`SITE_QR`, `SITE_QR_LABEL`), the way `marksDirective` does, so the
- * rung uses the generated file rather than drawing a code of its own.
+ * exactly (`SITE_QRS.<name>`), the way `marksDirective` does, so the rung uses
+ * the generated file rather than drawing a code of its own — and names the
+ * COMPONENT, because `Figure` and `MediaCaption` are both captioned figures
+ * and a page that guesses which one takes children does not compile (runs
+ * 84/85). A function of the unplaced names since the list (2026-09-03): a
+ * site with three codes and one already on the page is asked for the other
+ * two by name, never for "the QR code".
  */
-const QR_PLACE_ASK =
-  "Show this site's QR code on the page: render <img src={SITE_QR} alt={SITE_QR_LABEL} /> with its caption " +
-  "SITE_QR_LABEL printed beside or beneath it (both imported from @/site-brand), guarded on SITE_QR, at least " +
-  "120px wide, in the contact or closing section where a visitor would look for it. Change nothing else on the page.";
+function qrPlaceAsk(names) {
+  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n);
+  const n = list[0] || "qr";
+  const one = list.length <= 1;
+  return "Show " + (one ? "this site's QR code `" + n + "`" : "these QR codes of the site's: " + list.map((x) => "`" + x + "`").join(", ")) +
+    " on the page: render <Figure caption={SITE_QRS." + n + ".label}><img src={SITE_QRS." + n + ".src} alt={SITE_QRS." + n + ".label} /></Figure>" +
+    " (Figure from @/components/ui/figure, SITE_QRS from @/site-brand" + (one ? "" : "; one Figure per code, its name in place of `" + n + "`") + "), " +
+    "guarded on its entry, at least 120px wide, in the contact or closing section where a visitor would look for it. " +
+    "Change nothing else on the page.";
+}
 
 /**
  * THE DESIGN FIELDS THE EDIT PATH MAY NOT CREATE.
@@ -9296,13 +9318,27 @@ const QR_PLACE_ASK =
 const ADD_ONLY_FIELDS = ["qr", "three"];
 
 /**
+ * THE FIELDS A SITE CARRIES ONE OF, so the addon step refuses a second and
+ * names the door that changes the first.
+ *
+ * `qr` CAME OFF THIS LIST ON 2026-09-03 (owner: "it should carry more"): a site
+ * carries up to `MAX_QRS` named codes, so a second code is an addition, and
+ * what is refused instead is a code with the same NAME or the same DESTINATION
+ * as one it has — by `cleanAdd`, which reads the stored list. `ADD_ONLY_FIELDS`
+ * above answers a different question (may the EDIT path create one?) and `qr`
+ * stays on it: a code the site does not have is still the addon step's to make.
+ */
+const SINGLE_FIELDS = ["three"];
+
+/**
  * THE MARK EACH OF THOSE LEAVES IN THE PAGE SOURCE when it exists on the site
- * without a stored field — a code is placed through the `SITE_QR` binding, a
- * scene is a fiber `<Canvas>`. The dispatched lanes store no design field, so
+ * without a stored field — a code is placed through the `SITE_QRS` binding (or
+ * `SITE_QR`, the first code's old name, on every page written before the list),
+ * a scene is a fiber `<Canvas>`. The dispatched lanes store no design field, so
  * the stored look alone under-reports what a site has (run 12, 2026-09-02).
  */
 const ADD_EVIDENCE = {
-  qr: /\bSITE_QR\b/,
+  qr: /\bSITE_QRS?\b/,
   three: /@react-three\/fiber|<Canvas\b/,
 };
 
@@ -18862,8 +18898,11 @@ async function handleRequest(request, env, ctx) {
               // R2 — and a read that FAILS lets the lane run rather than
               // refusing: cannot-tell must never read as nothing-there, and
               // the lane says `no-meta` itself.
+              // HOISTED ABOVE THE WALL because the QR place step below needs
+              // the stored list too: which codes the page shows is a question
+              // about the codes BY NAME, and the names are in the look.
+              let wallLook = null;
               if (pickedFields.some((f) => ADD_ONLY_FIELDS.includes(f))) {
-                let wallLook = null;
                 try { const c = await readSiteConfig(env, ownerSlug, null); if (c.ok) wallLook = c.config.look; } catch { wallLook = null; }
                 if (wallLook) {
                   for (const f of ADD_ONLY_FIELDS) {
@@ -18898,18 +18937,28 @@ async function handleRequest(request, env, ctx) {
               // ── THE QR IS PLACED, NOT ONLY MADE ───────────────────────────
               //
               // The qr lane stores a destination and a caption and the container
-              // draws `/qr.svg` from them — and on a site whose page was written
-              // before there was a code, nothing shows it: the lane sweep
-              // (2026-09-01) decoded a perfect code the page referenced nowhere.
-              // So when the page does not mention `SITE_QR`, one page step
+              // draws the code's file from them — and on a site whose page was
+              // written before there was a code, nothing shows it: the lane
+              // sweep (2026-09-01) decoded a perfect code the page referenced
+              // nowhere. So when a stored code is on no page, one page step
               // follows the look step with an ask of its own, and the page rung
               // — which now sees `marksDirective` from the stored look — puts
               // the figure on the page. Its ask is fixed text rather than the
               // customer's sentence, because the customer asked for a code, not
               // for a page rewrite, and a rewrite told "add a QR code" invents
               // one of its own instead of using the binding.
-              if (pickedFields.includes("qr") && fallbackPage && !eSrc.some((p) => /\bSITE_QR\b/.test(String((p && p.source) || "")))) {
-                steps.push({ layer: "page", page: fallbackPage, fields: ["qr"], instruction: QR_PLACE_ASK });
+              //
+              // BY NAME SINCE THE LIST (2026-09-03): `qrUnplaced` reads every
+              // page for each code's own binding (`SITE_QRS.<name>`, or the old
+              // `SITE_QR` for the first code) and the ask names exactly the ones
+              // no page shows — so a site with two codes and one on the page is
+              // asked for the other, not for "the QR code" it already has. The
+              // names come off the look read for the wall above; a read that
+              // failed places nothing, because a step that cannot name the code
+              // would have the rung guess one.
+              if (pickedFields.includes("qr") && fallbackPage) {
+                const unplaced = qrUnplaced(qrList(wallLook && wallLook.qr), eSrc);
+                if (unplaced.length) steps.push({ layer: "page", page: fallbackPage, fields: ["qr"], instruction: qrPlaceAsk(unplaced) });
               }
 
               // ── `pages`: THREE CAPABILITIES BEHIND ONE FIELD ─────────────
@@ -19951,7 +20000,36 @@ async function handleRequest(request, env, ctx) {
                   // answered is discarded with it: half a change published is
                   // worse than none, because nothing says which half.
                   if (ran.failed) return modelDown(ran.error, "The editor is busy — try again in a moment.");
-                  if (ran.value !== undefined) answers[field] = ran.value;
+                  if (ran.value === undefined) continue;
+                  // ── ONE CODE OF SEVERAL (2026-09-03) ──────────────────────
+                  //
+                  // The qr lane answers a PATCH to one code — which one, and
+                  // the half that changes — never the list, because a model
+                  // handing back a whole list is a model that can drop an
+                  // entry, and a dropped code is a printed card that stops
+                  // working. `patchQr` folds it over the stored list: the
+                  // named code (or the only one) with its other half kept
+                  // character for character, every other code untouched. A
+                  // patch that names no code on a site with several, names a
+                  // code the site lacks, or re-points one somewhere a QR may
+                  // not go is a SENTENCE, never a guess — this field is the
+                  // one place the edit path's bias inverts, because a code
+                  // pointing at an invented address is the one failure a
+                  // visitor cannot see coming. A patch that changes nothing
+                  // stores the list as it was, which the no-change reply
+                  // below reads as "already like that".
+                  if (field === "qr") {
+                    const patched = patchQr((priorLook || {}).qr, ran.value);
+                    if (!patched.ok) {
+                      return Response.json({
+                        ok: false, error: "qr", reason: patched.why, codes: patched.names, cost: 0,
+                        msg: qrRefusal(patched.why, patched.names, patched.said),
+                      }, { status: 422 });
+                    }
+                    answers.qr = patched.moved ? patched.list : (priorLook || {}).qr;
+                    continue;
+                  }
+                  answers[field] = ran.value;
                 }
                 // NULL WHEN NOTHING ANSWERED, not `{}` — `hasValue` below reads
                 // an empty object as "the model named nothing", which is the
@@ -21004,7 +21082,11 @@ async function handleRequest(request, env, ctx) {
               pages: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
               tables: ((aSpec && aSpec.tables) || []).map((t) => t && t.name).filter(Boolean),
               hasDatabase: !!adb,
-              qr: aHas.qr ? (aLook.qr && typeof aLook.qr === "object" ? aLook.qr : { label: "" }) : null,
+              // THE CODES BY NAME, the whole list — the designer that adds
+              // one is shown what the site has so it names a new one, and
+              // `cleanAdd` refuses a same-name or same-destination code
+              // against this same list (2026-09-03).
+              qr: qrList(aLook.qr),
               three: aHas.three ? (typeof aLook.three === "string" && aLook.three ? aLook.three : "one on the page") : null,
               tsx: Array.isArray(aLook.tsx) ? aLook.tsx : [],
             };
@@ -21052,9 +21134,12 @@ async function handleRequest(request, env, ctx) {
             // THE SITE ALREADY HAS IT — the edit route's wall, mirrored, so the
             // two doors never bounce a customer between them: that door
             // refuses to CREATE a code or a scene the site lacks and sends the
-            // message here; this one refuses to add a second and names the
-            // door that changes the first.
-            for (const f of ADD_ONLY_FIELDS) {
+            // message here; this one refuses to add a second of a thing a site
+            // carries ONE of and names the door that changes the first.
+            // `SINGLE_FIELDS`, not `ADD_ONLY_FIELDS`: a site carries several
+            // QR codes (2026-09-03), so a second code goes through, and the
+            // same-name / same-destination refusals live in `cleanAdd`.
+            for (const f of SINGLE_FIELDS) {
               if (aKinds.includes(f) && aHas[f]) {
                 return Response.json({ ok: false, error: "already", kind: f, cost: 0, msg: alreadyReply(f) }, { status: 422 });
               }
