@@ -1291,6 +1291,13 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   and drives the check both ways. **Re-dispatch `table,function,api,job`
   FROM THE BRANCH** — the harness runs from whichever ref is picked, and a
   push to main would roll the container for a harness-only change.
+  **RUN 31 (20:26Z, 141 → 125) WAS THE SAME RUN AGAIN, DISPATCHED FROM
+  MAIN** before the fix was on it: the old ask, the same `component`
+  answer (the form re-placed below the chords, still one band), 503 s,
+  `mtlyl3y7-iu4asu` → `mtlzemiw-huj9or`, the same LIE, the same stop —
+  16 more credits on a false alarm that was already diagnosed. **The
+  dropdown decides which harness runs; a fix on the branch is not a fix
+  until the run is dispatched from the branch.**
 
 **DELETE deferred** (owner's call).
 

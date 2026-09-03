@@ -2208,3 +2208,13 @@ so the container does not roll for a harness change.
 **Next click**: the same page, "Use workflow from" the branch
 `claude/help-needed-ehlwlj` this time, same fields, lanes
 `table,function,api,job`. Roughly 30 to 45 credits from 141.
+
+**Run 31 (20:26 UTC) was the same run again.** It was dispatched from
+main, where the old harness still lives, so it asked the old question and
+got the same honest answer — the trial form, re-placed below the chords —
+and the same wrong verdict, for 16 more credits (141 → 125). Nothing on
+the site is wrong; there is still one trial-lesson band. The fix is on
+the branch, and the "Use workflow from" dropdown is what picks it: it has
+to say `claude/help-needed-ehlwlj`, not main, until the branch is merged.
+I am holding the merge until after the run so the container does not roll
+under it.
