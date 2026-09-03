@@ -1,16 +1,18 @@
 {
-  "at": "2026-09-03T11:16:47.028Z",
+  "at": "2026-09-03T12:54:27.364Z",
   "site": "fretwork-1",
   "start": 170,
   "end": 170,
   "results": [
     {
-      "name": "photo",
-      "kinds": [],
-      "verdict": "ok (hopped)",
-      "note": "hopped to picture; the picture rung answered 200 no-slots",
+      "name": "qr",
+      "kinds": [
+        "qr"
+      ],
+      "verdict": "failed",
+      "note": "422 declined — I couldn't work out what to add from that — say what you want on the site and where.",
       "cost": 0,
-      "wall": 20,
+      "wall": 53,
       "build": "mtlesaq6-sz6j1q",
       "pickedRight": true,
       "shots": []
