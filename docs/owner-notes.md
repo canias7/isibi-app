@@ -2171,3 +2171,11 @@ the designer is now told so, so it doesn't write its own.
 Checked without spending: 46 mutants, all 46 killed (two only after the
 tests that missed them were fixed), the control surviving; the kit
 typechecks with the new hooks. Nothing proven live.
+
+Pushed to main at 19:39 UTC (commit 003a685d, branch and main together);
+the unit tests went green at 19:41 UTC (run 2178) and the deploy landed at
+19:44 UTC (run 2011). The push touched the kit, so the container image
+rolled with it: nothing that builds should be fired before about 20:05
+UTC. The paid smokes did not run (no opt-in marker), as intended. This
+note goes to the branch only, so it does not roll the container again for
+a line of prose; main picks it up with the next real change.
