@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { buildSource } from "./fixtures/build-source.mjs";
 import path from "node:path";
-import { normalizeJob, dueJobs, shapeMessages, runJob, jobOutcome, lastDueAt, validTimeZone,
+import { normalizeJob, dueJobs, shapeMessages, runJob, jobOutcome, lastDueAt, validTimeZone, workDone,
          MIN_EVERY_MINUTES, MAX_MESSAGES_PER_RUN, MAX_JOBS_PER_TICK } from "../site-jobs.mjs";
 import { recipient } from "../site-mail.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
@@ -766,4 +766,59 @@ test("the owner's panel shows the clock time and has a Run now button wired to t
   assert.match(chat, /function browserTimeZone\(\) \{\s*try \{ return String\(Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone \|\| ''\); \} catch \(e\) \{ return ''; \}/, "browserTimeZone does not read Intl safely");
   const css = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "styles.css"), "utf8");
   assert.match(css, /\.fn-tgl\.fn-run \{ margin-left: \.4rem;/, "the Run now button has no style beside the switch");
+});
+
+// ── a job that DOES something (2026-09-03, the backend services round) ───────
+
+test("a function answering {did} is work done, in its own words, and sends nothing", async () => {
+  // Row expiry: the function ran its DELETE and says so. Before this the
+  // answer read as "returned not a list" — broken SQL, said of SQL that had
+  // just worked — and the owner's panel lied about a job that was fine.
+  let credentialsRead = 0;
+  const { sent, d } = deps({
+    callFn: async () => ({ did: "cleared 12 expired holds" }),
+    credentials: async () => { credentialsRead++; return null; },
+  });
+  const out = await runJob(d, JOB);
+  assert.deepEqual(out, { ok: true, name: "remind", sent: 0, did: "cleared 12 expired holds" });
+  assert.equal(sent.length, 0);
+  assert.equal(credentialsRead, 0, "a housekeeping run must not read the mail vault");
+  assert.equal(jobOutcome(out), "Done — cleared 12 expired holds.");
+  assert.equal(jobOutcome({ ok: true, did: "Archived 3 orders." }), "Done — Archived 3 orders.", "a full stop is not doubled");
+});
+
+test("workDone reads only the explicit shape — a string `did` — and nothing that could be an accident", () => {
+  assert.equal(workDone({ did: " cleared 12 " }), "cleared 12");
+  assert.equal(workDone(JSON.stringify({ did: "x" })), "x", "Postgres hands json back as text either way");
+  assert.equal(workDone("x".repeat(10)), null);
+  for (const notWork of [null, undefined, 42, [], [{ did: "x" }], {}, { did: 12 }, { did: "" }, { done: "x" }, "not json"]) {
+    assert.equal(workDone(notWork), null, JSON.stringify(notWork));
+  }
+  assert.equal(workDone({ did: "y".repeat(400) }).length, 160, "bounded, it is a panel line");
+});
+
+test("a list is still messages, even one whose rows carry `did`; and our own skip still wins", async () => {
+  const { sent, d } = deps({ callFn: async () => [{ ...MSG, did: "nope" }] });
+  const out = await runJob(d, JOB);
+  assert.equal(out.sent, 1, "a list with a did-shaped row silenced the run");
+  assert.equal(out.did, undefined);
+  const { d: d2 } = deps({ callFn: async () => ({ jobsSkip: "the site's database is unreachable", did: "x" }) });
+  const out2 = await runJob(d2, JOB);
+  assert.equal(out2.did, undefined, "a named skip is ours and is read first");
+  assert.match(jobOutcome(out2), /unreachable/);
+});
+
+test("the designers are told the housekeeping shape, and the router that clearing out is an addon", () => {
+  const add = fs.readFileSync(new URL("../builder/site-add.mjs", import.meta.url), "utf8");
+  const ask = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
+  // The function kind teaches the shape; the job kind names it; both name
+  // clearing out old rows so the picker reaches for them.
+  const fnKind = add.slice(add.indexOf("  function: {"), add.indexOf("  api: {"));
+  assert.match(fnKind, /\{\\"did\\": \\"what it did\\"\}/, "the function designer is not told how a housekeeping run reports");
+  assert.match(fnKind, /clear out rows older than thirty days/);
+  assert.match(fnKind, /the platform checks the sender's signature before it runs/, "the inbound-hook signature check is not stated");
+  const jobKind = add.slice(add.indexOf("  job: {"), add.indexOf("  page: {"));
+  assert.match(jobKind, /clearing out records older than thirty days/);
+  assert.match(jobKind, /\{\\"did\\": \\"what it did\\"\}/);
+  assert.match(ask, /a weekly digest, clearing out old records\./, "the router does not know clearing out is a timer job");
 });

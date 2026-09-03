@@ -203,7 +203,7 @@ export const ASK_TOOL = {
           "SO IS ANYTHING THE SITE'S DATABASE HAS TO DO THAT IT DOES NOT DO YET: a lookup or a cancel a page needs " +
           "(a database function), something read live from an outside service — an exchange rate, a courier's " +
           "slots, the weather — or something that happens ON A TIMER with nobody there: a reminder the day before, " +
-          "a weekly digest. A site with no database gets one the first time any of these is added.\n" +
+          "a weekly digest, clearing out old records. A site with no database gets one the first time any of these is added.\n" +
           "\"edit\" is for what the site ALREADY HAS, changed: its words, colours, stylesheet, button, menu, pictures, " +
           "languages, what a control does — and its own code. Changing a component is an edit, because the page's code " +
           "always exists.\n\n" +

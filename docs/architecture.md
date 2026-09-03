@@ -306,6 +306,24 @@ the stamp landing without the dueness clause, the outcome written where the
 panel reads and answered as the sentence; the panel has the button beside
 the On/Paused switch. Delete stays on the edit path.
 
+**The backend services round (owner, 2026-09-03: *"ok add those"*).** Four
+platform pieces beside the addon, none a model step. A CSV into one table:
+`site-csv.mjs` reads the file (quotes, line breaks inside them, a BOM, Excel's
+semicolons; a cell read as its column's type, day-first dates) and
+`handleOwnerImport` writes it through the owner's own door — never a
+member-written table, a hundred rows an INSERT, a refused batch retried a row
+at a time so the bad line names itself — behind **Import CSV** beside **+ Add**
+in the Data panel. One submission, once: `useCreateRow` and `useCheckout` send
+an `Idempotency-Key` renewed only after a success, and the data proxy and the
+checkout route hand a repeat the answer they already gave (`site-idem.mjs`, an
+in-isolate map plus KV). A job may DO something: a function answering
+`{"did": "…"}` reports work done instead of reading as broken SQL, which is
+row expiry on a timer. Members finish a reset on the page that asked
+(`resetToken()`, `useResetPassword`) and verify an address by code
+(`useSendVerification`, `useVerifyEmail`), the contract read off Neon's and
+Better Auth's docs. The inbound webhook signature check was already in
+`site-inbound.mjs`.
+
 **A site carries several QR codes** (owner, 2026-09-03: *"it should carry
 more"*). The stored field is a list of named codes, `{ name, points, label }`,
 each drawn to its own file (`qr-wifi.svg`) and reached by name

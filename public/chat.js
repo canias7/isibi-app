@@ -10541,11 +10541,15 @@ async function loadSiteData(site) {
       '</tbody></table></div>' : '');
   }
   const addBtn = (canAdd && !siteDataForm) ? '<button type="button" class="st-data-add" id="stDataAdd">+ Add</button>' : '';
+  // A whole spreadsheet in one go (owner, 2026-09-03). Offered on exactly the
+  // tables "+ Add" is — the ones whose rows are the owner's to add — and for
+  // the same reason: a member-written table's rows can only be added by one.
+  const importBtn = (canAdd && !siteDataForm) ? '<button type="button" class="st-data-import" id="stDataImport" title="Add rows from a CSV file — the first line names the columns">Import CSV</button>' : '';
   // Email-me-when-someone-submits, and the switch to stop it. Only meaningful
   // on a table visitors write to.
   const notifyBtn = (selTab.access === 'collect')
     ? '<button type="button" class="st-data-notify" id="stDataNotify" title="Email me when someone submits">…</button>' : '';
-  host.innerHTML = '<div class="st-data-head"><span class="st-data-title">Data</span><span class="st-data-count">' + (rows.length ? rows.length + ' row' + (rows.length > 1 ? 's' : '') : '') + '</span>' + notifyBtn + addBtn + '<button type="button" class="st-icon" id="stDataReload" title="Refresh">' + ic('reload', 15) + '</button></div><div class="st-data-body">' + side + '<div class="st-data-main">' + formHtml + main + '</div></div>';
+  host.innerHTML = '<div class="st-data-head"><span class="st-data-title">Data</span><span class="st-data-count">' + (rows.length ? rows.length + ' row' + (rows.length > 1 ? 's' : '') : '') + '</span>' + notifyBtn + importBtn + addBtn + '<button type="button" class="st-icon" id="stDataReload" title="Refresh">' + ic('reload', 15) + '</button></div><div class="st-data-body">' + side + '<div class="st-data-main">' + formHtml + main + '</div></div>';
   const nb = document.getElementById('stDataNotify');
   if (nb) {
     const paint = (on) => { nb.textContent = on ? '🔔 Emails on' : '🔕 Emails off'; nb.dataset.on = on ? '1' : ''; };
@@ -10565,6 +10569,31 @@ async function loadSiteData(site) {
   host.querySelectorAll('[data-dtable]').forEach((b) => b.onclick = () => { siteDataTable = b.dataset.dtable; siteDataForm = null; loadSiteData(site); });
   const rl = document.getElementById('stDataReload'); if (rl) rl.onclick = () => loadSiteData(site);
   const add = document.getElementById('stDataAdd'); if (add) add.onclick = () => { siteDataForm = { editId: null, values: {} }; loadSiteData(site); };
+  // Import a CSV: the file's TEXT is the body, the server matches its header
+  // line to the table's columns and says what went in and what did not. The
+  // size is refused here before an upload the server would refuse anyway.
+  const imp = document.getElementById('stDataImport'); if (imp) imp.onclick = () => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.csv,text/csv,text/plain';
+    inp.onchange = async () => {
+      const f = inp.files && inp.files[0]; if (!f) return;
+      if (f.size > 2 * 1024 * 1024) { sbToast('That file is too big — keep it under 2 MB.'); return; }
+      const was = imp.textContent; imp.textContent = 'Importing…'; imp.disabled = true;
+      let done = false;
+      try {
+        const text = await f.text();
+        const r = await apiFetch(base + '/rows/' + encodeURIComponent(sel) + '/import', { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: text });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { sbToast(d.error || 'Couldn’t import that file.'); return; }
+        sbToast(importWords(d));
+        done = true;
+      } catch (e) { sbToast('Couldn’t import that file — check your connection.'); }
+      finally { imp.textContent = was; imp.disabled = false; }
+      if (done) { siteDataForm = null; loadSiteData(site); }
+    };
+    inp.click();
+  };
   const cancel = document.getElementById('stDataCancel'); if (cancel) cancel.onclick = () => { siteDataForm = null; loadSiteData(site); };
   // Upload a picture and drop its URL into the field. Raw bytes, not base64:
   // base64 inflates a photo by a third and the server ignores the declared type
@@ -12032,6 +12061,23 @@ function sitePathOf(file) {
 // about. The nav link is a page this lane touches on its own, and not saying so
 // is how a legitimate change reads as the site being altered behind them.
 /** A scheduled job as a customer reads it: its name and how often it runs. */
+// What an import did, as one sentence — the reply's counts and its first
+// named problem, because "Imported 118 of 120" without WHICH two is a number
+// the owner cannot act on.
+function importWords(d) {
+  const kept = Number(d && d.kept) || 0;
+  const bits = ['Imported ' + kept + (kept === 1 ? ' row.' : ' rows.')];
+  const problems = Array.isArray(d && d.problems) ? d.problems : [];
+  if (problems.length) {
+    const first = problems[0];
+    bits.push(problems.length + (problems.length === 1 ? ' row skipped' : ' rows skipped') +
+      (first && first.line ? ' — line ' + first.line + ': ' + (first.reason || 'not usable') : '') + '.');
+  }
+  if (Array.isArray(d && d.ignored) && d.ignored.length) bits.push('Ignored columns: ' + d.ignored.join(', ') + '.');
+  if (Number(d && d.truncated) > 0) bits.push(d.truncated + ' rows past the 5,000 cap were left out.');
+  if (d && d.stopped) bits.push('Stopped at line ' + d.stopped + ' — try again from there.');
+  return bits.join(' ');
+}
 function jobWords(j) {
   if (!j || typeof j !== 'object' || !j.name) return '';
   const m = Number(j.everyMinutes);

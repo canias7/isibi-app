@@ -425,7 +425,12 @@ test("the route exists, is dispatched, and reaches the module", () => {
     "no /api/site/<slug>/edit matcher");
   // In the dispatch condition AND in the ownerSlug list. Missing from either is
   // the exact shape of the `dm2` bug: a handler that looks gated and is dead.
-  const gate = WORKER.match(/if \(om \|\| mm \|\|[^)]*\) \{/g) || [];
+  // RE-ANCHORED 2026-09-03: the gate pinned `om || mm ||` — the first TWO
+  // names — while the comment below it was already saying "the property, not
+  // the list" about the ownerSlug half. It went red the day the CSV-import
+  // matcher (`im`) was put between `om` and `mm`. The condition is the `if`
+  // whose expression opens with `om ||`; what matters is that `ed` is in it.
+  const gate = WORKER.match(/if \(om \|\|[^)]*\) \{/g) || [];
   assert.ok(gate.length && gate.every((g) => g.includes("|| ed")),
     "the edit matcher is not in the dispatch condition");
   // THE PROPERTY, NOT THE LIST. This pinned `|| ed)` and went red the day the

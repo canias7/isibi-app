@@ -314,7 +314,7 @@ const ADDS = {
   // run after `table` and before `page` because a page calls a function or
   // reads a connection that has to exist first, exactly as it shows a table.
   function: {
-    hint: "Something the DATABASE has to do for a page that a table's access alone cannot: look a booking up by its claim link, cancel or move one, take a booking into a slot that holds N people, receive data another system POSTs in (a `hook_` function). SQL the site's own database runs.",
+    hint: "Something the DATABASE has to do for a page that a table's access alone cannot: look a booking up by its claim link, cancel or move one, take a booking into a slot that holds N people, receive data another system POSTs in (a `hook_` function — the platform checks the sender's signature before it runs), or housekeeping a job runs on a timer (clear out rows older than thirty days). SQL the site's own database runs.",
     shape: {
       type: "array",
       maxItems: MAX_ADD_FUNCTIONS,
@@ -327,7 +327,10 @@ const ADDS = {
         "`hook_` receiver for another system, an `internal` builder a job calls. Its arguments are typed as the " +
         "COLUMNS they meet — text for a date, a time, a token; integer for a count — and its body is plain SQL " +
         "over the columns the site's tables are listed with. A scheduled job's builder is `internal: true`, takes " +
-        "no arguments and returns json: an array of {to, subject, body}, empty when nothing is due.",
+        "no arguments and returns json: an array of {to, subject, body}, empty when nothing is due. A job's " +
+        "HOUSEKEEPING function — clear out rows older than thirty days, drop expired holds, close stale carts — is " +
+        "`internal: true` too, does its DELETE or UPDATE, and returns json {\"did\": \"what it did\"} " +
+        "(\"cleared 12 expired holds\"), so the owner's panel can say so.",
       wide:
         "AS MANY FUNCTIONS AS THEY ASKED FOR — what the change needs — AND NOT ONE MORE. A lookup by claim link is one function; " +
         "\"and let them cancel or move it\" is three. Never a function for something a table's read level " +
@@ -364,7 +367,7 @@ const ADDS = {
     },
   },
   job: {
-    hint: "Something the site does ON A TIMER with nobody there — a reminder text the day before, a weekly digest to the owner, chasing an unpaid invoice. A job runs an internal database function that returns the messages to send, so a job is a `job` AND a `function` unless the site already lists one that does it.",
+    hint: "Something the site does ON A TIMER with nobody there — a reminder text the day before, a weekly digest to the owner, chasing an unpaid invoice, clearing out records older than thirty days. A job runs an internal database function that returns the messages to send (or, for housekeeping, {\"did\": …} saying what it did), so a job is a `job` AND a `function` unless the site already lists one that does it.",
     shape: {
       type: "array",
       maxItems: MAX_ADD_JOBS,
@@ -377,7 +380,8 @@ const ADDS = {
         "how often — 1440 for a daily reminder, 10080 for a weekly digest — with `at` for the time of day a daily " +
         "or slower job runs (\"09:00\" for a morning reminder). The function it names must exist: " +
         "one the site lists, or one you are declaring in this same change with `internal: true`, taking no " +
-        "arguments and returning json — an array of {to, subject, body}, empty when nothing is due.",
+        "arguments and returning json — an array of {to, subject, body}, empty when nothing is due; or, for a " +
+        "job that does work rather than sending (clearing out old rows), {\"did\": \"what it did\"}.",
       wide:
         "AS MANY JOBS AS THEY ASKED FOR — the things that happen on a timer — AND NOT ONE MORE. A day-before reminder " +
         "is one job. Never one for a site that only takes enquiries, and never more often than the message " +

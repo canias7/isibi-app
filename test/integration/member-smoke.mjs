@@ -326,6 +326,20 @@ try {
   ok("a reset request answers the same for a member and a stranger",
     rs1.status === rs2.status, `${rs1.status} vs ${rs2.status}`);
 
+  // ── Finishing a reset, and verifying an address (2026-09-03) ──────────────
+  // The client's two newer flows, driven the only way a test with no inbox can:
+  // a made-up token and a wrong code must be REFUSED, and asking for a code
+  // must be answered rather than broken. 404 on the send is a real answer —
+  // the auth server's email-code plugin is off on that deployment — and the
+  // client tells the visitor so in as many words.
+  const rp = await auth("reset-password", jsonPost({ newPassword: "another-password-9", token: "not-a-real-token" }));
+  ok("a reset with a made-up token is refused", rp.status >= 400 && rp.status < 500, String(rp.status));
+  const vo = await auth("email-otp/send-verification-otp", jsonPost({ email: m1.email, type: "email-verification" }));
+  ok("asking for a verification code is answered, not broken (404 = the email-code plugin is off here)",
+    vo.status < 500, String(vo.status));
+  const vw = await auth("email-otp/verify-email", jsonPost({ email: m1.email, otp: "000000" }));
+  ok("a wrong verification code is refused", vw.status >= 400 && vw.status < 500, String(vw.status));
+
 } catch (e) {
   failed++;
   console.log("\nUNCAUGHT: " + ((e && (e.stack || e.message)) || e));

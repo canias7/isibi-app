@@ -2119,3 +2119,55 @@ that builds should be fired before about 19:15 UTC. From this tick on,
 the 26 registered jobs run for real and write what they did to their
 rows; on your sites that will read "no email provider key in Secrets"
 until a key is pasted.
+
+## 2026-09-03 — the backend services round ("ok add those")
+
+The first group off your 24-item list, built design-first and pushed at
+the end as agreed. One of the five turned out to be there already.
+
+**Importing a spreadsheet.** Under Cloud → Data, every table you can
+"+ Add" to now has an **Import CSV** button beside it. Pick the file
+your spreadsheet exported; the first line names the columns (spaces and
+capitals don't matter — "Customer Name" is `customer_name`), and each
+cell is read as what the column is: a blank is empty, "3/9/2026" is the
+3rd of September, "yes" is true. It goes in a hundred rows at a time,
+and a row the table refuses — a duplicate, a missing required field —
+costs only itself: the toast says "Imported 118 rows. 2 rows skipped —
+line 14: price is required." Columns the table doesn't have are ignored
+and named. Member tables (accounts' own rows) don't get the button, for
+the reason they don't get "+ Add". Up to 5,000 rows and 2 MB per file;
+run it twice and you get the rows twice (there's no "update matching
+rows" — that needs a key column to match on, which is a conversation
+for later). Screenshot: `docs/edits/data-panel-import.png` and in the
+chat.
+
+**One booking per press.** A visitor who double-clicks "Book", or whose
+phone lost signal after the first press, used to make two bookings. Every
+form and every "Pay" now carries a random key the platform remembers for
+ten minutes: the second press gets the same answer as the first, and the
+row is written once. Nothing for you or the sites to do; it's on every
+published site once they republish (it's in the kit).
+
+**Jobs that tidy up.** A scheduled job could only send messages. Now its
+function can do work — clear rows older than thirty days, drop expired
+holds — and report it in its own words: the panel reads "Done — cleared
+12 expired holds." Ask in the builder ("every night, clear out enquiries
+older than 90 days") and it's a job plus a function, like the reminders.
+
+**Members finishing a password reset, and verifying their email.** The
+kit had "send me a reset link" and nothing after it. Now the link comes
+back to the page that asked and that page finishes it; and a member can
+ask for a six-digit code and type it back to verify their address. Read
+off Neon's own docs: resets are links, verification on Neon's shared mail
+provider is codes. One honest gap: whether Neon's managed auth has the
+code plugin switched on is not proven — if it isn't, the page tells the
+member "email codes are not switched on for this site" rather than
+failing quietly. The free member smoke drives all three endpoints.
+
+**Inbound webhook signatures** were already checked (a header secret or
+an HMAC over the body, refused as 404 when wrong), so nothing to add;
+the designer is now told so, so it doesn't write its own.
+
+Checked without spending: 46 mutants, all 46 killed (two only after the
+tests that missed them were fixed), the control surviving; the kit
+typechecks with the new hooks. Nothing proven live.

@@ -230,7 +230,12 @@ function addonBlock() {
 test("the addon route exists, is dispatched, and reaches the module", () => {
   assert.match(WORKER, /const ad = url\.pathname\.match\(\/\^\\\/api\\\/site\\\/[^\n]*\\\/addon\$/,
     "no /api/site/<slug>/addon matcher");
-  const gate = WORKER.match(/if \(om \|\| mm \|\|[^)]*\) \{/g) || [];
+  // RE-ANCHORED 2026-09-03: this pinned `om || mm ||` — the first TWO names of
+  // the list — and went red the day the CSV-import matcher (`im`) was put
+  // between them. The property is that the one dispatch condition (the `if`
+  // whose expression opens with `om ||`) names `ad`; the order of the others
+  // is not this guard's business.
+  const gate = WORKER.match(/if \(om \|\|[^)]*\) \{/g) || [];
   assert.ok(gate.length && gate.every((g) => g.includes("|| ad")), "the addon matcher is not dispatched");
   const owner = WORKER.match(/const ownerSlug = \(([^)]*)\)\[1\]/);
   assert.ok(owner && owner[1].split("||").map((s) => s.trim()).includes("ad"),

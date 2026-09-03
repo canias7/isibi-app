@@ -26,7 +26,9 @@ import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
-import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
+import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
+import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
+import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
@@ -6965,6 +6967,24 @@ async function handleCheckout({ env, conn, slug, body, origin, schema }) {
   return Response.json({ ok: true, url: out.url, orderId });
 }
 
+/**
+ * The idempotency store for this isolate, bound to the request's KV.
+ *
+ * ONE store at module scope — its in-memory layer is what catches a
+ * double-click, and a store made per request would forget the first press
+ * before the second arrived. `env` is per request, so the KV half is handed
+ * in each time; `SITE_API_CACHE` is optional exactly as it is for the API
+ * cache, and a Worker without it keeps the in-isolate layer alone.
+ */
+const SITE_IDEM = makeIdem();
+function idemFor(env, slug, scope, key) {
+  const kv = env && env.SITE_API_CACHE;
+  return SITE_IDEM.for(slug, scope, key, {
+    get: kv ? (id) => kv.get(id, { type: "json" }) : null,
+    put: kv ? (id, v, ttl) => kv.put(id, JSON.stringify(v), { expirationTtl: ttl }) : null,
+  });
+}
+
 async function proxySiteService(env, request, url, slug, path, which, ctx) {
   const db = await siteBackendBySlug(env, slug);
   if (!db) return Response.json({ error: "no such site" }, { status: 404 });
@@ -7061,6 +7081,26 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
     }
     if (gate.sent !== undefined) sent = gate.sent;
   }
+
+  // ONE SUBMISSION, ONCE (owner, 2026-09-03 — the backend services round).
+  //
+  // A page that sends an `Idempotency-Key` gets the answer it already got for
+  // that key, for ten minutes, without the row being written twice: the
+  // double-click, the phone that lost signal after the POST left. Read HERE,
+  // after the spam gate and before the upstream write, because a replay is
+  // exactly the request that must not reach Postgres. Only a 2xx is ever
+  // remembered (`idemStorable`), so a refused submission retried with the
+  // field fixed — same key, by design — still goes through. The layers and
+  // their limits are written up in `site-idem.mjs`.
+  let idem = null;
+  if (which === "data" && request.method === "POST") {
+    const key = takeIdemKey(request.headers);
+    if (key) {
+      idem = idemFor(env, slug, "data/" + String(path).split("/")[0].toLowerCase(), key);
+      const prior = await idem.read();
+      if (prior) return new Response(prior.body, { status: prior.status, headers: replayHeaders(prior) });
+    }
+  }
   try {
     const r = await fetch(target, {
       method: request.method,
@@ -7072,6 +7112,16 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
       signal: AbortSignal.timeout(15000),
     });
     const body = await r.text();
+
+    // Remembered the moment the upstream answered, BEFORE the notify hooks
+    // below run, so a replay arriving while a slow mailer is still going
+    // finds the answer already there. Off the customer's wait when the
+    // runtime allows it; a store that cannot be written is a possible
+    // duplicate, never a lost submission.
+    if (idem) {
+      const w = idem.write({ status: r.status, body, ct: r.headers.get("content-type") || "application/json" });
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(w); else await w;
+    }
 
     // TELL THE OWNER A BOOKING ARRIVED.
     //
@@ -17519,12 +17569,30 @@ async function handleRequest(request, env, ctx) {
         const cconn = await siteBackendBySlug(env, cslug);
         if (!cconn) return Response.json({ error: "no such site" }, { status: 404 });
         try {
-          return await handleCheckout({
+          // "PAY" PRESSED TWICE IS ONE CHECKOUT. The same key the data proxy
+          // honours: a repeat within ten minutes gets the session it already
+          // opened, not a second one. Stripe would tolerate two sessions —
+          // only one gets paid — but the customer sees the first tab's session
+          // expire under them, and a `pending` row per press on a table that
+          // records the attempt is two rows for one basket.
+          const ckey = takeIdemKey(request.headers);
+          const cidem = ckey ? idemFor(env, cslug, "checkout", ckey) : null;
+          const prior = cidem ? await cidem.read() : null;
+          if (prior) return new Response(prior.body, { status: prior.status, headers: replayHeaders(prior) });
+          const cres = await handleCheckout({
             env, conn: cconn, slug: cslug,
             body: await request.json().catch(() => ({})),
             origin: url.origin,
             schema: await loadSiteSchema(cconn),
           });
+          if (cidem) {
+            // Cloned: the body can only be read once, and the customer's copy
+            // is the one that redirects them to the till.
+            const ctext = await cres.clone().text();
+            const w = cidem.write({ status: cres.status, body: ctext, ct: cres.headers.get("content-type") || "application/json" });
+            if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(w); else await w;
+          }
+          return cres;
         } catch (e) {
           // Never echoed: a Stripe error can quote the request, and the request
           // carries the site's own line items; a Postgres error quotes the
@@ -18190,6 +18258,10 @@ async function handleRequest(request, env, ctx) {
     // /api/site/<slug>, no deeper), so ordering no longer decides anything.
     if (url.pathname.startsWith("/api/site/")) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
+      // A CSV file into one table (owner, 2026-09-03). Its own matcher because
+      // `om`'s last segment is a row ID, and `import` is not one — so `om` is
+      // null for this path and the write branch below can never see it.
+      const im = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows\/([a-z_][a-z0-9_]{0,40})\/import$/i);
       // A member id is a UUID now, not the sequential integer this used to match.
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9a-f-]{36}))?$/i);
       const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
@@ -18272,10 +18344,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv || sh) {
+      if (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv || sh) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv || sh)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv || sh)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -22591,6 +22663,19 @@ async function handleRequest(request, env, ctx) {
               memberId: mid, params: Object.fromEntries(url.searchParams),
               // PATCH is the only way a role or a suspension is ever set.
               body: request.method === "PATCH" ? await request.json().catch(() => ({})) : {},
+            });
+          } else if (im) {
+            // A spreadsheet into one table. The body is the file's TEXT, sent
+            // as `text/csv` and read whole — the parser is in `site-csv.mjs`
+            // and the gate, the schema and the INSERT in `handleOwnerImport`.
+            // The size is refused on `content-length` before a byte is read,
+            // the way the uploads route does, and again on the text itself.
+            if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const cl = Number(request.headers.get("content-length") || 0);
+            if (cl && cl > MAX_IMPORT_BYTES) return Response.json({ error: "that file is too big — keep it under 2 MB", code: "too_big" }, { status: 413 });
+            r = await handleOwnerImport(ownerDeps, {
+              slug: im[1].toLowerCase(), table: im[2], uid: ou.id,
+              text: await request.text(),
             });
           } else if (request.method === "GET") {
             const [, oslug, otable] = om;

@@ -1164,8 +1164,15 @@ Everything comes from \`@/lib/rows\`; there is no other auth API and no \`fetch\
   password from an address that already has an account, and inventing your own text loses that.
 - \`useLogout()\` → a mutation, no arguments.
 - \`useRequestReset()\` → \`{ email }\`. Always succeeds; say "check your inbox" whether or
-  not the address has an account, because saying which confirms who is a member. The link
-  itself is handled by the platform.
+  not the address has an account, because saying which confirms who is a member. The emailed
+  link brings the visitor BACK TO THE PAGE THAT ASKED with \`?token=\` on it, so that same page
+  also renders a new-password form when \`resetToken()\` is non-empty and calls
+  \`useResetPassword()\` → \`{ newPassword }\` (the token is read off the URL); on success say
+  "sign in with your new password" and show the sign-in form. No reset page of its own.
+- \`useSendVerification()\` → \`{ email }\` emails a six-digit code; \`useVerifyEmail()\` →
+  \`{ email, otp }\` confirms it, after which \`member.verified\` is true. Offer the pair only to
+  a signed-in member whose \`verified\` is false, as one small "verify your email" band on the
+  account page — never a gate on the whole site.
 
 Gate admin UI on \`member.role\`, which is \`"user"\` unless the owner granted something. An
 \`admin\` table refuses a write from any other role with a 403, so a button that is always

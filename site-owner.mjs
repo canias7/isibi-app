@@ -15,6 +15,7 @@
 
 import { isManagedColumn, resolveAccess, accessLabel } from "./site-access.mjs";
 import { constraintError } from "./site-errors.mjs";
+import { parseCsv, importPlan, MAX_IMPORT_BYTES, IMPORT_BATCH } from "./site-csv.mjs";
 
 const json = (body, status = 200) => ({ status, body });
 
@@ -283,6 +284,109 @@ async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
 function stripFts(row) {
   if (row && row._fts !== undefined) delete row._fts;
   return row || null;
+}
+
+// The declared columns WITH their types, which the CSV reader needs and the
+// name-only `columnNames` above throws away. A string entry is a text column.
+const columnDefs = (def) => (Array.isArray(def.columns) ? def.columns : [])
+  .map((c) => (typeof c === "string" ? { name: c, type: "text" }
+    : (c && c.name ? { name: String(c.name), type: String(c.type || "text") } : null)))
+  .filter(Boolean);
+
+/**
+ * A CSV file into one table (owner, 2026-09-03 — the backend services round).
+ *
+ * The same door as `handleOwnerWrite`'s POST, taking a whole spreadsheet
+ * instead of one row, under the same rules: the site's own table, the
+ * declared columns and not the engine's, and NEVER a member-written table —
+ * a row the owner adds to one carries no member id and is invisible to every
+ * member read, the orphan the 409 exists to prevent.
+ *
+ * WHAT A ROW THAT FAILS COSTS: itself. Rows go in a hundred at a time; a
+ * batch Postgres refuses is retried one row at a time, so the bad line is
+ * named ("line 14: price is required") and the other ninety-nine go in. A
+ * cell the column cannot take is caught before any INSERT, by `importPlan`,
+ * and named the same way. The reply says how many went in, which lines did
+ * not and why, which headers matched nothing, and how many rows past the cap
+ * were left unread — the owner reads it as one sentence in the Data panel.
+ *
+ * NOT A TRANSACTION, and said so: rows that went in before a failure stay in.
+ * The alternative — a whole file refused for one bad line — is the failure
+ * the per-row retry exists to avoid, and an owner who imports the file again
+ * after fixing line 14 wants line 14, not a second copy of the other 499.
+ *
+ * deps: as handleOwnerWrite (ownerOf, dbFor, loadSchema, exec, ident).
+ */
+export async function handleOwnerImport(deps, { slug, table, uid, text } = {}) {
+  const open = await openSite(deps, slug, uid);
+  if (open.error) return open.error;
+  const db = open.db;
+
+  const spec = await deps.loadSchema(db);
+  const def = tableFor(spec, table);
+  if (!def) return json({ error: "no such table" }, 404);
+
+  const access = resolveAccess(def);
+  if (access.write === "own" || access.write === "members") {
+    return json({ error: "rows here belong to a member of your site, so they can only be added by one", access: accessLabel(def), code: "member_table" }, 409);
+  }
+  if (typeof text !== "string" || !text.trim()) return json({ error: "that file is empty", code: "empty" }, 400);
+  if (text.length > MAX_IMPORT_BYTES) return json({ error: "that file is too big — keep it under 2 MB", code: "too_big" }, 413);
+
+  const parsed = parseCsv(text);
+  if (parsed.error) {
+    return json({
+      error: parsed.error === "unterminated quote"
+        ? "the file has an unclosed quote, so its columns can’t be read"
+        : "the file has no header line naming the columns",
+      code: "bad_csv",
+    }, 400);
+  }
+  const writable = columnDefs(def).filter((c) => !isManagedColumn(c.name));
+  const plan = importPlan(writable, parsed);
+  if (!plan.columns.length) {
+    return json({
+      error: "none of the file’s columns match this table — the first line has to name them",
+      code: "no_columns", columns: writable.map((c) => c.name), headers: parsed.headers,
+    }, 400);
+  }
+
+  const tn = deps.ident(def.name);
+  const cols = plan.columns.map((c) => c.name);
+  const colList = "(" + cols.map(deps.ident).join(",") + ")";
+  const tuple = "(" + cols.map(() => "?").join(",") + ")";
+  const insert = (rows) => deps.exec(db,
+    "INSERT INTO " + tn + " " + colList + " VALUES " + rows.map(() => tuple).join(","),
+    rows.flatMap((r) => r.values));
+
+  let kept = 0, stopped = null;
+  const problems = plan.skipped.slice();
+  for (let i = 0; i < plan.rows.length && !stopped; i += IMPORT_BATCH) {
+    const batch = plan.rows.slice(i, i + IMPORT_BATCH);
+    try { await insert(batch); kept += batch.length; continue; }
+    catch (e) {
+      // Not a constraint — a dropped connection, a missing table — is ours,
+      // and stops the import where it is rather than trying 99 more times.
+      if (!constraintError(e)) { stopped = batch[0].line; break; }
+    }
+    for (const row of batch) {
+      try { await insert([row]); kept++; }
+      catch (e) {
+        const known = constraintError(e);
+        if (!known) { stopped = row.line; break; }
+        problems.push({ line: row.line, reason: known.body.error });
+      }
+    }
+  }
+  if (stopped) console.error("owner import stopped:", slug, def.name, "line", stopped);
+  problems.sort((a, b) => a.line - b.line);
+  return json({
+    ok: !stopped, kept,
+    total: plan.rows.length + plan.skipped.length,
+    skipped: problems.length, problems: problems.slice(0, 20),
+    ignored: plan.ignored, columns: cols, truncated: parsed.truncated,
+    ...(stopped ? { stopped, error: "stopped at line " + stopped + " — that didn’t work; the rows before it are in" } : {}),
+  });
 }
 
 /**

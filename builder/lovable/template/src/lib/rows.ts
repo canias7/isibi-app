@@ -237,6 +237,40 @@ function resetChallenge(): void {
   try { t.reset(); t.execute(); } catch { /* no widget rendered */ }
 }
 
+// ── One submission, once ────────────────────────────────────────────────────
+//
+// A visitor double-clicks "Book", or their phone loses signal after the POST
+// left and they press again, and the table holds two bookings. The platform
+// cannot tell the second press from a second customer — the two requests are
+// byte-identical — unless the page tells it. So every submission carries a
+// random key, minted here, and the Worker hands a repeat the answer it already
+// gave for that key (ten minutes) instead of writing the row again. The
+// generator never sees this, exactly as it never sees the spam token: a page
+// calls `useCreateRow` as it always has.
+//
+// The key is RENEWED ONLY AFTER A SUCCESS. A refusal ("that time is taken",
+// "email is required") retried with the field fixed goes out under the same
+// key, and the platform never remembers a refusal, so the corrected request
+// reaches the database. Renewing on every attempt would make the double-click
+// two different submissions again — which is the bug.
+const IDEM_HEADER = "Idempotency-Key";
+
+function freshKey(): string {
+  try { return crypto.randomUUID().replace(/-/g, ""); } catch { /* an old browser */ }
+  let s = "";
+  while (s.length < 32) s += Math.floor(Math.random() * 16).toString(16);
+  return s;
+}
+
+function useIdemKey() {
+  const ref = React.useRef<string | null>(null);
+  if (ref.current === null) ref.current = freshKey();
+  return {
+    header: (): Record<string, string> => ({ [IDEM_HEADER]: ref.current as string }),
+    renew: () => { ref.current = freshKey(); },
+  };
+}
+
 /** PostgREST's equality filter, and the query shape a list read accepts. */
 function pgQuery(params?: RowQuery, opts?: { noDefaultOrder?: boolean }): string {
   const sp = new URLSearchParams();
@@ -484,13 +518,19 @@ export function useRow<T = Row>(table: string, id: RowId | undefined) {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function useCreateRow<T = Row>(table: string) {
   const qc = useQueryClient();
+  const idem = useIdemKey();
   return useMutation({
     mutationFn: async (values: Record<string, unknown>): Promise<void> => {
       try {
         await send<unknown>(base(table), {
           method: "POST",
+          headers: idem.header(),
           body: JSON.stringify(challenged(values)),
         });
+        // Only after a success: a refused submission retried with the field
+        // fixed carries the SAME key, and the platform never remembers a
+        // refusal, so the corrected one reaches the database.
+        idem.renew();
       } finally {
         resetChallenge();
       }
@@ -738,11 +778,14 @@ export function useCart(table: string) {
  * the shop's Stripe calling the platform, not by the browser coming back.
  */
 export function useCheckout(table: string) {
+  const idem = useIdemKey();
   return useMutation({
     mutationFn: async (input: { items: CartLine[]; fields?: Record<string, string> }): Promise<void> => {
       const res = await fetch(`/api/db/${siteSlug()}/checkout`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        // "Pay" pressed twice is one checkout: a repeat within ten minutes
+        // gets the session the first press opened, not a second one.
+        headers: { "content-type": "application/json", ...idem.header() },
         body: JSON.stringify({ table, items: input.items, fields: input.fields ?? {} }),
       });
       const data = await res.json().catch(() => null);
@@ -752,6 +795,7 @@ export function useCheckout(table: string) {
         // replaced with a generic one.
         throw new Error(data?.error || "We couldn't start that payment.");
       }
+      idem.renew();
       window.location.href = data.url as string;
     },
   });
@@ -1075,13 +1119,106 @@ export function useLogout() {
 export function useRequestReset() {
   return useMutation({
     mutationFn: async (values: { email: string }) => {
+      // WHERE THE LINK COMES BACK TO: this page. The auth server appends
+      // `?token=…` to it, and `resetToken()` below reads that off the URL, so
+      // the page that asked is the page that finishes — no route of its own.
+      const redirectTo = typeof window === "undefined" ? undefined : window.location.origin + window.location.pathname;
       await fetch(authUrl("forget-password"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, ...(redirectTo ? { redirectTo } : {}) }),
       }).catch(() => {});
       return { ok: true as const };
     },
+  });
+}
+
+/**
+ * The token a reset link brought back, read off this page's own URL. "" when
+ * the page was not reached from one — render the ordinary sign-in then, and
+ * the new-password form only when this is non-empty.
+ */
+export function resetToken(): string {
+  if (typeof window === "undefined") return "";
+  const t = new URLSearchParams(window.location.search).get("token");
+  return t && /^[A-Za-z0-9._~-]{8,}$/.test(t) ? t : "";
+}
+
+/**
+ * `{ newPassword }` — finishes a reset on the page the emailed link opened.
+ * The token is read off the URL unless one is passed. A link that has
+ * expired is refused by the auth server, and the error says to ask for a new
+ * one; on success tell the visitor to sign in with the new password.
+ */
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: async (values: { newPassword: string; token?: string }) => {
+      const token = values.token || resetToken();
+      if (!token) throw new Error("that reset link is missing its code — ask for a new one");
+      const r = await fetch(authUrl("reset-password"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ newPassword: values.newPassword, token }),
+      });
+      if (!r.ok) {
+        const d = (await r.json().catch(() => null)) as { message?: string; error?: string } | null;
+        throw new Error(d?.message || d?.error || "that reset link has expired — ask for a new one");
+      }
+      return { ok: true as const };
+    },
+  });
+}
+
+/**
+ * `{ email }` — emails the member a six-digit code. A CODE, not a link,
+ * because that is what the platform's shared mail provider sends for
+ * verification; `useVerifyEmail` takes it back. Offer this only to a
+ * signed-in member whose `verified` is false.
+ */
+export function useSendVerification() {
+  return useMutation({
+    mutationFn: async (values: { email: string }) => {
+      const r = await fetch(authUrl("email-otp/send-verification-otp"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: values.email, type: "email-verification" }),
+      });
+      // The endpoint belongs to the auth server's email-code plugin; a
+      // deployment without it answers 404, and saying so beats "that did not
+      // work" for the person reading the error.
+      if (r.status === 404) throw new Error("email codes are not switched on for this site");
+      if (!r.ok) {
+        const d = (await r.json().catch(() => null)) as { message?: string; error?: string } | null;
+        throw new Error(d?.message || d?.error || "we couldn't send a code just now");
+      }
+      return { ok: true as const };
+    },
+  });
+}
+
+/**
+ * `{ email, otp }` — confirms the code. On success `useMember()` refetches and
+ * `member.verified` becomes true, which is what a table declaring
+ * `requireVerified` checks.
+ */
+export function useVerifyEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (values: { email: string; otp: string }) => {
+      const r = await fetch(authUrl("email-otp/verify-email"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: values.email, otp: values.otp }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) {
+        const msg = d as { message?: string; error?: string } | null;
+        throw new Error(msg?.message || msg?.error || "that code is wrong or has expired");
+      }
+      keepAuthHeaders(r);
+      return d;
+    },
+    onSuccess: () => { qc.invalidateQueries(); },
   });
 }
 

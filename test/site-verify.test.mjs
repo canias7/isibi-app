@@ -191,10 +191,14 @@ test("the route is in all THREE lists, which is where the dm2 bug lived", () => 
   // working, because `assertOwner` answers 404 for a slug that is not yours.
   const w = read("worker.js");
   assert.match(w, /const sv = url\.pathname\.match\(\/\^\\\/api\\\/site/, "no matcher");
-  const cond = w.match(/if \(om \|\| mm \|\|[^)]*\) \{/);
+  // RE-ANCHORED 2026-09-03: both matches pinned `om || mm ||` — the first TWO
+  // names of the list — and went red the day the CSV-import matcher (`im`)
+  // was put between them. The condition and the slug list are the ones whose
+  // expression opens with `om ||`; the property is that `sv` is in each.
+  const cond = w.match(/if \(om \|\|[^)]*\) \{/);
   assert.ok(cond, "the dispatch condition moved");
   assert.match(cond[0], /\|\| sv\b/, "the route is matched and never dispatched");
-  const own = w.match(/const ownerSlug = \(om \|\| mm \|\|[^)]*\)/);
+  const own = w.match(/const ownerSlug = \(om \|\|[^)]*\)/);
   assert.ok(own, "ownerSlug moved");
   assert.match(own[0], /\|\| sv\b/, "ownerSlug would read the slug of whichever route matched first");
   assert.match(w, /\} else if \(sv\) \{/, "there is no handler");

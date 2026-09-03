@@ -1193,6 +1193,78 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   the button need the deploy; a real send needs a mail key in a site's
   Secrets, which none of the owner's sites has pasted.
 
+- **THE BACKEND SERVICES ROUND (owner, 2026-09-03: *"ok add those"*, after
+  the 24-item capability list).** Five asks; four built, one found already
+  there. Every one is a platform piece — a credential or a network call or
+  a file the model cannot hold — so none of it is a model step.
+  (1) **CSV import.** `site-csv.mjs` (dependency-free: RFC 4180 with `""`,
+  quoted line breaks, CRLF/CR, a BOM, Excel's `;` and tabs sniffed off the
+  header line; a cell read AS ITS COLUMN — empty is NULL, `3/9/2026` is
+  day-first, `yes/no` is boolean, json re-serialised the way `pickWritable`
+  stores it; headers matched to columns case- and space-insensitively) and
+  `handleOwnerImport` in `site-owner.mjs`: the same door as the one-row POST
+  — the site's own table, declared-not-managed columns, **never a
+  member-written table (409)** — a hundred rows an INSERT, **a batch
+  Postgres refuses retried a row at a time so the bad line names itself**
+  ("line 14: price is required") and the other ninety-nine go in; an outage
+  stops it where it is and the reply says so (`stopped`), because the rows
+  before it are in. Not a transaction, deliberately. `POST
+  /api/site/<slug>/rows/<table>/import` (its own matcher `im`, in the one
+  list; `text/csv` body, 2 MB, refused on `content-length` first); the Data
+  panel's **Import CSV** beside **+ Add**, gated exactly as it is
+  (`docs/edits/data-panel-import.png`), the reply read back as one sentence
+  (`importWords`). No upsert: a file that both adds and edits needs a key
+  column nobody has chosen.
+  (2) **One submission, once.** `site-idem.mjs`: the kit's `useCreateRow`
+  and `useCheckout` send an `Idempotency-Key` (a UUID minted per component
+  and **renewed only after a success** — a refusal retried with the field
+  fixed keeps the key, and a refusal is never remembered, so the corrected
+  one reaches Postgres); the data proxy reads it AFTER the spam gate and
+  BEFORE the upstream write, answers a repeat with the stored 2xx for ten
+  minutes (`x-idempotent-replay: 1`), scoped by site and table; checkout
+  the same, cloning the reply. ONE store at module scope (`SITE_IDEM` —
+  per request it would forget the first press before the second arrived)
+  with an in-isolate map that catches the double-click, and
+  `SITE_API_CACHE` KV across isolates, eventually consistent: two presses
+  seconds apart on DIFFERENT isolates can both reach Postgres, which is
+  named in the module rather than papered over (`unique` and `noOverlap`
+  still refuse the copy by name).
+  (3) **A job that DOES something.** A function may answer `{"did": "cleared
+  12 expired holds"}` — a string, its own words, never a number read as
+  "rows" — and `runJob` reports it (`did`), `jobOutcome` says "Done — …";
+  read after `jobsSkip` (ours) and before the messages, so a list stays
+  messages. Before this a housekeeping run read as "returned not a list":
+  broken SQL, said of SQL that had just worked. The function and job kinds
+  teach the shape and name clearing out old rows; the router knows clearing
+  out is a timer job.
+  (4) **Reset and verification.** Neon's docs, read rather than guessed: a
+  password reset is a LINK the shared provider sends; verification on the
+  shared provider is a CODE (the email-OTP plugin). `useRequestReset` now
+  sends `redirectTo` = this page's origin+pathname (never `href`: a stale
+  `?token=` would ride along), `resetToken()` reads `?token=` off the URL,
+  `useResetPassword` → `{ newPassword }` posts `reset-password`;
+  `useSendVerification` → `email-otp/send-verification-otp` with `type:
+  "email-verification"`, `useVerifyEmail` → `email-otp/verify-email` and
+  refetches `member.verified`. A 404 on the send says "email codes are not
+  switched on for this site" — **whether Neon's managed deployment has the
+  plugin on is NOT proven**; the free member smoke drives all three (a
+  made-up token and a wrong code must be refused, a send must not 5xx).
+  The page rules teach the four names and that the reset lands on the page
+  that asked, never a page of its own.
+  (5) **Inbound webhook signature — already there.** `site-inbound.mjs`
+  `authorize`: a header secret or an HMAC over the raw body, fail-closed
+  404, no replay guard (sender-specific). The function kind's hint now says
+  the platform checks the sender's signature, so the designer does not
+  write one.
+  Sweep: **46 mutants, 46 killed, control survived** — two survived the
+  first pass and both were the tests' fault: the managed-column filter was
+  inert against a fixture that declared no managed column (a spec can),
+  and the per-row retry's outage stop was never driven (the batch-level one
+  was); one never applied until its anchor was re-spelled (`—` in the
+  source, a dash in the sweep). `test/site-csv`, `site-import`, `site-idem`,
+  `member-reset`, and the jobs suite. **Nothing proven live**; every
+  endpoint contract is Better Auth's documented one, read this session.
+
 **DELETE deferred** (owner's call).
 
 ---
@@ -1524,7 +1596,9 @@ what the work cost.
   free and read-only.
 - **`site build` is 326/326** against the real container (2026-09-03, the QR
   list's two-code build and the pre-list payload added sixteen); the unit
-  suite is 4,881 (2026-09-03, after run 28's page labels and kept replies). **In this sandbox the
+  suite is 4,960 (2026-09-03, after the backend services round: the CSV
+  reader, the import route, the idempotency store, the reset and verification
+  hooks, a job's `did`). **In this sandbox the
   harness needs `playwright-core` at the root the way `site-build.yml`
   installs it** (`npm i --no-save playwright-core@<the template's playwright
   version>`) — without it the six card and touch-icon checks fail with

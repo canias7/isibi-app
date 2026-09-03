@@ -1793,6 +1793,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* Owner content editor — add/edit row */
 .st-data-add { margin-left: auto; font-size: .8rem; font-weight: 600; color: var(--on-accent); background: linear-gradient(90deg, #1e1e22, #000000); border: 0; border-radius: 8px; padding: 7px 13px; cursor: pointer; }
 .st-data-head .st-data-add + .st-icon { margin-left: 8px; }
+/* A whole spreadsheet in one go — the quiet sibling of "+ Add", offered on
+   exactly the tables "+ Add" is. Secondary on purpose: adding one row is the
+   everyday action, importing a file is the once. */
+.st-data-import { margin-left: auto; font-size: .74rem; color: var(--muted, #8b849e); background: none; border: 1px solid var(--line, #211d30); border-radius: 7px; padding: 6px 10px; cursor: pointer; }
+.st-data-import:hover { color: var(--text, #ece9f5); }
+.st-data-import:disabled { opacity: .55; cursor: default; }
+.st-data-head .st-data-import + .st-data-add { margin-left: 8px; }
 .st-data-form { border: 1px solid var(--line, #211d30); border-radius: 12px; padding: 14px; margin-bottom: 14px; background: rgba(255,255,255,.02); }
 .st-data-form-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .st-data-field { display: flex; flex-direction: column; gap: 4px; font-size: .72rem; color: var(--muted, #8b849e); }

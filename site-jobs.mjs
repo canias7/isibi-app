@@ -242,6 +242,30 @@ export function shapeMessages(out, recipientFn, phoneFn) {
 function safeJson(s) { try { return JSON.parse(s); } catch { return null; } }
 
 /**
+ * A job that DOES something rather than sending something (owner, 2026-09-03:
+ * the backend services round — "row expiry via a scheduled job").
+ *
+ * Until now a job's function could only answer with messages: a reminder, a
+ * digest. Housekeeping — clearing rows older than thirty days, closing expired
+ * holds, dropping stale carts — had nowhere to report, and a function that did
+ * its DELETE and returned `{}` read as "returned not a list" in the owner's
+ * panel: broken SQL, said of SQL that had just worked.
+ *
+ * The shape is explicit and small: `{"did": "cleared 12 expired holds"}`. A
+ * STRING, written by the function, because only the function knows what its
+ * count means — a bare number would have to be read as "rows", and "12 rows"
+ * said of a job that archived twelve and deleted none is a guess dressed as a
+ * report. Anything else — a list, an object without `did`, null — is not work
+ * done and falls through to the message reading exactly as before.
+ */
+export function workDone(out) {
+  const raw = typeof out === "string" ? safeJson(out) : out;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const did = raw.did;
+  return typeof did === "string" && did.trim() ? did.trim().slice(0, 160) : null;
+}
+
+/**
  * ONE PLAIN SENTENCE FOR WHAT A RUN ACTUALLY DID.
  *
  * WHY THIS EXISTS. `runJob` already computes an honest, four-way outcome — and
@@ -274,6 +298,13 @@ export function jobOutcome(out) {
   // if it is ever shown it must not read like a failure or like a quiet
   // Tuesday. The runner skips the last_result write for this outcome entirely.
   if (out.skipped) return "Skipped \u2014 another run had already picked this up.";
+  // WORK DONE, in the function's own words. Read before the message counts,
+  // because a housekeeping run sends nothing and "Nothing to send this time"
+  // would be true and useless.
+  if (typeof out.did === "string" && out.did) {
+    const did = out.did.slice(0, 160);
+    return "Done \u2014 " + did + (/[.!?]$/.test(did) ? "" : ".");
+  }
   const sent = Number(out.sent) || 0;
   const bits = [];
   if (sent) bits.push("Sent " + sent + (sent === 1 ? " message." : " messages."));
@@ -342,6 +373,11 @@ export async function runJob(deps, row) {
     if (raw && typeof raw === "object" && typeof raw.jobsSkip === "string") {
       return { ok: true, name, sent: 0, reason: String(raw.jobsSkip).slice(0, 120) };
     }
+    // A HOUSEKEEPING RUN reports what it did and sends nothing. Read after
+    // `jobsSkip` (ours) and before the messages (the function's), so a
+    // function cannot answer both — `did` beside a list is `did`.
+    const did = workDone(raw);
+    if (did) return { ok: true, name, sent: 0, did };
     const shaped = shapeMessages(raw, deps.recipient, deps.phone);
     if (shaped.bad) return { ok: true, name, sent: 0, reason: "returned " + shaped.bad };
     if (!shaped.messages.length) return { ok: true, name, sent: 0, dropped: shaped.dropped };
