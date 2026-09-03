@@ -988,6 +988,15 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   dispatch after the deploy and the roll is the proof. The owner dispatched
   run 26 four minutes after the deploy, inside the roll window; it did not
   matter this time only because nothing reached the container.
+  **THE DEPLOY CARRYING THE FIX FAILED ON CLOUDFLARE'S SIDE (14:50Z,
+  `5d4a40b8`)**: the image built and pushed, then Wrangler's read-back of
+  the Worker version it had just uploaded answered "version could not be
+  found" (code 10046). This session's GitHub integration is refused for
+  re-runs and dispatches (403 on both), so the owner clicked "Re-run
+  failed jobs"; attempt 2 succeeded at 15:23Z. **Run 27 (15:12Z, `qr`,
+  170 → 170) ran BETWEEN the two** — against the Worker without the fix —
+  and declined again in 154 s for 0, as it had to. A deploy's failure is
+  read before the next paid run, not after.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,

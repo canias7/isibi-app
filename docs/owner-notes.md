@@ -1953,3 +1953,13 @@ more thing for next time: you started run 26 four minutes after the
 deploy, inside the roll window. It made no difference this time only
 because the run never reached the build container; a run that publishes
 can be lost that way (run 17 was).
+
+The deploy carrying that fix then failed on Cloudflare's side (14:50
+UTC): the image built and pushed, and Cloudflare's own API answered
+"version not found" when Wrangler read back the version it had just
+uploaded. I could not re-run it from here — this session's GitHub access
+is refused for re-runs — so you clicked "Re-run failed jobs" and the
+second attempt went through at 15:23 UTC. Run 27, the QR run you started
+at 15:12 UTC, fell between the two and hit the old Worker: declined
+again, 154 seconds, nothing charged, balance still 170. Lesson for me: read
+the deploy before handing you a link.
