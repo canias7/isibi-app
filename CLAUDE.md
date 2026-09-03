@@ -1311,8 +1311,13 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 310/310** against the real container; the unit suite is 4,879
-  (2026-09-03, after the QR list).
+- **`site build` is 326/326** against the real container (2026-09-03, the QR
+  list's two-code build and the pre-list payload added sixteen); the unit
+  suite is 4,879 (2026-09-03, after the QR list). **In this sandbox the
+  harness needs `playwright-core` at the root the way `site-build.yml`
+  installs it** (`npm i --no-save playwright-core@<the template's playwright
+  version>`) — without it the six card and touch-icon checks fail with
+  "Cannot find package", which is the environment, not the product.
   **Run it with nothing else of its own already running.** It binds a fixed port,
   so a leftover `build-server.mjs` from an earlier run makes the new one's
   `listen` throw and every streaming leg report "0 reports arrived" — six red
