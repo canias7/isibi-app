@@ -947,7 +947,11 @@ test("the compileMsg scan can actually fail", () => {
 // Haiku-design + Sonnet-pages pair billed 20 against 19, and two tiny calls
 // billed 2 against 1. Every addon on the platform overpaid.
 test("the addon prices both of its calls together", () => {
-  const i = WORKER_SRC.indexOf("const bill = pageCredits(");
+  // RE-ANCHORED 2026-09-03: the bill is `aBill` now — computed once, before
+  // the publish, because a queued addon RESERVES it there and a synchronous
+  // one collects it after; `const bill` inside the post-publish try went with
+  // that. The property is unchanged: one variadic call, never two summed.
+  const i = WORKER_SRC.indexOf("const aBill = pageCredits(");
   assert.ok(i > 0, "the addon bill was not found");
   const line = WORKER_SRC.slice(i, WORKER_SRC.indexOf("\n", i));
   assert.ok(!/\+\s*pageCredits\(/.test(line), "the addon adds two separately-rounded bills: " + line.trim());

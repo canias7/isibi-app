@@ -289,8 +289,23 @@ that does change it; only a picker that names nothing escalates to the revise.
 **Every prompt is a placeholder** (owner: *"i will tell you the prompt
 later"*), marked so in the module, one `hint` and four rule parts per kind.
 
+**Queued, the way the EDIT step is (2026-09-03).** Run 21 — the first addon
+fired on the live site — was reset at 257.6s on the customer's connection:
+the ~273s wall the edit step left on 2026-09-01, on the one route that had no
+queue fork. The addon route now files a job through the same queue (under its
+own `op`), the same consumer replays the stored POST, the same poll route
+hands back the stored reply, and the same flag and allowlist decide whether a
+site is on it. Inside the replay the route runs exactly as it does
+synchronously, with the job's clock on every model call, cancel and budget
+re-asked before the page call and before the publish, the bill reserved
+before the publish (the spine's gate grants only a billed or exempt job) and
+the spine handed the job. The browser watches the receipt through the one
+watcher with the addon's own reader; the harness sends a retry key and
+watches the same way.
+
 **Proven in the tree, NOT yet live** — `scripts/addon-sweep.mjs` behind
-`harness: addon` in `lane-sweep.yml` is what proves it on the site.
+`harness: addon` in `lane-sweep.yml` is what proves it on the site. Run 21 is
+the one time it has been fired, and it never reached the route's answer.
 
 ## The DELETE step — does not exist as a step
 

@@ -477,15 +477,24 @@ test("the queued path routes an escalate through the same one decision", () => {
   const wShut = CHAT.indexOf("function cancelEditJob(");
   assert.ok(wOpen > 0 && wShut > wOpen, "the watchEditJob window's landmarks are gone or out of order");
   const w = CHAT.slice(wOpen, wShut);
-  assert.match(w, /return editAnswer\(/, "the queued watcher no longer hands its reply to the shared reader");
+  // RE-ANCHORED 2026-09-03: the watcher hands its reply to a READER it is
+  // given, and the edit's reader is the default — the addon route watches its
+  // jobs through this same function with its own reader, so the spelling
+  // `return editAnswer(` moved to `return reader(`. What this holds is that
+  // the default IS the shared edit reader and nothing else, and that the
+  // watcher still decides nothing itself.
+  assert.match(w, /const reader = typeof answer === 'function' \? answer : editAnswer;/,
+    "the queued watcher no longer defaults to the shared edit reader");
+  assert.match(w, /return reader\(/, "the queued watcher no longer hands its reply to the reader");
   // AND IT DECIDES NOTHING ITSELF about what the reply means. Each of these was
   // a real second copy: the escalate check, the preview bump and the reply.
   assert.doesNotMatch(w, /escalatedEdit\(/, "the watcher kept its own escalate branch — a second copy of one decision");
   assert.doesNotMatch(w, /previewV/, "the watcher kept its own preview bump");
   assert.doesNotMatch(w, /editReply\(/, "the watcher kept its own reply rendering");
+  assert.doesNotMatch(w, /addonReplyText\(|applyAddonResult\(/, "the watcher kept its own addon tail");
   // AFTER THE ONCE-ONLY LATCH, or one answer arriving twice hops twice.
   const take = w.indexOf("w.take(e)");
-  const hand = w.indexOf("return editAnswer(");
+  const hand = w.indexOf("return reader(");
   assert.ok(take > 0 && hand > take, "the reply is handed on before the exactly-once latch");
 
   // ── AND THE SHARED READER PUTS THE ESCALATE BEFORE THE APPLIER ──────────

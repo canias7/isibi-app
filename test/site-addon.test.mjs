@@ -239,7 +239,12 @@ test("the addon route exists, is dispatched, and reaches the module", () => {
   assert.match(b, /mergeAddonPages\(/, "the merge is not wired");
   assert.match(b, /unlinkedPages\(/, "reachability is computed nowhere");
   assert.match(b, /assertOwner\(/, "the addon lane is not ownership-gated");
-  assert.match(b, /"addon"\)/, "generateSitePages is not called in addon mode — it would re-emit every page");
+  // RE-ANCHORED 2026-09-03: the call was `…, aSrc, "addon")` and now carries
+  // the job's clock after the mode (`"addon", undefined, aJob && aJob.budget`),
+  // so `"addon")` no longer closes it. The property is the MODE argument:
+  // addon mode is what makes the model return only what it touched.
+  assert.match(b, /generateSitePages\(env, briefWithLayout\(\{[\s\S]*?\}\), aSpec, [^\n]*?, aSrc, "addon"[,)]/,
+    "generateSitePages is not called in addon mode — it would re-emit every page");
 });
 
 test("the addon lane never provisions, and charges only after publishing", () => {
@@ -302,17 +307,40 @@ test("the composer dispatches an addon and falls back on everything else", () =>
   // that an escalate is handled before the failure check, that a named layer
   // other than the addon's own hops to `siteEdit` as handed-off, and that an
   // unnamed one still falls to the revise.
+  // RE-ANCHORED 2026-09-03: the reply is read by `addonAnswer` now — one
+  // reader for both paths, because the addon route files a queued job (run
+  // 21's synchronous POST was reset at 257.6s) and the stored reply is the
+  // same object — so the branch reads `o.site`, `o.d`, `o.instruction` off
+  // the reader's options and the failure check reads `httpOk`, the response's
+  // status however it arrived. The properties are unchanged: an escalate is
+  // handled before the failure check, a named layer other than the addon's
+  // own hops to `siteEdit` as handed-off, and an unnamed one falls to the
+  // revise.
   const esc = b.indexOf("if (a.escalate) {");
   assert.ok(esc > 0, "the escalate branch is gone");
-  const branch = b.slice(esc, b.indexOf("if (!r.ok || !a.ok)", esc));
+  const fail = b.indexOf("if (!httpOk || !a.ok)", esc);
+  assert.ok(fail > esc, "the failure check no longer follows the escalate branch");
+  const branch = b.slice(esc, fail);
   assert.match(branch, /layer !== 'addon'/, "an escalate naming the addon itself would hop into the edit route");
   // `[\s\S]*?` rather than `[^)]*`: the page argument is `String(a.page)`,
   // whose own `)` is inside the object — a flat scan where depth matters.
-  assert.match(branch, /return siteEdit\(site, \{ \.\.\.\(d \|\| \{\}\), layer: layer,[\s\S]*?\}, instruction, origin, finish, fallback, undefined, true\)/,
+  assert.match(branch, /return siteEdit\(o\.site, \{ \.\.\.\(o\.d \|\| \{\}\), layer: layer,[\s\S]*?\}, o\.instruction, o\.origin, o\.finish, o\.fallback, undefined, true\)/,
     "the hop does not carry the customer's own sentence to the named layer as a handed-off edit");
-  assert.match(branch, /return fallback\(\);\s*\}\s*$/, "an escalate that names no layer no longer falls to the revise");
-  assert.ok(b.indexOf("a.escalate") < b.indexOf("!r.ok || !a.ok"),
-    "the escalation check must run before the failure check");
+  assert.match(branch, /return fall\(\);\s*\}\s*$/, "an escalate that names no layer no longer falls to the revise");
+  // AND THE REVISE IS THE CUSTOMER'S OWN ASK, never a rewrite for a sentence
+  // nobody re-typed: `fall` runs the fallback only when the ask is held.
+  assert.match(b, /const canFall = typeof o\.fallback === 'function' && !!o\.instruction;/, "the fallback is not gated on holding the ask");
+  // BOTH PATHS REACH THE ONE READER: the synchronous reply directly, the
+  // queued one through the shared watcher with this reader named.
+  assert.match(b, /return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish, fallback, slug \}\);/, "the synchronous reply is not read by addonAnswer");
+  assert.match(b, /watchEditJob\(site, d, a\.job, origin, finish, fallback, instruction, undefined, addonAnswer\);/, "a queued addon is not watched with the addon reader");
+  // BOTH ANCHORS PROVED FIRST: `indexOf` answers -1 for a missing one, and
+  // `-1 < anything` passes exactly when the thing ordered has been renamed —
+  // which it was, to `httpOk`, the status however the reply arrived.
+  const escAt = b.indexOf("a.escalate");
+  const failAt = b.indexOf("!httpOk || !a.ok");
+  assert.ok(escAt > 0 && failAt > 0, "the escalate or the failure check is gone");
+  assert.ok(escAt < failAt, "the escalation check must run before the failure check");
   assert.match(b, /\}\)\.catch\(fallback\)/);
   // A NEW PAGE HAS TO REACH THE PICKER, or the customer is told it was added and
   // cannot open it.
@@ -705,15 +733,23 @@ test("a removed page leaves the picker", () => {
   // route the site no longer has. Both halves live in one block so the next
   // field added cannot keep only the flattering one.
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  const at = chat.indexOf("function siteAddon(");
-  assert.ok(at > 0);
+  // RE-ANCHORED 2026-09-03: the applying half lives in `applyAddonResult` and
+  // the reading half in `addonAnswer` — one copy each, reached by both the
+  // synchronous reply and a queued job's stored one. The two windows are the
+  // two functions; the properties are the ones this always held.
+  const at = chat.indexOf("function applyAddonResult(");
+  assert.ok(at > 0, "applyAddonResult is gone");
   const body = chat.slice(at, chat.indexOf("\n}", at));
   assert.match(body, /Array\.isArray\(a\.removed\)/, "the client never reads what was removed");
   assert.match(body, /s\.pages = s\.pages\.filter\(/, "the picker keeps a page that no longer exists");
   // The refusal has to reach the customer rather than falling through to the
   // build — asserted on the ORDER, since `escalate` is checked first.
-  assert.ok(body.indexOf("if (a.escalate)") < body.indexOf("a.msg"),
+  const rd = chat.indexOf("function addonAnswer(");
+  assert.ok(rd > 0, "addonAnswer is gone");
+  const reader = chat.slice(rd, chat.indexOf("\n}", rd));
+  assert.ok(reader.indexOf("if (a.escalate)") > 0 && reader.indexOf("if (a.escalate)") < reader.indexOf("a.msg"),
     "a refusal with a message is escalated before it is shown");
+  assert.match(reader, /return applyAddonResult\(a, o\);/, "the reader no longer applies a published addition");
 });
 
 test("the route hands a considered refusal to the customer, not to the build lane", () => {

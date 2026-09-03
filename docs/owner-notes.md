@@ -1736,3 +1736,37 @@ than handed to the page writer to invent. Sweep for the change: 6
 mutants, 6 killed, control survived — one only after I added the guard it
 showed was missing (the harness could have stopped checking that the new
 words actually landed on the page and nothing would have noticed).
+
+## 2026-09-03 — Run 21: the first live addon hit the wall, and the fork it needed
+
+You ran the addon harness (`addon`, `component,page,qr,three,photo`, budget
+80) at 01:25 UTC. It got one case in. "Add a testimonials section to the
+home page" was posted to the addon route, and the platform reset the
+connection at 257.6 seconds — the same ~273-second wall that made the edit
+path queued on 09-01. Nothing was charged (207 → 207), the site did not
+move, and the harness stopped on NO ANSWER, which is the honest verdict for
+"the request died". The cause is not in the addon step. The route was still
+running the addition on your connection, because the addon route never got
+the queue fork the edit route got. An addition is a picker, a designer per
+kind, a whole page call on Grok and a container compile — four to eight
+minutes — so it can never fit under that wall, and no amount of tuning moves
+the wall.
+
+Fixed in the tree tonight, the edit route's own way: the addon route files a
+job through the same queue and answers a receipt within a second; the
+consumer replays the addition off your connection; the poll route hands back
+the stored reply; the browser watches it through the same watcher with the
+addon's own reader; the harness sends a retry key and watches the same way.
+Same flag, same allowlist — still fretwork-1 only. The bill is one number,
+reserved before the publish on a queued job and refunded if the publish does
+not land, exactly as an edit's is. Mutation sweep, measured after the run:
+21 mutants, 21 killed, the comment-only control survived. Not proven live:
+the re-run of `harness: addon` (same inputs) is what proves it, once the
+deploy carrying the fork has finished — and give it the usual 15–20 minutes
+after the deploy, because every push rolls the container and a queued job
+caught under the roll is evicted the way run 17's was.
+
+One thing worth knowing before you fire it: the addition now takes the same
+shape on your screen as a queued edit — a receipt at once, then the reply
+when the job finishes, minutes later. The harness prints "queued …;
+watching" and then the job's own answer.

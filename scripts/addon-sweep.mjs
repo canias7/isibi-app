@@ -86,6 +86,30 @@ async function site(p) {
 }
 
 const hex32 = () => Array.from({ length: 32 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+
+/**
+ * WATCH A QUEUED JOB TO ITS STORED REPLY, the way the lane sweep does — and
+ * the way the browser does: the poll route's `x-gf-edit: final` header is the
+ * voice that says "this is the answer", a 404 is the end of the road, and a
+ * terminal state with no stored reply (lost, cancelled) is read off the body.
+ *
+ * ONE COPY FOR BOTH POSTS (2026-09-03): the addon route files a job now — run
+ * 21's synchronous POST was reset at 257.6s — so the addition itself is watched
+ * exactly as the photo hop's edit always was. Fifteen minutes of five-second
+ * looks, which outlasts the consumer's own ceiling; null means nothing terminal
+ * arrived inside that, which the caller reports as NO ANSWER rather than as a
+ * refusal.
+ */
+async function watchJob(job) {
+  for (let i = 0; i < 180; i++) {
+    await sleep(5000);
+    const q = await call("GET", `/api/site/edit/${job}`, { token: TOKEN });
+    if (q.status === 404) return q;
+    if ((q.headers["x-gf-edit"] || "") === "final") return q;
+    if (q.json && ["failed", "cancelled", "lost"].includes(q.json.status)) return q;
+  }
+  return null;
+}
 const strip = (html) => String(html || "").replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -265,8 +289,23 @@ async function main() {
     console.log(`━━ ${name}  "${c.ask}"`);
     const bal0 = await balance();
     const t0 = Date.now();
-    const p = await call("POST", `/api/site/${encodeURIComponent(SLUG)}/addon`, { token: TOKEN, body: { instruction: c.ask, picker: PICKER } });
+    // THE RETRY KEY RIDES EVERY POST — the addon route refuses a queued
+    // addition without one (`bad-idem`), and a synchronous one ignores it.
+    let p = await call("POST", `/api/site/${encodeURIComponent(SLUG)}/addon`, { token: TOKEN, body: { instruction: c.ask, picker: PICKER, idem: hex32() } });
     console.log(`   answered ${p.status} in ${(p.ms / 1000).toFixed(1)}s`);
+    // ── QUEUED: THE RECEIPT, THEN THE STORED REPLY (2026-09-03) ───────────
+    //
+    // A 202 naming a job is the route saying the work has left the
+    // connection. What the case is judged on is the reply the consumer
+    // stores, read back through the poll route, and it is the same object
+    // the synchronous route would have answered with — so everything below
+    // this reads `p` exactly as before.
+    if (p.status === 202 && p.json && p.json.job) {
+      console.log(`   queued ${p.json.job}; watching`);
+      const fin = await watchJob(p.json.job);
+      p = fin ? { ...fin, ms: Date.now() - t0 } : { status: 0, ms: Date.now() - t0, json: null, text: "", headers: {}, why: "no answer inside the watch" };
+      console.log(`   the job answered ${p.status} in ${(p.ms / 1000).toFixed(1)}s`);
+    }
     const body = (p && p.json) || {};
     const extra = {};
     // ── THE HOP ───────────────────────────────────────────────────────────
@@ -282,14 +321,7 @@ async function main() {
       let reply = e;
       if (e.status === 202 && e.json && e.json.job) {
         console.log(`   hopped to ${c.hop}; queued ${e.json.job}`);
-        reply = null;
-        for (let i = 0; i < 120; i++) {
-          await sleep(5000);
-          const q = await call("GET", `/api/site/edit/${e.json.job}`, { token: TOKEN });
-          if (q.status === 404) { reply = q; break; }
-          if ((q.headers["x-gf-edit"] || "") === "final") { reply = q; break; }
-          if (q.json && ["failed", "cancelled", "lost"].includes(q.json.status)) { reply = q; break; }
-        }
+        reply = await watchJob(e.json.job);
       } else {
         console.log(`   hopped to ${c.hop}; synchronous answer ${e.status}`);
       }

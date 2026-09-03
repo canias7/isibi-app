@@ -219,13 +219,20 @@ test("the replay identity is scoped to one uid, one slug, one running job", () =
   assert.doesNotMatch(fn, /Authorization|authUser|cookie/i, "the replay identity reaches for a credential");
 });
 
-test("the replay identity is offered to the EDIT route and to no other", () => {
+test("the replay identity is offered to the two queued routes and to no other", () => {
   // THIS BLOCK GATES NINETEEN ROUTES. Without the route check a replay marker
   // would authenticate a request to the domains panel, the secrets editor or
   // the delete route — the same grant, aimed anywhere.
-  const auth = CODE.slice(at(CODE, "const eReplay = ed ?", "auth"), at(CODE, "const ownerDeps = {", "auth end"));
-  assert.match(auth, /const eReplay = ed \? editReplayUser\(request, ownerSlug\) : null;/,
-    "the replay identity is no longer restricted to the edit route");
+  //
+  // RE-ANCHORED 2026-09-03: the condition was `ed ?` and is `(ed || ad) ?` —
+  // the addon route files jobs through the same queue now (run 21's
+  // synchronous addon was reset at 257.6s on the same wall), so its replay
+  // must resolve the same identity. The property is that the condition names
+  // EXACTLY the two routes the consumer replays, and nothing wider: a bare
+  // `true`, a third route or a missing check would each be a different hole.
+  const auth = CODE.slice(at(CODE, "const eReplay = (ed || ad) ?", "auth"), at(CODE, "const ownerDeps = {", "auth end"));
+  assert.match(auth, /const eReplay = \(ed \|\| ad\) \? editReplayUser\(request, ownerSlug\) : null;/,
+    "the replay identity is no longer restricted to the edit and addon routes");
   assert.match(auth, /const ou = \(await authUser\(request\)\) \|\| eReplay;/,
     "a real token no longer takes precedence over the replay identity");
   assert.match(auth, /if \(!ou\) return UNAUTHED\(\);/, "an unidentified request is no longer refused");

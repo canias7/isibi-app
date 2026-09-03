@@ -781,11 +781,49 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
 - **On the wire**: 1,936 of picker + 1,299 (`three`) / 1,570 (`qr`) / 20,045
   (`table`) / ~35,000 (`page`, `section` — the kit's menu is most of it),
   against 93,852. **Every prompt is a placeholder**, marked so.
-- **NOT proven live.** `scripts/addon-sweep.mjs` behind `harness: addon` in
-  `lane-sweep.yml` (cases `component,page,table,qr,three,photo` on
-  fretwork-1; `table`/`qr`/`three` are driven to their honest refusals there,
-  `photo` to its hop; a page and a component are the two that publish) is
-  what proves it.
+- **RUN 21 (2026-09-03 01:25Z, `harness: addon`, case `component`, 207 → 207):
+  THE FIRST LIVE ADDON WAS RESET AT 257.6s** — `ECONNRESET` on the inbound
+  socket, `NO ANSWER`, nothing charged, the site untouched. The ~273s wall the
+  edit path left on 2026-09-01, met on the one route still on the customer's
+  connection: the addon route had no queue fork. An addition is a picker, a
+  designer per kind, a whole page call on the pages model and a container
+  compile — four to eight minutes on Grok — so no part of it can fit.
+  **Fixed in the tree the same night, as the edit route's own shape.** The
+  addon route files a job through the same queue (`enqueueEditJob` with
+  `op: "addon"` — the op is in the idempotency index, so an addon and an edit
+  are never one job), the same consumer replays the stored POST, the same
+  poll route hands back the stored reply, the same flag and allowlist decide
+  it, and the four answers to a filed job (`bad-idem`, `needs-review`, queue
+  refused, the receipt) are ONE function both routes return (`enqueueReply`).
+  Inside the replay: the replay identity resolves for `(ed || ad)` and no
+  other route; every small call rides the job's clock through `aQuick` and
+  the page call through its budget argument; cancel and budget are re-asked
+  before the page call and before the publish; the bill is ONE number,
+  RESERVED before the publish under a job (the spine's gate grants only
+  `reserved`/`exempt`, and a job that reserved nothing would be exempted and
+  ship free) and collected after it synchronously; the spine is handed `job`
+  and `trace`. The browser mints a key per POST and watches a 202 through
+  `watchEditJob` with the addon's own reader (`addonAnswer` — the
+  `editAnswer` shape, one reader for both paths); the harness sends a key and
+  watches a 202 with the one `watchJob` the photo hop already used.
+  `test/addon-queue.test.mjs` reads every hop. **Sweep: 21 mutants, 21
+  killed, none unapplied, the comment-only control survived** — each a hop
+  cut back (the identity offered to the edit route only, the enqueue gated
+  on the raw header, the addon filed as an edit, a call off the clock, the
+  reserve after the publish, the spine without the job, a gate not asked, a
+  receipt read as the reply, a lost ask starting a rewrite, the harness
+  posting without a key or giving up before the consumer). Five older guards
+  went red for the change and were re-anchored, not appeased — each pinned
+  to a spelling (`ed ?`, `return editAnswer(`, `!r.ok`, `"addon")`, the
+  siteAddon window) and each now names which spelling moved and why.
+  **Still NOT proven live** —
+  `scripts/addon-sweep.mjs` behind `harness: addon` in `lane-sweep.yml`
+  (cases `component,page,table,qr,three,photo` on fretwork-1; `table`/`qr`/
+  `three` are driven to their honest refusals there, `photo` to its hop; a
+  page and a component are the two that publish) is what proves it, after
+  the deploy carrying the fork is on — and EVERY push rolls the container
+  (the trap below), so the 15–20 minutes apply before firing it: a queued
+  job caught under the roll is evicted, as run 17 was.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,
@@ -1140,8 +1178,8 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 310/310** against the real container; the unit suite is 4,846
-  (2026-09-02, after the ADD step split).
+- **`site build` is 310/310** against the real container; the unit suite is 4,863
+  (2026-09-03, after the addon queue fork).
   **Run it with nothing else of its own already running.** It binds a fixed port,
   so a leftover `build-server.mjs` from an earlier run makes the new one's
   `listen` throw and every streaming leg report "0 reports arrived" — six red
@@ -1819,6 +1857,20 @@ never the head, so the one live proof passed on the half that worked. The
 `site-marks` shape again: **a chain asserted by reading is asserted at the
 layer below the break.** The guard now drives the route and reads the sidecar
 write, and the harness reads the canonical at the new address.
+
+**A SECOND ROUTE UNDER THE SAME WALL, AND THE FORK WAS BUILT ON ONE
+(2026-09-03, run 21).** The edit path left the customer's connection on
+2026-09-01 because a synchronous edit is reset at ~273s. The reasoning was
+written on the edit route, the fork was built on the edit route, and the
+addon route — same connection, same wall, LONGER work — stayed synchronous.
+The first addon ever fired on the live site died at 257.6s with `ECONNRESET`,
+which is the wall (the probes measured 273–300s; it is a range, not a
+number). Nothing failed inside our code: the isolate kept running and the
+reply had nowhere to go, so from outside it was `NO ANSWER` and a site that
+did not move. **When an infrastructure limit is found on one route, list
+every route that runs under it before fixing one.** The tell was in the
+tree the whole time: the addon harness's own `node:https` comment said "an
+addon outlives 300s" while posting synchronously to a route that could not.
 
 ## Backlog
 

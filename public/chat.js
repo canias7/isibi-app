@@ -11733,9 +11733,16 @@ function escalatedEdit(e, o) {
  * connection would throw away work somebody bought because they switched apps.
  * Cancelling is a separate DELETE the server has to confirm; see `cancelEditJob`.
  */
-function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs) {
+// `answer` IS WHICH READER GETS THE STORED REPLY (2026-09-03). The edit's by
+// default; the addon route hands its own, because its stored reply is a
+// different object — kinds, added pages, tables — read by a different tail.
+// The WATCH is one copy for both routes, which is the point: the poll route,
+// the two voices, the exactly-once latch and the bounded retry are the same
+// whichever route filed the job, and a second copy of them would drift.
+function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs, answer) {
   const slug = String(site.slug || '');
   const w = EditPoll.makeWatch(job, slug);
+  const reader = typeof answer === 'function' ? answer : editAnswer;
   const apply = (e, r0) => {
     // ── EXACTLY ONCE ──────────────────────────────────────────────────────
     //
@@ -11761,7 +11768,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs)
     // `httpOk` is the POLL's, which for a stored reply IS the edit's own
     // status: a 422 handed back by the poll says the edit did not compile
     // exactly as an inline 422 does.
-    return editAnswer(!!(r0 && r0.ok), once, { site, d, instruction, origin, finish, fallback, imgs, handedOff: false, slug });
+    return reader(!!(r0 && r0.ok), once, { site, d, instruction, origin, finish, fallback, imgs, handedOff: false, slug });
   };
   const step = async () => {
     let r = null;
@@ -11888,64 +11895,112 @@ function resumeEditJob(site, origin, finish, fallback) {
 function siteAddon(site, instruction, origin, finish, fallback, d) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
+  // ONE KEY PER POST, minted where the POST is decided — `siteEdit`'s rule.
+  // Ignored entirely while the async flag is off, which is what keeps the
+  // synchronous path byte-identical; on, it is what stops a retry after a lost
+  // 202 from filing a second charged addition.
+  const idem = EditPoll.newIdemKey();
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/addon', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ instruction: instruction, picker: buildPicker }),
+    body: JSON.stringify({ instruction: instruction, picker: buildPicker, idem: idem }),
   }).then(async (r) => {
     const a = await r.json().catch(() => null);
-    if (!a) return fallback();
-    if (a.escalate) {
-      // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this
-      // (2026-09-02): "add a photograph" is the picture rung's job, and the
-      // add step says so with the layer's name. Same sentence, same picker,
-      // handed to the edit route with the hop already spent — the addon route
-      // never escalates back here, so this cannot loop. An escalate that names
-      // no layer, or names the addon itself, still falls to the revise.
-      var layer = typeof a.layer === 'string' ? a.layer : '';
-      if (layer && layer !== 'addon') {
-        return siteEdit(site, { ...(d || {}), layer: layer, page: a.page ? String(a.page) : (d && d.page) }, instruction, origin, finish, fallback, undefined, true);
-      }
-      return fallback();
+    // ── A QUEUED ADDON ANSWERS WITH A JOB, NOT AN OUTCOME (2026-09-03) ────
+    //
+    // Run 21: the first live addon was reset at 257.6s on the customer's
+    // connection, so the route files a job the way the edit route does and
+    // answers with the same receipt. Watched by the same watcher — the poll
+    // route, the two voices and the exactly-once latch are one copy for both
+    // — and read, when the stored reply lands, by this route's own reader.
+    if (a && a.ok && a.job && !a.result) {
+      EditPoll.rememberJob(slug, a.job);
+      watchEditJob(site, d, a.job, origin, finish, fallback, instruction, undefined, addonAnswer);
+      return;
     }
-    if (!r.ok || !a.ok) {
-      if (a.msg) { finish('⚠️ ' + a.msg); return; }
-      return fallback();
-    }
-    scheduleCreditRefresh();
-    const s = siteById(origin);
-    if (s) {
-      s.previewV = (s.previewV || 0) + 1;
-      // A NEW PAGE HAS TO REACH THE PICKER, or the customer is told it was added
-      // and cannot open it. Merged rather than replaced: the response names only
-      // what this addon touched, and `s.pages` is the whole site.
-      const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
-      if (added.length && Array.isArray(s.pages)) {
-        for (const p of added) if (!s.pages.some((q) => q && q.path === p)) s.pages.push({ path: p });
-      }
-      // AND A PAGE THAT WENT HAS TO LEAVE THE PICKER. Adding without removing is
-      // the same lie the other way round: the customer is told the page is gone,
-      // the picker still offers it, and opening it lands on a route the site no
-      // longer has. The two halves belong in one place, or the next person adds
-      // a third field and keeps only the flattering one.
-      // The SELECTION needs nothing: `sitePageActive` resolves `site.active`
-      // with `|| pages[0]`, so a path that has left the list falls back to the
-      // home page on its own. Clearing it here would be a line that cannot
-      // change what anybody sees.
-      const removed = (Array.isArray(a.removed) ? a.removed : []).map(sitePathOf).filter(Boolean);
-      if (removed.length && Array.isArray(s.pages)) {
-        s.pages = s.pages.filter((q) => !(q && removed.indexOf(q.path) >= 0));
-      }
-      // A NEW TABLE HAS TO REACH THE ROUTER'S DIGEST the same way a new page
-      // reaches the picker — the addon is the lane that ADDS tables, and a
-      // digest that never learns them keeps routing "where do my bookings
-      // go?" blind. Union like the build path: the response names what this
-      // addon touched, not the whole site.
-      const tnames = (Array.isArray(a.tables) ? a.tables : []).filter((x) => typeof x === 'string' && x);
-      if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
-      sitesSave();
-    }
-    finish(addonReplyText(a) + renderTail(a) + alsoTail(d));
+    return addonAnswer(r && r.ok, a, { site, d, instruction, origin, finish, fallback, slug });
   }).catch(fallback);
+}
+
+/**
+ * READ ONE ADDON REPLY — the same object, whichever path carried it.
+ *
+ * The `editAnswer` shape one rung down, for the same reason: the queued reply
+ * body IS the synchronous one, the consumer stores exactly what the route
+ * returned, and a tail that only the synchronous path ran would be a second
+ * copy the moment the queue carried the first. Everything about what the
+ * reply MEANS — escalate, refusal, applied — is decided here, once.
+ *
+ * `httpOk` is the response's own, which for a stored reply IS the addon's
+ * status: a 422 handed back by the poll says the addition did not compile
+ * exactly as an inline 422 does.
+ */
+function addonAnswer(httpOk, a, o) {
+  // THE REVISE, when there is an ask to re-post. A watch resumed after a
+  // refresh holds only the job id, and starting a ~25-credit rewrite there
+  // would charge for a sentence nobody re-typed — `escalatedEdit` reads that
+  // as its own case and says so; this does the same, in its own words.
+  const canFall = typeof o.fallback === 'function' && !!o.instruction;
+  const fall = () => (canFall ? o.fallback() : o.finish('⚠️ ' + EditPoll.outcomeMessage('failed')));
+  if (!a) return fall();
+  if (a.escalate) {
+    // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this
+    // (2026-09-02): "add a photograph" is the picture rung's job, and the
+    // add step says so with the layer's name. Same sentence, same picker,
+    // handed to the edit route with the hop already spent — the addon route
+    // never escalates back here, so this cannot loop. An escalate that names
+    // no layer, or names the addon itself, still falls to the revise.
+    var layer = typeof a.layer === 'string' ? a.layer : '';
+    if (!canFall) { o.finish('⚠️ I couldn’t add that the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.'); return; }
+    if (layer && layer !== 'addon') {
+      return siteEdit(o.site, { ...(o.d || {}), layer: layer, page: a.page ? String(a.page) : (o.d && o.d.page) }, o.instruction, o.origin, o.finish, o.fallback, undefined, true);
+    }
+    return fall();
+  }
+  if (!httpOk || !a.ok) {
+    if (a.msg) { o.finish('⚠️ ' + a.msg); return; }
+    return fall();
+  }
+  return applyAddonResult(a, o);
+}
+
+/** WHAT A PUBLISHED ADDITION CHANGES ON THIS SIDE — one copy, both paths. */
+function applyAddonResult(a, o) {
+  const d = o.d;
+  const finish = o.finish;
+  scheduleCreditRefresh();
+  const s = siteById(o.origin);
+  if (s) {
+    s.previewV = (s.previewV || 0) + 1;
+    // A NEW PAGE HAS TO REACH THE PICKER, or the customer is told it was added
+    // and cannot open it. Merged rather than replaced: the response names only
+    // what this addon touched, and `s.pages` is the whole site.
+    const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
+    if (added.length && Array.isArray(s.pages)) {
+      for (const p of added) if (!s.pages.some((q) => q && q.path === p)) s.pages.push({ path: p });
+    }
+    // AND A PAGE THAT WENT HAS TO LEAVE THE PICKER. Adding without removing is
+    // the same lie the other way round: the customer is told the page is gone,
+    // the picker still offers it, and opening it lands on a route the site no
+    // longer has. The two halves belong in one place, or the next person adds
+    // a third field and keeps only the flattering one.
+    // The SELECTION needs nothing: `sitePageActive` resolves `site.active`
+    // with `|| pages[0]`, so a path that has left the list falls back to the
+    // home page on its own. Clearing it here would be a line that cannot
+    // change what anybody sees.
+    const removed = (Array.isArray(a.removed) ? a.removed : []).map(sitePathOf).filter(Boolean);
+    if (removed.length && Array.isArray(s.pages)) {
+      s.pages = s.pages.filter((q) => !(q && removed.indexOf(q.path) >= 0));
+    }
+    // A NEW TABLE HAS TO REACH THE ROUTER'S DIGEST the same way a new page
+    // reaches the picker — the addon is the lane that ADDS tables, and a
+    // digest that never learns them keeps routing "where do my bookings
+    // go?" blind. Union like the build path: the response names what this
+    // addon touched, not the whole site.
+    const tnames = (Array.isArray(a.tables) ? a.tables : []).filter((x) => typeof x === 'string' && x);
+    if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
+    sitesSave();
+  }
+  finish(addonReplyText(a) + renderTail(a) + alsoTail(d));
 }
 // `src/routes/gallery.tsx` OR a bare `gallery.tsx` → `/gallery`. Kept in step
 // with `routeOf` in builder/site-addon.mjs; the client cannot import it.

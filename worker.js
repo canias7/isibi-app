@@ -11332,15 +11332,20 @@ async function runLostEditJobs(env) {
  * its live state, which is the whole point of the client's idempotency key: a
  * lost response followed by a retry must not become two charged edits.
  */
-async function enqueueEditJob(env, { slug, uid, url, body, idem }) {
+async function enqueueEditJob(env, { slug, uid, url, body, idem, op = "edit" }) {
   if (!env.BUILD_QUEUE || !env.SITES_BUCKET) return { ok: false, error: "queue not configured" };
   const key = cleanIdemKey(idem);
   // REFUSED, NEVER MINTED HERE. A server-generated key makes every retry a
   // distinct job, which is exactly the double charge the key exists to prevent.
   if (!key) return { ok: false, error: "bad-idem" };
   const id = newJobId((b) => crypto.getRandomValues(b));
+  // THE OP IS PART OF THE IDEMPOTENCY KEY — `edit_jobs_idem` is
+  // `(uid, slug, op, idem_key)` — so an addon and an edit are never one job
+  // however their keys fall, and the row says which route's reply a poll is
+  // handing back. `edit` unless the caller says otherwise; the addon route
+  // (2026-09-03) is the only other caller and files under its own name.
   const made = await editRpc(env, "edit_create", {
-    p_id: id, p_uid: uid, p_slug: slug, p_op: "edit", p_idem: key,
+    p_id: id, p_uid: uid, p_slug: slug, p_op: String(op || "edit"), p_idem: key,
   });
   if (!made || made.ok !== true) return { ok: false, error: String((made && made.error) || "rpc"), job: made && made.job };
   const jobId = String(made.job || id);
@@ -11371,6 +11376,46 @@ async function enqueueEditJob(env, { slug, uid, url, body, idem }) {
     return { ok: false, error: "enqueue" };
   }
   return { ok: true, job: jobId, state: "queued", duplicate: false };
+}
+
+/**
+ * WHAT THE CUSTOMER IS HANDED WHEN A JOB IS FILED — one shape for both queued
+ * routes.
+ *
+ * The edit route carried these four answers inline, and the addon route
+ * (2026-09-03) needed the same four: a second copy is the drift this repo has a
+ * rule about, and here the drift would be a refusal one route gives and the
+ * other does not. So the enqueue's result is turned into a reply in one place
+ * and both routes return it.
+ *
+ *   bad-idem      — REFUSED, NOT MINTED. A key generated here makes every
+ *                   retry a distinct job, which is precisely the double charge
+ *                   the key exists to prevent.
+ *   needs-review  — A SITE WHOSE LAST JOB DIED MID-PUBLISH takes no new ones
+ *                   until somebody establishes whether it shipped. Building on
+ *                   the wrong assumption would overwrite a published version
+ *                   nobody knew was live.
+ *   anything else — the queue could not take it; 503, nothing spent.
+ *   filed         — the receipt: the job id, its state, and where to poll.
+ *                   200 rather than 202 for a duplicate, because nothing was
+ *                   created — the original job is what is being watched.
+ */
+function enqueueReply(q) {
+  if (!q || (!q.ok && q.error === "bad-idem")) {
+    return Response.json({ ok: false, error: "bad-idem",
+      msg: "That request was missing its retry key, so I stopped rather than risk running it twice." }, { status: 400 });
+  }
+  if (!q.ok && q.error === "needs-review") {
+    return Response.json({ ok: false, error: "needs-review", job: q.job,
+      msg: "Your last edit stopped part-way through publishing and I can't tell yet whether it went " +
+        "live. I've paused edits on this site until that's settled — nothing has been charged for it." },
+      { status: 409 });
+  }
+  if (!q.ok) return Response.json({ ok: false, error: "queue", kind: String(q.error || "") }, { status: 503 });
+  return Response.json(
+    { ok: true, job: q.job, status: q.state || "queued", duplicate: q.duplicate || undefined,
+      poll: "/api/site/edit/" + q.job },
+    { status: q.duplicate ? 200 : 202 });
 }
 
 /**
@@ -18234,11 +18279,15 @@ async function handleRequest(request, env, ctx) {
         // the job row's IMMUTABLE `uid` instead, proved by a secret the customer
         // has never seen — see `editReplayUser`.
         //
-        // `ed &&` IS LOad-BEARING AND IS NOT TIDINESS. This block gates
+        // `(ed || ad) &&` IS LOAD-BEARING AND IS NOT TIDINESS. This block gates
         // NINETEEN routes; without it a replay marker would authenticate a
         // request to the domains panel, the secrets editor or the delete route.
-        // The grant is one uid, one slug, one running job.
-        const eReplay = ed ? editReplayUser(request, ownerSlug) : null;
+        // The grant is one uid, one slug, one running job — offered to exactly
+        // the two routes the queue replays: the edit route, and since
+        // 2026-09-03 the addon route (run 21: the first live addon was reset at
+        // 257.6s on the same ~273s wall, on the one route still on the
+        // customer's connection). Nothing else is ever a replay.
+        const eReplay = (ed || ad) ? editReplayUser(request, ownerSlug) : null;
         const ou = (await authUser(request)) || eReplay;
         if (!ou) return UNAUTHED();
         const ownerDeps = {
@@ -18377,32 +18426,14 @@ async function handleRequest(request, env, ctx) {
             // synchronous rather than putting every customer on a path that
             // has never run.
             if (!eJob && editAsyncFor(env, { uid: ou.id, slug: ownerSlug })) {
-              const q = await enqueueEditJob(env, {
+              // THE FOUR ANSWERS LIVE IN `enqueueReply` — the refusals (a
+              // missing key, a site under review, a queue that would not
+              // take it) and the receipt — because the addon route files
+              // jobs the same way now and two copies of a refusal drift.
+              return enqueueReply(await enqueueEditJob(env, {
                 slug: ownerSlug, uid: ou.id,
                 url: url.toString(), body: ebRaw, idem: eb && eb.idem,
-              });
-              if (!q.ok && q.error === "bad-idem") {
-                // REFUSED, NOT MINTED. A key generated here makes every retry a
-                // distinct job, which is precisely the double charge the key
-                // exists to prevent.
-                return Response.json({ ok: false, error: "bad-idem",
-                  msg: "That request was missing its retry key, so I stopped rather than risk running it twice." }, { status: 400 });
-              }
-              if (!q.ok && q.error === "needs-review") {
-                // A SITE WHOSE LAST EDIT DIED MID-PUBLISH takes no new ones
-                // until somebody establishes whether it shipped. Building on
-                // the wrong assumption would overwrite a published version
-                // nobody knew was live.
-                return Response.json({ ok: false, error: "needs-review", job: q.job,
-                  msg: "Your last edit stopped part-way through publishing and I can't tell yet whether it went " +
-                    "live. I've paused edits on this site until that's settled — nothing has been charged for it." },
-                  { status: 409 });
-              }
-              if (!q.ok) return Response.json({ ok: false, error: "queue", kind: String(q.error || "") }, { status: 503 });
-              return Response.json(
-                { ok: true, job: q.job, status: q.state || "queued", duplicate: q.duplicate || undefined,
-                  poll: "/api/site/edit/" + q.job },
-                { status: q.duplicate ? 200 : 202 });
+              }));
             }
             // EVERY MODEL CALL ON THIS ROUTE GOES THROUGH ONE WRAPPER, so the
             // job's clock reaches all ten of them without ten chances to forget
@@ -20854,7 +20885,57 @@ async function handleRequest(request, env, ctx) {
             const ga = await assertOwner(ownerDeps, ownerSlug, ou.id);
             if (ga.error) return Response.json(ga.error.body, { status: ga.error.status });
 
-            const ab = await request.json().catch(() => ({}));
+            // ── THE BODY IS READ AS TEXT FIRST ────────────────────────────
+            //
+            // For the reason the edit route reads its own that way: the queued
+            // path STORES it and the consumer replays it, and `request.json()`
+            // consumes the stream. Parsed here so both paths see one object.
+            const abRaw = await request.text().catch(() => "");
+            let ab = {};
+            try { const p = JSON.parse(abRaw); if (p && typeof p === "object" && !Array.isArray(p)) ab = p; } catch { ab = {}; }
+
+            // ── THE SAME FORK THE EDIT ROUTE HAS (2026-09-03, run 21) ─────
+            //
+            // The first addon ever fired on the live site died at 257.6s with
+            // ECONNRESET on the inbound socket, nothing charged, the site
+            // untouched — the ~273s wall the edit path left on 2026-09-01,
+            // met on the one route that was still on the customer's
+            // connection. An addition is a picker, a designer per kind, a
+            // whole page call on the pages model and a container compile:
+            // four to eight minutes on Grok, and no part of it can be made
+            // to fit under the wall. So the work leaves the connection the
+            // same way — the same queue, the same consumer replaying the
+            // stored request, the same poll route and the same allowlist —
+            // filed under its own `op`, because the op is part of the
+            // idempotency key and the row should say which route's reply a
+            // poll is handing back.
+            //
+            // THE MARKER IS THE BASE CASE AND AN UNVERIFIED ONE IS REFUSED,
+            // for the reasons on the edit route's fork. `eReplay` is resolved
+            // for this route too (`(ed || ad)` at the top of the block), so a
+            // replay arrives here as the job's own uid with no bearer token.
+            const aRawMarker = request.headers.get(REPLAY_HEADER) || "";
+            const aJob = (eReplay && eReplay.replay) || null;
+            if (aRawMarker && !aJob) return Response.json({ error: "not found" }, { status: 404 });
+            if (aJob) editTraceJob = aJob.id;
+            if (!aJob && editAsyncFor(env, { uid: ou.id, slug: ownerSlug })) {
+              return enqueueReply(await enqueueEditJob(env, {
+                slug: ownerSlug, uid: ou.id, op: "addon",
+                url: url.toString(), body: abRaw, idem: ab && ab.idem,
+              }));
+            }
+            // EVERY MODEL CALL ON THIS ROUTE GOES THROUGH ONE WRAPPER, so the
+            // job's clock reaches all of them — the picker, one designer per
+            // kind, the seed net — without one chance per call to forget it.
+            // `aJob` is null on the synchronous path and `quickSend` keeps its
+            // flat ceiling, exactly as before.
+            const aQuick = (what = "") => quickSend(env, what, aJob && aJob.budget);
+            // THE BLACK BOX, the edit route's own: every phase marks itself,
+            // the marks are in-memory pushes, and the `finally` below the
+            // routes flushes them and writes the durations to the job row.
+            editTrace = newTrace({ slug: ownerSlug, uid: ou.id });
+            cidForReply = editTrace.cid;
+            const aMark = (phase, status, detail) => { try { if (editTrace) editTrace.mark(phase, status, detail); } catch { /* never */ } };
             const aInstruction = String((ab && ab.instruction) || "").trim().slice(0, 2000);
             const aAuth = request.headers.get("Authorization") || "";
             // Same shape as the edit lane's: this rung has one above it too.
@@ -20945,10 +21026,12 @@ async function handleRequest(request, env, ctx) {
                 timeout: timedOut || undefined,
               }, { status: 503 });
             };
+            aMark("pick_adds", "start");
             const aPicked = await pickAdds(
-              { send: quickSend(env, "pick_adds") },
+              { send: aQuick("pick_adds") },
               { message: aInstruction, current: siteDigest({ pages: aSite.pages, tables: aSite.tables }), model: aModels.quick },
             );
+            aMark("pick_adds", aPicked.failed ? "fail" : "ok", { kinds: aPicked.kinds });
             // EVERY USAGE ON ONE BILL: the picker's and each add's, priced
             // together with the page call and the seed net below, one rounding.
             const aDesignUsage = aPicked.usage ? [aPicked.usage] : [];
@@ -20996,7 +21079,9 @@ async function handleRequest(request, env, ctx) {
             const aNotAdded = [];
             for (const k of aKinds) {
               if (addLayer(k)) continue;
-              const ran = await runAdd({ send: quickSend(env, "add:" + k) }, { kind: k, message: aInstruction, site: aSite, model: aModels.quick });
+              aMark("add:" + k, "start");
+              const ran = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSite, model: aModels.quick });
+              aMark("add:" + k, ran.failed ? "fail" : "ok", { answered: ran.value !== undefined });
               if (ran.usage) aDesignUsage.push(ran.usage);
               if (ran.failed) return aDown(ran.error, "The builder is busy — try again in a moment.");
               if (ran.value === undefined) { aDeclined.push(k); continue; }
@@ -21060,7 +21145,7 @@ async function handleRequest(request, env, ctx) {
               // on rows that are immediately discarded.
               let aSeed = aDesigned.seed;
               const aTop = await topUpSeed(
-                { send: quickSend(env) },
+                { send: aQuick("seed") },
                 { brief: aInstruction, spec: { ...aDesigned, tables: (aDesigned.tables || []).filter((t) => t && folded.added.includes(t.name)) }, seed: aSeed,
                   model: modelsFor(ab && ab.picker).quick },
               );
@@ -21115,7 +21200,14 @@ async function handleRequest(request, env, ctx) {
             // ONE PAGE CALL, in addon mode. `priorPages` is the whole site so
             // the model can edit a nav entry; `mode` is what makes it return
             // only what it touched.
+            // MAY THE PAGE CALL BEGIN? (async path) Cancel and budget, re-asked
+            // at the boundary the edit route asks at — a job told no here has
+            // spent only the small calls, refunds through the database and
+            // answers the customer honestly, with the site untouched.
+            const aGateGen = aJob ? aJob.gate("editing") : null;
+            if (aGateGen && !aGateGen.go) return await editStopped(env, { job: aJob, why: aGateGen.why, phase: "editing", trace: editTrace, ctx });
             let aGen = null;
+            aMark("pages", "start", { kinds: aAnswers.map((a) => a.kind) });
             try {
               // `images: 0` IS AN INSTRUCTION AND ITS ABSENCE IS NOT. Neither
               // this lane nor the edit lane buys photographs — the rule a revise
@@ -21138,8 +21230,12 @@ async function handleRequest(request, env, ctx) {
                 plan: aFold.components.length ? { components: aFold.components } : null,
                 images: 0,
                 tsx: aMerged.tsx, gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
-              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon");
+              // THE JOB'S CLOCK RIDES THE PAGE CALL TOO — the one call on this
+              // route that does not go through `aQuick`, and the longest.
+              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget);
+              aMark("pages", "ok", { files: aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0 });
             } catch (e) {
+              aMark("pages", "fail", { error: String((e && e.message) || e).slice(0, 200) });
               console.error("addon generate failed:", ownerSlug, e && e.message);
               const aKind = upstreamKind(e && e.detail, e && e.status);
               return Response.json({
@@ -21232,6 +21328,49 @@ async function handleRequest(request, env, ctx) {
             // than report success.
             if (!aMerge.ok) return aEscalate(aMerge.reason, { problems: aProblems.slice(0, 4) });
 
+            // ── MAY THIS STILL PUBLISH? (async path) ──────────────────────
+            //
+            // The edit route's `eGate`, one rung over: cancel and budget,
+            // re-asked at the last boundary before anything is written. A job
+            // told no here refunds through the database and the site is left
+            // exactly as it was.
+            const aGatePub = aJob ? aJob.gate("build") : null;
+            if (aGatePub && !aGatePub.go) return await editStopped(env, { job: aJob, why: aGatePub.why, phase: "build", trace: editTrace, ctx });
+
+            // ── THE BILL, AND WHEN IT IS TAKEN ────────────────────────────
+            //
+            // VARIADIC, NOT SEPARATE CALLS ADDED. `pageCredits` takes several
+            // usages precisely so they land on one bill with ONE rounding and
+            // ONE 1-credit floor — its own comment says adding
+            // separately-rounded results "would charge twice for the
+            // rounding". Measured against the real module: a typical
+            // design + pages pair billed 20 summed against 19 priced
+            // together, and two tiny calls billed 2 against 1. The picker's
+            // call, one per kind, the page call and the seed net, spread onto
+            // the same one bill.
+            //
+            // WHEN differs by path, and it has to. Synchronously the bill is
+            // collected AFTER the publish, on measured usage, so a compile
+            // that fails costs nothing — the rule this route has always had.
+            // Under a job it is RESERVED BEFORE the publish, because the gate
+            // the spine asks (`edit_may_publish`) grants only a job that is
+            // `reserved` or `exempt`: a job that reserved nothing would be
+            // exempted as a free rung and ship for nothing. The consumer
+            // refunds the reserve if the publish does not land, which is the
+            // same outcome by the other road. Every usage is known by this
+            // line — the page call was the last model call — so it is the
+            // same number either way.
+            const aBill = pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);
+            let aCost = 0;
+            if (aJob) {
+              const r = await editRpc(env, "edit_reserve", { p_id: aJob.id, p_seq: 1, p_cost: aBill });
+              // COUNTED ONLY ON `ok`, the edit route's rule: a reserve that
+              // did not land leaves the row at `none` and the gate reads it
+              // so. And a ledger that will not answer must not fail the
+              // addition — the work is done.
+              if (r && r.ok === true) { if (typeof aJob.noteReserve === "function") aJob.noteReserve(); aCost = Number(r.charged) || 0; }
+            }
+
             // STORED NOW, NOT EARLIER: every refusal above leaves the site
             // exactly as it was, and the publish below is the only thing that
             // needs the new look — the container bakes `/qr.svg` from what is
@@ -21251,11 +21390,19 @@ async function handleRequest(request, env, ctx) {
             const aParts = (aValid.parts && aValid.parts.length)
               ? mergeParts(await loadSiteParts(env, ownerSlug), aValid.parts)
               : null;
+            aMark("publish:1", "start", { pages: aMerge.pages.length, parts: aParts ? aParts.length : 0 });
             const aPub = await recompileAndPublish(env, {
               slug: ownerSlug, pages: aMerge.pages,
               label: versionLabel({ revise: true, changeNote: aInstruction }),
               parts: aParts || undefined,
+              // THE JOB AND THE TRACE, the edit route's own two. The job is
+              // what the spine's publish gate reads — lease, cancel, billing
+              // — and without it a queued addon would publish past every one
+              // of them and finalize as if none existed; the trace is what
+              // the spine's own marks land on.
+              trace: editTrace, job: aJob,
             });
+            aMark("publish:1", aPub && aPub.ok ? "ok" : "fail", { error: aPub && aPub.error });
             // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. Not escalated: the
             // rung above would rewrite pages the owner never asked about, to
             // recover from a page this one wrote.
@@ -21273,26 +21420,11 @@ async function handleRequest(request, env, ctx) {
               }, { status: 422 });
             }
 
-            // Charged after the publish, on measured usage, from the one price
-            // table — the same rule every other model call follows.
-            let aCost = 0;
-            try {
-              // VARIADIC, NOT TWO CALLS ADDED. `pageCredits` takes several
-              // usages precisely so they land on one bill with ONE rounding and
-              // ONE 1-credit floor — its own comment says adding
-              // separately-rounded results "would charge twice for the
-              // rounding". Measured against the real module: a typical
-              // Haiku-design + Sonnet-pages pair billed 20 summed against 19
-              // priced together, and two tiny calls billed 2 against 1. Every
-              // addon on the platform overpaid one to two credits.
-              // The seed top-up rides the same variadic call: one bill, one
-              // rounding, one floor — a third separately-rounded charge is the
-              // exact overbilling this call was rewritten to end.
-              // `aDesignUsage` IS A LIST NOW — the picker's call and one per
-              // kind — spread onto the same one bill.
-              const bill = pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);
-              aCost = await collectCredits(aAuth, bill);
-            } catch { aCost = 0; }
+            // THE SYNCHRONOUS CHARGE: after the publish, on measured usage,
+            // from the one price table — the same one bill, taken now because
+            // a compile that failed above cost nothing. A job reserved it
+            // before the publish (see `aBill`) and is not charged twice.
+            if (!aJob) { try { aCost = await collectCredits(aAuth, aBill); } catch { aCost = 0; } }
             return Response.json({
               ok: true,
               // What was added, by kind, and what was set aside for another
