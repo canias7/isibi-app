@@ -115,7 +115,7 @@ import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LA
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels } from "./builder/site-add.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -8539,6 +8539,38 @@ async function loadGenAnswer(env, slug) {
 }
 
 /**
+ * AND WHAT THE ADDON'S DESIGNERS SAID ON THIS SITE'S LAST ADDITION — the raw
+ * reply of every kind's call, kept whether or not it answered.
+ *
+ * RUNS 26–28 (2026-09-03): three live "declined" answers to the same ask, each
+ * read as a fix that had not landed or a fact the note lacked, and nothing
+ * anywhere recorded what the model had actually written — the same shape as
+ * run 90, one path over. Overwritten per addition like `answer.json`, its own
+ * key so it can never be mistaken for the build's answer, read back through
+ * the same owner-gated route with `kind=addon`.
+ */
+const ADDON_ANSWER_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/addon-answer.json";
+
+async function saveAddonAnswer(env, slug, answer) {
+  if (!env.SITES_BUCKET) return false;
+  try {
+    await env.SITES_BUCKET.put(ADDON_ANSWER_KEY(slug), JSON.stringify({
+      at: new Date().toISOString(), slug, ...(answer && typeof answer === "object" ? answer : {}),
+    }), { httpMetadata: { contentType: "application/json" } });
+    return true;
+  } catch (e) { console.error("addon answer save failed:", slug, e && e.message); return false; }
+}
+
+async function loadAddonAnswer(env, slug) {
+  if (!env.SITES_BUCKET) return null;
+  try {
+    const o = await env.SITES_BUCKET.get(ADDON_ANSWER_KEY(slug));
+    if (!o) return null;
+    return JSON.parse(await o.text());
+  } catch (e) { console.error("addon answer read failed:", slug, e && e.message); return null; }
+}
+
+/**
  * AND THE COMPONENTS WRITTEN FOR THIS SITE, which the kit does not have.
  *
  * A SECOND KEY RATHER THAN A SECOND FIELD IN `pages.json`, and that is about the
@@ -16811,7 +16843,9 @@ async function handleRequest(request, env, ctx) {
       if (!aslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
       const aown = await siteOwnerBySlug(aslug, env);
       if (!aown || aown !== au.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
-      const stored = await loadGenAnswer(env, aslug);
+      // `kind=addon` READS THE ADDON DESIGNERS' LAST REPLIES instead of the
+      // build's answer — the record runs 26–28 did not have.
+      const stored = url.searchParams.get("kind") === "addon" ? await loadAddonAnswer(env, aslug) : await loadGenAnswer(env, aslug);
       // NOTHING STORED IS ITS OWN ANSWER AND MUST NOT WEAR THE 404 ABOVE, which
       // means "not your site". A site you own and just built reading "not found"
       // sends the next session hunting a permission bug that is not there —
@@ -21091,6 +21125,10 @@ async function handleRequest(request, env, ctx) {
               url: aUrl,
               kind: aLook.kind === "tool" ? "tool" : "shopfront",
               pages: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
+              // WHAT EACH PAGE CALLS ITSELF (run 28): its headline out of the
+              // stored source, or its plan name — so "the booking page" is
+              // findable among routes that never say the word.
+              labels: pageLabels(aSrc, aLook.pages),
               tables: ((aSpec && aSpec.tables) || []).map((t) => t && t.name).filter(Boolean),
               hasDatabase: !!adb,
               // THE CODES BY NAME, the whole list — the designer that adds
@@ -21173,6 +21211,11 @@ async function handleRequest(request, env, ctx) {
             // page, component or table answer is a list; one bad entry must
             // not throw the good ones away, and must not vanish either).
             const aNotAdded = [];
+            // EVERY DESIGNER'S RAW REPLY, KEPT (run 28, 2026-09-03) — answered
+            // or not — and written to the site's own store the moment the
+            // loop ends, before a decline can return. Three live declines had
+            // left nothing to read but a boolean.
+            const aKept = [];
             for (const k of aKinds) {
               if (addLayer(k)) continue;
               aMark("add:" + k, "start");
@@ -21180,6 +21223,7 @@ async function handleRequest(request, env, ctx) {
               aMark("add:" + k, ran.failed ? "fail" : "ok", { answered: ran.value !== undefined });
               if (ran.usage) aDesignUsage.push(ran.usage);
               if (ran.failed) return aDown(ran.error, "The builder is busy — try again in a moment.");
+              aKept.push({ kind: k, answered: ran.value !== undefined, stop_reason: (ran.raw && ran.raw.stop_reason) || null, content: (ran.raw && ran.raw.content) || null });
               if (ran.value === undefined) { aDeclined.push(k); continue; }
               const clean = cleanAdd(k, ran.value, aSite);
               if (!clean.ok) {
@@ -21188,6 +21232,7 @@ async function handleRequest(request, env, ctx) {
               for (const sk of Array.isArray(clean.skipped) ? clean.skipped : []) aNotAdded.push({ kind: k, ...sk, msg: addRefusal(sk.why, k) });
               aAnswers.push({ kind: k, value: clean.value });
             }
+            await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept });
             if (!aAnswers.length) {
               return Response.json({ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal("nothing") }, { status: 422 });
             }

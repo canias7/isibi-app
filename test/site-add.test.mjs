@@ -33,7 +33,7 @@ import {
   ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
-  cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply,
+  cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply, pageLabels,
 } from "../builder/site-add.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
@@ -118,6 +118,27 @@ test("every field the edit path refuses to create has a kind here, and the route
   assert.match(b, /let aUrl = "";\s*try \{ aUrl = await publicUrlFor\(env, ownerSlug\); \} catch \{ aUrl = ""; \}/, "the addon does not read the site's public address, or a failed read is not blank");
   const siteLit = b.slice(b.indexOf("const aSite = {"), b.indexOf("};", b.indexOf("const aSite = {")));
   assert.match(siteLit, /\burl: aUrl,/, "the site note is not handed the address");
+  // …AND WHAT EACH PAGE CALLS ITSELF (run 28), out of the stored source and
+  // the stored plan, so "the booking page" is findable among routes.
+  assert.match(siteLit, /\blabels: pageLabels\(aSrc, aLook\.pages\),/, "the site note is not handed the pages' own headlines");
+  assert.match(W, /import \{[^}]*\bpageLabels\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "pageLabels is called and never imported");
+  // …AND EVERY DESIGNER'S RAW REPLY IS KEPT, on the site's own store, the
+  // moment the loop ends and before a decline can return — then read back by
+  // the owner through the answer route with `kind=addon`.
+  const runAt = at(b, "const ran = await runAdd(", "run");
+  const keep = b.indexOf("await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept });", runAt);
+  const decline = b.indexOf('error: "declined"', runAt);
+  assert.ok(keep > runAt && decline > keep, "the designers' replies are not kept before the decline returns");
+  assert.match(b.slice(runAt, keep), /aKept\.push\(\{ kind: k, answered: ran\.value !== undefined, stop_reason: [^}]*content: \(ran\.raw && ran\.raw\.content\) \|\| null \}\);/, "a reply is kept without its content");
+  // POSITION, NOT PRESENCE (the sweep's survivor): the push must sit BEFORE
+  // the decline's `continue`, or an unanswered designer — the one reply
+  // worth reading — is exactly the one never kept.
+  const pushAt = b.indexOf("aKept.push({ kind: k,", runAt);
+  const skipAt = b.indexOf("if (ran.value === undefined) { aDeclined.push(k); continue; }", runAt);
+  assert.ok(pushAt > runAt && skipAt > pushAt, "an unanswered designer's reply is not kept — the decline skips past the keep");
+  assert.match(W, /url\.searchParams\.get\("kind"\) === "addon" \? await loadAddonAnswer\(env, aslug\) : await loadGenAnswer\(env, aslug\)/, "the answer route cannot read the addon's kept replies");
+  const keyFn = W.slice(at(W, 'const ADDON_ANSWER_KEY = (slug) => "source/"', "key"), W.indexOf("\n", at(W, 'const ADDON_ANSWER_KEY = (slug) => "source/"', "key")));
+  assert.match(keyFn, /addon-answer\.json/, "the addon's replies share the build answer's key — one would overwrite the other");
   // …and "has" is read the way the wall reads it: the stored look OR the page.
   assert.match(b, /aHas\[f\] = hasLookField\(aLook, f\) \|\| \(aSrc \|\| \[\]\)\.some\(\(p\) => ADD_EVIDENCE\[f\]\.test/, "the addon reads 'already has' off the stored look alone — run 12's misfire");
 });
@@ -278,6 +299,29 @@ test("the picking request and the add request are cached where they must be and 
   assert.equal(ADD_MODEL, modelsFor().quick, "the default model is not the picker's");
 });
 
+test("pageLabels: each page's own headline out of its source, or its plan name, never a heading with no words", () => {
+  const src = (path, source) => ({ path, source });
+  const labels = pageLabels([
+    src("index.tsx", '<main><h1 className="text-2xl">Book a {kind}\n guitar <em>lesson</em> &amp; more</h1></main>'),
+    src("prices.tsx", "<h1>{brand}</h1>"),
+    src("about.tsx", "<p>no heading</p>"),
+    // A HEADING WITH NO WORDS — a star, a year — is not a label: the sweep
+    // showed the first fixture for this was merely EMPTY, which any test
+    // drops, so the plan name has to win over a heading that is there and
+    // says nothing.
+    src("gallery.tsx", "<h1>★ 2024</h1>"),
+    src("_layout.tsx", "<h1>Layout</h1>"),
+    null, "x",
+  ], [{ name: "Book", path: "/" }, { name: "Lesson Prices", path: "/prices" }, { name: "Team", path: "/about/" }, { name: "Gallery", path: "/gallery" }, { path: "/x" }, null]);
+  assert.deepEqual(labels, { "/": "Book a guitar lesson & more", "/prices": "Lesson Prices", "/about": "Team", "/gallery": "Gallery" },
+    "the headline is not cleaned of JSX and tags, the plan name does not fill in for an empty or wordless heading, or a route is missed");
+  assert.deepEqual(pageLabels([src("index.tsx", "<h1>★</h1>")], []), {}, "a heading with no words is a label");
+  assert.deepEqual(pageLabels(null, null), {});
+  assert.deepEqual(pageLabels([src("index.tsx", "<h1>" + "x".repeat(200) + "</h1>")], []), { "/": "x".repeat(80) }, "a headline is not capped");
+  assert.deepEqual(pageLabels([], [{ name: "Home", path: "/" }]), { "/": "Home" }, "the plan name alone is not a label");
+  assert.deepEqual(pageLabels([src("index.tsx", "<h1>Book</h1>")], [{ name: "Home", path: "/" }]), { "/": "Book" }, "the headline does not win over the plan name");
+});
+
 test("the site note says names, not contents, and says a missing database out loud", () => {
   const none = siteNote(SITE);
   assert.match(none, /NO database/);
@@ -313,6 +357,13 @@ test("the site note says names, not contents, and says a missing database out lo
   assert.ok(!/address/.test(siteNote(SITE)), "a site with no address is told one");
   assert.ok(!/address/.test(siteNote({ ...SITE, url: "fretwork-1.gofarther.app" })), "a bare host is used as an address");
   assert.ok(!/address/.test(siteNote({ ...SITE, url: ["https://x.test"] })), "an array was coerced to an address");
+  // EACH PAGE WITH WHAT IT CALLS ITSELF (run 28): the designer declined "the
+  // booking page" on a site whose home page is headed "Book a guitar lesson",
+  // because it was shown routes alone.
+  const labelled = siteNote({ ...MULTI, labels: { "/": "Book a guitar lesson", "/about": 'The "team"' } });
+  assert.match(labelled, /Its pages are: \/ \("Book a guitar lesson"\), \/about \("The 'team'"\)\./, "the pages are not printed with their own headlines");
+  assert.match(siteNote({ ...MULTI, labels: { "/": "Book" } }), /Its pages are: \/ \("Book"\), \/about\./, "a page with no label is dropped or mislabelled");
+  assert.match(siteNote({ ...MULTI, labels: ["Book"] }), /Its pages are: \/, \/about\./, "an array of labels is read as labels");
 });
 
 test("pickAdds and runAdd are driven through a fake send: a throw is carried, a truncation is named, a decline is nothing", async () => {
@@ -341,6 +392,11 @@ test("pickAdds and runAdd are driven through a fake send: a throw is carried, a 
   assert.equal(dead.failed, true); assert.equal(dead.error, boom);
   const declined = await runAdd({ send: async () => toolReply("add_to_site", { component: null }) }, { kind: "component", message: "x", site: SITE, model: "m2" });
   assert.equal(declined.failed, false); assert.equal(declined.value, undefined);
+  // THE RAW REPLY RIDES OUT (run 28), so the route can keep what a designer
+  // said whether or not it answered — a decline with nothing to read cost
+  // three live runs.
+  assert.ok(Array.isArray(declined.raw && declined.raw.content), "a declined call's raw reply is not handed up");
+  assert.ok(Array.isArray(ran.raw && ran.raw.content), "an answered call's raw reply is not handed up");
   assert.equal(readAddAnswer(toolReply("add_to_site", {}), "page"), undefined);
   assert.equal(addUsage({}, "m"), null);
 });

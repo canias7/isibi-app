@@ -696,6 +696,47 @@ export function siteAddress(v) {
 }
 
 /**
+ * WHAT EACH PAGE IS CALLED, in the site's own words — the page's `<h1>` out of
+ * its stored source, or its name in the stored plan when the source has none.
+ *
+ * RUN 28 (2026-09-03) IS WHY. Told the site's pages as routes alone (`/`,
+ * `/prices`) and its address, the QR designer still answered nothing for "a
+ * code that opens the booking page": no route is called booking, and the
+ * never-invent rule then reads as "there is no such page". The home page's own
+ * headline is "Book a guitar lesson" and the nav calls it "Book" — the site
+ * knew all along; the designer was never told. Every kind that lands on a
+ * page has the same gap (a section "on the booking page" is the same lookup).
+ *
+ * The headline wins over the plan name because it is what a visitor reads;
+ * JSX expressions and nested tags are dropped, and a heading with no letters
+ * (an icon, a `{brand}` alone) counts as none. `{ route: label }`, routes only
+ * for pages with a label.
+ */
+export function pageLabels(sources, planPages) {
+  const out = {};
+  const clean = (s) => String(s || "")
+    .replace(/\{[^{}]*\}/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ").trim().slice(0, 80);
+  for (const p of Array.isArray(planPages) ? planPages : []) {
+    if (!p || typeof p !== "object") continue;
+    const r = route(p.path);
+    const label = clean(p.name);
+    if (r && /[a-z]/i.test(label)) out[r] = label;
+  }
+  for (const p of Array.isArray(sources) ? sources : []) {
+    if (!p || typeof p !== "object" || typeof p.source !== "string") continue;
+    const r = routeOf(p.path);
+    if (!r) continue;
+    const m = /<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(p.source);
+    const label = m ? clean(m[1]) : "";
+    if (/[a-z]/i.test(label)) out[r] = label;
+  }
+  return out;
+}
+
+/**
  * WHAT THE SITE IS, for the model that designs an addition to it.
  *
  * NAMES, NOT CONTENTS. The routes, the table names, what the site already
@@ -713,7 +754,15 @@ export function siteNote(site) {
     ? "It is a WORKING TOOL the business uses, not a shopfront: every page is a working screen, and there are no marketing bands and no photographs."
     : "It is a shopfront: a site that persuades a visitor.");
   const pages = (Array.isArray(s.pages) ? s.pages : []).filter((p) => typeof p === "string" && p.trim()).slice(0, 24);
-  lines.push(pages.length ? "Its pages are: " + pages.join(", ") + "." : "It has no pages yet.");
+  // EACH PAGE WITH WHAT IT CALLS ITSELF (run 28, 2026-09-03), so "the booking
+  // page" can be found among routes that never say the word: the page whose
+  // headline is "Book a guitar lesson" is the one they mean.
+  const labels = s.labels && typeof s.labels === "object" && !Array.isArray(s.labels) ? s.labels : {};
+  const named = pages.map((p) => {
+    const l = typeof labels[p] === "string" ? labels[p].trim().slice(0, 80) : "";
+    return l ? p + " (\"" + l.replace(/"/g, "'") + "\")" : p;
+  });
+  lines.push(pages.length ? "Its pages are: " + named.join(", ") + "." : "It has no pages yet.");
   // ITS ADDRESS, so its own pages are real destinations (run 26, 2026-09-03).
   // The QR kind's rule forbids inventing a destination, and without this line
   // "a code that opens the booking page" had none: the model answered nothing,
@@ -797,7 +846,11 @@ export async function runAdd(deps, { kind, message, site, model }) {
     e.truncated = true;
     return { kind, value: undefined, usage: addUsage(reply, model), failed: true, error: e };
   }
-  return { kind, value: readAddAnswer(reply, kind), usage: addUsage(reply, model), failed: false };
+  // THE RAW REPLY RIDES OUT TOO (run 28, 2026-09-03): three live declines in a
+  // row and nothing anywhere recorded what the model had said — the answer
+  // existed only in a Worker's memory, run 90's shape again. The route keeps
+  // it for the owner to read; this function only hands it up.
+  return { kind, value: readAddAnswer(reply, kind), usage: addUsage(reply, model), failed: false, raw: reply };
 }
 
 /* --------------------------------------------------------- what came back */

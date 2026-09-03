@@ -997,6 +997,35 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   170 → 170) ran BETWEEN the two** — against the Worker without the fix —
   and declined again in 154 s for 0, as it had to. A deploy's failure is
   read before the next paid run, not after.
+  **RUN 28 (15:44Z, `qr`, 170 → 170): DECLINED AGAIN WITH THE ADDRESS IN
+  THE NOTE** — picker 45 s, designer 59 s, `answered: false`, 0 credits,
+  build unmoved. So the address was necessary and not sufficient, and the
+  diagnosis had been a guess dressed as a reading. **Two things fixed, and
+  the second is the one that matters.** (1) The note listed the site's
+  pages as ROUTES ALONE (`/`, `/prices`); the ask names "the booking page";
+  no route says booking, and the never-invent rule then reads as "there is
+  no such page". The home page's own headline is "Book a guitar lesson"
+  and the nav calls it "Book" — the site knew, the designer was never
+  told. `pageLabels(sources, planPages)` reads each page's `<h1>` out of the
+  stored source (JSX and tags stripped; a wordless heading counts as none)
+  with the stored plan's name as the fallback, `aSite.labels` carries it,
+  and the note prints `Its pages are: / ("Book a guitar lesson"), /prices
+  ("Lesson Prices")`. Every kind that lands on a page had the same gap.
+  (2) **EVERY DESIGNER'S RAW REPLY IS KEPT** — `source/<slug>/addon-answer.json`,
+  written the moment the add loop ends and before a decline can return
+  (`runAdd` hands the reply up as `raw`), read back by the owner through
+  `GET /api/site/answer?slug=&kind=addon`, and the harness prints what each
+  designer said the moment a case is `declined`. Three live declines had
+  been diagnosed from a boolean; run 90's lesson, one path over: a record
+  nothing can read is where the answer already was. **Sweep: 10 mutants, 10
+  killed, none unapplied, the comment-only control survived — two survived
+  the first pass and both were the tests' fault**: the "wordless heading"
+  fixture was merely EMPTY (which any code drops), and the keep-before-
+  decline order was asserted by presence rather than position, so a keep
+  moved past the `continue` — the one reply worth reading never kept —
+  passed. Both guards now drive the case they name.
+  **Still not proven live** — the same dispatch after the deploy and the
+  roll is the proof, and if it declines a fourth time the log will say why.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,
@@ -1353,7 +1382,7 @@ what the work cost.
   free and read-only.
 - **`site build` is 326/326** against the real container (2026-09-03, the QR
   list's two-code build and the pre-list payload added sixteen); the unit
-  suite is 4,879 (2026-09-03, after the QR list). **In this sandbox the
+  suite is 4,881 (2026-09-03, after run 28's page labels and kept replies). **In this sandbox the
   harness needs `playwright-core` at the root the way `site-build.yml`
   installs it** (`npm i --no-save playwright-core@<the template's playwright
   version>`) — without it the six card and touch-icon checks fail with

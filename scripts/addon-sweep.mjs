@@ -439,6 +439,18 @@ async function main() {
     }
     else if (escalated) { verdict = "escalated"; note = `reason ${body.reason} layer ${body.layer || "-"}${after.build !== before.build ? " — AND THE BUILD MOVED, which an escalate must never do" : ""}`; if (after.build !== before.build) verdict = "LIE"; }
     else if (!claimedOk) { verdict = "failed"; note = `${p.status} ${String(body.error || "")}${body.kind ? " " + body.kind : ""}${body.reason ? " " + body.reason : ""} — ${String(body.detail || body.msg || p.text || "").slice(0, 200)}`; }
+    // A DECLINE IS READ, NOT GUESSED (run 28, 2026-09-03): the route keeps
+    // every designer's raw reply on the site's own store, and three declines
+    // in a row were diagnosed from a boolean because nobody could see it.
+    if (verdict === "failed" && String(body.error) === "declined") {
+      const kept = await call("GET", `/api/site/answer?slug=${encodeURIComponent(SLUG)}&kind=addon`, { token: TOKEN });
+      const replies = kept.json && kept.json.answer && Array.isArray(kept.json.answer.replies) ? kept.json.answer.replies : [];
+      for (const r of replies) {
+        const said = (Array.isArray(r.content) ? r.content : []).map((b) => b && b.type === "text" ? String(b.text || "") : b && b.type === "tool_use" ? "tool_use " + JSON.stringify(b.input) : "").filter(Boolean).join(" | ");
+        console.log(`   the ${r.kind} designer ${r.answered ? "answered" : "answered NOTHING"} (${r.stop_reason || "?"}): ${said.slice(0, 600) || "(empty reply)"}`);
+      }
+      if (!replies.length) console.log(`   (no kept reply to read: ${kept.status} ${String((kept.json && kept.json.why) || "").slice(0, 120)})`);
+    }
     else {
       const chk = c.check(before, after, body, extra);
       const moved = after.build !== before.build;

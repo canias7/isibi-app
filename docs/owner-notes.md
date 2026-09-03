@@ -1963,3 +1963,32 @@ second attempt went through at 15:23 UTC. Run 27, the QR run you started
 at 15:12 UTC, fell between the two and hit the old Worker: declined
 again, 154 seconds, nothing charged, balance still 170. Lesson for me: read
 the deploy before handing you a link.
+
+## 2026-09-03 — Run 28: declined a third time, and this time I can see why
+
+You ran `qr` again at 15:44 UTC, twenty minutes after the redeploy, so
+the address fix was live. The designer still answered nothing. Nothing
+charged, balance 170, site unmoved.
+
+So the address was needed but was not the whole reason, and I had been
+guessing. What I can now show: the designer is told the site's pages as
+bare routes — `/` and `/prices` — and your ask says "the booking page".
+No route is called booking, and the rule that forbids inventing a
+destination then reads as "there is no such page". Yet the home page's
+own headline is "Book a guitar lesson" and the menu calls it "Book". The
+site knew; the designer was never shown it.
+
+Two changes. First, the designer is now told what each page calls
+itself, in the page's own words: `/ ("Book a guitar lesson"), /prices
+("Lesson Prices")`. That helps every kind of addition that has to land on
+a page, not only QR codes. Second, and this is the one I should have had
+from the start: every designer's raw answer is now kept on the site's
+own store, whether or not it answered, and the harness prints it the
+moment a run is declined. If it declines a fourth time, the log will
+show the model's actual words instead of a yes/no. Checked without
+spending: the headline reader and the note driven case by case, 10
+mutants killed with the control surviving (two of them only after I
+fixed the tests they showed were weak), the whole suite green.
+
+Same run, same form, after this deploy and the roll. About 12 credits if
+it publishes; nothing if it declines again, and then we read the reason.

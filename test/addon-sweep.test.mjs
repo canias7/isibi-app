@@ -190,6 +190,21 @@ test("a new route's sitemap listing is re-read, bounded, before the page case is
   assert.ok(win.indexOf("extra.newStatuses = {}") > retake, "the routes are read before the sitemap settles");
 });
 
+test("a decline is read off the kept replies, never guessed (run 28)", () => {
+  // Three live declines were diagnosed from a boolean. The route now keeps
+  // every designer's raw reply on the site's store; the harness reads it
+  // back through the owner's answer route the moment a case is `declined`
+  // and prints what each designer said, so the log carries the reason.
+  const at = SRC.indexOf('String(body.error) === "declined"');
+  assert.ok(at > 0, "the harness does not read a decline back");
+  const block = SRC.slice(at, SRC.indexOf("\n    }\n", at));
+  assert.match(block, /\/api\/site\/answer\?slug=\$\{encodeURIComponent\(SLUG\)\}&kind=addon/, "the kept replies are not read with kind=addon");
+  assert.match(block, /token: TOKEN/, "the read is not the owner's — the route 404s a stranger");
+  assert.match(block, /answered NOTHING/, "an unanswered designer is not said out loud");
+  assert.match(block, /tool_use/, "a designer's tool answer is not printed");
+  assert.match(block, /no kept reply to read/, "a missing record is silent — the shape run 90 warned about");
+});
+
 test("chooseCases refuses a stranger before anything is spent and forgives punctuation", () => {
   assert.deepEqual(chooseCases("all", CASES), CASES.map((c) => c.name));
   assert.deepEqual(chooseCases(" page, component. ", CASES), ["page", "component"]);
