@@ -1,21 +1,23 @@
 {
-  "at": "2026-09-03T15:46:55.953Z",
+  "at": "2026-09-03T17:02:42.641Z",
   "site": "fretwork-1",
   "start": 170,
-  "end": 170,
+  "end": 157,
   "results": [
     {
       "name": "qr",
       "kinds": [
         "qr"
       ],
-      "verdict": "failed",
-      "note": "422 declined — I couldn't work out what to add from that — say what you want on the site and where.",
-      "cost": 0,
-      "wall": 112,
-      "build": "mtlesaq6-sz6j1q",
+      "verdict": "ok",
+      "note": "QR codes: 1 on the page before, 2 after; build moved",
+      "cost": 13,
+      "wall": 438,
+      "build": "mtlrs753-4k2o86",
       "pickedRight": true,
-      "shots": []
+      "shots": [
+        "docs/edits/addon-01-qr.png"
+      ]
     }
   ]
 }
