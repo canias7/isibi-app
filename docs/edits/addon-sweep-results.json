@@ -1,5 +1,5 @@
 {
-  "at": "2026-09-03T12:54:27.364Z",
+  "at": "2026-09-03T15:46:55.953Z",
   "site": "fretwork-1",
   "start": 170,
   "end": 170,
@@ -12,7 +12,7 @@
       "verdict": "failed",
       "note": "422 declined — I couldn't work out what to add from that — say what you want on the site and where.",
       "cost": 0,
-      "wall": 53,
+      "wall": 112,
       "build": "mtlesaq6-sz6j1q",
       "pickedRight": true,
       "shots": []
