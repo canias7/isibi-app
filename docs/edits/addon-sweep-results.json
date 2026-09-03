@@ -1,23 +1,21 @@
 {
-  "at": "2026-09-03T17:02:42.641Z",
+  "at": "2026-09-03T20:12:59.466Z",
   "site": "fretwork-1",
-  "start": 170,
-  "end": 157,
+  "start": 157,
+  "end": 141,
   "results": [
     {
-      "name": "qr",
+      "name": "table",
       "kinds": [
-        "qr"
+        "component"
       ],
-      "verdict": "ok",
-      "note": "QR codes: 1 on the page before, 2 after; build moved",
-      "cost": 13,
-      "wall": 438,
-      "build": "mtlrs753-4k2o86",
+      "verdict": "LIE",
+      "note": "reply says ok, build moved, but the addition is not on the site; made []; build moved",
+      "cost": 16,
+      "wall": 659,
+      "build": "mtlyl3y7-iu4asu",
       "pickedRight": true,
-      "shots": [
-        "docs/edits/addon-01-qr.png"
-      ]
+      "shots": []
     }
   ]
 }
