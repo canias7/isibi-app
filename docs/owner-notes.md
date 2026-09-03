@@ -2058,3 +2058,11 @@ page, a daily reminder) at roughly 12–15 credits each for the two that
 publish and a couple for the job, which publishes nothing. Proving the
 database-on-first-touch needs a site with no database on the allowlist,
 which is your call — fretwork-1 has had one since run 16.
+
+Pushed to main at 18:10 UTC on your word. The unit tests on main are
+green; the deploy (run 2009) failed on Cloudflare's side again — the
+container image built and every layer pushed, then their registry
+answered a 500 on the last step. Second time today, different step from
+the morning's. Until it is re-run, gofarther.dev is still on the
+previous deploy, so none of this is live yet. Nothing waits on it while
+we design.
