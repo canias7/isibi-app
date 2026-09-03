@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { buildSource } from "./fixtures/build-source.mjs";
 import path from "node:path";
-import { normalizeJob, dueJobs, shapeMessages, runJob, jobOutcome,
+import { normalizeJob, dueJobs, shapeMessages, runJob, jobOutcome, lastDueAt, validTimeZone,
          MIN_EVERY_MINUTES, MAX_MESSAGES_PER_RUN, MAX_JOBS_PER_TICK } from "../site-jobs.mjs";
 import { recipient } from "../site-mail.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
@@ -302,7 +302,10 @@ test("THE CHAIN: a job is declarable and reaches the runner", () => {
   assert.match(worker, /await persistSiteJobs\(env, bu\.id, slug, jobs\)/, "the apply path must register them");
   // 4. drained by the cron
   assert.match(worker, /ctx\.waitUntil\(runScheduledSiteJobs\(env, ctx\)\)/, "the cron must drive it");
-  assert.match(worker, /runJob\(\{/, "and it must call the runner");
+  // RE-ANCHORED 2026-09-03: the deps are built by `jobDeps` now, shared with
+  // the owner's run-now, so the call is `runJob(jobDeps(env, row), row)`
+  // rather than an inline literal. The property is the call.
+  assert.match(worker, /runJob\(jobDeps\(env, row\), row\)/, "and it must call the runner");
 });
 
 test("the runner re-reads the SCHEMA, not just the registry row", () => {
@@ -326,8 +329,14 @@ test("THE RUNNER'S STAMP IS A CONDITIONAL CLAIM, and a failed write is a lost cl
   // The WHERE re-states dueness, so an overlapping tick that read the same row
   // as due loses HERE — decided by the database, not by two ticks agreeing not
   // to overlap. Owner-scoped like every other filter on this table now.
-  assert.match(st, /site_functions\?owner_id=eq\.[^`]*&slug=eq\.[^`]*&name=eq\.[^`]*&or=\(last_run\.is\.null,last_run\.lt\./,
-    "the stamp lost its claim condition or a scope");
+  // RE-ANCHORED 2026-09-03: the clause is composed one line up as `dueness`,
+  // because the owner's run-now uses the same deps with the clause OFF
+  // (the press is the decision that it is due). The property is unchanged:
+  // three scopes, and for the cron the WHERE re-states dueness.
+  assert.match(st, /site_functions\?owner_id=eq\.[^`]*&slug=eq\.[^`]*&name=eq\.[^`]*\$\{dueness\}`/,
+    "the stamp lost a scope or its claim condition");
+  assert.match(st, /const dueness = force \? "" : `&or=\(last_run\.is\.null,last_run\.lt\./,
+    "the claim condition is not the dueness clause, or is not off only under force");
   // Judged by REPRESENTATION — a row back means we won; empty means we lost.
   assert.match(st, /Prefer: "return=representation"/, "the stamp cannot see whether it matched anything");
   // r.ok CHECKED. The old write was fire-and-forget, so Supabase in read-only
@@ -341,7 +350,16 @@ test("THE RUNNER'S STAMP IS A CONDITIONAL CLAIM, and a failed write is a lost cl
   // A lost claim writes no last_result — the winning tick's outcome is the
   // record, and overwriting it with "skipped" every overlap buries the one
   // line the owner reads.
-  assert.match(fn, /if \(out\.skipped\) continue;/, "a lost claim overwrites the winning run's outcome");
+  // RE-ANCHORED 2026-09-03: the result note lives in `recordJobOutcome` now,
+  // shared with run-now, so a lost claim RETURNS out of it before the write
+  // rather than continuing the cron's loop. The property is the same: no
+  // write on a lost claim.
+  const rec = fn.indexOf("async function recordJobOutcome(env, row, out) {");
+  assert.ok(rec > 0, "recordJobOutcome is gone");
+  const note = fn.slice(rec);
+  const skip = note.indexOf("if (out.skipped) return;");
+  const write = note.indexOf("last_result: jobOutcome(out)");
+  assert.ok(skip > 0 && write > skip, "a lost claim overwrites the winning run's outcome");
   // And every WRITE to the registry is owner-scoped: the stamp and the result
   // note. (The tick's scan is the one legitimately unscoped read.)
   assert.equal([...fn.matchAll(/site_functions\?owner_id=eq\./g)].length, 2,
@@ -632,4 +650,120 @@ test("a paused job is not un-paused by the next publish", () => {
   //    toward enabled sends messages somebody switched off.
   assert.match(fn, /paused\.add\(null\)/, "a failed read does not fall back to leaving every flag alone");
   assert.match(fn, /const unknown = paused\.has\(null\)/, "the unknown sentinel is set and never read");
+});
+
+// ── A CLOCK TIME (owner, 2026-09-03) ────────────────────────────────────────
+//
+// "Every day at nine" was "every 1440 minutes from whenever it was added".
+// `at` is a time of day in the site's own zone, `tz` the zone the owner's
+// browser sent; a never-run clock-time job waits for its time to pass since
+// it was REGISTERED, so a 09:00 added at three in the afternoon fires the
+// next morning and not on the next tick.
+test("a clock time rides a daily-or-slower job with the owner's zone, and is left off a faster one", () => {
+  assert.deepEqual(normalizeJob({ name: "r", fn: "f", everyMinutes: 1440, at: "09:00", tz: "Europe/London" }),
+    { name: "r", fn: "f", everyMinutes: 1440, at: "09:00", tz: "Europe/London" });
+  assert.deepEqual(normalizeJob({ name: "r", fn: "f", everyMinutes: 60, at: "09:00", tz: "Europe/London" }),
+    { name: "r", fn: "f", everyMinutes: 60 }, "an hourly job kept a time of day");
+  assert.deepEqual(normalizeJob({ name: "r", fn: "f", everyMinutes: 1440, at: "09:00", tz: "Mars/Olympus" }),
+    { name: "r", fn: "f", everyMinutes: 1440, at: "09:00" }, "an unknown zone was stored");
+  assert.deepEqual(normalizeJob({ name: "r", fn: "f", everyMinutes: 1440, at: "9am" }), { name: "r", fn: "f", everyMinutes: 1440 }, "an unreadable time was stored");
+  assert.equal(validTimeZone("Europe/London"), "Europe/London");
+  assert.equal(validTimeZone("America/Argentina/Buenos_Aires"), "America/Argentina/Buenos_Aires");
+  assert.equal(validTimeZone("UTC"), "UTC");
+  for (const bad of ["nope", "", null, ["Europe/London"], "Europe/London; DROP", "x".repeat(70)]) assert.equal(validTimeZone(bad), null, JSON.stringify(bad));
+});
+
+test("lastDueAt is the latest occurrence of the clock time in the zone, at or before now", () => {
+  const iso = (ms) => new Date(ms).toISOString();
+  const noon = Date.UTC(2026, 8, 3, 12, 0);
+  // British Summer Time: 09:00 London is 08:00Z.
+  assert.equal(iso(lastDueAt("09:00", "Europe/London", noon)), "2026-09-03T08:00:00.000Z");
+  assert.equal(iso(lastDueAt("09:00", "Europe/London", Date.UTC(2026, 8, 3, 7, 30))), "2026-09-02T08:00:00.000Z", "today's time still ahead is not yesterday's");
+  // Winter: 09:00 London is 09:00Z — the zone's own business.
+  assert.equal(iso(lastDueAt("09:00", "Europe/London", Date.UTC(2026, 0, 15, 12, 0))), "2026-01-15T09:00:00.000Z");
+  // West of Greenwich, and a zone east where the local day has already turned.
+  assert.equal(iso(lastDueAt("09:00", "America/New_York", noon)), "2026-09-02T13:00:00.000Z");
+  assert.equal(iso(lastDueAt("09:00", "America/New_York", Date.UTC(2026, 8, 3, 13, 0))), "2026-09-03T13:00:00.000Z", "exactly on the minute counts");
+  assert.equal(iso(lastDueAt("00:30", "Asia/Tokyo", Date.UTC(2026, 8, 3, 15, 0))), "2026-09-02T15:30:00.000Z");
+  // No zone reads as UTC; an unreadable time or instant is null, never a throw.
+  assert.equal(iso(lastDueAt("09:00", undefined, noon)), "2026-09-03T09:00:00.000Z");
+  assert.equal(iso(lastDueAt("09:00", "Mars/Olympus", noon)), "2026-09-03T09:00:00.000Z");
+  assert.equal(lastDueAt("9am", "UTC", noon), null);
+  assert.equal(lastDueAt("09:00", "UTC", NaN), null);
+});
+
+test("a clock-time job waits for its time since it was added, runs once per occurrence, and keeps its interval", () => {
+  const iso = (ms) => new Date(ms).toISOString();
+  const T = (h, m = 0, d = 3) => Date.UTC(2026, 8, d, h, m);   // BST: 09:00 London = 08:00Z
+  const row = (o) => ({ ...JOB, spec: { fn: "due_tomorrow", at: "09:00", tz: "Europe/London" }, updated_at: null, ...o });
+  const due = (r, t) => dueJobs([r], t).length === 1;
+  // Added at 15:00 local: not on the next tick, but the next morning.
+  assert.equal(due(row({ updated_at: iso(T(14)) }), T(14, 30)), false, "a daily 09:00 added at three fired on the next tick");
+  assert.equal(due(row({ updated_at: iso(T(14)) }), T(7, 59, 4)), false, "fired before its time");
+  assert.equal(due(row({ updated_at: iso(T(14)) }), T(8, 1, 4)), true, "did not fire the morning after it was added");
+  // No registration stamp at all: run rather than strand.
+  assert.equal(due(row({}), T(14, 30)), true);
+  // Once per occurrence, and the interval on top.
+  assert.equal(due(row({ last_run: iso(T(8, 2)) }), T(10)), false, "ran twice in one day");
+  assert.equal(due(row({ last_run: iso(T(8, 2, 2)) }), T(8, 1)), false, "ran a minute early — the interval is not kept");
+  assert.equal(due(row({ last_run: iso(T(8, 2, 2)) }), T(8, 2)), true, "did not run the next morning");
+  assert.equal(due(row({ schedule_minutes: 10080, last_run: iso(Date.UTC(2026, 7, 28, 8, 2)) }), T(8, 5)), false, "a weekly 09:00 ran after six days");
+  assert.equal(due(row({ schedule_minutes: 10080, last_run: iso(Date.UTC(2026, 7, 27, 8, 2)) }), T(8, 5)), true, "a weekly 09:00 did not run after seven");
+  // A paused clock-time job never runs; a plain-interval job is exactly as before.
+  assert.equal(due(row({ enabled: false, updated_at: iso(T(14)) }), T(8, 1, 4)), false);
+  assert.equal(due({ ...JOB }, T(14)), true);
+});
+
+test("THE RUNNER READS THE SITE'S CONNECTION, not its project row — and one set of deps serves the cron and the owner's run-now", () => {
+  // Three deps read `siteNeonProject(env, row.slug)` — the Neon PROJECT ROW —
+  // where the DATABASE CONNECTION is wanted, so the schema read as empty and
+  // every job ever registered wrote "this job is no longer part of the site":
+  // twenty-six registered, zero sends, and this file's own chain test green
+  // the whole time because it read the module and never ran the deps.
+  const worker = noComments(fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8"));
+  const open = worker.indexOf("function jobDeps(env, row, { force = false } = {}) {");
+  const shut = worker.indexOf("async function recordJobOutcome(env, row, out) {", open);
+  assert.ok(open > 0 && shut > open, "jobDeps or recordJobOutcome is gone");
+  const deps = worker.slice(open, shut);
+  const reads = deps.match(/const conn = await siteBackendBySlug\(env, row\.slug\);/g) || [];
+  assert.equal(reads.length, 3, "the three deps do not all read the connection through siteBackendBySlug: " + reads.length);
+  assert.doesNotMatch(deps, /siteNeonProject\(/, "a dep still reads the project row where a connection is wanted");
+  for (const dep of ["callFn:", "credentials:", "smsCredentials:", "stamp:", "send:", "sendSms:", "phone:", "recipient"]) assert.ok(deps.includes(dep), "jobDeps lost " + dep);
+  // The stamp keeps its dueness clause for the cron and drops it under force.
+  assert.match(deps, /const dueness = force \? "" : `&or=\(last_run\.is\.null,last_run\.lt\.\$\{encodeURIComponent\(cutoff\)\}\)`;/, "the stamp's dueness clause is not gated on force");
+  assert.match(deps, /\$\{dueness\}`, \{/, "the stamp's WHERE does not carry the dueness clause");
+  // The cron: due rows, one call each, the outcome recorded; and the select carries updated_at.
+  const cron = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), open);
+  assert.match(cron, /for \(const row of dueJobs\(rows, Date\.now\(\)\)\) \{\s*const out = await runJob\(jobDeps\(env, row\), row\);\s*await recordJobOutcome\(env, row, out\);\s*\}/, "the cron does not run each due job through the shared deps and record it");
+  assert.match(cron, /select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at&/, "the cron's read does not carry updated_at — a never-run clock-time job cannot know when it was added");
+  // Run-now: owner-scoped, the same deps under force, recorded, answered as the sentence, before the switch's check that would 400 it.
+  const run = worker.indexOf("if (jbody && jbody.run === true) {");
+  assert.ok(run > 0, "the run-now branch is gone");
+  const enabledCheck = worker.indexOf('if (typeof (jbody && jbody.enabled) !== "boolean")', run);
+  assert.ok(enabledCheck > run, "run-now sits after the enabled check, which 400s it");
+  const branch = worker.slice(run, enabledCheck);
+  assert.match(branch, /owner_id=eq\.\$\{encodeURIComponent\(ou\.id\)\}&slug=eq\.\$\{encodeURIComponent\(jslug\)\}&name=eq\.\$\{encodeURIComponent\(jname\)\}&schedule_minutes=not\.is\.null/, "run-now is not owner-scoped to one scheduled job");
+  assert.match(branch, /select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at,enabled/, "run-now's row lacks what the deps read");
+  assert.match(branch, /const out = await runJob\(jobDeps\(env, jrow, \{ force: true \}\), jrow\);/, "run-now does not run the shared deps under force");
+  assert.match(branch, /await recordJobOutcome\(env, jrow, out\);/, "run-now's outcome is not written where the panel reads");
+  assert.match(branch, /result: jobOutcome\(out\)/, "run-now does not answer the sentence");
+  assert.match(branch, /error: "no such job" \}, \{ status: 404 \}/, "run-now on a name that matches nothing says ok");
+  // The registration carries the clock time, and the panel's read hands it back.
+  assert.match(worker, /spec: \{ fn: j\.fn, \.\.\.\(j\.at \? \{ at: j\.at, \.\.\.\(j\.tz \? \{ tz: j\.tz \} : \{\}\) \} : \{\}\) \}/, "persistSiteJobs drops the clock time");
+  assert.match(worker, /select=name,spec,schedule_minutes,enabled,last_run,last_result&order=name\.asc/, "the panel's read does not fetch the spec");
+  assert.match(worker, /at: j\.spec && typeof j\.spec === "object" && typeof j\.spec\.at === "string" \? j\.spec\.at : null,/, "the panel is not told the clock time");
+});
+
+test("the owner's panel shows the clock time and has a Run now button wired to the route; the addon post carries the browser's zone", () => {
+  const chat = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "chat.js"), "utf8");
+  const panel = chat.slice(chat.indexOf("async function siteFunctions("), chat.indexOf("async function siteFiles("));
+  assert.ok(panel.length > 1000, "the jobs panel is gone");
+  assert.match(panel, /' at ' \+ j\.at/, "the schedule label does not show the clock time");
+  assert.match(panel, /class="fn-tgl fn-run" data-run="' \+ esc\(j\.name\) \+ '"/, "no Run now button");
+  assert.match(panel, /body: JSON\.stringify\(\{ name: b\.dataset\.run, run: true \}\)/, "Run now does not post run:true");
+  assert.match(panel, /sbToast\(d\.result \|\| 'Ran\.'\)/, "the sentence that comes back is not shown");
+  assert.match(chat, /body: JSON\.stringify\(\{ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone\(\) \}\)/, "the addon post does not carry the owner's zone");
+  assert.match(chat, /function browserTimeZone\(\) \{\s*try \{ return String\(Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone \|\| ''\); \} catch \(e\) \{ return ''; \}/, "browserTimeZone does not read Intl safely");
+  const css = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "styles.css"), "utf8");
+  assert.match(css, /\.fn-tgl\.fn-run \{ margin-left: \.4rem;/, "the Run now button has no style beside the switch");
 });

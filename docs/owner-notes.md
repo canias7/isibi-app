@@ -2066,3 +2066,47 @@ answered a 500 on the last step. Second time today, different step from
 the morning's. Until it is re-run, gofarther.dev is still on the
 previous deploy, so none of this is live yet. Nothing waits on it while
 we design.
+
+## 2026-09-03 — Jobs, designed first, then built
+
+You said design first, push at the end; then "do jobs", "go", and delete
+is the edit path's. Three of the four decisions are built, the fourth
+came free with the second.
+
+**The runner sends now.** This is the one that matters. Every job ever
+registered on the platform — 26 of them — has run on the two-minute tick
+and written "this job is no longer part of the site", because three
+places in the runner handed it the site's Neon *project record* where the
+*database connection* was wanted. The lookup failed quietly and the
+schema read as empty. One-word fix at the three places, and the three
+now live in one shared piece the Run now button uses too, so what the
+button sends is exactly what the schedule sends. A site with no mail key
+pasted still sends nothing, and says so in the panel.
+
+**A time of day.** "Every day at 9am" used to mean "every 24 hours from
+whenever it was added" — a reminder added at ten to midnight went out at
+ten to midnight for ever. A daily or slower job can now carry a clock
+time, in your own zone: the builder sends your browser's timezone with
+the request and it rides the job. A new daily 09:00 added at three in the
+afternoon waits for tomorrow morning instead of firing on the next tick;
+a weekly one still waits the week. The reply reads "scheduled
+remind_tomorrow (every day at 09:00)", and the panel says "Daily at
+09:00".
+
+**Run now.** Under Cloud → Scheduled jobs each job has a Run now button
+beside its On/Paused switch. It sends for real, on your own key, and the
+same one-line result the schedule writes comes back as a toast and stays
+on the row.
+
+Nothing pushed yet, as agreed. Checked without spending: the clock-time
+arithmetic driven across London (summer and winter), New York, Tokyo and
+UTC; the runner's three reads and the shared deps read out of the route;
+the panel read out of the browser code. Sweep: 29 mutants, all 29
+killed, the control surviving. Whole suite green (4,895). The panel is at
+`docs/edits/jobs-panel-run-now.png` and in the chat.
+
+One thing to know before a job really sends: it uses the mail or text
+key pasted into that site's Secrets, and none of your sites has one
+pasted, so until then every run says "Ready to send, but no email
+provider key in Secrets" — which is the honest answer, and the button
+will show you exactly that.

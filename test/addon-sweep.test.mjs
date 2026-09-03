@@ -179,6 +179,9 @@ test("the refusal cases are driven to refusals the route really emits, and the h
 
 test("the harness posts to the addon route, follows one hop to the edit route, and never touches the build route", () => {
   assert.match(SRC, /\/api\/site\/\$\{encodeURIComponent\(SLUG\)\}\/addon/, "the harness does not post to the addon route");
+  // The post carries the zone a browser would (2026-09-03): a job's clock
+  // time is read in it, and the site is in Sheffield.
+  assert.match(SRC, /body: \{ instruction: c\.ask, picker: PICKER, idem: hex32\(\), tz: "Europe\/London" \}/, "the addon post does not carry the owner's zone");
   assert.match(SRC, /\/api\/site\/\$\{encodeURIComponent\(SLUG\)\}\/edit/, "the hop does not land on the edit route");
   assert.ok(!/react-build|react-revise|\/api\/site\/build/.test(SRC), "the harness reaches for the build route");
   // The hop is gated on the case AND on the reply naming that layer.

@@ -11902,7 +11902,9 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
   const idem = EditPoll.newIdemKey();
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/addon', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ instruction: instruction, picker: buildPicker, idem: idem }),
+    // `tz` IS THE OWNER'S ZONE (2026-09-03): a scheduled job's clock time
+    // ("every day at 09:00") is read in it, and only the browser knows it.
+    body: JSON.stringify({ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone() }),
   }).then(async (r) => {
     const a = await r.json().catch(() => null);
     // ── A QUEUED ADDON ANSWERS WITH A JOB, NOT AN OUTCOME (2026-09-03) ────
@@ -12038,7 +12040,17 @@ function jobWords(j) {
     : m % 1440 === 0 ? (m === 1440 ? 'every day' : 'every ' + (m / 1440) + ' days')
     : m % 60 === 0 ? (m === 60 ? 'every hour' : 'every ' + (m / 60) + ' hours')
     : 'every ' + m + ' minutes';
-  return j.name + (every ? ' (' + every + ')' : '');
+  // A CLOCK TIME (2026-09-03): "every day at 09:00", in the zone the job was
+  // added from — the owner's own, so it is said only when it differs from
+  // the browser's now.
+  const at = typeof j.at === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(j.at)
+    ? ' at ' + j.at + (typeof j.tz === 'string' && j.tz && j.tz !== browserTimeZone() ? ' (' + j.tz + ')' : '')
+    : '';
+  return j.name + (every ? ' (' + every + at + ')' : '');
+}
+/** The browser's IANA zone, or '' where it cannot say. Sent with an addon so a job's clock time is the owner's. */
+function browserTimeZone() {
+  try { return String(Intl.DateTimeFormat().resolvedOptions().timeZone || ''); } catch (e) { return ''; }
 }
 function addonReplyText(a) {
   const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
@@ -13731,14 +13743,34 @@ async function siteFunctions(site) {
         // to "stop the weekly digest" was asking the builder, which has no
         // lane that can do it (the 2026-08-13 audit) — so the switch lives
         // where the owner is already looking at what the job did.
+        // THE CLOCK TIME, when the job has one (2026-09-03): "Daily at 09:00",
+        // with the zone only when it is not the browser's own.
+        const at = typeof j.at === 'string' && j.at
+          ? ' at ' + j.at + (typeof j.tz === 'string' && j.tz && j.tz !== browserTimeZone() ? ' (' + j.tz + ')' : '')
+          : '';
         return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('history', 15) + '</span><b class="fn-name">' + esc(j.name) + '</b>' +
-          '<span class="fn-sch">' + esc(every(Number(j.everyMinutes) || 0)) + '</span>' +
+          '<span class="fn-sch">' + esc(every(Number(j.everyMinutes) || 0) + at) + '</span>' +
           (ran ? '<span class="fn-trig">ran ' + esc(ran) + '</span>' : '') +
           (j.enabled === false
             ? '<button type="button" class="fn-tgl fn-off" data-job="' + esc(j.name) + '" data-on="" title="Paused — click to resume">Paused</button>'
             : '<button type="button" class="fn-tgl" data-job="' + esc(j.name) + '" data-on="1" title="Running on schedule — click to pause">On</button>') +
+          // RUN NOW (owner, 2026-09-03): the one way to see a job work without
+          // waiting a day. It sends for real, on the owner's own key, and the
+          // sentence that comes back is the same one the schedule writes.
+          '<button type="button" class="fn-tgl fn-run" data-run="' + esc(j.name) + '" title="Run it now — sends for real, on your own key">Run now</button>' +
           '</div>' + result + '</div>';
       }).join('');
+      listEl.querySelectorAll('.fn-run').forEach((b) => b.onclick = async () => {
+        b.disabled = true;
+        try {
+          const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: b.dataset.run, run: true }) });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) { if (typeof sbToast === 'function') sbToast(d.error === 'no such job' ? 'That job isn’t on the schedule any more.' : 'Couldn’t run it — try again.'); return; }
+          if (typeof sbToast === 'function') sbToast(d.result || 'Ran.');
+          load();
+        } catch (e) { if (typeof sbToast === 'function') sbToast('Couldn’t run it — check your connection.'); }
+        finally { b.disabled = false; }
+      });
       listEl.querySelectorAll('.fn-tgl').forEach((b) => b.onclick = async () => {
         // The next state is the opposite of what the server last said, read
         // off the button — the notify toggle's idiom, including repainting

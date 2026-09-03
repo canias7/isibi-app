@@ -748,8 +748,13 @@ test("the addon reply is DRIVEN, not grepped", () => {
     const end = chat.indexOf("\n}", at);
     return chat.slice(at, end + 2);
   };
-  const reply = new Function([cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("jobWords"), cut("addonReplyText")].join("\n") +
+  const reply = new Function([cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("browserTimeZone"), cut("jobWords"), cut("addonReplyText")].join("\n") +
     "\nreturn addonReplyText;")();
+  // A CLOCK TIME (2026-09-03): said with the job, its zone only when it is
+  // not this browser's own.
+  const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  assert.match(reply({ added: [], changed: [], jobs: [{ name: "j", everyMinutes: 1440, at: "09:00", tz: "Etc/GMT-14" }] }), /scheduled j \(every day at 09:00 \(Etc\/GMT-14\)\)/);
+  assert.match(reply({ added: [], changed: [], jobs: [{ name: "j", everyMinutes: 1440, at: "09:00", tz: here }] }), /scheduled j \(every day at 09:00\)\./, "the browser's own zone is said back to it");
   const gone = reply({ added: [], changed: [], removed: ["src/routes/prices.tsx"] });
   assert.match(gone, /removed \/prices/, gone);
   const kept = reply({ added: ["src/routes/g.tsx"], kept: [{ path: "src/routes/index.tsx", why: "home" }] });

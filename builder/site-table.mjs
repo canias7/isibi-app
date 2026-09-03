@@ -419,6 +419,13 @@ export const JOB_ITEM = {
     name: { type: "string", description: "lowercase identifier, e.g. remind_tomorrow" },
     fn: { type: "string", description: "The internal function returning the messages, e.g. bookings_due_tomorrow" },
     everyMinutes: { type: "integer", description: "How often to run. 1440 = daily, 60 = hourly. Minimum 15." },
+    // A CLOCK TIME (owner, 2026-09-03). Without it "every day at nine" ran
+    // every 1440 minutes from whenever the job was added. The zone is not the
+    // model's to answer: the owner's browser supplies it when the job is added.
+    at: { type: "string", description:
+      "For a job that runs once a day or less often: the time of day it runs, \"HH:MM\" on a 24-hour clock in the " +
+      "site's own local time — \"09:00\" for a morning reminder, \"18:30\" for an end-of-day summary. Leave it out " +
+      "for a job on a plain interval (hourly, every 15 minutes)." },
   },
 };
 

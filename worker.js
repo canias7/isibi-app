@@ -4,7 +4,7 @@
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
-import { dueJobs, runJob, jobOutcome, normalizeJob } from "./site-jobs.mjs";
+import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
@@ -3047,7 +3047,10 @@ async function persistSiteJobs(env, ownerId, slug, jobs) {
   }
   const unknown = paused.has(null);
   const rows = jobs.slice(0, 8).map((j) => ({
-    owner_id: ownerId, slug, name: j.name, spec: { fn: j.fn },
+    // THE CLOCK TIME RIDES THE SPEC (2026-09-03): `at` and the zone it is
+    // read in, beside the function — the runner's `dueJobs` reads them off
+    // the row, and a job without one is exactly the row it always was.
+    owner_id: ownerId, slug, name: j.name, spec: { fn: j.fn, ...(j.at ? { at: j.at, ...(j.tz ? { tz: j.tz } : {}) } : {}) },
     ...(unknown || paused.has(String(j.name)) ? {} : { enabled: true }),
     updated_at: now, schedule_minutes: j.everyMinutes,
   }));
@@ -3271,13 +3274,38 @@ async function runScheduledSiteJobs(env, ctx) {
     // never-run job ahead of everything) makes the window itself the 200 rows
     // most in need of running, which is the same order `dueJobs` sorts by — so
     // the read and the selection agree rather than fighting each other.
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?enabled=is.true&schedule_minutes=not.is.null&select=owner_id,slug,name,spec,schedule_minutes,last_run&order=last_run.asc.nullsfirst&limit=200`, { headers: svc, signal: AbortSignal.timeout(10000) });
+    // `updated_at` IS PART OF THE ANSWER (2026-09-03): a clock-time job that
+    // has never run is due only once its time has passed SINCE IT WAS ADDED,
+    // and the registration stamp is the only record of when that was.
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?enabled=is.true&schedule_minutes=not.is.null&select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at&order=last_run.asc.nullsfirst&limit=200`, { headers: svc, signal: AbortSignal.timeout(10000) });
     rows = await r.json().catch(() => []);
   } catch { return; }
   if (!Array.isArray(rows)) return;
 
   for (const row of dueJobs(rows, Date.now())) {
-    const out = await runJob({
+    const out = await runJob(jobDeps(env, row), row);
+    await recordJobOutcome(env, row, out);
+  }
+}
+
+/**
+ * ONE SET OF DEPS FOR A JOB RUN, shared by the cron and the owner's "run now"
+ * (2026-09-03). The cron built these inline, and that is where the tier died:
+ * three of them read `siteNeonProject(env, row.slug)` — the site's Neon
+ * PROJECT ROW — where the DATABASE CONNECTION is wanted, so `loadSiteSchema`
+ * and the vault reads were handed an object, the schema read as empty, and
+ * every job ever registered wrote "this job is no longer part of the site".
+ * Twenty-six registered, zero sends, and a green suite the whole time: a
+ * chain test read the module and never ran the deps. `siteBackendBySlug` is
+ * the slug-to-connection reader every data path uses.
+ *
+ * `force` is the manual run's: the stamp still lands (a run is a run), but
+ * without the dueness clause, because the owner pressing the button IS the
+ * decision that it is due.
+ */
+function jobDeps(env, row, { force = false } = {}) {
+  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
+  return {
       // Stamped FIRST, inside runJob, and that ordering is load-bearing: stamped
       // after sending, a job that dies mid-batch is due again on the next tick
       // and mails everyone it already reached. Losing a run is recoverable;
@@ -3296,8 +3324,9 @@ async function runScheduledSiteJobs(env, ctx) {
       stamp: async (r2) => {
         const mins = parseInt(r2.schedule_minutes, 10) || 0;
         const cutoff = new Date(Date.now() - Math.max(0, mins * 60000 - 30000)).toISOString();
+        const dueness = force ? "" : `&or=(last_run.is.null,last_run.lt.${encodeURIComponent(cutoff)})`;
         try {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(r2.owner_id)}&slug=eq.${encodeURIComponent(r2.slug)}&name=eq.${encodeURIComponent(r2.name)}&or=(last_run.is.null,last_run.lt.${encodeURIComponent(cutoff)})`, {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(r2.owner_id)}&slug=eq.${encodeURIComponent(r2.slug)}&name=eq.${encodeURIComponent(r2.name)}${dueness}`, {
             method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=representation" },
             body: JSON.stringify({ last_run: new Date().toISOString() }), signal: AbortSignal.timeout(8000),
           });
@@ -3320,7 +3349,7 @@ async function runScheduledSiteJobs(env, ctx) {
       // customer's address into last_result — a platform table (2026-08-13
       // audit). No error message from the parse ever leaves this function.
       callFn: async (fn) => {
-        const conn = await siteNeonProject(env, row.slug);
+        const conn = await siteBackendBySlug(env, row.slug);
         if (!conn) return { jobsSkip: "the site's database is unreachable" };
         const spec = await loadSiteSchema(conn);
         const declared = (spec && Array.isArray(spec.jobs) ? spec.jobs : []).some((j) => j && j.name === row.name && j.fn === fn);
@@ -3339,7 +3368,7 @@ async function runScheduledSiteJobs(env, ctx) {
       // owner "no provider key in Secrets" while their confirmations sent
       // fine on the same key (2026-08-13 audit).
       credentials: async () => {
-        const conn = await siteNeonProject(env, row.slug);
+        const conn = await siteBackendBySlug(env, row.slug);
         if (!conn) return null;
         const secrets = await siteMailSecrets(env, conn, row.slug)();
         const picked = pickProvider(secrets);
@@ -3361,7 +3390,7 @@ async function runScheduledSiteJobs(env, ctx) {
       // disagree about which key is live — the lesson `siteMailSecrets` already
       // carries, applied one channel over.
       smsCredentials: async () => {
-        const conn = await siteNeonProject(env, row.slug);
+        const conn = await siteBackendBySlug(env, row.slug);
         if (!conn) return null;
         const secrets = await siteSmsSecrets(env, conn, row.slug)();
         const picked = pickSmsProvider(secrets);
@@ -3379,8 +3408,15 @@ async function runScheduledSiteJobs(env, ctx) {
       // is refused in exactly the same place and for exactly the same reason.
       phone: (v) => toE164(v),
       recipient,
-    }, row);
+  };
+}
 
+/**
+ * What a run did, where it can be seen: the Worker log for us, and the
+ * job's own `last_result` for the owner. Shared by the cron and "run now".
+ */
+async function recordJobOutcome(env, row, out) {
+    const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
     // It runs detached on a cron, so an unlogged failure is invisible forever.
     // A job that sent nothing because nothing was due is not news; anything else
     // is.
@@ -3405,14 +3441,13 @@ async function runScheduledSiteJobs(env, ctx) {
     // one line the owner reads. Owner-scoped like the stamp, or a freed slug
     // re-claimed by another account gets its history written by a stranger's
     // zombie row.
-    if (out.skipped) continue;
+    if (out.skipped) return;
     try {
       await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(row.owner_id)}&slug=eq.${encodeURIComponent(row.slug)}&name=eq.${encodeURIComponent(row.name)}`, {
         method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" },
         body: JSON.stringify({ last_result: jobOutcome(out).slice(0, 400) }), signal: AbortSignal.timeout(8000),
       });
     } catch (e) { console.error("job result write failed:", row.slug, out.name, e && e.message); }
-  }
 }
 
 // ── Website Builder: server-side image generation ──
@@ -20950,6 +20985,10 @@ async function handleRequest(request, env, ctx) {
             cidForReply = editTrace.cid;
             const aMark = (phase, status, detail) => { try { if (editTrace) editTrace.mark(phase, status, detail); } catch { /* never */ } };
             const aInstruction = String((ab && ab.instruction) || "").trim().slice(0, 2000);
+            // THE OWNER'S ZONE, for a job's clock time (2026-09-03): asked of
+            // Intl, so an unknown name is nothing rather than a throw at the
+            // cron; nothing means UTC, which the runner reads absent as.
+            const aTz = validTimeZone(ab && ab.tz);
             const aAuth = request.headers.get("Authorization") || "";
             // Same shape as the edit lane's: this rung has one above it too.
             const aEscalate = (reason, extra) =>
@@ -21159,6 +21198,13 @@ async function handleRequest(request, env, ctx) {
                   if (f.internal === true && !aSite.jobFns.includes(f.name)) aSite.jobFns.push(f.name);
                 }
               }
+              // A CLOCK TIME IS READ IN THE OWNER'S ZONE (2026-09-03): the
+              // browser sends its zone with the addon, and a job with a time
+              // of day is stamped with it here — the model never answers a
+              // zone, and a job with no `at` carries none.
+              if (k === "job" && aTz) {
+                for (const j of Array.isArray(clean.value) ? clean.value : []) if (j && j.at) j.tz = aTz;
+              }
             }
             await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept });
             if (!aAnswers.length) {
@@ -21307,7 +21353,7 @@ async function handleRequest(request, env, ctx) {
               aFunctions = aNamed("functions").filter((n) => aMadeFns.includes(n));
               aFnErrors = Array.isArray(aMade && aMade.functionErrors) ? aMade.functionErrors.slice(0, 6) : [];
               aApis = (merged.apis || []).map((a) => a.name).filter((n) => aNamed("apis").includes(n));
-              aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => ({ name: j.name, fn: j.fn, everyMinutes: j.everyMinutes }));
+              aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => ({ name: j.name, fn: j.fn, everyMinutes: j.everyMinutes, ...(j.at ? { at: j.at, tz: j.tz || null } : {}) }));
               aSecrets = [...new Set((merged.apis || []).filter((a) => aApis.includes(a.name)).flatMap((a) => secretsNeeded(a)))];
               // REGISTER THE JOBS — the build route's own call, best-effort
               // and non-fatal for its reason: the database is live and a job
@@ -22179,6 +22225,24 @@ async function handleRequest(request, env, ctx) {
               try { jbody = await request.json(); } catch { jbody = {}; }
               const jname = String((jbody && jbody.name) || "");
               if (!/^[a-z][a-z0-9_]{0,60}$/i.test(jname)) return Response.json({ error: "bad name" }, { status: 400 });
+              // RUN IT NOW (owner, 2026-09-03): the one way to see a job work
+              // without waiting a day. Owner-scoped like the switch, the SAME
+              // deps the cron uses (so what the button sends is what the
+              // schedule would send, on the owner's own key), the stamp
+              // landing without the dueness clause because the press is the
+              // decision, and the outcome written where the panel reads it
+              // and answered as the sentence, so the owner sees it at once.
+              if (jbody && jbody.run === true) {
+                const jr = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(ou.id)}&slug=eq.${encodeURIComponent(jslug)}&name=eq.${encodeURIComponent(jname)}&schedule_minutes=not.is.null&select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at,enabled&limit=1`,
+                  { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+                if (!jr.ok) return Response.json({ error: "unavailable" }, { status: 503 });
+                const jrows = await jr.json().catch(() => null);
+                const jrow = Array.isArray(jrows) ? jrows[0] : null;
+                if (!jrow) return Response.json({ error: "no such job" }, { status: 404 });
+                const out = await runJob(jobDeps(env, jrow, { force: true }), jrow);
+                await recordJobOutcome(env, jrow, out);
+                return Response.json({ ok: true, name: jname, ran: true, sent: Number(out && out.sent) || 0, result: jobOutcome(out) });
+              }
               // A REAL BOOLEAN, nothing merely truthy — `enabled: "false"`
               // would switch a job ON while the owner was switching it off,
               // the normalizeRole lesson on the field that sends mail.
@@ -22197,7 +22261,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: true, name: jname, enabled: jbody.enabled === true });
             }
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
-            const q = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(jslug)}&schedule_minutes=not.is.null&select=name,schedule_minutes,enabled,last_run,last_result&order=name.asc&limit=20`,
+            const q = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(jslug)}&schedule_minutes=not.is.null&select=name,spec,schedule_minutes,enabled,last_run,last_result&order=name.asc&limit=20`,
               { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
             // A READ THAT FAILED IS NOT "THIS SITE HAS NO JOBS", which is the
             // one wrong answer here that matters: it reads as the feature not
@@ -22210,6 +22274,10 @@ async function handleRequest(request, env, ctx) {
               jobs: jrows.map((j) => ({
                 name: String(j.name || ""),
                 everyMinutes: Number(j.schedule_minutes) || 0,
+                // The clock time and its zone, off the spec (2026-09-03);
+                // null for a job on a plain interval.
+                at: j.spec && typeof j.spec === "object" && typeof j.spec.at === "string" ? j.spec.at : null,
+                tz: j.spec && typeof j.spec === "object" && typeof j.spec.tz === "string" ? j.spec.tz : null,
                 enabled: j.enabled !== false,
                 lastRun: j.last_run || null,
                 // NULL rather than a cheerful default. A job that has never run

@@ -1954,6 +1954,9 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    in greyscale too. */
 .fn-tgl { flex: none; margin-left: auto; cursor: pointer; font-size: .6rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--on-accent); background: var(--split); border: 1px solid transparent; border-radius: 999px; padding: .12rem .5rem; }
 .fn-tgl.fn-off { font-weight: 700; color: var(--muted); background: none; border-color: var(--line-2); }
+/* Run now (2026-09-03): the quiet twin of the switch, beside it rather than pushed to the edge. */
+.fn-tgl.fn-run { margin-left: .4rem; font-weight: 700; color: var(--muted); background: none; border-color: var(--line-2); }
+.fn-tgl.fn-run:hover:not(:disabled) { color: var(--text); border-color: var(--text); filter: none; }
 .fn-tgl:hover:not(:disabled) { filter: brightness(1.12); }
 .fn-tgl.fn-off:hover:not(:disabled) { color: var(--text); border-color: var(--text); filter: none; }
 .fn-tgl:disabled { opacity: .55; cursor: default; }

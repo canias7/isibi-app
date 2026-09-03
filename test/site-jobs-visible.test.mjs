@@ -162,7 +162,10 @@ test("AN UNREADABLE LIST IS NOT AN EMPTY ONE, at both ends", () => {
   assert.match(h, /if \(!Array\.isArray\(jrows\)\)/, "a non-array body reads as zero jobs");
   const c = chat.indexOf("async function siteFunctions(site)");
   assert.ok(c > 0, "the panel is gone");
-  const panel = chat.slice(c, c + 6400);
+  // LANDMARK TO LANDMARK, not a byte count (the recorded trap; this was
+  // `c + 6400` and went red on 2026-09-03 when the Run now button's handler
+  // landed above the toggle's).
+  const panel = chat.slice(c, chat.indexOf("async function siteFiles(", c));
   assert.match(panel, /if \(!r\.ok\)/, "the client treats a failed load as an empty schedule");
   assert.match(panel, /Hasn\\u2019t run yet|Hasn’t run yet/,
     "a job that has never run is given an invented outcome");
@@ -194,7 +197,10 @@ test("THE OFF SWITCH: POST {name, enabled} exists, refuses junk, and cannot lie"
   // And the client half: the badge IS the button, it posts the OPPOSITE of the
   // server's last answer, and it repaints by reloading rather than optimism.
   const c = chat.indexOf("async function siteFunctions(site)");
-  const panel = chat.slice(c, c + 6400);
+  // LANDMARK TO LANDMARK, not a byte count (the recorded trap; this was
+  // `c + 6400` and went red on 2026-09-03 when the Run now button's handler
+  // landed above the toggle's).
+  const panel = chat.slice(c, chat.indexOf("async function siteFiles(", c));
   assert.match(panel, /fn-tgl/, "the switch is gone from the panel");
   assert.match(panel, /method: 'POST'[^}]*\/jobs'|\/jobs',\s*\{ method: 'POST'/, "nothing posts to the jobs route");
   assert.match(panel, /JSON\.stringify\(\{ name: b\.dataset\.job, enabled: next \}\)/, "the toggle does not send name+enabled");

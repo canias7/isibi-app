@@ -289,6 +289,23 @@ a case per kind (`function`, `api`, `job`, judged off the reply's own evidence
 because a database leaves no mark on the page), and the provision needs a
 frontend-only site on the allowlist, the owner's call.
 
+**Jobs, designed first (owner, 2026-09-03).** Three decisions built. The
+runner sends now: three of its deps read the site's Neon *project row* where
+the *database connection* was wanted, so every job ever registered wrote
+"this job is no longer part of the site" and nothing was ever sent; all three
+read the connection now, through one `jobDeps` shared with the owner's
+"Run now". A clock time: `everyMinutes` alone turned "every day at nine"
+into "every 1440 minutes from whenever it was added", so a daily-or-slower
+job may carry `at` ("HH:MM", the site's local time), the owner's browser
+sends its zone with the addon and the route stamps it on the job, and
+`dueJobs` runs a clock-time job once its latest occurrence is behind now
+and after its last run — or after it was registered, for one that has never
+run, so a 09:00 added at three in the afternoon waits for the morning. Run
+now: `POST /jobs {name, run: true}` runs one job at once on the same deps,
+the stamp landing without the dueness clause, the outcome written where the
+panel reads and answered as the sentence; the panel has the button beside
+the On/Paused switch. Delete stays on the edit path.
+
 **A site carries several QR codes** (owner, 2026-09-03: *"it should carry
 more"*). The stored field is a list of named codes, `{ name, points, label }`,
 each drawn to its own file (`qr-wifi.svg`) and reached by name

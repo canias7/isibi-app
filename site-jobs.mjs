@@ -61,7 +61,64 @@ export function normalizeJob(raw) {
   // must not be told it got what it asked for, so the stored value is the real
   // one and it is the real one that runs.
   const everyMinutes = Math.min(MAX_EVERY_MINUTES, Math.max(MIN_EVERY_MINUTES, n));
-  return { name, fn, everyMinutes };
+  const out = { name, fn, everyMinutes };
+  // A CLOCK TIME (owner, 2026-09-03). "Every day at nine" was "every 1440
+  // minutes from whenever it was added", so a reminder added at ten to
+  // midnight went out at ten to midnight for ever. `at` is the time of day in
+  // the site's own zone, and `tz` the zone — the owner's browser's, stamped by
+  // the route that adds the job; absent reads as UTC. Only a daily-or-slower
+  // job has a time of day: on a faster one the field means nothing and is
+  // left off rather than clamping the interval to a day behind the model's
+  // back (the addon's own cleaner refuses that combination by name first).
+  const at = typeof raw.at === "string" && AT_RE.test(raw.at.trim()) ? raw.at.trim() : null;
+  if (at && everyMinutes >= 1440) {
+    out.at = at;
+    const tz = validTimeZone(raw.tz);
+    if (tz) out.tz = tz;
+  }
+  return out;
+}
+
+/** A clock time as a job states it: "HH:MM", 24-hour. */
+export const AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** One day, for the clock-time arithmetic below. */
+const DAY_MS = 86400000;
+
+/**
+ * An IANA zone name the runtime knows, or null. Asked of Intl itself rather
+ * than a list: the list is the platform's, and a name it does not know throws
+ * at format time, which is the one place this must never throw.
+ */
+export function validTimeZone(tz) {
+  if (typeof tz !== "string" || tz.length > 64 || !/^[A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+){0,3}$/.test(tz)) return null;
+  try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return tz; } catch { return null; }
+}
+
+/**
+ * The most recent instant at which the clock time `at` occurred in `tz`, at
+ * or before `now`: today's, or yesterday's while today's is still ahead.
+ *
+ * Computed from Intl's own view of the zone, so summer time is the zone's
+ * business and not ours. The one approximation is that the zone's offset is
+ * read at `now` rather than at the target minute, which can misplace a run by
+ * an hour on the two transition days a year — and the interval rule that runs
+ * beside this in `dueJobs` means never twice. Null for an unreadable `at`.
+ */
+export function lastDueAt(at, tz, now) {
+  const m = AT_RE.exec(String(at || "").trim());
+  const t = Number(now);
+  if (!m || !Number.isFinite(t)) return null;
+  const zone = validTimeZone(tz) || "UTC";
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const p = {};
+  for (const part of f.formatToParts(new Date(t))) if (part.type !== "literal") p[part.type] = Number(part.value);
+  const hour = p.hour === 24 ? 0 : p.hour;
+  // The zone's offset at `now`: the wall clock read as if it were UTC, minus
+  // the real instant, both at minute precision.
+  const offset = Date.UTC(p.year, p.month - 1, p.day, hour, p.minute) - Math.floor(t / 60000) * 60000;
+  const todayAt = Date.UTC(p.year, p.month - 1, p.day, Number(m[1]), Number(m[2])) - offset;
+  return todayAt <= t ? todayAt : todayAt - DAY_MS;
 }
 
 /**
@@ -90,6 +147,21 @@ export function dueJobs(rows, now) {
     if (!r || r.enabled === false) return false;
     const mins = parseInt(r.schedule_minutes, 10);
     if (!(mins > 0)) return false;
+    // A CLOCK-TIME JOB (owner, 2026-09-03) is due once the latest occurrence
+    // of its time is behind us AND after its last run — or after it was
+    // REGISTERED, for a job that has never run, so a daily 09:00 added at
+    // three in the afternoon waits for the morning instead of firing on the
+    // next tick. The interval still applies on top, so a weekly 09:00 waits
+    // the week. An unreadable time falls through to the plain interval.
+    const at = r.spec && typeof r.spec === "object" ? r.spec.at : null;
+    const due = at ? lastDueAt(at, r.spec.tz, t) : null;
+    if (due != null) {
+      const anchor = r.last_run ? Date.parse(r.last_run) : Date.parse(r.updated_at || "");
+      if (!Number.isFinite(anchor)) return true;     // no stamp and no registration time: run, do not strand
+      if (anchor >= due) return false;               // already ran this occurrence, or added after it
+      if (!r.last_run) return true;                  // never run, and its time has come since it was added
+      return (t - anchor) >= (mins * 60000 - 30000);
+    }
     if (!r.last_run) return true;                    // never run — due immediately
     const last = Date.parse(r.last_run);
     if (!Number.isFinite(last)) return true;         // unreadable stamp: run, do not strand

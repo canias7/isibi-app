@@ -255,7 +255,9 @@ test("siteAddon mints one key per POST and watches a filed job with the addon's 
   const mint = at(fn, "const idem = EditPoll.newIdemKey();", "mint");
   const post = at(fn, "apiFetch('/api/site/' + encodeURIComponent(slug) + '/addon'", "post");
   assert.ok(mint < post, "the key is not minted before the POST");
-  assert.match(fn, /body: JSON\.stringify\(\{ instruction: instruction, picker: buildPicker, idem: idem \}\)/, "the key does not ride the POST");
+  // RE-ANCHORED 2026-09-03: the body gained the browser's zone (`tz`) for a
+  // job's clock time; the property is that the minted key rides the POST.
+  assert.match(fn, /body: JSON\.stringify\(\{ instruction: instruction, picker: buildPicker, idem: idem\b[^}]*\}\)/, "the key does not ride the POST");
   // A RECEIPT IS NOT AN OUTCOME: a job with no result is watched, not applied.
   assert.match(fn, /if \(a && a\.ok && a\.job && !a\.result\) \{/, "a 202 receipt is read as the addon's reply");
   assert.match(fn, /EditPoll\.rememberJob\(slug, a\.job\);/, "a filed addon is not remembered for a refresh");
@@ -296,7 +298,8 @@ test("addonAnswer reads the stored reply the way the synchronous tail did, and n
 // ── THE HARNESS ───────────────────────────────────────────────────────────
 
 test("the harness sends a key, watches a filed job to its stored reply, and its watch outlasts the consumer", () => {
-  assert.match(HARNESS, /\/addon`, \{ token: TOKEN, body: \{ instruction: c\.ask, picker: PICKER, idem: hex32\(\) \} \}\)/, "the addon POST carries no retry key — the route refuses a queued addition without one");
+  // RE-ANCHORED 2026-09-03: the body gained `tz` beside the key.
+  assert.match(HARNESS, /\/addon`, \{ token: TOKEN, body: \{ instruction: c\.ask, picker: PICKER, idem: hex32\(\)[^}]*\} \}\)/, "the addon POST carries no retry key — the route refuses a queued addition without one");
   assert.match(HARNESS, /if \(p\.status === 202 && p\.json && p\.json\.job\) \{/, "a 202 receipt is judged as the reply");
   // BOTH CALLERS HAND THE WATCH THE TOKEN (run 22): the watch sits at module
   // scope, the token is a local of `main`, and the first cut read `TOKEN`

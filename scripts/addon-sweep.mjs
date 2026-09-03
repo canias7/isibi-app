@@ -397,7 +397,9 @@ async function main() {
     const t0 = Date.now();
     // THE RETRY KEY RIDES EVERY POST — the addon route refuses a queued
     // addition without one (`bad-idem`), and a synchronous one ignores it.
-    let p = await call("POST", `/api/site/${encodeURIComponent(SLUG)}/addon`, { token: TOKEN, body: { instruction: c.ask, picker: PICKER, idem: hex32() } });
+    // `tz` IS WHAT THE BROWSER SENDS (2026-09-03): a job's clock time is read
+    // in the owner's zone, and fretwork-1 is in Sheffield.
+    let p = await call("POST", `/api/site/${encodeURIComponent(SLUG)}/addon`, { token: TOKEN, body: { instruction: c.ask, picker: PICKER, idem: hex32(), tz: "Europe/London" } });
     console.log(`   answered ${p.status} in ${(p.ms / 1000).toFixed(1)}s`);
     // ── QUEUED: THE RECEIPT, THEN THE STORED REPLY (2026-09-03) ───────────
     //

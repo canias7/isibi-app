@@ -1150,6 +1150,49 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   two that publish, ~2 for the job, owner's call); the provision needs a
   frontend-only site on the allowlist.
 
+- **JOBS, DESIGNED FIRST (owner, 2026-09-03: *"lets design it first then at
+  the end you can push all you want"* → *"ok do jobs"* → *"go"*; delete
+  stays on the edit path).** Four decisions, three built, the fourth falls
+  out of the second. (1) **The runner sends now** — the backlog entry above.
+  (2) **A clock time.** `everyMinutes` alone made "every day at nine" into
+  "every 1440 minutes from whenever it was added". `JOB_ITEM` gains an
+  optional `at` ("HH:MM", the site's local time) for a daily-or-slower job;
+  the zone is NOT the model's — the browser sends its IANA zone with the
+  addon POST (`tz`), the route reads it through `validTimeZone` (asked of
+  Intl, never a list) and stamps it on each cleaned job that carries `at`;
+  `normalizeJob` keeps both (and drops `at` off a sub-daily job, which
+  `cleanAdd` refuses first by name, `bad-time`); `persistSiteJobs` writes
+  them into the row's `spec`; `dueJobs` runs a clock-time job once its
+  latest occurrence (`lastDueAt`, computed from Intl's own view of the
+  zone) is behind now AND after the last run — **or after the job was
+  REGISTERED for one that has never run**, which is why the cron's select
+  carries `updated_at`: a daily 09:00 added at three in the afternoon waits
+  for the morning instead of firing on the next tick, and the interval
+  still applies on top so a weekly 09:00 waits the week. Absent zone reads
+  as UTC. `jobEvery` (site-add) and `jobWords` (chat.js) both say "every
+  day at 09:00 (Europe/London)", the zone only when it is not the
+  browser's own. (3) **Run now.** `POST /api/site/<slug>/jobs {name, run:
+  true}` — owner-scoped, the SAME `jobDeps` under `force` (the stamp lands
+  without the dueness clause: the press is the decision), `recordJobOutcome`
+  writes where the panel reads, the sentence comes back and the panel toasts
+  it; a `Run now` button beside the On/Paused switch. It sends for real, on
+  the owner's own key. (4) The first-run timing was the interval-only
+  shape; with `at` it is gone. Guards driven in `test/site-jobs.test.mjs`
+  (`lastDueAt` across London/New York/Tokyo/UTC and the winter offset,
+  `dueJobs` clock-time cases, the three connection reads, the shared deps,
+  the run-now route, the panel) and `test/site-add.test.mjs` (the `AT_RE`
+  twin, `bad-time`, the fold with the zone, `jobEvery`, the route's stamp).
+  **Sweep: 29 mutants, 29 killed, none survived, none unapplied, the
+  comment-only control survived.** Full suite 4,895 green after two guards
+  were re-anchored for the change, both the recorded traps: a 6,400-byte
+  window on the jobs panel (`site-jobs-visible`) that the Run now handler
+  pushed the toggle's reload out of, and the runner window in `site-notify`
+  ending at the next top-level declaration — which became `jobDeps`, where
+  the deps now live. The panel as the owner sees it:
+  `docs/edits/jobs-panel-run-now.png`. **Not proven live**: the fix and
+  the button need the deploy; a real send needs a mail key in a site's
+  Secrets, which none of the owner's sites has pasted.
+
 **DELETE deferred** (owner's call).
 
 ---
@@ -2229,9 +2272,13 @@ check that derives the list from the imports notices. The source reads in
   goes nowhere is the next thing.
 - **`env.EMAIL` daily quota is 200** across login codes AND every site's booking
   notifications. Worth watching, not yet a problem.
-- **Scheduled-jobs tier**: 26 jobs registered, zero sends ever — three call sites
-  pass a Supabase ROW where a connection string is wanted. Not fixed deliberately
-  (fixing it starts 26 real senders; owner's call).
+- **Scheduled-jobs tier — FIXED 2026-09-03** (owner: *"go"*). 26 jobs registered,
+  zero sends ever: three deps of the runner read `siteNeonProject` (the Neon
+  PROJECT ROW) where the DATABASE CONNECTION was wanted, so the schema read as
+  empty and every job wrote "this job is no longer part of the site". All three
+  read `siteBackendBySlug` now, in ONE `jobDeps` shared with the owner's
+  "Run now". A site with no mail key in Secrets still sends nothing and says so;
+  the 26 registered jobs run for real from the next deploy. **Not proven live.**
 - **Static voice previews** — the owner drops MP3s at `public/voices/<name>.mp3`.
 - **Real background removal** — needs a fal utility wired as an orchestrator step;
   blocked on a fal top-up.

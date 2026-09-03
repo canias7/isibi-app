@@ -297,8 +297,11 @@ test("nothing on a published site's path can reach OUR sender", async () => {
   // key. Landmark-bounded, never a byte count — the window runs to the next
   // top-level declaration, so comments added above `credentials` cannot push
   // it out of range (this file's recurring own-goal).
-  const rStart = worker.indexOf("async function runScheduledSiteJobs(");
-  assert.ok(rStart > 0, "runScheduledSiteJobs moved — rescope this");
+  // RE-ANCHORED 2026-09-03: the deps live in `jobDeps` now — one builder
+  // shared by the cron and the owner's run-now — so the window is that
+  // function, to the next top-level declaration as before.
+  const rStart = worker.indexOf("function jobDeps(env, row");
+  assert.ok(rStart > 0, "jobDeps moved — rescope this");
   const rTail = worker.slice(rStart + 10);
   const rEnd = rTail.search(/\n(?:async )?function |\nconst [A-Z]/);
   assert.ok(rEnd > 0, "no landmark after the runner — the window is unbounded");

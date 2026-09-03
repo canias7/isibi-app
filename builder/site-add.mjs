@@ -164,6 +164,13 @@ export const MAX_ADD_JOBS = 4;
  */
 export const MIN_JOB_MINUTES = 15;
 
+/**
+ * A job's clock time, "HH:MM" on a 24-hour clock — the shape `site-jobs.mjs`
+ * keeps under the same name; this module may not import from the root, so
+ * the twin is held together by a test.
+ */
+export const AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
 /** A page is at most this many bands, top to bottom. */
 export const MAX_SECTIONS = 12;
 
@@ -364,10 +371,11 @@ const ADDS = {
       items: JOB_ITEM,
     },
     add: {
-      is: "The scheduled jobs this change needs — each with its name, the internal function that returns its messages, and how often it runs, in minutes.",
+      is: "The scheduled jobs this change needs — each with its name, the internal function that returns its messages, how often it runs in minutes, and for a daily or slower job the time of day it runs.",
       yours:
         "EVERY JOB IS YOURS TO SET: what it is for, which function decides who is due and what it says, and " +
-        "how often — 1440 for a daily reminder, 10080 for a weekly digest. The function it names must exist: " +
+        "how often — 1440 for a daily reminder, 10080 for a weekly digest — with `at` for the time of day a daily " +
+        "or slower job runs (\"09:00\" for a morning reminder). The function it names must exist: " +
         "one the site lists, or one you are declaring in this same change with `internal: true`, taking no " +
         "arguments and returning json — an array of {to, subject, body}, empty when nothing is due.",
       wide:
@@ -1223,9 +1231,16 @@ export function cleanAdd(kind, value, site) {
         const known = (Array.isArray(s.jobFns) ? s.jobFns : []).map((x) => str(x, 63).toLowerCase());
         if (!TABLE_NAME.test(fn) || !known.includes(fn)) return { ok: false, why: "no-job-fn" };
         const every = Number.isFinite(Number(v.everyMinutes)) ? Math.max(MIN_JOB_MINUTES, Math.round(Number(v.everyMinutes))) : MIN_JOB_MINUTES;
+        // A CLOCK TIME (owner, 2026-09-03) belongs to a daily-or-slower job
+        // and is refused by name otherwise — the engine would drop the time
+        // and keep the interval, which is a job that runs at the wrong hour
+        // reported as the one they asked for. The zone is stamped by the
+        // route from the owner's browser; this module never knows it.
+        const at = str(v.at, 5);
+        if (at && (!AT_RE.test(at) || every < 1440)) return { ok: false, why: "bad-time" };
         const exists = (Array.isArray(s.jobs) ? s.jobs : []).map((x) => str(x, 63).toLowerCase()).includes(name);
         ctx.jobs.push(name);
-        return { ok: true, value: { name, fn, everyMinutes: every, exists } };
+        return { ok: true, value: { name, fn, everyMinutes: every, ...(at ? { at } : {}), exists } };
       }
       case "qr": {
         let points = str(v.points, 1000);
@@ -1310,6 +1325,22 @@ export function cleanAdd(kind, value, site) {
  * can drive every token to a sentence and the route cannot fall through to a
  * blank one.
  */
+/**
+ * How often a job runs, in words — "every day at 09:00", "every week",
+ * "every 30 minutes". Shared by the directive and the note; the browser's
+ * `jobWords` says the same thing to the customer and cannot import this.
+ */
+export function jobEvery(j) {
+  const m = Number(j && j.everyMinutes);
+  const every = !Number.isFinite(m) || m <= 0 ? ""
+    : m % 10080 === 0 ? (m === 10080 ? "every week" : "every " + (m / 10080) + " weeks")
+    : m % 1440 === 0 ? (m === 1440 ? "every day" : "every " + (m / 1440) + " days")
+    : m % 60 === 0 ? (m === 60 ? "every hour" : "every " + (m / 60) + " hours")
+    : "every " + m + " minutes";
+  const at = j && typeof j.at === "string" && AT_RE.test(j.at) ? " at " + j.at + (typeof j.tz === "string" && j.tz ? " (" + j.tz + ")" : "") : "";
+  return every + at;
+}
+
 export function addRefusal(why, kind) {
   switch (why) {
     case "page-exists": return "This site already has that page — ask me to change it instead.";
@@ -1324,6 +1355,7 @@ export function addRefusal(why, kind) {
     case "bad-url": return "An outside connection has to be an https address — that one isn't. Nothing was changed.";
     case "no-job": return "I couldn't tell what should happen on a timer — say what to send, to whom, and how often.";
     case "no-job-fn": return "That scheduled job names a function this site doesn't have — describe what it should send and I'll write both together.";
+    case "bad-time": return "A time of day only fits a job that runs once a day or less often — say how often it should run, or drop the time and it runs on the interval. Nothing was changed.";
     case "no-destination": return "A QR code needs a real destination — a link, a phone number, a wifi network — and that wasn't in the message. Nothing was changed.";
     case "bad-destination": return "A QR code can carry a link, a phone number, an email address, a wifi network or plain text — not that. Nothing was changed.";
     case "no-such-page": return "That code would open a page this site doesn't have. Name one of its pages, or a link, a number or an address — nothing was changed.";
@@ -1424,7 +1456,7 @@ export function addDirective(kind, value, site) {
     }
     case "job": {
       out.push("## The scheduled job this change " + (v.exists ? "replaces" : "adds"));
-      out.push("- `" + v.name + "` runs `" + v.fn + "()` every " + v.everyMinutes + " minutes and sends whatever it returns. " +
+      out.push("- `" + v.name + "` runs `" + v.fn + "()` " + jobEvery(v) + " and sends whatever it returns. " +
         "It changes NO page: return nothing for it unless another addition in this change needs a page.");
       break;
     }
@@ -1504,7 +1536,7 @@ export function foldAdds(answers, priorLook, site) {
       const { exists, ...api } = v;
       apis.push(api);
     }
-    if (a.kind === "job" && v.name) jobs.push({ name: v.name, fn: v.fn, everyMinutes: v.everyMinutes });
+    if (a.kind === "job" && v.name) jobs.push({ name: v.name, fn: v.fn, everyMinutes: v.everyMinutes, ...(v.at ? { at: v.at, ...(v.tz ? { tz: v.tz } : {}) } : {}) });
     // APPENDED TO THE STORED LIST BY NAME (2026-09-03), never replacing it —
     // the `tsx` rule one loop up, for the same reason: a site with a code that
     // gets another must keep the first.

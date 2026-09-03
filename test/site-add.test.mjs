@@ -29,10 +29,10 @@ import { MAX_PAGES } from "../builder/page-gen.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
 import { MAX_QRS } from "../builder/site-qr-list.mjs";
-import { MIN_EVERY_MINUTES } from "../site-jobs.mjs";
+import { MIN_EVERY_MINUTES, AT_RE as JOBS_AT_RE } from "../site-jobs.mjs";
 import {
   ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
-  BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, backendDesigned, pageless,
+  BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, AT_RE, backendDesigned, pageless, jobEvery,
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
   cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply, pageLabels,
@@ -647,7 +647,9 @@ test("every refusal token has a sentence of its own, and the already-reply names
     // The backend tiers (2026-09-03): a function with no body or return, a
     // connection with no name or a plain-http address, a job with no name
     // or naming a function the site may not run.
-    "no-function", "no-api", "bad-url", "no-job", "no-job-fn"];
+    "no-function", "no-api", "bad-url", "no-job", "no-job-fn",
+    // A clock time on a job that runs more often than daily (2026-09-03).
+    "bad-time"];
   const seen = new Set();
   for (const t of tokens) {
     const s = addRefusal(t, "page");
@@ -775,7 +777,8 @@ test("the fold carries the three tiers as name-keyed lists; the directive says w
   assert.match(f.directive, /## The function this change adds\n- `bookings_on_day\(d: text\) -> int` is live in the site's database\. Call it by NAME/, "the page writer is not told the function and the hooks");
   assert.match(f.directive, /`bookings_due_tomorrow\(\) -> json` is live in the site's database, INTERNAL/, "an internal function is offered to the page");
   assert.match(f.directive, /useApi\("exchange_rate", \{ base \}\)/, "the page writer is not told how to read the connection");
-  assert.match(f.directive, /## The scheduled job this change adds\n- `remind_tomorrow` runs `bookings_due_tomorrow\(\)` every 1440 minutes[^\n]*It changes NO page/, "the page writer is told to write a page for a job");
+  // "every day", not "every 1440 minutes" (2026-09-03, `jobEvery`).
+  assert.match(f.directive, /## The scheduled job this change adds\n- `remind_tomorrow` runs `bookings_due_tomorrow\(\)` every day and sends[^\n]*It changes NO page/, "the page writer is told to write a page for a job");
   assert.match(addDirective("function", { name: "f", args: [], returns: "int", exists: true }, DB), /this change replaces/, "a function named again is not said to be replaced");
   // PAGELESS: a job, or internal functions alone, changes no page; anything
   // else does, and nothing at all is not pageless.
@@ -904,4 +907,45 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // The model-down answer is the edit route's: billing is ours, a timeout is ours.
   const down = b.slice(at(b, "const aDown = (e, what) => {", "down"), pick);
   assert.match(down, /isCallTimeout\(e\)/); assert.match(down, /k\.billing/); assert.match(down, /status: 503/);
+});
+
+// ── A CLOCK TIME ON A JOB (owner, 2026-09-03) ───────────────────────────────
+//
+// "Every day at nine" was "every 1440 minutes from whenever it was added".
+// The designer answers `at`; the zone is the owner's browser's, read by the
+// route and stamped on the cleaned job; the fold carries both to the engine.
+test("a job's clock time is cleaned, refused off a faster job, folded with the zone the route stamps, and said in words", () => {
+  assert.equal(String(AT_RE), String(JOBS_AT_RE), "the clock-time shape drifted from site-jobs.mjs");
+  const DBF = { ...DB, functions: ["due"], jobFns: ["due"] };
+  const c = cleanAdd("job", [
+    { name: "remind", fn: "due", everyMinutes: 1440, at: "09:00" },
+    { name: "hourly", fn: "due", everyMinutes: 60, at: "09:00" },
+    { name: "junk", fn: "due", everyMinutes: 1440, at: "9am" },
+    { name: "plain", fn: "due", everyMinutes: 60 },
+  ], DBF);
+  assert.deepEqual(c.value, [{ name: "remind", fn: "due", everyMinutes: 1440, at: "09:00", exists: false }, { name: "plain", fn: "due", everyMinutes: 60, exists: false }]);
+  assert.deepEqual(c.skipped, [{ why: "bad-time", name: "hourly" }, { why: "bad-time", name: "junk" }], "a time on an hourly job, or an unreadable time, is kept or dropped silently");
+  assert.match(addRefusal("bad-time"), /once a day or less often/);
+  assert.ok(!Object.hasOwn(c.value[0], "tz"), "this module invented a zone — only the route knows it");
+  // The route stamps the zone; the fold carries both to the engine.
+  const stamped = c.value.map((j) => (j.at ? { ...j, tz: "Europe/London" } : j));
+  const f = foldAdds([{ kind: "job", value: stamped }], {}, DBF);
+  assert.deepEqual(f.designed.jobs, [{ name: "remind", fn: "due", everyMinutes: 1440, at: "09:00", tz: "Europe/London" }, { name: "plain", fn: "due", everyMinutes: 60 }]);
+  assert.match(f.directive, /`remind` runs `due\(\)` every day at 09:00 \(Europe\/London\) and sends/, "the page writer is not told the clock time");
+  assert.equal(jobEvery({ everyMinutes: 1440, at: "09:00", tz: "Europe/London" }), "every day at 09:00 (Europe/London)");
+  assert.equal(jobEvery({ everyMinutes: 10080 }), "every week");
+  assert.equal(jobEvery({ everyMinutes: 2880, at: "18:30" }), "every 2 days at 18:30");
+  assert.equal(jobEvery({ everyMinutes: 45 }), "every 45 minutes");
+  assert.equal(jobEvery({ everyMinutes: 1440, at: "9am" }), "every day", "an unreadable time is said");
+  // The shape offers it, the rule says it.
+  assert.equal(JOB_ITEM.properties.at.type, "string");
+  assert.match(addRule("job"), /`at` for the time of day/, "the job rule does not mention the clock time");
+  // THE ROUTE: the zone read from the post through Intl, stamped on jobs with
+  // a time as they are cleaned, and carried to the reply.
+  const W = blankComments(read("../worker.js"));
+  const b = W.slice(at(W, "if (ad) {", "addon"), at(W, "if (tx) {", "addon end"));
+  assert.match(b, /const aTz = validTimeZone\(ab && ab\.tz\);/, "the owner's zone is not read from the post");
+  assert.match(b, /if \(k === "job" && aTz\) \{\s*for \(const j of Array\.isArray\(clean\.value\) \? clean\.value : \[\]\) if \(j && j\.at\) j\.tz = aTz;/, "a job with a time is not stamped with the zone");
+  assert.match(b, /\.\.\.\(j\.at \? \{ at: j\.at, tz: j\.tz \|\| null \} : \{\}\)/, "the reply drops the clock time");
+  assert.match(W, /import \{[^}]*\bvalidTimeZone\b[^}]*\} from "\.\/site-jobs\.mjs"/, "validTimeZone is not imported");
 });
