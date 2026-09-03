@@ -954,9 +954,10 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   directive and the note listing the first code only, the merge keeping junk,
   the lane compelling a name, the harness counting any code, the image
   without the module). Full suite 4,879.
-  **Not proven live yet** — the next `harness: addon` run with lanes `qr` on
-  fretwork-1 (~12 credits, the site has one code that rings the number, the
-  ask adds one that opens the booking page) is what proves it.
+  **PROVEN LIVE BY RUN 29 (below): fretwork-1 serves `qr.svg` and
+  `qr-prices.svg`, 13 credits.** Runs 26–28 before it declined for 0 each,
+  and each decline was a fact the designer had not been told — the entries
+  below are the record.
   **RUN 26 (2026-09-03 12:53Z, `qr`, 170 → 170): THE DESIGNER ANSWERED
   NOTHING, HONESTLY.** The first time the `qr` designer has ever run live
   (runs 21–24 never reached it: the wall refused first). The picker named
@@ -1024,14 +1025,31 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   decline order was asserted by presence rather than position, so a keep
   moved past the `continue` — the one reply worth reading never kept —
   passed. Both guards now drive the case they name.
-  **Still not proven live** — the next dispatch after the deploy and the
-  roll is the proof, and if it declines a fourth time the log will say why.
   **The harness's ask now names the page by its route's own word** (owner,
   16:15Z: *"yeah lets try that"*): "Add a QR code that opens the prices
   page". The list is what the case proves; "the booking page" — a customer's
   looser phrasing for a home page headed "Book a guitar lesson" — is a
   designer question, now answerable from the labelled note, and is tested
   apart from the list.
+  **RUN 29 (2026-09-03 16:54Z, `qr`, 170 → 157): THE SECOND QR CODE IS
+  PROVEN LIVE.** Picker 6 s, designer 18 s (it ANSWERED: the route
+  `/prices`, resolved against the address into
+  `https://fretwork-1.gofarther.app/prices` — `qr-prices.svg` re-draws
+  byte-for-byte from that string, and `qr.svg` from `tel:01144960123`,
+  the only ground truth short of a phone), page call 210 s, publish 194 s;
+  **13 credits reserved before the publish, finalized; 438 s from POST to
+  the harness's verdict**, `mtlesaq6-sz6j1q` → `mtlrs753-4k2o86`,
+  `index.tsx` changed, `moved: ["qr"]`, 31 files, render check clean. The
+  harness's own count: "QR codes: 1 on the page before, 2 after; build
+  moved" — the first `ok` verdict on this case in nine dispatches. On the
+  page: "Scan for prices" beside the enquiry form; "Scan to ring and book"
+  untouched further down (`docs/edits/addon-run29-qr.png`, the band;
+  `addon-run29-qr-page.png`, the whole page; both read off the served
+  page through a local mirror). **Every hop the list needed is now live**:
+  a second entry stored beside the first, a second file under its own
+  name, `SITE_QRS.prices` in the page, the old binding still serving the
+  old code. What the three declines cost: 0 credits and four hours, and
+  they bought the address line, the page labels and the kept replies.
 - **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
   unapplied** — each a fix cut back to a failure (the cap, the run order, the
   stored parts dropped, a page added twice, the home route reading as none,
@@ -1352,8 +1370,8 @@ what the work cost.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 170 credits** (read from the ledger 2026-09-03 10:55Z, after run
-  24's three addon reserved 12). It was **0** on 08-29;
+- **Balance: 157 credits** (read by the harness 2026-09-03 17:02Z, after run
+  29's second QR code reserved 13; runs 26–28 cost 0). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**

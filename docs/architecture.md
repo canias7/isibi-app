@@ -263,6 +263,11 @@ dropped code is a printed card that stops working), folded over the stored
 list in the Worker; the page step that places codes asks for exactly the ones
 no page shows, by name. `builder/site-qr-list.mjs` holds the names, the files
 and the reader, dependency-free because the container imports it too.
+**Proven live on run 29 (2026-09-03)**: fretwork-1 serves `qr.svg` (rings the
+number) and `qr-prices.svg` (opens `/prices`), added by one sentence for 13
+credits. The three declines before it each named a fact the addon's designer
+had not been told — the site's address, what each page calls itself — and the
+designers' raw replies are kept now, so a decline is read rather than guessed.
 
 **A section is a component** (owner, 2026-09-02: *"section is just adding a
 new component, so its a tsx step that adds components"*). The page is a tsx

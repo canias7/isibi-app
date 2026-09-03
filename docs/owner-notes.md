@@ -1996,3 +1996,28 @@ names by that word in its route — so the run proves the list first and
 leaves the looser "booking page" phrasing as a separate question. About
 12 credits if it publishes; nothing if it declines, and then we read the
 reason off the kept reply.
+
+## 2026-09-03 — Run 29: the second QR code is live
+
+You ran `qr` at 16:54 UTC and it published: 13 credits, balance 170 →
+157, seven and a half minutes from the post to the harness's verdict.
+The designer answered in 18 seconds — the prices page by its route,
+which the step turned into the site's own address plus `/prices` — the
+page call took three and a half minutes and the publish three more.
+
+What is on the site now (screenshots in the chat and at
+`docs/edits/addon-run29-qr.png` and `addon-run29-qr-page.png`): a new
+"Scan for prices" code beside the enquiry form, and the original "Scan
+to ring and book" code further down, untouched. I checked both codes the
+only way possible without a phone: re-drawing them from the strings they
+should carry and comparing the drawings. The new one is exactly
+`https://fretwork-1.gofarther.app/prices`; the old one is exactly the
+phone number it always was.
+
+So the thing you asked for this morning is done end to end: a site
+carries several codes, each with its own file and its own name on the
+page, the old one keeps working, and adding another is one sentence.
+The three declines before this cost nothing in credits and bought three
+real improvements to the step that adds things: it now knows the site's
+address, what each page calls itself, and keeps every designer's answer
+so a refusal can be read.
