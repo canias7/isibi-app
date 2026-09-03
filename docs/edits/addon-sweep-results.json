@@ -1,17 +1,19 @@
 {
-  "at": "2026-09-03T01:29:47.601Z",
+  "at": "2026-09-03T10:08:06.186Z",
   "site": "fretwork-1",
-  "start": 207,
-  "end": 207,
+  "start": 195,
+  "end": 182,
   "results": [
     {
-      "name": "component",
-      "kinds": [],
-      "verdict": "NO ANSWER",
-      "note": "the request died: ECONNRESET",
-      "cost": 0,
-      "wall": 258,
-      "build": "mtkckb7z-znn7zw",
+      "name": "page",
+      "kinds": [
+        "page"
+      ],
+      "verdict": "LIE",
+      "note": "reply says ok, build moved, but the addition is not on the site; added [\"/prices\"]; answers {\"/prices\":200}; NOT all in the sitemap; all linked from the home page",
+      "cost": 13,
+      "wall": 402,
+      "build": "mtld0p1h-llm1ci",
       "pickedRight": true,
       "shots": []
     }
