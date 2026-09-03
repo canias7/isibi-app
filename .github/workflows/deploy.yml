@@ -20,10 +20,23 @@ on:
     # The cost of being wrong: a commit that puts real configuration in a `.md`
     # would silently stop deploying. `test/deploy-secrets.test.mjs` asserts
     # nothing in the deploy path references one.
+    # A HARNESS OR A TEST IS NOT DEPLOYED EITHER (2026-09-03). Nothing under
+    # `test/` or `scripts/` is imported by the Worker or COPYed into either
+    # container image — `test/deploy-secrets.test.mjs` asserts both — and
+    # every deploy rolls the build container, which costs twenty minutes
+    # before anything that builds may be fired. Measured the night this was
+    # added: a harness-only fix had to reach main after three runs kept being
+    # dispatched from there, and the push that carried it deployed an
+    # identical Worker, rolled the container, and pushed the retest back by
+    # half an hour. The scripts the DEPLOY itself runs live in
+    # `.github/scripts/`, which is deliberately not listed here. The list
+    # below stays contiguous: the guard reads it as one block.
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - 'LICENSE'
+      - 'test/**'
+      - 'scripts/**'
   workflow_dispatch:
 
 # Least privilege: the deploy only reads the repo; Cloudflare auth is via secrets,

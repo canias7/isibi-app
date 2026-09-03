@@ -144,6 +144,47 @@ test("a docs-only commit does not deploy, and so does not pay for a build", () =
   const globs = ignore[1].split("\n").map((l) => (l.match(/-\s+'([^']+)'/) || [])[1]).filter(Boolean);
   assert.ok(globs.includes("**.md"), "markdown anywhere must not trigger a deploy");
   assert.ok(globs.includes("docs/**"), "docs/ must not trigger a deploy");
+  // A harness-only or test-only push does not deploy either (2026-09-03): a
+  // deploy rolls the build container, and a harness fix that has to reach
+  // main should not cost the twenty minutes that roll takes.
+  assert.ok(globs.includes("test/**"), "test/ must not trigger a deploy");
+  assert.ok(globs.includes("scripts/**"), "scripts/ must not trigger a deploy");
+  // But the scripts the deploy ITSELF runs must keep deploying when they
+  // change — they live in .github/scripts/, and no glob may cover them.
+  assert.ok(!globs.some((g) => g.startsWith(".github")), `.github is ignored by ${globs.filter((g) => g.startsWith(".github")).join(", ")} — the deploy's own scripts would stop deploying`);
+  assert.match(yml, /run: node \.github\/scripts\/saas-setup\.mjs/, "the deploy no longer runs .github/scripts — re-point this guard");
+});
+
+test("nothing the deploy ships, and nothing either container image copies, comes from test/ or scripts/", () => {
+  // THE PREMISE the two new globs rest on. Same shape as the `.md` guard
+  // below: a file that IS part of the Worker or the image but lives under an
+  // ignored path would silently stop reaching production.
+  const roots = [new URL("../worker.js", import.meta.url)];
+  for (const dir of ["..", "../builder"]) {
+    const d = new URL(dir + "/", import.meta.url);
+    for (const f of fs.readdirSync(d)) if (f.endsWith(".mjs")) roots.push(new URL(f, d));
+  }
+  assert.ok(roots.length > 20, `only ${roots.length} modules scanned — the scan broke`);
+  for (const u of roots) {
+    const src = readFileSync(u, "utf8");
+    const bad = [...src.matchAll(/(?:from|import|require)\s*\(?\s*["'`]([^"'`]*(?:^|\/)(?:test|scripts)\/[^"'`]*)["'`]/g)].map((m) => m[1]);
+    assert.deepEqual(bad, [], `${u.pathname.split("/").pop()} imports ${bad.join(", ")} — a test- or scripts-only commit would not redeploy it`);
+  }
+  // The images: every COPY source, read the way test/dockerfile.test.mjs
+  // reads them (flags skipped, `--from=` stages skipped).
+  let copies = 0;
+  for (const df of ["../builder/Dockerfile", "../builder-game/Dockerfile"]) {
+    const text = readFileSync(new URL(df, import.meta.url), "utf8");
+    for (const m of text.matchAll(/^COPY\s+(.+?)\s+\S+\s*$/gm)) {
+      const parts = m[1].split(/\s+/).filter((p) => !p.startsWith("--"));
+      if (/--from=/.test(m[0])) continue;
+      for (const p of parts) {
+        copies++;
+        assert.ok(!/^(\.\/)?(test|scripts)\//.test(p) && !/\/(test|scripts)\//.test(p), `${df} copies ${p} — a test- or scripts-only commit would not rebuild the image`);
+      }
+    }
+  }
+  assert.ok(copies >= 6, `only ${copies} COPY sources read — the Dockerfile scan broke`);
 });
 
 test("nothing the deploy SHIPS is a file the filter now ignores", () => {
