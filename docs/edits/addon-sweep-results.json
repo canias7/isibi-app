@@ -1,8 +1,8 @@
 {
-  "at": "2026-09-03T20:35:30.738Z",
+  "at": "2026-09-03T22:26:56.270Z",
   "site": "fretwork-1",
-  "start": 141,
-  "end": 125,
+  "start": 125,
+  "end": 108,
   "results": [
     {
       "name": "table",
@@ -11,9 +11,9 @@
       ],
       "verdict": "LIE",
       "note": "reply says ok, build moved, but the addition is not on the site; made []; build moved",
-      "cost": 16,
-      "wall": 503,
-      "build": "mtlzemiw-huj9or",
+      "cost": 17,
+      "wall": 567,
+      "build": "mtm3de6s-hg47bc",
       "pickedRight": true,
       "shots": []
     }
