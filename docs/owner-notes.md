@@ -2110,3 +2110,12 @@ key pasted into that site's Secrets, and none of your sites has one
 pasted, so until then every run says "Ready to send, but no email
 provider key in Secrets" — which is the honest answer, and the button
 will show you exactly that.
+
+Pushed to main at 18:48 UTC on your "ok"; the deploy (run 2010) landed
+at 18:56 UTC — this one carried both today's pushes, so the addon
+backend and the jobs work are live together, and the failed run 2009
+no longer needs a re-run. The container image rolled with it: nothing
+that builds should be fired before about 19:15 UTC. From this tick on,
+the 26 registered jobs run for real and write what they did to their
+rows; on your sites that will read "no email provider key in Secrets"
+until a key is pasted.
