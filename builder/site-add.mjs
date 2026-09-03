@@ -86,20 +86,58 @@ export const ADD_MAX_TOKENS = 16000;
 export const MAX_MESSAGE = 2000;
 
 /**
- * HOW MANY KINDS ONE MESSAGE MAY ADD.
+ * ── THE UNIVERSAL RULE OF THE ADD STEP (owner, 2026-09-02) ──────────────────
  *
- * "Add a bookings page with a form" is a page AND a table, and that is
- * ordinary. Three is the gate against a model that answers "all of them",
- * which a six-name enum invites. The arithmetic is here rather than in a
- * description: a cap the model is merely told about is not a cap.
+ * "a universal rule, for the addon route is that anytime something new is
+ * added it needs to keep the design system, meaning the themes, css etc,
+ * whatever it had already, shape, all the things that form the page."
+ *
+ * ONE STRING, SENT TWICE, because two different models have to hold it: the
+ * designers (it rides `ADD_SYSTEM`, the cached block every kind's call
+ * carries) decide WHAT is added, and the page writer (it heads the fold's
+ * directive) writes the source. Either alone is half a rule: a designer that
+ * plans a matching band and a writer that styles it afresh, or the reverse.
+ * Exported so a guard can assert both hops carry the same sentence.
  */
-export const MAX_ADDS = 3;
+export const ADD_DESIGN_RULE =
+  "WHATEVER IS ADDED KEEPS THE SITE'S DESIGN SYSTEM. It joins the site as the site is: the same theme, the " +
+  "same stylesheet, the same typefaces and colours, the same shape of page, the same kit parts and the same " +
+  "conventions the existing pages use. A new thing slots in; nothing around it changes to make room, and " +
+  "nothing about the look is re-decided because something was added. No new palette, no inline styling, no " +
+  "second design beside the first — the addition should read as if it had been there since the build.";
 
-/** A section is one band; a page is at most this many, top to bottom. */
+/**
+ * ── NO LOW LIMITS WHILE TESTING (owner, 2026-09-02) ─────────────────────────
+ *
+ * "no limit on things that can be added, like the pages, new components — at
+ * least not a low limit for now since we are testing."
+ *
+ * So a message may name EVERY kind it asks for, and the kinds that can come
+ * in numbers — pages, components, tables — answer LISTS. The caps below are
+ * ceilings a site can actually hold, not quotas: the page cap is the page
+ * writer's own (`MAX_PAGES` in page-gen.mjs keeps the first six), the rest
+ * are generous. The rule per kind says "as many as they asked for, and not
+ * one they did not", which is the ceiling that matters.
+ */
+export const MAX_ADDS = 6;
+
+/** Pages one message may add — the page writer keeps six, so a seventh would be dropped there. */
+export const MAX_ADD_PAGES = 6;
+
+/** Components one message may add, across its pages. */
+export const MAX_ADD_COMPONENTS = 12;
+
+/** Tables one message may add. */
+export const MAX_ADD_TABLES = 6;
+
+/** A page is at most this many bands, top to bottom. */
 export const MAX_SECTIONS = 12;
 
 /** Seed rows an add may plant in a new table — the engine's own ceiling. */
 export const MAX_ADD_SEED_ROWS = 12;
+
+/** The kinds whose answer is a LIST of additions rather than one. */
+export const LIST_ADDS = ["table", "page", "component"];
 
 /* ------------------------------------------------------------------ the adds */
 
@@ -143,51 +181,58 @@ const ADDS = {
   table: {
     hint: "Something the site has to STORE that it has no table for — bookings, orders, enquiries, listings, members' things, a price list the owner edits. A form that SENDS somewhere needs one; a page that only shows words does not.",
     shape: {
-      type: "object",
-      properties: {
-        // THE ONE SHAPE OF A TABLE, shared with the build — what a table IS is
-        // the same whether a site is being invented or added to.
-        table: TABLE_ITEM,
-        seed: {
-          type: "array",
-          items: { type: "object" },
-          description:
-            "Starter rows for the new table when it is one the business PUBLISHES and visitors read (a price " +
-            "list, a menu, a roster) — three to six realistic rows using only the columns declared above, " +
-            "written for this business. Nothing can write to such a table after this step, so an unseeded " +
-            "one is an empty list forever. Leave it out for a table visitors SUBMIT to.",
+      type: "array",
+      maxItems: MAX_ADD_TABLES,
+      items: {
+        type: "object",
+        properties: {
+          // THE ONE SHAPE OF A TABLE, shared with the build — what a table IS is
+          // the same whether a site is being invented or added to.
+          table: TABLE_ITEM,
+          seed: {
+            type: "array",
+            items: { type: "object" },
+            description:
+              "Starter rows for the new table when it is one the business PUBLISHES and visitors read (a price " +
+              "list, a menu, a roster) — three to six realistic rows using only the columns declared above, " +
+              "written for this business. Nothing can write to such a table after this step, so an unseeded " +
+              "one is an empty list forever. Leave it out for a table visitors SUBMIT to.",
+          },
+          shows: {
+            type: "string",
+            description:
+              "The page that lists it or collects it, as its route — \"/\" for the home page, \"/book\". One of " +
+              "the pages the site has, or a page being added in this same change.",
+          },
         },
-        shows: {
-          type: "string",
-          description:
-            "The page that lists it or collects it, as its route — \"/\" for the home page, \"/book\". One of " +
-            "the pages the site has, or a page being added in this same change.",
-        },
+        required: ["table"],
       },
-      required: ["table"],
     },
     add: {
-      is: "The ONE table this change needs — what it is called, its columns, who may read and write it, and the guarantees the database keeps for it.",
+      is: "The tables this change needs — each with what it is called, its columns, who may read and write it, and the guarantees the database keeps for it. One entry per table.",
       yours:
-        "THE WHOLE TABLE IS YOURS TO DESIGN: its columns, its access, a unique slot, a confirmation email, " +
+        "EVERY TABLE IS YOURS TO DESIGN: its columns, its access, a unique slot, a confirmation email, " +
         "payment, a public view — every guarantee the shape offers is available, and you may ALSO name a " +
         "table the site already has to give it a new column, PAYMENT or a public view. On a table that " +
         "already exists only those three are taken; its access, read and write levels are the site's own and " +
         "an answer for them is discarded.",
       wide:
-        "ONE TABLE, FOR THE ONE THING THEY NAMED. \"Add a booking form\" is a bookings table, not a bookings " +
-        "table plus services plus customers plus staff — a form on a site that stores one kind of thing wants " +
-        "one table. Do not redesign what the site already stores: the tables it has are listed, and a second " +
-        "table for a thing one of them already holds is a site that disagrees with itself.",
+        "AS MANY TABLES AS THE THINGS THEY NAMED TO STORE, AND NOT ONE MORE. \"Add a booking form\" is a " +
+        "bookings table; \"bookings and a waiting list\" is two. Not bookings plus services plus customers " +
+        "plus staff to round it off. Do not redesign what the site already stores: the tables it has are " +
+        "listed, and a second table for a thing one of them already holds is a site that disagrees with itself.",
       keep:
-        "NOTHING ELSE ABOUT THE SITE MOVES. This is the table and its rows; the page that shows it is designed " +
-        "beside it and written by the next step. If the change needs no table — it is words, a section, a " +
-        "code — answer nothing here.",
+        "NOTHING ELSE ABOUT THE SITE MOVES. This is the tables and their rows; the pages that show them are " +
+        "designed beside them and written by the next step. If the change needs no table — it is words, a " +
+        "component, a code — answer nothing here.",
     },
   },
   page: {
     hint: "A PAGE the site does not have — a new address of its own: a gallery page, an about page, a pricing page. Not a band on a page it has.",
     shape: {
+      type: "array",
+      maxItems: MAX_ADD_PAGES,
+      items: {
       type: "object",
       properties: {
         path: {
@@ -242,22 +287,24 @@ const ADDS = {
         },
       },
       required: ["path", "name", "purpose", "sections", "components"],
+      },
     },
     add: {
-      is: "The new page — its address, its name, what it is organised around, its bands top to bottom, the kit parts it is built from, and where a visitor finds it.",
+      is: "The new pages — one entry per page: its address, its name, what it is organised around, its bands top to bottom, the kit parts it is built from, and where a visitor finds it.",
       yours:
-        "THE WHOLE PAGE IS YOURS TO PLAN, from the kit's 2,112 parts or a part written for this site when the " +
-        "kit falls short. Any number of bands, any arrangement, any part — whatever the page they asked for " +
-        "really needs.",
+        "EVERY PAGE IS YOURS TO PLAN, from the kit's 2,112 parts or a part written for this site when the " +
+        "kit falls short. Any number of bands, any arrangement, any part — whatever the pages they asked for " +
+        "really need.",
       wide:
-        "ONE PAGE, AND ONLY THE ONE THEY ASKED FOR. \"Add a gallery page\" is a gallery page, not a gallery page " +
-        "and a contact page and an about page to go with it — every page you add is one the customer did not " +
-        "ask for and will pay to have written. And a page is a few bands doing one job, not the whole site again " +
-        "with a different heading: what the home page already says stays on the home page.",
+        "AS MANY PAGES AS THEY ASKED FOR, AND NOT ONE MORE. \"Add a gallery page\" is a gallery page; \"an " +
+        "about page and a pricing page\" is two. Not a contact page thrown in to go with them — every page " +
+        "they did not ask for is one they will pay to have written. And a page is a few bands doing one job, " +
+        "not the whole site again with a different heading: what the home page already says stays on the " +
+        "home page.",
       keep:
-        "THE REST OF THE SITE STAYS AS IT IS. The one page that changes beside this is the page that links to it, " +
-        "and only its link. If what they asked for belongs on a page the site already has, answer nothing here — " +
-        "that is a component, not a page.",
+        "THE REST OF THE SITE STAYS AS IT IS. The one existing page that changes beside these is the page that " +
+        "links to them, and only its links. If what they asked for belongs on a page the site already has, " +
+        "answer nothing here — that is a component, not a page.",
     },
   },
   // ── A SECTION IS A COMPONENT, AND ADDING ONE IS A TSX STEP ─────────────
@@ -273,6 +320,9 @@ const ADDS = {
   component: {
     hint: "A NEW COMPONENT on a page the site already has — what a customer calls a section, a band or a block: testimonials, a form, a map, an FAQ, opening hours, a price list, a gallery strip, a countdown. From the kit, or written for this site when the kit has not got it. The page existing does not make it an edit; the component is not on it yet.",
     shape: {
+      type: "array",
+      maxItems: MAX_ADD_COMPONENTS,
+      items: {
       type: "object",
       properties: {
         page: {
@@ -311,21 +361,24 @@ const ADDS = {
         },
       },
       required: ["page", "does"],
+      },
     },
     add: {
-      is: "The component the page is getting — which page, where on it, what it shows, and which component it is: a kit part by name, or one written for this site.",
+      is: "The components the pages are getting — one entry per component: which page, where on it, what it shows, and which component it is: a kit part by name, or one written for this site.",
       yours:
         "ANY COMPONENT AT ALL: a form, a map, a strip of photographs, a table of prices, a set of quotes, a " +
         "timeline, a calendar, a countdown, something no other site has — one of the kit's 2,112 parts, or " +
-        "written for this site when none of them is it. Put it wherever on the page it belongs.",
+        "written for this site when none of them is it. Put each wherever on its page it belongs.",
       wide:
-        "ONE COMPONENT, ON ONE PAGE. \"Add testimonials\" is one testimonials component, not quotes on every " +
-        "page, not a quotes block plus a trust strip plus a call to action to round it off. Do not re-plan the " +
-        "page around it: what the page already has stays where it is, and the new component goes between. " +
-        "A form that SENDS somewhere needs a table the site has; on a site with no database, a component that " +
-        "submits is a control that silently does nothing — choose one that does not, or answer nothing.",
+        "AS MANY COMPONENTS AS THEY ASKED FOR, ON THE PAGES THEY NAMED, AND NOT ONE MORE. \"Add testimonials\" " +
+        "is one testimonials component; \"testimonials and an FAQ\" is two. Not a trust strip and a call to " +
+        "action thrown in to round them off, and not the same thing on every page when one page was meant. " +
+        "Do not re-plan a page around what is added: what it already has stays where it is, and the new " +
+        "component goes between. A form that SENDS somewhere needs a table the site has; on a site with no " +
+        "database, a component that submits is a control that silently does nothing — choose one that does " +
+        "not, or answer nothing.",
       keep:
-        "EVERYTHING ELSE ON THAT PAGE — every other component, every sentence — comes back exactly as it is. " +
+        "EVERYTHING ELSE ON THOSE PAGES — every other component, every sentence — comes back exactly as it is. " +
         "If what they asked for is a whole page of its own, answer nothing here; that is a page, not a component.",
     },
   },
@@ -455,12 +508,14 @@ export function pickTool(kinds = ADD_KINDS) {
           maxItems: MAX_ADDS,
           items: { type: "string", enum: list },
           description:
-            "The kind or kinds of thing this message asks to add. ONE IS THE ORDINARY ANSWER. Name a second " +
-            "only when the thing they asked for really is two things: \"a booking page\" is a `page` AND a " +
-            "`table` (the form has to send its bookings somewhere); \"a testimonials section\" is a " +
-            "`component` alone. Each name you add is a separate addition the customer pays for, so one added " +
-            "on a guess is something they did not ask for.\n" +
-            "NEVER NAME EVERYTHING. If you cannot tell which kind they mean, name the single closest one.\n\n" +
+            "The kind or kinds of thing this message asks to add — EVERY kind it asks for, and no kind it does " +
+            "not. One is the ordinary answer; two or more when the thing they asked for really is more than " +
+            "one kind of thing: \"a booking page\" is a `page` AND a `table` (the form has to send its bookings " +
+            "somewhere); \"a testimonials section\" is a `component` alone; \"an about page, a pricing page and " +
+            "a QR code\" is `page` and `qr` (the number of pages is the page designer's business, not yours). " +
+            "Each name you add is a separate addition the customer pays for, so one added on a guess is " +
+            "something they did not ask for.\n" +
+            "If you cannot tell which kind they mean, name the single closest one.\n\n" +
             "The kinds:\n" + lines.join("\n"),
         },
       },
@@ -473,7 +528,7 @@ const PICK_SYSTEM =
   "You are routing one message inside a website builder. The person you are reading owns the site and has asked " +
   "for something ADDED to it — something it does not have yet. Your only job is to say WHAT KIND of thing that " +
   "is, so the right designer can be handed it. You are not designing it and you are not replying to them.\n\n" +
-  "Name the fewest kinds that cover what they asked for. One is nearly always right.";
+  "Name every kind they asked for and none they did not. One is the ordinary answer.";
 
 /** The routing request. Shaped like `pickRequest` in site-lanes.mjs, for the same reasons. */
 export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = ADD_MODEL }) {
@@ -601,15 +656,17 @@ export function addRule(kind) {
  * model as it stands, and one message says what it is missing.
  */
 const ADD_SYSTEM =
-  "You are adding one thing to a website that already exists, for the person who owns it.\n\n" +
+  "You are adding to a website that already exists, for the person who owns it.\n\n" +
   "The site is described in front of you — what it is called, what kind of thing it is, the pages it has, " +
   "what it stores, what it already carries — and one message says what they want added. Answer with the " +
-  "design of that one addition and nothing else: the site's name, look, theme and everything already on it " +
-  "are decided and are not yours to revisit.\n\n" +
-  "DESIGN THE ADDITION COMPLETELY. The next step writes it from your answer and sees nothing you left out, " +
+  "design of the additions of this one kind and nothing else: the site's name, look, theme and everything " +
+  "already on it are decided and are not yours to revisit.\n\n" +
+  ADD_DESIGN_RULE + "\n\n" +
+  "DESIGN EACH ADDITION COMPLETELY. The next step writes it from your answer and sees nothing you left out, " +
   "so say where it goes, what it is built from and what it leads with.\n\n" +
-  "AND ONLY WHAT THEY ASKED FOR IS ADDED. One addition, only as large as it was asked, nothing beside it to " +
-  "round it off. A site that grows in ways nobody asked for reads as broken however good the addition is.\n\n" +
+  "AS MANY AS THEY ASKED FOR AND NOT ONE MORE. Every page, component or table they named, each only as " +
+  "large as it was asked, nothing beside them to round them off. A site that grows in ways nobody asked for " +
+  "reads as broken however good the additions are.\n\n" +
   "IF THEIR MESSAGE IS NOT ABOUT THIS KIND OF THING, ANSWER NOTHING. Something else is handling it, and an " +
   "addition invented to fill the silence is one they did not ask for.";
 
@@ -790,8 +847,7 @@ export function fileOfRoute(r) {
 export function cleanAdd(kind, value, site) {
   const s = site && typeof site === "object" ? site : {};
   const have = (Array.isArray(s.pages) ? s.pages : []).map(route).filter(Boolean);
-  const v = value && typeof value === "object" && !Array.isArray(value) ? value : null;
-  if (!v) return { ok: false, why: "nothing" };
+  if (typeof kind !== "string" || !Object.hasOwn(ADDS, kind) || ADDS[kind].elsewhere) return { ok: false, why: "no-kind" };
   // WHICH PAGE, for the kinds that land on one. Refused on a multi-page site
   // when the route is not one of its own; resolved to the one page otherwise.
   const onPage = (named) => {
@@ -801,60 +857,95 @@ export function cleanAdd(kind, value, site) {
     if (!r && have.includes("/")) return "/";
     return "";
   };
-  switch (kind) {
-    case "page": {
-      const path = route(v.path);
-      if (!path || path === "/") return { ok: false, why: "no-path" };
-      if (have.includes(path)) return { ok: false, why: "page-exists" };
-      const name = str(v.name, 60);
-      const purpose = str(v.purpose, 300);
-      if (!name || !purpose) return { ok: false, why: "no-plan" };
-      const sections = lines(v.sections, MAX_SECTIONS, 200);
-      const components = names(v.components, MAX_COMPONENTS);
-      if (!sections.length && !components.length) return { ok: false, why: "no-plan" };
-      return { ok: true, value: { path, file: fileOfRoute(path), name, purpose, sections, components, tsx: parts(v.tsx), link: str(v.link, 200) } };
+  // ONE ITEM, cleaned. `{ ok, value }` or `{ ok: false, why }`.
+  const one = (v, ctx) => {
+    switch (kind) {
+      case "page": {
+        const path = route(v.path);
+        if (!path || path === "/") return { ok: false, why: "no-path" };
+        // A PAGE THE SITE HAS, OR ONE THIS SAME ANSWER ALREADY ADDED.
+        if (have.includes(path) || ctx.paths.includes(path)) return { ok: false, why: "page-exists" };
+        const name = str(v.name, 60);
+        const purpose = str(v.purpose, 300);
+        if (!name || !purpose) return { ok: false, why: "no-plan" };
+        const sections = lines(v.sections, MAX_SECTIONS, 200);
+        const components = names(v.components, MAX_COMPONENTS);
+        if (!sections.length && !components.length) return { ok: false, why: "no-plan" };
+        ctx.paths.push(path);
+        return { ok: true, value: { path, file: fileOfRoute(path), name, purpose, sections, components, tsx: parts(v.tsx), link: str(v.link, 200) } };
+      }
+      case "component": {
+        const page = onPage(v.page);
+        if (!page) return { ok: false, why: "no-page" };
+        const does = str(v.does, 300);
+        if (!does) return { ok: false, why: "no-plan" };
+        const components = names(v.components, MAX_COMPONENTS);
+        const tsx = parts(v.tsx);
+        // THE COMPONENT IS THE ADDITION: an answer that names none — no kit
+        // part and nothing written for this site — is a band the page writer
+        // would have to invent, which is the old "section" reading the owner
+        // corrected. Refused by name.
+        if (!components.length && !tsx.length) return { ok: false, why: "no-component" };
+        return { ok: true, value: { page, where: str(v.where, 200), does, components, tsx } };
+      }
+      case "table": {
+        const t = v.table && typeof v.table === "object" && !Array.isArray(v.table) ? v.table : null;
+        const name = t ? str(t.name, 63).toLowerCase() : "";
+        if (!t || !TABLE_NAME.test(name)) return { ok: false, why: "no-table" };
+        if (ctx.tables.includes(name)) return { ok: false, why: "no-table" };
+        const columns = Array.isArray(t.columns) ? t.columns.filter((c) => c && typeof c === "object" && str(c.name, 63)) : [];
+        // A TABLE WITH NOTHING IN IT IS NOTHING — unless it names one the site
+        // has, to give it payment or a public view; `mergeAddonSchema` keeps
+        // exactly those on an existing table and the engine refuses the rest.
+        const exists = (Array.isArray(s.tables) ? s.tables : []).map((x) => str(x, 63).toLowerCase()).includes(name);
+        if (!columns.length && !(exists && (t.payment || t.publicView))) return { ok: false, why: "no-columns" };
+        const seed = (Array.isArray(v.seed) ? v.seed : []).filter((r) => r && typeof r === "object" && !Array.isArray(r)).slice(0, MAX_ADD_SEED_ROWS);
+        ctx.tables.push(name);
+        return { ok: true, value: { table: { ...t, name, columns }, seed, shows: route(v.shows), exists } };
+      }
+      case "qr": {
+        const points = str(v.points, 1000);
+        const label = str(v.label, 120);
+        if (!points || !label) return { ok: false, why: "no-destination" };
+        return { ok: true, value: { points, label, page: onPage(v.page), where: str(v.where, 200) } };
+      }
+      case "three": {
+        const scene = str(v.scene, 600);
+        if (!scene) return { ok: false, why: "no-scene" };
+        return { ok: true, value: { scene, page: onPage(v.page) } };
+      }
+      default:
+        return { ok: false, why: "no-kind" };
     }
-    case "component": {
-      const page = onPage(v.page);
-      if (!page) return { ok: false, why: "no-page" };
-      const does = str(v.does, 300);
-      if (!does) return { ok: false, why: "no-plan" };
-      const components = names(v.components, MAX_COMPONENTS);
-      const tsx = parts(v.tsx);
-      // THE COMPONENT IS THE ADDITION: an answer that names none — no kit
-      // part and nothing written for this site — is a band the page writer
-      // would have to invent, which is the old "section" reading the owner
-      // corrected. Refused by name.
-      if (!components.length && !tsx.length) return { ok: false, why: "no-component" };
-      return { ok: true, value: { page, where: str(v.where, 200), does, components, tsx } };
+  };
+  const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
+  // ── A LIST KIND: every usable item is kept, the rest are named ──────────
+  //
+  // No low limits (owner): a message may add several pages, components or
+  // tables at once, so the answer is a list and one bad entry must not throw
+  // the good ones away. Each entry is cleaned on its own; the ones refused
+  // are returned as `skipped` with their token, so the customer can be told
+  // which was left out and why. An answer with NO usable entry is refused
+  // with the first entry's reason — the same sentence a single bad answer
+  // gets. A bare object is tolerated as a list of one.
+  if (LIST_ADDS.includes(kind)) {
+    const cap = kind === "page" ? MAX_ADD_PAGES : kind === "table" ? MAX_ADD_TABLES : MAX_ADD_COMPONENTS;
+    const raw = Array.isArray(value) ? value : (isObj(value) ? [value] : []);
+    const items = raw.filter(isObj).slice(0, cap);
+    if (!items.length) return { ok: false, why: "nothing" };
+    const ctx = { paths: [], tables: [] };
+    const kept = [], skipped = [];
+    for (const v of items) {
+      const r = one(v, ctx);
+      if (r.ok) kept.push(r.value);
+      else skipped.push({ why: r.why, name: str(v.path, 120) || str(v.name, 120) || (isObj(v.table) ? str(v.table.name, 63) : "") || str(v.does, 80) });
     }
-    case "table": {
-      const t = v.table && typeof v.table === "object" && !Array.isArray(v.table) ? v.table : null;
-      const name = t ? str(t.name, 63).toLowerCase() : "";
-      if (!t || !TABLE_NAME.test(name)) return { ok: false, why: "no-table" };
-      const columns = Array.isArray(t.columns) ? t.columns.filter((c) => c && typeof c === "object" && str(c.name, 63)) : [];
-      // A TABLE WITH NOTHING IN IT IS NOTHING — unless it names one the site
-      // has, to give it payment or a public view; `mergeAddonSchema` keeps
-      // exactly those on an existing table and the engine refuses the rest.
-      const exists = (Array.isArray(s.tables) ? s.tables : []).map((x) => str(x, 63).toLowerCase()).includes(name);
-      if (!columns.length && !(exists && (t.payment || t.publicView))) return { ok: false, why: "no-columns" };
-      const seed = (Array.isArray(v.seed) ? v.seed : []).filter((r) => r && typeof r === "object" && !Array.isArray(r)).slice(0, MAX_ADD_SEED_ROWS);
-      return { ok: true, value: { table: { ...t, name, columns }, seed, shows: route(v.shows), exists } };
-    }
-    case "qr": {
-      const points = str(v.points, 1000);
-      const label = str(v.label, 120);
-      if (!points || !label) return { ok: false, why: "no-destination" };
-      return { ok: true, value: { points, label, page: onPage(v.page), where: str(v.where, 200) } };
-    }
-    case "three": {
-      const scene = str(v.scene, 600);
-      if (!scene) return { ok: false, why: "no-scene" };
-      return { ok: true, value: { scene, page: onPage(v.page) } };
-    }
-    default:
-      return { ok: false, why: "no-kind" };
+    if (!kept.length) return { ok: false, why: skipped[0].why, skipped };
+    return { ok: true, value: kept, skipped };
   }
+  const v = isObj(value) ? value : null;
+  if (!v) return { ok: false, why: "nothing" };
+  return one(v, { paths: [], tables: [] });
 }
 
 /**
@@ -986,7 +1077,17 @@ export function foldAdds(answers, priorLook, site) {
   const tsx = (Array.isArray(prior.tsx) ? prior.tsx : []).filter((t) => t && typeof t === "object" && typeof t.name === "string").map((t) => ({ ...t }));
   const tables = [];
   const seed = {};
+  // THE UNIVERSAL RULE HEADS THE DIRECTIVE, once, before any addition — the
+  // second of its two hops (the first is `ADD_SYSTEM`, to the designers).
+  // Only when something is being added: an empty fold is an empty directive.
+  if (list.length) blocks.push("## Adding to this site\n" + ADD_DESIGN_RULE);
+  // A LIST KIND FOLDS EVERY ITEM; a single kind folds its one value.
+  const items = [];
   for (const a of list) {
+    if (LIST_ADDS.includes(a.kind)) { for (const v of Array.isArray(a.value) ? a.value : [a.value]) if (v && typeof v === "object") items.push({ kind: a.kind, value: v }); }
+    else items.push(a);
+  }
+  for (const a of items) {
     const v = a.value;
     blocks.push(addDirective(a.kind, v, site));
     for (const c of Array.isArray(v.components) ? v.components : []) if (!components.includes(c)) components.push(c);

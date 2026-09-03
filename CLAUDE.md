@@ -726,10 +726,27 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   neither is refused (`no-component`): a band the page writer would have to
   invent is the reading the owner corrected.
 - **One tool per kind, one property, nothing required** — the wall, not the
-  rule: a `section` tool cannot re-theme the site because there is nowhere to
-  put the answer. Inside the property the kind's own `required` stands (a page
-  with no path is not a page). A four-part rule per kind (`is` · `yours` ·
-  `wide` · `keep`), `composeRule` refusing a missing part.
+  rule: a `component` tool cannot re-theme the site because there is nowhere
+  to put the answer. Inside the property the kind's own `required` stands (a
+  page with no path is not a page). A four-part rule per kind (`is` · `yours`
+  · `wide` · `keep`), `composeRule` refusing a missing part.
+- **THE UNIVERSAL RULE (owner, 2026-09-02: *"anytime something new is added
+  it needs to keep the design system, meaning the themes, css etc, whatever
+  it had already, shape, all the things that form the page"*).**
+  `ADD_DESIGN_RULE`, ONE string sent to BOTH models that have to hold it: it
+  rides `ADD_SYSTEM` (every kind's designer) and heads the fold's directive
+  (the page writer), and `test/site-add.test.mjs` asserts both hops carry
+  the same sentence — either alone is half a rule.
+- **NO LOW LIMITS WHILE TESTING (owner: *"no limit on things that can be
+  added, like the pages, new components, at least not a low limit for now
+  since we are testing"*).** `MAX_ADDS` is the count of kinds (a message may
+  name every kind it asks for); `page`, `component` and `table` answer LISTS
+  (`LIST_ADDS`) capped at what a site can hold — `MAX_ADD_PAGES` 6 (the page
+  writer keeps six), `MAX_ADD_COMPONENTS` 12, `MAX_ADD_TABLES` 6 — and every
+  list rule says "as many as they asked for, and not one more". `cleanAdd`
+  keeps every usable entry and names the rest (`skipped`, carried to the
+  reply as `notAdded` with the refusal sentence); it refuses only when no
+  entry is usable, with the first entry's reason.
 - **What it shares with the build are SHAPES, never wording**: the table item
   (**`TABLE_ITEM`, lifted out of `design_schema` into `builder/site-table.mjs`
   for exactly this**, byte-identical on the wire — `readSchemaTool` binds it;
@@ -788,6 +805,11 @@ customer ──► pick_adds ──► add_to_site ──► the page call ─�
   another reason: the recorded "a guard proves the branch it drives" shape.
   It is driven now with a reply that claims the change on a moved build and
   no new words on the page, which is the lie the check exists to catch.
+  **The two rules' sweep: 8 mutants, 8 killed, control survived** — the rule
+  dropped from either hop, the kind cap back to three, a left-out entry
+  vanishing, a page added twice in one answer, a list kind answering one
+  thing, the page cap outrunning the page writer's, the route dropping the
+  left-out entries from the reply.
 
 **DELETE deferred** (owner's call).
 

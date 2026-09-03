@@ -1715,6 +1715,19 @@ and nobody looked. Fixed: TypeScript is declared at the root so the runner
 has it, and the guard uses either copy. Proven by hiding the kit's copy and
 running the guard on the root's.
 
+**Your two rules for the addon, in.** (1) Universal: whatever is added keeps
+the site's design system — same theme, stylesheet, typefaces, colours, shape
+of page, kit parts and conventions; it slots in, nothing around it moves,
+nothing about the look is re-decided. Said in one sentence to both models
+that have to hold it: the one that designs the addition and the one that
+writes the page. (2) No low limits while testing: a message may name every
+kind it asks for, and pages, components and tables come back as lists — up
+to 6 pages (the page writer keeps six), 12 components, 6 tables — with the
+rule "as many as they asked for, not one more". An entry that cannot be
+added (a page the site has, a form with nothing to send to) is left out and
+named in the reply; the rest go in. Sweep for the two rules: 8 mutants, 8
+killed, control survived.
+
 **Section → component, the same evening.** Your correction — "section is
 just adding a new component, so its a tsx step that adds components" —
 is in: the kind is `component`, it names the component (from the kit, or

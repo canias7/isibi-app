@@ -11991,6 +11991,13 @@ function addonReplyText(a) {
   if (Array.isArray(a.skipped) && a.skipped.indexOf('photo') >= 0) {
     out += ' The photograph is a separate step — ask for it on its own and I’ll place it.';
   }
+  // AN ENTRY LEFT OUT OF A LIST IS SAID, with the server's own reason: a
+  // message may add several pages or components at once, and one refused
+  // among them must not read as added.
+  for (const n of (Array.isArray(a.notAdded) ? a.notAdded : []).slice(0, 3)) {
+    if (!n || !n.msg) continue;
+    out += ' I left out ' + (n.name ? '“' + n.name + '”' : 'one ' + (n.kind || 'entry')) + ': ' + n.msg;
+  }
   // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY. Keeping it quietly is the
   // silent partial this lane already had once: asked for gone, told it worked,
   // still there.

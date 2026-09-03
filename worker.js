@@ -20990,6 +20990,10 @@ async function handleRequest(request, env, ctx) {
             // an answer refused by the cleaner is a sentence, never a climb.
             const aAnswers = [];
             const aDeclined = [];
+            // AN ENTRY LEFT OUT OF A LIST IS SAID (owner: no low limits, so a
+            // page, component or table answer is a list; one bad entry must
+            // not throw the good ones away, and must not vanish either).
+            const aNotAdded = [];
             for (const k of aKinds) {
               if (addLayer(k)) continue;
               const ran = await runAdd({ send: quickSend(env, "add:" + k) }, { kind: k, message: aInstruction, site: aSite, model: aModels.quick });
@@ -21000,6 +21004,7 @@ async function handleRequest(request, env, ctx) {
               if (!clean.ok) {
                 return Response.json({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k) }, { status: 422 });
               }
+              for (const sk of Array.isArray(clean.skipped) ? clean.skipped : []) aNotAdded.push({ kind: k, ...sk, msg: addRefusal(sk.why, k) });
               aAnswers.push({ kind: k, value: clean.value });
             }
             if (!aAnswers.length) {
@@ -21293,6 +21298,7 @@ async function handleRequest(request, env, ctx) {
               // What was added, by kind, and what was set aside for another
               // rung — so the reply can say "the photograph needs its own ask".
               kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
+              notAdded: aNotAdded.length ? aNotAdded.slice(0, 6) : undefined,
               added: aMerge.added, changed: aMerge.changed, removed: aMerge.removed, kept: aMerge.kept,
               reverted: aMerge.reverted,
               // The design fields this addon gave the site (a `qr`, a `three`),

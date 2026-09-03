@@ -269,6 +269,17 @@ of picker + one small tool (1,299 for a scene, 1,570 for a code, 20,045 for a
 table, ~35,000 for a page or a section, most of which is the kit's menu)**
 against 93,852.
 
+**Two rules from the owner (2026-09-02).** Universal: *whatever is added
+keeps the site's design system* — theme, stylesheet, typefaces, colours,
+shape of page, kit parts, conventions; it slots in and nothing about the look
+is re-decided. One string (`ADD_DESIGN_RULE`), sent to both models that have
+to hold it: the designers and the page writer. And *no low limits while
+testing*: a message may name every kind it asks for, and pages, components
+and tables answer LISTS capped only at what a site can hold (six pages — the
+page writer keeps six — twelve components, six tables), each rule reading "as
+many as they asked for, and not one more". An entry that cannot be added is
+left out and named in the reply; the rest go in.
+
 **Refusals are sentences, never climbs**: a code or a scene the site already
 carries (read the way the edit route's wall reads it — the stored look OR the
 page source), a table on a site with no database, a page the site already

@@ -25,10 +25,11 @@ import { readSchemaTool } from "./integration/schema-tool.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import { TABLE_ITEM } from "../builder/site-table.mjs";
 import { TSX_ITEM, MAX_TSX, MAX_COMPONENTS, TOOL_DIRECTIVE } from "../builder/site-plan.mjs";
+import { MAX_PAGES } from "../builder/page-gen.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
 import {
-  ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, MAX_ADDS, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL,
+  ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
   cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply,
@@ -118,16 +119,56 @@ test("the step imports nothing from worker.js and carries none of the build's to
 
 test("the table kind asks for the ONE table shape the build asks for — by identity, and the build really sends it", async () => {
   const tool = addTool("table");
-  assert.equal(tool.input_schema.properties.table.properties.table, TABLE_ITEM, "the add step's table is not the shared item");
+  assert.equal(tool.input_schema.properties.table.items.properties.table, TABLE_ITEM, "the add step's table is not the shared item");
   const { tool: build } = await readSchemaTool();
   assert.deepEqual(build.input_schema.properties.backend.properties.tables.items, TABLE_ITEM,
     "the build tool's table item is not the shared one — two shapes of a table again");
   // …and the part shape, for the two kinds that may declare one.
   for (const k of ["page", "component"]) {
-    assert.equal(addTool(k).input_schema.properties[k].properties.tsx.items, TSX_ITEM, k + " declares parts in a shape of its own");
-    assert.equal(addTool(k).input_schema.properties[k].properties.tsx.maxItems, MAX_TSX);
-    assert.equal(addTool(k).input_schema.properties[k].properties.components.maxItems, MAX_COMPONENTS);
+    const item = addTool(k).input_schema.properties[k].items;
+    assert.equal(item.properties.tsx.items, TSX_ITEM, k + " declares parts in a shape of its own");
+    assert.equal(item.properties.tsx.maxItems, MAX_TSX);
+    assert.equal(item.properties.components.maxItems, MAX_COMPONENTS);
   }
+});
+
+// ── NO LOW LIMITS WHILE TESTING (owner, 2026-09-02) ─────────────────────────
+test("a message may name every kind, and the kinds that come in numbers answer lists with ceilings a site can hold", () => {
+  assert.equal(MAX_ADDS, ADD_KINDS.length, "a message cannot name every kind it asks for");
+  assert.deepEqual([...LIST_ADDS].sort(), ["component", "page", "table"]);
+  for (const k of LIST_ADDS) {
+    const p = addTool(k).input_schema.properties[k];
+    assert.equal(p.type, "array", k + " answers one thing, not a list");
+    assert.ok(p.maxItems >= 6, k + " has a low cap: " + p.maxItems);
+    assert.ok(Array.isArray(p.items.required) && p.items.required.length, k + "'s entries require nothing");
+  }
+  for (const k of OWN_ADDS.filter((x) => !LIST_ADDS.includes(x))) assert.equal(addTool(k).input_schema.properties[k].type, "object", k + " is a list of a thing a site has one of");
+  // The page cap is the page writer's own ceiling: a seventh page would be
+  // dropped there, so promising it here would be a page nobody gets.
+  assert.ok(MAX_ADD_PAGES <= MAX_PAGES, "the add step promises more pages than the page writer keeps");
+  assert.ok(MAX_ADD_COMPONENTS >= 6 && MAX_ADD_TABLES >= 3);
+  // And the rules say "as many as they asked for", never "one".
+  for (const k of LIST_ADDS) {
+    assert.match(addRule(k), /AS MANY [A-Z ]+ AS (THEY|THE THINGS THEY) (ASKED FOR|NAMED)/, k + "'s rule still caps the count at one");
+    assert.match(addRule(k), /NOT ONE MORE/, k + "'s rule has no ceiling");
+  }
+});
+
+// ── THE UNIVERSAL RULE (owner, 2026-09-02) ──────────────────────────────────
+test("whatever is added keeps the design system — said to the designers and to the page writer, in the same words", () => {
+  assert.match(ADD_DESIGN_RULE, /KEEPS THE SITE'S DESIGN SYSTEM/);
+  for (const w of ["theme", "stylesheet", "typefaces", "colours", "shape", "kit parts", "conventions"]) assert.ok(ADD_DESIGN_RULE.includes(w), "the rule does not name " + w);
+  // Hop 1: every own kind's designer call carries it in the cached system text.
+  for (const k of OWN_ADDS) {
+    const req = addRequest({ kind: k, message: "x", site: SITE, model: "m" });
+    assert.ok(req.system[0].text.includes(ADD_DESIGN_RULE), k + "'s designer is not told the rule");
+  }
+  // Hop 2: the fold's directive to the page writer opens with it, once, and
+  // only when something is being added.
+  const f = foldAdds([{ kind: "qr", value: { points: "tel:1", label: "Ring", page: "/", where: "" } }], {}, SITE);
+  assert.ok(f.directive.startsWith("## Adding to this site\n" + ADD_DESIGN_RULE), "the page writer is not told the rule first");
+  assert.equal(f.directive.split(ADD_DESIGN_RULE).length, 2, "the rule is repeated");
+  assert.equal(foldAdds([], {}, SITE).directive, "", "an empty fold carries a directive");
 });
 
 // ── THE TOOLS ────────────────────────────────────────────────────────────────
@@ -139,10 +180,12 @@ test("one property per tool, named by the kind, nothing required at the top, the
     assert.deepEqual(Object.keys(t.input_schema.properties), [k], k + ": the tool has a property that is not the kind");
     assert.deepEqual(t.input_schema.required, [], k + ": something is required of a kind that may decline");
     const p = t.input_schema.properties[k];
-    assert.equal(p.type, "object");
     assert.equal(p.description, addRule(k), k + ": the property does not carry the kind's rule");
-    assert.ok(Array.isArray(p.required) && p.required.length, k + ": the addition itself requires nothing");
-    for (const r of p.required) assert.ok(Object.hasOwn(p.properties, r), k + ": requires a property it does not have: " + r);
+    // A list kind's entry is the object; a single kind's property is.
+    const item = p.type === "array" ? p.items : p;
+    assert.equal(item.type, "object");
+    assert.ok(Array.isArray(item.required) && item.required.length, k + ": the addition itself requires nothing");
+    for (const r of item.required) assert.ok(Object.hasOwn(item.properties, r), k + ": requires a property it does not have: " + r);
   }
 });
 
@@ -183,10 +226,13 @@ test("the picker's tool is built from the kinds and describes every one of them"
 
 test("the picker's answer is refused down to offered kinds, de-duped, capped, and in RUN order", () => {
   const got = readAdds(toolReply("pick_adds", { kinds: ["page", "table", "page", ["qr"], "nope", "photo", "three"] }));
-  // Capped at MAX_ADDS in the order the model listed them, then sorted into
-  // the caller's order: a table runs before the page that shows it.
-  assert.deepEqual(got, ["table", "page", "photo"]);
+  // De-duped and refused down to real names, then sorted into the caller's
+  // order: a table runs before the page that shows it.
+  assert.deepEqual(got, ["table", "page", "three", "photo"]);
   assert.deepEqual(readAdds(toolReply("pick_adds", { kinds: ["page", "table"] })), ["table", "page"]);
+  // Every kind may be named (no low limits); the cap is the count of kinds.
+  assert.deepEqual(readAdds(toolReply("pick_adds", { kinds: [...ADD_KINDS].reverse() })), ADD_KINDS);
+  assert.deepEqual(readAdds(toolReply("pick_adds", { kinds: [...ADD_KINDS, ...ADD_KINDS] })), ADD_KINDS);
   assert.deepEqual(readAdds(toolReply("pick_adds", { kinds: ["page"] }), ["qr"]), [], "a kind not offered was accepted");
   assert.deepEqual(readAdds({ content: [{ type: "text", text: "hi" }] }), []);
   assert.deepEqual(readAdds(null), []);
@@ -272,27 +318,58 @@ test("cleanAdd: a page is repaired where it can be and refused where a guess wou
     link: "the header",
   }, SITE);
   assert.equal(ok.ok, true);
-  assert.equal(ok.value.path, "/gallery"); assert.equal(ok.value.file, "gallery.tsx"); assert.equal(ok.value.name, "Gallery");
-  assert.deepEqual(ok.value.components, ["gallery", "site-chrome"]);
-  assert.equal(ok.value.sections.length, MAX_SECTIONS);
-  assert.deepEqual(ok.value.tsx, [{ name: "seat-map", does: "seats", props: "rows: X[]" }]);
-  assert.equal(cleanAdd("page", { ...ok.value, path: "/" }, SITE).why, "no-path", "the home page is a page to add");
-  assert.equal(cleanAdd("page", { ...ok.value, path: "/about" }, MULTI).why, "page-exists");
-  assert.equal(cleanAdd("page", { ...ok.value, name: "" }, SITE).why, "no-plan");
-  assert.equal(cleanAdd("page", { ...ok.value, sections: [], components: [] }, SITE).why, "no-plan");
-  assert.equal(cleanAdd("page", { ...ok.value, path: "bad path!" }, SITE).why, "no-path");
+  // A LIST KIND ANSWERS A LIST; a bare object is a list of one.
+  assert.ok(Array.isArray(ok.value) && ok.value.length === 1);
+  const g = ok.value[0];
+  assert.equal(g.path, "/gallery"); assert.equal(g.file, "gallery.tsx"); assert.equal(g.name, "Gallery");
+  assert.deepEqual(g.components, ["gallery", "site-chrome"]);
+  assert.equal(g.sections.length, MAX_SECTIONS);
+  assert.deepEqual(g.tsx, [{ name: "seat-map", does: "seats", props: "rows: X[]" }]);
+  assert.deepEqual(ok.skipped, []);
+  assert.equal(cleanAdd("page", { ...g, path: "/" }, SITE).why, "no-path", "the home page is a page to add");
+  assert.equal(cleanAdd("page", { ...g, path: "/about" }, MULTI).why, "page-exists");
+  assert.equal(cleanAdd("page", { ...g, name: "" }, SITE).why, "no-plan");
+  assert.equal(cleanAdd("page", { ...g, sections: [], components: [] }, SITE).why, "no-plan");
+  assert.equal(cleanAdd("page", { ...g, path: "bad path!" }, SITE).why, "no-path");
   assert.equal(cleanAdd("page", null, SITE).why, "nothing");
   assert.equal(cleanAdd("page", "gallery", SITE).why, "nothing");
+  assert.equal(cleanAdd("page", [], SITE).why, "nothing");
   assert.equal(cleanAdd("nope", {}, SITE).why, "no-kind");
+  assert.equal(cleanAdd("photo", {}, SITE).why, "no-kind", "a dispatched kind has nothing to clean");
+});
+
+test("cleanAdd: a list keeps every usable entry, names the rest, and refuses only when none is usable", () => {
+  const many = cleanAdd("page", [
+    { path: "/prices", name: "Prices", purpose: "p", sections: ["a"], components: ["price-list"] },
+    { path: "/prices", name: "Again", purpose: "p", sections: ["a"], components: [] },   // the same answer already added it
+    { path: "/", name: "Home", purpose: "p", sections: ["a"], components: [] },          // the home page
+    { path: "/about", name: "About", purpose: "p", sections: ["b"], components: ["site-chrome"] },
+    "junk",
+  ], SITE);
+  assert.equal(many.ok, true);
+  assert.deepEqual(many.value.map((p) => p.path), ["/prices", "/about"]);
+  assert.deepEqual(many.skipped, [{ why: "page-exists", name: "/prices" }, { why: "no-path", name: "/" }]);
+  // Every entry bad: refused with the FIRST reason, the rest still named.
+  const none = cleanAdd("page", [{ path: "/" }, { path: "/about", name: "About", purpose: "p", sections: [], components: [] }], MULTI);
+  assert.equal(none.ok, false); assert.equal(none.why, "no-path"); assert.equal(none.skipped.length, 2);
+  // Capped at the list's ceiling, silently — a seventh page is one the page
+  // writer would drop anyway.
+  const pages = Array.from({ length: MAX_ADD_PAGES + 3 }, (_, i) => ({ path: "/p" + i, name: "P" + i, purpose: "p", sections: ["a"], components: [] }));
+  assert.equal(cleanAdd("page", pages, SITE).value.length, MAX_ADD_PAGES);
+  // Components and tables the same way; a table named twice is once.
+  const comps = cleanAdd("component", [{ page: "/", does: "quotes", components: ["testimonial"] }, { page: "/", does: "x", components: [] }], SITE);
+  assert.equal(comps.value.length, 1); assert.deepEqual(comps.skipped, [{ why: "no-component", name: "x" }]);
+  const tables = cleanAdd("table", [{ table: { name: "bookings", columns: [{ name: "when" }] } }, { table: { name: "bookings", columns: [{ name: "x" }] } }], DB);
+  assert.equal(tables.value.length, 1); assert.deepEqual(tables.skipped, [{ why: "no-table", name: "bookings" }]);
 });
 
 test("cleanAdd: a component lands on the one page a one-page site has, is refused on a many-page site it cannot name, and IS a component", () => {
   const one = cleanAdd("component", { page: "/testimonials", does: "quotes", components: ["testimonial"], where: "after the hero" }, SITE);
-  assert.equal(one.ok, true); assert.equal(one.value.page, "/"); assert.equal(one.value.where, "after the hero");
-  assert.deepEqual(one.value.components, ["testimonial"]);
+  assert.equal(one.ok, true); assert.equal(one.value[0].page, "/"); assert.equal(one.value[0].where, "after the hero");
+  assert.deepEqual(one.value[0].components, ["testimonial"]);
   assert.equal(cleanAdd("component", { page: "/nope", does: "quotes", components: ["testimonial"] }, MULTI).why, "no-page");
-  assert.equal(cleanAdd("component", { page: "about", does: "quotes", components: ["testimonial"] }, MULTI).value.page, "/about");
-  assert.equal(cleanAdd("component", { does: "quotes", components: ["testimonial"] }, MULTI).value.page, "/", "no page named on a site with a home page is the home page");
+  assert.equal(cleanAdd("component", { page: "about", does: "quotes", components: ["testimonial"] }, MULTI).value[0].page, "/about");
+  assert.equal(cleanAdd("component", { does: "quotes", components: ["testimonial"] }, MULTI).value[0].page, "/", "no page named on a site with a home page is the home page");
   assert.equal(cleanAdd("component", { page: "/", components: ["x"] }, SITE).why, "no-plan");
   // THE COMPONENT IS THE ADDITION (owner: "a tsx step that adds components"):
   // an answer that names no kit part and writes none is a band the page
@@ -300,18 +377,19 @@ test("cleanAdd: a component lands on the one page a one-page site has, is refuse
   assert.equal(cleanAdd("component", { page: "/", does: "quotes", components: [] }, SITE).why, "no-component");
   assert.equal(cleanAdd("component", { page: "/", does: "quotes", components: ["not a name"] }, SITE).why, "no-component");
   const own = cleanAdd("component", { page: "/", does: "a tide clock", components: [], tsx: [{ name: "tide-clock", does: "shows the tide", props: "port: string" }] }, SITE);
-  assert.equal(own.ok, true); assert.deepEqual(own.value.components, []); assert.equal(own.value.tsx[0].name, "tide-clock");
+  assert.equal(own.ok, true); assert.deepEqual(own.value[0].components, []); assert.equal(own.value[0].tsx[0].name, "tide-clock");
 });
 
 test("cleanAdd: a table needs a name and columns unless it gives an existing table payment or a public view", () => {
   const ok = cleanAdd("table", { table: { name: "Bookings", columns: [{ name: "when", type: "text" }, { nope: 1 }], access: "collect" }, seed: [{ when: "x" }, "junk", ...Array(20).fill({ when: "y" })], shows: "/" }, DB);
   assert.equal(ok.ok, true);
-  assert.equal(ok.value.table.name, "bookings");
-  assert.equal(ok.value.table.columns.length, 1);
-  assert.equal(ok.value.table.access, "collect", "the rest of the item must ride through to the engine");
-  assert.equal(ok.value.seed.length, MAX_ADD_SEED_ROWS);
-  assert.equal(ok.value.shows, "/");
-  assert.equal(ok.value.exists, true);
+  const t = ok.value[0];
+  assert.equal(t.table.name, "bookings");
+  assert.equal(t.table.columns.length, 1);
+  assert.equal(t.table.access, "collect", "the rest of the item must ride through to the engine");
+  assert.equal(t.seed.length, MAX_ADD_SEED_ROWS);
+  assert.equal(t.shows, "/");
+  assert.equal(t.exists, true);
   assert.equal(cleanAdd("table", { table: { name: "bookings", columns: [] } }, SITE).why, "no-columns");
   assert.equal(cleanAdd("table", { table: { name: "orders", columns: [], payment: { from: "products" } } }, DB).why, "no-columns", "payment on a table the site does not have is not an alteration");
   assert.equal(cleanAdd("table", { table: { name: "bookings", columns: [], payment: { from: "services" } } }, DB).ok, true);
@@ -335,7 +413,7 @@ test("cleanAdd: a code needs both halves and a scene needs a description; each l
 // ── THE DIRECTIVE AND THE FOLD ───────────────────────────────────────────────
 
 test("the directive says what is new, where it goes and what it is built from — and a tool site gets the tool block", () => {
-  const page = cleanAdd("page", { path: "/book", name: "Book", purpose: "book a lesson", sections: ["form", "hours"], components: ["site-chrome", "form-shell"], link: "the header menu" }, SITE).value;
+  const page = cleanAdd("page", { path: "/book", name: "Book", purpose: "book a lesson", sections: ["form", "hours"], components: ["site-chrome", "form-shell"], link: "the header menu" }, SITE).value[0];
   const d = addDirective("page", page, SITE);
   assert.match(d, /book\.tsx/); assert.match(d, /\/book/); assert.match(d, /"Book"/);
   assert.match(d, /LAYOUT — book a lesson\./);
@@ -344,7 +422,7 @@ test("the directive says what is new, where it goes and what it is built from �
   assert.match(d, /Link it from the header menu/);
   assert.ok(!d.includes(TOOL_DIRECTIVE), "a shopfront got the tool block");
   assert.ok(addDirective("page", page, { ...SITE, kind: "tool" }).includes(TOOL_DIRECTIVE), "a tool site did not get the tool block");
-  const component = cleanAdd("component", { page: "/", where: "after the hero", does: "quotes from students", components: ["testimonial"] }, SITE).value;
+  const component = cleanAdd("component", { page: "/", where: "after the hero", does: "quotes from students", components: ["testimonial"] }, SITE).value[0];
   const s = addDirective("component", component, SITE);
   assert.match(s, /^## The component you are adding/);
   assert.match(s, /On the home page \(index\.tsx\), after the hero/);
@@ -356,7 +434,7 @@ test("the directive says what is new, where it goes and what it is built from �
   const own = addDirective("component", { page: "/", where: "", does: "the tide", components: [], tsx: [{ name: "tide-clock", does: "x", props: "port: string" }] }, SITE);
   assert.match(own, /Written for this site: tide-clock \(port: string\) — write it as a part and call it from the page/);
   assert.ok(!/The kit component/.test(own), "a part written for this site is not called a kit component");
-  const table = cleanAdd("table", { table: { name: "bookings", columns: [{ name: "when" }] }, seed: [{ when: "x" }], shows: "/book" }, DB).value;
+  const table = cleanAdd("table", { table: { name: "bookings", columns: [{ name: "when" }] }, seed: [{ when: "x" }], shows: "/book" }, DB).value[0];
   const t = addDirective("table", table, DB);
   assert.match(t, /`bookings`/); assert.match(t, /1 starter rows/); assert.match(t, /\/book \(book\.tsx\)/); assert.match(t, /changes|adds/);
   const q = addDirective("qr", { points: "x", label: "y", page: "/", where: "" }, SITE);
@@ -385,9 +463,18 @@ test("foldAdds appends the parts by name over the stored ones, folds the tables 
   assert.deepEqual(f.components, ["site-chrome", "form-shell", "testimonial"]);
   assert.deepEqual(f.files, ["book.tsx"]);
   const blocks = f.directive.split("\n\n## ");
-  assert.equal(blocks.length, 5, "one block per addition, in run order");
-  assert.match(blocks[0], /^## The table/);
-  assert.match(blocks[1], /^The page/);
+  assert.equal(blocks.length, 6, "the rule, then one block per addition, in run order");
+  assert.match(blocks[0], /^## Adding to this site/);
+  assert.match(blocks[1], /^The table/);
+  assert.match(blocks[2], /^The page/);
+  // A LIST KIND FOLDS EVERY ENTRY: two pages are two blocks and two files.
+  const two = foldAdds([{ kind: "page", value: cleanAdd("page", [
+    { path: "/prices", name: "Prices", purpose: "p", sections: ["a"], components: ["price-list"] },
+    { path: "/about", name: "About", purpose: "p", sections: ["b"], components: ["site-chrome"] },
+  ], SITE).value }], {}, SITE);
+  assert.deepEqual(two.files, ["prices.tsx", "about.tsx"]);
+  assert.deepEqual(two.components, ["price-list", "site-chrome"]);
+  assert.equal((two.directive.match(/## The page you are adding/g) || []).length, 2);
   // Nothing declared, nothing stored: a site with no parts must not store [].
   const bare = foldAdds([{ kind: "qr", value: { points: "x", label: "y" } }], {}, SITE);
   assert.equal(bare.designed.tsx, undefined);
@@ -444,8 +531,11 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   const call = b.slice(gen, b.indexOf("}), aSpec", gen));
   assert.match(call, /brief: aInstruction \+ \(aFold\.directive \? "\\n\\n" \+ aFold\.directive : ""\)/, "the directive does not ride the brief");
   assert.match(call, /plan: aFold\.components\.length \? \{ components: aFold\.components \} : null/, "the kit parts are not handed to the page call");
-  // The reply says what kinds were added and what was set aside.
+  // The reply says what kinds were added and what was set aside — and which
+  // entries of a list were left out, with the server's own sentence.
   assert.match(b, /kinds: aAnswers\.map\(\(a\) => a\.kind\), skipped: aSkipped,/, "the reply does not say what was added");
+  assert.match(b.slice(clean, fold), /for \(const sk of Array\.isArray\(clean\.skipped\) \? clean\.skipped : \[\]\) aNotAdded\.push\(\{ kind: k, \.\.\.sk, msg: addRefusal\(sk\.why, k\) \}\);/, "an entry left out of a list is not carried to the reply");
+  assert.match(b, /notAdded: aNotAdded\.length \? aNotAdded\.slice\(0, 6\) : undefined,/, "the reply does not say which entries were left out");
   // The model-down answer is the edit route's: billing is ours, a timeout is ours.
   const down = b.slice(at(b, "const aDown = (e, what) => {", "down"), pick);
   assert.match(down, /isCallTimeout\(e\)/); assert.match(down, /k\.billing/); assert.match(down, /status: 503/);

@@ -141,16 +141,18 @@ export const CASES = [
     } },
   { name: "page", kinds: ["page"],
     ask: "Add a pricing page listing lesson prices: a single 30-minute lesson, an hour, and a block of five",
-    // Judged by the runner's extra: the new route read live, the sitemap, and
-    // a link to it from the home page.
+    // Judged by the runner's extra: every new route read live, the sitemap,
+    // and a link to each from the home page. EVERY route, not exactly one —
+    // no low limits (owner), so an ask may add several pages and each must
+    // be there.
     check: (b, a, r, x) => {
       const fresh = Array.isArray(x.newRoutes) ? x.newRoutes : [];
-      const one = fresh.length === 1 ? fresh[0] : "";
-      const served = one && x.newStatus === 200;
-      const listed = one && a.routes.includes(one);
-      const linked = one && a.hrefs.some((h) => h === one || h.startsWith(one + "?") || h.endsWith(one));
-      return { ok: !!(one && served && listed && linked && a.build !== b.build),
-               note: `added ${JSON.stringify(fresh)}; ${one || "(no route)"} answers ${x.newStatus}; ${listed ? "in" : "NOT in"} the sitemap; ${linked ? "linked" : "NOT linked"} from the home page` };
+      const statuses = x.newStatuses || {};
+      const served = fresh.length > 0 && fresh.every((p) => statuses[p] === 200);
+      const listed = fresh.length > 0 && fresh.every((p) => a.routes.includes(p));
+      const linked = fresh.length > 0 && fresh.every((p) => a.hrefs.some((h) => h === p || h.startsWith(p + "?") || h.endsWith(p)));
+      return { ok: !!(served && listed && linked && a.build !== b.build),
+               note: `added ${JSON.stringify(fresh)}; answers ${JSON.stringify(statuses)}; ${listed ? "all in" : "NOT all in"} the sitemap; ${linked ? "all linked" : "NOT all linked"} from the home page` };
     } },
   { name: "table", kinds: ["table", "page", "component"],
     ask: "Add a booking form so students can book a trial lesson with their name, email and preferred day",
@@ -315,7 +317,8 @@ async function main() {
     // THE NEW PAGE'S EVIDENCE: the route the reply named, read live.
     if (body.ok === true) {
       extra.newRoutes = (Array.isArray(body.added) ? body.added : []).map(sitePathOf).filter(Boolean);
-      if (extra.newRoutes.length === 1) extra.newStatus = (await site(extra.newRoutes[0])).status;
+      extra.newStatuses = {};
+      for (const p of extra.newRoutes) extra.newStatuses[p] = (await site(p)).status;
     }
     const claimedOk = body.ok === true;
     const escalated = body.escalate === true;
@@ -347,7 +350,7 @@ async function main() {
     if (verdict.startsWith("ok") && after.build !== before.build) {
       const tag = String(n).padStart(2, "0") + "-" + name;
       const a = await shot(SITE + "/", path.join(SHOTS, `addon-${tag}.png`)); if (a) shots.push(a);
-      if (extra.newRoutes && extra.newRoutes.length === 1) { const b = await shot(SITE + extra.newRoutes[0], path.join(SHOTS, `addon-${tag}-page.png`)); if (b) shots.push(b); }
+      for (const [i, p] of (extra.newRoutes || []).entries()) { const b = await shot(SITE + p, path.join(SHOTS, `addon-${tag}-page${extra.newRoutes.length > 1 ? "-" + (i + 1) : ""}.png`)); if (b) shots.push(b); }
     }
     console.log(`   kinds ${JSON.stringify(kinds)}${pickedRight ? "" : "  ← NOT " + JSON.stringify(c.kinds)}  cost=${cost}  ${wall.toFixed(0)}s  build ${before.build}→${after.build}${shots.length ? "  shots " + shots.join(", ") : ""}`);
     console.log(`   ${verdict.toUpperCase()}: ${note}\n`);
