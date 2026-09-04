@@ -1933,9 +1933,78 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   result and the reply without `langs`, the fallback removed; the ask naming
   a language the site has, the case without a variant, the check ignoring
   the words or the switcher, the runner reading once or dropping the words,
-  the note without the account. **Re-run pending**: `harness: lane`, `lanes:
-  langs`, from `main` after the Worker-only deploy (no roll); about 3
-  credits plus 1 per language that translates; the balance is 7.
+  the note without the account.
+  **RUN 38 (2026-09-04 20:15Z, `harness: lane`, `lanes: langs`, "Also offer
+  the site in German", 7 → 6): THE INSTRUMENT ANSWERED ON ITS FIRST RUN.**
+  Job `b94ff5d2…`, **1 credit, 221 s**, `mtnbaddj-a3d38n` → `mtne9wtv-qf042o`.
+  The lane itself works: `pick_lanes` named `langs` in 4.3 s, the lane
+  answered in 4.3 s, `moved: ["langs"]`, `/de` answers 200 on the new build
+  and the switcher reads Cymraeg · Français · Español · Deutsch. The
+  harness's verdict was `LIE`, rightly: "0 of 23 primary sentences
+  translated away" — `/de` is the English words. **The trace names it**:
+  `translate:de start {missing: 88, strings: 88, cached: 0}` →
+  `translate:de fail {why: "call", error: "anthropic 400"}` in **251 ms**,
+  `failed_phase: translate:de`; and NO mark for `es` or `fr` — their caches
+  were "full", so nothing was asked. **Two defects, both structural.**
+  (1) The call was the one small call still pinned to `claude-haiku-4-5`
+  through `anthropicMessages` — Anthropic by address, not by name — after
+  run 94 moved the router, the picker and the rungs, and it answered 400 in
+  a quarter of a second (the helper kept the API's own words on `e.detail`
+  and the instrument carried only the status; fixed, below). (2) **A failed
+  round poisoned the cache**: `nextCache` writes a string with no
+  translation as ITSELF — right for a name the model was asked about and
+  left alone, and written before a call could fail wholesale — so the
+  first failed publish stored every string of `es` and `fr` as English,
+  `missingFrom` found nothing missing ever after, and no publish asked
+  again. "A rule true because of a layer below it expires when that layer
+  moves": the rule assumed the model always answered.
+  **THE FIX (owner: *"if model is selected to grok everything gotta be on
+  grok, and if selected other ones its gotta be on other ones"*).**
+  `translateStrings` takes `models` and sends through `quickSend` on the
+  picker's `quick` slot — the sender that routes on the model's provider
+  and translates the request at the boundary — refusing `unconfigured`
+  before the call when the key is missing, Haiku's `thinking` field gone
+  with the pin, and a failed call's `e.detail` clipped onto the error. The
+  spine takes `models` (the edit route hands `modelsFor(eb.picker)` in
+  through `pendingPublish`, the addon route hands `aModels`, the build route
+  stores `picker` beside `model` in the design and the consumer hands
+  `modelsFor(design.picker)` into `buildAndPublishPages`, which resolves the
+  same from `picker` when a caller hands none — `test/build-params.test.mjs`
+  caught the stored picker arriving undestructured; the rebuild drain gets
+  the default). `untranslated(cache)` (site-translate)
+  reads a cache whose every value is its key as no cache and the loop
+  starts the language over (`healed: true` on the start mark);
+  `nextCache(have, strings, null)` is a failed round, keeping only what
+  was already translated so the next publish asks again; the write-back
+  compares against the cache as read, so a healed language is not
+  rewritten. The build path's copy of the loop mirrors both rules. **The
+  reply carries the account through the MERGE** — run 38 printed "the
+  spine's account: none" because the look branch read `pub.langs` off the
+  deferred publish's stub (the "dropped field has a twin one hop over"
+  shape, on the field written to end the guessing); `langs` and
+  `langsRefused` now come from `finalPub` where `files` and `render` do.
+  Guards: `test/wiring.test.mjs` (the provider, the models through every
+  route, the two cache rules on both loops, the merge),
+  `test/site-langs.test.mjs` (`nextCache(…, null)`, `untranslated`).
+  `test/spine-repair.test.mjs` went red for the change — it pinned the seam
+  hook as the LAST parameter of the spine's signature — and was re-anchored
+  on the hook being taken and defaulted, wherever it sits. **Sweep: 24
+  mutants, 24 killed, none unapplied, the comment-only control survived**
+  (22 in the first pass, then two for the builder's own fallback after
+  `build-params` caught the undestructured picker) — the pin back to Haiku,
+  the call sent to Anthropic by address, a missing key not refused, the
+  detail dropped; the spine ignoring or not handing the models, the edit
+  route, the addon route, the build consumer and the build loop each handing
+  none, the builder ignoring the stored picker, the design storing no
+  picker; a failed round still poisoning (spine and build),
+  the failure not remembered, a poisoned cache not healed (spine and build),
+  a healed cache never written, `nextCache(…, null)` writing fallbacks,
+  `untranslated` always false, reading empty as poisoned, reading one real
+  translation as poisoned; the merge dropping `langs` or the refused list.
+  **Not proven live** — the re-run of `lanes: langs` after the deploy is the
+  proof: three languages translated on Grok (`healed: true` on `es` and
+  `fr`), the account in the reply, `/de` in German. About 1 credit for the
+  edit plus 1 per language; the balance is 6.
 
 **DELETE deferred** (owner's call).
 
@@ -2271,8 +2340,9 @@ what the work cost.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,020
-  (2026-09-04, after the translation instrument's two — the spine's marks
+  build and the pre-list payload added sixteen); the unit suite is 5,022
+  (2026-09-04, after the translation fix's two — the picked model and the
+  cache rules — the translation instrument's two — the spine's marks
   and the harness's langs case — and the copy-the-first's-design guards' five — the rule on
   both hops, the directive, `pageComponents` driven, the note and the route's
   hop, the structure reader with run 36's bands — and before them the run-36

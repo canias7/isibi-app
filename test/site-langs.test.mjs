@@ -522,3 +522,26 @@ test("THE BUILD PATH TRANSLATES, AND ONLY THEN SENDS THE LANGUAGES", () => {
   assert.match(worker, /const extraLangs = Array\.isArray\(langs\) \? langs : \[\];/,
     "the dep no longer derives its language list from the argument the route passes");
 });
+
+test("a failed round writes nothing into the cache, and a cache that was never translated reads as none (run 38, 2026-09-04)", async () => {
+  const { untranslated } = await import("../builder/site-translate.mjs");
+  // THE POISONING: a call that never answered left every missing string with
+  // no translation, `nextCache` wrote each one in as itself, and from then on
+  // nothing was missing — fretwork-1's Spanish and French were English under
+  // both prefixes for three days and the loop never asked again.
+  const have = { "Book now": "Reservar" };
+  const strings = ["Book now", "A proper cut", "Ring us"];
+  const afterFailure = nextCache(have, strings, null);
+  assert.deepEqual(afterFailure, { "Book now": "Reservar" }, "a failed round wrote the primary's words in as translations");
+  assert.deepEqual(missingFrom(afterFailure, strings), ["A proper cut", "Ring us"], "the strings the failed round never translated are not asked about again");
+  // A string the model was ASKED about and left alone is still kept as itself
+  // — the rule for names and numbers is unchanged.
+  assert.deepEqual(nextCache({}, ["0113 200 0000"], { "0113 200 0000": "0113 200 0000" }), { "0113 200 0000": "0113 200 0000" });
+  assert.deepEqual(nextCache({}, ["0113 200 0000"], {}), { "0113 200 0000": "0113 200 0000" }, "a round that answered leaves a hole where a string was declined");
+  // THE HEALING: a cache whose every value is its key was never translated.
+  assert.equal(untranslated({ "Book now": "Book now", "Ring us": "Ring us" }), true);
+  assert.equal(untranslated({ "Book now": "Reservar", "Ring us": "Ring us" }), false, "one real translation reads as none");
+  assert.equal(untranslated({}), false, "an empty cache is new, not poisoned");
+  assert.equal(untranslated(null), false);
+  assert.equal(untranslated("x"), false);
+});

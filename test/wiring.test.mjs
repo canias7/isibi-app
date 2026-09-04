@@ -1589,10 +1589,63 @@ test("each language's translation is marked and its outcome carried, so a second
   assert.match(loop, /tm\("translate:" \+ l\.tag, got\.ok \? "ok" : "fail", outcome\)/, "a translation's outcome is not marked");
   assert.match(loop, /why: String\(got\.why \|\| "call"\), error: String\(got\.error \|\| ""\)\.slice\(0, 300\)/, "a failed translation's reason is not kept");
   assert.match(loop, /langOutcomes\.push\(\{ tag: l\.tag, missing: 0, ok: true, cached: true \}\)/, "a fully cached language is not accounted for");
-  // Carried on the result and on the look reply, never only logged.
+  // Carried on the result and THROUGH THE MERGE, never only logged. Run 38
+  // read "the spine's account: none" off a reply that had carried it from the
+  // look branch's deferred stub — the field was on the spine's result and the
+  // reply is assembled from the ONE publish below the branches.
   assert.match(w, /langs: langOutcomes\.length \? langOutcomes : undefined,/, "the spine's result drops the per-language outcome");
-  assert.match(w, /lanes: ranLanes,\n(?:\s*\/\/[^\n]*\n)*\s*langs: pub\.langs,/, "the look reply does not carry the spine's account of each language");
+  assert.match(w, /langs: finalPub \? finalPub\.langs : \(last && last\.body\.langs\),/, "the merged reply does not carry the spine's account of each language");
+  assert.match(w, /langsRefused: finalPub \? finalPub\.langsRefused : \(last && last\.body\.langsRefused\),/, "the merged reply drops the refused languages");
+  assert.doesNotMatch(w, /langs: pub\.langs,/, "the look branch reads the account off the deferred stub, which never has one");
   // The rule that started this is unchanged: a failed translation falls back
-  // to the primary wording and never fails the publish.
-  assert.match(loop, /else console\.error\("translate failed", slug, l\.tag, got\.why \|\| got\.error\);/, "a failed translation no longer falls back");
+  // to the primary wording and never fails the publish — and it no longer
+  // poisons the cache: a failed round hands `nextCache` null, and a cache
+  // that was never translated is read as none.
+  assert.match(loop, /else \{ failed = true; console\.error\("translate failed", slug, l\.tag, got\.why \|\| got\.error\); \}/, "a failed translation no longer falls back, or is not remembered as failed");
+  assert.match(loop, /const merged = nextCache\(have, strings, failed \? null : fresh\);/, "a failed round still writes the primary's words into the cache");
+  assert.match(loop, /const healed = untranslated\(had\);\n\s*const have = healed \? \{\} : had;/, "a cache that was never translated is not read as none");
+  assert.match(loop, /langsChanged = langsChanged \|\| JSON\.stringify\(merged\) !== JSON\.stringify\(had\);/, "the write-back compares against the healed cache, so a healed language is never written");
+  // THE BUILD PATH'S COPY holds the same two rules and hands the same models.
+  const bFrom = w.indexOf("// THE SPINE'S TWO RULES, MIRRORED");
+  assert.ok(bFrom > 0, "the build path's loop no longer mirrors the spine's cache rules");
+  const bLoop = w.slice(bFrom, w.indexOf("langCache[l.tag] = mergedStrings;", bFrom));
+  assert.match(bLoop, /const have = untranslated\(had\) \? \{\} : had;/);
+  assert.match(bLoop, /translateStrings\(env, l\.tag, missing, models\)/, "the build path translates on no model of the picker's");
+  assert.match(bLoop, /nextCache\(have, strings, failed \? null : fresh\)/);
+});
+
+test("the translation runs on the picked model like every other small call (owner, 2026-09-04), and the routes hand the picker in", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const from = w.indexOf("async function translateStrings(");
+  const to = w.indexOf("\n}\n", from);
+  assert.ok(from > 0 && to > from, "translateStrings is gone or was renamed");
+  const fn = w.slice(from, to);
+  // NOT PINNED, NOT ANTHROPIC BY ADDRESS: the one small call left behind on
+  // 2026-08-31 went through `anthropicMessages` with Haiku's name, and run 38
+  // read `anthropic 400` off the trace for it.
+  assert.doesNotMatch(fn, /claude-haiku|anthropicMessages\(/, "the translation is still pinned to Haiku on Anthropic");
+  assert.match(fn, /const model = \(models && typeof models\.quick === "string" && models\.quick\) \|\| modelsFor\(\)\.quick;/, "the model is not the picker's quick slot");
+  assert.match(fn, /quickSend\(env, "translate:" \+ tag\)\(\{\n\s*model,/, "the call does not go through the sender that routes on the model's provider");
+  assert.match(fn, /if \(modelKeyMissing\(env, model\)\) return \{ ok: false, why: "unconfigured"/, "a missing key is not refused before the call");
+  assert.doesNotMatch(fn, /thinking:/, "Haiku's thinking field is still sent to whichever provider the model belongs to");
+  // The API's own words ride with the status.
+  assert.match(fn, /error: String\(\(e && e\.message\) \|\| e\) \+ detail, usage: null/, "a failed call keeps the status and drops the reason");
+  // THE ROUTES HAND THE PICKER IN: the edit route through the one deferred
+  // publish, the addon route directly, the build route into its page builder.
+  assert.match(w, /pendingPublish = \{ \.\.\.args, pages: eSrc, renamed: Object\.keys\(renamed\)\.length \? renamed : null, parts, models: modelsFor\(eb && eb\.picker\) \};/, "the edit route's deferred publish carries no models");
+  assert.match(w, /async function recompileAndPublish\(env, \{[^}]*models = null \}\)/, "the spine takes no models");
+  assert.match(w, /const tModels = models && typeof models\.quick === "string" \? models : modelsFor\(\);/, "the spine does not resolve the picker's models");
+  assert.match(w, /translateStrings\(env, l\.tag, missing, tModels\)/, "the spine translates on no model of the picker's");
+  const addon = w.slice(w.indexOf("const aPub = await recompileAndPublish(env, {"), w.indexOf("const aPub = await recompileAndPublish(env, {") + 900);
+  assert.match(addon, /models: aModels,/, "the addon route's publish carries no models");
+  assert.match(w, /async function buildAndPublishPages\(env, \{[^}]*picker = null, models = null \}\)/, "the build's page builder takes no picker and no models");
+  // THE BUILDER RESOLVES ITS OWN when a caller hands none — from the `picker`
+  // the build route stores beside `model` in the design, which is what the
+  // consumer that finishes a build has in hand. `test/build-params.test.mjs`
+  // is what found the picker arriving undestructured.
+  assert.match(w, /\n  models = models && typeof models\.quick === "string" \? models : modelsFor\(picker\);\n/, "the builder does not resolve the picker's models when a caller hands none");
+  assert.match(w, /model: models\.pages,\n(?:\s*\/\/[^\n]*\n)*\s*picker: models\.picker,/, "the build route does not store the picker beside the pages model in the design");
+  for (const m of [...w.matchAll(/buildAndPublishPages\(env, \{[\s\S]{0,1400}?\}\)/g)]) {
+    assert.match(m[0], /\bmodels\b/, "a build call site hands the page builder no models: " + m[0].slice(0, 80));
+  }
 });

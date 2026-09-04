@@ -2574,6 +2574,26 @@ harness, lanes `langs`, from main after the deploy); about 3 credits, plus
 1 per language if the translation works. Balance 7. Sweep: 14 mutants,
 14 killed, control survived.
 
+**Run 38 (20:15 UTC, the languages test again, 7 → 6 credits): the edit
+path did its part, and the record now says exactly what failed.** The
+lane added German in nine seconds, the site republished, and the German
+page appeared with the switcher grown to four languages. It was in
+English, and this time the trace says why: the translation call for
+German was refused by Anthropic with a 400 a quarter of a second in, and
+Spanish and French were never asked about at all because an earlier
+failed call had filled their caches with the English words as if they
+were translations. Two fixes, both structural, both done tonight per your
+rule that everything follows the picked model: the translation now runs
+on the picked model like every other small call (Grok on a Grok site),
+and a failed translation no longer writes English into the cache, while
+a cache that was filled that way is thrown out and the language asked
+again. The reply also carries what happened to each language now; the
+first version of that got lost between the lane's answer and the final
+publish. The next publish of fretwork-1 should translate all three
+languages; 1 credit for the edit plus about 1 per language. Balance 6.
+Sweep: 24 mutants, 24 killed, control survived. Not yet proven live: the
+same languages test after the deploy is the proof.
+
    Sweep: 23 mutants, 23 killed, control survived. The build harness is
    331/331 through the real build service (five new checks), the unit
    suite 5,013. Pushed to the branch and to main; the deploy rebuilds the

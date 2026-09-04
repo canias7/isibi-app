@@ -103,7 +103,7 @@ import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBoo
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
 import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf, orderingMoved } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
-import { collectStrings, missingFrom, nextCache, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
+import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
@@ -9273,25 +9273,40 @@ function compileMsg(pub, theirs) {
 }
 
 /**
- * One Haiku call, translating a site's own words.
+ * One small call, translating a site's own words.
  *
  * THE CHEAPEST THING A MODEL CAN BE ASKED TO DO, and the expensive ones are no
  * better at it. Called only for the strings this language has never been asked
  * about, so an ordinary edit sends a handful and a colour change sends none.
+ *
+ * ON THE PICKED MODEL, LIKE EVERY OTHER SMALL CALL (owner, 2026-09-04: "if
+ * model is selected to grok everything gotta be on grok, and if selected other
+ * ones its gotta be on other ones"). This was the one small call still pinned
+ * to Haiku on Anthropic after run 94 moved the router, the picker and the
+ * rungs — and run 38 read the result off the trace: `anthropic 400` in 251 ms
+ * on every publish of a bilingual site, the variants shipped in the primary's
+ * words. `quickSend` routes on the model's provider and translates the request
+ * at the boundary, so a Grok site translates on Grok; the request is
+ * provider-shaped downstream, so Haiku's `thinking` field went with the pin.
+ * `models` is the route's picker; a caller that passes none gets the default.
  *
  * NEVER THROWS. It runs on the publish spine that every cheap edit goes through,
  * and a translation failure must cost the second language being behind rather
  * than the edit the customer actually asked for. The caller falls back to
  * whatever is cached and, for anything new, to the primary language.
  */
-async function translateStrings(env, tag, strings) {
+async function translateStrings(env, tag, strings, models = null) {
   if (!strings.length) return { ok: true, strings: [], usage: null };
+  const model = (models && typeof models.quick === "string" && models.quick) || modelsFor().quick;
+  // NO KEY, NO CALL — said, the way the lanes say it before they spend.
+  if (modelKeyMissing(env, model)) return { ok: false, why: "unconfigured", error: "no key configured for " + model, usage: null };
   try {
-    const r = await anthropicMessages(env, {
-      model: "claude-haiku-4-5",
+    const r = await quickSend(env, "translate:" + tag)({
+      model,
       max_tokens: 8000,
-      thinking: { type: "disabled" },
-      system: "You translate the words on a small business's own website into " + tag + ".",
+      // CACHED: the instruction is byte-identical for every site translated
+      // into this language; the strings are the per-call bytes.
+      system: [{ type: "text", cache_control: { type: "ephemeral" }, text: "You translate the words on a small business's own website into " + tag + "." }],
       tools: [TRANSLATE_TOOL],
       tool_choice: { type: "tool", name: TRANSLATE_TOOL.name },
       messages: [{ role: "user", content: "Target language (BCP-47): " + tag + "\n\nStrings:\n" + JSON.stringify(strings) }],
@@ -9300,7 +9315,12 @@ async function translateStrings(env, tag, strings) {
     const read = readTranslation(use && use.input, strings.length);
     return read.ok ? { ok: true, strings: read.strings, usage: r.usage || null } : { ...read, usage: r.usage || null };
   } catch (e) {
-    return { ok: false, why: "call", error: String((e && e.message) || e), usage: null };
+    // THE API'S OWN WORDS RIDE WITH THE STATUS (run 38, 2026-09-04): the helper
+    // throws "anthropic 400" and keeps the body on `detail`, and the trace
+    // carried the status alone — a number where the reason was already in
+    // hand. Clipped, because a refusal's body can be a page.
+    const detail = e && e.detail ? " — " + String(e.detail).replace(/\s+/g, " ").trim().slice(0, 200) : "";
+    return { ok: false, why: "call", error: String((e && e.message) || e) + detail, usage: null };
   }
 }
 
@@ -9390,7 +9410,7 @@ function hasLookField(look, field) {
  *   every mark a no-op, so every existing caller is unchanged — which is what
  *   keeps this instrumentation and not a behaviour change.
  */
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null, parts = null, afterCompile = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null, parts = null, afterCompile = null, models = null }) {
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
@@ -9566,22 +9586,35 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // carried on the result (`langs`), so a variant that is behind names its
   // reason on the wire — and a re-run of the lane can be read, not guessed.
   const langOutcomes = [];
+  // THE MODEL IS THE PICKER'S, handed in by the route that knows it (the edit
+  // route through `publishStep`, the addon route directly); a caller that
+  // passes none — the rebuild drain — gets the default picker's.
+  const tModels = models && typeof models.quick === "string" ? models : modelsFor();
   for (const l of siteLangs) {
     if (l.primary) continue;
     const { strings, dropped } = collectStrings(pages || []);
-    const have = cache[l.tag] && typeof cache[l.tag] === "object" ? cache[l.tag] : {};
+    const had = cache[l.tag] && typeof cache[l.tag] === "object" ? cache[l.tag] : {};
+    // A CACHE THAT WAS NEVER TRANSLATED IS NO CACHE (run 38, 2026-09-04). A
+    // failed call's fallback — every string as itself — had been written in as
+    // if translated, so fretwork-1's Spanish and French were never asked about
+    // again: 0 missing, no call, English under both prefixes for good.
+    // `untranslated` reads that shape and starts the language over, and
+    // `nextCache` no longer writes it (a failed round keeps only what was
+    // already translated), so the two together heal every site it happened to.
+    const healed = untranslated(had);
+    const have = healed ? {} : had;
     const missing = missingFrom(have, strings);
-    let fresh = {};
+    let fresh = {}, failed = false;
     if (missing.length) {
-      tm("translate:" + l.tag, "start", { missing: missing.length, strings: strings.length, cached: strings.length - missing.length });
-      const got = await translateStrings(env, l.tag, missing);
+      tm("translate:" + l.tag, "start", { missing: missing.length, strings: strings.length, cached: strings.length - missing.length, ...(healed ? { healed: true } : {}) });
+      const got = await translateStrings(env, l.tag, missing, tModels);
       if (got.usage) { langUsage.push(got.usage); langCost += 1; }
       // A FAILED TRANSLATION IS NOT A FAILED PUBLISH. The pages fall back to
       // whatever is cached and, for anything new, to the primary language — so
       // the site stays up and the second language is merely behind, which is
       // strictly better than losing the edit the customer actually asked for.
       if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
-      else console.error("translate failed", slug, l.tag, got.why || got.error);
+      else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
       const outcome = got.ok
         ? { tag: l.tag, missing: missing.length, ok: true }
         : { tag: l.tag, missing: missing.length, ok: false, why: String(got.why || "call"), error: String(got.error || "").slice(0, 300) };
@@ -9591,9 +9624,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // Every string already in the cache: nothing asked, nothing to fail.
       langOutcomes.push({ tag: l.tag, missing: 0, ok: true, cached: true });
     }
-    const merged = nextCache(have, strings, fresh);
+    // `null` FOR A FAILED ROUND: the cache keeps what it had and the missing
+    // strings stay missing, so the next publish asks again instead of
+    // treating the primary's words as this language's for ever.
+    const merged = nextCache(have, strings, failed ? null : fresh);
     nextStrings[l.tag] = merged;
-    langsChanged = langsChanged || JSON.stringify(merged) !== JSON.stringify(have);
+    langsChanged = langsChanged || JSON.stringify(merged) !== JSON.stringify(had);
     if (dropped) console.error("translate truncated", slug, l.tag, dropped + " strings over the cap");
   }
   // ONE ASSEMBLY, for the first compile and for a repair's second: the primary
@@ -10203,7 +10239,13 @@ async function siteOgImage(env, slug, dist) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, picker = null, models = null }) {
+  // THE PICKER'S MODELS FOR THE TRANSLATION LOOP BELOW (run 38, 2026-09-04):
+  // `models` when the caller resolved them, else resolved here from the
+  // `picker` the build route stores beside `model` in the design — a job
+  // stored before either existed gets the default picker's. Reassigned so the
+  // loop reads one name whichever way they arrived.
+  models = models && typeof models.quick === "string" ? models : modelsFor(picker);
   // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
   // runs the compile dep TWICE — one page swapped for a stub — and a cache that
   // lived inside the dep would pay a second Haiku call for strings answered
@@ -10490,16 +10532,21 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       for (const l of siteLangs) {
         if (l.primary) continue;
         const { strings, dropped } = collectStrings(pages);
-        const have = langCache[l.tag] && typeof langCache[l.tag] === "object" ? langCache[l.tag] : {};
+        const had = langCache[l.tag] && typeof langCache[l.tag] === "object" ? langCache[l.tag] : {};
+        // THE SPINE'S TWO RULES, MIRRORED (run 38, 2026-09-04): a cache that
+        // was never translated is no cache, and a failed round writes nothing.
+        const have = untranslated(had) ? {} : had;
         const missing = missingFrom(have, strings);
-        let fresh = {};
+        let fresh = {}, failed = false;
         if (missing.length) {
-          const got = await translateStrings(env, l.tag, missing);
+          // ON THE PICKED MODEL, handed in by the build route with its pages
+          // model; the spine's rule, one path over.
+          const got = await translateStrings(env, l.tag, missing, models);
           if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
-          else console.error("translate failed", slug, l.tag, got.why || got.error);
+          else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
         }
-        const mergedStrings = nextCache(have, strings, fresh);
-        langsChanged = langsChanged || JSON.stringify(mergedStrings) !== JSON.stringify(have);
+        const mergedStrings = nextCache(have, strings, failed ? null : fresh);
+        langsChanged = langsChanged || JSON.stringify(mergedStrings) !== JSON.stringify(had);
         langCache[l.tag] = mergedStrings;
         const t = translatePages(pages, l.prefix, strings, strings.map((sTxt) => mergedStrings[sTxt]), { routes: primaryRoutes });
         for (const tp of t.pages) files[tp.path] = tp.source;
@@ -12066,6 +12113,10 @@ async function runResumedSiteBuild(env, ctx, id) {
       ...design,
       mark: (n) => { try { tr.at(n); } catch { /* a trace must never break a build */ } },
       budget,
+      // THE PICKER'S MODELS, for the build's own translation loop (run 38,
+      // 2026-09-04): the picker rides in the stored design; a job stored
+      // before it carried one gets the default picker's.
+      models: modelsFor(design.picker),
       genPathOut: genPath,
       // FIRE ONLY ON A REFIRE, and the condition is the whole safety argument.
       // Firing while a generation is still running would start a second one
@@ -13624,6 +13675,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             attachments: attached.blocks,
             priorUsage: (researched && researched.usage) || null,
             model: models.pages,
+            // AND THE PICKER IT WAS RESOLVED FROM, stored with the design so the
+            // consumer that finishes the build can hand the spine's translation
+            // the same picker's models (run 38, 2026-09-04).
+            picker: models.picker,
             // THE THEME OFF THE MERGED LOOK (2026-08-27) — required of a first
             // build's designer, stored-unless-named on a revise, and validated
             // by `FIELD_KEEPS.theme` before it could land in `merged`. The
@@ -18757,7 +18812,9 @@ async function handleRequest(request, env, ctx) {
               // then send the stored list and the page's import would not
               // compile. A later list wins; absent means "no change to them".
               const parts = Array.isArray(args && args.parts) ? args.parts : ((pendingPublish && pendingPublish.parts) || null);
-              pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null, parts };
+              // AND THE PICKER'S MODELS, so the spine's translation call runs
+              // on the model this edit was picked for (run 38, 2026-09-04).
+              pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null, parts, models: modelsFor(eb && eb.picker) };
               // A DEFERRED PUBLISH REPORTS SUCCESS, because from the branch's
               // point of view its work IS done — it has stored what it changed
               // and handed over the pages. `files` and `render` are absent until
@@ -20421,10 +20478,6 @@ async function handleRequest(request, env, ctx) {
                 // an edit that ran two lanes was, until now, indistinguishable
                 // from one that ran one.
                 lanes: ranLanes,
-                // WHAT HAPPENED TO EACH LANGUAGE (2026-09-04): the spine's own
-                // account, so a second language that is behind says why here
-                // instead of in the Worker's log alone.
-                langs: pub.langs,
                 renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
               });
             }
@@ -21058,6 +21111,13 @@ async function handleRequest(request, env, ctx) {
               files: finalPub ? finalPub.files : (last && last.body.files),
               render: finalPub ? finalPub.render : (last && last.body.render),
               renderNote: finalPub ? finalPub.renderNote : (last && last.body.renderNote),
+              // WHAT HAPPENED TO EACH LANGUAGE, from the one publish (run 38,
+              // 2026-09-04): the spine's account rode its result, the deferred
+              // publish's stub answered the look branch first, and the reply
+              // said "none" — the "dropped field has a twin one hop over"
+              // shape, on the field written to end the guessing.
+              langs: finalPub ? finalPub.langs : (last && last.body.langs),
+              langsRefused: finalPub ? finalPub.langsRefused : (last && last.body.langsRefused),
               cost: done.reduce((n, d) => n + (Number(d.body && d.body.cost) || 0), 0),
               // WHAT WAS BILLED, from the one list `eCharge` appends to — so the
               // receipt is assembled from what was charged rather than rebuilt
@@ -21912,6 +21972,8 @@ async function handleRequest(request, env, ctx) {
               trace: editTrace, job: aJob,
               // THE ADD STEP'S REPAIR ROUND, at the spine's seam — see above.
               afterCompile: aAfterCompile,
+              // THE PICKER'S MODELS, for the spine's translation call (run 38).
+              models: aModels,
             });
             aMark("publish:1", aPub && aPub.ok ? "ok" : "fail", { error: aPub && aPub.error, repair: aRepairRound ? (aRepairRound.why || aRepairRound.failed || aRepairRound.repaired.length) : undefined });
             // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. Not escalated: the

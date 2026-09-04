@@ -131,15 +131,40 @@ export function missingFrom(cache, strings) {
  * is the honest degradation. Storing it keeps the count of misses honest too —
  * without it, a string the model declined to change would be asked about again
  * on every publish for ever.
+ *
+ * BUT NOT AFTER A ROUND THAT FAILED (run 38, 2026-09-04). The rule above is
+ * written for a string the model was ASKED about and left alone — a name, a
+ * phone number. A call that never answered left every missing string with no
+ * translation, this wrote each one in as itself, and from then on nothing was
+ * missing: fretwork-1's Spanish and French were English under both prefixes
+ * for three days and the loop never asked again. `fresh === null` says the
+ * round failed: the cache keeps only what it already held for today's strings,
+ * the rest stay missing, and the next publish asks.
  */
 export function nextCache(cache, strings, fresh) {
   const have = cache && typeof cache === "object" ? cache : {};
   const out = {};
   for (const s of Array.isArray(strings) ? strings : []) {
+    if (fresh === null) { if (typeof have[s] === "string") out[s] = have[s]; continue; }
     const got = fresh && typeof fresh[s] === "string" ? fresh[s] : have[s];
     out[s] = typeof got === "string" ? got : s;
   }
   return out;
+}
+
+/**
+ * A cache that was never translated — every string stored as itself — which
+ * is what the rule above wrote for a language whose every call failed. Read
+ * as no cache at all, so the language starts over on the next publish; a real
+ * translation has at least one string that differs from its key. A site whose
+ * every string the model would legitimately keep (nothing but names) pays a
+ * call per publish for it, which is honest and rare. Empty is not this: an
+ * empty cache is simply new.
+ */
+export function untranslated(cache) {
+  if (!cache || typeof cache !== "object") return false;
+  const keys = Object.keys(cache);
+  return keys.length > 0 && keys.every((k) => cache[k] === k);
 }
 
 /**

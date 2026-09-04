@@ -52,7 +52,14 @@ function between(src, from, to, what) {
 const spine = between(worker, "async function recompileAndPublish(", "async function siteOgImage(", "the spine");
 
 test("the spine offers a seam between the compile's verdict and the first write, and knows nothing about repair", () => {
-  assert.match(spine.slice(0, 400), /afterCompile = null \}\) \{/, "the spine does not take a seam hook, defaulting to none");
+  // RE-ANCHORED 2026-09-04: this pinned the hook as the LAST parameter
+  // (`afterCompile = null }) {`) and went red when an honest `models` arrived
+  // after it for the spine's translation call (run 38) — reporting the seam
+  // gone when nothing had moved. The property is that the signature takes the
+  // hook and defaults it to none, wherever it sits in the list.
+  const signature = spine.slice(0, spine.indexOf(") {") + 3);
+  assert.ok(signature.length > 40 && signature.length < 600, "the spine's signature is not where this reads it");
+  assert.match(signature, /\bafterCompile = null\b/, "the spine does not take a seam hook, defaulting to none");
   // THE SPINE IMPORTS NOTHING FROM THE BUILD'S REPAIR MODULE and names no
   // repair: the owner's rule is that the add step does not trigger the build
   // path, and the spine is every path's.
