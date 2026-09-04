@@ -2001,16 +2001,63 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   a healed cache never written, `nextCache(…, null)` writing fallbacks,
   `untranslated` always false, reading empty as poisoned, reading one real
   translation as poisoned; the merge dropping `langs` or the refused list.
-  **Not proven live** — the re-run of `lanes: langs` after the deploy is the
-  proof. **The case asks for German OFF now** ("Stop offering the site in
+  **The case asks for German OFF now** ("Stop offering the site in
   German"): run 38 left the site at `MAX_EXTRA_LANGS`, so asking for German
   again answers "already" and publishes nothing and a fourth language is
-  refused at the cap, while a removal publishes just the same. The proof is
-  the SPANISH page — its poisoned cache read as none (`healed: true` on
-  `es` and `fr`), both asked again on Grok, `/es` translated, `/de` a 404
-  (the harness reads both, re-reading a stale edge copy until the new build
-  serves it), the account in the reply. About 1 credit for the edit plus 1
-  per language; the balance is 6.
+  refused at the cap, while a removal publishes just the same, and the
+  proof is the SPANISH page — its poisoned cache read as none, both
+  languages asked again on Grok, `/es` translated, `/de` a 404 (the harness
+  reads both, re-reading a stale edge copy until the new build serves it),
+  the account in the reply.
+  **RUN 39 (2026-09-04 20:47Z, `harness: lane`, `lanes: langs`, "Stop
+  offering the site in German", 6 → 5): THE SECOND LANGUAGE IS PROVEN LIVE,
+  ON GROK.** Job `8a6affbc…`, trace `e_mtnfesxolqq0bydi`, **1 credit,
+  682 s**, `mtne9wtv-qf042o` → `mtnfl34h-8uuf06`. The picker named `langs`
+  in 4.2 s, the lane answered in 4.2 s, and the spine did what it had
+  never done on this site: `translate:fr start {missing: 88, strings: 88,
+  cached: 0, healed: true}` → `ok` in **152.6 s**, `translate:es` the same
+  → `ok` in **124.3 s**, both on `grok-4.6`, and the reply carries `langs:
+  [{fr, 88, ok}, {es, 88, ok}]` through the merge. On the site: `/es` in
+  Spanish — "Reservar una clase de guitarra", "Los ocho primeros acordes",
+  the chord names, the opening hours, the quotes
+  (`docs/edits/lane-run39-es.png`, the whole page; `-top.png` the fold) —
+  `/fr` in French, `/de` a 404, the switcher Cymraeg · Français · Español.
+  The harness's verdict, `ok`: "19 of 23 primary sentences translated away;
+  /de answers 404 (gone)" — the first green `langs` case that read a
+  translated word. `publish:1` 664 s: the two translations 277 s in
+  series, the compile ~216 s, `archive` **139 s** (38 s on run 38).
+  **Four findings on the way, none the fix's, all filed (#86–#89):**
+  (1) **THE TRANSLATION CALLS ARE NOT BILLED ON THE EDIT PATH.** The spine
+  carries their usage on its result (`langUsage` — "so somebody can bill
+  them", its own comment) and the edit route reads it nowhere: every
+  rung's publish is deferred through `publishStep`, the one spine runs
+  below the loop as `finalPub`, the merged reply's `cost` is the sum of
+  the steps' own charges — each computed BEFORE the spine ran — and its
+  `usage` is `billedAll`. The rungs that hand their `xPub` to `eCharge`
+  hand the deferred STUB, which has no usage: the argument was right when
+  each rung published synchronously and went inert when the publish was
+  deferred ("a rule true because of a layer below it expires when that
+  layer moves"). `langCost` beside it is a dead counter. Under a job the
+  reserve is placed before the spine, so the honest shape is a second
+  sequenced reserve after `finalPub` (the addon repair round's `#2`) —
+  which raises the floor question, because `pageCredits` floors at 1 and a
+  second bill is a whole credit for a fraction of one. **Owner's call.**
+  (2) **WHAT STAYED ENGLISH IS TEXT THE PAGE SOURCE DOES NOT CARRY**:
+  `collectStrings` reads the pages, so the kit components' built-in labels
+  (Your name / Email / Send, Opening hours, Closed, the calendar's legend),
+  the QR caption (baked from the stored list's `label`) and the text inside
+  the site's own `-parts/` are never asked about. A variant is translated
+  exactly as far as the page source goes.
+  (3) **THE RENDER CHECK REPORTED A 6 s NAVIGATION TIMEOUT AS `threw`** on
+  `/` at the phone viewport (`page.goto: Timeout 6000ms exceeded`,
+  `checked: 4, partial: true`), and the customer's reply says "/ threw an
+  error" for a container that was slow, not a page that broke — an
+  instrument's timeout wearing the page's failure, the recorded "a failure
+  that cannot name itself". It wants its own kind, outside `SERIOUS`.
+  Container-side.
+  (4) **LANGUAGES TRANSLATE ONE AT A TIME**, 124–153 s each on Grok: a site
+  with three fresh caches spends ~7 minutes of the 840 s job before the
+  compile. The calls are independent; run them together.
 
 **DELETE deferred** (owner's call).
 
@@ -2307,8 +2354,9 @@ what the work cost.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 7 credits** (read by the harness 2026-09-04 18:56Z, after run
-  37's component case: 24 → 7). It was **0** on 08-29;
+- **Balance: 5 credits** (read by the harness 2026-09-04 20:59Z, after run
+  39's langs case: 6 → 5; run 37 took 24 → 7, run 38 7 → 6). It was **0**
+  on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**

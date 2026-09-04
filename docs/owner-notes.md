@@ -2597,6 +2597,41 @@ proof is the Spanish page coming back in Spanish, the German page gone,
 and the reply saying what happened to each language. About 1 credit for
 the edit plus 1 per language that translates. Balance 6.
 
+**Run 39 (20:47 UTC, the languages test after the fix, 6 → 5 credits):
+the languages work.** You asked to take German off; the lane did it in
+four seconds, and the republish translated the site for real this time —
+Spanish and French, 88 strings each, on Grok, about two and a half minutes
+a language — and the reply says so for each. The Spanish page reads in
+Spanish now (the headings, the chord names, the opening hours, the
+quotes), the French page in French, the German page is gone and the
+switcher shows three languages. Screenshot: `docs/edits/lane-run39-es.png`
+(the whole page) and `lane-run39-es-top.png` (the fold). The whole edit
+took eleven minutes and 1 credit. Four things I found while reading it,
+none of them broken by the fix, all on the list for you to call:
+
+- **We are not charging for the translation calls.** The publish reports
+  what they cost and nothing on the edit path reads it, so every
+  bilingual publish translates for free. Charging it properly means a
+  second small bill after the publish, and our billing rounds each bill
+  up to a whole credit, so it would add a credit to most bilingual edits
+  for a few cents of Grok. Your call which you would rather.
+- **Some words stayed English** — four of the twenty-three sentences the
+  test counts. They are the labels the kit's own components carry (the
+  form's Your name / Email / Send, Opening hours, the calendar's legend),
+  the QR caption, and the text inside the boxes the addon runs wrote. The
+  translator only sees the page's own words. Extending it to the addon's
+  boxes is straightforward; the kit's labels are a bigger job.
+- **The page check called the home page broken when it was only slow.**
+  The browser took more than six seconds to open it on a busy build
+  machine, and the reply told the customer "/ threw an error". A slow
+  check needs its own name.
+- **The languages translate one after another**, about two and a half
+  minutes each on Grok. A site with three fresh languages would spend
+  seven of its fourteen minutes translating before the build starts.
+  They can run at the same time.
+
+Balance 5.
+
    Sweep: 23 mutants, 23 killed, control survived. The build harness is
    331/331 through the real build service (five new checks), the unit
    suite 5,013. Pushed to the branch and to main; the deploy rebuilds the
