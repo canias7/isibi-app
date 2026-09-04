@@ -118,7 +118,7 @@ import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LA
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg } from "./builder/site-add.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -21232,6 +21232,11 @@ async function handleRequest(request, env, ctx) {
               // stored source, or its plan name — so "the booking page" is
               // findable among routes that never say the word.
               labels: pageLabels(aSrc, aLook.pages),
+              // WHAT EACH PAGE IS BUILT FROM (owner, 2026-09-04: a second one
+              // copies the first's design): the kit components and the site's
+              // own parts each page imports, so the component designer can
+              // name the one a like section already uses.
+              builtFrom: pageComponents(aSrc),
               tables: ((aSpec && aSpec.tables) || []).map((t) => t && t.name).filter(Boolean),
               // EACH TABLE'S COLUMNS, "name type" (2026-09-03), for the
               // function designer: a `sql` body is parsed at CREATE, so a

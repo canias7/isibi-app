@@ -1754,6 +1754,84 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   check unordered routes, the probe reaching for module scope. `site build`
   331/331 through the real container; suite 5,013 green.
 
+- **A SECOND ONE COPIES THE FIRST'S DESIGN (#82; owner, 2026-09-04: *"Yes,
+  new components should copy existing design"*).** Run 36's second band was
+  stacked full-width cards under a first band of three across — the words
+  landed, every sentence stayed, the wall passed it, and the page carried
+  two designs of one thing. Three hops, none of which existed.
+  (1) **The rule, on both models.** `ADD_DESIGN_RULE` gained "AND A SECOND
+  ONE IS BUILT THE WAY THE FIRST IS BUILT … the same component — the kit
+  part it calls, or the part written for this site — called the same way,
+  in the same wrapper, with the same layout … Only the words are new … the
+  one that was there first is the one to copy", riding `ADD_SYSTEM` and
+  heading the fold's directive as the rest of the rule does; the `component`
+  kind's hint and `keep` say a like section is a second one BUILT FROM THE
+  SAME COMPONENT the first is built from, and the page writer's component
+  line says the same wrapper and the same layout classes, "not a different
+  component that shows the same kind of thing".
+  (2) **The FACT the designer needs.** A rule to name the first one's
+  component is empty when the designer has never been told what the page is
+  built from. `pageComponents(sources)` (site-add.mjs) reads each stored
+  page's imports — `@/components/ui/*` is the kit, `@/routes/-parts/*` the
+  site's own parts, an alias read as the kit's name, `@/lib/*` not a
+  component — keyed by route; the addon route hands it in as
+  `aSite.builtFrom`, and `siteNote` prints "/ is built from: SiteChrome,
+  TestimonialGrid, …; and its own parts ChordDiagram. A second one of
+  something it already has is built from the same component as the first."
+  per page, and nothing for a page that imports nothing.
+  (3) **The harness reads the served page's STRUCTURE, never its words**
+  (`scripts/addon-sweep.mjs`). `skeletonOf` is the tag tree with each
+  element's `data-slot` and its LAYOUT classes only — grid, columns, flex,
+  gap, space, widths; never colour, type or radius, which the design system
+  holds constant — a run of identical siblings collapsed to one, so a grid
+  of three and a grid of four read the same and a grid and a stack do not;
+  an `<svg>` is a leaf. `sectionsOf` is the top-level `<section>`s (a nested
+  one stays inside its parent), `newSections` what the page gained by its
+  words, and `builtLike(before, after, like)` finds the FIRST section of the
+  kind (`TESTIMONIALS_LIKE`, the kit's `testimonial-grid` slot) and fails a
+  new section built differently, naming both skeletons. The `component`
+  case's verdict carries it beside the words and the loss: "built the way
+  the first one is", or "BUILT DIFFERENTLY from the band it should copy —
+  new “…” is section(div{max-w-6xl space-y-6}(div[card]…)) where the first
+  is section(div{max-w-6xl}(div[testimonial-grid]{gap-4 grid lg:grid-cols-3
+  sm:grid-cols-2}(div[card]…)))" — run 36's page, as the fixture, fails it.
+  **The fixtures are the served page**: `test/fixtures/testimonial-bands.mjs`
+  holds both bands as fretwork-1 serves them (read through a local mirror),
+  ONE copy for `test/copy-design.test.mjs` and `test/addon-sweep.test.mjs`.
+  The older component-case guard held a snapshot with no `html` at all (the
+  harness's carries one) and a quote typed `“First…` where the served page
+  is `“<!-- -->First…` — React's SSR marker between two text nodes, a space
+  once stripped — and went red for the change; it reads `text` off `html`
+  through the harness's own `strip` (exported for it) and the lost sentence
+  off `lostSentences` itself now. Guards: `test/copy-design.test.mjs` — the
+  rule on both hops, the directive, `pageComponents` driven, the note and
+  the worker hop, the structure reader driven with run 36's bands, the
+  component case. **Sweep: 33 mutants, 33 killed, none unapplied, the
+  comment-only control survived — four survived the first pass, every one a
+  property the guard described and did not drive** (the recorded "a guard
+  proves the branch it drives"): the `<svg>` leaf (an added icon read as a
+  difference either way; two icons differing only inside now read the same),
+  the model being the FIRST like section (a reader taking the LAST would
+  take the new band as its own model and pass everything — a two-across
+  grid beside a three-across one drives it), every new section judged (a
+  copy followed by a stack), and the first-of-its-kind answer's `ok` (its
+  note alone was read). The rest: the rule sentence dropped, copying the
+  newest, letting the layout differ, the hint and the keep without the
+  component, the directive's copy line dropped or allowing another
+  component, parts read as kit, an alias read as its local name, `@/lib`
+  read as a component, a page with no imports guessed, keyed by file, the
+  note line dropped or without parts or without the sentence or printed for
+  an empty page, the route handing `{}`, the reader always agreeing or
+  agreeing on nothing, layout or slot ignored, items counted, no new section
+  passing, `newSections` empty, the note unnamed, the case ignoring the
+  verdict or its note, the kind matched by any section, a nested section
+  read twice. Full suite 5,018 green. **Not proven live** — the component
+  case on fretwork-1 (~16 credits, owner's call) is the proof. The site carries a grid band and
+  a stacked band now and the rule copies the FIRST, so the expected outcome
+  is a THIRD band after the second, a three-across `TestimonialGrid` with
+  new quotes, both older bands byte-identical, and the harness's verdict
+  "built the way the first one is".
+
 **DELETE deferred** (owner's call).
 
 ---
@@ -2088,11 +2166,14 @@ what the work cost.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,013
-  (2026-09-04, after the run-36 follow-ups' six cases — the repair call's
-  room, the driven `routePaths` walk, the hydration detail, the probe's
-  scope, the route order, the harness wiring — and before them the
-  second-one guards' five and the registry probe's two). **In this sandbox the
+  build and the pre-list payload added sixteen); the unit suite is 5,018
+  (2026-09-04, after the copy-the-first's-design guards' five — the rule on
+  both hops, the directive, `pageComponents` driven, the note and the route's
+  hop, the structure reader with run 36's bands — and before them the run-36
+  follow-ups' six cases — the repair call's room, the driven `routePaths`
+  walk, the hydration detail, the probe's scope, the route order, the
+  harness wiring — the second-one guards' five and the registry probe's
+  two). **In this sandbox the
   harness needs `playwright-core` at the root the way `site-build.yml`
   installs it** (`npm i --no-save playwright-core@<the template's playwright
   version>`) — without it the six card and touch-icon checks fail with

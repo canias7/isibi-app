@@ -8,6 +8,8 @@ import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, 
 import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, addLayer } from "../builder/site-add.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
+// The served page's bands, one copy shared with test/copy-design.test.mjs.
+import { SECOND_QUOTES, gridBand, page } from "./fixtures/testimonial-bands.mjs";
 
 const SRC = readFileSync(new URL("../scripts/addon-sweep.mjs", import.meta.url), "utf8");
 const WF = readFileSync(new URL("../.github/workflows/lane-sweep.yml", import.meta.url), "utf8");
@@ -144,33 +146,48 @@ test("the runner does not wait for the edge on a pageless case, and judges it th
   assert.match(SRC.slice(branch, generic), /the build MOVED on a change that touches no page/, "a moved build on a pageless case is not named in the note");
 });
 
-test("the component case is judged on the words landing on the page, not on the reply's claim", () => {
+test("the component case is judged on the words landing on the page, not on the reply's claim", async () => {
   // FOUND BY A MUTANT: with the words check cut to `true`, the guard above
   // still passed, because it only drives the check against a site that did
   // not change — where `changed: []` fails it for another reason. A reply
   // that CLAIMS the home page changed, on a build that moved, with not a
   // word of the addition on the page, is the lie this check exists to catch.
+  //
+  // RE-ANCHORED 2026-09-04, for the copy-the-first's-design check: the case
+  // reads the served page's STRUCTURE now, so a snapshot here is what the
+  // harness makes — `html`, with `text` read off it by the harness's own
+  // `strip` — never the text-only object the first draft typed, which the
+  // harness never produces. And what the page says is read the same way: the
+  // served quote is `“<!-- -->First lesson…` (React's SSR marker between two
+  // text nodes), which strips to `“ First lesson…` with a space, so the lost
+  // sentence is taken from `lostSentences` itself rather than typed.
+  const { strip, lostSentences } = await import("../scripts/addon-sweep.mjs");
   const c = CASES.find((x) => x.name === "component");
-  const before = { build: "b1", text: "Sheffield Beginner Guitar. Lessons in Crookes.", hrefs: [], routes: ["/"] };
+  const snap = (build, html) => ({ build, html, text: strip(html), hrefs: [], routes: ["/"] });
+  const before = snap("b1", page());
   const claimed = { ok: true, changed: ["index.tsx"], added: [] };
-  const unchanged = { ...before, build: "b2" };
+  const unchanged = snap("b2", page());
   assert.equal(c.check(before, unchanged, claimed, {}).ok, false, "a claimed change with no new words on the page passes");
-  const landed = { ...before, build: "b2", text: before.text + " What students say. " + "A great teacher, patient and clear. ".repeat(4) };
-  assert.equal(c.check(before, landed, claimed, {}).ok, true, "the real thing is called a lie");
+  const landed = snap("b2", page(gridBand(SECOND_QUOTES)));
+  assert.equal(c.check(before, landed, claimed, {}).ok, true, "the real thing is called a lie: " + c.check(before, landed, claimed, {}).note);
   assert.equal(c.check(before, landed, { ok: true, changed: [], added: [] }, {}).ok, false, "words on the page with no page claimed changed passes");
   assert.equal(c.check(before, { ...landed, build: "b1" }, claimed, {}).ok, false, "an unmoved build passes");
   // A SECOND ONE (owner, 2026-09-04): run 35's shape — the section kept, its
-  // quotes rewritten, MORE words than before through padding — is a lie the
-  // words check alone cannot see, because what was there is gone.
-  const had = { ...before, text: before.text + " “First lesson I walked out able to change between E and A without looking down.” Sam H. Beginner" };
-  const rewrote = { ...had, build: "b2", text: before.text + " “Couldn’t hold a pick last month — now I play three chords.” Sam H. Beginner " + "What students say about lessons. ".repeat(4) };
+  // quote rewritten, MORE words than before through more quotes — is a lie
+  // the words check alone cannot see, because what was there is gone.
+  const SAM = ["First lesson I walked out able to change between E and A without looking down.", "SH", "Sam H."];
+  const had = snap("b1", page(gridBand([SAM])));
+  const rewrote = snap("b2", page(gridBand([["Couldn’t hold a pick last month — now I play three chords.", "SH", "Sam H."], ...SECOND_QUOTES])));
   const v = c.check(had, rewrote, claimed, {});
   assert.equal(v.ok, false, "a page that rewrote what it said passes as an addition");
-  assert.match(v.note, /LOST what the page said: "“First lesson I walked out/, "the note does not name the sentence that went");
-  const second = { ...had, build: "b2", text: had.text + " “Two weeks from zero and I played a song for my mum.” Jordan P. Beginner " + "What students say about lessons. ".repeat(3) };
+  const gone = lostSentences(had.text, rewrote.text);
+  assert.ok(gone.length >= 1 && gone[0].includes("First lesson I walked out"), "the rewritten quote is not read as lost: " + JSON.stringify(gone));
+  assert.ok(v.note.includes("LOST what the page said: " + JSON.stringify(gone[0])), "the note does not name the sentence that went: " + v.note);
+  // The second band beside the first, the first intact, built like the first.
+  const second = snap("b2", page(gridBand([SAM]), gridBand(SECOND_QUOTES)));
   const w = c.check(had, second, claimed, {});
-  assert.equal(w.ok, true, "a second band beside the first, with the first intact, is called a lie");
-  assert.match(w.note, /everything it said is still there/);
+  assert.equal(w.ok, true, "a second band beside the first, with the first intact, is called a lie: " + w.note);
+  assert.match(w.note, /everything it said is still there; built the way the first one is/);
 });
 
 test("lostSentences reads the visible text: a sentence reworded, shortened or dropped is lost; more text, reordering and short fragments are not", async () => {

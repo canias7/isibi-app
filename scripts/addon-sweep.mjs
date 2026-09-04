@@ -123,7 +123,9 @@ export async function watchJob(job, token, { get, nap, looks = 180 } = {}) {
   }
   return null;
 }
-const strip = (html) => String(html || "").replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+// Exported so a guard's snapshot reads `text` off `html` the way the harness
+// does, instead of typing a second copy of what the page says.
+export const strip = (html) => String(html || "").replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -252,6 +254,116 @@ export function lostSentences(before, after) {
   return norm(before).split(/(?<=[.!?…”"])\s+/).map((s) => s.trim()).filter((s) => s.length >= 25).filter((s) => !hay.includes(s));
 }
 
+// ── BUILT THE WAY THE FIRST ONE IS (owner, 2026-09-04: "new components
+// should copy existing design") ─────────────────────────────────────────────
+//
+// Run 36 added the second testimonials band as stacked full-width cards under
+// a first band of three across: the words landed, every sentence stayed, and
+// the page carried two designs of one thing. The words check and the loss
+// check cannot see that; this reads the STRUCTURE of the served page — tags,
+// the kit's `data-slot` names and the layout classes, never a word — and asks
+// whether the new section is built the way the section it copies is built.
+
+/** Every top-level `<section>` in a served document, each as its own HTML; a
+ *  section nested in another stays inside its parent. */
+export function sectionsOf(html) {
+  const s = String(html == null ? "" : html);
+  const out = [];
+  const open = /<section\b[^>]*>/g;
+  let m;
+  while ((m = open.exec(s))) {
+    const tag = /<\/?section\b[^>]*>/g;
+    tag.lastIndex = open.lastIndex;
+    let depth = 1, end = s.length, t;
+    while (depth > 0 && (t = tag.exec(s))) { depth += t[0].startsWith("</") ? -1 : 1; end = tag.lastIndex; }
+    out.push(s.slice(m.index, end));
+    open.lastIndex = end;
+  }
+  return out;
+}
+
+const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+/** The classes that decide a layout — a grid and its columns, a flex row or
+ *  column, the spacing between siblings, the width — and nothing about colour,
+ *  type or radius, which the design system already holds constant. */
+const LAYOUT_CLASS = /^(?:grid|flex|inline-flex|flex-col|flex-row|flex-wrap|columns-\d+|grid-cols-\d+|(?:sm|md|lg|xl|2xl):(?:grid-cols-\d+|flex-row|flex-col|columns-\d+)|space-[xy]-\d+|gap-(?:[xy]-)?\d+|w-full|max-w-[\w./-]+|justify-\w+|items-\w+)$/;
+
+/**
+ * The structure of a piece of HTML as one string: each element's tag, its
+ * `data-slot` and its layout classes, nested as they nest, with a run of
+ * identical siblings collapsed to one — so a band of three cards and a band
+ * of four read the same, and a grid of cards and a stack of cards do not. An
+ * `<svg>` is a leaf (an icon's paths are not a layout), and words are not
+ * read at all.
+ */
+export function skeletonOf(html) {
+  const s = String(html == null ? "" : html);
+  const root = { name: "#", slot: "", layout: "", kids: [] };
+  const stack = [root];
+  const tag = /<(\/?)([a-zA-Z][\w-]*)([^>]*?)(\/?)>/g;
+  let m, svg = 0;
+  while ((m = tag.exec(s))) {
+    const close = m[1], name = m[2].toLowerCase(), attrs = m[3], self = m[4];
+    if (svg) {
+      if (name === "svg") svg += close ? -1 : 1;
+      continue;
+    }
+    if (close) {
+      for (let i = stack.length - 1; i > 0; i--) { if (stack[i].name === name) { stack.length = i; break; } }
+      continue;
+    }
+    const slot = (/\bdata-slot="([^"]*)"/.exec(attrs) || [])[1] || "";
+    const cls = (/\bclass="([^"]*)"/.exec(attrs) || [])[1] || "";
+    const layout = cls.split(/\s+/).filter((c) => LAYOUT_CLASS.test(c)).sort().join(" ");
+    const node = { name, slot, layout, kids: [] };
+    stack[stack.length - 1].kids.push(node);
+    if (name === "svg") { svg = 1; continue; }
+    if (!self && !VOID_TAGS.has(name)) stack.push(node);
+  }
+  const canon = (n) => {
+    const kids = [];
+    for (const k of n.kids) { const c = canon(k); if (kids[kids.length - 1] !== c) kids.push(c); }
+    return n.name + (n.slot ? "[" + n.slot + "]" : "") + (n.layout ? "{" + n.layout + "}" : "") + (kids.length ? "(" + kids.join(",") + ")" : "");
+  };
+  return root.kids.map(canon).join(",");
+}
+
+/** Two pieces of HTML built the same way — same tags, slots and layout, however many items and whatever words. */
+export function sameSkeleton(a, b) {
+  return !!a && !!b && skeletonOf(a) === skeletonOf(b);
+}
+
+/** The sections `after` has that `before` did not, by what they say. */
+export function newSections(beforeHtml, afterHtml) {
+  const key = (s) => strip(s);
+  const had = new Set(sectionsOf(beforeHtml).map(key));
+  return sectionsOf(afterHtml).filter((s) => !had.has(key(s)));
+}
+
+/**
+ * Is what the page gained built the way the section it copies is built?
+ * `like` finds that section on the page after (the FIRST of its kind: a
+ * second one copies the one that was there first). No new section is a
+ * failure by itself; a page with no such section yet has nothing to copy,
+ * which is said rather than failed.
+ */
+export function builtLike(b, a, like) {
+  const fresh = newSections(b && b.html, a && a.html);
+  if (!fresh.length) return { ok: false, note: "no new section on the page" };
+  const model = sectionsOf(a && a.html).find((s) => like.test(s));
+  if (!model) return { ok: true, note: "first of its kind on the page, nothing to copy" };
+  const bad = fresh.filter((s) => s !== model && !sameSkeleton(model, s));
+  // The note quotes the band by its first words; a quote mark the page
+  // opens with is not a word, so it comes off before the clip.
+  const words = (s) => strip(s).replace(/^[“”"'\s]+/, "").slice(0, 60);
+  return bad.length
+    ? { ok: false, note: `BUILT DIFFERENTLY from the band it should copy — new “${words(bad[0])}…” is ${skeletonOf(bad[0]).slice(0, 140)} where the first is ${skeletonOf(model).slice(0, 140)}` }
+    : { ok: true, note: "built the way the first one is" };
+}
+
+/** The first testimonials band on fretwork-1 — the kit's `TestimonialGrid`, three across — which a second one copies. */
+export const TESTIMONIALS_LIKE = /data-slot="testimonial-grid"/;
+
 export const CASES = [
   // A SECTION IS A COMPONENT (owner, 2026-09-02): the ask is a customer's
   // word for it; the step names a kit component or writes one.
@@ -266,9 +378,14 @@ export const CASES = [
       const changed = (Array.isArray(r.changed) ? r.changed : []).map(sitePathOf);
       const words = /testimonial|student|lesson/i.test(a.text) && a.text.length > b.text.length + 80;
       const lost = lostSentences(b.text, a.text);
-      return { ok: changed.includes("/") && a.build !== b.build && words && !lost.length,
+      // AND BUILT THE WAY THE FIRST BAND IS (owner, 2026-09-04): run 36's
+      // second band was stacked cards under a grid of three, and this check
+      // called it ok.
+      const built = builtLike(b, a, TESTIMONIALS_LIKE);
+      return { ok: changed.includes("/") && a.build !== b.build && words && !lost.length && built.ok,
                note: `changed ${JSON.stringify(changed)}; home text ${b.text.length}→${a.text.length} chars${words ? "" : " (no new quotes on the page)"}` +
-                     (lost.length ? `; LOST what the page said: ${lost.slice(0, 2).map((s) => JSON.stringify(s)).join(", ")}` : "; everything it said is still there") };
+                     (lost.length ? `; LOST what the page said: ${lost.slice(0, 2).map((s) => JSON.stringify(s)).join(", ")}` : "; everything it said is still there") +
+                     "; " + built.note };
     } },
   { name: "page", kinds: ["page"],
     ask: "Add a pricing page listing lesson prices: a single 30-minute lesson, an hour, and a block of five",

@@ -2470,7 +2470,7 @@ as stacked full-width cards while the first is three across.
 
 **The run 36 follow-ups (2026-09-04, "lets go back to the addon issues
 we had").** Four of the five are in the tree; the fifth (the second band's
-layout) is your design call and I have not touched it.
+layout) was your design call — decided the same day, the entry below.
 
 1. *The repair round's clock.* The fix call is now capped at the time the
    job really has for it — what is left minus the second compile, the
@@ -2506,6 +2506,28 @@ layout) is your design call and I have not touched it.
    switcher on an English page, from the lane sweep's language case), and
    the build service's Node knows Welsh dates while its Chromium does not
    — not what broke here, but worth knowing.
+
+**"New components should copy existing design" (2026-09-04, your call on
+the fifth run-36 item).** Built; not yet proven live. When someone asks
+for a section the page already has, the new one is now built the way the
+first one is: the same component, called the same way, in the same layout
+(three across stays three across); only the words are new. Three parts.
+The rule is told to both models (the one that designs the addition and
+the one that writes the page). The designer is also told what each page
+is actually built from — which kit components and which hand-written
+parts — read off the page's own code, because a rule to "use the same
+component" is empty if it has never been told which one that is. And the
+harness reads the served page's structure, not its words: it compares the
+shape of the new band (the tags, the kit's slot names and the layout
+classes) with the first band of its kind and calls the run red when they
+differ, naming both. Run 36's page fails that check; a real copy passes.
+The live proof is the component case on fretwork-1 again (about 16
+credits, your call). What to expect: the home page has a grid band and a
+stacked band now; the rule copies the FIRST, so a third band should
+appear after the second, three across like the first, with new quotes,
+and both older bands untouched. Sweep: 33 mutants, 33 killed, control
+survived — four got past the first pass and each was a gap in the tests,
+not the product; all four are driven now.
 
    Sweep: 23 mutants, 23 killed, control survived. The build harness is
    331/331 through the real build service (five new checks), the unit

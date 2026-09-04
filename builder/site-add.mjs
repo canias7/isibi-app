@@ -122,7 +122,18 @@ export const ADD_DESIGN_RULE =
   "AND AN ADDITION IS ALWAYS A NEW THING. If the site already has something like what was asked for — a " +
   "testimonials band, a form, a list, a code — the new one goes in ADDITION to it, after it, as a second one. " +
   "The one that is there is left exactly as it is: not reworded, not restyled, not merged into the new one, " +
-  "not replaced. A page you return still says every word it said before, and more.";
+  "not replaced. A page you return still says every word it said before, and more.\n\n" +
+  // A SECOND ONE COPIES THE FIRST (owner, 2026-09-04: "new components should
+  // copy existing design"). Run 36 added the second testimonials band as
+  // stacked full-width cards under a first band of three across — two
+  // designs of one thing on one page. The rule rides both hops like the
+  // rest; the harness reads the served page and says whether the new band
+  // is built the way the first is.
+  "AND A SECOND ONE IS BUILT THE WAY THE FIRST IS BUILT. When the page already has a section like the one " +
+  "asked for, the new one copies its design: the same component — the kit part it calls, or the part written " +
+  "for this site — called the same way, in the same wrapper, with the same layout: three across stays three " +
+  "across, a grid stays a grid, the same widths, the same card. Only the words are new. Two bands of one kind " +
+  "on one page are one design twice, never two designs, and the one that was there first is the one to copy.";
 
 /**
  * ── NO LOW LIMITS WHILE TESTING (owner, 2026-09-02) ─────────────────────────
@@ -498,7 +509,7 @@ const ADDS = {
   // build's own) — and where on which page it goes. The step that writes
   // pages puts it in the tsx; a part written for this site lands in `parts`.
   component: {
-    hint: "A NEW COMPONENT on a page the site already has — what a customer calls a section, a band or a block: testimonials, a form, a map, an FAQ, opening hours, a price list, a gallery strip, a countdown. From the kit, or written for this site when the kit has not got it. The page existing does not make it an edit; the component is not on it yet. And a section LIKE it already being on the page does not either: that is a SECOND one, added after the first, which stays exactly as it is.",
+    hint: "A NEW COMPONENT on a page the site already has — what a customer calls a section, a band or a block: testimonials, a form, a map, an FAQ, opening hours, a price list, a gallery strip, a countdown. From the kit, or written for this site when the kit has not got it. The page existing does not make it an edit; the component is not on it yet. And a section LIKE it already being on the page does not either: that is a SECOND one, added after the first, which stays exactly as it is — and built from the SAME component the first is built from, laid out the same way.",
     shape: {
       type: "array",
       maxItems: MAX_ADD_COMPONENTS,
@@ -560,7 +571,9 @@ const ADDS = {
       keep:
         "EVERYTHING ELSE ON THOSE PAGES — every other component, every sentence — comes back exactly as it is. " +
         "A component like the one asked for already being on the page is not a reason to answer nothing and " +
-        "not a reason to change it: answer the new one, placed after the one that is there, as a second one. " +
+        "not a reason to change it: answer the new one, placed after the one that is there, as a second one, " +
+        "BUILT FROM THE SAME COMPONENT the first is built from — the note below says what each page is built " +
+        "from; name that one, never another that shows the same kind of thing. " +
         "If what they asked for is a whole page of its own, answer nothing here; that is a page, not a component.",
     },
   },
@@ -918,6 +931,42 @@ export function pageLabels(sources, planPages) {
 }
 
 /**
+ * WHAT EACH PAGE IS BUILT FROM — the kit components it imports, and the parts
+ * written for this site — read off the stored source, keyed by route.
+ *
+ * FOR THE COMPONENT DESIGNER (owner, 2026-09-04: "new components should copy
+ * existing design"). It names a kit component and never sees the page source,
+ * so "the same component the first one is built from" was a rule with no
+ * fact behind it: run 36's designer was asked for a second testimonials band
+ * and could not know the first was a `TestimonialGrid`. Import lines only —
+ * `@/components/ui/<file>` is the kit, `@/routes/-parts/<name>` is the site's
+ * own — which is deterministic and cheap; a page with no imports lists as
+ * nothing rather than as a guess. Names only, never the source: the note
+ * rides on a cached-prefix request as the per-call byte.
+ */
+export function pageComponents(sources) {
+  const out = {};
+  const IMPORT = /^\s*import\s*(?:type\s+)?\{([^}]*)\}\s*from\s*["']@\/(components\/ui\/[^"']+|routes\/-parts\/[^"']+)["']/gm;
+  for (const p of Array.isArray(sources) ? sources : []) {
+    if (!p || typeof p !== "object" || typeof p.source !== "string") continue;
+    const r = routeOf(p.path);
+    if (!r) continue;
+    const kit = [], parts = [];
+    let m;
+    IMPORT.lastIndex = 0;
+    while ((m = IMPORT.exec(p.source))) {
+      const names = m[1].split(",").map((n) => n.replace(/^\s*type\s+/, "").split(/\s+as\s+/)[0].trim()).filter((n) => /^[A-Za-z_$][\w$]*$/.test(n));
+      for (const n of names) {
+        const list = m[2].startsWith("routes/-parts/") ? parts : kit;
+        if (!list.includes(n)) list.push(n);
+      }
+    }
+    if (kit.length || parts.length) out[r] = { kit: kit.slice(0, 40), parts: parts.slice(0, 20) };
+  }
+  return out;
+}
+
+/**
  * WHAT THE SITE IS, for the model that designs an addition to it.
  *
  * NAMES, NOT CONTENTS. The routes, the table names, what the site already
@@ -944,6 +993,20 @@ export function siteNote(site) {
     return l ? p + " (\"" + l.replace(/"/g, "'") + "\")" : p;
   });
   lines.push(pages.length ? "Its pages are: " + named.join(", ") + "." : "It has no pages yet.");
+  // WHAT EACH PAGE IS BUILT FROM (owner, 2026-09-04: a second one copies the
+  // first's design), so a component designer can name the component a like
+  // section already uses instead of another that shows the same kind of thing.
+  const built = s.builtFrom && typeof s.builtFrom === "object" && !Array.isArray(s.builtFrom) ? s.builtFrom : {};
+  for (const p of pages) {
+    const b = built[p] && typeof built[p] === "object" ? built[p] : null;
+    if (!b) continue;
+    const kit = (Array.isArray(b.kit) ? b.kit : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 40);
+    const parts = (Array.isArray(b.parts) ? b.parts : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 20);
+    if (!kit.length && !parts.length) continue;
+    lines.push(p + " is built from: " + (kit.length ? kit.join(", ") : "no kit components") +
+      (parts.length ? "; and its own parts " + parts.join(", ") : "") +
+      ". A second one of something it already has is built from the same component as the first.");
+  }
   // ITS ADDRESS, so its own pages are real destinations (run 26, 2026-09-03).
   // The QR kind's rule forbids inventing a destination, and without this line
   // "a code that opens the booking page" had none: the model answered nothing,
@@ -1444,8 +1507,12 @@ export function addDirective(kind, value, site) {
       if (kit.length) out.push("- The kit component" + (kit.length === 1 ? "" : "s") + ": " + kit.join(", ") + " — its exact props are listed above; call it, do not rewrite it.");
       if (own.length) out.push("- Written for this site: " + own.map((p) => p.name + " (" + p.props + ")").join("; ") + " — write it as a part and call it from the page.");
       // A SECOND ONE (owner, 2026-09-04): a like component already on the
-      // page is not the one being asked for — this one goes after it.
-      out.push("- If the page already has a component like this one, this is a SECOND one: put it after the existing one, and the existing one comes back byte-identical — its words, its props, its place.");
+      // page is not the one being asked for — this one goes after it. AND IT
+      // COPIES THE FIRST'S DESIGN (owner, the same day): run 36 wrote the
+      // second band as stacked cards under a grid of three.
+      out.push("- If the page already has a component like this one, this is a SECOND one: put it after the existing one, and the existing one comes back byte-identical — its words, its props, its place. " +
+        "AND BUILD THE NEW ONE THE WAY THE FIRST ONE IS BUILT: the same component (the kit part it calls, or the site's own part), called the same way, inside the same wrapper with the same layout classes — " +
+        "a grid three across stays a grid three across; only the words are new. Not a different component that shows the same kind of thing.");
       out.push("- Return that ONE page with the component added between what it has; every other component and every sentence byte-identical. No new page file.");
       break;
     }
