@@ -430,7 +430,18 @@ test("the spine translates, caches, and never fails a publish over it", () => {
   assert.match(body, /resolveLangs\(\(look && look\.lang\) \|\| "en", extraLangs/,
     "the stored list is read and then not passed to the resolver");
   assert.match(body, /missingFrom\(have, strings\)/, "the spine re-translates the whole site on every edit");
-  assert.match(body, /for \(const tp of t\.pages\) files\[tp\.path\] = tp\.source/, "the translated pages never reach the build");
+  // RE-ANCHORED 2026-09-04: the assembly moved into ONE function, `filesFor`,
+  // so the repair round can compile a corrected list with its variants
+  // re-derived — the loop only fills the cache now. The property is unchanged:
+  // every variant `translatePages` writes lands in the files the container
+  // is sent, off the cache the loop filled, for the first compile.
+  const assemble = body.slice(body.indexOf("const filesFor = (list) => {"), body.indexOf("files = filesFor(pages);"));
+  assert.ok(assemble.length > 50, "the file assembly is gone, or the first compile no longer uses it");
+  assert.match(assemble, /translatePages\(list \|\| \[\], l\.prefix, strings, strings\.map\(/, "the variants are not translated off the cache");
+  assert.match(assemble, /nextStrings\[l\.tag\]/, "the assembly does not read the cache the loop filled");
+  assert.match(assemble, /for \(const tp of t\.pages\) f\[tp\.path\] = tp\.source/, "the translated pages never reach the build");
+  assert.ok(body.indexOf("files = filesFor(pages);") < body.indexOf("let built = await compile();"), "the files are assembled after the compile that needs them");
+  assert.match(body, /body: JSON\.stringify\(\{\s*files, slug,/, "the container is not sent the assembled files");
   assert.match(body, /langs: extraLangs\.length \? \{ extra: extraLangs, routes: primaryRoutes \} : undefined/);
   // A FAILED TRANSLATION IS NOT A FAILED PUBLISH: the pages fall back to the
   // cache and, for anything new, to the primary language.

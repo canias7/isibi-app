@@ -128,6 +128,20 @@ export const CORRECT_FLOOR_MS =
  */
 export const PUBLISH_FLOOR_MS = MIN_BUILD_MS + PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS;
 
+/**
+ * The floor under a REPAIR ROUND on the publish spine (owner, 2026-09-04:
+ * "try to fix it, if not fix, send as it is") — a model call, a second compile,
+ * the sweep, the terminal writes: the correction round's parts without its
+ * verification, because the render check runs inside the compile.
+ *
+ * Asked AFTER the first compile has already spent its time, which is why it is
+ * a floor of its own rather than `canCorrect`: run 34's shapes, measured off
+ * `edit_jobs.phase_ms`, are the calibration — the function addon reached its
+ * publish at ~385s of 840 and would have had room; the two-kind table addon
+ * reached it at ~540s and would not, and is shipped as it is, said so.
+ */
+export const REPAIR_FLOOR_MS = MIN_CORRECT_MS + MIN_BUILD_MS + PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS;
+
 // ── THE LEASE ──────────────────────────────────────────────────────────────
 
 /** How long a claim is good for. Three missed renewals before it can go stale. */
@@ -239,6 +253,12 @@ export function makeEditBudget(totalMs = EDIT_JOB_MS, now = () => Date.now()) {
      * honest answer is to stop here, charge nothing, and say why.
      */
     canPublish: () => left() >= PUBLISH_FLOOR_MS,
+    /**
+     * May a REPAIR ROUND start, after the first compile? Asked before the
+     * model call, so a round there is no room for spends nothing and the
+     * page ships as it is, said so.
+     */
+    canRepair: () => left() >= REPAIR_FLOOR_MS,
   };
 }
 

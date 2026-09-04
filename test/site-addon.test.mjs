@@ -277,10 +277,15 @@ test("the addon lane provisions ONLY on first touch of the backend, and charges 
   // page-path charge after the publish, the pageless charge after the
   // schema apply — never before the work that earns it.
   assert.equal((b.match(/collectCredits\(/g) || []).length, 1, "one place money leaves the ledger");
-  const charge = b.indexOf("const aCharge = async (bill) => {");
+  // RE-ANCHORED 2026-09-04: `aCharge` took the ledger sequence as a second
+  // parameter (the repair round's spend is reserve #2) and the synchronous
+  // collect bills the same usages PLUS that round's, so neither spelling
+  // stands; the properties — one closure, the collect after the publish —
+  // do.
+  const charge = b.indexOf("const aCharge = async (bill");
   assert.ok(charge > 0 && b.indexOf("collectCredits(", charge) < b.indexOf("};", charge), "the ledger call is not inside aCharge");
   const pub = b.indexOf("recompileAndPublish(");
-  const sync = b.indexOf("if (!aJob) aCost = await aCharge(aBill);");
+  const sync = b.indexOf("if (!aJob) aCost = await aCharge(");
   assert.ok(pub > 0 && sync > pub, "the synchronous charge does not come after the publish");
   const apply = b.indexOf("aMade = await applySiteSchema(adb, merged);");
   const pageless = b.indexOf("if (pageless(aAnswers)) {");

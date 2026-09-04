@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   EDIT_JOB_KIND, CONSUMER_CEILING_MS, EDIT_JOB_MS, PUBLISH_RESERVE_MS,
-  TERMINAL_RESERVE_MS, CORRECT_FLOOR_MS, PUBLISH_FLOOR_MS, MIN_CORRECT_MS, MIN_BUILD_MS, MIN_VERIFY_MS,
+  TERMINAL_RESERVE_MS, CORRECT_FLOOR_MS, PUBLISH_FLOOR_MS, REPAIR_FLOOR_MS, MIN_CORRECT_MS, MIN_BUILD_MS, MIN_VERIFY_MS,
   LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S, PUBLISH_LEASE_S,
   EDIT_PHASES, TERMINAL_STATES, isTerminalEdit,
   makeEditBudget, cleanIdemKey, newLeaseOwner, editAsyncOn, editAsyncFor, readCanaryList,
@@ -378,6 +378,30 @@ test("a publish needs room, not just time: the floor is the compile, the sweep a
   assert.ok(left >= PUBLISH_FLOOR_MS, "run 33's publish would still be refused by the floor");
   assert.ok(left - PUBLISH_RESERVE_MS - TERMINAL_RESERVE_MS >= 157000 + 30000,
     "run 33's compile (157s) would still be cut by its cap, with no margin for a cold container");
+});
+
+// ── the repair floor (owner, 2026-09-04: "try to fix it, if not fix, send as it is") ──
+
+test("a repair round needs a call, a compile and the publish: the floor is those parts, asked before anything is spent", () => {
+  assert.equal(REPAIR_FLOOR_MS, MIN_CORRECT_MS + MIN_BUILD_MS + PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS);
+  // More than a bare publish needs, less than the correction round (which
+  // also verifies) — or one of the three would never be the one that answers.
+  assert.ok(REPAIR_FLOOR_MS > PUBLISH_FLOOR_MS, "a repair needs the compile's room and a call's on top");
+  assert.ok(REPAIR_FLOOR_MS <= CORRECT_FLOOR_MS, "a repair is a correction without the verification");
+  let t = 0;
+  const b = makeEditBudget(EDIT_JOB_MS, () => t);
+  assert.equal(b.canRepair(), true);
+  t = EDIT_JOB_MS - REPAIR_FLOOR_MS;
+  assert.equal(b.canRepair(), true, "exactly the floor is enough");
+  t += 1;
+  assert.equal(b.canRepair(), false, "one millisecond under the floor is not");
+  // RUN 34'S SHAPES, off `edit_jobs.phase_ms`: the function addon (picker 16s,
+  // designer 22s, component 43s, page call 303s) reached its publish at ~385s
+  // and would have had room; the two-kind table addon reached it at ~540s and
+  // would not — shipped as it is, said so. The api addon (~200s) had room.
+  t = 385000; assert.equal(b.canRepair(), true, "run 34's function addon would be denied a repair it had room for");
+  t = 200000; assert.equal(b.canRepair(), true);
+  t = 540000; assert.equal(b.canRepair(), false, "run 34's table addon would start a repair that cannot land");
 });
 
 test("the numbers are measurements, not guesses: the sweep reserve covers the measured sweep, the teardown room the measured teardown", () => {

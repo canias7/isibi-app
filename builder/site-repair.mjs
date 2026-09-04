@@ -123,7 +123,7 @@ export const REPAIR_RULES =
  * clean site — but it must equally never be read as a broken one. No report, no
  * repair, no spend.
  */
-export function repairBrief(report, pages) {
+export function repairBrief(report, pages, { prefixes = [] } = {}) {
   const r = report && typeof report === "object" ? report : null;
   if (!r || r.ok === false) return { work: [], dropped: 0 };
 
@@ -140,10 +140,27 @@ export function repairBrief(report, pages) {
     if (route && !byRoute.has(route)) byRoute.set(route, p);
   }
 
+  // A LANGUAGE VARIANT IS THE SAME PAGE (run 34, 2026-09-04). The check opens
+  // `/es/gear` and `/fr/gear` as routes of their own — they are, in the bundle
+  // — and reports what threw there against THAT address; no stored page has
+  // it, so the crash on the gear page reached this brief as "a route this
+  // build has no page for" and bought nothing, on a site whose gear page was
+  // down in three languages. The variant is `translatePages` over the primary
+  // file, so its fault is the primary file's: a leading segment that is one
+  // of the site's own language prefixes is taken off before the lookup, and
+  // only those — `/de/gear` on a site with no German is still nobody's page.
+  const known = new Set((Array.isArray(prefixes) ? prefixes : []).map((x) => String(x || "").replace(/^\/|\/$/g, "")).filter(Boolean));
+  const primaryRoute = (route) => {
+    const s = String(route || "/");
+    const m = s.match(/^\/([^/]+)(\/.*)?$/);
+    if (!m || !known.has(m[1])) return s;
+    return m[2] || "/";
+  };
+
   const perPage = new Map();
   for (const f of findings) {
     if (!f || !SERIOUS.has(f.kind)) continue;
-    const page = byRoute.get(String(f.route || "/"));
+    const page = byRoute.get(primaryRoute(f.route));
     if (!page) continue;
     if (!perPage.has(page.path)) perPage.set(page.path, { page, kinds: new Set(), details: [] });
     const e = perPage.get(page.path);
@@ -203,12 +220,12 @@ export function instructionFor(kinds, details) {
  * as three in a row and finish in a third of the time, which matters on a build
  * already at ~9 minutes against a 15-minute consumer ceiling.
  */
-export async function repairPages({ report, pages, send } = {}) {
+export async function repairPages({ report, pages, send, model, prefixes } = {}) {
   const list = Array.isArray(pages) ? pages : [];
   const out = { pages: list, repaired: [], refused: [], usage: [], dropped: 0 };
   if (typeof send !== "function") return out;
 
-  const brief = repairBrief(report, list);
+  const brief = repairBrief(report, list, { prefixes });
   out.dropped = brief.dropped;
   if (!brief.work.length) return out;
 
@@ -228,6 +245,10 @@ export async function repairPages({ report, pages, send } = {}) {
         send,
         rules: REPAIR_RULES,
         heading: "WHAT WENT WRONG",
+        // THE PICKED MODEL, when the caller names one (the addon's `quick`
+        // slot); `runTweak`'s own default otherwise, which is what the build
+        // has always sent. Every small call follows the picker (2026-08-31).
+        ...(model ? { model } : {}),
       });
     } catch (e) {
       // `runTweak` documents that it never throws. Held anyway, and said so
@@ -278,4 +299,95 @@ export function repairNote(result) {
   return stuck.length === 1
     ? `One page — ${stuck[0]} — isn't rendering properly. Ask me to rebuild it and I'll have another go.`
     : `Some pages aren't rendering properly (${stuck.slice(0, 3).join(", ")}). Ask me to rebuild them and I'll have another go.`;
+}
+
+/**
+ * THE REPAIR ROUND ON THE PUBLISH SPINE (owner, 2026-09-04: *"try to fix it,
+ * if not fix, send as it is"*).
+ *
+ * Run 34's gear addon published a page the render check had just watched crash
+ * — the build has this pass (`publishPages`, `deps.repair`) and the addon, which
+ * publishes through `recompileAndPublish`, did not: the spine's reason for the
+ * EDIT lanes getting none ("re-checking pages the customer just changed by
+ * hand") was written before an addon existed, and an addon's page is a page a
+ * model just wrote, exactly as a build's. So the decision lives here, where it
+ * can be driven with fakes, and the spine only calls it and reads the answer.
+ *
+ * FOUR ANSWERS, EACH NAMED, so the caller can say which happened:
+ *   - `ran: false, why: "no-report"`  the check could not run — nothing to act on
+ *   - `ran: false, why: "clean"`      nothing serious on a page this publish wrote
+ *   - `ran: false, why: "time"`       there is work, and the job's clock cannot fit
+ *                                     a model call, a compile and the publish; the
+ *                                     routes are named and NOTHING is spent
+ *   - `ran: true`                     the calls were made; `built` is the second
+ *                                     compile when it succeeded (ship that, store
+ *                                     those pages), null when it did not (ship the
+ *                                     original — never worse than not trying),
+ *                                     `failed` naming the stage
+ *
+ * ONE ATTEMPT AND NEVER THROWS — `publishPages`'s own two rules, for the same
+ * reason: this sits in front of a compile that already succeeded, and the only
+ * correct outcome of anything going wrong here is to publish what we have.
+ *
+ * THE USAGE IS KEPT ON EVERY PATH THAT SPENT, refusals and a failed recompile
+ * included: the model calls really happened and the ledger prices what was used.
+ */
+export async function repairRound({ report, pages, send, model, prefixes, compile, room = true } = {}) {
+  const list = Array.isArray(pages) ? pages : [];
+  const r = report && typeof report === "object" ? report : null;
+  if (!r || r.ok === false) return { ran: false, why: "no-report", repaired: [], refused: [], usage: [], dropped: 0 };
+  const brief = repairBrief(r, list, { prefixes });
+  const routes = brief.work.map((w) => w.route || w.path);
+  if (!brief.work.length) return { ran: false, why: "clean", repaired: [], refused: [], usage: [], dropped: brief.dropped };
+  if (!room) return { ran: false, why: "time", routes, repaired: [], refused: [], usage: [], dropped: brief.dropped };
+  if (typeof send !== "function" || typeof compile !== "function") {
+    return { ran: false, why: "no-deps", routes, repaired: [], refused: [], usage: [], dropped: brief.dropped };
+  }
+
+  let rep;
+  try {
+    rep = await repairPages({ report: r, pages: list, send, model, prefixes });
+  } catch (e) {
+    // `repairPages` documents that it never throws; held anyway, because the
+    // one thing this must never do is turn a build that succeeded into one
+    // that did not.
+    return { ran: true, built: null, pages: null, failed: "repair", repaired: [], refused: routes.map((route) => ({ route, reason: "send" })), usage: [], dropped: brief.dropped, error: String((e && e.message) || e).slice(0, 160) };
+  }
+  const base = { ran: true, repaired: rep.repaired.map((x) => x.route || x.path), refused: rep.refused, usage: rep.usage, dropped: rep.dropped };
+  if (!rep.repaired.length) return { ...base, built: null, pages: null, failed: "refused" };
+
+  let second = null;
+  try { second = await compile(rep.pages); } catch (e) { second = { ok: false, stage: "compile", error: String((e && e.message) || e) }; }
+  if (second && second.ok === true && second.files) return { ...base, built: second, pages: rep.pages };
+  return { ...base, built: null, pages: null, failed: String((second && second.stage) || "compile") };
+}
+
+/**
+ * What the customer is told about the round, in the reply's render sentence.
+ *
+ * QUIET ON SUCCESS, `repairNote`'s rule: a page that needed a second pass and
+ * got one is our business. What IS said is the two cases the customer can act
+ * on — a fix that was tried and did not hold, and a fix there was no time to
+ * try — each naming the page, each ending "published as it is", because that
+ * is the owner's rule and the customer should know the page is up and wrong
+ * rather than down.
+ */
+export function repairRoundNote(round) {
+  const x = round && typeof round === "object" ? round : null;
+  if (!x) return "";
+  const names = (list) => (Array.isArray(list) ? list : []).map((v) => (v && typeof v === "object" ? v.route || v.path : v)).filter(Boolean);
+  if (x.ran === false && x.why === "time") {
+    const at = names(x.routes);
+    return at.length ? `I ran out of time to try a fix for ${at.slice(0, 3).join(", ")}, so it's published as it is.` : "";
+  }
+  if (x.ran === true && !x.built) {
+    const at = names(x.refused).concat(names(x.repaired));
+    return at.length ? `I tried a fix for ${at.slice(0, 3).join(", ")} and it didn't hold, so it's published as it was.` : "";
+  }
+  if (x.ran === true && x.built) {
+    // A page the round could not fix beside one it did: the stuck one is
+    // named, `repairNote`'s own sentence.
+    return repairNote({ refused: x.refused });
+  }
+  return "";
 }

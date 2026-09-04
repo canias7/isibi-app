@@ -202,7 +202,11 @@ test("one bill; reserved before the publish under a job, collected after it sync
   // publish; synchronously it is collected after the publish; each is
   // guarded on exactly the job, each way round; the reserve counts only on
   // `ok`; the collect never fails the route.
-  const charge = at(b, "const aCharge = async (bill) => {", "charge");
+  // RE-ANCHORED 2026-09-04: the closure took a second parameter — the
+  // ledger sequence — when the repair round's spend became a reserve of its
+  // own (#2, after the first compile that finds the work). The property is
+  // the closure, not its arity.
+  const charge = at(b, "const aCharge = async (bill", "charge");
   const chargeEnd = b.indexOf("\n            };", charge);
   assert.ok(chargeEnd > charge, "aCharge does not close");
   const closure = b.slice(charge, chargeEnd);
@@ -217,9 +221,19 @@ test("one bill; reserved before the publish under a job, collected after it sync
   const bill = at(b, "const aBill = pageCredits(", "bill");
   const pub = at(b, "const aPub = await recompileAndPublish(env, {", "publish");
   const reserveCall = at(b, "if (aJob) aCost = await aCharge(aBill);", "the page path's reserve");
-  const collectCall = at(b, "if (!aJob) aCost = await aCharge(aBill);", "the page path's collect");
+  // RE-ANCHORED 2026-09-04: the synchronous collect no longer spells `aBill`
+  // — it is the same usages plus the repair round's, one `pageCredits` and one
+  // rounding — so the landmark is the call and the property is what it bills.
+  const collectCall = at(b, "if (!aJob) aCost = await aCharge(", "the page path's collect");
+  const collectLine = b.slice(collectCall, b.indexOf("\n", collectCall));
+  assert.match(collectLine, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage\)/,
+    "the synchronous collect does not bill the same usages as the reserve, plus the repair round's");
   assert.ok(bill < reserveCall && reserveCall < pub, "the reserve does not sit between the bill and the publish — the gate would read the job as unbilled and exempt it");
   assert.ok(pub < collectCall, "the synchronous charge precedes the publish, so a failed compile would cost");
+  // UNDER A JOB the round's reserve landed inside the spine (sequence #2) and
+  // only what the ledger charged is added to the answer.
+  const jobAdd = at(b, "else aCost += Number(aPub.repair && aPub.repair.charged) || 0;", "the job path's repair charge");
+  assert.ok(jobAdd > collectCall, "the job path adds the repair charge before the collect line — the two paths are not two branches of one decision");
   // AND THE PAGELESS ANSWER TAKES ITS MONEY THROUGH THE SAME CLOSURE, after
   // the schema apply — the work that earns it — and before the page call.
   const pageless = at(b, "if (pageless(aAnswers)) {", "pageless");

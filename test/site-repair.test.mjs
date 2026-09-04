@@ -10,9 +10,10 @@ import { readFileSync } from "node:fs";
 
 import {
   repairBrief, repairPages, instructionFor, repairNote, REPAIR_RULES, MAX_REPAIRS,
+  repairRound, repairRoundNote,
 } from "../builder/site-repair.mjs";
 import { readPage, SERIOUS } from "../builder/site-render.mjs";
-import { tweakRequest, TWEAK_RULES, MAX_TWEAK_CHARS } from "../builder/site-tweak.mjs";
+import { tweakRequest, TWEAK_RULES, MAX_TWEAK_CHARS, TWEAK_MODEL } from "../builder/site-tweak.mjs";
 
 const page = (path, extra = "") => ({
   path,
@@ -211,4 +212,140 @@ test("A SUCCESSFUL REPAIR IS SILENT; ONE THAT FAILED NAMES THE PAGE", () => {
   assert.equal(repairNote(null), "");
   const one = repairNote({ repaired: [], refused: [{ path: "book.tsx", route: "/book" }] });
   assert.match(one, /\/book/, "a page still broken is actionable, so it is named");
+});
+
+/* ──────────── a language variant is its primary page (run 34, 2026-09-04) ─────────── */
+
+test("A CRASH ON /es/gear IS gear.tsx's — and only for the site's OWN prefixes", () => {
+  const pages = [page("index.tsx"), page("gear.tsx")];
+  // Run 34's report, as the reply carried it: the variants threw, the primary
+  // route was not in the (partial) report at all.
+  const findings = [
+    ...readPage(crashObs("phone", "/es/gear")),
+    ...readPage(crashObs("phone", "/fr/gear")),
+    ...readPage(crashObs("phone", "/es")),
+  ];
+  const b = repairBrief({ ok: true, findings }, pages, { prefixes: ["es", "fr"] });
+  assert.deepEqual(b.work.map((w) => w.path).sort(), ["gear.tsx", "index.tsx"], "the variant's crash reaches the primary file");
+  assert.equal(b.work.find((w) => w.path === "gear.tsx").route, "/gear", "the route handed to the model is the primary one");
+  assert.equal(b.work.find((w) => w.path === "gear.tsx").instruction.match(/useFormField/g).length, 1, "two variants of one crash are one sentence");
+  // NOT A PREFIX THIS SITE HAS: `/de/gear` on a site with no German is nobody's
+  // page, exactly as before.
+  assert.equal(repairBrief({ ok: true, findings: readPage(crashObs("phone", "/de/gear")) }, pages, { prefixes: ["es"] }).work.length, 0);
+  // AND WITHOUT PREFIXES the reading is what it always was — the build's
+  // callers are unchanged.
+  assert.equal(repairBrief({ ok: true, findings }, pages).work.length, 0);
+  // A prefix handed with slashes around it still matches.
+  assert.equal(repairBrief({ ok: true, findings }, pages, { prefixes: ["/es/"] }).work.length, 2);
+  // The primary route itself is untouched by the stripping.
+  assert.equal(repairBrief({ ok: true, findings: readPage(crashObs("desktop", "/gear")) }, pages, { prefixes: ["es"] }).work[0].path, "gear.tsx");
+});
+
+test("the picked model reaches the request; the build's default when none is named", async () => {
+  const pages = [page("book.tsx")];
+  const seen = [];
+  const send = async (req) => { seen.push(req.model); return reply(fixed(pages[0])); };
+  await repairPages({ report: { ok: true, findings: readPage(crashObs()) }, pages, send, model: "sentinel-quick" });
+  await repairPages({ report: { ok: true, findings: readPage(crashObs()) }, pages, send });
+  assert.deepEqual(seen, ["sentinel-quick", TWEAK_MODEL]);
+});
+
+/* ──────────── the round on the publish spine (owner, 2026-09-04) ─────────── */
+
+const crashedReport = (route = "/book") => ({ ok: true, findings: readPage(crashObs("desktop", route)) });
+
+test("repairRound: no report, a clean report, and no room each answer by name and spend NOTHING", async () => {
+  const pages = [page("book.tsx")];
+  let sent = 0, compiled = 0;
+  const send = async () => { sent++; return reply(fixed(pages[0])); };
+  const compile = async () => { compiled++; return { ok: true, files: {} }; };
+  assert.equal((await repairRound({ report: null, pages, send, compile })).why, "no-report");
+  assert.equal((await repairRound({ report: { ok: false, findings: readPage(crashObs()) }, pages, send, compile })).why, "no-report");
+  assert.equal((await repairRound({ report: { ok: true, findings: [] }, pages, send, compile })).why, "clean");
+  const time = await repairRound({ report: crashedReport(), pages, send, compile, room: false });
+  assert.equal(time.ran, false);
+  assert.equal(time.why, "time");
+  assert.deepEqual(time.routes, ["/book"], "a round there was no time for names the page it would have fixed");
+  assert.equal(sent + compiled, 0, "an answer that did not run spent nothing");
+  // No deps is not a crash either.
+  assert.equal((await repairRound({ report: crashedReport(), pages })).why, "no-deps");
+});
+
+test("repairRound: a fix that compiles is what ships — the second build and the fixed pages", async () => {
+  const pages = [page("index.tsx"), page("book.tsx")];
+  const want = fixed(pages[1]);
+  const compiled = [];
+  const out = await repairRound({
+    report: crashedReport(), pages,
+    send: async () => reply(want),
+    compile: async (list) => { compiled.push(list); return { ok: true, files: { "index.html": { t: "<build-2>" } }, render: { ok: true, findings: [] } }; },
+  });
+  assert.equal(out.ran, true);
+  assert.deepEqual(out.repaired, ["/book"]);
+  assert.equal(compiled.length, 1, "the fixed list was compiled once");
+  assert.equal(compiled[0][1].source, want, "…and it was the FIXED source that was compiled");
+  assert.equal(out.built.files["index.html"].t, "<build-2>", "the second build is what the spine ships");
+  assert.equal(out.pages[1].source, want, "…and the fixed pages are what it stores");
+  assert.equal(out.pages[0], pages[0], "the untouched page is the same object");
+  assert.equal(out.usage.length, 1, "the call is charged for");
+});
+
+test("repairRound: a fix that does not compile ships the ORIGINAL, says so, and still charges the call", async () => {
+  const pages = [page("book.tsx")];
+  const out = await repairRound({
+    report: crashedReport(), pages,
+    send: async () => reply(fixed(pages[0])),
+    compile: async () => ({ ok: false, stage: "typecheck", error: "the repair broke it" }),
+  });
+  assert.equal(out.ran, true);
+  assert.equal(out.built, null, "a broken repair must never replace a build that worked");
+  assert.equal(out.pages, null, "…nor be stored for the next revise to inherit");
+  assert.equal(out.failed, "typecheck", "and the stage is named");
+  assert.deepEqual(out.repaired, ["/book"], "the model did answer — that is what was compiled and refused");
+  assert.equal(out.usage.length, 1);
+});
+
+test("repairRound: a refused fix compiles nothing; a throwing send or compile never escapes", async () => {
+  const pages = [page("book.tsx")];
+  let compiled = 0;
+  const refused = await repairRound({
+    report: crashedReport(), pages,
+    send: async () => reply(pages[0].source.replace("Coffee by the pool.", "Coffee beside the water.")),
+    compile: async () => { compiled++; return { ok: true, files: {} }; },
+  });
+  assert.equal(refused.ran, true);
+  assert.equal(refused.built, null);
+  assert.equal(refused.failed, "refused");
+  assert.equal(compiled, 0, "nothing to compile when every fix was refused");
+  assert.equal(refused.usage.length, 1, "the refused call still cost");
+  for (const bad of [
+    { send: async () => { throw new Error("provider down"); }, compile: async () => ({ ok: true, files: {} }) },
+    { send: async () => reply(fixed(pages[0])), compile: async () => { throw new Error("container gone"); } },
+  ]) {
+    const out = await repairRound({ report: crashedReport(), pages, ...bad });
+    assert.equal(out.ran, true);
+    assert.equal(out.built, null, "the original build stands");
+  }
+});
+
+test("repairRoundNote: quiet on a fix that held; a fix there was no time for, or that did not hold, is said with the page", () => {
+  assert.equal(repairRoundNote(null), "");
+  assert.equal(repairRoundNote({ ran: false, why: "clean" }), "");
+  assert.equal(repairRoundNote({ ran: false, why: "no-report" }), "");
+  assert.equal(repairRoundNote({ ran: true, built: { files: {} }, repaired: ["/gear"], refused: [] }), "",
+    "a page that needed a second pass and got one is our business");
+  const time = repairRoundNote({ ran: false, why: "time", routes: ["/gear"] });
+  assert.match(time, /\/gear/);
+  assert.match(time, /published as it is/);
+  assert.match(time, /time/);
+  const held = repairRoundNote({ ran: true, built: null, failed: "typecheck", repaired: ["/gear"], refused: [] });
+  assert.match(held, /\/gear/);
+  assert.match(held, /didn't hold/);
+  assert.match(held, /published as it was/);
+  const refusedOnly = repairRoundNote({ ran: true, built: null, failed: "refused", repaired: [], refused: [{ route: "/gear", reason: "reworded" }] });
+  assert.match(refusedOnly, /\/gear/);
+  // A fix that held beside a page that stayed broken names the stuck one.
+  const mixed = repairRoundNote({ ran: true, built: { files: {} }, repaired: ["/gear"], refused: [{ route: "/prices", reason: "cannot" }] });
+  assert.match(mixed, /\/prices/);
+  assert.doesNotMatch(mixed, /\/gear/);
 });

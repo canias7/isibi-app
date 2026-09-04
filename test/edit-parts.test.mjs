@@ -87,7 +87,10 @@ test("the page rung tells the model what the site already has: its components, m
 // ── THE SPINE SENDS AND THEN STORES THEM ──────────────────────────────────
 test("the spine prefers the parts it was handed and stores them only after the source, on a real publish", () => {
   const spine = CODE.slice(at(CODE, "async function recompileAndPublish", "spine"), at(CODE, "async function siteRedirectFor", "spine end"));
-  assert.match(spine, /parts = null \}\)/, "the spine no longer takes parts");
+  // RE-ANCHORED 2026-09-04: `parts` stopped being the LAST parameter when the
+  // repair round's `repair = null` joined the signature. The property is that
+  // the spine takes `parts`, defaulting to none — not where it sits.
+  assert.match(spine.slice(0, spine.indexOf("\n")), /\bparts = null\b/, "the spine no longer takes parts");
   const prefer = spine.indexOf("Array.isArray(parts) ? parts : await loadSiteParts(env, slug)");
   assert.ok(prefer > 0, "the spine does not prefer the parts it was handed");
   const source = spine.indexOf("await saveSiteSource(env, slug, pages)");
