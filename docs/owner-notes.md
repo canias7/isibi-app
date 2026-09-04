@@ -2506,3 +2506,11 @@ layout) is your design call and I have not touched it.
    switcher on an English page, from the lane sweep's language case), and
    the build service's Node knows Welsh dates while its Chromium does not
    — not what broke here, but worth knowing.
+
+   Sweep: 23 mutants, 23 killed, control survived. The build harness is
+   331/331 through the real build service (five new checks), the unit
+   suite 5,013. Pushed to the branch and to main; the deploy rebuilds the
+   container image, so give it 15–20 minutes after "deploy completed"
+   before firing the component case again — that run is what shows the
+   differing text, if the mismatch is still there, on the English home
+   page first.

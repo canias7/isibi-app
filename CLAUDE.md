@@ -1742,6 +1742,17 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   so it is not THIS mismatch; it is the one waiting for the first page that
   passes the site's language to a date. What the next addon run on fretwork-1
   will show is the actual differing text, on `/` first.
+  **Sweep: 23 mutants, 23 killed, none unapplied, the comment-only control
+  survived** — the room forgetting the compile, the gate ignoring the need or
+  dropping the floor, the repairing cap read as the plain one, the clock view
+  plain or flat without a budget, the need always zero, the room asked bare,
+  the send back on `aQuick`, the page call not timed; the `-` skip cut to
+  `if (false)`; both replies back to "linked it from"; the diff never taken,
+  the served document not kept, the browser's text dropped, the React link
+  kept, the detail clipped short, any React error read as hydration, the
+  order an identity, a variant matched by prefix, the container handing the
+  check unordered routes, the probe reaching for module scope. `site build`
+  331/331 through the real container; suite 5,013 green.
 
 **DELETE deferred** (owner's call).
 
@@ -2072,12 +2083,16 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 326/326** against the real container (2026-09-03, the QR
-  list's two-code build and the pre-list payload added sixteen); the unit
-  suite is 5,007 (2026-09-04, after the second-one guards' five cases and the registry probe's two; before them the seam and the add step's own repair
-  round — six driven cases and the Worker's module parse in, the first cut's
-  repair-round cases out — the count landing where the container-image
-  change had left it). **In this sandbox the
+- **`site build` is 331/331** against the real container (2026-09-04, the
+  run-36 follow-ups added five: the own-parts build's render report naming
+  no `-parts` route, and the `hydrate-diff` page — builds, the browser
+  reports the mismatch as a throw on `/`, the finding names both texts, as
+  a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
+  build and the pre-list payload added sixteen); the unit suite is 5,013
+  (2026-09-04, after the run-36 follow-ups' six cases — the repair call's
+  room, the driven `routePaths` walk, the hydration detail, the probe's
+  scope, the route order, the harness wiring — and before them the
+  second-one guards' five and the registry probe's two). **In this sandbox the
   harness needs `playwright-core` at the root the way `site-build.yml`
   installs it** (`npm i --no-save playwright-core@<the template's playwright
   version>`) — without it the six card and touch-icon checks fail with
