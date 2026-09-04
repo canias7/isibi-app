@@ -1410,9 +1410,14 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   by hand" — does not describe the addon, whose page a model just wrote
   exactly as a build's. Either the addon gets the build's repair pass, or a
   page that threw is refused; today it ships and says so.
-  **Live state**: `/gear` stays the error card until a publish carries the
-  new kit — the push to main deploys it and rolls the container, and any
-  later edit or a free platform republish puts it on the site. **Run 33's
+  **PROVEN LIVE 01:39Z**: main pushed 01:06Z, deploy green 01:12Z, a
+  `site_rebuild` row filed at 01:29Z with `next_try_at` four minutes out
+  (past the roll window), drained by the cron for 0 credits —
+  `mtm8ozl3-vo4zwg` → `mtma6kia-rldbzk`, `/gear` a 13,825-byte document
+  (was the 3,022-byte shell), `/es/gear` and `/fr/gear` 14,005, the home
+  page and both variants ~54,500; the mirrored page renders the listing
+  form with no page error (`docs/edits/addon-run34-gear-after.png`; the
+  error card it replaced is `addon-run34-gear.png`). **Run 33's
   waiting list IS in the database**: the data path answers 403 for
   `waiting_list` (a table with no public read, like `gear` and `bookings`)
   and 404 for a name that is not a table — the schema was applied before

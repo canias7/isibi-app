@@ -2286,6 +2286,9 @@ created before the page is written, and only the look is rolled back.
 It sits in fretwork-1's database with no page showing it. Harmless;
 removing it is the delete step we have deferred.
 
-**Next**: this goes to main (a deploy, and the container rolls — wait
-20 minutes), then a free republish of fretwork-1 puts the fixed kit on
-the site and the gear page comes back.
+**Done, 01:39 UTC**: the fix deployed at 01:12, and after the roll I
+filed a free republish of fretwork-1 (no credits). The Gear Board page
+now renders — the listing form with make, asking price and email
+(`docs/edits/addon-run34-gear-after.png`; the error card it replaced is
+`addon-run34-gear.png`). The French and Spanish variants render too.
+Balance still 57.
