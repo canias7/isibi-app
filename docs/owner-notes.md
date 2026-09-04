@@ -2448,3 +2448,22 @@ fretwork-1: a second band with new quotes, and the first three quotes
 untouched. Sweep: 20 mutants, 20 killed, control survived. Firing the
 component case again (about 16 credits) is the live proof once this is
 deployed.
+
+**Run 36 (14:47 UTC, the component case again, 41 → 24 credits): "add
+a second one" is proven on the site.** The home page now has the first
+testimonials band exactly as it was and a second band under it with
+three new quotes; the harness's own check says every sentence the page
+had is still there. Screenshot: `docs/edits/addon-run36-testimonials.png`.
+The harness still called the run broken, and this time for a real
+reason: the site's own check found the Spanish version of the home page
+throwing a React hydration error (the page still serves, and the English
+page is clean), so the repair round ran for the first time — and its fix
+call hit the four-minute cap on Grok and came back empty, so the page
+shipped as it was, with the sentence saying so. That fallback is what
+you asked for, and it works. What I want to fix next: the round waited
+the full four minutes for that call, four times what its budget assumed,
+and the job finished with 93 seconds to spare; the round should cap its
+own call at what the job can afford. Two smaller things still on the
+list: "4 pages threw an error" counts the three component files the
+render check opens as pages (task #44), and the second band is laid out
+as stacked full-width cards while the first is three across.

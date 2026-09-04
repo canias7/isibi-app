@@ -1643,8 +1643,37 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   reading the added pages / charging / without the sentence / without the
   trace / comparing the new page with itself, the sentence without the
   page or the words, the harness ignoring a loss / never finding one /
-  not naming it. **Not proven live** until the component case runs again
-  (~16 credits, owner's call).
+  not naming it. **PROVEN LIVE by run 36, below.**
+- **RUN 36 (2026-09-04 14:47Z, `harness: addon`, `component` again — the
+  first on the Worker carrying the second-one rule and wall; 41 → 24): THE
+  DECISION IS PROVEN LIVE, AND THE REPAIR ROUND'S CLOCK IS THE FINDING.**
+  Job `e2908b65…`, 747 s for **17 credits**, `mtn0gbvz-j6l2e2` →
+  `mtn2pqqq-0q059t`, `changed: ["index.tsx"]`, `added: []`, 37 files. The
+  home page gained 310 characters and the harness's own count says
+  *"everything it said is still there"*. On the page: the run-35 band
+  untouched byte for byte (Sam H., Priya N., Jordan P.), and a SECOND band
+  under it with three new quotes ("I had never held a guitar, and after
+  six weeks I can play three songs my kids recognise" …) — full-width
+  stacked cards where the first band is three across
+  (`docs/edits/addon-run36-testimonials.png`). The wall passed it (`kept:
+  ok`). **The verdict was BROKEN, and rightly by the harness's rule**: the
+  render check found `/es`, the Spanish variant, throwing React #418 (a
+  hydration text mismatch — the SSR'd document serves and the English
+  page is clean; run 34 saw the same class on `/es` and `/fr`) beside the
+  three `-parts/` 404s (task #44). So the ADD step's round RAN LIVE for
+  the first time — and answered `refused` with reason `send`:
+  `phase_ms.repair` is exactly **240,000**, the tweak call on Grok's quick
+  slot hit `QUICK_CALL_MS` (task #47's cap) and was cut off, nothing came
+  back, and the page shipped as it was with the sentence "I tried a fix
+  for / and it didn't hold, so it's published as it was" (and "4 pages
+  threw an error" — three of them task #44). **The ship-as-is path is
+  proven end to end; what it cost is the finding**: `REPAIR_FLOOR_MS`
+  budgets 60 s for the call and the call took 240; `publish:1` was 445 s
+  and the job ended at 747 of 840. The round needs its own call cap — the
+  room left minus the compile, the sweep and the terminal writes, bounded
+  well under the quick-call cap — or a page call that runs long leaves a
+  repair that runs out the clock. The next fix. The runner committed the
+  results file to main (`3285b8ed`).
 
 **DELETE deferred** (owner's call).
 
