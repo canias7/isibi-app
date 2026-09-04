@@ -2310,3 +2310,13 @@ the gear page, and those are mapped back to the page itself. Ordinary edits
 (a colour, a wording change) get no repair pass, as before. Sweep 28 for
 28; not yet proven live — the next addition whose page crashes is the
 proof, and the harness will print what the repair did.
+
+**The deploy carrying it FAILED on Cloudflare's side (02:25 UTC, deploy
+run 2015).** The container image built; pushing it to Cloudflare's
+registry retried its layers for minutes and ended in a 500 from the
+registry, so Wrangler stopped before uploading the Worker. Nothing is
+half-deployed: the live Worker is still the one from 01:12 (the kit fix),
+and the repair pass is NOT live until this succeeds. My GitHub access is
+refused for re-runs (403, as on 3 September), so it is your click again:
+https://github.com/canias7/isibi-app/actions/runs/33828547936 → "Re-run
+failed jobs". Then the usual 20 minutes before anything container-bound.

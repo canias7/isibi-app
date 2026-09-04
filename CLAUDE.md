@@ -1445,7 +1445,14 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   reported against the PAGE that holds it, so the model is handed the page
   file and answers `cannot` or fiddles — the build has the same edge. **Not
   proven live**: fretwork-1's pages all render now, so the next addon whose
-  page throws is the proof; the harness prints the round. **Sweep: 28
+  page throws is the proof; the harness prints the round. **THE DEPLOY
+  CARRYING IT FAILED ON CLOUDFLARE'S SIDE (02:25Z, deploy run 2015,
+  `f866fed8`)**: the image built, the push to `registry.cloudflare.com`
+  retried its layers for minutes and ended in a 500, Wrangler stopped
+  before the Worker upload — nothing half-deployed, the live Worker is
+  `72403ded`'s, the repair pass is not live until the owner clicks "Re-run
+  failed jobs" (this session's integration is 403 on re-runs, as on the
+  14:50Z failure). The second registry failure in twelve hours. **Sweep: 28
   mutants, 28 killed, none unapplied, the comment-only control survived** —
   each a hop cut back (the variant not mapped, any segment mapped, the model
   not passed, a round with no room still running, a failed second build
