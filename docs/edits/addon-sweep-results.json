@@ -1,8 +1,8 @@
 {
-  "at": "2026-09-04T15:00:27.528Z",
+  "at": "2026-09-04T18:56:07.012Z",
   "site": "fretwork-1",
-  "start": 41,
-  "end": 24,
+  "start": 24,
+  "end": 7,
   "results": [
     {
       "name": "component",
@@ -10,10 +10,10 @@
         "component"
       ],
       "verdict": "BROKEN",
-      "note": "changed [\"/\"]; home text 2046→2356 chars; everything it said is still there; the site's own render check: 1 serious finding — /es threw: Minified React error #418; visit https://react.dev/errors/418?args[]=text&args[]= for the full message or use the non-minified dev environme; repair ran: fixed nothing (refused); refused /",
+      "note": "changed [\"/\"]; home text 2356→2689 chars; everything it said is still there; built the way the first one is; the site's own render check: 2 serious findings — / threw: React error #418 (hydration mismatch) — the server rendered “Llun” where the browser then rendered “Mon” (at div>div[week-strip]>button>span; repair time for /",
       "cost": 17,
-      "wall": 747,
-      "build": "mtn2pqqq-0q059t",
+      "wall": 541,
+      "build": "mtnbaddj-a3d38n",
       "pickedRight": true,
       "shots": []
     }
