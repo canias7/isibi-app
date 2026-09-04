@@ -1299,6 +1299,33 @@ test("two container failures fall back, and still cost nothing", async () => {
   assert.ok(typeof out.buildMs === "number");
 });
 
+test("a container with no room is not retried again, is free, and says so (2026-09-04)", async () => {
+  // `withRoom` in the Worker already made every try the cap allowed before
+  // answering `room`, so one more immediate compile here is the try it just
+  // made — and the note must blame our capacity, not the customer's pages,
+  // because the container never saw them.
+  const { deps, calls } = harness({
+    compile: async () => ({ ok: false, stage: "build", room: "full", error: "the build service had no room (full) after 45000 ms" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(calls.compile.length, 1, "a wait that ran out is not retried immediately");
+  assert.equal(calls.generate.length, 1);
+  assert.equal(out.page, "placeholder");
+  assert.equal(out.cost, 0, "our capacity is ours to pay for");
+  assert.equal(out.charged, false);
+  assert.equal(out.room, "full", "the kind rides the result for its readers");
+  assert.match(out.notes, /no room to compile/, "the note blames the pages for our capacity");
+  assert.doesNotMatch(out.notes, /didn't compile/);
+  assert.match(out.notes, /send it again in a few minutes/);
+  assert.equal(out.retriedBuild, undefined);
+  assert.equal(calls.publish.length, 0);
+  // And a build-stage failure WITHOUT a room is still the one retry it was.
+  let n = 0;
+  const again = harness({ compile: async () => { n++; return { ok: false, stage: "build", error: "the build service returned nothing" }; } });
+  await publishPages(again.deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(n, 2, "the ordinary drain retry is gone");
+});
+
 test("a thrown container is retried too — it is the same event", async () => {
   // `deps.compile` throwing becomes stage "build" inside `compile()`, so an
   // unreachable build service and a killed one are one case. Asserted, because

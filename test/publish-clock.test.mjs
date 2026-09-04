@@ -61,7 +61,11 @@ test("the spine tells the clock apart from the code: a timed-out container call 
   // The failure return forwards it and counts it as ours.
   const fail = between(spine, "if (!built || built.ok !== true || !built.files) {", "  }", "the compile failure return");
   assert.match(fail, /const timedOut = !!\(built && built\.timedOut\);/);
-  assert.match(fail, /ours: \(killed && wasKilled\(built && built\.error\)\) \|\| timedOut, timedOut,/, "a timeout is not ours, or is not forwarded");
+  // RE-ANCHORED 2026-09-04: this pinned the disjunction as exactly two terms
+  // and went red when an honest third joined it (`!!room`, a container the
+  // account could not start). The property is that `timedOut` is one of the
+  // terms that make the failure ours AND is forwarded beside them.
+  assert.match(fail, /ours: [^\n]*\|\| timedOut\b[^\n]*, timedOut,/, "a timeout is not ours, or is not forwarded");
   // And the sentence reads it before the two older `ours` sentences.
   const msg = between(worker, "function compileMsg(pub, theirs) {", "\n}\n", "compileMsg");
   const timed = msg.indexOf("if (pub.timedOut) {");

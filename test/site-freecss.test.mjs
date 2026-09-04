@@ -220,8 +220,13 @@ test("…AND THE ENGINES THEY DROVE ARE GONE TOO, which is the 2026-08-24 half",
   // `style: { type: "number" …}` — the TTS voice-tuning field, a completely
   // unrelated feature — which is a false alarm on correct code, and this repo
   // rates that worse than the miss.
+  // RE-ANCHORED 2026-09-04: both publish payloads are built ONCE, before the
+  // fetch, as `const cPayload = JSON.stringify({…})` / `bPayload`, because the
+  // fetch now sits inside a wait for container room and may run more than
+  // once. The walk matches a payload however it is bound — an inline body or
+  // a named constant — and keeps the two that carry the build's own fields.
   const payloads = [];
-  for (const m of code.matchAll(/body: JSON\.stringify\(\{/g)) {
+  for (const m of code.matchAll(/(?:body: |const \w+Payload = )JSON\.stringify\(\{/g)) {
     let d = 1, i = m.index + m[0].length;
     for (; i < code.length && d > 0; i++) {
       if (code[i] === "{") d++;

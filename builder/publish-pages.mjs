@@ -895,7 +895,9 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
    */
   const compileWithRetry = async (pages) => {
     let bd = await compile(pages);
-    if (!bd.ok && bd.stage === "build") {
+    // NOT AFTER A WAIT THAT RAN OUT (2026-09-04): `withRoom` already made every
+    // try the cap allowed, and one more immediately is the try it just made.
+    if (!bd.ok && bd.stage === "build" && !bd.room) {
       // THE FIRST DRAIN IS THE DIAGNOSIS, so it is written once and not
       // overwritten. This was an unconditional assignment and the salvage path
       // calls this function again, so a build drained mid-bundle, retried, and
@@ -1434,7 +1436,12 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     // container lands — free. Both arrive as `!built.ok` and only the stage tells
     // them apart, which is why `compile`'s catch sets one rather than leaving it
     // undefined.
-    out.notes = [v.notes, "The pages didn't compile, so the site is showing its data model for now — send it again to retry.",
+    // NO ROOM IS NOT A BROKEN PAGE (2026-09-04): the container never saw the
+    // code, so "send it again" is right and "didn't compile" is not.
+    if (built.room) out.room = String(built.room);
+    out.notes = [v.notes, built.room
+      ? "Our build service had no room to compile the pages, so the site is showing its data model for now — send it again in a few minutes."
+      : "The pages didn't compile, so the site is showing its data model for now — send it again to retry.",
       await settle(built.stage)].filter(Boolean).join(" ");
     return out;
   }

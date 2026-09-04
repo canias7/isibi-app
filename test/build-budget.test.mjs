@@ -463,8 +463,27 @@ test("EVERY container fetch on a publish path is bounded", () => {
     if (/smoke:\s*true/.test(init)) continue;         // the CI fixture builds, not a publish
     assert.match(init, /signal:\s*AbortSignal\.timeout\(/,
       "a publish path's container fetch is unbounded — a wedged container stalls every build on the platform");
-    assert.match(init, /\bCONTAINER_CALL_MS\b/,
-      "the container bound no longer derives from the one ceiling, so the two spines can drift apart");
+    // RE-ANCHORED 2026-09-04: the fetch's own signal used to name the ceiling
+    // (`capMs(CONTAINER_CALL_MS)`), and this read it off the init. The bound
+    // moved one hop up when the call went inside the room wait: each attempt
+    // is bounded by what is LEFT of ONE deadline the wait and the call share,
+    // so the signal names the deadline and the deadline derives from the
+    // ceiling. The property is unchanged — one ceiling, both spines — read
+    // through the deadline's own assignment rather than off the fetch.
+    const sig = /signal:\s*AbortSignal\.timeout\((?:Math\.max\(\d+,\s*)?(\w+Deadline) - Date\.now\(\)\)?\)/.exec(init)
+      || /signal:\s*AbortSignal\.timeout\(([^)]*)\)/.exec(init);
+    assert.ok(sig, "could not read what the container fetch is bounded by");
+    if (/Deadline$/.test(sig[1])) {
+      const dl = new RegExp("const " + sig[1] + " = Date\\.now\\(\\) \\+ (\\w+);");
+      const dm = dl.exec(CODE.slice(Math.max(0, m.index - 3000), m.index));
+      assert.ok(dm, `the deadline ${sig[1]} is not assigned from a cap before the fetch`);
+      const cap = new RegExp("const " + dm[1] + " = ([^;]*);").exec(CODE.slice(Math.max(0, m.index - 3000), m.index));
+      assert.ok(cap && /\bCONTAINER_CALL_MS\b/.test(cap[1]),
+        "the container bound no longer derives from the one ceiling, so the two spines can drift apart");
+    } else {
+      assert.match(sig[1], /\bCONTAINER_CALL_MS\b/,
+        "the container bound no longer derives from the one ceiling, so the two spines can drift apart");
+    }
     bounded++;
   }
   assert.ok(bounded >= 2, `expected both publish spines to be bounded; found ${bounded}`);

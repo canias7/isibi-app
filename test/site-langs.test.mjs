@@ -448,7 +448,12 @@ test("the spine translates, caches, and never fails a publish over it", () => {
   assert.match(assemble, /nextStrings\[l\.tag\]/, "the assembly does not read the cache the loop filled");
   assert.match(assemble, /for \(const tp of t\.pages\) f\[tp\.path\] = tp\.source/, "the translated pages never reach the build");
   assert.ok(body.indexOf("files = filesFor(pages);") < body.indexOf("let built = await compile();"), "the files are assembled after the compile that needs them");
-  assert.match(body, /body: JSON\.stringify\(\{\s*files, slug,/, "the container is not sent the assembled files");
+  // RE-ANCHORED 2026-09-04: the payload is built once, before the fetch, as
+  // `cPayload`, because the fetch sits inside a wait for container room and
+  // may run more than once. The property — the assembled files are what the
+  // container is sent — is read off the payload AND the fetch that carries it.
+  assert.match(body, /const cPayload = JSON\.stringify\(\{\s*files, slug,/, "the container is not sent the assembled files");
+  assert.match(body, /body: cPayload,/, "the payload is built and then not the one the fetch carries");
   assert.match(body, /langs: extraLangs\.length \? \{ extra: extraLangs, routes: primaryRoutes \} : undefined/);
   // A FAILED TRANSLATION IS NOT A FAILED PUBLISH: the pages fall back to the
   // cache and, for anything new, to the primary language.
@@ -500,9 +505,16 @@ test("THE BUILD PATH TRANSLATES, AND ONLY THEN SENDS THE LANGUAGES", () => {
     "the translated pages never join the files the container builds");
   // …and the payload's langs key is derived from the SAME list the translation
   // loop ran over, so the two halves cannot disagree about what was offered.
-  const payload = build.slice(build.indexOf("http://build/build"), build.indexOf("http://build/build") + 4000);
+  // RE-ANCHORED 2026-09-04: the payload is built once BEFORE the fetch, as
+  // `bPayload`, because the fetch sits inside a wait for container room and
+  // may run more than once — so the window is the payload's own, from its
+  // binding to the fetch that carries it, and the carry is asserted too.
+  const pAt = build.indexOf("const bPayload = JSON.stringify({");
+  assert.ok(pAt > depAt && pAt < reqAt, "the build payload is no longer built between the translation and the request");
+  const payload = build.slice(pAt, reqAt);
   assert.match(payload, /langs: extraLangs\.length \? \{ extra: extraLangs, routes: primaryRoutes \} : undefined/,
     "the build payload does not carry the languages the dep just translated");
+  assert.match(build.slice(reqAt, reqAt + 600), /body: bPayload,/, "the payload is built and then not the one the fetch carries");
   // The cache round-trips: read on the route, written back when it moved, so a
   // revise does not re-buy strings already answered.
   // ON THE ASSIGNMENT'S RIGHT-HAND SIDE — a mutant that read the value and

@@ -35,6 +35,7 @@ import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "./builder/build-budget.mjs";
+import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { JOB_KIND, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -43,6 +44,10 @@ import {
   newReplaySecret, packReplayMarker, readReplayMarker, packEditJob, readEditJob,
   editAsyncFor,
   repairClock,
+  // The compile's floor, which a wait for container room must never eat
+  // (2026-09-04) — the same number the publish gate and the repair round
+  // hold back for a compile, read from where it lives.
+  MIN_BUILD_MS,
 } from "./builder/edit-job.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
@@ -9264,6 +9269,13 @@ function compileMsg(pub, theirs) {
   // restarting container. It read as "didn't compile — try describing it
   // differently" — the customer's words blamed for our budget — and, before
   // that sentence, as a container restart. The spine now says `timedOut`.
+  // ── AND A FIFTH (2026-09-04): NO ROOM ────────────────────────────────────
+  //
+  // A container the account could not start — the library's plain-text 503,
+  // 429 or 500 — waited for inside the cap and named when the wait ran out.
+  // Which of the three matters to the customer: "full" is minutes, "rate" a
+  // moment. See builder/container-room.mjs.
+  if (pub.room) return roomSentence(pub.room);
   if (pub.timedOut) {
     return "That didn't go through — it took longer than the time we allow for one change, so nothing was changed. Nothing was charged. Try again, or ask for it in two smaller steps.";
   }
@@ -9728,10 +9740,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // a lane on purpose — that is one customer, and the build server's
       // `oneAtATime` is what keeps them from wiping each other's `src/routes`.
       const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
-      const rr = await c.fetch(new Request("http://build/build", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+      // THE PAYLOAD ONCE, THE CALL AS MANY TIMES AS ROOM TAKES (2026-09-04) —
+      // see `withRoom` below the payload.
+      const cPayload = JSON.stringify({
           files, slug, title: (look && look.brand) || slug,
           // THE SITE'S OWN LANGUAGE, out of the same stored look as everything
           // else here. Absent on every site built before 2026-08-12, and
@@ -9837,7 +9848,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
           // caused it.
           worker: true,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
-        }),
+        });
         // BOUNDED, for the reason the build path's copy is — and this spine
         // matters at least as much: every cheap edit on the platform publishes
         // through here, and a wedged recompile holds ITS LANE for the whole
@@ -9858,14 +9869,41 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
         // `capMs` reserves the publish window as well, so the container can
         // never eat the time the publish itself needs. Null job, flat ceiling:
         // the synchronous path is unchanged.
-        signal: AbortSignal.timeout(job && job.budget ? job.budget.capMs(CONTAINER_CALL_MS) : CONTAINER_CALL_MS),
-      }));
+      const cCap = job && job.budget ? job.budget.capMs(CONTAINER_CALL_MS) : CONTAINER_CALL_MS;
+      const cDeadline = Date.now() + cCap;
+      // ── A CONTAINER WITH NO ROOM IS WAITED FOR, NOT FAILED (2026-09-04) ──
+      //
+      // @cloudflare/containers answers a start the account cannot make as a
+      // plain-text 503 ("There is no Container instance available…") or 429
+      // ("too many containers per second"), never a throw — and this spine
+      // parsed that text as JSON, threw on it, and told the customer their
+      // change "didn't compile — try describing it differently". Both answers
+      // get better on their own, so `withRoom` repeats the call with backoff
+      // while the next wait plus a compile's floor still fit in the job's own
+      // cap; a JSON body is never a room problem and parses exactly as before.
+      // Each attempt is bounded by what is LEFT of the cap, so the wait and
+      // the call share one clock. See builder/container-room.mjs.
+      const { answer: rr, room: cRoom, waited: cWaited, attempts: cTries } = await withRoom(async () => {
+        const r = await c.fetch(new Request("http://build/build", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: cPayload,
+          signal: AbortSignal.timeout(Math.max(1000, cDeadline - Date.now())),
+        }));
+        return { status: (r && r.status) || 0, text: await r.text().catch(() => "") };
+      }, { deadline: cDeadline, floorMs: MIN_BUILD_MS, onWait: (w) => tm("container", "wait", w) });
       // ACCEPTED — a response object exists, so the container was reached and
       // answered a status. Distinct from "returned", below, which needs the
       // whole body: a connection cut mid-body lands between these two marks
       // and nothing else in this system can tell those apart.
-      tm("container", "start", { accepted: true, status: (rr && rr.status) || 0 });
-      const body = JSON.parse(await rr.text().catch(() => "")) || {};
+      tm("container", "start", { accepted: true, status: rr.status || 0, waited: cWaited, tries: cTries });
+      if (cRoom) {
+        // The wait ran out, or the start failed outright. Named, so the
+        // sentence the customer reads is ours and not theirs.
+        tm("container", "fail", { returned: true, status: rr.status || 0, room: cRoom.kind, waited: cWaited });
+        return { ok: false, error: "the build service had no room: " + cRoom.kind, room: cRoom.kind };
+      }
+      const body = JSON.parse(rr.text) || {};
       tm("container", body && body.ok ? "ok" : "fail",
         { returned: true, status: (rr && rr.status) || 0, stage: String((body && body.stage) || ""), files: body && body.files ? Object.keys(body.files).length : 0 });
       return body;
@@ -9896,8 +9934,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // caller turns that into the sentence the owner reads.
     // A TIMEOUT IS OURS TOO: the code was never judged, the clock ran out.
     const timedOut = !!(built && built.timedOut);
+    // NO ROOM IS OURS TOO (2026-09-04): the container never saw the code.
+    const room = (built && built.room) || null;
     return {
-      ok: false, error: "compile", ours: (killed && wasKilled(built && built.error)) || timedOut, timedOut,
+      ok: false, error: "compile", ours: (killed && wasKilled(built && built.error)) || timedOut || !!room, timedOut, room,
       detail: String((built && built.error) || "").slice(0, 200),
     };
   }
@@ -10621,10 +10661,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // the time the container is needed the slug exists and is the one stable
       // thing this build has.
       const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
-      const r = await c.fetch(new Request("http://build/build", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ files, slug, title: brand,
+      // THE PAYLOAD ONCE, THE CALL AS MANY TIMES AS ROOM TAKES (2026-09-04) —
+      // see `withRoom` below the payload.
+      const bPayload = JSON.stringify({ files, slug, title: brand,
           // THE COMPONENTS THE MODEL JUST WROTE, straight off the `write_pages`
           // answer. NOT read from R2 here, which is the difference between this
           // call and the spine's: on a first build nothing is stored yet, and on
@@ -10693,7 +10732,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // when there is no script. So this is the switch that decides which,
           // and it is on for everything built from here.
           worker: true,
-          fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined }),
+          fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined });
         // THE LAST UNBOUNDED AWAIT ON THIS PATH, closed 2026-08-22.
         //
         // `BUILDER_CALL_MS` bounds the two MODEL calls and this carried no
@@ -10704,8 +10743,27 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         //
         // It composes with the build budget rather than adding to it, so a
         // container starting late gets what is LEFT — see build-budget.mjs.
-        signal: AbortSignal.timeout(budget ? budget.capMs(CONTAINER_CALL_MS) : CONTAINER_CALL_MS),
-      }));
+      const bCap = budget ? budget.capMs(CONTAINER_CALL_MS) : CONTAINER_CALL_MS;
+      const bDeadline = Date.now() + bCap;
+      // ── A CONTAINER WITH NO ROOM IS WAITED FOR, NOT FAILED (2026-09-04) ──
+      // The spine's copy has the reasoning; here the failure used to be one
+      // immediate retry and a placeholder saying "send it again". Bounded by
+      // what is LEFT of the build's cap, with a compile's floor kept back.
+      const { answer: r, room: bRoom, waited: bWaited } = await withRoom(async () => {
+        const rr = await c.fetch(new Request("http://build/build", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: bPayload,
+          signal: AbortSignal.timeout(Math.max(1000, bDeadline - Date.now())),
+        }));
+        return { status: (rr && rr.status) || 0, text: await rr.text().catch(() => "") };
+      }, { deadline: bDeadline, floorMs: MIN_BUILD_MS, onWait: (w) => console.log("build: waiting for room", slug, JSON.stringify(w)) });
+      if (bRoom) {
+        return {
+          ok: false, stage: "build", room: bRoom.kind,
+          error: "the build service had no room (" + bRoom.kind + ") after " + bWaited + " ms",
+        };
+      }
       // THE STATUS AND THE BODY, NOT JUST "no JSON". Parsing straight to JSON and
       // swallowing the failure threw away everything the container said: a 500
       // with a stack trace, a 502 from
@@ -10714,7 +10772,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // generation that had SUCCEEDED, and the response could not say why the
       // container did not answer. Exactly the `detail: "{}"` lesson, a third
       // layer down; the body is read as TEXT so a non-JSON answer survives.
-      const raw = await r.text().catch(() => "");
+      const raw = r.text;
       try {
         const built = JSON.parse(raw);
         // WHAT THE TRANSLATIONS COST, on the result `publishPages` prices this

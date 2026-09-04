@@ -2684,3 +2684,23 @@ many starts per second" answers) is waited for inside the job's own clock
 instead of failing the build and blaming the customer's words, and the
 platform rebuild drain stops serialising on a reason that expired when
 every site got its own container.
+
+## 2026-09-04 — A build service with no room waits instead of failing
+
+The second container-and-Worker fix. When the account cannot start a
+container — every instance in use, or too many started in the same second,
+which is what a launch morning looks like — Cloudflare's library answers
+with a plain-text refusal rather than an error, and neither of our publish
+paths recognised it. An edit read it as the customer's own code failing to
+compile ("try describing it differently", refunded but blamed), and a build
+retried once instantly and shipped the placeholder. Now both paths
+recognise the two refusals that pass on their own and wait for room —
+backing off from a second to half a minute, with jitter so a hundred
+refused builds don't all come back together — inside the job's own clock,
+and never so long that the compile itself no longer fits. If the wait runs
+out, the customer is told it was our build service being full (or starting
+too many at once), nothing changed, nothing charged. A start that fails
+outright is named as ours too and not waited for. 24 mutants, 24 killed,
+control survived; suite 5,044. Not provable on fretwork-1: it needs the
+account to be full. The trace will show `container wait` the first time it
+happens for real.

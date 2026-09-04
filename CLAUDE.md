@@ -2133,6 +2133,50 @@ no ownership. **A lane that reports every publish failure as `compile` hides
 this**: a read-refusal and a killed container wore one sentence ("our build
 service was restarting"), which cost two live runs and a wrong diagnosis.
 
+**A CONTAINER WITH NO ROOM IS WAITED FOR, NOT FAILED (2026-09-04, the
+capacity review; owner: *"im more concerned about the container/worker"*).**
+`@cloudflare/containers` answers a start the account cannot make as a
+RESPONSE, never a throw: a plain-text **503** ("There is no Container
+instance available…" — the account's concurrent ceiling, verified against
+Cloudflare's limits page as 6 TiB / 1,500 vCPU, ~1,536 live `standard-1`,
+or an image still provisioning after a deploy), a **429** ("you are
+requesting too many containers per second", threshold undocumented), and a
+**500** "Failed to start container: …" for anything else. Neither publish
+path recognised them: the spine parsed the text as JSON, threw on it, and
+told the customer *"didn't compile — try describing it differently"*
+(refunded, but `ours: false` and the customer's words blamed); the build
+path retried once with no delay and shipped a placeholder. Now
+`builder/container-room.mjs` (dependency-free, driven with a fake clock):
+`containerRoom(status, text)` classifies ONE answer — the status AND the
+words, a JSON body never (the build server judged something), unknown text
+never (a wait is right only for a failure known to pass) — and
+`withRoom(call, { deadline, floorMs })` repeats the call with jittered
+backoff (`rate` 1→8 s, `full` 5→30 s, never faster than the 2.5 s cold
+start) while the next wait plus the compile's floor (`MIN_BUILD_MS`) still
+fits before the caller's cap; each attempt's own signal is what is LEFT of
+that one deadline, so the wait and the call share a clock. Both compile
+call sites go through it, the payload built once as `cPayload` /
+`bPayload` before the loop — six guards pinned to the inline body, the
+fetch's own signal and the two-term `ours` disjunction went red and were
+re-anchored on the property, each naming the spelling that moved. When the
+wait runs out: the spine answers `room`, marks `ours`, and `compileMsg`
+says which of the three (`roomSentence` — full is minutes, rate a moment, a
+start failure not waited for); the build path answers `stage: "build"`
+(free, `ourFault`) with `room`, `publish-pages` skips its immediate retry
+and the note says "had no room… send it again in a few minutes". Trace:
+`container wait {kind, attempt, delayMs}` per wait, `start` carries
+`waited` and `tries`. `test/container-room.test.mjs` reads the library's
+OWN three answers out of node_modules (a reworded library is a wall that
+stopped matching), drives the loop, drives `compileMsg`, and reads both
+call sites; `test/publish-pages.test.mjs` drives the no-room build.
+**Sweep: 24 mutants, 24 killed, none unapplied, the comment-only control
+survived — one survived the first pass and it was INERT against the
+fixtures** (the JSON rule: every JSON fixture also lacked the words, so
+the status-and-words check refused them anyway; two fixtures carrying the
+words inside JSON made it load-bearing). Suite 5,044. **Not proven live**:
+it needs the account full or a burst of starts, which is a launch, not a
+harness — the trace's `container wait` mark is what will show it.
+
 **A lane may only refuse over a database it actually QUERIES.** `data` and
 `rules` read and enforce rows, so they require one. `look` and `logo` do not:
 the stylesheet, the look and the logo all live in R2, and `configDeps` reaches
@@ -2457,8 +2501,10 @@ what the work cost.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,025
-  (2026-09-04, after the translation charge's three — the spine's funnel and
+  build and the pre-list payload added sixteen); the unit suite is 5,044
+  (2026-09-04, after the wide door's three and container room's sixteen —
+  the library's three answers, the loop, both call sites, the no-room
+  build — and before them the translation charge's three — the spine's funnel and
   every route's hop read, the bilingual edit DRIVEN against the ledger, the
   build's one bill driven — the translation fix's two — the picked model and the
   cache rules — the translation instrument's two — the spine's marks

@@ -463,8 +463,13 @@ test("a container that answers with no JSON says what it DID answer", () => {
   assert.equal(src.slice(i + 1, end).indexOf("getContainer(env.SITE_BUILD_CONTAINER)"), -1,
     "the window ran past this dep into another container call");
   const after = src.slice(i, end);
-  assert.ok(!/r\.json\(\)\s*\.catch/.test(after), "the container's answer is being discarded again");
-  assert.match(after, /await r\.text\(\)/, "the body must be read as text so a non-JSON answer survives");
+  assert.ok(!/\w+\.json\(\)\s*\.catch/.test(after), "the container's answer is being discarded again");
+  // RE-ANCHORED 2026-09-04: the fetch moved inside a wait for container room
+  // and its response is `rr` there, read as text and handed out as `r.text`
+  // for the parse below — the property is the same: the body is read as TEXT,
+  // never `.json()`, whichever name holds the response.
+  assert.match(after, /await \w+\.text\(\)\.catch\(\(\) => ""\)/, "the body must be read as text so a non-JSON answer survives");
+  assert.match(after, /JSON\.parse\(raw\)/, "the text that was read is not the text that is parsed");
   assert.match(after, /r\.status/, "the status is what separates a 500 from an empty 200");
 });
 
