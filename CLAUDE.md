@@ -111,9 +111,34 @@ distinction that still exists once the branding does not.
 ## Deploy
 
 Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → gofarther.dev.
-~3–4 minutes, and **a push that touches `builder/` rolls the container image**:
-wait **15–20 minutes** before firing a build that must run the new code. An
-instance started seconds after "deploy completed" is still on the previous image.
+**A CONTAINER IMAGE IS BUILT ONLY WHEN ITS INPUTS CHANGED (2026-09-04, owner:
+*"Ok yeah lets do that"*).** `.github/scripts/container-images.mjs` runs
+before the Wrangler step: for each container whose `image` is a Dockerfile
+path it hashes the git objects the Dockerfile COPYs (plus the Dockerfile and
+its `.dockerignore`) into a 16-hex id, builds and pushes
+`isibi-app-<class>:<id>` only when the registry lacks that tag (once more on
+a failure — the registry's 500s are what failed two deploys on 2026-09-04),
+and rewrites the CHECKOUT's `wrangler.jsonc` to reference it. Wrangler expands
+a bare `name:tag` to this account's registry, so no account id is in the
+config, and **a deploy that references an image builds nothing and rolls
+nothing unless the reference moved**. The repository's own config keeps the
+Dockerfile paths, so a hand `wrangler deploy` behaves as it always did.
+**What rolls the container now is a change to an image INPUT** — the
+Dockerfile, `.dockerignore`, `lovable/template/`, `theme-candidates/`, or one
+of the modules the COPY line names — not any push that touches `builder/`:
+`site-add.mjs`, `edit-job.mjs`, `page-gen.mjs` live there and are Worker
+modules, and a change to them reuses the image. After such a push, wait
+**15–20 minutes** before firing a build that must run the new code (an
+instance started seconds after "deploy completed" is still on the previous
+image); after a Worker-only push there is nothing to wait for. Measured
+before the change: 14 and 15 minutes per deploy, on pushes that changed
+nothing under either Dockerfile. **The base image is not an input**: an
+upstream `node:22-slim` update reaches the image only when something here
+changes; to force a rebuild, change the Dockerfile (a comment is enough).
+`test/container-images.test.mjs` drives every decision and the flow with
+fakes, and reads the wiring (the step between the queue check and the deploy,
+the two Wrangler versions equal). **Not proven live until the first deploy
+after it** — the guard's real-repo case only proves every input resolves.
 
 Secrets live in GitHub Actions and upload to the Worker each deploy. **An
 optional secret must carry a `|| fallback`; a required one must not** — listing a
@@ -1814,8 +1839,9 @@ what the work cost.
   free and read-only.
 - **`site build` is 326/326** against the real container (2026-09-03, the QR
   list's two-code build and the pre-list payload added sixteen); the unit
-  suite is 4,985 (2026-09-04, after the repair pass on the addon's publish:
-  the round driven with fakes, the floor, the spine's wiring by landmark). **In this sandbox the
+  suite is 4,999 (2026-09-04, after the container images stopped rebuilding
+  on every deploy: the id, the listing, the rewrite and the flow driven with
+  fakes, the wiring read). **In this sandbox the
   harness needs `playwright-core` at the root the way `site-build.yml`
   installs it** (`npm i --no-save playwright-core@<the template's playwright
   version>`) — without it the six card and touch-icon checks fail with

@@ -2326,3 +2326,22 @@ live; the container is on the new image from about 12:23. Nothing to
 test yet without spending: the first addition whose page crashes is the
 proof, and the reply will say whether a fix held, was out of time, or
 did not take.
+
+**Deploys no longer rebuild the container for a Worker-only change (your
+"Ok yeah lets do that").** Until now every deploy rebuilt both container
+images and pushed them to Cloudflare's registry — 14 and 15 minutes each
+today, on two pushes that changed nothing the images are built from —
+and every pushed image rolled the container, which is where the
+20-minute wait after each deploy came from, and where both of today's
+deploy failures happened. Now a small step before the deploy works out
+each image's fingerprint from exactly the files its Dockerfile copies,
+builds and pushes an image only when that fingerprint is not in the
+registry yet, and points the deploy at the existing one otherwise. A
+push that touches only the Worker (which is most of them) builds nothing
+and rolls nothing, so there is no wait afterwards; a push that changes
+the template, the theme files or the build service still rebuilds and
+rolls, and the wait applies to those. If we ever need to force a rebuild
+(say, to pick up a newer Node base image), a one-line change to the
+Dockerfile does it. Sweep 28 of 28, suite green. **The first deploy
+after this is the proof**: it should say "reused" for both images and
+take a few minutes rather than fifteen.
