@@ -2386,3 +2386,23 @@ route already had, so the Worker file would not load at all. Renamed,
 and the guard now loads the file as a module instead of only reading
 it, so that class cannot pass again. Sweep re-run after the rename: 33
 of 33 killed; the full suite is 5,000 green.
+
+**Deploy 2018 (13:08 UTC, the seam): green in 4 minutes 31 seconds,
+and the container did NOT roll.** Both images were built again, under
+the same tags as before, and Wrangler's container deploy then said "no
+changes" for both — so a rebuild under an unchanged tag rolls nothing.
+The twenty-minute hold applies only when something the image is built
+from changes. That is the half of the change that mattered most, and it
+is proven.
+
+**Why the images keep rebuilding, found and fixed.** The line I added
+printed what the registry listing answered: three repositories, and the
+site image's repository was not among them at all, though it has been
+pushed three times and the deploy references it. Wrangler's `images
+list` asks the registry for one page of its catalog and never the next.
+The step now asks the registry for each tag by name instead (a HEAD on
+the tag's manifest, with a short-lived pull-only credential minted the
+way Wrangler's own delete command does it). A registry that cannot be
+asked builds, and says so in the log, because a build is always right
+and only slow. Sweep: 23 mutants, 23 killed, control survived. The next
+deploy should read "reused" for both images and take about a minute.

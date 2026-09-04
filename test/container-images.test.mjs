@@ -14,7 +14,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
-  stripJsonc, readContainers, copySources, imageName, imageId, present, rewriteImage, containerInputs, main,
+  stripJsonc, readContainers, copySources, imageName, imageId, rewriteImage, containerInputs, main,
+  registryCredentials, manifestPresent, API_BASE,
 } from "../.github/scripts/container-images.mjs";
 
 const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -78,13 +79,67 @@ test("imageId moves with any input's object and with the input list, and refuses
   assert.throws(() => imageId([{ path: "b/x.mjs", oid: "not-an-oid" }]), /no git object/);
 });
 
-test("present asks for the name AND the tag, off Wrangler's own JSON listing", () => {
-  const listing = [{ name: "isibi-app-sitebuildcontainer", tags: ["76813f4e3fe90bd7", "old"] }, { name: "other", tags: ["76813f4e3fe90bd7"] }];
-  assert.equal(present(listing, "isibi-app-sitebuildcontainer", "76813f4e3fe90bd7"), true);
-  assert.equal(present(listing, "isibi-app-sitebuildcontainer", "zzz"), false, "a tag the registry lacks reads as present");
-  assert.equal(present(listing, "isibi-app-gamebuildcontainer", "76813f4e3fe90bd7"), false, "another repository's tag reads as ours");
-  assert.equal(present(null, "x", "y"), false);
-  assert.equal(present([{ name: "x" }], "x", "y"), false);
+/* ───────────── the registry, asked by name (not through a listing) ───────────── */
+//
+// Deploys 2017 and 2018 (2026-09-04) rebuilt both images off `wrangler
+// containers images list`, which fetches ONE page of the catalog and never the
+// next: the site repository was not in its answer though pushed three times,
+// the game repository's tags were the old eight-hex ones only. The registry is
+// asked for the tag BY NAME now — a HEAD on its manifest, the way Wrangler's
+// own `images delete` finds one — with a pull credential minted for the run.
+
+/** A fetch that records every call and answers what the case says. */
+function fakeFetch(answer) {
+  const calls = [];
+  const fetch = async (url, init) => {
+    calls.push({ url: String(url), init: init || {} });
+    const a = typeof answer === "function" ? answer(String(url), init || {}) : answer;
+    return { ok: a.status >= 200 && a.status < 300, status: a.status, json: async () => a.body };
+  };
+  return { fetch, calls };
+}
+
+test("registryCredentials mints a five-minute PULL credential through the account's containers API and answers the registry's Basic header", async () => {
+  const { fetch, calls } = fakeFetch({ status: 200, body: { result: { password: "tok-123" } } });
+  const auth = await registryCredentials({ fetch, apiToken: "api-token", accountId: ACCOUNT, registry: "registry.cloudflare.com" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, `${API_BASE}/accounts/${ACCOUNT}/containers/registries/registry.cloudflare.com/credentials`, "not the containers API's credentials route under this account");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.headers.Authorization, "Bearer api-token", "the API token is not sent");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { expiration_minutes: 5, permissions: ["pull"] }, "not a short-lived pull-only credential");
+  // The registry's Basic user is `v1`; the password is the token (Wrangler's getCreds).
+  assert.equal(auth, "Basic " + Buffer.from("v1:tok-123").toString("base64"));
+  // Refusals are named, never read as a credential.
+  const denied = fakeFetch({ status: 403, body: { errors: [{ message: "no scope" }] } });
+  await assert.rejects(() => registryCredentials({ fetch: denied.fetch, apiToken: "t", accountId: ACCOUNT, registry: "r" }), /registry credentials: 403/);
+  const empty = fakeFetch({ status: 200, body: { result: {} } });
+  await assert.rejects(() => registryCredentials({ fetch: empty.fetch, apiToken: "t", accountId: ACCOUNT, registry: "r" }), /no password/);
+  await assert.rejects(() => registryCredentials({ fetch, apiToken: "", accountId: ACCOUNT, registry: "r" }), /CLOUDFLARE_API_TOKEN/);
+  // The API base is a knob, as it is for Wrangler.
+  const other = fakeFetch({ status: 200, body: { result: { password: "p" } } });
+  await registryCredentials({ fetch: other.fetch, api: "https://api.example/v4", apiToken: "t", accountId: ACCOUNT, registry: "r.example" });
+  assert.equal(other.calls[0].url, `https://api.example/v4/accounts/${ACCOUNT}/containers/registries/r.example/credentials`);
+});
+
+test("manifestPresent is a HEAD on the tag's manifest under the account: 200 is there, 404 is not, anything else is could-not-tell", async () => {
+  const ask = async (status) => {
+    const { fetch, calls } = fakeFetch({ status, body: null });
+    const out = await manifestPresent({ fetch, registry: "registry.cloudflare.com", accountId: ACCOUNT, auth: "Basic abc", name: "isibi-app-sitebuildcontainer", tag: "76813f4e3fe90bd7" });
+    return { out, call: calls[0] };
+  };
+  const yes = await ask(200);
+  assert.deepEqual(yes.out, { present: true, status: 200 });
+  assert.equal(yes.call.url, `https://registry.cloudflare.com/v2/${ACCOUNT}/isibi-app-sitebuildcontainer/manifests/76813f4e3fe90bd7`, "not the manifest of this tag under this account");
+  assert.equal(yes.call.init.method, "HEAD", "a manifest is fetched whole to learn whether it exists");
+  assert.equal(yes.call.init.headers.Authorization, "Basic abc", "the credential is not sent");
+  for (const type of ["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"]) {
+    assert.ok(String(yes.call.init.headers.Accept).includes(type), `the registry is not told ${type} is acceptable`);
+  }
+  assert.deepEqual((await ask(404)).out, { present: false, status: 404 });
+  // NEITHER: a refusal, an outage, a redirect — none of them is an answer.
+  for (const status of [401, 403, 500, 302]) {
+    assert.deepEqual((await ask(status)).out, { present: null, status }, `${status} was read as an answer`);
+  }
 });
 
 test("rewriteImage replaces exactly one image path with a reference, and refuses zero or two", () => {
@@ -136,20 +191,27 @@ test("every input of both real images is a git object at HEAD, and the ids are s
 
 /* ───────────────────────────── the flow, driven ─────────────────────────── */
 
-function harness({ listing, buildOk = () => true, gitMissing = [] } = {}) {
+const ABSENT = { present: false, status: 404 };
+const THERE = { present: true, status: 200 };
+
+/**
+ * `answer(name, tag)` is what the registry says for that tag: a result, or a
+ * function that throws — the real probe throws when no credential can be had.
+ */
+function harness({ answer = () => ABSENT, buildOk = () => true, gitMissing = [] } = {}) {
   const oids = new Map();
   const git = (p) => {
     if (gitMissing.includes(p)) return null;
     if (!oids.has(p)) oids.set(p, (oids.size + 1).toString(16).padStart(40, "0"));
     return oids.get(p);
   };
-  const calls = { list: 0, builds: [], writes: [], logs: [] };
+  const calls = { asked: [], builds: [], writes: [], logs: [], seq: [] };
   const wrangler = {
-    list: () => { calls.list++; return typeof listing === "function" ? listing() : listing; },
-    build: (ctx, ref) => { calls.builds.push([ctx, ref]); return buildOk(calls.builds.length, ref); },
+    build: (ctx, ref) => { calls.builds.push([ctx, ref]); calls.seq.push(["build", ref]); return buildOk(calls.builds.length, ref); },
   };
+  const tagPresent = async (name, tag) => { calls.asked.push([name, tag]); calls.seq.push(["ask", `${name}:${tag}`]); return answer(name, tag); };
   const deps = {
-    root: ROOT, git, wrangler, accountId: ACCOUNT,
+    root: ROOT, git, wrangler, tagPresent, accountId: ACCOUNT,
     log: (s) => calls.logs.push(s),
     write: (p, t) => calls.writes.push([p, t]),
     read: (p) => fs.readFileSync(path.join(ROOT, p), "utf8"),
@@ -160,19 +222,21 @@ function harness({ listing, buildOk = () => true, gitMissing = [] } = {}) {
 
 test("an image already in the registry is REUSED: no build, the config references it", async () => {
   // Learn the ids from a first run against an empty registry, then answer them.
-  const first = harness({ listing: [] });
+  const first = harness();
   const out1 = await main(first.deps);
   assert.equal(out1.images.length, 2);
   assert.equal(first.calls.builds.length, 2, "an empty registry builds both");
-  // The listing's names are stripped of the account prefix, as Wrangler's
-  // `handleListImagesCommand` strips them — so the fixture is built off the
-  // short tag, the shape the real listing has.
-  const known = out1.images.map((i) => ({ name: i.tag.split(":")[0], tags: [i.tag.split(":")[1]] }));
+  // The registry is asked by the short name and the tag — the two halves of
+  // the build tag, which is what `wrangler containers build -t` pushed.
+  const known = new Set(out1.images.map((i) => i.tag));
 
-  const { deps, calls } = harness({ listing: known });
+  const { deps, calls } = harness({ answer: (name, tag) => (known.has(`${name}:${tag}`) ? THERE : ABSENT) });
   const out = await main(deps);
   assert.equal(calls.builds.length, 0, "an image already there was built again");
   assert.deepEqual(out.images.map((i) => i.action), ["reused", "reused"]);
+  assert.deepEqual(out.images.map((i) => i.status), [200, 200], "the registry's answer does not ride the result");
+  assert.equal(calls.asked.length, 2, "each image is asked for once");
+  assert.ok(calls.logs.some((l) => /IMAGE SiteBuildContainer: reused isibi-app-sitebuildcontainer:[0-9a-f]{16}  \(registry answered 200;/.test(l)), "the log does not say what the registry answered");
   assert.equal(calls.writes.length, 1);
   assert.equal(calls.writes[0][0], "wrangler.jsonc");
   const written = calls.writes[0][1];
@@ -189,36 +253,52 @@ test("an image already in the registry is REUSED: no build, the config reference
 });
 
 test("without an account id nothing is asked, built or written — the reference could not name the registry", async () => {
-  const { deps, calls } = harness({ listing: [] });
+  const { deps, calls } = harness();
   for (const bad of [undefined, "", "not-an-account-id"]) {
     await assert.rejects(() => main({ ...deps, accountId: bad }), /CLOUDFLARE_ACCOUNT_ID/);
   }
-  assert.equal(calls.list + calls.builds.length + calls.writes.length, 0);
+  assert.equal(calls.asked.length + calls.builds.length + calls.writes.length, 0);
+  await assert.rejects(() => main({ ...deps, tagPresent: undefined }), /no way to ask the registry/);
 });
 
-test("an image the registry lacks is BUILT under its id, from its own context, and pushed", async () => {
-  const { deps, calls } = harness({ listing: [{ name: "isibi-app-gamebuildcontainer", tags: ["stale"] }] });
+test("an image the registry lacks is BUILT under its id, from its own context, and pushed — each asked for BEFORE its own build", async () => {
+  const { deps, calls } = harness({ answer: () => ABSENT });
   const out = await main(deps);
   assert.deepEqual(out.images.map((i) => i.action), ["built", "built"]);
   assert.deepEqual(calls.builds.map(([ctx]) => ctx), ["builder-game", "builder"], "the build context is the Dockerfile's directory");
   for (const [, ref] of calls.builds) assert.match(ref, /^isibi-app-(game|site)buildcontainer:[0-9a-f]{16}$/);
-  assert.equal(calls.list, 1, "the registry is asked once, before any build");
+  assert.deepEqual(calls.seq.map(([k]) => k), ["ask", "build", "ask", "build"], "an image is built before the registry is asked for it");
+  for (const [i, [name, tag]] of calls.asked.entries()) assert.equal(`${name}:${tag}`, calls.builds[i][1], "the tag asked for is not the tag built");
+  assert.ok(!calls.logs.some((l) => /could not be asked/.test(l)), "a plain 404 was reported as a registry that could not be asked");
+});
+
+test("a registry that CANNOT be asked builds — never skips — and the log says so, for a refusal and for a credential it would not mint", async () => {
+  // One image gets a 401 on the manifest; the other's probe throws (the real
+  // probe throws when the credential call fails). Both are "could not tell".
+  const { deps, calls } = harness({ answer: (name) => { if (name.includes("game")) return { present: null, status: 401 }; throw new Error("registry credentials: 403"); } });
+  const out = await main(deps);
+  assert.deepEqual(out.images.map((i) => i.action), ["built", "built"], "an unanswered registry was read as an image being there");
+  assert.equal(calls.builds.length, 2);
+  assert.deepEqual(out.images.map((i) => i.status), [401, "registry credentials: 403"]);
+  const said = calls.logs.filter((l) => /registry could not be asked for isibi-app-(game|site)buildcontainer:[0-9a-f]{16} \((401|registry credentials: 403)\) — building/.test(l));
+  assert.equal(said.length, 2, "the two unanswered asks were not both said out loud, with their reasons");
+  assert.equal(calls.writes.length, 1, "the config was not written after the builds");
 });
 
 test("a failed build is tried once more; a second failure fails the deploy and writes nothing", async () => {
-  const once = harness({ listing: [], buildOk: (n) => n !== 1 });
+  const once = harness({ buildOk: (n) => n !== 1 });
   const out = await main(once.deps);
   assert.equal(once.calls.builds.length, 3, "the first image's failed build was not retried exactly once");
   assert.equal(out.images.length, 2);
-  const never = harness({ listing: [], buildOk: () => false });
+  const never = harness({ buildOk: () => false });
   await assert.rejects(() => main(never.deps), /could not build and push/);
   assert.equal(never.calls.writes.length, 0, "a config referencing an image that does not exist was written");
 });
 
 test("an input git does not have fails by name BEFORE the registry is asked or anything is built", async () => {
-  const { deps, calls } = harness({ listing: [], gitMissing: ["builder/site-qr-list.mjs"] });
+  const { deps, calls } = harness({ gitMissing: ["builder/site-qr-list.mjs"] });
   await assert.rejects(() => main(deps), /site-qr-list\.mjs, which is not in git/);
-  assert.equal(calls.list + calls.builds.length + calls.writes.length, 0);
+  assert.equal(calls.asked.length + calls.builds.length + calls.writes.length, 0);
 });
 
 /* ─────────────────────────────── the wiring ─────────────────────────────── */
@@ -239,6 +319,11 @@ test("the deploy runs the step between the queue check and the Wrangler deploy, 
   // The script runs Wrangler at exactly that version, and refuses to guess one.
   assert.match(SCRIPT, /`wrangler@\$\{version\}`/);
   assert.match(SCRIPT, /WRANGLER_VERSION is not set/);
+  // The registry is asked by name, through the real probe, and never through
+  // the one-page listing that rebuilt both images on deploys 2017 and 2018.
+  assert.doesNotMatch(SCRIPT, /"images",\s*"list"/, "the script runs `wrangler containers images list` — the listing that answers one page");
+  assert.match(SCRIPT, /tagPresent: registryProbe\(\{ accountId, registry, apiToken: process\.env\.CLOUDFLARE_API_TOKEN \|\| "", api \}\)/, "the real probe is not handed to main, or not with the step's token");
+  assert.match(SCRIPT, /if \(!auth\) auth = await registryCredentials\(/, "the credential is minted per image rather than once per run");
   // The account id the reference names is the step's env, never the config's.
   assert.match(SCRIPT, /accountId: process\.env\.CLOUDFLARE_ACCOUNT_ID,/, "the reference cannot name the account");
   assert.match(SCRIPT, /const ref = `\$\{registry\}\/\$\{accountId\}\/\$\{tag\}`;/, "the reference is not registry/account/name:tag");

@@ -125,10 +125,25 @@ the site image and then refused the config**, because Wrangler's validator
 (`isDockerfile`) parses a non-file image with `new URL("https://" + image)` and
 a bare `name:tag` is an invalid URL, the tag reading as a port. (Its deploy-time
 `resolveImageName` WOULD have expanded a bare name — the validator runs first.)
+**THE REGISTRY IS ASKED FOR THE TAG BY NAME — a HEAD on its manifest**
+(`/v2/<account>/<name>/manifests/<id>`) with a five-minute pull-only credential
+minted through the account's containers API, the way Wrangler's own `images
+delete` finds one. NOT `wrangler containers images list`: that fetches ONE page
+of the catalog (`/v2/_catalog?tags=true`) and never the next, and on deploys
+2017 and 2018 its answer was three repositories — the site image's ABSENT,
+though pushed three times and referenced by the deploy, and the game
+repository's tags the old eight-hex ones only — so both images were rebuilt
+on every deploy: 4m18s and 4m31s instead of 15 minutes, and never "reused".
+A registry that cannot be asked (anything but 200 or 404, or a credential it
+will not mint) BUILDS and says so in the log, because a build is always right
+and only slow and a wrong skip ships a stale image.
 **A deploy that references an image builds nothing and rolls nothing unless
-the reference moved.** The repository's own config keeps the Dockerfile paths
-and never carries the account's registry path, so a hand `wrangler deploy`
-behaves as it always did.
+the reference moved.** MEASURED on deploy 2018: both images rebuilt under
+their unchanged tags, and Wrangler's container deploy answered "no changes"
+for both apps — a rebuild under the same tag rolls nothing; the roll is decided
+by the reference, which moves only when an input changed. The repository's own
+config keeps the Dockerfile paths and never carries the account's registry
+path, so a hand `wrangler deploy` behaves as it always did.
 **What rolls the container now is a change to an image INPUT** — the
 Dockerfile, `.dockerignore`, `lovable/template/`, `theme-candidates/`, or one
 of the modules the COPY line names — not any push that touches `builder/`:
@@ -143,8 +158,19 @@ upstream `node:22-slim` update reaches the image only when something here
 changes; to force a rebuild, change the Dockerfile (a comment is enough).
 `test/container-images.test.mjs` drives every decision and the flow with
 fakes, and reads the wiring (the step between the queue check and the deploy,
-the two Wrangler versions equal). **Not proven live until the first deploy
-after it** — the guard's real-repo case only proves every input resolves.
+the two Wrangler versions equal, no `images list`, the probe handed in with
+the step's token, one credential per run). Sweep of the probe: **23 mutants,
+23 killed, none unapplied, the comment-only control survived** — a 404 read
+as present, a 200 as absent, an unknown answer as either, the manifest
+fetched whole, the credential or the Accept dropped, the account off the
+path, a push or a day-long credential, the bearer dropped, a refusal
+unnamed, the wrong API route, the Basic user wrong, an empty token
+accepted, an unknown answer skipping the build, a throwing probe escaping,
+could-not-tell silent, a 404 said as unasked, the answer off the log, the
+retry dropped, the probe not required, a credential per image. **The roll half is proven live
+(deploy 2018: "no changes" on a rebuilt tag); the REUSE half is proven when a
+deploy says "reused"** — the first deploy carrying the manifest probe is that
+proof; stamp it here.
 
 Secrets live in GitHub Actions and upload to the Worker each deploy. **An
 optional secret must carry a `|| fallback`; a required one must not** — listing a
@@ -1869,7 +1895,7 @@ what the work cost.
   free and read-only.
 - **`site build` is 326/326** against the real container (2026-09-03, the QR
   list's two-code build and the pre-list payload added sixteen); the unit
-  suite is 5,000 (2026-09-04, after the seam and the add step's own repair
+  suite is 5,002 (2026-09-04, after the registry probe's two cases; before them the seam and the add step's own repair
   round — six driven cases and the Worker's module parse in, the first cut's
   repair-round cases out — the count landing where the container-image
   change had left it). **In this sandbox the
@@ -2626,6 +2652,19 @@ Worker as text carries one check that compiles it. The recorded "a chain
 test that read the modules instead of running them", one layer down: a text
 read certifies at the layer below the break, and a name already taken in
 the scope is invisible to it. The round is `aRepairRound` now.
+
+**A LISTING THAT ANSWERS ONE PAGE (2026-09-04, deploys 2017 and 2018).** The
+image skip asked `wrangler containers images list` whether a tag existed and
+believed its "no": the listing is ONE fetch of `/v2/_catalog?tags=true`, never
+paged, and the site image's repository was not in the page at all while the
+deploy two steps later referenced it. Two deploys rebuilt both images off an
+absence that was the instrument's, and the step printed nothing that could say
+so — the diagnostic line came first, the fix second. The recorded "a negative
+assertion must prove its observer is alive", pointed at a registry: an absence
+read off a list is only as good as the list is complete, so ask for the thing
+BY NAME (a HEAD on the manifest) rather than for the list it should be in.
+And when an instrument's answer decides a slow-versus-stale trade, make
+"could not tell" its own answer and choose the slow side out loud.
 
 ## Backlog
 

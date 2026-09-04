@@ -20,11 +20,22 @@
 //      way). The image id is a hash over those, so it changes exactly when
 //      something the image is built from changes, and never when a Worker
 //      module that happens to live in the same directory does;
-//   2. the registry is asked whether `<name>:<id>` is already there
-//      (`wrangler containers images list --json`); if not, the image is built
-//      and pushed under that tag (`wrangler containers build <ctx> -t … -p`),
-//      once more on a failure, since the registry's 500s are what failed twice
-//      today and a second attempt reuses every layer of the first;
+//   2. the registry ITSELF is asked whether `<name>:<id>` is there — a HEAD on
+//      the tag's manifest (`/v2/<account>/<name>/manifests/<id>`) with a
+//      five-minute pull credential minted through the account's containers
+//      API, the way Wrangler's own `images delete` finds a tag. NOT `wrangler
+//      containers images list`: that fetches ONE page of the registry catalog
+//      (`/v2/_catalog?tags=true`) and never the next — measured on deploys
+//      2017 and 2018 (2026-09-04): three repositories came back, the site
+//      image's not among them though pushed three times and referenced by
+//      the deploy, the game repository's tags the old eight-hex ones only —
+//      so both images were rebuilt on every deploy. If the tag is not there,
+//      the image is built and pushed under it (`wrangler containers build
+//      <ctx> -t … -p`), once more on a failure, since the registry's 500s are
+//      what failed twice today and a second attempt reuses every layer of the
+//      first. A registry that CANNOT be asked (any answer but 200 or 404, or a
+//      credential it will not mint) builds, and says so: a build is always
+//      right and only slow, a wrong skip ships a stale image;
 //   3. `wrangler.jsonc` IN THE CHECKOUT is rewritten to reference
 //      `registry.cloudflare.com/<account>/<name>:<id>` — the FULL reference,
 //      measured on deploy run 2016 (2026-09-04): Wrangler's config validator
@@ -153,10 +164,46 @@ export function imageId(inputs) {
   return h.digest("hex").slice(0, 16);
 }
 
-/** Is `name:tag` already in the registry, by Wrangler's own JSON listing? */
-export function present(listing, name, tag) {
-  const rows = Array.isArray(listing) ? listing : [];
-  return rows.some((r) => r && r.name === name && Array.isArray(r.tags) && r.tags.includes(tag));
+/** The Cloudflare API base Wrangler uses; its knob is honoured below. */
+export const API_BASE = "https://api.cloudflare.com/client/v4";
+
+/** The manifest media types a registry answers a HEAD for — Wrangler's own list. */
+const MANIFEST_ACCEPT = "application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json";
+
+/**
+ * A five-minute PULL credential for the registry, minted through the account's
+ * containers API exactly as Wrangler's `getCreds` does: the registry's Basic
+ * user is `v1` and the password is the token. Pull only — this step reads.
+ * Answers the whole `Authorization` value.
+ */
+export async function registryCredentials({ fetch, api = API_BASE, apiToken, accountId, registry }) {
+  if (!apiToken) throw new Error("CLOUDFLARE_API_TOKEN is not set — the registry cannot be asked");
+  const url = `${api}/accounts/${accountId}/containers/registries/${encodeURIComponent(registry)}/credentials`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ expiration_minutes: 5, permissions: ["pull"] }),
+  });
+  if (!r.ok) throw new Error(`registry credentials: ${r.status}`);
+  const body = await r.json();
+  const password = body && body.result && body.result.password;
+  if (typeof password !== "string" || !password) throw new Error("registry credentials: no password in the answer");
+  return "Basic " + Buffer.from(`v1:${password}`).toString("base64");
+}
+
+/**
+ * Is `name:tag` in the registry? A HEAD on the tag's manifest under the
+ * account: 200 is yes, 404 is no, and ANYTHING ELSE IS "COULD NOT TELL" —
+ * answered as `null`, never as either, because the two wrong readings cost
+ * different things (a stale image shipped, or minutes of a needless build)
+ * and that is the caller's decision, not this function's.
+ */
+export async function manifestPresent({ fetch, registry, accountId, auth, name, tag }) {
+  const url = `https://${registry}/v2/${accountId}/${name}/manifests/${tag}`;
+  const r = await fetch(url, { method: "HEAD", headers: { Authorization: auth, Accept: MANIFEST_ACCEPT } });
+  if (r.status === 200) return { present: true, status: 200 };
+  if (r.status === 404) return { present: false, status: 404 };
+  return { present: null, status: r.status };
 }
 
 /** The config with ONE image path replaced by a reference; anything but exactly one is an error. */
@@ -181,10 +228,16 @@ export function containerInputs({ context, dockerfileText, hasDockerignore, git 
   });
 }
 
-/** Run the whole flow. Every side effect is a dep so the test can drive it. */
-export async function main({ root, git, wrangler, accountId, registry = "registry.cloudflare.com", log = console.log, write, read, exists } = {}) {
+/**
+ * Run the whole flow. Every side effect is a dep so the test can drive it:
+ * `tagPresent(name, tag)` answers `{ present: true | false | null, status }`
+ * — the registry's own word (`manifestPresent`), or `null` when it could not
+ * be had; `wrangler.build(ctx, tag)` builds and pushes.
+ */
+export async function main({ root, git, wrangler, tagPresent, accountId, registry = "registry.cloudflare.com", log = console.log, write, read, exists } = {}) {
   const readText = read || ((p) => readFileSync(path.join(root, p), "utf8"));
   const has = exists || ((p) => existsSync(path.join(root, p)));
+  if (typeof tagPresent !== "function") throw new Error("no way to ask the registry was handed in");
   const cfgText = readText("wrangler.jsonc");
   const { name: workerName, containers } = readContainers(cfgText);
   if (!containers.length) { log("no container is built from a Dockerfile — nothing to do"); return { images: [], config: cfgText }; }
@@ -202,13 +255,6 @@ export async function main({ root, git, wrangler, accountId, registry = "registr
     return { ...c, ctx, tag, name: imageName(workerName, c.class_name), inputs };
   });
 
-  const listing = wrangler.list();
-  // WHAT THE REGISTRY ANSWERED, said out loud: deploy 2017 (2026-09-04) built
-  // the site image again although run 2016 had pushed that very tag, so the
-  // listing did not carry it — and the step printed nothing that could say
-  // why. Names and tags, so the next run can be read.
-  const rows = Array.isArray(listing) ? listing : [];
-  log(`registry: ${rows.length} repositor${rows.length === 1 ? "y" : "ies"}` + rows.map((r) => `\n  ${r && r.name}: ${(Array.isArray(r && r.tags) ? r.tags : []).slice(0, 8).join(" ") || "(no tags)"}`).join(""));
   const images = [];
   let text = cfgText;
   for (const p of planned) {
@@ -216,9 +262,22 @@ export async function main({ root, git, wrangler, accountId, registry = "registr
     // this account's namespace itself); THE CONFIG'S REFERENCE IS FULL.
     const tag = `${p.name}:${p.tag}`;
     const ref = `${registry}/${accountId}/${tag}`;
+    // THE REGISTRY IS ASKED FOR THIS TAG BY NAME, and what it answered is
+    // printed with the verdict — deploys 2017 and 2018 (2026-09-04) rebuilt
+    // both images off a listing that had never carried them, and the step had
+    // printed nothing that could say so.
+    let asked;
+    try { asked = await tagPresent(p.name, p.tag); }
+    catch (e) { asked = { present: null, status: String((e && e.message) || e) }; }
+    const present = asked && asked.present === true;
+    const status = asked ? asked.status : "no answer";
     let action = "reused";
-    if (!present(listing, p.name, p.tag)) {
+    if (!present) {
       action = "built";
+      // COULD NOT TELL IS NOT "NOT THERE", and it is not "there" either: a
+      // build is always right and only slow, so that is what happens — said
+      // out loud, or a registry refusing every deploy would read as a slow one.
+      if (!asked || asked.present !== false) log(`registry could not be asked for ${tag} (${status}) — building, which is always right and only slow`);
       // ONCE MORE ON A FAILURE: today's two deploy failures were the registry
       // answering 500 after minutes of layer retries, and a second attempt
       // reuses every layer the first one built.
@@ -227,8 +286,8 @@ export async function main({ root, git, wrangler, accountId, registry = "registr
       if (!ok) throw new Error(`could not build and push ${tag} for ${p.class_name}`);
     }
     text = rewriteImage(text, p.image, ref);
-    log(`IMAGE ${p.class_name}: ${action} ${tag}  (${p.inputs.length} inputs off ${p.ctx}/Dockerfile)`);
-    images.push({ class_name: p.class_name, ref, tag, action, inputs: p.inputs.length });
+    log(`IMAGE ${p.class_name}: ${action} ${tag}  (registry answered ${status}; ${p.inputs.length} inputs off ${p.ctx}/Dockerfile)`);
+    images.push({ class_name: p.class_name, ref, tag, action, status, inputs: p.inputs.length });
   }
   (write || ((p, t) => writeFileSync(path.join(root, p), t)))("wrangler.jsonc", text);
   return { images, config: text };
@@ -249,15 +308,6 @@ function wranglerCli(root) {
   if (!version) throw new Error("WRANGLER_VERSION is not set — it must match the deploy step's wranglerVersion");
   const run = (args, capture) => spawnSync("npx", ["--yes", `wrangler@${version}`, ...args], { cwd: root, encoding: "utf8", stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit", maxBuffer: 1 << 26 });
   return {
-    list() {
-      const r = run(["containers", "images", "list", "--json"], true);
-      if (r.status !== 0) throw new Error(`wrangler containers images list failed (${r.status})`);
-      // The JSON is the last thing printed; a banner or a warning may precede it.
-      const text = String(r.stdout || "");
-      const start = text.indexOf("[");
-      if (start < 0) throw new Error("wrangler containers images list printed no JSON");
-      return JSON.parse(text.slice(start));
-    },
     build(ctx, ref) {
       const r = run(["containers", "build", ctx, "-t", ref, "-p"], false);
       return r.status === 0;
@@ -265,14 +315,31 @@ function wranglerCli(root) {
   };
 }
 
+/**
+ * The real `tagPresent`: one credential for the run, minted on the first ask,
+ * then a HEAD per tag. Whatever fails here is a "could not tell" that `main`
+ * turns into a build and a sentence.
+ */
+function registryProbe({ accountId, registry, apiToken, api }) {
+  let auth = null;
+  return async (name, tag) => {
+    if (!auth) auth = await registryCredentials({ fetch, api, apiToken, accountId, registry });
+    return manifestPresent({ fetch, registry, accountId, auth, name, tag });
+  };
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = process.cwd();
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  // Wrangler's own knobs for the registry host and the API base, honoured for
+  // the same reason Wrangler honours them; the defaults are the ones it uses.
+  const registry = process.env.CLOUDFLARE_CONTAINER_REGISTRY || "registry.cloudflare.com";
+  const api = process.env.CLOUDFLARE_API_BASE_URL || API_BASE;
   main({
     root, git: gitObject(root), wrangler: wranglerCli(root),
+    tagPresent: registryProbe({ accountId, registry, apiToken: process.env.CLOUDFLARE_API_TOKEN || "", api }),
     accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
-    // Wrangler's own knob for the registry host, honoured for the same reason
-    // Wrangler honours it; the default is the one it uses.
-    registry: process.env.CLOUDFLARE_CONTAINER_REGISTRY || "registry.cloudflare.com",
+    registry,
   }).catch((e) => {
     console.error("FATAL:", (e && e.message) || e);
     process.exit(1);
