@@ -2320,3 +2320,9 @@ and the repair pass is NOT live until this succeeds. My GitHub access is
 refused for re-runs (403, as on 3 September), so it is your click again:
 https://github.com/canias7/isibi-app/actions/runs/33828547936 → "Re-run
 failed jobs". Then the usual 20 minutes before anything container-bound.
+
+**Re-run green at 12:03 UTC** (your click at 11:49). The repair pass is
+live; the container is on the new image from about 12:23. Nothing to
+test yet without spending: the first addition whose page crashes is the
+proof, and the reply will say whether a fix held, was out of time, or
+did not take.
