@@ -2292,3 +2292,21 @@ now renders — the listing form with make, asking price and email
 (`docs/edits/addon-run34-gear-after.png`; the error card it replaced is
 `addon-run34-gear.png`). The French and Spanish variants render too.
 Balance still 57.
+
+**Task 74, done (your call: "try to fix it, if not fix, send as it
+is").** An addition now gets the same repair pass a build gets. When the
+site's own checker sees a page crash after an addition, the builder makes
+one cheap fix attempt per broken page (at most three, on the model you
+picked, about 3 credits when it fires), compiles the site again, and
+publishes the fixed version if it compiles — or the original if it does
+not. Two more rules: a fix is only tried when the job's clock has room for
+a call, a compile and the publish (otherwise the page ships as it is and
+the reply says "I ran out of time to try a fix for /gear, so it's
+published as it is"); and a fix that did not hold says "I tried a fix for
+/gear and it didn't hold, so it's published as it was". A fix that held
+says nothing extra, the same as a build. Run 34's own report would now
+reach the fix: the checker had named only the Spanish and French copies of
+the gear page, and those are mapped back to the page itself. Ordinary edits
+(a colour, a wording change) get no repair pass, as before. Sweep 28 for
+28; not yet proven live — the next addition whose page crashes is the
+proof, and the harness will print what the repair did.

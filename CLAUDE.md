@@ -1402,14 +1402,64 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   gain the render note on the reading that the reply dropped it — the call
   site already appends it through `renderTail(a)` for both paths, so the
   change would have printed the sentence twice. Reverted.
-  **NOT changed — owner's call, filed**: an addition the site's own check
-  says broke a page still publishes (the ship-it rule applied to a render
-  finding). The BUILD runs the repair pass on that report (`repairPages`,
-  the tweak rung, one file, ~3 credits) and the addon does not: the reason
-  the EDIT lanes get none — "re-checking pages the customer just changed
-  by hand" — does not describe the addon, whose page a model just wrote
-  exactly as a build's. Either the addon gets the build's repair pass, or a
-  page that threw is refused; today it ships and says so.
+  **THE REPAIR PASS IS ON THE ADDON'S PUBLISH (owner, 2026-09-04: *"try to
+  fix it, if not fix, send as it is"*).** An addition the site's own check
+  says broke a page used to ship as it was (the ship-it rule applied to a
+  render finding): the BUILD ran the repair pass on that report
+  (`repairPages`, the tweak rung, one file, ~3 credits) and the addon did
+  not, because the spine's reason for the EDIT lanes getting none —
+  "re-checking pages the customer just changed by hand" — was written
+  before an addon existed. Now `recompileAndPublish` takes a `repair`
+  (`{ send, model, charge }`) and ONLY the addon route hands one in; the
+  edit lanes and the rebuild drain are byte-for-byte what they were
+  (`test/spine-repair.test.mjs` counts the call sites). The decision is
+  **`repairRound` in `site-repair.mjs`, driven with fakes**: no report →
+  nothing; nothing serious on a page this publish wrote → nothing; work but
+  no room on the job's clock → `time`, the routes named, NOTHING spent;
+  else one cheap fix per broken page (`MAX_REPAIRS` 3, the picked model's
+  `quick` slot) and a SECOND compile — the corrected list re-assembled with
+  its language variants off the cache (`filesFor`, the one assembly the
+  first compile uses too) — shipped and STORED when it compiles, the
+  original shipped when it does not (never worse than not trying). The hop
+  sits after the compile verdict and the dead-css refusal and BEFORE the
+  publish gate, so whichever build stood is what is written, archived,
+  stored and uploaded. **The room is `canRepair`** — `REPAIR_FLOOR_MS` = a
+  call (60 s) + a compile (180) + the sweep (60) + the terminal writes (15),
+  asked before the model call: off run 34's `phase_ms`, the function addon
+  reached its publish at ~385 s of 840 and would have had room, the api
+  addon at ~200 s too, the two-kind table addon at ~540 s would not and is
+  shipped as it is, said so. **A language variant is its primary page**:
+  `repairBrief` strips a leading segment that is one of the site's OWN
+  prefixes (`/es/gear` → `gear.tsx`, `/es` → `index.tsx`; `/de/gear` on a
+  site with no German is still nobody's page) — without it run 34's report,
+  which named only the variants, bought nothing. **Billing**: under a job
+  the round's usage is reserved as sequence #2 (`aCharge(bill, seq)`)
+  inside the spine before the gate, so everything charged is charged before
+  the commit point; synchronously it joins the one collect. **The
+  customer**: quiet on a fix that held (`repairNote`'s rule); "I ran out of
+  time to try a fix for /gear, so it's published as it is" or "I tried a
+  fix for /gear and it didn't hold, so it's published as it was" otherwise
+  (`repairRoundNote`, on the reply's render sentence); the reply carries
+  `repair` for the harness, whose BROKEN note now says whether a fix was
+  tried. **What it does not do**: a crash inside a `-parts/` component is
+  reported against the PAGE that holds it, so the model is handed the page
+  file and answers `cannot` or fiddles — the build has the same edge. **Not
+  proven live**: fretwork-1's pages all render now, so the next addon whose
+  page throws is the proof; the harness prints the round. **Sweep: 28
+  mutants, 28 killed, none unapplied, the comment-only control survived** —
+  each a hop cut back (the variant not mapped, any segment mapped, the model
+  not passed, a round with no room still running, a failed second build
+  shipping, a refused fix compiling anyway, the usage dropped, a throwing
+  compile escaping, the two sentences silenced, a success announced, the
+  floor without the call, `canRepair` always, the hop not gated on a send,
+  the room forced, `built` or `pages` not replaced, the second compile on
+  the old files, the prefixes not passed, the charge dropped, the answer
+  without the round, the addon handing none, the charge as #1, the sequence
+  hardcoded, the collect without the round, the job charge not added, the
+  reply without the sentence, the loop assembling too). Four guards went
+  red for the change and were re-anchored, not appeased — `aCharge`'s
+  arity, the sync collect's spelling, the file assembly, the spine's
+  parameter order — each saying which spelling moved.
   **PROVEN LIVE 01:39Z**: main pushed 01:06Z, deploy green 01:12Z, a
   `site_rebuild` row filed at 01:29Z with `next_try_at` four minutes out
   (past the roll window), drained by the cron for 0 credits —
@@ -1755,8 +1805,8 @@ what the work cost.
   free and read-only.
 - **`site build` is 326/326** against the real container (2026-09-03, the QR
   list's two-code build and the pre-list payload added sixteen); the unit
-  suite is 4,973 (2026-09-04, after run 34: the kit's form primitives driven
-  bare and inside a real form, the harness's render verdict). **In this sandbox the
+  suite is 4,985 (2026-09-04, after the repair pass on the addon's publish:
+  the round driven with fakes, the floor, the spine's wiring by landmark). **In this sandbox the
   harness needs `playwright-core` at the root the way `site-build.yml`
   installs it** (`npm i --no-save playwright-core@<the template's playwright
   version>`) — without it the six card and touch-icon checks fail with
@@ -2487,8 +2537,8 @@ called the case `ok` and took a screenshot of the error card as its proof,
 which is not. A report nobody acts on and nobody reads is a page that is
 down with a receipt. **When a check is report-only, list its readers**: the
 customer (the reply sentence), the harness (a verdict), the repair pass (the
-build has one, the addon does not — filed). Each missing reader is a way the
-finding ships silently. And the cause was a kit primitive that THROWS when
+build had one; the addon got it the same day — the entry in the ADD
+section). Each missing reader is a way the finding ships silently. And the cause was a kit primitive that THROWS when
 used outside its nesting — the `Figure` shape: a rule the signature list
 cannot express is a rule the model will break, so the obvious use is made to
 work rather than described.

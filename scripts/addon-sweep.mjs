@@ -581,6 +581,16 @@ async function main() {
       verdict = "BROKEN";
       note += `; the site's own render check: ${crashed.length} serious finding${crashed.length === 1 ? "" : "s"} — ${crashed[0].route} ${crashed[0].kind}: ${String(crashed[0].detail || "").slice(0, 140)}`;
     }
+    // WHAT THE REPAIR ROUND DID (owner, 2026-09-04: "try to fix it, if not
+    // fix, send as it is"), read off the reply so a BROKEN verdict says
+    // whether a fix was tried, held, or had no room — the difference between
+    // the product doing what it was told and the product doing nothing.
+    if (body && body.repair && typeof body.repair === "object") {
+      const rp = body.repair;
+      note += rp.ran
+        ? `; repair ran: ${(rp.repaired || []).length ? "fixed " + rp.repaired.join(", ") : "fixed nothing"}${rp.failed ? " (" + rp.failed + ")" : ""}${(rp.refused || []).length ? "; refused " + rp.refused.map((x) => x && x.route).filter(Boolean).join(", ") : ""}`
+        : `; repair ${rp.why || "skipped"}${(rp.routes || []).length ? " for " + rp.routes.join(", ") : ""}`;
+    }
     const kinds = Array.isArray(body.kinds) ? body.kinds : [];
     const pickedRight = !kinds.length || kinds.some((k) => c.kinds.includes(k));
     // THE PICTURES, on a publish only: the home page, and the new page if one.
