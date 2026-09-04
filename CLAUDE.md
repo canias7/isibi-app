@@ -1600,6 +1600,51 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   harness's ask should name a section the site lacks before the case runs
   again. The runner committed `docs/edits/addon-sweep-results.json` to main
   (`3c7e96a9`).
+- **A SECOND ONE (owner, 2026-09-04, answering run 35: *"add a second
+  one"*).** An ask for a section the site already has ADDS a second one,
+  after the first, and the first is left exactly as it is. Three hops.
+  (1) **The rule rides BOTH hops** beside the design rule: `ADD_DESIGN_RULE`
+  gained "AN ADDITION IS ALWAYS A NEW THING … in ADDITION to it, after it,
+  as a second one … left exactly as it is: not reworded, not restyled, not
+  merged into the new one, not replaced"; the `component` kind's hint,
+  `keep` and `addDirective` line say a like section is a SECOND one placed
+  after the first, byte-identical. (2) **THE WALL, in the addon route**,
+  after the merge's escalate and BEFORE the job gate and the bill: every
+  page the addition CHANGED (an existing page — one it added has no before)
+  must still say every word it said. `keptProse(before, after)` in
+  `site-tweak.mjs` is the SUBSET of `sameProse` over `extractText`'s reading
+  (calibrated at 0 false alarms over 1,640 real tweaks), counted as a
+  multiset, so a quote carried twice and returned once is lost. A page that
+  lost words is refused 422 `rewrote`, **cost 0**, `lost` on the wire,
+  `rewroteMsg` naming the page and up to two of the words ("I couldn't add
+  that without changing what's already on the home page — it would have
+  lost “…” and “…”. Nothing was published. Ask again and I'll add it as a
+  new section and leave the rest exactly as it is."), `aMark("kept")` in
+  the trace. A refusal, not a climb, and not a correction round yet —
+  measure how often the model does it first. (3) **The harness's
+  `component` check reads what was LOST** as well as what was added
+  (`lostSentences`: a sentence of 25+ characters the page said must still
+  be on it), and its ask stays the testimonials one, which on fretwork-1
+  now proves the decision — a second band with new quotes, the first three
+  intact. **A false-alarm risk, named**: segments compare as they are, so a
+  writer that retypes a sentence with a changed full stop loses it; the
+  tweak rung measured 0 in 1,640 under the same reading, and the failure
+  mode is a free refusal with the words named. Guards:
+  `test/add-second-one.test.mjs` (keptProse driven with run 22's quotes
+  against run 35's rewrite and against a second band; the rule on both hops
+  and the kind's wording; `rewroteMsg`; the wall's placement, inputs,
+  refusal, and the browser's `msg` path), `test/addon-sweep.test.mjs` (run
+  35's shape refused, a second band accepted, `lostSentences` driven).
+  **Sweep: 20 mutants, 20 killed, none unapplied, the comment-only control
+  survived** — the rule sentence dropped or letting the first change, the
+  hint reading a like section as an edit, the keep answering nothing, the
+  directive's second-one line dropped, keptProse always ok / ignoring
+  counts / demanding equality / reading only the after, the wall dropped /
+  reading the added pages / charging / without the sentence / without the
+  trace / comparing the new page with itself, the sentence without the
+  page or the words, the harness ignoring a loss / never finding one /
+  not naming it. **Not proven live** until the component case runs again
+  (~16 credits, owner's call).
 
 **DELETE deferred** (owner's call).
 
@@ -1932,7 +1977,7 @@ what the work cost.
   free and read-only.
 - **`site build` is 326/326** against the real container (2026-09-03, the QR
   list's two-code build and the pre-list payload added sixteen); the unit
-  suite is 5,002 (2026-09-04, after the registry probe's two cases; before them the seam and the add step's own repair
+  suite is 5,007 (2026-09-04, after the second-one guards' five cases and the registry probe's two; before them the seam and the add step's own repair
   round — six driven cases and the Worker's module parse in, the first cut's
   repair-round cases out — the count landing where the container-image
   change had left it). **In this sandbox the

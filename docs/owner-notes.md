@@ -2435,3 +2435,16 @@ render check opens as if they were pages (the open task #44). And one
 question for you: when someone asks to add a section the site already
 has, should it change the one that's there (what it did), add a second,
 or say "you already have one"?
+
+**A second one (your call, 2026-09-04).** Done in the tree: an ask for a
+section the site already has now adds a second one after the first, and
+the first stays exactly as it is. The rule is told to both models (the
+one that designs the addition and the one that writes the page), and
+there is a wall behind it: a page the addition changed has to still say
+every word it said before, or the addition is refused with a sentence
+naming the page and the words it would have lost — nothing published,
+nothing charged. The harness's testimonials ask now proves this on
+fretwork-1: a second band with new quotes, and the first three quotes
+untouched. Sweep: 20 mutants, 20 killed, control survived. Firing the
+component case again (about 16 credits) is the live proof once this is
+deployed.

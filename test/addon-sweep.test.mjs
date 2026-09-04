@@ -159,6 +159,29 @@ test("the component case is judged on the words landing on the page, not on the 
   assert.equal(c.check(before, landed, claimed, {}).ok, true, "the real thing is called a lie");
   assert.equal(c.check(before, landed, { ok: true, changed: [], added: [] }, {}).ok, false, "words on the page with no page claimed changed passes");
   assert.equal(c.check(before, { ...landed, build: "b1" }, claimed, {}).ok, false, "an unmoved build passes");
+  // A SECOND ONE (owner, 2026-09-04): run 35's shape — the section kept, its
+  // quotes rewritten, MORE words than before through padding — is a lie the
+  // words check alone cannot see, because what was there is gone.
+  const had = { ...before, text: before.text + " “First lesson I walked out able to change between E and A without looking down.” Sam H. Beginner" };
+  const rewrote = { ...had, build: "b2", text: before.text + " “Couldn’t hold a pick last month — now I play three chords.” Sam H. Beginner " + "What students say about lessons. ".repeat(4) };
+  const v = c.check(had, rewrote, claimed, {});
+  assert.equal(v.ok, false, "a page that rewrote what it said passes as an addition");
+  assert.match(v.note, /LOST what the page said: "“First lesson I walked out/, "the note does not name the sentence that went");
+  const second = { ...had, build: "b2", text: had.text + " “Two weeks from zero and I played a song for my mum.” Jordan P. Beginner " + "What students say about lessons. ".repeat(3) };
+  const w = c.check(had, second, claimed, {});
+  assert.equal(w.ok, true, "a second band beside the first, with the first intact, is called a lie");
+  assert.match(w.note, /everything it said is still there/);
+});
+
+test("lostSentences reads the visible text: a sentence reworded, shortened or dropped is lost; more text, reordering and short fragments are not", async () => {
+  const { lostSentences } = await import("../scripts/addon-sweep.mjs");
+  const before = "Book a guitar lesson. First lesson I walked out able to change between E and A without looking down. Ring us on 0114.";
+  assert.deepEqual(lostSentences(before, before + " A whole new band of words that was not there before."), [], "an addition reads as a loss");
+  assert.deepEqual(lostSentences(before, "Ring us on 0114. First lesson I walked out able to change between E and A without looking down. Book a guitar lesson."), [], "a reordered page reads as a loss");
+  assert.deepEqual(lostSentences(before, "Book a guitar lesson. First lesson and the fretboard stopped looking like a puzzle. Ring us on 0114."),
+    ["First lesson I walked out able to change between E and A without looking down."]);
+  assert.deepEqual(lostSentences("Short. Also short.", "Nothing of it."), [], "a fragment under the floor counts as a sentence");
+  assert.deepEqual(lostSentences(before, before.replace(/\s+/g, "   ")), [], "whitespace reads as a change");
 });
 
 test("the refusal cases are driven to refusals the route really emits, and the hop names a real edit layer", () => {

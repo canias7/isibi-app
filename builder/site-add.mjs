@@ -113,7 +113,16 @@ export const ADD_DESIGN_RULE =
   "same stylesheet, the same typefaces and colours, the same shape of page, the same kit parts and the same " +
   "conventions the existing pages use. A new thing slots in; nothing around it changes to make room, and " +
   "nothing about the look is re-decided because something was added. No new palette, no inline styling, no " +
-  "second design beside the first — the addition should read as if it had been there since the build.";
+  "second design beside the first — the addition should read as if it had been there since the build.\n\n" +
+  // A SECOND ONE (owner, 2026-09-04: "add a second one"). Run 35 asked for a
+  // testimonials section a site already carried and got its three quotes
+  // rewritten shorter under the same names, with `ok` in the reply. The rule
+  // rides both hops, like the design rule above; the wall behind it is in the
+  // route (`keptProse`: a changed page keeps every word it had).
+  "AND AN ADDITION IS ALWAYS A NEW THING. If the site already has something like what was asked for — a " +
+  "testimonials band, a form, a list, a code — the new one goes in ADDITION to it, after it, as a second one. " +
+  "The one that is there is left exactly as it is: not reworded, not restyled, not merged into the new one, " +
+  "not replaced. A page you return still says every word it said before, and more.";
 
 /**
  * ── NO LOW LIMITS WHILE TESTING (owner, 2026-09-02) ─────────────────────────
@@ -489,7 +498,7 @@ const ADDS = {
   // build's own) — and where on which page it goes. The step that writes
   // pages puts it in the tsx; a part written for this site lands in `parts`.
   component: {
-    hint: "A NEW COMPONENT on a page the site already has — what a customer calls a section, a band or a block: testimonials, a form, a map, an FAQ, opening hours, a price list, a gallery strip, a countdown. From the kit, or written for this site when the kit has not got it. The page existing does not make it an edit; the component is not on it yet.",
+    hint: "A NEW COMPONENT on a page the site already has — what a customer calls a section, a band or a block: testimonials, a form, a map, an FAQ, opening hours, a price list, a gallery strip, a countdown. From the kit, or written for this site when the kit has not got it. The page existing does not make it an edit; the component is not on it yet. And a section LIKE it already being on the page does not either: that is a SECOND one, added after the first, which stays exactly as it is.",
     shape: {
       type: "array",
       maxItems: MAX_ADD_COMPONENTS,
@@ -550,6 +559,8 @@ const ADDS = {
         "not, or answer nothing.",
       keep:
         "EVERYTHING ELSE ON THOSE PAGES — every other component, every sentence — comes back exactly as it is. " +
+        "A component like the one asked for already being on the page is not a reason to answer nothing and " +
+        "not a reason to change it: answer the new one, placed after the one that is there, as a second one. " +
         "If what they asked for is a whole page of its own, answer nothing here; that is a page, not a component.",
     },
   },
@@ -1432,6 +1443,9 @@ export function addDirective(kind, value, site) {
       if (s.kind === "tool") out.push(TOOL_DIRECTIVE);
       if (kit.length) out.push("- The kit component" + (kit.length === 1 ? "" : "s") + ": " + kit.join(", ") + " — its exact props are listed above; call it, do not rewrite it.");
       if (own.length) out.push("- Written for this site: " + own.map((p) => p.name + " (" + p.props + ")").join("; ") + " — write it as a part and call it from the page.");
+      // A SECOND ONE (owner, 2026-09-04): a like component already on the
+      // page is not the one being asked for — this one goes after it.
+      out.push("- If the page already has a component like this one, this is a SECOND one: put it after the existing one, and the existing one comes back byte-identical — its words, its props, its place.");
       out.push("- Return that ONE page with the component added between what it has; every other component and every sentence byte-identical. No new page file.");
       break;
     }
@@ -1566,6 +1580,28 @@ export function foldAdds(answers, priorLook, site) {
   // but a site with none and an answer with none must not store `[]`.
   if (tsx.length) designed.tsx = tsx;
   return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files };
+}
+
+/**
+ * The sentence for an addition that would have changed what a page already
+ * said (owner, 2026-09-04: a second one, and the first stays as it is). The
+ * route refuses such a page before the gate and the bill, so nothing was
+ * published and nothing charged; this names the page and up to two of the
+ * words it would have lost, so the customer can see they were their own.
+ */
+export function rewroteMsg(lost) {
+  const list = Array.isArray(lost) ? lost.filter((l) => l && typeof l.path === "string") : [];
+  const first = list[0];
+  const tail = " Nothing was published. Ask again and I'll add it as a new section and leave the rest exactly as it is.";
+  if (!first) return "I couldn't add that without changing what's already on the page." + tail;
+  const route = routeOf(first.path);
+  const where = route === "/" ? "the home page" : (route || first.path);
+  const words = (Array.isArray(first.lost) ? first.lost : [])
+    .filter((w) => typeof w === "string" && w.trim())
+    .slice(0, 2)
+    .map((w) => "“" + (w.length > 60 ? w.slice(0, 57).trimEnd() + "…" : w) + "”");
+  return "I couldn't add that without changing what's already on " + where +
+    (words.length ? " — it would have lost " + words.join(" and ") : "") + "." + tail;
 }
 
 // ── THE ADD STEP'S OWN REPAIR (owner, 2026-09-04) ────────────────────────────

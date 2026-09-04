@@ -239,16 +239,36 @@ export function stopsRun(verdict) {
 // `hop` names the edit layer the reply must escalate to. `pageless` marks a
 // case whose right answer changes no page: the build must stay put and the
 // runner does not wait for the edge.
+/**
+ * The sentences a page said before that it no longer says (owner, 2026-09-04:
+ * an addition adds; what was there stays). Read off the visible text, so a
+ * sentence of at least 25 characters that was on the page must still be on
+ * it — reworded, shortened or dropped is lost. Run 35 is why: the harness
+ * read the shrink and could not say what had gone.
+ */
+export function lostSentences(before, after) {
+  const norm = (s) => String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+  const hay = norm(after);
+  return norm(before).split(/(?<=[.!?…”"])\s+/).map((s) => s.trim()).filter((s) => s.length >= 25).filter((s) => !hay.includes(s));
+}
+
 export const CASES = [
   // A SECTION IS A COMPONENT (owner, 2026-09-02): the ask is a customer's
   // word for it; the step names a kit component or writes one.
+  // A SECOND ONE (owner, 2026-09-04): fretwork-1 has carried this very
+  // section since run 22, so the ask now proves the decision — a second
+  // band with new quotes, and every sentence the page had still on it. Run
+  // 35 kept the section and rewrote its three quotes shorter, and this check
+  // read only the shrink.
   { name: "component", kinds: ["component"],
     ask: "Add a testimonials section to the home page with three short quotes from beginner students",
     check: (b, a, r) => {
       const changed = (Array.isArray(r.changed) ? r.changed : []).map(sitePathOf);
       const words = /testimonial|student|lesson/i.test(a.text) && a.text.length > b.text.length + 80;
-      return { ok: changed.includes("/") && a.build !== b.build && words,
-               note: `changed ${JSON.stringify(changed)}; home text ${b.text.length}→${a.text.length} chars${words ? "" : " (no new quotes on the page)"}` };
+      const lost = lostSentences(b.text, a.text);
+      return { ok: changed.includes("/") && a.build !== b.build && words && !lost.length,
+               note: `changed ${JSON.stringify(changed)}; home text ${b.text.length}→${a.text.length} chars${words ? "" : " (no new quotes on the page)"}` +
+                     (lost.length ? `; LOST what the page said: ${lost.slice(0, 2).map((s) => JSON.stringify(s)).join(", ")}` : "; everything it said is still there") };
     } },
   { name: "page", kinds: ["page"],
     ask: "Add a pricing page listing lesson prices: a single 30-minute lesson, an hour, and a block of five",

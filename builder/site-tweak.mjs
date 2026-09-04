@@ -228,6 +228,34 @@ export function sameProse(before, after) {
 }
 
 /**
+ * Does the page still say EVERYTHING it said? (owner, 2026-09-04: an ask for
+ * a section the site already has adds a second one, and the first is left
+ * exactly as it is.)
+ *
+ * THE SUBSET, NOT THE EQUALITY. An addition says more, never less, so the
+ * question is whether every word the page had is still on it — as a multiset,
+ * by the same reading of "what counts as words" `sameProse` uses, for the
+ * same reason: a second reading would drift toward refusing correct work.
+ * Counts matter — a quote the page carried twice and now carries once has
+ * lost one. Answers what was lost, by segment, so a refusal can name it.
+ *
+ * Run 35 (2026-09-04) is why: asked for a testimonials section a site already
+ * had, the page writer kept the section and rewrote its three quotes shorter
+ * under the same names, and the reply said `ok`.
+ */
+export function keptProse(before, after) {
+  const had = new Map();
+  for (const w of extractText(before)) had.set(w.text, (had.get(w.text) || 0) + 1);
+  for (const w of extractText(after)) {
+    const n = had.get(w.text);
+    if (!n) continue;
+    if (n === 1) had.delete(w.text); else had.set(w.text, n - 1);
+  }
+  const lost = [...had.keys()];
+  return { ok: lost.length === 0, lost };
+}
+
+/**
  * The page's own address, which a tweak may never move.
  *
  * A route id is typed against the tree `tsr generate` emits, so a page that

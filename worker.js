@@ -90,7 +90,7 @@ import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
-import { runTweak } from "./builder/site-tweak.mjs";
+import { runTweak, keptProse } from "./builder/site-tweak.mjs";
 import { runNavEdit } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
@@ -117,7 +117,7 @@ import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LA
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, backendDesigned, pageless, addRepairRound, addRepairNote } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg } from "./builder/site-add.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -21742,6 +21742,34 @@ async function handleRequest(request, env, ctx) {
             // NOTHING USABLE CAME BACK AND NOTHING SAID WHY — escalate rather
             // than report success.
             if (!aMerge.ok) return aEscalate(aMerge.reason, { problems: aProblems.slice(0, 4) });
+
+            // ── WHAT WAS THERE IS STILL THERE (owner, 2026-09-04: "add a second one") ──
+            //
+            // An addition may only ADD. Run 35 asked for a testimonials section
+            // a site already had, and the page came back with the three quotes
+            // it carried rewritten shorter under the same names — `changed`,
+            // `ok`, and the customer's own words gone. The rule now says a
+            // second one, on both hops; this is the wall behind the rule:
+            // every page the addition CHANGED (an existing page — one it added
+            // has no before) must still say everything it said, by the tweak
+            // rung's own reading of what counts as words, calibrated at 0
+            // false alarms over 1,640 real tweaks, as a SUBSET, since an
+            // addition says more. A page that lost words is refused HERE,
+            // before the gate and the bill: nothing published, nothing
+            // charged, and the sentence names the page and what it would have
+            // lost. A refusal, not a climb — the rung above would rewrite the
+            // whole site in reply to a sentence.
+            const aWas = new Map((aSrc || []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
+            const aLost = [];
+            for (const p of aMerge.pages || []) {
+              if (!p || !aMerge.changed.includes(p.path) || !aWas.has(p.path)) continue;
+              const kept = keptProse(aWas.get(p.path), p.source);
+              if (!kept.ok) aLost.push({ path: p.path, lost: kept.lost.slice(0, 3) });
+            }
+            aMark("kept", aLost.length ? "fail" : "ok", { changed: aMerge.changed.length, lost: aLost.map((l) => l.path) });
+            if (aLost.length) {
+              return Response.json({ ok: false, error: "rewrote", cost: 0, lost: aLost, msg: rewroteMsg(aLost) }, { status: 422 });
+            }
 
             // ── MAY THIS STILL PUBLISH? (async path) ──────────────────────
             //
