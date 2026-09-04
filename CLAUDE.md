@@ -1412,8 +1412,12 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   page that threw is refused; today it ships and says so.
   **Live state**: `/gear` stays the error card until a publish carries the
   new kit — the push to main deploys it and rolls the container, and any
-  later edit or a free platform republish puts it on the site. Whether run
-  33's waiting-list table sits in the database is still unread.
+  later edit or a free platform republish puts it on the site. **Run 33's
+  waiting list IS in the database**: the data path answers 403 for
+  `waiting_list` (a table with no public read, like `gear` and `bookings`)
+  and 404 for a name that is not a table — the schema was applied before
+  the page call and the cut compile reverted only the look. A table no
+  page shows; taking it off is the deferred DELETE step.
 
 **DELETE deferred** (owner's call).
 

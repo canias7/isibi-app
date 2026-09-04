@@ -2280,6 +2280,12 @@ on the same report — the addon does not have one. The options are to
 give the addon the build's repair pass (about 3 credits when it fires)
 or to refuse to publish a page that threw.
 
+**One more fact**: run 33's waiting-list table did get made
+(`waiting_list`), even though that publish was cut off — the table is
+created before the page is written, and only the look is rolled back.
+It sits in fretwork-1's database with no page showing it. Harmless;
+removing it is the delete step we have deferred.
+
 **Next**: this goes to main (a deploy, and the container rolls — wait
 20 minutes), then a free republish of fretwork-1 puts the fixed kit on
 the site and the gear page comes back.
