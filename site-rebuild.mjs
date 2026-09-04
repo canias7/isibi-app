@@ -1,4 +1,4 @@
-// Republishing every site, one at a time, across cron ticks.
+// Republishing every site, a few at a time, across cron ticks.
 //
 // WHY THIS EXISTS. Each published site is its OWN Cloudflare Worker script, and
 // `vite build` bundles React, TanStack and every component the pages import INTO
@@ -45,25 +45,36 @@ export function backoffFor(attempts) {
 }
 
 /**
- * ONE PER TICK, AND THIS IS THE ONE NUMBER THAT MUST NOT BE COPIED FROM THE
- * TEARDOWN QUEUE.
+ * A FEW PER TICK, SIDE BY SIDE — and the number this replaced rested on a
+ * reason that expired (2026-09-04, the capacity review).
  *
- * That one uses 5 because a Neon DELETE is a single fast API call. A rebuild is
- * a container run, and the build service is `oneAtATime` — one build at a time
- * for the WHOLE PLATFORM, which is not an implementation detail but a deliberate
- * fix: two concurrent builds used to interleave in a shared `src/routes` and
- * publish each other's pages.
+ * It was 1, because "the build service is `oneAtATime` — one build at a time
+ * for the WHOLE PLATFORM": a second rebuild queued behind the first and a real
+ * customer edit waited behind both, and a bulk operation must never starve the
+ * interactive path. True until 2026-08-25, when every site got its own
+ * container lane (`builder/build-lane.mjs`, `laneName(slug)`): two builds of
+ * DIFFERENT sites share nothing any more, and `oneAtATime` serialises only two
+ * builds of ONE site. So N rebuilds of N sites run side by side, each in its
+ * own container, and the only edit that waits behind a rebuild is an edit of
+ * the very site being rebuilt — exactly as at 1. The recorded "a rule true
+ * because of a layer below it expires when that layer moves" trap: at 1 per
+ * two-minute tick a kit fix reached 30 sites an hour — 100 sites in ~3 h,
+ * 1,000 in 33 h, 100,000 in 139 days.
  *
- * Measured recompile cost from a real build: vite ~37s, render ~12s, tsc ~9s,
- * publish ~7s — call it ~65s. The cron fires every 120s. So a batch of 2 is
- * ~130s and ticks start overlapping, which means a rebuild sits queued behind
- * another rebuild while a REAL CUSTOMER EDIT waits behind both. A bulk operation
- * must never be able to starve the interactive path.
+ * WHAT BOUNDS IT NOW IS THE CRON INVOCATION, not the container. Every rebuild
+ * in a tick is awaited inside ONE scheduled invocation, which the platform
+ * allows fifteen minutes. A recompile is ~65 s of container (vite ~37 s,
+ * render ~12 s, tsc ~9 s) plus the publish's archive (27–139 s measured), so a
+ * batch finishes in two to four minutes when it runs CONCURRENTLY — and it
+ * must, because eight in series is sixteen minutes and the invocation is dead
+ * at fifteen. `drainRebuild` runs the rows side by side for that reason. The
+ * claim (`CLAIM_SEC`) covers the overlap with the next tick as before.
  *
- * Throughput at 1: 30 an hour, 720 a day. That is the honest number, and it is
- * ample — a platform-wide bump is not an emergency measured in minutes.
+ * Throughput at 8: 240 an hour, 5,760 a day. A batch size, not a ceiling
+ * anywhere else; raise it once a real platform-wide republish has been
+ * measured at this number.
  */
-export const BATCH = 1;
+export const BATCH = 8;
 
 /**
  * HOW LONG A CLAIM HOLDS THE ROW WHILE A REBUILD IS IN FLIGHT.
@@ -72,9 +83,9 @@ export const BATCH = 1;
  * crashed run losing the site from the queue — and that leaves a window: the
  * cron fires every 120s and a recompile is ~65s, so one slow site is enough for
  * two ticks to read the same row as due and both start a container run. The
- * build service is `oneAtATime`, so the second queues behind the first and then
- * republishes identical content: a wasted run, and a real customer edit waiting
- * behind both.
+ * site's own lane is `oneAtATime`, so the second queues behind the first and
+ * then republishes identical content: a wasted run, and a real customer edit
+ * of that site waiting behind both.
  *
  * `runScheduledSiteJobs` closed exactly this hole and its comment is the rule —
  * *"an overlapping tick that reads the same row as due loses here and sends
@@ -147,6 +158,14 @@ export function verdictFor(res) {
  *
  * IT CANNOT THROW. A queue drain that takes down the cron takes the nightly
  * backups, the teardown queue, the domain watch and the webhook queue with it.
+ *
+ * THE ROWS RUN SIDE BY SIDE (2026-09-04). Each site has its own container lane,
+ * so nothing is gained by waiting for one site's rebuild before starting the
+ * next — and something is lost: a batch in series outruns the fifteen minutes
+ * a cron invocation is allowed (see BATCH). Every row's chain — exists, claim,
+ * rebuild, forget or defer — is its own promise and settles on its own; the
+ * summary counts them as they land, and nothing in one chain can throw into
+ * another.
  */
 export async function drainRebuild(deps, { limit = BATCH } = {}) {
   const out = { attempted: 0, rebuilt: 0, gone: 0, deferred: 0, parked: 0, lost: 0, errors: [] };
@@ -160,9 +179,15 @@ export async function drainRebuild(deps, { limit = BATCH } = {}) {
     return out;
   }
 
-  for (const row of rows) {
+  await Promise.all(rows.map((row) => drainOne(deps, row, out)));
+  return out;
+}
+
+/** One row's whole chain. Never throws: every step reports into `out`. */
+async function drainOne(deps, row, out) {
+  {
     const slug = row && String(row.slug || "");
-    if (!slug) continue;
+    if (!slug) return;
 
     // ── IS THE SITE STILL THERE? ─────────────────────────────────────────────
     //
@@ -183,12 +208,12 @@ export async function drainRebuild(deps, { limit = BATCH } = {}) {
         out.deferred++;
       } catch (e2) { out.errors.push("defer " + slug + ": " + String((e2 && e2.message) || e2).slice(0, 120)); }
       out.errors.push(slug + ": lookup failed");
-      continue;
+      return;
     }
     if (!alive) {
       try { await deps.forget(slug); out.gone++; }
       catch (e) { out.errors.push("forget " + slug + ": " + String((e && e.message) || e).slice(0, 120)); }
-      continue;
+      return;
     }
 
     // ── CLAIM IT BEFORE SPENDING A CONTAINER RUN ─────────────────────────────
@@ -211,7 +236,7 @@ export async function drainRebuild(deps, { limit = BATCH } = {}) {
       // recording this as a failure would park a healthy site after five ticks
       // of ordinary contention.
       out.lost++;
-      continue;
+      return;
     }
 
     out.attempted++;
@@ -232,7 +257,7 @@ export async function drainRebuild(deps, { limit = BATCH } = {}) {
         await deps.forget(slug);
         if (verdict.state === "gone") out.gone++; else out.rebuilt++;
       } catch (e) { out.errors.push("forget " + slug + ": " + String((e && e.message) || e).slice(0, 120)); }
-      continue;
+      return;
     }
 
     // PARKED, NOT CLIMBING. A source that does not compile will not compile in
@@ -246,5 +271,4 @@ export async function drainRebuild(deps, { limit = BATCH } = {}) {
     } catch (e) { out.errors.push("defer " + slug + ": " + String((e && e.message) || e).slice(0, 120)); }
     out.errors.push(slug + ": " + verdict.reason);
   }
-  return out;
 }

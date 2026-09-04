@@ -422,7 +422,23 @@ a new field cannot be changeable-but-invisible.
 **Each site is its own Worker script** in a dispatch namespace. A Worker cannot
 load code at runtime, so "one Worker serving whichever site was asked for" is
 impossible — which is why a framework upgrade means republishing every site
-(`site_rebuilds`, one at a time, no credits).
+(`site_rebuild`, no credits — **a few at a time, side by side, since
+2026-09-04**: `site-rebuild.mjs` `BATCH` was 1 because "the build service is
+`oneAtATime` for the whole platform", a reason that expired on 2026-08-25 when
+every site got its own container lane, and nothing announced it — the recorded
+"a rule true because of a layer below it expires when that layer moves" trap,
+found by the capacity review: 30 sites an hour, so 1,000 sites in 33 h and
+100,000 in 139 days. Now 8 per two-minute tick and `drainRebuild` runs the
+rows CONCURRENTLY, each chain its own promise settling into one summary —
+concurrent because eight in series is sixteen minutes and a cron invocation is
+dead at fifteen; the claim covers the overlap as before, and the only edit that
+waits behind a rebuild is an edit of the site being rebuilt, exactly as at 1.
+240 an hour, 5,760 a day; a batch size, raise it once a real platform-wide
+republish has been measured. `test/site-rebuild.test.mjs` drives the
+concurrency — every rebuild of a tick started before any returns — and the
+per-chain isolation; the two guards that pinned `BATCH === 1` and its reason
+were re-anchored. Sweep 8/8, control survived; suite 5,045. Not proven live:
+the next platform-wide republish is the measurement).
 
 - **One public address**: `<slug>.gofarther.app`. `/s/<slug>/` 301s to it and is
   the internal addressing scheme. A custom domain returns to ITSELF.
@@ -2501,8 +2517,9 @@ what the work cost.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,044
-  (2026-09-04, after the wide door's three and container room's sixteen —
+  build and the pre-list payload added sixteen); the unit suite is 5,045
+  (2026-09-04, after the drain's concurrency case, the wide door's three and
+  container room's sixteen —
   the library's three answers, the loop, both call sites, the no-room
   build — and before them the translation charge's three — the spine's funnel and
   every route's hop read, the bilingual edit DRIVEN against the ledger, the

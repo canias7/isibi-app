@@ -2716,15 +2716,17 @@ async function runNeonTeardown(env) {
 }
 
 /**
- * REPUBLISH ONE QUEUED SITE.
+ * REPUBLISH A FEW QUEUED SITES, SIDE BY SIDE.
  *
  * The wiring half of site-rebuild.mjs — see that file for every decision. This
  * supplies the four real side effects and nothing else.
  *
  * WHY THIS IS ON THE CRON RATHER THAN A ROUTE. A recompile is ~65s of container
- * and the build service is `oneAtATime` within a lane — five of them since
- * 2026-08-25 — so a platform-wide bump is still hours of serialized work. A request cannot hold that,
- * and a loop inside one would starve every real customer edit behind it.
+ * plus the publish, and every site has its own container lane since 2026-08-25
+ * — so a batch runs concurrently (`REBUILD_BATCH` per tick, 2026-09-04) and a
+ * platform-wide bump is still hours of work across ticks. A request cannot hold
+ * that, and a loop inside one would hold a customer's connection past the
+ * edge's reset.
  *
  * NOTHING ENQUEUES ITSELF. Rows are written by the operator sweep
  * (.github/workflows/rebuild-all-sites.yml) with the service key, directly into

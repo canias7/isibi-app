@@ -299,12 +299,47 @@ test("the claim comes AFTER the existence check", async () => {
 
 // ------------------------------------------------------------- the batch
 
-test("ONE per tick, because the build service is one-at-a-time", () => {
-  // The number that must not be copied from the teardown queue's 5. A recompile
-  // is ~65s of container against a 120s tick, and the container serves the whole
-  // platform — so a batch of 2 puts a real customer edit behind two bulk
-  // rebuilds. A bulk operation must never starve the interactive path.
-  assert.equal(BATCH, 1);
+test("A FEW per tick, side by side — every site has its own container lane", () => {
+  // RE-ANCHORED 2026-09-04: this pinned 1, "because the build service is
+  // one-at-a-time" — true until 2026-08-25, when every site got its own
+  // container lane, after which one-at-a-time serialises only two builds of
+  // ONE site and a rebuild of somebody else's site waits behind nothing. The
+  // batch is a small number now, bounded by the cron invocation's fifteen
+  // minutes (the rows run concurrently, below), not by the container.
+  assert.ok(Number.isInteger(BATCH) && BATCH >= 4 && BATCH <= 20, "BATCH must be a real, small number: " + BATCH);
+});
+
+test("the rows of one tick are rebuilt CONCURRENTLY, not one after another", async () => {
+  // Eight in series is sixteen minutes, and a cron invocation is dead at
+  // fifteen. Driven, not read: every rebuild of the tick must have STARTED
+  // before any of them is allowed to RETURN.
+  const started = [];
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { deps, calls } = harness({
+    rows: [{ slug: "a", attempts: 0 }, { slug: "b", attempts: 0 }, { slug: "c", attempts: 0 }],
+    deps: { rebuild: async (slug) => { started.push(slug); await gate; return { ok: true }; } },
+  });
+  const done = drainRebuild(deps);
+  for (let i = 0; i < 20 && started.length < 3; i++) await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual([...started].sort(), ["a", "b", "c"], "a later site waited for an earlier one to finish");
+  release();
+  const out = await done;
+  assert.equal(out.attempted, 3);
+  assert.equal(out.rebuilt, 3);
+  assert.deepEqual([...calls.forget].sort(), ["a", "b", "c"]);
+  // And a failure in one chain reaches the summary without touching the others.
+  const { deps: d2, calls: c2 } = harness({
+    rows: [{ slug: "a", attempts: 0 }, { slug: "b", attempts: 2 }],
+    deps: { rebuild: async (slug) => (slug === "b" ? { ok: false, error: "compile", ours: true, detail: "drained" } : { ok: true }) },
+  });
+  const o2 = await drainRebuild(d2);
+  assert.equal(o2.rebuilt, 1);
+  assert.equal(o2.deferred, 1);
+  assert.deepEqual(c2.forget, ["a"]);
+  assert.equal(c2.defer.length, 1);
+  assert.equal(c2.defer[0].slug, "b");
+  assert.deepEqual(o2.errors, ["b: drained"]);
 });
 
 test("the batch is passed to the query rather than sliced after it", async () => {

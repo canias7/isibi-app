@@ -2704,3 +2704,31 @@ outright is named as ours too and not waited for. 24 mutants, 24 killed,
 control survived; suite 5,044. Not provable on fretwork-1: it needs the
 account to be full. The trace will show `container wait` the first time it
 happens for real.
+
+## 2026-09-04 — The platform rebuild republishes eight sites at a time
+
+The third container-and-Worker fix, and the smallest. When the kit changes
+(a React fix, a framework advisory) every site has to be republished,
+because each site is its own Worker script with the framework bundled in.
+The drain that does it ran one site per two-minute tick — 30 an hour — for a
+reason that stopped being true on August 25, when every site got its own
+build container: before that, one build at a time was the rule for the
+whole platform, so two rebuilds would have queued behind each other and a
+customer's edit behind both. With a container per site, eight rebuilds run
+side by side and nobody's edit waits behind anybody else's rebuild. So it is
+eight per tick now, run at the same time — 240 an hour, 5,760 a day — and
+the number can go up once a real platform-wide republish has been timed at
+eight. 8 mutants, 8 killed, control survived; suite 5,045.
+
+Where that leaves the container-and-Worker question, in one paragraph. The
+Worker is now: the front door (every edit and addon files a job and leaves
+the connection), the design call, the small edit calls, and the publish. The
+container already carries the biggest piece — the page generation is fired
+into it and collected later. What still holds a queue slot is the compile
+wait (two to four minutes per job) and, on edits, the whole pipeline; the
+queue allows 250 of those at once, which is roughly 1,500 to 2,500 jobs an
+hour before anyone waits in line. Moving the compile to "fire and report"
+(the container calls back when it is built, the Worker publishes in
+seconds) is the next real step toward what you described, and it is a
+bigger change than these three — it needs the publish's continuation kept
+in storage. Filed as the next piece; your call when.

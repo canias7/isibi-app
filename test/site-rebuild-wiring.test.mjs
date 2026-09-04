@@ -41,13 +41,17 @@ test("the cron actually calls it", () => {
 });
 
 test("it drains at the module's OWN batch, not a number typed here", () => {
-  // The batch is 1 because the build service is one-at-a-time. A copy of that
-  // number in worker.js is a second opinion, and the day the two disagree a bulk
-  // rebuild starts starving real customer edits.
+  // The batch is the module's decision (a few per tick since 2026-09-04, each
+  // site in its own container lane; it was 1 while the build service was
+  // one-at-a-time for the whole platform). A copy of that number in worker.js
+  // is a second opinion, and the day the two disagree a bulk rebuild either
+  // starves the cron invocation or crawls.
   const body = bodyOf("runSiteRebuild");
   assert.match(body, /limit:\s*REBUILD_BATCH/, "the limit must come from the module");
   assert.doesNotMatch(body, /limit:\s*\d/, "the batch must not be restated as a literal");
-  assert.equal(BATCH, 1, "and the module's answer is one — see its own comment for why");
+  // RE-ANCHORED 2026-09-04: this pinned 1 and its reason; the property is
+  // that the number is the module's and is a real, small batch.
+  assert.ok(Number.isInteger(BATCH) && BATCH >= 1 && BATCH <= 20, "the module's answer is a small batch — see its own comment for why: " + BATCH);
 });
 
 test("every dep drainRebuild uses is supplied", () => {
