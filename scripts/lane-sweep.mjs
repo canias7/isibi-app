@@ -42,6 +42,11 @@
 // Admin magic-link, as `edit-canary.mjs` does. No password anywhere.
 import https from "node:https";
 import { createRequire } from "node:module";
+// The addon harness's readers, shared rather than copied: `strip` reads a
+// page's words off its HTML, and `lostSentences` says which of one page's
+// sentences another lacks — here, which of the primary page's sentences a
+// translated variant no longer carries. Importing that harness runs nothing.
+import { strip as words, lostSentences } from "./addon-sweep.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -239,11 +244,27 @@ export const CASES = [
   // real, separate defect in the head pack (filed), and a check that judges a
   // lane by a different feature's bug is a false alarm, which this repo rates
   // worse than a miss.
-  { lane: "langs", ask: "Also offer the site in French and Spanish",
-    check: (b, a) => {
-      const sw = a.slots.includes("lang-switch") && !b.slots.includes("lang-switch");
-      const names = /Fran[cç]ais/.test(a.headerText) && /Espa[nñ]ol/.test(a.headerText);
-      return { ok: sw && names, note: `lang-switch ${sw ? "added" : "absent"}; header "${a.headerText.slice(0, 80)}"; head alternates ${JSON.stringify(a.locales)}` };
+  // TRANSLATED WORDS, NOT A SWITCHER (2026-09-04). The first sweep's case
+  // asked for French and Spanish and judged the switcher and the head; both
+  // landed, and every word under /fr and /es was English — the spine's
+  // translation call had failed on every publish and said so only in the
+  // Worker's log. This asks for a language the site does NOT have (asking for
+  // one it has answers "already" and publishes nothing), reads the new
+  // variant's WORDS against the primary page's, and prints the reply's own
+  // account of each language (`langs`), which the spine carries now.
+  { lane: "langs", ask: "Also offer the site in German", variant: "/de",
+    check: (b, a, r, x) => {
+      const named = /Deutsch/.test(a.headerText);
+      const v = (x && x.variant) || { status: 0, text: "", build: "" };
+      const primary = words(a.html);
+      // Translated means the primary's sentences are GONE from the variant —
+      // at least half of them — not merely that some byte differs.
+      const sentences = primary.split(/(?<=[.!?…”"])\s+/).map((s) => s.trim()).filter((s) => s.length >= 25);
+      const gone = lostSentences(primary, v.text);
+      const translated = v.status === 200 && v.text.length > 200 && sentences.length > 0 && gone.length * 2 >= sentences.length;
+      return { ok: named && translated,
+               note: `switcher ${named ? "names Deutsch" : "does not name Deutsch"}; /de answers ${v.status}${v.build ? " on build " + v.build : ""}; ` +
+                     `${gone.length} of ${sentences.length} primary sentences translated away; the spine's account: ${JSON.stringify(r && r.langs) || "none"}` };
     } },
   // NOT THE HEADER BUTTON. The first ask ("press the button, open the
   // dialler") read as the button's link and went to the nav rung; a behaviour
@@ -585,6 +606,19 @@ async function main() {
     for (let i = 0; seen && after.build !== seen && i < 6; i++) {
       await new Promise((r) => setTimeout(r, 5000));
       after = await snapshot();
+    }
+    // THE VARIANT'S WORDS (the langs case): the page under the new language's
+    // prefix, read plainly, re-read until it is served by the build the home
+    // page is on (a new route has no stale edge copy, but the wait is bounded
+    // anyway), so the check judges translation rather than a switcher.
+    if (c.variant) {
+      let v = null;
+      for (let i = 0; i < 12; i++) {
+        v = await site(c.variant);
+        if (v.status !== 200 || (v.headers.get("x-site-build") || "") === after.build) break;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      extra.variant = { status: v ? v.status : 0, build: v ? (v.headers.get("x-site-build") || "") : "", text: v && v.status === 200 ? words(v.text) : "" };
     }
     // THE RENAME'S EVIDENCE: both addresses, read plainly — the old one by the
     // name the site had when this lane began, since SITE has moved on.

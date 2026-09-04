@@ -1895,6 +1895,48 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   the container's pair of runtimes, now with the cause on the wire instead
   of a number.
 
+- **THE SECOND LANGUAGE NEVER TRANSLATED, AND NOTHING SAID SO (2026-09-04,
+  owner: *"when i switch languages they dont change, you see it?"* → *"we
+  need to see why the edit path didnt do it right, lets try it again"*).**
+  fretwork-1 serves `/es` and `/fr` with the English words under `<html
+  lang="es">` and `"fr"`, since the lane sweep's `langs` case added both on
+  2026-09-01/02 — and that case judged the switcher and the head, never a
+  translated word, so it called the lane proven. **What the spine does**: on
+  every publish it translates each extra language's missing strings
+  (`translateStrings`, ONE call per language) and assembles the variant off
+  the cache; a failed translation falls back to the primary wording BY
+  DESIGN — it must not fail the customer's edit — and the only record was
+  `console.error("translate failed", …)` in the Worker's log. The recorded
+  "a failure that cannot name itself", on the one step of the spine with no
+  trace mark. **Known and not known**: the call is `claude-haiku-4-5` on
+  Anthropic — the one small call NOT moved to the picker's model on
+  2026-08-31, when Anthropic refused on billing and run 93 died in 5.3 s —
+  the languages were added the day after, and every string of both variants
+  is English, so no call has succeeded since. The exact error is NOT read:
+  the Worker's log is reachable only through the `container logs` workflow
+  (its window is hard-coded in the YAML and set by a push). **So the
+  instrument first, the fix on the evidence** — the owner's call, to see it
+  through the edit path: the spine marks `translate:<tag>` start / ok /
+  fail on the trace with `missing`, `why` and `error`, carries one outcome
+  per language on its result (`langs`, `cached: true` when nothing was
+  asked) and the look reply carries it (`langs: pub.langs`); the harness's
+  `langs` case asks for a language the site LACKS (German — asking for one
+  it has answers "already" and publishes nothing), reads `/de`'s words
+  against the home page's through the addon harness's own `strip` and
+  `lostSentences` (translated means at least half the primary's sentences
+  are gone from the variant), re-reads the variant until the home page's
+  build serves it, and prints the spine's account. The build path's copy of
+  the loop is unchanged. Guards: `test/wiring.test.mjs`,
+  `test/lane-sweep.test.mjs`. **Sweep: 14 mutants, 14 killed, none
+  unapplied, the comment-only control survived** — the start and outcome
+  marks dropped, the reason dropped, a cached language unaccounted, the
+  result and the reply without `langs`, the fallback removed; the ask naming
+  a language the site has, the case without a variant, the check ignoring
+  the words or the switcher, the runner reading once or dropping the words,
+  the note without the account. **Re-run pending**: `harness: lane`, `lanes:
+  langs`, from `main` after the Worker-only deploy (no roll); about 3
+  credits plus 1 per language that translates; the balance is 7.
+
 **DELETE deferred** (owner's call).
 
 ---
@@ -2229,8 +2271,9 @@ what the work cost.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,018
-  (2026-09-04, after the copy-the-first's-design guards' five — the rule on
+  build and the pre-list payload added sixteen); the unit suite is 5,020
+  (2026-09-04, after the translation instrument's two — the spine's marks
+  and the harness's langs case — and the copy-the-first's-design guards' five — the rule on
   both hops, the directive, `pageComponents` driven, the note and the route's
   hop, the structure reader with run 36's bands — and before them the run-36
   follow-ups' six cases — the repair call's room, the driven `routePaths`

@@ -1573,3 +1573,26 @@ test("BOTH publish paths store the landmark map, or a fresh site's first edit ai
   const at = src.indexOf("if (out && out.ok && out.render) await saveLandmarks(");
   assert.ok(at > 0, "the build path stores its map ungated, or the store is gone");
 });
+
+test("each language's translation is marked and its outcome carried, so a second language that is behind names its reason (2026-09-04)", () => {
+  // fretwork-1 served /es and /fr in the primary's English for three days: the
+  // spine's loop falls back to the primary wording by design (a failed
+  // translation must not fail the edit), and the only record was a console
+  // line in the Worker's log. The recorded "a failure that cannot name
+  // itself", on the one step of the spine with no trace mark.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const from = w.indexOf("// ── THE SITE'S OTHER LANGUAGES");
+  const to = w.indexOf("// WRITTEN BACK ONLY WHEN IT MOVED", from);
+  assert.ok(from > 0 && to > from, "the spine's language loop is not where this window looks");
+  const loop = w.slice(from, to);
+  assert.match(loop, /tm\("translate:" \+ l\.tag, "start", \{ missing: missing\.length/, "a translation call starts without a mark");
+  assert.match(loop, /tm\("translate:" \+ l\.tag, got\.ok \? "ok" : "fail", outcome\)/, "a translation's outcome is not marked");
+  assert.match(loop, /why: String\(got\.why \|\| "call"\), error: String\(got\.error \|\| ""\)\.slice\(0, 300\)/, "a failed translation's reason is not kept");
+  assert.match(loop, /langOutcomes\.push\(\{ tag: l\.tag, missing: 0, ok: true, cached: true \}\)/, "a fully cached language is not accounted for");
+  // Carried on the result and on the look reply, never only logged.
+  assert.match(w, /langs: langOutcomes\.length \? langOutcomes : undefined,/, "the spine's result drops the per-language outcome");
+  assert.match(w, /lanes: ranLanes,\n(?:\s*\/\/[^\n]*\n)*\s*langs: pub\.langs,/, "the look reply does not carry the spine's account of each language");
+  // The rule that started this is unchanged: a failed translation falls back
+  // to the primary wording and never fails the publish.
+  assert.match(loop, /else console\.error\("translate failed", slug, l\.tag, got\.why \|\| got\.error\);/, "a failed translation no longer falls back");
+});

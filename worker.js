@@ -9556,6 +9556,16 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   const nextStrings = {};
   let langsChanged = false;
   let langCost = 0, langUsage = [];
+  // WHAT HAPPENED TO EACH LANGUAGE, SAID RATHER THAN LOGGED (2026-09-04).
+  // fretwork-1 served its Spanish and French pages in English for three days:
+  // the loop below falls back to the primary wording by design — a failed
+  // translation must not fail the customer's edit — and the only record of
+  // the failure was a console line in the Worker's log, which nobody reads.
+  // The recorded "a failure that cannot name itself", on the one step of the
+  // spine with no mark. Each language's outcome is marked on the trace and
+  // carried on the result (`langs`), so a variant that is behind names its
+  // reason on the wire — and a re-run of the lane can be read, not guessed.
+  const langOutcomes = [];
   for (const l of siteLangs) {
     if (l.primary) continue;
     const { strings, dropped } = collectStrings(pages || []);
@@ -9563,6 +9573,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     const missing = missingFrom(have, strings);
     let fresh = {};
     if (missing.length) {
+      tm("translate:" + l.tag, "start", { missing: missing.length, strings: strings.length, cached: strings.length - missing.length });
       const got = await translateStrings(env, l.tag, missing);
       if (got.usage) { langUsage.push(got.usage); langCost += 1; }
       // A FAILED TRANSLATION IS NOT A FAILED PUBLISH. The pages fall back to
@@ -9571,6 +9582,14 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // strictly better than losing the edit the customer actually asked for.
       if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
       else console.error("translate failed", slug, l.tag, got.why || got.error);
+      const outcome = got.ok
+        ? { tag: l.tag, missing: missing.length, ok: true }
+        : { tag: l.tag, missing: missing.length, ok: false, why: String(got.why || "call"), error: String(got.error || "").slice(0, 300) };
+      langOutcomes.push(outcome);
+      tm("translate:" + l.tag, got.ok ? "ok" : "fail", outcome);
+    } else {
+      // Every string already in the cache: nothing asked, nothing to fail.
+      langOutcomes.push({ tag: l.tag, missing: 0, ok: true, cached: true });
     }
     const merged = nextCache(have, strings, fresh);
     nextStrings[l.tag] = merged;
@@ -10068,6 +10087,11 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // one whose strings were all already cached — so the ordinary publish is
     // byte-identical on the wire.
     langUsage: langUsage.length ? langUsage : undefined,
+    // AND WHAT HAPPENED TO EACH LANGUAGE (2026-09-04): one entry per extra
+    // language — `{ tag, missing, ok }`, with `why` and `error` on a failure
+    // and `cached: true` when nothing needed asking. Absent on a monolingual
+    // site, so the ordinary publish is byte-identical on the wire.
+    langs: langOutcomes.length ? langOutcomes : undefined,
     // AND WHICH LANGUAGE WE REFUSED. `resolveLangs` returns a per-language
     // reason (`cap`, `unreadable`, `duplicate`, `reserved`, `page`) and its
     // docstring says each "is a real failure it prevents" — every reader kept
@@ -20397,6 +20421,10 @@ async function handleRequest(request, env, ctx) {
                 // an edit that ran two lanes was, until now, indistinguishable
                 // from one that ran one.
                 lanes: ranLanes,
+                // WHAT HAPPENED TO EACH LANGUAGE (2026-09-04): the spine's own
+                // account, so a second language that is behind says why here
+                // instead of in the Worker's log alone.
+                langs: pub.langs,
                 renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
               });
             }

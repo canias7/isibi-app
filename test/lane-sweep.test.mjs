@@ -454,3 +454,50 @@ test("the qr check demands the page show the code, not only serve it", () => {
   assert.equal(c.check(before, { qr: "<svg viewBox=\"0 0 33 33\"><path d=\"M4 4h7v1h-7z\"/></svg>", html: shown }, {}).ok, false, "a shown but wrong code passes");
   assert.match(c.ask, /^Change /, "the ask must be an edit of the code the site has, not an addition");
 });
+
+test("the langs case asks for a language the site lacks, reads the variant's WORDS, and prints the spine's own account (2026-09-04)", async () => {
+  // fretwork-1 served /es and /fr in English for three days while this case
+  // called the lane proven: it asked for the two languages the site already
+  // had (a re-run answers "already" and publishes nothing) and judged the
+  // switcher and the head, never a translated word. The spine's translation
+  // call had failed on every publish and said so only in the Worker's log.
+  const { strip } = await import("../scripts/addon-sweep.mjs");
+  const c = CASES.find((x) => x.lane === "langs");
+  assert.ok(c, "no langs case");
+  assert.doesNotMatch(c.ask, /French|Spanish|Español|Français/i, "the ask names a language the site already has, so the lane answers already-so and nothing is published");
+  assert.match(c.ask, /German/, "the ask does not name the language the variant below expects");
+  assert.equal(c.variant, "/de", "the case does not say which variant page to read");
+  const primaryHtml = "<html><body><header><nav><a>Cymraeg</a><a>Deutsch</a></nav></header><main><h1>Book a guitar lesson</h1>" +
+    "<p>Lessons in Crookes for complete beginners, taught one to one.</p>" +
+    "<p>First lesson I walked out able to change between E and A without looking down.</p>" +
+    "<p>Ring us on 0114 496 0123 to book a free first lesson today.</p></main></body></html>";
+  const a = { html: primaryHtml, headerText: "Cymraeg Deutsch" };
+  const german = "Buche eine Gitarrenstunde Unterricht in Crookes für komplette Anfänger, eins zu eins. " +
+    "In der ersten Stunde konnte ich zwischen E und A wechseln, ohne hinzusehen. " +
+    "Ruf uns unter 0114 496 0123 an und buche heute eine kostenlose erste Stunde.";
+  const account = [{ tag: "es", missing: 0, ok: true, cached: true }, { tag: "de", missing: 41, ok: true }];
+  const good = c.check({}, a, { langs: account }, { variant: { status: 200, build: "b2", text: german } });
+  assert.equal(good.ok, true, good.note);
+  assert.match(good.note, /3 of 3 primary sentences translated away/, good.note);
+  assert.match(good.note, /the spine's account: \[\{"tag":"es"/, "the reply's per-language outcome is not printed");
+  // THE FAILURE THIS CASE EXISTS TO CATCH: the variant serves the primary's words.
+  const failed = [{ tag: "de", missing: 41, ok: false, why: "call", error: "503 refused" }];
+  const english = c.check({}, a, { langs: failed }, { variant: { status: 200, build: "b2", text: strip(primaryHtml) } });
+  assert.equal(english.ok, false, "a variant in the primary's own words passes as translated");
+  assert.match(english.note, /0 of 3 primary sentences translated away/, english.note);
+  assert.match(english.note, /"why":"call","error":"503 refused"/, "the reason the spine gave is not in the note");
+  // A variant that does not answer, or a switcher without the language, is not a pass either.
+  assert.equal(c.check({}, a, { langs: account }, { variant: { status: 404, build: "", text: "" } }).ok, false, "a 404 variant passes");
+  assert.equal(c.check({}, { html: primaryHtml, headerText: "Cymraeg" }, { langs: account }, { variant: { status: 200, build: "b2", text: german } }).ok, false, "a switcher that never gained the language passes");
+  assert.equal(c.check({}, a, {}, {}).ok, false, "no variant read at all passes");
+  // AND THE RUNNER READS THE VARIANT for a case that names one, until the
+  // build the home page is on serves it, and hands it to the check.
+  const src = readFileSync(new URL("../scripts/lane-sweep.mjs", import.meta.url), "utf8");
+  const at = src.indexOf("if (c.variant) {");
+  assert.ok(at > 0, "the runner never reads the variant page");
+  const block = src.slice(at, src.indexOf("extra.variant = {", at) + 200);
+  assert.match(block, /await site\(c\.variant\)/, "the variant is not fetched through the harness's own reader");
+  assert.match(block, /=== after\.build\) break;/, "the variant is not re-read until the home page's build serves it");
+  assert.match(block, /text: v && v\.status === 200 \? words\(v\.text\) : ""/, "the variant's words are not read off its HTML");
+  assert.ok(at < src.indexOf("const chk = c.check(before, after, body, extra);"), "the variant is read after the check that needs it");
+});

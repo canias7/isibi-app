@@ -2557,6 +2557,23 @@ error, leaving Firefox as it is. The first two roll the container. Until
 then every addon on fretwork-1 will be called broken on this, with the
 product right. Balance: 7 credits.
 
+**The language switcher (2026-09-04, "when i switch languages they dont
+change, you see it?").** Yes: fretwork-1's Spanish and French pages are the
+English words with a Spanish or French label. Translation is a small model
+call the platform makes on every publish, one per language, and when it
+fails the page falls back to English on purpose so your edit still lands;
+the failure was written only to a log nobody reads. That call is the one
+small call still on Haiku at Anthropic, the provider that refused on
+billing the day before the languages were added, so it has most likely
+failed every time since. You asked to see it through the edit path again
+rather than take my word: the platform now records what happened to each
+language on every publish and says it in the reply, and the language test
+now asks for a language the site does not have (German) and judges the
+translated words, not the switcher. The re-run is yours to fire (lane
+harness, lanes `langs`, from main after the deploy); about 3 credits, plus
+1 per language if the translation works. Balance 7. Sweep: 14 mutants,
+14 killed, control survived.
+
    Sweep: 23 mutants, 23 killed, control survived. The build harness is
    331/331 through the real build service (five new checks), the unit
    suite 5,013. Pushed to the branch and to main; the deploy rebuilds the
