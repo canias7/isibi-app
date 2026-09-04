@@ -2508,7 +2508,8 @@ layout) was your design call — decided the same day, the entry below.
    — not what broke here, but worth knowing.
 
 **"New components should copy existing design" (2026-09-04, your call on
-the fifth run-36 item).** Built; not yet proven live. When someone asks
+the fifth run-36 item).** Built, and proven live by run 37 (the entry
+below). When someone asks
 for a section the page already has, the new one is now built the way the
 first one is: the same component, called the same way, in the same layout
 (three across stays three across); only the words are new. Three parts.
@@ -2528,6 +2529,33 @@ appear after the second, three across like the first, with new quotes,
 and both older bands untouched. Sweep: 33 mutants, 33 killed, control
 survived — four got past the first pass and each was a gap in the tests,
 not the product; all four are driven now.
+
+**Run 37 (18:45 UTC, the component case again, 24 → 7 credits): "new
+components copy existing design" is proven on the site.** The home page
+now has the first three-across band, a NEW three-across band directly
+under it with three new quotes, and the run-36 stacked band below, all
+of the old words untouched. Screenshot:
+`docs/edits/addon-run37-testimonials.png`. 541 seconds, 17 credits.
+The harness still called the run broken, and this time the finding is
+the one I set the trap for this morning: the site's own check, opening
+the English home page first now, says the server wrote "Llun" (Welsh for
+Monday) where the browser then wrote "Mon", in the week strip. Cause: the
+kit makes every date speak the site's language (Welsh on fretwork-1,
+from the lane sweep), and the build service's Node knows Welsh day names
+while its Chromium does not. What a visitor sees: on Chrome, nothing —
+the live site also says "Mon" and hydrates cleanly here, identical text
+throughout; a Firefox visitor would get the mismatch the other way (a
+recoverable error and a re-render, not a broken page). The repair round
+correctly refused for nothing (the page call had used the time), and no
+page fix could put Welsh into a browser anyway. Your call, three ways:
+(a) date formatting falls back to English on any site whose language the
+browsers do not carry, decided at build time and baked, so every visitor
+sees the same thing (what Chrome shows today); (b) keep the server's
+wording on hydration for dates, a per-component kit edit; (c) have the
+check treat a two-languages-of-one-date mismatch as a note rather than an
+error, leaving Firefox as it is. The first two roll the container. Until
+then every addon on fretwork-1 will be called broken on this, with the
+product right. Balance: 7 credits.
 
    Sweep: 23 mutants, 23 killed, control survived. The build harness is
    331/331 through the real build service (five new checks), the unit

@@ -1741,7 +1741,10 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   calendar and the price list say `"en-GB"`, the model's part says `void 0`),
   so it is not THIS mismatch; it is the one waiting for the first page that
   passes the site's language to a date. What the next addon run on fretwork-1
-  will show is the actual differing text, on `/` first.
+  will show is the actual differing text, on `/` first. **IT DID — run 37,
+  the same day: "the server rendered “Llun” where the browser then rendered
+  “Mon” (at div>div[week-strip]>button>span)".** The run-37 entry below has
+  the cause and what it is not.
   **Sweep: 23 mutants, 23 killed, none unapplied, the comment-only control
   survived** — the room forgetting the compile, the gate ignoring the need or
   dropping the floor, the repairing cap read as the plain one, the clock view
@@ -1825,12 +1828,72 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   agreeing on nothing, layout or slot ignored, items counted, no new section
   passing, `newSections` empty, the note unnamed, the case ignoring the
   verdict or its note, the kind matched by any section, a nested section
-  read twice. Full suite 5,018 green. **Not proven live** — the component
-  case on fretwork-1 (~16 credits, owner's call) is the proof. The site carries a grid band and
-  a stacked band now and the rule copies the FIRST, so the expected outcome
-  is a THIRD band after the second, a three-across `TestimonialGrid` with
-  new quotes, both older bands byte-identical, and the harness's verdict
-  "built the way the first one is".
+  read twice. Full suite 5,018 green. **PROVEN LIVE by run 37, below.**
+
+- **RUN 37 (2026-09-04 18:45Z, `harness: addon`, `component` again — the
+  first on the Worker carrying the copy-the-first's-design rule and the
+  built-from fact; 24 → 7): THE DECISION IS PROVEN LIVE, AND THE `BROKEN`
+  VERDICT IS #80 NAMING ITS TEXT.** Job `b9f6943a…`, receipt in 3.0 s,
+  published 18:55:57, **541 s for 17 credits**, `mtn2pqqq-0q059t` →
+  `mtnbaddj-a3d38n`, `changed: ["index.tsx"]`, `added: []`, `kept: []`, 37
+  files. `phase_ms`: the picker 7.3 s, `add:component` 44.0 s, the page
+  call **299.8 s** (Grok, one page), `publish:1` 180.2 s (archive 29.7,
+  `r2:dist` 19.7), the seam 0 ms. **On the page**
+  (`docs/edits/addon-run37-testimonials.png`, read off the served page
+  through a local mirror): the run-35 grid untouched byte for byte, a NEW
+  grid directly under it — `TestimonialGrid`, three across, the same card,
+  three new quotes ("I couldn't play a chord when I started — after a few
+  weeks I was strumming my first song" …) — and the run-36 stacked band
+  below both, untouched. The harness's own reader: 16 sections from 15, one
+  new by its words, `builtLike` "built the way the first one is",
+  `lostSentences` none, home text 2,356 → 2,689. The designer was told "/
+  is built from: … TestimonialGrid …" and named it; the page writer put the
+  new one after the first, where the directive says. **The verdict was
+  BROKEN, by the harness's rule, and the finding is the one #80 was
+  instrumented for**: the render check, opening `/` first now, reported `/
+  threw: React error #418 (hydration mismatch) — the server rendered “Llun”
+  where the browser then rendered “Mon” (at div>div[week-strip]>button>span)`
+  (phone viewport) and `/es threw: React error #418 (hydration mismatch) —
+  no differing text was found once the page had settled`; `checked: 6,
+  pages: 6, partial: true`.
+  **THE CAUSE, read without a model call.** `week-strip.tsx` formats its
+  day labels with `toLocaleDateString(undefined, { weekday: "short" })`, and
+  `site-locale.ts` pins an absent locale to `SITE_LANG` on BOTH sides — "cy"
+  on fretwork-1 since the lane sweep's `lang` case — which is right and
+  deterministic in intent; what differs is the ICU DATA behind "cy": the
+  container's Node 22 has Welsh ("Llun"), its Chromium does not and falls
+  back to English ("Mon"). Exactly the class recorded this morning, and the
+  page that "passes the site's language to a date" was the week strip all
+  along — through the pin, not a `cy` literal, which is why a grep for one
+  found nothing. **What it is not**: a defect a visitor on Chrome sees. The
+  live site's own server render says "Mon" (workerd has no Welsh either)
+  and the sandbox's Chromium hydrates the served `mtnbaddj-a3d38n`
+  IDENTICALLY — 257 text nodes, server and browser the same — so the nine
+  clean reproductions were reading the live pair, which agrees, while the
+  check reads the container pair, which does not. A visitor whose browser
+  DOES carry Welsh (Firefox ships it) gets the live mismatch the other way
+  round — "Mon" served, "Llun" regenerated — a recoverable #418 and a
+  client re-render, not a broken page. **The repair round refused for 0,
+  as #79 was built to**: `repair: { ran: false, why: "time", routes: ["/"]
+  }` — the page call had taken 300 s for one page and the room at the seam
+  was about 100 s — and the reply said "I ran out of time to try a fix for
+  /, so it's published as it is". Right by construction and right by luck:
+  no fix a page writer can make puts locale data into a browser.
+  **OPEN, owner's call — the fix is a platform decision, not a page fix.**
+  (a) Format with the site's language only when the check's Chromium has
+  its data, else with English — decided at build time in the container
+  and BAKED beside `SITE_LANG` the way `langLabel` is — so every visitor
+  sees the same thing, which for a Welsh site is the English day names
+  Chrome shows today. (b) Keep the server's text on hydration for
+  locale-formatted nodes (`suppressHydrationWarning`), which the prototype
+  patch cannot reach: a kit edit per component, holding until the model
+  writes the next one without it. (c) Read a #418 whose two texts are one
+  date in two locales as a note rather than a `threw`, leaving the Firefox
+  case as it is. Each of the first two rolls the container. **Until one is
+  chosen, every addon on fretwork-1 will be BROKEN on this finding and the
+  harness's exit red, with the product right** — a verdict on a property of
+  the container's pair of runtimes, now with the cause on the wire instead
+  of a number.
 
 **DELETE deferred** (owner's call).
 
@@ -2127,8 +2190,8 @@ what the work cost.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 57 credits** (read by the harness 2026-09-04 00:57Z, after run
-  34's four backend cases: 21 + 19 + 10 + 1). It was **0** on 08-29;
+- **Balance: 7 credits** (read by the harness 2026-09-04 18:56Z, after run
+  37's component case: 24 → 7). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**
