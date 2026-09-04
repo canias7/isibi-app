@@ -2632,6 +2632,22 @@ none of them broken by the fix, all on the list for you to call:
 
 Balance 5.
 
+**Charging the translations (the same night, "ok charge it properly,
+go").** Done, on every path. On an edit, the publish now bills the
+translation calls the moment they are made, through the same funnel the
+lanes use, so a bilingual edit that has something new to translate costs
+one credit more than it did and the reply's cost says so. On a first build
+the translations join the build's one bill, so they add their real cost and
+no extra rounding. Your own wording edits stay free, but on a site with a
+second language the translation of the new words is charged. A platform
+rebuild still charges nothing. While driving it I found the translation's
+usage was being handed to the pricing in the API's raw shape, so even once
+charged it would have been priced at zero tokens — fixed with it. 23
+mutants, 23 killed, control survived. Not yet proven on the site: the next
+bilingual edit with new words is the proof — asking fretwork-1 for German
+again would do it (the lane 1 credit, the translation 1, balance 5 → 3),
+when you want.
+
    Sweep: 23 mutants, 23 killed, control survived. The build harness is
    331/331 through the real build service (five new checks), the unit
    suite 5,013. Pushed to the branch and to main; the deploy rebuilds the

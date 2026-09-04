@@ -1632,8 +1632,12 @@ test("the translation runs on the picked model like every other small call (owne
   assert.match(fn, /error: String\(\(e && e\.message\) \|\| e\) \+ detail, usage: null/, "a failed call keeps the status and drops the reason");
   // THE ROUTES HAND THE PICKER IN: the edit route through the one deferred
   // publish, the addon route directly, the build route into its page builder.
-  assert.match(w, /pendingPublish = \{ \.\.\.args, pages: eSrc, renamed: Object\.keys\(renamed\)\.length \? renamed : null, parts, models: modelsFor\(eb && eb\.picker\) \};/, "the edit route's deferred publish carries no models");
-  assert.match(w, /async function recompileAndPublish\(env, \{[^}]*models = null \}\)/, "the spine takes no models");
+  // (The object grew a `charge` after `models` on run 39 — the funnel the spine
+  // charges those translations through; the property here is the models.)
+  assert.match(w, /pendingPublish = \{ \.\.\.args, pages: eSrc, renamed: Object\.keys\(renamed\)\.length \? renamed : null, parts, models: modelsFor\(eb && eb\.picker\)(?:, [^\n]*?)? \};\n/, "the edit route's deferred publish carries no models");
+  // (The parameter list grew `charge = null` after `models` on run 39; the
+  // property is that the spine takes and defaults `models`, wherever it sits.)
+  assert.match(w, /async function recompileAndPublish\(env, \{[^}]*\bmodels = null\b[^}]*\}\)/, "the spine takes no models");
   assert.match(w, /const tModels = models && typeof models\.quick === "string" \? models : modelsFor\(\);/, "the spine does not resolve the picker's models");
   assert.match(w, /translateStrings\(env, l\.tag, missing, tModels\)/, "the spine translates on no model of the picker's");
   const addon = w.slice(w.indexOf("const aPub = await recompileAndPublish(env, {"), w.indexOf("const aPub = await recompileAndPublish(env, {") + 900);
@@ -1648,4 +1652,111 @@ test("the translation runs on the picked model like every other small call (owne
   for (const m of [...w.matchAll(/buildAndPublishPages\(env, \{[\s\S]{0,1400}?\}\)/g)]) {
     assert.match(m[0], /\bmodels\b/, "a build call site hands the page builder no models: " + m[0].slice(0, 80));
   }
+});
+
+test("the translation calls are CHARGED — by the spine, before the commit point, through the caller's own funnel (run 39, 2026-09-04)", () => {
+  // RUN 39: fretwork-1's Spanish and French were translated for the first
+  // time — two Grok calls, 88 strings each — and charged to nobody. The spine
+  // carried their usage on its result "so somebody can bill them"; the edit
+  // route read it nowhere, because every rung's publish is deferred and the
+  // one spine runs after every rung has billed, and the publish result the
+  // rungs hand `eCharge` is the deferred stub. So the route that bills hands
+  // the spine its own funnel and the spine charges through it ONCE, the moment
+  // the translations are in hand — before the compile and the gate, the addon
+  // repair round's rule — and says what it charged.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const pp = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  const pos = (s, needle, what) => { const i = s.indexOf(needle); assert.ok(i >= 0, (what || needle) + " is not there"); return i; };
+  // The spine's body by brace depth — a request init is full of braces and a
+  // flat window has been written wrong here four times.
+  const bodyOf = (name) => {
+    const at = pos(w, "async function " + name + "(");
+    // THE BODY'S BRACE, NOT THE PARAMETER LIST'S: the spine destructures its
+    // options, so the first `{` after the name opens `{ slug, pages, … }` and a
+    // walk from there returns the parameters and calls them the body.
+    const open = w.indexOf(") {", at) + 2;
+    let d = 0;
+    for (let i = open; i < w.length; i++) {
+      if (w[i] === "{") d++;
+      else if (w[i] === "}") { d--; if (d === 0) return w.slice(at, i + 1); }
+    }
+    assert.fail(name + " has no closing brace");
+  };
+  const spine = bodyOf("recompileAndPublish");
+
+  // ── THE SPINE ──
+  assert.match(w, /async function recompileAndPublish\(env, \{[^}]*charge = null \}\)/, "the spine takes no charge funnel");
+  const loopWrite = pos(spine, "patchSiteConfig(env, slug, db, { langStrings: nextStrings })", "the cache write");
+  const charged = pos(spine, "let langCharged = 0;", "the charge");
+  const compileDef = pos(spine, "const compile = async () => {", "the compile");
+  const gate = pos(spine, 'editRpc(env, "edit_may_publish"', "the gate");
+  assert.ok(loopWrite < charged && charged < compileDef && compileDef < gate,
+    "the charge is not between the language loop and the compile — before the gate is the whole point");
+  const block = spine.slice(charged, compileDef);
+  assert.match(block, /if \(langUsage\.length && typeof charge === "function"\) \{/,
+    "the charge is not gated on both something translated AND a funnel handed in");
+  assert.match(block, /langCharged = Number\(await charge\(langUsage\)\) \|\| 0;/, "the funnel is not handed the whole publish's translation usage");
+  assert.match(block, /try \{[\s\S]*?\} catch \(e\) \{[\s\S]*?console\.error\("translation charge failed"/, "a funnel that throws fails the publish");
+  assert.match(block, /tm\("translate:charge", "ok", \{ calls: langUsage\.length, credits: langCharged \}\)/, "the charge leaves no mark on the trace");
+  assert.match(spine, /langCharged: langUsage\.length \? langCharged : undefined,/, "the result does not say what was charged");
+  assert.doesNotMatch(spine, /langCost/, "the dead per-language counter is back");
+  assert.match(spine, /if \(got\.usage\) langUsage\.push\(got\.usage\);/, "the spine no longer keeps each call's usage");
+  // AND THE USAGE IS IN THE SHAPE `pageCredits` PRICES, tagged with the model
+  // sent — the lanes' own reader. The raw API usage went out of
+  // `translateStrings` until the driven case in test/edit-path.test.mjs priced
+  // it: `input_tokens` read as no tokens and no model.
+  assert.match(w, /const read = readTranslation\(use && use\.input, strings\.length\);[\s\S]{0,700}?const usage = laneUsage\(r, model\);/,
+    "the translation's usage is not read the way the lanes read theirs");
+  assert.doesNotMatch(w, /usage: r\.usage \|\| null/, "the raw API usage still goes out of translateStrings");
+
+  // ── THE EDIT ROUTE: `eCharge` itself, so the receipt and the bill stay one list ──
+  assert.match(w, /pendingPublish = \{ [^\n]*charge: \(usage\) => eCharge\(\{ langUsage: usage \}\) \};/,
+    "the deferred publish hands the spine no funnel, or one that is not eCharge");
+  assert.match(w, /cost: done\.reduce\(\(n, d\) => n \+ \(Number\(d\.body && d\.body\.cost\) \|\| 0\), 0\) \+ \(finalPub \? Number\(finalPub\.langCharged\) \|\| 0 : 0\),/,
+    "the merged reply's cost does not add what the spine charged — every step's own bill was placed before the spine ran");
+
+  // ── THE ADDON ROUTE: reserve #3 under a job, the one collect otherwise ──
+  const fnAt = pos(w, "const aChargeLangs = async (usage) => {", "the addon's funnel");
+  const fn = w.slice(fnAt, pos(w.slice(fnAt), "\n            };") + fnAt);
+  assert.match(fn, /aLangUsage\.push\(\.\.\.usage\);/, "the addon's funnel does not keep the usage for the synchronous collect");
+  assert.match(fn, /if \(!aJob\) return 0;/, "the addon's funnel reserves without a job");
+  assert.match(fn, /await aCharge\(pageCredits\(\.\.\.usage\), 3\)/, "the addon's reserve is not its own sequence (#3: the bill is #1, the repair round #2)");
+  assert.match(fn, /aLangCharged \+= got;/, "what the ledger charged is not kept for the reply");
+  const callAt = pos(w, "const aPub = await recompileAndPublish(env, {", "the addon's publish");
+  assert.ok(fnAt < callAt, "the addon's funnel is declared after the publish it is handed to");
+  assert.match(w.slice(callAt, w.indexOf("});", callAt)), /charge: aChargeLangs,/, "the addon's publish is handed no funnel");
+  assert.match(w, /if \(!aJob\) aCost = await aCharge\(pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage, \.\.\.aLangUsage\)\);/,
+    "synchronously the translations do not join the one collect");
+  assert.match(w, /else aCost \+= \(Number\(aRepairRound && aRepairRound\.charged\) \|\| 0\) \+ aLangCharged;/,
+    "under a job the reply's cost does not carry the translations' reserve");
+
+  // ── THE OWNER'S WORDING EDIT: the words are free, their translation is not ──
+  const tx = w.slice(pos(w, 'label: "Edited the wording",', "the wording edit"), pos(w, "applied: ed.applied, files: out.files", "the wording reply"));
+  assert.match(tx, /charge: \(usage\) => collectCredits\(request\.headers\.get\("Authorization"\) \|\| "", pageCredits\(\.\.\.usage\)\),/,
+    "the owner's wording edit translates for nothing");
+  assert.match(w, /applied: ed\.applied, files: out\.files, render: out\.render, renderNote: out\.renderNote, cost: Number\(out\.langCharged\) \|\| 0 \}/,
+    "the wording edit's reply does not say what the translation cost");
+
+  // ── THE PLATFORM REBUILD hands none: it spends no credits, and translates for nothing as it always did ──
+  // THE WHOLE CALL, from its opening to its close — a window that stopped at
+  // the label let a mutant hand the funnel in one line below it and survive.
+  for (const needle of ['label: "platform rebuild",', 'label: "Back online" }']) {
+    const i = pos(w, needle, "the rebuild's publish");
+    const callStart = w.lastIndexOf("recompileAndPublish(env, {", i);
+    const callEnd = w.indexOf("})", i);
+    assert.ok(callStart > 0 && i - callStart < 600 && callEnd > i && callEnd - i < 300, "the rebuild's publish call is not where its label is");
+    assert.doesNotMatch(w.slice(callStart, callEnd + 2), /charge:/, "a platform rebuild hands the spine a funnel: " + needle);
+  }
+
+  // ── THE BUILD PATH: the usage rides the compile result onto the build's ONE bill ──
+  const dep = w.slice(pos(w, "compile: async (pages, builtParts) => {", "the build's compile dep"), pos(w, "repair: quickSend(env),", "the repair dep"));
+  assert.match(dep, /const langUsage = \[\];/, "the build's compile dep keeps no translation usage");
+  assert.match(dep, /const got = await translateStrings\(env, l\.tag, missing, models\);\n\s*if \(got\.usage\) langUsage\.push\(got\.usage\);/,
+    "the build loop drops what each translation cost");
+  assert.match(dep, /if \(langUsage\.length && built && typeof built === "object"\) built\.langUsage = langUsage;/, "the usage does not ride the compile result");
+  assert.match(pp, /const langUsage = \[\];/, "publishPages keeps no translation usage");
+  assert.match(pp, /if \(bd && Array\.isArray\(bd\.langUsage\)\) for \(const u of bd\.langUsage\) if \(u\) langUsage\.push\(u\);/,
+    "publishPages does not read the compile result's translation usage");
+  assert.match(pp, /const c = pageCredits\(gen\.usage, priorUsage, out\.images \? \{ images: out\.images\.made \} : null, \.\.\.repairUsage, \.\.\.langUsage\);/,
+    "the build's one bill does not price the translations");
 });

@@ -234,7 +234,11 @@ test("one bill; reserved before the publish under a job, collected after it sync
   // rounding — so the landmark is the call and the property is what it bills.
   const collectCall = at(b, "if (!aJob) aCost = await aCharge(", "the page path's collect");
   const collectLine = b.slice(collectCall, b.indexOf("\n", collectCall));
-  assert.match(collectLine, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage\)/,
+  // RE-ANCHORED 2026-09-04 (run 39): the translations' usage joined this one
+  // collect too (`...aLangUsage`), so the line lists one more spread. The
+  // property is the reserve's usages plus the repair round's, plus whatever
+  // else the publish spent — one `pageCredits`, one rounding.
+  assert.match(collectLine, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage(?:, \.\.\.\w+)*\)/,
     "the synchronous collect does not bill the same usages as the reserve, plus the repair round's");
   assert.ok(bill < reserveCall && reserveCall < pub, "the reserve does not sit between the bill and the publish — the gate would read the job as unbilled and exempt it");
   assert.ok(pub < collectCall, "the synchronous charge precedes the publish, so a failed compile would cost");
@@ -245,7 +249,9 @@ test("one bill; reserved before the publish under a job, collected after it sync
   // `aRepair`, which this route already uses for the import dedupe: the two
   // collided once, the Worker would not load, and only a test that compiles
   // the file saw it. test/spine-repair.test.mjs parses it as a module now.)
-  const jobAdd = at(b, "else aCost += Number(aRepairRound && aRepairRound.charged) || 0;", "the job path's repair charge");
+  // (Parenthesised since run 39, when the translations' reserve was added to
+  // the same sum; the landmark is the round's charge joining the job's cost.)
+  const jobAdd = at(b, "else aCost += (Number(aRepairRound && aRepairRound.charged) || 0)", "the job path's repair charge");
   assert.ok(jobAdd > collectCall, "the job path adds the repair charge before the collect line — the two paths are not two branches of one decision");
   // AND THE PAGELESS ANSWER TAKES ITS MONEY THROUGH THE SAME CLOSURE, after
   // the schema apply — the work that earns it — and before the page call.

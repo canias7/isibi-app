@@ -670,6 +670,26 @@ test("a ledger that collects NOTHING reports charged:false", async () => {
   assert.ok(out.billed > 0, "and what it should have cost is still recorded");
 });
 
+test("the translations a build made are priced on its ONE bill (run 39)", async () => {
+  // The build's compile dep translates the site's other languages on the way
+  // to the container and, until run 39 (2026-09-04), discarded what each call
+  // cost — "a pre-existing gap", its own comment said. It rides the compile
+  // result now (`langUsage`) and joins the one `pageCredits` call that prices
+  // the build: one rounding, no second floor. Driven through the dep boundary,
+  // with a translation dear enough to show on the bill.
+  const spent = { in: 1_000_000, out: 0, cacheRead: 0, cacheWrite: 0, model: "grok-4.6" };
+  const { deps, calls } = harness({
+    compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, langUsage: [spent] }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(out.page, "app");
+  const withIt = pageCredits({ ...USAGE }, spent), without = pageCredits({ ...USAGE });
+  assert.ok(withIt > without, "the fixture's translation is too cheap to show on the bill — this proves nothing");
+  assert.equal(calls.charges.length, 1, "the build charged " + calls.charges.length + " times; one bill, one rounding");
+  assert.equal(calls.charges[0], withIt, "the translation is not on the build's bill");
+  assert.equal(out.billed, withIt);
+});
+
 test("the sentence a FAILED build shows follows the ledger, not the intent", async () => {
   // `typecheck` is a charged stage, so this build intends to bill. If the ledger
   // took nothing, telling the customer "this attempt used credits" is a lie they

@@ -214,8 +214,18 @@ test("editing the words asks no model anything", () => {
   // THE WHOLE POINT: a typo cost ~21 credits and a model call. The route must
   // reach the container and nothing else.
   const block = textRoute();
-  assert.ok(!/anthropic|pagesRequest|generateSitePages|useCredits|collectCredits/i.test(block),
-    "the text route must not call a model or spend credits");
+  assert.ok(!/anthropic|pagesRequest|generateSitePages|useCredits/i.test(block),
+    "the text route must not call a model or spend credits on the words");
+  // RE-ANCHORED 2026-09-04 (run 39): the words are free and stay free; their
+  // TRANSLATION is not. On a site with a second language the spine translates
+  // the new words (one call per language, on the picked model) and, since run
+  // 39, charges them through a funnel the route hands in — owner's call,
+  // "charge it properly". So the one `collectCredits` the route may name is
+  // that funnel, and nothing else in the block spends.
+  const spends = [...block.matchAll(/collectCredits\(/g)].map((m) => m.index);
+  assert.equal(spends.length, 1, "the text route spends in " + spends.length + " places; only the translation funnel may");
+  const funnel = block.indexOf("charge: (usage) => collectCredits(request.headers.get(\"Authorization\") || \"\", pageCredits(...usage)),");
+  assert.ok(funnel >= 0 && spends[0] > funnel && spends[0] < funnel + 120, "the route's one spend is not the translation funnel handed to the spine");
   // It compiles through the shared spine now, so the container call is asserted
   // where it lives — and that the route actually reaches it.
   assert.match(block, /recompileAndPublish\(env, \{/, "the text route no longer compiles at all");
@@ -225,7 +235,9 @@ test("editing the words asks no model anything", () => {
   assert.match(spine(), /getContainer\(env\.SITE_BUILD_CONTAINER\b/, "it must still compile");
   assert.ok(!/anthropic|pagesRequest|generateSitePages|useCredits|collectCredits/i.test(spine()),
     "the spine must not call a model or spend credits either");
-  assert.match(block, /cost: 0/, "and it must say what it cost");
+  // What it cost is what the translation cost — nothing on a monolingual
+  // site, and said either way. (`cost: 0` until run 39.)
+  assert.match(block, /cost: Number\(out\.langCharged\) \|\| 0/, "and it must say what it cost — nothing but the translation");
 });
 
 test("a failed compile leaves the live site alone", () => {

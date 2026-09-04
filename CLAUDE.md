@@ -472,6 +472,12 @@ express the change. Cheapest first:
 **`sameProse` is the guarantee the page layer cannot make**: a tweak that moved
 the words is thrown away. Measured 0 false alarms over 1,640 real tweaks.
 
+**A publish that translates something new is charged for the translation on
+top of the rung's own price (run 39, 2026-09-04)** — one call per extra
+language, on the picked model, reserved by the spine before its compile and
+floored at 1 like every charge. A monolingual site and a cached bilingual one
+pay nothing more; the platform rebuild never pays.
+
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
 *"Add will always go in addon"* — and the one carve-out is the owner's too:
@@ -2026,22 +2032,67 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   /de answers 404 (gone)" — the first green `langs` case that read a
   translated word. `publish:1` 664 s: the two translations 277 s in
   series, the compile ~216 s, `archive` **139 s** (38 s on run 38).
-  **Four findings on the way, none the fix's, all filed (#86–#89):**
-  (1) **THE TRANSLATION CALLS ARE NOT BILLED ON THE EDIT PATH.** The spine
-  carries their usage on its result (`langUsage` — "so somebody can bill
-  them", its own comment) and the edit route reads it nowhere: every
-  rung's publish is deferred through `publishStep`, the one spine runs
-  below the loop as `finalPub`, the merged reply's `cost` is the sum of
-  the steps' own charges — each computed BEFORE the spine ran — and its
-  `usage` is `billedAll`. The rungs that hand their `xPub` to `eCharge`
-  hand the deferred STUB, which has no usage: the argument was right when
-  each rung published synchronously and went inert when the publish was
-  deferred ("a rule true because of a layer below it expires when that
-  layer moves"). `langCost` beside it is a dead counter. Under a job the
-  reserve is placed before the spine, so the honest shape is a second
-  sequenced reserve after `finalPub` (the addon repair round's `#2`) —
-  which raises the floor question, because `pageCredits` floors at 1 and a
-  second bill is a whole credit for a fraction of one. **Owner's call.**
+  **Four findings on the way, none the fix's — the first fixed the same
+  night, the other three filed (#87–#89):**
+  (1) **THE TRANSLATION CALLS WERE NOT BILLED ON THE EDIT PATH — FIXED THE
+  SAME NIGHT (owner: *"ok charge it properly, go"*).** The spine carried
+  their usage on its result (`langUsage` — "so somebody can bill them", its
+  own comment) and the edit route read it nowhere: every rung's publish is
+  deferred through `publishStep`, the one spine runs below the loop as
+  `finalPub`, the merged reply's `cost` is the sum of the steps' own
+  charges — each computed BEFORE the spine ran — and the rungs that hand
+  their `xPub` to `eCharge` hand the deferred STUB, which has no usage: the
+  argument was right when each rung published synchronously and went inert
+  when the publish was deferred ("a rule true because of a layer below it
+  expires when that layer moves"). **Now the spine charges them through the
+  caller's own funnel**: `recompileAndPublish` takes `charge` and calls it
+  ONCE with every translation call of the publish, after the last
+  translation and BEFORE the compile and the gate — the addon repair round's
+  rule, so under a job the reserve stands when `edit_may_publish` reads the
+  row and a free rung that translated is `reserved`, not `exempt`; a funnel
+  that throws never fails the publish; `translate:charge` is marked;
+  `langCharged` rides the result. The edit route hands `eCharge` itself
+  (`pendingPublish.charge`) — one more sequenced reserve under a job, one
+  more collect otherwise, priced by the same `pageCredits`, pushed onto the
+  same `billedAll` — and the merged reply's `cost` adds `finalPub.langCharged`.
+  The addon route hands `aChargeLangs`: reserve **#3** under a job (the bill
+  is #1, the repair round #2; `edit_reserve` is idempotent per sequence and
+  asks no order of them), the usage joining the one synchronous collect. The
+  owner's wording edit — the words are free, their translation is not, and
+  it is the one edit that always has new strings — collects on the owner's
+  balance and says `cost`. The BUILD path's copy of the loop, which
+  discarded `got.usage` outright ("a pre-existing gap", its own comment),
+  keeps it now: it rides the compile result (`built.langUsage`) and
+  `publishPages` folds it into the ONE `pageCredits` that prices the build —
+  one rounding, no second floor. The platform rebuild drain hands no funnel
+  and translates for nothing, as it always did. `langCost` is gone. **The
+  second charge floors at 1 like every charge** — a bilingual edit that
+  translates something costs a credit more; the owner chose that over
+  folding it into the lanes' bill, which under a job is placed before the
+  spine can know what the translations cost. **And the driven case found a
+  second gap under the first**: `translateStrings` handed out the API's RAW
+  usage (`input_tokens`…, no `model`), which `pageCredits` reads as no
+  tokens on no model — so a translation on the bill would have cost its
+  floor and nothing of what it really cost. It reads through `laneUsage`
+  now, the lanes' own reader. Guards: `test/wiring.test.mjs` (the spine's
+  body by brace depth — the first draft walked the PARAMETER list's braces
+  and called them the body — the block's place between the cache write and
+  the compile, both routes' funnels, the wording edit, the drain's absence,
+  the build hop); `test/edit-path.test.mjs` DRIVES a bilingual site through
+  the real route against the ledger: two charges, `cost` their sum, three
+  calls on the receipt on one model, the translation cached;
+  `test/publish-pages.test.mjs` drives the build's one bill with a
+  translation dear enough to show. Four guards went red for the change and
+  were re-anchored, not appeased (the charge-after-work scan reading the
+  funnel's arrow as a charge; the addon's collect line and job sum; the
+  deferred publish's object). **Sweep: 23 mutants, 23 killed, none
+  unapplied, the comment-only control survived — one survived the first
+  pass and it was the guard's fault**: the drain's window ended at its label,
+  so a funnel inserted a line below was never in view. **Not proven live**:
+  the next bilingual publish with something new to translate is the proof —
+  "Also offer the site in German" on fretwork-1 (a third language, 88
+  strings: lane 1 + translation 1, balance 5 → 3), or a wording change on
+  its home page.
   (2) **WHAT STAYED ENGLISH IS TEXT THE PAGE SOURCE DOES NOT CARRY**:
   `collectStrings` reads the pages, so the kit components' built-in labels
   (Your name / Email / Send, Opening hours, Closed, the calendar's legend),
@@ -2394,8 +2445,10 @@ what the work cost.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,022
-  (2026-09-04, after the translation fix's two — the picked model and the
+  build and the pre-list payload added sixteen); the unit suite is 5,025
+  (2026-09-04, after the translation charge's three — the spine's funnel and
+  every route's hop read, the bilingual edit DRIVEN against the ledger, the
+  build's one bill driven — the translation fix's two — the picked model and the
   cache rules — the translation instrument's two — the spine's marks
   and the harness's langs case — and the copy-the-first's-design guards' five — the rule on
   both hops, the directive, `pageComponents` driven, the note and the route's

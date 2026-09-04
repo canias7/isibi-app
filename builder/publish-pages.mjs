@@ -671,6 +671,12 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
   // DECLARED HERE RATHER THAN AT THE REPAIR, because `settle` prices the build
   // from an outer scope and a list that does not exist yet reads as no spend.
   const repairUsage = [];
+  // AND WHAT THE TRANSLATIONS COST (run 39, 2026-09-04): the compile dep
+  // translates the site's other languages on the way to the container and
+  // hands each call's usage back on its result (`langUsage`); it is folded in
+  // here so `settle` prices it in the same one rounding. Read by nothing
+  // before this, on either path — real spend the ledger never saw.
+  const langUsage = [];
 
   // Fails CLOSED: if the ledger cannot be read we do not generate. A caller who
   // cannot be billed does not get a paid call, at the cost of falling back to the
@@ -754,6 +760,11 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     try { bd = await deps.compile(pages, sitePartsForBuild); }
     catch (e) { bd = { ok: false, stage: "build", error: "the build service is unreachable: " + String((e && e.message) || e).slice(0, 200) }; }
     out.buildMs += Date.now() - t0;
+    // THE TRANSLATION CALLS THIS COMPILE MADE, onto the one bill. ACCUMULATED,
+    // like the timings beside it: a retried or salvaged compile that had to
+    // translate again really spent it again (the cache is written after the
+    // first, so ordinarily the second asks for nothing).
+    if (bd && Array.isArray(bd.langUsage)) for (const u of bd.langUsage) if (u) langUsage.push(u);
     // THE CONTAINER'S OWN SPLIT, carried through rather than discarded. `buildMs`
     // is what the Worker waited for and includes reaching the container at all;
     // these say where the time went inside it. Kept on the FAILURE path too — a
@@ -1029,7 +1040,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     // Bounded rather than ignored: the images land in `uploads/<slug>/`, which is
     // the owner's own image library and is deliberately NOT wiped by a publish,
     // so they still have every picture they paid for and a revise can use them.
-    const c = pageCredits(gen.usage, priorUsage, out.images ? { images: out.images.made } : null, ...repairUsage);
+    const c = pageCredits(gen.usage, priorUsage, out.images ? { images: out.images.made } : null, ...repairUsage, ...langUsage);
     // WHAT WAS BILLED AND WHAT WAS COLLECTED ARE TWO NUMBERS, and conflating
     // them is what let this path charge nothing for months. `use_credits` is a
     // gate: a bill larger than the balance debits ZERO and answers -1 rather

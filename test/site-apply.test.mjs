@@ -520,7 +520,15 @@ test("the charge comes AFTER the publish, on every layer", () => {
   // as a guard matching `buildEffortHTML()`'s own definition.
   assert.equal((b.match(/collectCredits\(/g) || []).length, 1,
     "there must be exactly one place money leaves the ledger");
-  const calls = [...b.matchAll(/eCharge\(/g)].map((m) => m.index);
+  // RE-ANCHORED 2026-09-04 (run 39): the funnel the spine charges its
+  // translation calls through — `charge: (usage) => eCharge(...)` on the
+  // deferred publish — is an ARROW written near the top of the block and run
+  // by the spine once its translations are in hand, after every rung's work.
+  // A definition, not a charge, the same distinction the comment above draws
+  // for `collectCredits`; excluded by its own `=>`, and required to exist so
+  // the exclusion cannot go vacuous.
+  assert.match(b, /charge: \(usage\) => eCharge\(\{ langUsage: usage \}\)/, "the deferred publish no longer hands the spine a charge funnel");
+  const calls = [...b.matchAll(/(?<!=> )eCharge\(/g)].map((m) => m.index);
   assert.ok(calls.length >= 3, "each layer's success must charge — found " + calls.length);
   // EVERY CHARGE COMES AFTER THE WORK IT BILLS FOR, which is not the same as
   // "after the publish" — this asserted the latter and went red on the DATA

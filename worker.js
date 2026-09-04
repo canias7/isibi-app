@@ -9313,7 +9313,13 @@ async function translateStrings(env, tag, strings, models = null) {
     });
     const use = (r.content || []).find((c) => c && c.type === "tool_use");
     const read = readTranslation(use && use.input, strings.length);
-    return read.ok ? { ok: true, strings: read.strings, usage: r.usage || null } : { ...read, usage: r.usage || null };
+    // IN THE FOUR KINDS `pageCredits` PRICES, TAGGED WITH THE MODEL WE SENT —
+    // the lanes' own reader. The raw `r.usage` rode out of here until run 39's
+    // driven case priced it: the API's `input_tokens` read as no tokens and no
+    // model, so a translation on the bill would have cost its floor and nothing
+    // of what it really cost. Nobody had billed one, so nobody had noticed.
+    const usage = laneUsage(r, model);
+    return read.ok ? { ok: true, strings: read.strings, usage } : { ...read, usage };
   } catch (e) {
     // THE API'S OWN WORDS RIDE WITH THE STATUS (run 38, 2026-09-04): the helper
     // throws "anthropic 400" and keeps the body on `detail`, and the trace
@@ -9410,7 +9416,7 @@ function hasLookField(look, field) {
  *   every mark a no-op, so every existing caller is unchanged — which is what
  *   keeps this instrumentation and not a behaviour change.
  */
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null, parts = null, afterCompile = null, models = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null }) {
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
@@ -9575,7 +9581,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   const cache = langStrings && typeof langStrings === "object" ? langStrings : {};
   const nextStrings = {};
   let langsChanged = false;
-  let langCost = 0, langUsage = [];
+  const langUsage = [];
   // WHAT HAPPENED TO EACH LANGUAGE, SAID RATHER THAN LOGGED (2026-09-04).
   // fretwork-1 served its Spanish and French pages in English for three days:
   // the loop below falls back to the primary wording by design — a failed
@@ -9608,7 +9614,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     if (missing.length) {
       tm("translate:" + l.tag, "start", { missing: missing.length, strings: strings.length, cached: strings.length - missing.length, ...(healed ? { healed: true } : {}) });
       const got = await translateStrings(env, l.tag, missing, tModels);
-      if (got.usage) { langUsage.push(got.usage); langCost += 1; }
+      if (got.usage) langUsage.push(got.usage);
       // A FAILED TRANSLATION IS NOT A FAILED PUBLISH. The pages fall back to
       // whatever is cached and, for anything new, to the primary language — so
       // the site stays up and the second language is merely behind, which is
@@ -9661,6 +9667,43 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // legacy reader being omitted rather than an error.
     const w = await patchSiteConfig(env, slug, db, { langStrings: nextStrings });
     if (!w.ok) console.error("lang cache write failed", slug, w.error);
+  }
+
+  // ── AND WHAT THE TRANSLATIONS COST IS CHARGED HERE, BEFORE THE COMMIT POINT ──
+  // (run 39, 2026-09-04)
+  //
+  // `langUsage` was carried on the result "so somebody can bill them", and the
+  // edit route read it nowhere: every rung's publish is deferred and this spine
+  // runs once below the loop, so each step's own bill was placed before a
+  // translation call existed, and the publish result the rungs hand `eCharge`
+  // is the deferred stub — an argument that was right when each rung published
+  // synchronously and went inert when the publish was deferred. The first two
+  // translations that ever succeeded on fretwork-1 (two Grok calls, 88 strings
+  // each) were charged to nobody.
+  //
+  // So the route that bills hands in `charge`, its own funnel — the edit route's
+  // `eCharge` (a sequenced reserve under a job, a collect otherwise), the addon
+  // route's `aCharge` — and the spine calls it ONCE with every translation call
+  // of this publish, here: after the last translation and BEFORE the compile
+  // and the gate, the addon repair round's own rule, so under a job the reserve
+  // stands when `edit_may_publish` reads the row, and a free rung that
+  // translated is `reserved` rather than `exempt`. A caller that hands none —
+  // the platform rebuild drain, which spends no credits — translates for
+  // nothing, as it always did.
+  //
+  // NEVER A FAILED PUBLISH: a ledger that blinks is the rule `eCharge` already
+  // follows, and the work is done. What the funnel answered rides the result
+  // (`langCharged`) so the route can add it to the reply's `cost`, which is
+  // otherwise the sum of the steps' own bills, every one placed before this ran.
+  let langCharged = 0;
+  if (langUsage.length && typeof charge === "function") {
+    try {
+      langCharged = Number(await charge(langUsage)) || 0;
+      tm("translate:charge", "ok", { calls: langUsage.length, credits: langCharged });
+    } catch (e) {
+      console.error("translation charge failed", slug, String((e && e.message) || e));
+      tm("translate:charge", "fail", { calls: langUsage.length, error: String((e && e.message) || e).slice(0, 200) });
+    }
   }
 
   // A DRAINED CONTAINER IS NOT THE CUSTOMER'S BROKEN CODE, and this path treated
@@ -10123,6 +10166,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // one whose strings were all already cached — so the ordinary publish is
     // byte-identical on the wire.
     langUsage: langUsage.length ? langUsage : undefined,
+    // AND WHAT THOSE CALLS WERE CHARGED (run 39), in credits, through the
+    // caller's own `charge` — 0 when the caller handed none or the ledger
+    // refused. Absent when nothing was translated, for the same reason.
+    langCharged: langUsage.length ? langCharged : undefined,
     // AND WHAT HAPPENED TO EACH LANGUAGE (2026-09-04): one entry per extra
     // language — `{ tag, missing, ok }`, with `why` and `error` on a failure
     // and `cached: true` when nothing needed asking. Absent on a monolingual
@@ -10520,15 +10567,15 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       //
       // MIRRORS THE SPINE BLOCK FOR BLOCK — same resolvers, same cache key,
       // same failure rule (a failed translation is not a failed build: the
-      // second language is merely behind). NOT BILLED, which mirrors the spine
-      // too: its own `langUsage` is accumulated and read by nothing, a
-      // pre-existing gap, and folding a billing change for both paths into
-      // this fix would make both harder to review. A translation is one Haiku
-      // call per language.
+      // second language is merely behind). BILLED (run 39, 2026-09-04): what
+      // each call cost rides the compile result to `publishPages`, which prices
+      // this build in ONE `pageCredits` call, so the translations join the one
+      // rounding rather than buying a second. Read by nothing until then.
       const extraLangs = Array.isArray(langs) ? langs : [];
       const primaryRoutes = pages.map((p) => routeOf(p.path)).filter(Boolean);
       const { langs: siteLangs } = resolveLangs(lang || "en", extraLangs, { routes: primaryRoutes });
       let langsChanged = false;
+      const langUsage = [];
       for (const l of siteLangs) {
         if (l.primary) continue;
         const { strings, dropped } = collectStrings(pages);
@@ -10542,6 +10589,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // ON THE PICKED MODEL, handed in by the build route with its pages
           // model; the spine's rule, one path over.
           const got = await translateStrings(env, l.tag, missing, models);
+          if (got.usage) langUsage.push(got.usage);
           if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
           else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
         }
@@ -10667,7 +10715,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // container did not answer. Exactly the `detail: "{}"` lesson, a third
       // layer down; the body is read as TEXT so a non-JSON answer survives.
       const raw = await r.text().catch(() => "");
-      try { return JSON.parse(raw); }
+      try {
+        const built = JSON.parse(raw);
+        // WHAT THE TRANSLATIONS COST, on the result `publishPages` prices this
+        // build from (run 39). Absent when nothing was translated, so a
+        // monolingual build's result is byte-identical.
+        if (langUsage.length && built && typeof built === "object") built.langUsage = langUsage;
+        return built;
+      }
       catch {
         return {
           ok: false,
@@ -18814,7 +18869,15 @@ async function handleRequest(request, env, ctx) {
               const parts = Array.isArray(args && args.parts) ? args.parts : ((pendingPublish && pendingPublish.parts) || null);
               // AND THE PICKER'S MODELS, so the spine's translation call runs
               // on the model this edit was picked for (run 38, 2026-09-04).
-              pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null, parts, models: modelsFor(eb && eb.picker) };
+              // AND THE FUNNEL THE SPINE CHARGES ITS TRANSLATION CALLS THROUGH
+              // (run 39): `eCharge` itself — a sequenced reserve under a job, a
+              // collect otherwise — so the receipt (`billedAll`) and the bill
+              // stay one list. Resolved when the publish runs, well after
+              // `eCharge` below is initialised; the spine calls it once, with
+              // every translation of the publish, before the compile and the
+              // gate. A rung that stored nothing new to translate costs nothing
+              // more.
+              pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null, parts, models: modelsFor(eb && eb.picker), charge: (usage) => eCharge({ langUsage: usage }) };
               // A DEFERRED PUBLISH REPORTS SUCCESS, because from the branch's
               // point of view its work IS done — it has stored what it changed
               // and handed over the pages. `files` and `render` are absent until
@@ -18834,22 +18897,25 @@ async function handleRequest(request, env, ctx) {
             // calls would charge twice for the rounding, which is the bug the
             // addon lane had.
             //
-            // AND IT UNWRAPS A PUBLISH RESULT, which is how the translation
+            // AND IT UNWRAPS A `langUsage` LIST, which is how the translation
             // calls get billed at all. `recompileAndPublish` translates on
             // EVERY publish — a bilingual site's second language has to stay in
             // step with the first, so a text fix, a colour change and a picture
-            // swap all go through it — and the Haiku usage it accumulated was
-            // read by nothing on either path. Real spend on every bilingual
-            // publish that the ledger never saw, against the standing rule that
-            // every model call is charged on measured usage.
+            // swap all go through it — and the usage it accumulated was read by
+            // nothing for a long time: first because nobody unwrapped it, then
+            // (run 39, 2026-09-04) because the rungs handed this function their
+            // publish RESULT and every publish had become a deferred stub with
+            // no usage on it — the one spine runs below the loop, after every
+            // rung has billed. Real spend on every bilingual publish that the
+            // ledger never saw, against the standing rule that every model call
+            // is charged on measured usage.
             //
-            // UNWRAPPED HERE RATHER THAN BILLED IN THE SPINE, because this is
-            // already the one place a lane's spend is priced, and `pageCredits`
-            // is variadic precisely so several calls land on ONE bill with ONE
-            // rounding. Billing separately down there would round twice — the
-            // exact bug the addon lane had.
-            //
-            // A publish that translated nothing contributes nothing, so a
+            // SO THE SPINE CHARGES THEM THROUGH THIS FUNNEL (`pendingPublish
+            // .charge`), the moment its translations are in hand and before its
+            // compile and its gate: one more sequenced reserve under a job, one
+            // more collect otherwise, priced by the same `pageCredits` and
+            // pushed onto the same `billedAll`, so the receipt and the bill stay
+            // one list. A publish that translated nothing charges nothing, so a
             // monolingual site and a cached bilingual one are unchanged.
             // THE LANE ROUTER'S OWN SPEND, billed wherever the work lands.
             //
@@ -21118,7 +21184,10 @@ async function handleRequest(request, env, ctx) {
               // shape, on the field written to end the guessing.
               langs: finalPub ? finalPub.langs : (last && last.body.langs),
               langsRefused: finalPub ? finalPub.langsRefused : (last && last.body.langsRefused),
-              cost: done.reduce((n, d) => n + (Number(d.body && d.body.cost) || 0), 0),
+              // …PLUS WHAT THE ONE PUBLISH CHARGED FOR ITS TRANSLATIONS (run 39):
+              // placed inside the spine after every step had billed, so no
+              // step's `cost` can carry it and the sum alone under-reports.
+              cost: done.reduce((n, d) => n + (Number(d.body && d.body.cost) || 0), 0) + (finalPub ? Number(finalPub.langCharged) || 0 : 0),
               // WHAT WAS BILLED, from the one list `eCharge` appends to — so the
               // receipt is assembled from what was charged rather than rebuilt
               // beside it. Two lists of the same thing drift, and the drift here
@@ -21959,6 +22028,22 @@ async function handleRequest(request, env, ctx) {
               }
               return aRepairRound.ran && aRepairRound.built ? { built: aRepairRound.built, pages: aRepairRound.pages } : null;
             };
+            // ── THE TRANSLATION CALLS' SPEND, THE REPAIR ROUND'S SHAPE (run 39) ──
+            // Under a job the spine hands the usage here the moment its
+            // translations are in hand — before the compile and the gate, as the
+            // round's own #2 is — and it is reserved as sequence #3; the RPC is
+            // idempotent per sequence and asks no order of them. Synchronously
+            // the usage joins the one collect below, so the sync bill still
+            // rounds once. What landed rides `aCost` on the reply.
+            const aLangUsage = [];
+            let aLangCharged = 0;
+            const aChargeLangs = async (usage) => {
+              aLangUsage.push(...usage);
+              if (!aJob) return 0;
+              const got = Number(await aCharge(pageCredits(...usage), 3)) || 0;
+              aLangCharged += got;
+              return got;
+            };
             aMark("publish:1", "start", { pages: aMerge.pages.length, parts: aParts ? aParts.length : 0 });
             const aPub = await recompileAndPublish(env, {
               slug: ownerSlug, pages: aMerge.pages,
@@ -21974,6 +22059,8 @@ async function handleRequest(request, env, ctx) {
               afterCompile: aAfterCompile,
               // THE PICKER'S MODELS, for the spine's translation call (run 38).
               models: aModels,
+              // AND THE FUNNEL THAT CALL IS CHARGED THROUGH (run 39), above.
+              charge: aChargeLangs,
             });
             aMark("publish:1", aPub && aPub.ok ? "ok" : "fail", { error: aPub && aPub.error, repair: aRepairRound ? (aRepairRound.why || aRepairRound.failed || aRepairRound.repaired.length) : undefined });
             // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. Not escalated: the
@@ -22002,8 +22089,10 @@ async function handleRequest(request, env, ctx) {
             // for exactly this); under a job the hook already reserved it as
             // sequence #2 before the gate and recorded what landed.
             const aRepairUsage = (aRepairRound && Array.isArray(aRepairRound.usage)) ? aRepairRound.usage : [];
-            if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage));
-            else aCost += Number(aRepairRound && aRepairRound.charged) || 0;
+            // AND THE TRANSLATIONS' (run 39): the same two roads — one rounding
+            // synchronously, the spine's own reserve (#3) under a job.
+            if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage));
+            else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged;
             return Response.json({
               ok: true,
               // What was added, by kind, and what was set aside for another
@@ -22101,6 +22190,13 @@ async function handleRequest(request, env, ctx) {
             // three fields of the published meta. See `recompileAndPublish`.
             const out = await recompileAndPublish(env, {
               slug: ownerSlug, pages: ed.pages, label: "Edited the wording",
+              // THE WORDS ARE FREE; THEIR TRANSLATION IS NOT (run 39). A wording
+              // change on a bilingual site is the one edit that always has new
+              // strings to translate, and each language is a model call on the
+              // default picker's model — metered, priced from the one table and
+              // collected here on the owner's own balance, the spine's rule for
+              // every route that bills. A monolingual site still pays nothing.
+              charge: (usage) => collectCredits(request.headers.get("Authorization") || "", pageCredits(...usage)),
             });
             // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. The words came from
             // the owner, so a refusal here is theirs to correct — publishing a
@@ -22113,7 +22209,7 @@ async function handleRequest(request, env, ctx) {
               }, { status: 422 });
             }
 
-            return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, cost: 0 });
+            return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, cost: Number(out.langCharged) || 0 });
           }
           if (vr) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });

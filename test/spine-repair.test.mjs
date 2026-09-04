@@ -149,8 +149,13 @@ test("the addon's hook IS the add step's own round: its module, its scope, the p
   assert.match(route, /const aCharge = async \(bill, seq = 1\) => \{/, "the charge closure does not take the ledger sequence");
   assert.match(route, /p_seq: seq,/);
   assert.match(route, /const aRepairUsage = \(aRepairRound && Array\.isArray\(aRepairRound\.usage\)\) \? aRepairRound\.usage : \[\];/);
-  assert.match(route, /if \(!aJob\) aCost = await aCharge\(pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage\)\);/);
-  assert.match(route, /else aCost \+= Number\(aRepairRound && aRepairRound\.charged\) \|\| 0;/);
+  // RE-ANCHORED 2026-09-04 (run 39): the translations' usage joined the one
+  // synchronous collect (`...aLangUsage`) and their reserve joined the job
+  // path's sum (`+ aLangCharged`). The property is that the round's usage is
+  // on the collect and the round's charge is on the job's sum — whatever else
+  // rides beside them.
+  assert.match(route, /if \(!aJob\) aCost = await aCharge\(pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage(?:, \.\.\.\w+)*\)\);/);
+  assert.match(route, /else aCost \+= \(?Number\(aRepairRound && aRepairRound\.charged\) \|\| 0\)?(?: \+ \w+)*;/);
   assert.match(route, /renderNote: \[aPub\.renderNote, addRepairNote\(aRepairRound\)\]\.filter\(Boolean\)\.join\(" "\) \|\| undefined,/,
     "the customer is not told about a fix that was tried and did not hold, or one there was no time for");
   assert.match(route, /repair: aRepairRound \? \{/, "the reply does not carry the round");

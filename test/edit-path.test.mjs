@@ -38,6 +38,10 @@ import { LANE_FIELDS, OWN_LANES, UNBUILT_LANES, laneLayer, laneUnbuilt, laneEsca
 // A hand-typed constant is a second copy of a name, and two copies drift.
 import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
 import { modelsFor, BUILD_MODELS } from "../builder/build-models.mjs";
+// THE TRANSLATION'S OWN TOOL AND READER, for the bilingual case: the stub
+// answers by tool name and the answer has to be exactly as long as what the
+// spine asks about, so both come from the module that defines them.
+import { collectStrings, TRANSLATE_TOOL } from "../builder/site-translate.mjs";
 
 const USER = { id: "u-editpath-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
@@ -46,6 +50,9 @@ const TOKEN = "Bearer some-token";
 // `publishPages` and the config store actually write. A hand-typed key is a
 // second copy of what a path looks like, and two copies drift silently.
 const PAGES = [{ path: "src/routes/index.tsx", source: "export default function Home(){return null}" }];
+// A PAGE WITH WORDS ON IT, for the bilingual case: the spine translates what
+// `collectStrings` finds, and a page that says nothing asks for nothing.
+const BILINGUAL_PAGES = [{ path: "src/routes/index.tsx", source: "export default function Home(){return <main><h1>Fresh bread every morning</h1><p>Baked before six, gone by ten.</p></main>}" }];
 const STORED_CSS = ":root{--background:oklch(100% 0 0)}\nfooter{background-color:#000}";
 // WITH A STORED CODE, because the `qr` lane EDITS one the site has: a site
 // without one sends "add a QR code" to the addon step (owner, 2026-09-02:
@@ -1011,6 +1018,68 @@ test("the landmark map is STORED after a publish, or the next edit is blind agai
         assert.equal(saved.marks[0].selector, '[data-slot="site-link"]',
           "the stored map lost the selector, which is the only column that has to be right");
       },
+    );
+  } finally { c.uninstall(); }
+});
+
+test("a bilingual site's translation is CHARGED, on the customer's balance, beside the lanes' own bill (run 39)", async () => {
+  // RUN 39 (2026-09-04): fretwork-1's Spanish and French were translated for
+  // the first time — two Grok calls, 88 strings each — and charged to nobody.
+  // The spine carried their usage "so somebody can bill them" and the edit
+  // route read it nowhere: every rung's publish is deferred, and the one spine
+  // runs after every rung has billed. Driven end to end here, against the
+  // ledger: the lane bills, the spine translates, the spine's funnel bills
+  // again — a second charge under the same floor the first has, which is the
+  // owner's call ("charge it properly") — and the reply's cost is the sum,
+  // with every call on the receipt.
+  const c = installCompiler();
+  const billed = [];
+  const slug = "wire-langs";
+  const b = bucket(slug);
+  b.store.set("source/" + slug + "/pages.json", JSON.stringify(BILINGUAL_PAGES));
+  b.store.set(CONFIG_KEY(slug), JSON.stringify({ look: { ...STORED_LOOK, langs: ["es"] }, css: STORED_CSS }));
+  const { strings } = collectStrings(BILINGUAL_PAGES);
+  assert.ok(strings.length > 0, "the fixture page carries no string to translate — the case would prove nothing");
+  try {
+    await withWire(
+      {
+        pick_lanes: { fields: ["css"] },
+        edit_site: { css: "footer{color:#fff}" },
+        // Exactly as long as what the spine asks about, or `readTranslation`
+        // refuses the answer and the usage is charged for nothing translated.
+        [TRANSLATE_TOOL.name]: { strings: strings.map((s) => "ES " + s) },
+      },
+      async (calls) => {
+        const { body } = await edit(slug, "make the footer white", { store: b });
+        assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+        assert.deepEqual(toolsOf(calls), ["pick_lanes", "edit_site", TRANSLATE_TOOL.name],
+          "the translation did not run after the lane: " + JSON.stringify(toolsOf(calls)));
+        // TWO CHARGES: the lanes' (placed before the publish) and the
+        // translation's (placed by the spine once its translations were in
+        // hand, before its compile). Each priced by `pageCredits`, each under
+        // its floor of 1.
+        assert.equal(billed.length, 2, "the ledger was asked " + billed.length + " times: " + JSON.stringify(billed));
+        assert.ok(billed.every((n) => n >= 1), "a charge below the floor: " + JSON.stringify(billed));
+        assert.equal(body.cost, billed[0] + billed[1],
+          "the reply's cost is not what left the ledger: " + JSON.stringify({ cost: body.cost, billed }));
+        // AND EVERY CALL IS ON THE RECEIPT — the router, the lane, the
+        // translation — all three on the picker's model.
+        const parts = (body.usage && body.usage.langUsage) || [];
+        assert.equal(parts.length, 3,
+          "the receipt carries " + parts.length + " calls; expected the router, the lane and the translation: " + JSON.stringify(parts));
+        assert.equal(new Set(parts.map((p) => p.model)).size, 1,
+          "the translation is not on the picker's model: " + JSON.stringify(parts.map((p) => p.model)));
+        // The spine's account rides the reply.
+        assert.deepEqual(body.langs, [{ tag: "es", missing: strings.length, ok: true }],
+          "the per-language account is not on the reply: " + JSON.stringify(body.langs));
+        // And the translation was cached, so the next publish asks for nothing
+        // and charges nothing.
+        const written = (b.writes.filter(([k]) => k === CONFIG_KEY(slug)).pop() || [])[1];
+        const cached = written && JSON.parse(written).langStrings;
+        assert.ok(cached && cached.es && cached.es[strings[0]] === "ES " + strings[0],
+          "the translation was not cached: " + JSON.stringify(cached));
+      },
+      { billed },
     );
   } finally { c.uninstall(); }
 });
