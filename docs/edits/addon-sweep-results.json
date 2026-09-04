@@ -1,68 +1,19 @@
 {
-  "at": "2026-09-04T00:57:43.936Z",
+  "at": "2026-09-04T13:54:22.229Z",
   "site": "fretwork-1",
-  "start": 108,
-  "end": 57,
+  "start": 57,
+  "end": 41,
   "results": [
     {
-      "name": "table",
+      "name": "component",
       "kinds": [
-        "table",
-        "page"
-      ],
-      "verdict": "ok",
-      "note": "made [\"gear\"]; build moved",
-      "cost": 21,
-      "wall": 770,
-      "build": "mtm80c2o-3fzzvi",
-      "pickedRight": true,
-      "shots": [
-        "docs/edits/addon-01-table.png",
-        "docs/edits/addon-01-table-page.png"
-      ]
-    },
-    {
-      "name": "function",
-      "kinds": [
-        "function",
         "component"
       ],
-      "verdict": "ok",
-      "note": "functions: [\"bookings_on_day\"]; pages [\"/\"]; build moved; judged off the reply — the database leaves no mark on the page",
-      "cost": 19,
-      "wall": 617,
-      "build": "mtm8fcke-msstf3",
-      "pickedRight": true,
-      "shots": [
-        "docs/edits/addon-02-function.png"
-      ]
-    },
-    {
-      "name": "api",
-      "kinds": [
-        "api"
-      ],
-      "verdict": "ok",
-      "note": "apis: [\"gbp_eur\"]; pages [\"/prices\"]; build moved; judged off the reply — the database leaves no mark on the page",
-      "cost": 10,
-      "wall": 423,
-      "build": "mtm8ozl3-vo4zwg",
-      "pickedRight": true,
-      "shots": [
-        "docs/edits/addon-03-api.png"
-      ]
-    },
-    {
-      "name": "job",
-      "kinds": [
-        "function",
-        "job"
-      ],
-      "verdict": "ok",
-      "note": "jobs: [\"remind_tomorrow\"]; pages []; build unmoved (a job changes no page); judged off the reply — the database leaves no mark on the page",
-      "cost": 1,
-      "wall": 91,
-      "build": "mtm8ozl3-vo4zwg",
+      "verdict": "LIE",
+      "note": "reply says ok, build moved, but the addition is not on the site; changed [\"/\"]; home text 2106→2046 chars (no new quotes on the page); repair clean",
+      "cost": 16,
+      "wall": 469,
+      "build": "mtn0gbvz-j6l2e2",
       "pickedRight": true,
       "shots": []
     }
