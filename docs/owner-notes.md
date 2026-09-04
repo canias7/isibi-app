@@ -2416,3 +2416,22 @@ untouched, so anything that builds can be fired the moment the deploy
 is green. A push that changes what an image is built from still
 rebuilds it, still rolls the container, and still needs the
 twenty-minute hold.
+
+**Run 35 (13:45 UTC, the addon, `component` only, 57 → 41 credits):
+the repair round ran live for the first time and had nothing to fix.**
+The addition published in 469 seconds for 16 credits. The site's own
+check found no error on the page the addition wrote, so the round
+answered "clean" and spent nothing — the seam works, and the proof of
+a fix that holds still needs a page that actually breaks. The harness
+called the case a lie, and it is wrong again (the eleventh time): the
+site already had this testimonials section from run 22, so the
+designer added no second one and rewrote the three quotes shorter
+under the same names; the harness wanted 80 characters of new text.
+Screenshot: `docs/edits/addon-run35-testimonials.png`. Two things the
+customer read that I want to fix next, both wording: "Done — linked it
+from /" for a change to the home page (the sentence is written for a
+new page), and "3 pages threw an error" for three component files the
+render check opens as if they were pages (the open task #44). And one
+question for you: when someone asks to add a section the site already
+has, should it change the one that's there (what it did), add a second,
+or say "you already have one"?

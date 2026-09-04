@@ -1567,6 +1567,40 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   the page call and the cut compile reverted only the look. A table no
   page shows; taking it off is the deferred DELETE step.
 
+- **RUN 35 (2026-09-04 13:45Z, `harness: addon`, `component` alone — the
+  first addon on the Worker carrying the seam and the ADD step's own repair
+  round; 57 → 41): THE ROUND RAN LIVE AND ANSWERED `clean`; THE HARNESS'S
+  LIE IS ITS ELEVENTH FALSE ALARM.** Job `768f393f…`, receipt in 2.3 s,
+  published 13:54:15, **469 s for 16 credits**, `mtma6kia-rldbzk` →
+  `mtn0gbvz-j6l2e2`, `changed: ["index.tsx"]`, `added: []`, 37 files.
+  `phase_ms`: the picker 5.9 s, `add:component` 21.6 s, the page call
+  152.9 s, `publish:1` 278 s (archive 26.8 s, `r2:dist` 17.9 s), the seam
+  0 ms. **The seam**: `repair: { ran: false, why: "clean" }` — the render
+  check's only findings were the three `-parts/` 404s (task #44) on routes
+  the addition did not write, so the round had nothing in scope and spent
+  nothing. **The page**: fretwork-1 ALREADY carried this exact section from
+  run 22 (Sam H., Priya N., Jordan P.), so the designer, asked for it again,
+  added no second band and rewrote the three quotes shorter under the same
+  names ("Couldn't hold a pick last month — now I play three chords" …): 60
+  characters fewer on the home page, which the harness's check (80 new
+  characters of quotes) read as *"the addition is not on the site"*. Run
+  30's shape: an ask naming a thing the site already has, the product
+  declining to duplicate it, the harness written for a site without it
+  (`docs/edits/addon-run35-testimonials.png` is the section as served; the
+  run-22 screenshot is the before). **Two things the customer read are
+  wrong, both reply wording**: `addonReplyText` says *"✅ Done — linked it
+  from /"* for a component that changed the home page and added nothing
+  (`changed` is worded as the link to a new page), and the render tail says
+  *"3 pages threw an error"* for the `-parts/` 404s on a site whose pages
+  all render (task #44, customer-visible on every addon reply now). **And a
+  product question, owner's call**: a second ask for a section the site has
+  rewrote the customer's existing quotes without being asked to — the edit
+  path's "nothing unasked-for moves" has no counterpart on the add path for
+  a thing that already exists (the wall covers `qr` and `three` only). The
+  harness's ask should name a section the site lacks before the case runs
+  again. The runner committed `docs/edits/addon-sweep-results.json` to main
+  (`3c7e96a9`).
+
 **DELETE deferred** (owner's call).
 
 ---
