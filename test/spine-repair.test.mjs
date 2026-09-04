@@ -1,18 +1,45 @@
-// THE REPAIR PASS ON THE PUBLISH SPINE (owner, 2026-09-04: "try to fix it,
-// if not fix, send as it is").
+// THE SEAM ON THE PUBLISH SPINE, AND THE ADD STEP'S OWN REPAIR THROUGH IT
+// (owner, 2026-09-04: "try to fix it, if not fix, send as it is" — then, when
+// the first cut ran the BUILD's repair pass inside the shared spine, "each
+// path has a repair path").
 //
-// Run 34's gear addon published a page the render check had just watched
-// crash. The BUILD repairs on that report (`publishPages`, `deps.repair`); the
-// addon publishes through `recompileAndPublish`, which had no such hop — its
-// reason for the EDIT lanes ("re-checking pages the customer just changed by
-// hand") was written before an addon existed. The decision is `repairRound`,
-// driven in test/site-repair.test.mjs; THIS file reads the wiring — the hop the
-// wiring trap has cut twelve times — from landmark to landmark, never by byte.
+// The spine offers ONE seam between the compile and the first write and knows
+// nothing about what happens there; the ADD step's own round (`addRepairRound`
+// in site-add.mjs, driven in test/site-add.test.mjs) is handed in by the addon
+// route and by nobody else. THIS file reads the wiring — the hop the wiring
+// trap has cut twelve times — from landmark to landmark, never by byte — and
+// COMPILES the Worker as a module once, because the round's variable landed
+// beside a name the addon route already had and every text read stayed green.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { spawnSync } from "node:child_process";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+/**
+ * Parse a source as an ES MODULE, flag-free, without evaluating it.
+ *
+ * `node --check worker.js` exits 0 on this file with a duplicate `let` in it
+ * (measured 2026-09-04, Node 22.22): the package declares no `"type"`, so the
+ * `.js` is not parsed as a module and the check says nothing. `--input-type`
+ * on stdin is the module parse with no file and no flag that may be renamed.
+ */
+function moduleParse(src) {
+  const r = spawnSync(process.execPath, ["--input-type=module", "--check"], { input: src, encoding: "utf8" });
+  return { ok: r.status === 0, err: String(r.stderr || "") };
+}
+
+test("the Worker parses as an ES module — a text read cannot see a name already taken in the scope", () => {
+  // THE OBSERVER IS PROVEN ALIVE FIRST: a source with a duplicate binding must
+  // be refused by name, or a pass below means nothing (the plain `--check` did
+  // exactly that).
+  const control = moduleParse(worker + "\nlet __twice = 1;\nlet __twice = 2;\n");
+  assert.equal(control.ok, false, "the module parse passed a duplicate binding — it is not parsing as a module");
+  assert.match(control.err, /'__twice' has already been declared/, "the refusal does not name the duplicate");
+  const real = moduleParse(worker);
+  assert.ok(real.ok, "worker.js does not parse as a module:\n" + real.err.split("\n").slice(0, 6).join("\n"));
+});
 
 function between(src, from, to, what) {
   const a = src.indexOf(from);
@@ -24,85 +51,81 @@ function between(src, from, to, what) {
 
 const spine = between(worker, "async function recompileAndPublish(", "async function siteOgImage(", "the spine");
 
-test("the spine takes a `repair` and asks the round between the compile's verdict and the first write", () => {
-  assert.match(worker, /import \{ repairRound, repairRoundNote \} from "\.\/builder\/site-repair\.mjs";/, "the round is not imported");
-  assert.match(spine.slice(0, 400), /repair = null \}\) \{/, "the spine does not take a repair, defaulting to none");
-  const hop = between(spine, "let repairOut = null;", "// THE SAME META A BUILD PUBLISHES", "the repair hop");
-  // AFTER the compile verdict and the dead-css refusal — a build that did not
-  // compile has nothing to repair and a refused stylesheet publishes nothing.
+test("the spine offers a seam between the compile's verdict and the first write, and knows nothing about repair", () => {
+  assert.match(spine.slice(0, 400), /afterCompile = null \}\) \{/, "the spine does not take a seam hook, defaulting to none");
+  // THE SPINE IMPORTS NOTHING FROM THE BUILD'S REPAIR MODULE and names no
+  // repair: the owner's rule is that the add step does not trigger the build
+  // path, and the spine is every path's.
+  assert.doesNotMatch(worker, /from "\.\/builder\/site-repair\.mjs"/, "the Worker imports the build's repair module");
+  assert.doesNotMatch(spine, /repairRound|repairPages|repairBrief/, "the spine reaches for a repair by name");
+  const seam = between(spine, 'if (typeof afterCompile === "function") {', "// THE SAME META A BUILD PUBLISHES", "the seam");
+  // AFTER the compile verdict and the dead-css refusal, BEFORE the gate and
+  // the first write — so what the seam answers is what is written, archived,
+  // stored and uploaded.
   const verdict = spine.indexOf("if (!built || built.ok !== true || !built.files)");
   const deadCss = spine.indexOf('error: "dead-css"');
-  const hopAt = spine.indexOf("let repairOut = null;");
-  assert.ok(verdict > 0 && deadCss > verdict && hopAt > deadCss, "the hop runs before the compile is judged, or before a dead stylesheet is refused");
-  // BEFORE the gate and the first write, so the second build is what is
-  // written, archived, stored and uploaded.
+  const seamAt = spine.indexOf('if (typeof afterCompile === "function") {');
   const gate = spine.indexOf('editRpc(env, "edit_may_publish"');
   const write = spine.indexOf("await writeSiteDistToR2(");
-  assert.ok(gate > hopAt && write > gate, "the hop runs after the publish gate or after the dist write — the repaired build would not be the one shipped");
-  // Gated on a repair being handed in, with a function to send.
-  assert.match(hop, /if \(repair && typeof repair\.send === "function"\) \{/, "the hop is not gated on a repair with a send");
-  // The clock is asked of the budget BEFORE anything is spent — and true with no job.
-  assert.match(hop, /const room = !\(job && job\.budget && typeof job\.budget\.canRepair === "function"\) \|\| job\.budget\.canRepair\(\);/,
-    "the room is not the budget's canRepair, or is not true without a job");
-  // The round gets the report, the pages, the send, the model, the room, the
-  // site's language prefixes, and a compile of the corrected list.
-  const call = between(hop, "repairOut = await repairRound({", "});", "the round call");
-  for (const needle of ["report: built.render", "pages,", "send: repair.send", "model: repair.model", "room,",
-    "prefixes: siteLangs.filter((l) => !l.primary).map((l) => l.prefix)",
-    "compile: async (list) => { files = filesFor(list); return compile(); }"]) {
-    assert.ok(call.includes(needle), `the round is not handed: ${needle}`);
+  assert.ok(verdict > 0 && deadCss > verdict && seamAt > deadCss, "the seam runs before the compile is judged or before a dead stylesheet is refused");
+  assert.ok(gate > seamAt && write > gate, "the seam runs after the publish gate or after the dist write");
+  // What the hook is handed: the build, the pages, the site's languages, the
+  // job, and a recompile of a corrected list through the ONE file assembly.
+  const call = between(seam, "seamOut = await afterCompile({", "});", "the hook call");
+  for (const needle of ["built, pages, langs: siteLangs, job,", "recompile: async (list) => { files = filesFor(list); return compile(); },"]) {
+    assert.ok(call.includes(needle), `the hook is not handed: ${needle}`);
   }
-  // A fix that held replaces BOTH what ships and what is stored.
-  assert.match(hop, /if \(repairOut\.ran && repairOut\.built\) \{ built = repairOut\.built; pages = repairOut\.pages; \}/,
-    "a repaired build does not replace both `built` and `pages`");
-  // Its spend is charged when the caller can, only when there was any.
-  assert.match(hop, /if \(typeof repair\.charge === "function" && repairOut\.usage\.length\) \{/, "the round's usage is not charged, or a round that spent nothing is");
-  assert.match(hop, /repairOut\.charged = Number\(await repair\.charge\(repairOut\.usage\)\) \|\| 0;/);
-  // And the answer rides out.
-  assert.match(spine, /repair: repairOut \? \{/, "the spine's answer does not carry the round");
-  assert.match(between(spine, "repair: repairOut ? {", "} : undefined,", "the repair field"), /usage: repairOut\.usage\.length \? repairOut\.usage : undefined, charged: repairOut\.charged/);
+  // A hook that throws is logged and ignored — the site compiled.
+  assert.match(seam, /\} catch \(e\) \{[\s\S]*seamOut = null;/, "a throwing hook is not held");
+  // Its answer replaces the build ONLY when it is a build.
+  assert.match(seam, /const replaced = !!\(seamOut && seamOut\.built && seamOut\.built\.ok === true && seamOut\.built\.files && Array\.isArray\(seamOut\.pages\)\);/,
+    "the seam replaces the build on an answer that is not a compiled build");
+  assert.match(seam, /if \(replaced\) \{ built = seamOut\.built; pages = seamOut\.pages; \}/, "a replacement does not replace both `built` and `pages`");
 });
 
-test("the files are ONE assembly, used by the first compile and by the round's second", () => {
+test("the files are ONE assembly, used by the first compile and by a recompile at the seam", () => {
   const assemble = between(spine, "const filesFor = (list) => {", "files = filesFor(pages);", "filesFor");
   assert.match(assemble, /for \(const p of list \|\| \[\]\) f\[p\.path\] = p\.source;/, "the primary pages are not in the assembly");
   assert.match(assemble, /translatePages\(list \|\| \[\], l\.prefix, strings,/, "the variants are not in the assembly");
-  // The loop above fills the cache and no longer assembles — one list, not two.
   const loop = between(spine, "for (const l of siteLangs) {", "const filesFor = (list) => {", "the translation loop");
   assert.doesNotMatch(loop, /files\[/, "the loop still writes files — two assemblies of the same thing");
-  assert.match(spine, /\n  let files = \{\};/, "`files` must be reassignable for the second compile");
+  assert.match(spine, /\n  let files = \{\};/, "`files` must be reassignable for a recompile");
   assert.ok(spine.indexOf("files = filesFor(pages);") < spine.indexOf("let built = await compile();"), "the first compile runs before the files are assembled");
 });
 
-test("ONLY the addon route hands the spine a repair; the edit lanes and the rebuild drain are what they were", () => {
+test("ONLY the addon route hands the spine a hook; the edit lanes and the rebuild drain are what they were", () => {
   const sites = [...worker.matchAll(/(?:recompileAndPublish|publishSpine)\(env, \{/g)].map((m) => m.index);
   assert.ok(sites.length >= 5, `expected the spine's call sites, found ${sites.length}`);
-  const withRepair = [];
-  for (const at of sites) {
-    // Each call's arguments run to its own `});` — the repair object inside
-    // the addon's call closes with `},` and never `});`.
-    const args = worker.slice(at, worker.indexOf("});", at) + 3);
-    if (/\brepair: \{/.test(args)) withRepair.push(at);
-  }
-  assert.equal(withRepair.length, 1, `${withRepair.length} call sites hand the spine a repair — the edit lanes re-check pages the customer changed by hand`);
-  const addon = worker.slice(withRepair[0], worker.indexOf("});", withRepair[0]));
-  assert.match(addon, /slug: ownerSlug, pages: aMerge\.pages,/, "the one call site with a repair is not the addon's publish");
-  assert.match(addon, /send: aQuick\("repair"\), model: aModels\.quick,/, "the repair does not ride the job's clock on the picked model");
-  assert.match(addon, /charge: aJob \? async \(usage\) => aCharge\(pageCredits\(\.\.\.usage\), 2\) : null,/, "under a job the round's spend is not reserve #2; synchronously it must be null");
+  const withHook = sites.filter((at) => /\bafterCompile: /.test(worker.slice(at, worker.indexOf("});", at) + 3)));
+  assert.equal(withHook.length, 1, `${withHook.length} call sites hand the spine a hook — an edit re-checking pages the customer changed by hand`);
+  const addon = worker.slice(withHook[0], worker.indexOf("});", withHook[0]));
+  assert.match(addon, /slug: ownerSlug, pages: aMerge\.pages,/, "the one call site with a hook is not the addon's publish");
+  assert.match(addon, /afterCompile: aAfterCompile,/);
 });
 
-test("the addon bills the round and tells the customer what it did", () => {
+test("the addon's hook IS the add step's own round: its module, its scope, the picked model, the job's clock, reserve #2 before the gate", () => {
+  assert.match(worker, /import \{[^}]*\baddRepairRound\b[^}]*\baddRepairNote\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "the add step's round is not imported from its own module");
   const route = between(worker, "const aCharge = async (bill", "if (tx) {", "the addon's publish tail");
+  const hook = between(route, "const aAfterCompile = async ({ built, pages, langs, recompile, job }) => {", "aMark(\"publish:1\", \"start\"", "the hook");
+  assert.match(route, /const aTouched = \[\.\.\.\(aMerge\.added \|\| \[\]\), \.\.\.\(aMerge\.changed \|\| \[\]\)\];/, "the round is not scoped to the pages this addition wrote");
+  assert.match(hook, /const room = !\(job && job\.budget && typeof job\.budget\.canRepair === "function"\) \|\| job\.budget\.canRepair\(\);/,
+    "the room is not the job's own canRepair, or is not true without a job");
+  const call = between(hook, "aRepairRound = await addRepairRound({", "});", "the round call");
+  for (const needle of ["report: built.render, pages, touched: aTouched, langs,", 'send: aQuick("repair"), model: aModels.quick, compile: recompile, room,']) {
+    assert.ok(call.includes(needle), `the round is not handed: ${needle}`);
+  }
+  // Reserve #2 inside the hook — before the spine's gate — only under a job and only when something was spent.
+  assert.match(hook, /if \(aJob && aRepairRound\.usage\.length\) \{/, "the round's spend is not reserved, or is reserved when nothing was spent");
+  assert.match(hook, /aRepairRound\.charged = Number\(await aCharge\(pageCredits\(\.\.\.aRepairRound\.usage\), 2\)\) \|\| 0;/, "the round's reserve is not sequence #2");
+  // The hook answers a build only when the round produced one.
+  assert.match(hook, /return aRepairRound\.ran && aRepairRound\.built \? \{ built: aRepairRound\.built, pages: aRepairRound\.pages \} : null;/);
+  // The bill and the reply read the round.
   assert.match(route, /const aCharge = async \(bill, seq = 1\) => \{/, "the charge closure does not take the ledger sequence");
-  assert.match(route, /p_seq: seq,/, "the sequence is not what reaches the ledger");
-  // Synchronously the round's usage joins the ONE collect; under a job what
-  // the ledger charged for #2 is added.
-  assert.match(route, /const aRepairUsage = \(aPub\.repair && Array\.isArray\(aPub\.repair\.usage\)\) \? aPub\.repair\.usage : \[\];/);
+  assert.match(route, /p_seq: seq,/);
+  assert.match(route, /const aRepairUsage = \(aRepairRound && Array\.isArray\(aRepairRound\.usage\)\) \? aRepairRound\.usage : \[\];/);
   assert.match(route, /if \(!aJob\) aCost = await aCharge\(pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage\)\);/);
-  assert.match(route, /else aCost \+= Number\(aPub\.repair && aPub\.repair\.charged\) \|\| 0;/);
-  // The reply's render sentence is the final build's plus the round's own,
-  // and the round rides beside it for the harness.
-  assert.match(route, /renderNote: \[aPub\.renderNote, repairRoundNote\(aPub\.repair\)\]\.filter\(Boolean\)\.join\(" "\) \|\| undefined,/,
+  assert.match(route, /else aCost \+= Number\(aRepairRound && aRepairRound\.charged\) \|\| 0;/);
+  assert.match(route, /renderNote: \[aPub\.renderNote, addRepairNote\(aRepairRound\)\]\.filter\(Boolean\)\.join\(" "\) \|\| undefined,/,
     "the customer is not told about a fix that was tried and did not hold, or one there was no time for");
-  assert.match(route, /repair: aPub\.repair \? \{/, "the reply does not carry the round");
+  assert.match(route, /repair: aRepairRound \? \{/, "the reply does not carry the round");
 });

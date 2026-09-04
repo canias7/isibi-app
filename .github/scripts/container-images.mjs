@@ -203,6 +203,12 @@ export async function main({ root, git, wrangler, accountId, registry = "registr
   });
 
   const listing = wrangler.list();
+  // WHAT THE REGISTRY ANSWERED, said out loud: deploy 2017 (2026-09-04) built
+  // the site image again although run 2016 had pushed that very tag, so the
+  // listing did not carry it — and the step printed nothing that could say
+  // why. Names and tags, so the next run can be read.
+  const rows = Array.isArray(listing) ? listing : [];
+  log(`registry: ${rows.length} repositor${rows.length === 1 ? "y" : "ies"}` + rows.map((r) => `\n  ${r && r.name}: ${(Array.isArray(r && r.tags) ? r.tags : []).slice(0, 8).join(" ") || "(no tags)"}`).join(""));
   const images = [];
   let text = cfgText;
   for (const p of planned) {

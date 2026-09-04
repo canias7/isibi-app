@@ -232,7 +232,12 @@ test("one bill; reserved before the publish under a job, collected after it sync
   assert.ok(pub < collectCall, "the synchronous charge precedes the publish, so a failed compile would cost");
   // UNDER A JOB the round's reserve landed inside the spine (sequence #2) and
   // only what the ledger charged is added to the answer.
-  const jobAdd = at(b, "else aCost += Number(aPub.repair && aPub.repair.charged) || 0;", "the job path's repair charge");
+  // (`aRepairRound` since the round became the add step's own, handed to the
+  // spine's seam and read back off the route's closure, 2026-09-04 — and NOT
+  // `aRepair`, which this route already uses for the import dedupe: the two
+  // collided once, the Worker would not load, and only a test that compiles
+  // the file saw it. test/spine-repair.test.mjs parses it as a module now.)
+  const jobAdd = at(b, "else aCost += Number(aRepairRound && aRepairRound.charged) || 0;", "the job path's repair charge");
   assert.ok(jobAdd > collectCall, "the job path adds the repair charge before the collect line — the two paths are not two branches of one decision");
   // AND THE PAGELESS ANSWER TAKES ITS MONEY THROUGH THE SAME CLOSURE, after
   // the schema apply — the work that earns it — and before the page call.

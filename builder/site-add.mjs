@@ -65,6 +65,12 @@
 import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, MAX_COMPONENTS, TOOL_DIRECTIVE } from "./site-plan.mjs";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "./site-table.mjs";
 import { routeOf } from "./site-addon.mjs";
+// THE ADD STEP'S OWN REPAIR (below) shares the MECHANISM with the build's —
+// the tweak rung, whose guards keep the words and the route; the render
+// check's own serious kinds; the language-prefix reading — and nothing else.
+import { runTweak } from "./site-tweak.mjs";
+import { SERIOUS } from "./site-render.mjs";
+import { stripLangPrefix } from "./site-langs.mjs";
 // THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
 // kind ADDS one beside the others and refuses only a duplicate.
 import { qrList, qrName, readQrText, MAX_QRS } from "./site-qr-list.mjs";
@@ -1560,4 +1566,191 @@ export function foldAdds(answers, priorLook, site) {
   // but a site with none and an answer with none must not store `[]`.
   if (tsx.length) designed.tsx = tsx;
   return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files };
+}
+
+// ── THE ADD STEP'S OWN REPAIR (owner, 2026-09-04) ────────────────────────────
+//
+// "Try to fix it, if not fix, send as it is" — and, when the first cut reused
+// the BUILD's repair pass inside the shared publish spine, "each path has a
+// repair path". So this is the ADD step's: its own wording, scoped to the
+// pages THIS addition wrote, driven here with fakes, and handed to the spine's
+// seam by the addon route. What it shares with the build's `site-repair.mjs`
+// is the MECHANISM — the tweak rung (`runTweak`, whose guards keep the words
+// and the route, calibrated at 0 false alarms over 1,640 real tweaks) and the
+// render check's own `SERIOUS` kinds — never a line of wording, never a call
+// into the build path.
+//
+// Run 34 (2026-09-04) is why: the gear addon published a page the render
+// check had just watched crash, and the reply said so while every visitor to
+// it saw the error card.
+//
+// FOUR ANSWERS, EACH NAMED, so the route can say which happened:
+//   - `ran: false, why: "no-report"`  the check could not run — nothing to act on
+//   - `ran: false, why: "clean"`      nothing serious on a page this addition wrote
+//   - `ran: false, why: "time"`       there is work, and the job's clock cannot fit
+//                                     a model call, a compile and the publish; the
+//                                     routes are named and NOTHING is spent
+//   - `ran: true`                     the calls were made; `built` is the second
+//                                     compile when it succeeded (ship that, store
+//                                     those pages), null when it did not (ship the
+//                                     original — never worse than not trying),
+//                                     `failed` naming the stage
+//
+// ONE ATTEMPT AND NEVER THROWS: this sits in front of a compile that already
+// succeeded, and the only correct outcome of anything going wrong here is to
+// publish what we have. THE USAGE IS KEPT ON EVERY PATH THAT SPENT, refusals
+// and a failed recompile included: the calls really happened and the ledger
+// prices what was used.
+
+/** How many pages one addition will pay to repair — a sanity bound, as the build's. */
+export const MAX_ADD_REPAIRS = 3;
+
+/**
+ * What the model is told. The ADD step's own sentence: an addition to a LIVE
+ * site, which has to keep the design system it was written into and may not
+ * touch the rest of the site — the universal rule of this step, in the repair.
+ */
+export const ADD_REPAIR_RULES =
+  "You are fixing ONE file of an ADDITION that was just made to a small business's LIVE website. The addition " +
+  "compiled, a real browser opened the page, and the page FAILED. What went wrong is below.\n\n" +
+  "FIX THAT FAULT AND NOTHING ELSE. Everything the fault does not touch comes back exactly as it went in — the " +
+  "same words, the same order, the same imports, the same formatting. You are not reviewing this file, you are " +
+  "not improving it, and the rest of the site is not yours to touch: the addition has to keep the design system " +
+  "it was written into — the same kit components, the same classes, the same look.\n\n" +
+  "DO NOT CHANGE ANY OF THE WORDS A VISITOR READS. Not a heading, not a sentence, not a button label, not a " +
+  "price. This is checked, and a file that comes back with different wording is thrown away.\n\n" +
+  "DO NOT CHANGE THE PAGE'S ADDRESS. The `createFileRoute(\"…\")` line stays exactly as it is.\n\n" +
+  "THE FAULT IS REAL — it was watched happening in a browser, not guessed at. So \"the page looks fine\" is not " +
+  "an answer. If you genuinely cannot see what would cause it, answer `cannot` and the addition ships as it is.\n\n" +
+  "THINGS THAT CAUSE THIS ON AN ADDITION: a kit component used outside the one it needs around it (a form " +
+  "field's label, control, description or message outside its item and field); a hook called inside a condition " +
+  "or a loop; a value read off a row before any rows have arrived; a whole section behind a condition that is " +
+  "false while the list is still empty; a component the addition imports that the kit does not have.";
+
+/**
+ * The findings worth paying to fix, one entry per PAGE — and ONLY the pages
+ * this addition wrote (`touched`: the paths it added or changed), because the
+ * rest of the site is not this step's to rewrite. Only `SERIOUS` findings, as
+ * the render check itself grades them. A LANGUAGE VARIANT IS ITS PRIMARY PAGE:
+ * `/es/gear` is `translatePages` over `gear.tsx`, and its fault is that file's
+ * — run 34's report named only the variants. Nothing when the check could not
+ * run: no report, no repair, no spend.
+ */
+export function addRepairBrief(report, pages, { langs = [], touched = null } = {}) {
+  const r = report && typeof report === "object" ? report : null;
+  if (!r || r.ok === false) return { work: [], dropped: 0 };
+  const findings = Array.isArray(r.findings) ? r.findings : [];
+  const list = Array.isArray(pages) ? pages : [];
+  const bare = (p) => String(p || "").replace(/^src\/routes\//, "");
+  const mine = Array.isArray(touched) ? new Set(touched.map(bare).filter(Boolean)) : null;
+  const byRoute = new Map();
+  for (const p of list) {
+    if (!p || typeof p.path !== "string") continue;
+    if (mine && !mine.has(bare(p.path))) continue;
+    const route = routeOf(p.path);
+    if (route && !byRoute.has(route)) byRoute.set(route, p);
+  }
+  const perPage = new Map();
+  for (const f of findings) {
+    if (!f || !SERIOUS.has(f.kind)) continue;
+    const page = byRoute.get(stripLangPrefix(String(f.route || "/"), langs));
+    if (!page) continue;
+    if (!perPage.has(page.path)) perPage.set(page.path, { page, kinds: new Set(), details: [] });
+    const e = perPage.get(page.path);
+    e.kinds.add(f.kind);
+    const d = String(f.detail == null ? "" : f.detail).trim();
+    if (d && !e.details.includes(d)) e.details.push(d);
+  }
+  const all = [...perPage.values()].map((e) => ({
+    path: e.page.path, route: routeOf(e.page.path), source: e.page.source,
+    instruction: addRepairInstruction(e.kinds, e.details),
+  }));
+  return { work: all.slice(0, MAX_ADD_REPAIRS), dropped: Math.max(0, all.length - MAX_ADD_REPAIRS) };
+}
+
+/** The finding, turned into something a model can act on — the detail passed through whole. */
+export function addRepairInstruction(kinds, details) {
+  const k = kinds instanceof Set ? kinds : new Set(Array.isArray(kinds) ? kinds : []);
+  const d = (Array.isArray(details) ? details : []).filter(Boolean).slice(0, 3);
+  const lead = k.has("threw")
+    ? "A real browser opened the page this addition wrote and it crashed."
+    : "A real browser opened the page this addition wrote and nothing rendered.";
+  return d.length ? lead + "\n\n" + d.map((x) => "- " + String(x).slice(0, 400)).join("\n") : lead;
+}
+
+/** The round: the brief, one tweak per broken page in parallel, a second compile of the corrected list. */
+export async function addRepairRound({ report, pages, touched, langs, send, model, compile, room = true } = {}) {
+  const list = Array.isArray(pages) ? pages : [];
+  const empty = { repaired: [], refused: [], usage: [], dropped: 0 };
+  const r = report && typeof report === "object" ? report : null;
+  if (!r || r.ok === false) return { ran: false, why: "no-report", ...empty };
+  const brief = addRepairBrief(r, list, { langs, touched });
+  const routes = brief.work.map((w) => w.route || w.path);
+  if (!brief.work.length) return { ran: false, why: "clean", ...empty, dropped: brief.dropped };
+  if (!room) return { ran: false, why: "time", routes, ...empty, dropped: brief.dropped };
+  if (typeof send !== "function" || typeof compile !== "function") return { ran: false, why: "no-deps", routes, ...empty, dropped: brief.dropped };
+
+  const results = await Promise.all(brief.work.map(async (w) => {
+    // NO SIZE CHECK HERE. The rung refuses an oversized page itself, before it
+    // sends (`tweakable`, the first thing `runTweak` asks) and answers the same
+    // `too-big` with nothing spent. The first draft repeated the check, and the
+    // sweep proved the copy inert — deleting it changed nothing — so it went:
+    // two lists of one thing, and the rung's is the one its own guards drive.
+    try {
+      const res = await runTweak({
+        instruction: w.instruction, path: w.route || w.path, source: w.source, send,
+        rules: ADD_REPAIR_RULES, heading: "WHAT WENT WRONG ON THE ADDITION",
+        ...(model ? { model } : {}),
+      });
+      return { w, res };
+    } catch (e) {
+      // `runTweak` documents that it never throws; held anyway — one rejection
+      // inside a `Promise.all` would take a build that succeeded down with it.
+      return { w, res: { ok: false, reason: "send", usage: null, error: e } };
+    }
+  }));
+  const fixed = new Map();
+  const repaired = [], refused = [], usage = [];
+  for (const { w, res } of results) {
+    if (res && res.usage) usage.push(res.usage);
+    if (res && res.ok && typeof res.source === "string") { fixed.set(w.path, res.source); repaired.push(w.route || w.path); }
+    else refused.push({ route: w.route || w.path, reason: (res && res.reason) || "unknown" });
+  }
+  const base = { ran: true, repaired, refused, usage, dropped: brief.dropped };
+  if (!fixed.size) return { ...base, built: null, pages: null, failed: "refused" };
+  const corrected = list.map((p) => (p && fixed.has(p.path) ? { ...p, source: fixed.get(p.path) } : p));
+  let second = null;
+  try { second = await compile(corrected); } catch (e) { second = { ok: false, stage: "compile", error: String((e && e.message) || e) }; }
+  if (second && second.ok === true && second.files) return { ...base, built: second, pages: corrected };
+  return { ...base, built: null, pages: null, failed: String((second && second.stage) || "compile") };
+}
+
+/**
+ * What the customer is told about the round, in the reply's render sentence.
+ * QUIET ON SUCCESS: a page that needed a second pass and got one is our
+ * business. Said: a fix there was no time for, a fix that did not hold, and a
+ * page the round could not fix beside one it did — each naming the page, each
+ * ending "published as it is", because the customer should know the page is
+ * up and wrong rather than down.
+ */
+export function addRepairNote(round) {
+  const x = round && typeof round === "object" ? round : null;
+  if (!x) return "";
+  const names = (v) => (Array.isArray(v) ? v : []).map((e) => (e && typeof e === "object" ? e.route || e.path : e)).filter(Boolean);
+  if (x.ran === false && x.why === "time") {
+    const at = names(x.routes);
+    return at.length ? `I ran out of time to try a fix for ${at.slice(0, 3).join(", ")}, so it's published as it is.` : "";
+  }
+  if (x.ran === true && !x.built) {
+    const at = names(x.refused).concat(names(x.repaired));
+    return at.length ? `I tried a fix for ${at.slice(0, 3).join(", ")} and it didn't hold, so it's published as it was.` : "";
+  }
+  if (x.ran === true && x.built) {
+    const stuck = names(x.refused);
+    if (!stuck.length) return "";
+    return stuck.length === 1
+      ? `One page — ${stuck[0]} — still isn't rendering properly; it's published as it is. Ask me to rebuild it and I'll have another go.`
+      : `Some pages still aren't rendering properly (${stuck.slice(0, 3).join(", ")}); they're published as they are. Ask me to rebuild them and I'll have another go.`;
+  }
+  return "";
 }

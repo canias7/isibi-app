@@ -66,7 +66,6 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, photoWait, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
-import { repairRound, repairRoundNote } from "./builder/site-repair.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
 // ── THE LOOK IS THE STYLESHEET, AND ONE NAME SURVIVES THE ENGINE ────────────
@@ -118,7 +117,7 @@ import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LA
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, backendDesigned, pageless } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, backendDesigned, pageless, addRepairRound, addRepairNote } from "./builder/site-add.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -9390,7 +9389,7 @@ function hasLookField(look, field) {
  *   every mark a no-op, so every existing caller is unchanged — which is what
  *   keeps this instrumentation and not a behaviour change.
  */
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null, parts = null, repair = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null, parts = null, afterCompile = null }) {
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
@@ -9836,45 +9835,40 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     };
   }
 
-  // ── THE REPAIR PASS, ON THE SPINE (owner, 2026-09-04) ─────────────────────
+  // ── A SEAM BETWEEN THE COMPILE AND THE FIRST WRITE (2026-09-04) ───────────
   //
-  // "Try to fix it, if not fix, send as it is." Run 34's gear addon published
-  // a page the render check had just watched crash: the BUILD repairs on that
-  // report (`publishPages`, `deps.repair`) and this spine did not, because its
-  // reason for the EDIT lanes — "re-checking pages the customer just changed
-  // by hand" — was written before an addon existed. An addon's page is a page
-  // a model just wrote, exactly as a build's, so the addon route hands a
-  // `repair` in; the edit lanes and the rebuild drain still hand none and are
-  // byte-for-byte what they were.
+  // The one place a caller may act on the compiled build before anything is
+  // written: the site is built, a real browser has opened every route, and
+  // nothing is in R2 yet — so an answer here can replace `built` and `pages`,
+  // and everything below publishes and stores whichever stood. THIS SPINE
+  // KNOWS NOTHING ABOUT WHAT HAPPENS HERE (owner, 2026-09-04: "each path has a
+  // repair path"): the first cut ran the BUILD's repair pass on this line and
+  // the owner's rule is that the add step does not trigger the build path. So
+  // the ADD step's own repair round lives in `site-add.mjs` and the addon
+  // route hands it in; the edit lanes and the rebuild drain hand nothing and
+  // are byte-for-byte what they were.
   //
-  // HERE AND NOT ONE LINE LOWER: the site is built, a real browser has opened
-  // every route, and nothing is written yet — so a second compile can replace
-  // `built` and `pages`, and everything below publishes and stores whichever
-  // one stood. The decision itself is `repairRound`, driven in its module; the
-  // clock is asked of the job's budget BEFORE anything is spent, and a round
-  // there is no room for is named in the answer, never silently skipped.
-  let repairOut = null;
-  if (repair && typeof repair.send === "function") {
-    const room = !(job && job.budget && typeof job.budget.canRepair === "function") || job.budget.canRepair();
-    tm("repair", "start", { room });
-    repairOut = await repairRound({
-      report: built.render, pages, send: repair.send, model: repair.model, room,
-      prefixes: siteLangs.filter((l) => !l.primary).map((l) => l.prefix),
-      // THE SAME COMPILE on the corrected list — the variants re-derived off
-      // the cache — so a fixed page ships fixed in every language.
-      compile: async (list) => { files = filesFor(list); return compile(); },
-    });
-    tm("repair", repairOut.ran ? (repairOut.built ? "ok" : "fail") : "skip",
-      { why: String(repairOut.why || repairOut.failed || ""), repaired: repairOut.repaired.length, refused: repairOut.refused.length });
-    if (repairOut.ran && repairOut.built) { built = repairOut.built; pages = repairOut.pages; }
-    // THE ROUND'S USAGE IS BILLED BEFORE THE GATE when the caller can — under
-    // a job that is a second sequenced reserve, so everything charged is
-    // charged before the commit point, the addon's own rule. A charge that
-    // cannot land is logged and the publish goes on: the site is built.
-    if (typeof repair.charge === "function" && repairOut.usage.length) {
-      try { repairOut.charged = Number(await repair.charge(repairOut.usage)) || 0; }
-      catch (e) { repairOut.charged = 0; console.error("repair charge failed:", slug, e && e.message); }
+  // THE HOOK IS HANDED `recompile`: the same compile on a corrected list, the
+  // variants re-derived off the translation cache, so a fixed page ships fixed
+  // in every language. Its answer replaces the build ONLY when it is a build —
+  // `ok`, with files — and a hook that throws is logged and ignored: the site
+  // compiled, and the one wrong outcome of a seam is a publish it took down.
+  if (typeof afterCompile === "function") {
+    tm("seam", "start");
+    let seamOut = null;
+    try {
+      seamOut = await afterCompile({
+        built, pages, langs: siteLangs, job,
+        recompile: async (list) => { files = filesFor(list); return compile(); },
+      });
+    } catch (e) {
+      tm("seam", "fail", { name: String((e && e.name) || "Error") });
+      console.error("afterCompile failed:", slug, e && e.message);
+      seamOut = null;
     }
+    const replaced = !!(seamOut && seamOut.built && seamOut.built.ok === true && seamOut.built.files && Array.isArray(seamOut.pages));
+    if (replaced) { built = seamOut.built; pages = seamOut.pages; }
+    tm("seam", "ok", { replaced });
   }
 
   // THE SAME META A BUILD PUBLISHES. Every field here is one this path was
@@ -10055,17 +10049,6 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     lookSoft.push({ what, notes: (Array.isArray(r.notes) ? r.notes : []).slice(0, 2).map((x) => String(x).slice(0, 160)) });
   }
   return { ok: true, files: wrote, look, render, renderNote: renderNote(built.render) || undefined,
-    // WHAT THE REPAIR ROUND DID, when one was handed in: whether it ran, why
-    // not, which pages it fixed or could not, what it spent and what that
-    // reserved. The builds themselves stay behind — `built` is the one that
-    // shipped, above. Absent on every publish with no `repair`, so the edit
-    // lanes' answer is byte-identical to before.
-    repair: repairOut ? {
-      ran: repairOut.ran, why: repairOut.why, failed: repairOut.failed,
-      repaired: repairOut.repaired, refused: (repairOut.refused || []).map((x) => (x && typeof x === "object" ? { route: x.route || x.path, reason: x.reason } : x)),
-      routes: repairOut.routes, dropped: repairOut.dropped || undefined,
-      usage: repairOut.usage.length ? repairOut.usage : undefined, charged: repairOut.charged,
-    } : undefined,
     lookSoft: lookSoft.length ? lookSoft : undefined,
     // ── WHAT THE TRANSLATION CALLS COST, so somebody can bill them ──────────
     //
@@ -21798,6 +21781,33 @@ async function handleRequest(request, env, ctx) {
             const aParts = (aValid.parts && aValid.parts.length)
               ? mergeParts(await loadSiteParts(env, ownerSlug), aValid.parts)
               : null;
+            // ── THE ADD STEP'S OWN REPAIR ROUND, handed to the spine's seam ──
+            //
+            // (owner, 2026-09-04: "try to fix it, if not fix, send as it is",
+            // then "each path has a repair path"). The decision is
+            // `addRepairRound` in site-add.mjs — the ADD step's own wording,
+            // scoped to the pages THIS addition wrote — and the spine only
+            // offers the seam. The clock is the job's own (`canRepair`), asked
+            // before the model call; under a job the round's spend is reserve
+            // #2, placed HERE, before the spine's publish gate, so everything
+            // charged is charged before the commit point.
+            let aRepairRound = null;
+            const aTouched = [...(aMerge.added || []), ...(aMerge.changed || [])];
+            const aAfterCompile = async ({ built, pages, langs, recompile, job }) => {
+              const room = !(job && job.budget && typeof job.budget.canRepair === "function") || job.budget.canRepair();
+              aMark("repair", "start", { room, touched: aTouched.length });
+              aRepairRound = await addRepairRound({
+                report: built.render, pages, touched: aTouched, langs,
+                send: aQuick("repair"), model: aModels.quick, compile: recompile, room,
+              });
+              aMark("repair", aRepairRound.ran ? (aRepairRound.built ? "ok" : "fail") : "skip",
+                { why: String(aRepairRound.why || aRepairRound.failed || ""), repaired: aRepairRound.repaired.length, refused: aRepairRound.refused.length });
+              if (aJob && aRepairRound.usage.length) {
+                try { aRepairRound.charged = Number(await aCharge(pageCredits(...aRepairRound.usage), 2)) || 0; }
+                catch (e) { aRepairRound.charged = 0; console.error("addon repair charge failed:", ownerSlug, e && e.message); }
+              }
+              return aRepairRound.ran && aRepairRound.built ? { built: aRepairRound.built, pages: aRepairRound.pages } : null;
+            };
             aMark("publish:1", "start", { pages: aMerge.pages.length, parts: aParts ? aParts.length : 0 });
             const aPub = await recompileAndPublish(env, {
               slug: ownerSlug, pages: aMerge.pages,
@@ -21809,20 +21819,10 @@ async function handleRequest(request, env, ctx) {
               // of them and finalize as if none existed; the trace is what
               // the spine's own marks land on.
               trace: editTrace, job: aJob,
-              // THE REPAIR PASS (owner, 2026-09-04: "try to fix it, if not
-              // fix, send as it is"). The build's, on this publish: a page the
-              // render check watched crash gets one cheap fix on the picked
-              // model and a second compile; a fix that does not hold, or a
-              // clock that cannot fit one, ships the page as it is and the
-              // reply says which. Under a job the round's spend is reserved
-              // as sequence #2 before the publish gate; synchronously it
-              // joins the one collect below.
-              repair: {
-                send: aQuick("repair"), model: aModels.quick,
-                charge: aJob ? async (usage) => aCharge(pageCredits(...usage), 2) : null,
-              },
+              // THE ADD STEP'S REPAIR ROUND, at the spine's seam — see above.
+              afterCompile: aAfterCompile,
             });
-            aMark("publish:1", aPub && aPub.ok ? "ok" : "fail", { error: aPub && aPub.error, repair: aPub && aPub.repair ? (aPub.repair.why || aPub.repair.failed || (aPub.repair.repaired || []).length) : undefined });
+            aMark("publish:1", aPub && aPub.ok ? "ok" : "fail", { error: aPub && aPub.error, repair: aRepairRound ? (aRepairRound.why || aRepairRound.failed || aRepairRound.repaired.length) : undefined });
             // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. Not escalated: the
             // rung above would rewrite pages the owner never asked about, to
             // recover from a page this one wrote.
@@ -21846,11 +21846,11 @@ async function handleRequest(request, env, ctx) {
             // before the publish (see `aBill`) and is not charged twice.
             // THE REPAIR ROUND'S SPEND RIDES THE SAME BILL: synchronously it
             // joins this one collect (one rounding, `pageCredits` is variadic
-            // for exactly this); under a job the spine already reserved it as
-            // sequence #2 and reports what landed.
-            const aRepairUsage = (aPub.repair && Array.isArray(aPub.repair.usage)) ? aPub.repair.usage : [];
+            // for exactly this); under a job the hook already reserved it as
+            // sequence #2 before the gate and recorded what landed.
+            const aRepairUsage = (aRepairRound && Array.isArray(aRepairRound.usage)) ? aRepairRound.usage : [];
             if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage));
-            else aCost += Number(aPub.repair && aPub.repair.charged) || 0;
+            else aCost += Number(aRepairRound && aRepairRound.charged) || 0;
             return Response.json({
               ok: true,
               // What was added, by kind, and what was set aside for another
@@ -21891,14 +21891,14 @@ async function handleRequest(request, env, ctx) {
               // when the round held — and the round's own sentence rides
               // beside it: a fix there was no time for, or one that did not
               // hold, each ending "published as it is". A fix that held says
-              // nothing, `repairNote`'s rule.
+              // nothing, the add step's own rule.
               files: aPub.files, render: aPub.render,
-              renderNote: [aPub.renderNote, repairRoundNote(aPub.repair)].filter(Boolean).join(" ") || undefined,
+              renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
               // WHAT THE ROUND DID, for a reader that judges rather than reads:
               // the harness, and the owner-build log. Absent when no round ran.
-              repair: aPub.repair ? {
-                ran: aPub.repair.ran, why: aPub.repair.why, failed: aPub.repair.failed,
-                repaired: aPub.repair.repaired, refused: aPub.repair.refused, routes: aPub.repair.routes,
+              repair: aRepairRound ? {
+                ran: aRepairRound.ran, why: aRepairRound.why, failed: aRepairRound.failed,
+                repaired: aRepairRound.repaired, refused: aRepairRound.refused, routes: aRepairRound.routes,
               } : undefined,
               cost: aCost,
             });

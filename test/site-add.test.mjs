@@ -157,11 +157,24 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // / `TABLE_ITEM` sense — the QR list's names, files and reader, imported
     // by the build (through site-qr.mjs), the container, the page writer and
     // the edit route alike, and carrying no wording of any path's.
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs"].includes(from),
+    // THE ADD STEP'S OWN REPAIR (2026-09-04, owner: "each path has a repair
+    // path") shares the tweak rung's MECHANISM — `site-tweak.mjs`, whose
+    // guards keep a page's words and route and are calibrated at 0 false
+    // alarms over 1,640 real tweaks; copying eight guards is how five copies
+    // of one route mapping happened — and two shapes: the render check's own
+    // serious kinds (`site-render.mjs`) and the variant-to-primary reading
+    // (`site-langs.mjs`). Its wording is its own, asserted below; the BUILD's
+    // repair module is never imported, asserted next.
+    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
+    assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }
-  for (const word of ["design_schema", "SITE_SCHEMA", "designSiteSchema", "You design", "EDIT_RULE", "currentStateNote"]) {
-    assert.ok(!bare.includes(word), "the add step carries the build's wording or tool: " + word);
+  // WHOLE WORDS: the add step's own `ADD_REPAIR_RULES` contains the build's
+  // identifier as a substring, and a substring read flagged the step's own
+  // wording as the build's.
+  for (const word of ["design_schema", "SITE_SCHEMA", "designSiteSchema", "You design", "EDIT_RULE", "currentStateNote", "TWEAK_RULES", "REPAIR_RULES", "one visual change"]) {
+    const whole = new RegExp("(?<![A-Za-z0-9_])" + word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?![A-Za-z0-9_])");
+    assert.ok(!whole.test(bare), "the add step carries another path's wording or tool: " + word);
   }
 });
 
@@ -948,4 +961,167 @@ test("a job's clock time is cleaned, refused off a faster job, folded with the z
   assert.match(b, /if \(k === "job" && aTz\) \{\s*for \(const j of Array\.isArray\(clean\.value\) \? clean\.value : \[\]\) if \(j && j\.at\) j\.tz = aTz;/, "a job with a time is not stamped with the zone");
   assert.match(b, /\.\.\.\(j\.at \? \{ at: j\.at, tz: j\.tz \|\| null \} : \{\}\)/, "the reply drops the clock time");
   assert.match(W, /import \{[^}]*\bvalidTimeZone\b[^}]*\} from "\.\/site-jobs\.mjs"/, "validTimeZone is not imported");
+});
+
+// ── THE ADD STEP'S OWN REPAIR (owner, 2026-09-04: "each path has a repair path") ──
+//
+// "Try to fix it, if not fix, send as it is." Run 34's gear addon published a
+// page the render check had just watched crash. The round is the ADD step's
+// own — its wording, scoped to the pages the addition wrote — and shares only
+// the tweak rung's mechanism with the build's pass. Driven here with fakes.
+
+const REPAIR = await import("../builder/site-add.mjs");
+const { readPage } = await import("../builder/site-render.mjs");
+const { REPAIR_RULES } = await import("../builder/site-repair.mjs");
+const { TWEAK_RULES, MAX_TWEAK_CHARS } = await import("../builder/site-tweak.mjs");
+const rPage = (path, extra = "") => ({
+  path,
+  source: `import { createFileRoute } from "@tanstack/react-router";\n` +
+    `export const Route = createFileRoute("${path === "index.tsx" ? "/" : "/" + path.replace(/\.tsx$/, "")}")({ component: P });\n` +
+    `function P() { return <div><h1>Crookes Guitar School</h1><p>Second-hand guitars.</p>${extra}</div>; }\n`,
+});
+const rCrash = (route = "/gear", viewport = "desktop") => readPage({
+  route, viewport, text: 109, images: 0, crashed: true,
+  consoleErrors: ["Error: useFormField should be used within <FormItem>"],
+});
+const rReply = (source) => ({ content: [{ type: "tool_use", input: { source } }], usage: { input_tokens: 10, output_tokens: 20 } });
+const rFixed = (p) => p.source.replace("<p>Second-hand guitars.</p>", "<div><p>Second-hand guitars.</p></div>");
+const LANGS = [{ tag: "en", prefix: "", primary: true }, { tag: "es", prefix: "es" }, { tag: "fr", prefix: "fr" }];
+
+test("the add step's repair rules are its OWN wording — not the build's, not the tweak lane's — and say what the shared guards enforce", () => {
+  assert.notEqual(REPAIR.ADD_REPAIR_RULES, REPAIR_RULES, "the add step's repair reuses the build's wording");
+  assert.notEqual(REPAIR.ADD_REPAIR_RULES, TWEAK_RULES);
+  assert.match(REPAIR.ADD_REPAIR_RULES, /ADDITION/, "the rule does not say this is an addition to a live site");
+  assert.match(REPAIR.ADD_REPAIR_RULES, /design system/, "the add step's universal rule is missing from its repair");
+  assert.match(REPAIR.ADD_REPAIR_RULES, /DO NOT CHANGE ANY OF THE WORDS/);
+  assert.match(REPAIR.ADD_REPAIR_RULES, /createFileRoute/);
+  assert.match(REPAIR.ADD_REPAIR_RULES, /`cannot`/);
+  assert.match(REPAIR.ADD_REPAIR_RULES, /watched happening in a browser/i);
+  assert.equal(REPAIR.MAX_ADD_REPAIRS, 3);
+});
+
+test("addRepairBrief: only the pages this addition wrote, only serious findings, a variant's crash is its primary page's", () => {
+  const pages = [rPage("index.tsx"), rPage("gear.tsx"), rPage("prices.tsx")];
+  // Run 34's report as the reply carried it: the variants threw, the primary route was not in the (partial) report.
+  const findings = [...rCrash("/es/gear", "phone"), ...rCrash("/fr/gear", "phone"), ...rCrash("/es", "phone")];
+  const b = REPAIR.addRepairBrief({ ok: true, findings }, pages, { langs: LANGS, touched: ["gear.tsx", "index.tsx"] });
+  assert.deepEqual(b.work.map((w) => w.path).sort(), ["gear.tsx", "index.tsx"]);
+  assert.equal(b.work.find((w) => w.path === "gear.tsx").route, "/gear", "the route handed to the model is the primary one");
+  assert.equal(b.work.find((w) => w.path === "gear.tsx").instruction.match(/useFormField/g).length, 1, "two variants of one crash are one sentence");
+  // A page the addition did not touch is NOT this step's to rewrite, however broken.
+  const notMine = REPAIR.addRepairBrief({ ok: true, findings: rCrash("/prices") }, pages, { langs: LANGS, touched: ["gear.tsx"] });
+  assert.equal(notMine.work.length, 0, "the round rewrote a page the addition did not write");
+  // `src/routes/` on either side is forgiven — the paths meet as bare names.
+  assert.equal(REPAIR.addRepairBrief({ ok: true, findings: rCrash("/gear") }, pages, { touched: ["src/routes/gear.tsx"] }).work.length, 1);
+  // No `touched` list at all means every page is in scope (a caller that has none).
+  assert.equal(REPAIR.addRepairBrief({ ok: true, findings: rCrash("/prices") }, pages, {}).work.length, 1);
+  // Only serious kinds buy a call; a check that could not run buys nothing.
+  for (const kind of ["logged", "contrast", "overflow", "image"]) {
+    assert.equal(REPAIR.addRepairBrief({ ok: true, findings: [{ route: "/gear", viewport: "desktop", kind, detail: "x" }] }, pages, { touched: ["gear.tsx"] }).work.length, 0, kind);
+  }
+  assert.equal(REPAIR.addRepairBrief({ ok: false, findings: rCrash("/gear") }, pages, { touched: ["gear.tsx"] }).work.length, 0);
+  assert.equal(REPAIR.addRepairBrief(null, pages, { touched: ["gear.tsx"] }).work.length, 0);
+  // The cap, and what it dropped.
+  const many = ["a", "b", "c", "d"].map((n) => rPage(`${n}.tsx`));
+  const capped = REPAIR.addRepairBrief({ ok: true, findings: many.flatMap((p) => rCrash("/" + p.path.replace(/\.tsx$/, ""))) }, many, { touched: many.map((p) => p.path) });
+  assert.equal(capped.work.length, REPAIR.MAX_ADD_REPAIRS);
+  assert.equal(capped.dropped, 1);
+  // The instruction says it is the addition's page, and carries the detail whole.
+  assert.match(REPAIR.addRepairInstruction(new Set(["threw"]), ["Error: useFormField should be used within <FormItem>"]), /addition wrote and it crashed[\s\S]*useFormField should be used within <FormItem>/);
+  assert.match(REPAIR.addRepairInstruction(new Set(["blank"]), []), /nothing rendered/);
+});
+
+test("addRepairRound: no report, clean, no room and no deps each answer by name and spend NOTHING", async () => {
+  const pages = [rPage("gear.tsx")];
+  let sent = 0, compiled = 0;
+  const send = async () => { sent++; return rReply(rFixed(pages[0])); };
+  const compile = async () => { compiled++; return { ok: true, files: {} }; };
+  const t = ["gear.tsx"];
+  assert.equal((await REPAIR.addRepairRound({ report: null, pages, touched: t, send, compile })).why, "no-report");
+  assert.equal((await REPAIR.addRepairRound({ report: { ok: false, findings: rCrash() }, pages, touched: t, send, compile })).why, "no-report");
+  assert.equal((await REPAIR.addRepairRound({ report: { ok: true, findings: [] }, pages, touched: t, send, compile })).why, "clean");
+  const time = await REPAIR.addRepairRound({ report: { ok: true, findings: rCrash() }, pages, touched: t, send, compile, room: false });
+  assert.equal(time.ran, false);
+  assert.equal(time.why, "time");
+  assert.deepEqual(time.routes, ["/gear"], "a round there was no time for names the page it would have fixed");
+  assert.equal((await REPAIR.addRepairRound({ report: { ok: true, findings: rCrash() }, pages, touched: t })).why, "no-deps");
+  assert.equal(sent + compiled, 0, "an answer that did not run spent something");
+});
+
+test("addRepairRound: a fix that compiles is what ships, on the add step's own rules and the picked model", async () => {
+  const pages = [rPage("index.tsx"), rPage("gear.tsx")];
+  const want = rFixed(pages[1]);
+  const seen = [];
+  const compiled = [];
+  const out = await REPAIR.addRepairRound({
+    report: { ok: true, findings: rCrash("/es/gear", "phone") }, pages, touched: ["gear.tsx"], langs: LANGS,
+    send: async (req) => { seen.push(req); return rReply(want); }, model: "sentinel-quick",
+    compile: async (list) => { compiled.push(list); return { ok: true, files: { "index.html": { t: "<build-2>" } }, render: { ok: true, findings: [] } }; },
+  });
+  assert.equal(out.ran, true);
+  assert.deepEqual(out.repaired, ["/gear"]);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].system, REPAIR.ADD_REPAIR_RULES, "the request does not carry the add step's own rules");
+  assert.equal(seen[0].model, "sentinel-quick", "the request does not ride the picked model");
+  assert.match(seen[0].messages[0].content, /^WHAT WENT WRONG ON THE ADDITION\n/);
+  assert.equal(compiled.length, 1, "the corrected list was compiled once");
+  assert.equal(compiled[0][1].source, want, "…and it was the FIXED source that was compiled");
+  assert.equal(compiled[0][0], pages[0], "the untouched page is the same object");
+  assert.equal(out.built.files["index.html"].t, "<build-2>", "the second build is what ships");
+  assert.equal(out.pages[1].source, want, "…and the fixed pages are what is stored");
+  assert.equal(out.usage.length, 1, "the call is charged for");
+});
+
+test("addRepairRound: a fix that does not compile ships the ORIGINAL and says so; a refused fix compiles nothing; nothing escapes", async () => {
+  const pages = [rPage("gear.tsx")];
+  const t = ["gear.tsx"];
+  const held = await REPAIR.addRepairRound({
+    report: { ok: true, findings: rCrash() }, pages, touched: t,
+    send: async () => rReply(rFixed(pages[0])), compile: async () => ({ ok: false, stage: "typecheck", error: "the repair broke it" }),
+  });
+  assert.equal(held.ran, true);
+  assert.equal(held.built, null, "a broken repair must never replace a build that worked");
+  assert.equal(held.pages, null, "…nor be stored for the next revise to inherit");
+  assert.equal(held.failed, "typecheck");
+  assert.deepEqual(held.repaired, ["/gear"]);
+  assert.equal(held.usage.length, 1);
+  let compiled = 0;
+  const refused = await REPAIR.addRepairRound({
+    report: { ok: true, findings: rCrash() }, pages, touched: t,
+    send: async () => rReply(pages[0].source.replace("Second-hand guitars.", "Used guitars.")),
+    compile: async () => { compiled++; return { ok: true, files: {} }; },
+  });
+  assert.equal(refused.built, null);
+  assert.equal(refused.failed, "refused");
+  assert.equal(refused.refused[0].route, "/gear");
+  assert.equal(compiled, 0, "nothing to compile when every fix was refused");
+  assert.equal(refused.usage.length, 1, "the refused call still cost");
+  const big = rPage("gear.tsx"); big.source += "x".repeat(MAX_TWEAK_CHARS);
+  let calls = 0;
+  const tooBig = await REPAIR.addRepairRound({ report: { ok: true, findings: rCrash() }, pages: [big], touched: t, send: async () => { calls++; return rReply("x"); }, compile: async () => ({ ok: true, files: {} }) });
+  assert.equal(calls, 0, "a page too large to send cheaply was paid for");
+  assert.equal(tooBig.refused[0].reason, "too-big");
+  for (const bad of [
+    { send: async () => { throw new Error("provider down"); }, compile: async () => ({ ok: true, files: {} }) },
+    { send: async () => rReply(rFixed(pages[0])), compile: async () => { throw new Error("container gone"); } },
+  ]) {
+    const out = await REPAIR.addRepairRound({ report: { ok: true, findings: rCrash() }, pages, touched: t, ...bad });
+    assert.equal(out.ran, true);
+    assert.equal(out.built, null, "the original build stands");
+  }
+});
+
+test("addRepairNote: quiet on a fix that held; a fix there was no time for, or that did not hold, is said with the page", () => {
+  assert.equal(REPAIR.addRepairNote(null), "");
+  assert.equal(REPAIR.addRepairNote({ ran: false, why: "clean" }), "");
+  assert.equal(REPAIR.addRepairNote({ ran: false, why: "no-report" }), "");
+  assert.equal(REPAIR.addRepairNote({ ran: true, built: { files: {} }, repaired: ["/gear"], refused: [] }), "", "a page that needed a second pass and got one is our business");
+  const time = REPAIR.addRepairNote({ ran: false, why: "time", routes: ["/gear"] });
+  assert.match(time, /\/gear/); assert.match(time, /published as it is/); assert.match(time, /time/);
+  const held = REPAIR.addRepairNote({ ran: true, built: null, failed: "typecheck", repaired: ["/gear"], refused: [] });
+  assert.match(held, /\/gear/); assert.match(held, /didn't hold/); assert.match(held, /published as it was/);
+  const refusedOnly = REPAIR.addRepairNote({ ran: true, built: null, failed: "refused", repaired: [], refused: [{ route: "/gear", reason: "reworded" }] });
+  assert.match(refusedOnly, /\/gear/);
+  const mixed = REPAIR.addRepairNote({ ran: true, built: { files: {} }, repaired: ["/gear"], refused: [{ route: "/prices", reason: "cannot" }] });
+  assert.match(mixed, /\/prices/); assert.doesNotMatch(mixed, /\/gear/); assert.match(mixed, /published as it is/);
 });

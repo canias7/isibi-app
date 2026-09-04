@@ -2356,3 +2356,33 @@ the deploy's own environment and never written into the repository.
 **The next deploy is the proof**: both images are already in the
 registry under their fingerprints, so it should say "reused" twice and
 finish in a few minutes.
+
+**Deploy 2017 (12:38 UTC): 4 minutes 18 seconds, down from 15**, and
+the Worker deploy itself took 24 seconds. One thing is not right yet:
+the step built the site image again instead of reusing it, so the
+registry's listing did not report the tag pushed by run 2016. It cost
+three minutes, not correctness — the same fingerprint, the same image,
+and the deploy is unchanged by it. I've added a line that prints what
+the registry answers, so the next deploy shows why.
+
+**Each path has its own repair (your rule, after I had wired the
+build's repair into the shared publish step for the addon).** Redone:
+the publish step now only offers a seam — a point between the compile
+and the first write where the caller may act — and knows nothing about
+repairing. The add step has its own repair round in its own module, with
+its own wording ("an addition to a live site, keep the design system it
+was written into"), limited to the pages the addition itself wrote, and
+the addon route hands it to the seam. Edits and the rebuild hand nothing.
+What the add step shares with the build's repair is only the mechanism
+(the one-file tweak with its calibrated guards) and two shapes; a test
+walks its imports and its words so it can never reach the build's repair.
+Behaviour for the customer is unchanged: try a fix, ship the page as it
+is when the fix cannot be made, say which. The sweep of the redo: 34
+mutants, 33 killed, control survived; the one survivor was a size check
+the tweak step already makes before it sends, so I deleted the copy
+rather than test the same thing twice. One thing the sweep could not
+see and the full suite did: my new variable reused a name the addon
+route already had, so the Worker file would not load at all. Renamed,
+and the guard now loads the file as a module instead of only reading
+it, so that class cannot pass again. Sweep re-run after the rename: 33
+of 33 killed; the full suite is 5,000 green.

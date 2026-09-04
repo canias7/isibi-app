@@ -1433,73 +1433,97 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   gain the render note on the reading that the reply dropped it — the call
   site already appends it through `renderTail(a)` for both paths, so the
   change would have printed the sentence twice. Reverted.
-  **THE REPAIR PASS IS ON THE ADDON'S PUBLISH (owner, 2026-09-04: *"try to
-  fix it, if not fix, send as it is"*).** An addition the site's own check
-  says broke a page used to ship as it was (the ship-it rule applied to a
-  render finding): the BUILD ran the repair pass on that report
-  (`repairPages`, the tweak rung, one file, ~3 credits) and the addon did
-  not, because the spine's reason for the EDIT lanes getting none —
-  "re-checking pages the customer just changed by hand" — was written
-  before an addon existed. Now `recompileAndPublish` takes a `repair`
-  (`{ send, model, charge }`) and ONLY the addon route hands one in; the
-  edit lanes and the rebuild drain are byte-for-byte what they were
-  (`test/spine-repair.test.mjs` counts the call sites). The decision is
-  **`repairRound` in `site-repair.mjs`, driven with fakes**: no report →
-  nothing; nothing serious on a page this publish wrote → nothing; work but
-  no room on the job's clock → `time`, the routes named, NOTHING spent;
-  else one cheap fix per broken page (`MAX_REPAIRS` 3, the picked model's
-  `quick` slot) and a SECOND compile — the corrected list re-assembled with
-  its language variants off the cache (`filesFor`, the one assembly the
-  first compile uses too) — shipped and STORED when it compiles, the
-  original shipped when it does not (never worse than not trying). The hop
-  sits after the compile verdict and the dead-css refusal and BEFORE the
-  publish gate, so whichever build stood is what is written, archived,
-  stored and uploaded. **The room is `canRepair`** — `REPAIR_FLOOR_MS` = a
-  call (60 s) + a compile (180) + the sweep (60) + the terminal writes (15),
-  asked before the model call: off run 34's `phase_ms`, the function addon
-  reached its publish at ~385 s of 840 and would have had room, the api
-  addon at ~200 s too, the two-kind table addon at ~540 s would not and is
-  shipped as it is, said so. **A language variant is its primary page**:
-  `repairBrief` strips a leading segment that is one of the site's OWN
-  prefixes (`/es/gear` → `gear.tsx`, `/es` → `index.tsx`; `/de/gear` on a
-  site with no German is still nobody's page) — without it run 34's report,
-  which named only the variants, bought nothing. **Billing**: under a job
-  the round's usage is reserved as sequence #2 (`aCharge(bill, seq)`)
-  inside the spine before the gate, so everything charged is charged before
-  the commit point; synchronously it joins the one collect. **The
-  customer**: quiet on a fix that held (`repairNote`'s rule); "I ran out of
-  time to try a fix for /gear, so it's published as it is" or "I tried a
-  fix for /gear and it didn't hold, so it's published as it was" otherwise
-  (`repairRoundNote`, on the reply's render sentence); the reply carries
-  `repair` for the harness, whose BROKEN note now says whether a fix was
-  tried. **What it does not do**: a crash inside a `-parts/` component is
-  reported against the PAGE that holds it, so the model is handed the page
-  file and answers `cannot` or fiddles — the build has the same edge. **Not
-  proven live**: fretwork-1's pages all render now, so the next addon whose
-  page throws is the proof; the harness prints the round. **THE DEPLOY
-  CARRYING IT FAILED ON CLOUDFLARE'S SIDE (02:25Z, deploy run 2015,
-  `f866fed8`)**: the image built, the push to `registry.cloudflare.com`
-  retried its layers for minutes and ended in a 500, Wrangler stopped
-  before the Worker upload — nothing half-deployed, the live Worker stayed
-  `72403ded`'s (this session's integration is 403 on re-runs, as on the
-  14:50Z failure). The second registry failure in twelve hours. **The
-  owner's re-run went green at 12:03Z (attempt 2, started 11:49Z)**: the
-  repair pass is live in the Worker, the container on the new image from
-  ~12:23Z. **Sweep: 28
-  mutants, 28 killed, none unapplied, the comment-only control survived** —
-  each a hop cut back (the variant not mapped, any segment mapped, the model
-  not passed, a round with no room still running, a failed second build
-  shipping, a refused fix compiling anyway, the usage dropped, a throwing
-  compile escaping, the two sentences silenced, a success announced, the
-  floor without the call, `canRepair` always, the hop not gated on a send,
-  the room forced, `built` or `pages` not replaced, the second compile on
-  the old files, the prefixes not passed, the charge dropped, the answer
-  without the round, the addon handing none, the charge as #1, the sequence
-  hardcoded, the collect without the round, the job charge not added, the
-  reply without the sentence, the loop assembling too). Four guards went
-  red for the change and were re-anchored, not appeased — `aCharge`'s
-  arity, the sync collect's spelling, the file assembly, the spine's
-  parameter order — each saying which spelling moved.
+  **EACH PATH HAS A REPAIR PATH (owner, 2026-09-04: *"try to fix it, if not
+  fix, send as it is"* → *"addon path shouldnt trigger build path"* → *"each
+  path has a repair path"*).** An addition the site's own check says broke a
+  page used to ship as it was (the ship-it rule applied to a render
+  finding). The BUILD repairs on that report (`site-repair.mjs`, `deps.repair`
+  in `publishPages`); the EDIT path has its correction round; the ADD step
+  now has ITS OWN, in its own module. **The first cut ran the BUILD's repair
+  module inside the shared publish spine, gated to the addon, and was moved
+  the same day**: the owner's rule is that the add step does not trigger the
+  build path, and the spine is every path's.
+  - **The spine offers ONE SEAM and knows nothing about repair.**
+    `recompileAndPublish` takes `afterCompile`, a hook called after the
+    compile verdict and the dead-css refusal and BEFORE the publish gate —
+    nothing in R2 yet — with `{ built, pages, langs, job, recompile }`;
+    `recompile(list)` is the same compile on a corrected list, the language
+    variants re-assembled off the cache (`filesFor`, the ONE assembly the
+    first compile uses too). An answer replaces `built` and `pages` only
+    when it is a compiled build; a hook that throws is logged and ignored.
+    The spine imports nothing from `site-repair.mjs` and names no repair.
+    ONLY the addon route hands a hook in; the edit lanes and the rebuild
+    drain hand nothing and are byte-for-byte what they were
+    (`test/spine-repair.test.mjs` counts the call sites).
+  - **The ADD step's round is `addRepairRound` in `site-add.mjs`, driven
+    with fakes**, with its own wording (`ADD_REPAIR_RULES`: an addition to a
+    LIVE site, which keeps the design system it was written into and may not
+    touch the rest of the site) and its own scope — ONLY the pages this
+    addition added or changed (`touched`), never a page it did not write,
+    however broken. What it shares with the build's pass is the MECHANISM:
+    the tweak rung (`runTweak`, whose guards keep the words and the route,
+    calibrated at 0 false alarms over 1,640 real tweaks — eight guards
+    copied is how five copies of one route mapping happened), the render
+    check's own `SERIOUS` kinds, and `stripLangPrefix` (a variant's crash is
+    its primary page's: `/es/gear` → `gear.tsx`; run 34's report named only
+    the variants). Never a line of the build's wording, never
+    `site-repair.mjs` — `test/site-add.test.mjs` walks the imports and the
+    words both ways. Four answers, each named: no report → nothing; nothing
+    serious on a page this addition wrote → nothing; work but no room on
+    the job's clock → `time`, the routes named, NOTHING spent; else one
+    cheap fix per broken page (`MAX_ADD_REPAIRS` 3, the picked model's
+    `quick` slot) and a second compile through the seam's `recompile` —
+    shipped and STORED when it compiles, the original shipped when it does
+    not (never worse than not trying).
+  - **The room is `canRepair`** on the job's budget — `REPAIR_FLOOR_MS` = a
+    call (60 s) + a compile (180) + the sweep (60) + the terminal writes
+    (15), asked in the hook before the model call: off run 34's `phase_ms`,
+    the function addon reached its publish at ~385 s of 840 and would have
+    had room, the api addon at ~200 s too, the two-kind table addon at
+    ~540 s would not and is shipped as it is, said so.
+  - **Billing**: under a job the round's usage is reserved as sequence #2
+    (`aCharge(bill, seq)`) INSIDE the hook, before the spine's gate, so
+    everything charged is charged before the commit point; synchronously it
+    joins the one collect. The route reads the round back off its own
+    closure (`aRepairRound` — not `aRepair`, which the addon route already
+    used for the import dedupe; the trap below), never off the spine's
+    answer.
+  - **The customer**: quiet on a fix that held; "I ran out of time to try a
+    fix for /gear, so it's published as it is" or "I tried a fix for /gear
+    and it didn't hold, so it's published as it was" otherwise
+    (`addRepairNote`, on the reply's render sentence); the reply carries
+    `repair` for the harness, whose BROKEN note says whether a fix was
+    tried.
+  - **What it does not do**: a crash inside a `-parts/` component is
+    reported against the PAGE that holds it, so the model is handed the page
+    file and answers `cannot` or fiddles — the build has the same edge.
+  **Not proven live**: fretwork-1's pages all render now, so the next addon
+  whose page throws is the proof; the harness prints the round. The first
+  cut's deploy (run 2015, `f866fed8`) failed on Cloudflare's registry push
+  and went green on the owner's re-run at 12:03Z; the seam and the add
+  step's own round ship after it.
+  **Sweep of the redo: 34 mutants, 33 killed, none unapplied, the
+  comment-only control survived — and the one survivor was INERT, deleted
+  rather than tested.** The round's own pre-send size check duplicated
+  `tweakable`, which `runTweak` asks before it sends and which answers the
+  identical `too-big` with nothing spent, so removing the copy changed no
+  behaviour: the recorded "inert mutants" trap and "two lists of the same
+  thing", found the hour the copy was written. Each of the 33 a hop cut
+  back — the seam not gated on a function, a throwing hook escaping, a
+  non-build answer replacing the build, `built` or `pages` alone replaced,
+  the recompile on the old files, the languages not handed, the spine
+  importing the build's repair, the addon handing no hook, the scope
+  dropped, the room forced, the reserve as #1 or with nothing to reserve,
+  the hook always replacing, the round on the rung's default model, the
+  sync collect and the job charge without the round, the reply without the
+  sentence; and inside the round: the scope, the variant mapping, the
+  serious filter and the cap dropped, no room still running, a failed
+  second build shipping, a refused fix compiling anyway, the usage dropped,
+  a compile throw escaping, the rules falling back to the tweak lanes', the
+  design-system sentence dropped, the model not passed, both customer
+  sentences silenced, a success announced. **Re-run whole on the renamed
+  source** (the `aRepair` collision, in the traps): 33 mutants, 33 killed,
+  none unapplied, control survived; suite 5,000 green.
   **PROVEN LIVE 01:39Z**: main pushed 01:06Z, deploy green 01:12Z, a
   `site_rebuild` row filed at 01:29Z with `next_try_at` four minutes out
   (past the roll window), drained by the cron for 0 credits —
@@ -1845,9 +1869,10 @@ what the work cost.
   free and read-only.
 - **`site build` is 326/326** against the real container (2026-09-03, the QR
   list's two-code build and the pre-list payload added sixteen); the unit
-  suite is 5,000 (2026-09-04, after the container images stopped rebuilding
-  on every deploy: the id, the listing, the rewrite and the flow driven with
-  fakes, the full reference under the account, the wiring read). **In this sandbox the
+  suite is 5,000 (2026-09-04, after the seam and the add step's own repair
+  round — six driven cases and the Worker's module parse in, the first cut's
+  repair-round cases out — the count landing where the container-image
+  change had left it). **In this sandbox the
   harness needs `playwright-core` at the root the way `site-build.yml`
   installs it** (`npm i --no-save playwright-core@<the template's playwright
   version>`) — without it the six card and touch-icon checks fail with
@@ -2583,6 +2608,24 @@ section). Each missing reader is a way the finding ships silently. And the cause
 used outside its nesting — the `Figure` shape: a rule the signature list
 cannot express is a rule the model will break, so the obvious use is made to
 work rather than described.
+
+**`node --check worker.js` PASSES A FILE THAT DOES NOT PARSE (2026-09-04, the
+seam).** The add step's round landed in the addon route as `let aRepair`,
+seventy lines below the import dedupe's `const aRepair` in the SAME block.
+`node --check worker.js` exited 0. The seven guard files and the 34-mutant
+sweep were green, because every one of them reads the Worker as TEXT; the
+full suite caught it only because five tests in `edit-path` and `gen-probe`
+evaluate the Worker as a module and got `Identifier 'aRepair' has already
+been declared`. Measured on Node 22.22: this package declares no `"type"`,
+so `--check` on a `.js` does not parse it as a module — with detection off
+it fails on the first `import`, with `--experimental-default-type=module` it
+refuses the duplicate, and by default it says nothing. **The honest parse is
+flag-free: `node --input-type=module --check < worker.js`**, and
+`test/spine-repair.test.mjs` runs exactly that, so a sweep set that reads the
+Worker as text carries one check that compiles it. The recorded "a chain
+test that read the modules instead of running them", one layer down: a text
+read certifies at the layer below the break, and a name already taken in
+the scope is invisible to it. The round is `aRepairRound` now.
 
 ## Backlog
 
