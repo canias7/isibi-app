@@ -207,6 +207,29 @@ export function blindBackend(b, a, r, field, pageChange) {
                  `; judged off the reply — the database leaves no mark on the page` };
 }
 
+/**
+ * THE SITE'S OWN RENDER VERDICT, read off the reply (run 34, 2026-09-04).
+ *
+ * The gear addon published, the table was made, the build moved — and the
+ * reply's `render.findings` said five real routes THREW (the new page and the
+ * home page's language variants: a form primitive used outside its form) and
+ * `renderNote` said so in a sentence. This harness read neither and would have
+ * called the case ok with the home page showing an error card to every
+ * visitor. A serious finding — `threw` or `blank`, the two kinds the render
+ * check itself calls serious — on a REAL route is what this answers; a
+ * `-parts/` component answers 404 by construction (task #44) and is left out.
+ * A reply with no render report answers nothing: cannot-tell is not broken.
+ */
+export function crashedRoutes(body) {
+  const findings = body && body.render && Array.isArray(body.render.findings) ? body.render.findings : [];
+  return findings.filter((f) => f && (f.kind === "threw" || f.kind === "blank") && !/^\/-parts\//.test(String(f.route || "")));
+}
+
+/** A case that ends the run: a lie, a lost answer, or a site that says one of its own pages is down. */
+export function stopsRun(verdict) {
+  return verdict === "LIE" || verdict === "NO ANSWER" || verdict === "BROKEN";
+}
+
 // ── THE CASES ──────────────────────────────────────────────────────────────
 //
 // One per kind. `ask` is what a customer would type. `kinds` is what the
@@ -295,8 +318,16 @@ export const CASES = [
   { name: "function", kinds: ["function", "component", "page"],
     ask: "Add a lookup so a student can check whether a day still has space: a function that counts the bookings on a given preferred day, shown on the home page",
     check: (b, a, r) => blindBackend(b, a, r, "functions", true) },
+  // THE HOST MOVED (run 34, 2026-09-04): `api.frankfurter.app/latest` answers
+  // a 301 to `api.frankfurter.dev/v1/latest`, and a connection deliberately
+  // does not follow a redirect (`site-apis.mjs`: a third-party read that
+  // redirects is a misconfigured endpoint, said to the owner rather than
+  // chased). So run 34's page read a 502 — "that service redirected, which
+  // this connection does not follow" — and, by its own code, showed nothing.
+  // The ask names the host that answers; the refusal is the product's, and
+  // the stale address was this file's.
   { name: "api", kinds: ["api", "component", "page"],
-    ask: "Show today's GBP to EUR exchange rate on the prices page, read live from https://api.frankfurter.app/latest?from=GBP&to=EUR (no key needed)",
+    ask: "Show today's GBP to EUR exchange rate on the prices page, read live from https://api.frankfurter.dev/v1/latest?from=GBP&to=EUR (no key needed)",
     check: (b, a, r) => blindBackend(b, a, r, "apis", true) },
   { name: "job", kinds: ["job", "function"], pageless: true,
     ask: "Every day, email each student a reminder the day before their lesson",
@@ -542,6 +573,14 @@ async function main() {
       else if (!moved) { verdict = "LIE"; note = `reply says ok but the build did not move; ${chk.note}`; }
       else { verdict = "LIE"; note = `reply says ok, build moved, but the addition is not on the site; ${chk.note}`; }
     }
+    // THE SITE'S OWN RENDER VERDICT IS READ (run 34, 2026-09-04) — see
+    // `crashedRoutes`. A publish the site itself says broke a page is BROKEN:
+    // shipped, and down.
+    const crashed = crashedRoutes(body);
+    if (verdict.startsWith("ok") && crashed.length) {
+      verdict = "BROKEN";
+      note += `; the site's own render check: ${crashed.length} serious finding${crashed.length === 1 ? "" : "s"} — ${crashed[0].route} ${crashed[0].kind}: ${String(crashed[0].detail || "").slice(0, 140)}`;
+    }
     const kinds = Array.isArray(body.kinds) ? body.kinds : [];
     const pickedRight = !kinds.length || kinds.some((k) => c.kinds.includes(k));
     // THE PICTURES, on a publish only: the home page, and the new page if one.
@@ -554,7 +593,7 @@ async function main() {
     console.log(`   kinds ${JSON.stringify(kinds)}${pickedRight ? "" : "  ← NOT " + JSON.stringify(c.kinds)}  cost=${cost}  ${wall.toFixed(0)}s  build ${before.build}→${after.build}${shots.length ? "  shots " + shots.join(", ") : ""}`);
     console.log(`   ${verdict.toUpperCase()}: ${note}\n`);
     results.push({ name, kinds, verdict, note, cost, wall: Math.round(wall), build: after.build, pickedRight, shots });
-    if (verdict === "LIE" || verdict === "NO ANSWER") { console.log(`STOPPING on ${name}: ${verdict}`); break; }
+    if (stopsRun(verdict)) { console.log(`STOPPING on ${name}: ${verdict}`); break; }
     before = after;
   }
 
@@ -567,7 +606,7 @@ async function main() {
   try { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, "addon-sweep-results.json"), JSON.stringify({ at: new Date().toISOString(), site: SLUG, start, end, results }, null, 2)); } catch { /* the log carries it */ }
   if (browser) await browser.close().catch(() => {});
   // A FAILED CASE IS A RED RUN, as the lane sweep learned on run 17.
-  const bad = results.filter((r) => /LIE|NO ANSWER|^failed$/.test(r.verdict));
+  const bad = results.filter((r) => /LIE|NO ANSWER|BROKEN|^failed$/.test(r.verdict));
   process.exit(bad.length ? 1 : 0);
 }
 

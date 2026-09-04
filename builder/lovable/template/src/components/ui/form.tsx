@@ -8,6 +8,7 @@ import {
   type ControllerProps,
   type FieldPath,
   type FieldValues,
+  type UseFormReturn,
 } from "react-hook-form";
 
 import { cn } from "@/lib/utils";
@@ -40,23 +41,33 @@ const FormField = <
 const useFormField = () => {
   const fieldContext = React.useContext(FormFieldContext);
   const itemContext = React.useContext(FormItemContext);
-  const { getFieldState, formState } = useFormContext();
+  // `useFormContext` answers null outside a <Form>; it does not throw.
+  const form = useFormContext();
+  // ALWAYS CALLED, so the hook order is stable whichever branch is taken.
+  const fallbackId = React.useId();
 
-  if (!fieldContext) {
-    throw new Error("useFormField should be used within <FormField>");
-  }
-
-  if (!itemContext) {
-    throw new Error("useFormField should be used within <FormItem>");
-  }
-
-  const fieldState = getFieldState(fieldContext.name, formState);
-
-  const { id } = itemContext;
+  // A BARE <FormLabel> OR <FormControl> RENDERS. It used to throw here —
+  // shadcn's own "should be used within <FormItem>" — and a generated page
+  // that reached for these as an ordinary label and wrapper, outside the
+  // FormField → FormItem nesting, crashed on the server (React fell back to
+  // an EMPTY client render) and then on the client, where the error boundary
+  // showed "This page didn't load" to every visitor. Measured live
+  // 2026-09-04 on fretwork-1's /gear, an addon's new page, which the render
+  // check and the publish both let through. The signature list cannot say
+  // "only inside a FormItem" — a nesting is not a prop — so, as with
+  // `Figure`, the fix is the wall: the obvious use works. Inside a proper
+  // form nothing here changes.
+  const id = itemContext ? itemContext.id : fallbackId;
+  const name = fieldContext ? fieldContext.name : "";
+  // Typed as the form's own answer, made optional: outside a field there is
+  // no state to read, and `error` must still exist on the type for the four
+  // components that destructure it.
+  const fieldState: Partial<ReturnType<UseFormReturn["getFieldState"]>> =
+    form && fieldContext ? form.getFieldState(fieldContext.name, form.formState) : {};
 
   return {
     id,
-    name: fieldContext.name,
+    name,
     formItemId: `${id}-form-item`,
     formDescriptionId: `${id}-form-item-description`,
     formMessageId: `${id}-form-item-message`,

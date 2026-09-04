@@ -2244,3 +2244,42 @@ compile". The waiting-list table may be sitting in fretwork-1's database
 with no page showing it, so the test asks for a third thing next time, a
 second-hand gear board. This has to go to main and roll the container
 once more; the time to run is in the chat.
+
+**Run 34 (00:22 UTC, 4 September, from main, all four backend cases):
+every case ran, 51 credits (108 → 57), and one real problem.**
+
+- **The gear board** (21 credits): the `gear` table and a Gear Board
+  page were made — and the new page crashes. Every visitor to `/gear`
+  sees "This page didn't load". The cause is a form label used outside a
+  form: the kit deliberately threw an error there (a rule inherited from
+  the library it came from), the page writer used the label the ordinary
+  way, and the site's own checker reported "7 pages threw an error" in
+  the reply. The test harness ignored that report and printed OK, with a
+  screenshot of the error card as its proof. Fixed in the kit — a label
+  now works anywhere, inside a form it behaves exactly as before — and
+  the harness now reads the site's own report and calls such a publish
+  BROKEN. The gear page stays broken until the next deploy carries the
+  new kit AND the site is republished (any edit does it, or a free
+  platform republish).
+- **The day-space lookup** (19 credits): the function was created and
+  the home page has a "Space on a preferred day" band.
+- **The exchange rate** (10 credits): the connection was made and the
+  prices page reads it — but the rates service has moved house (its old
+  address now redirects to a new one), and a connection deliberately
+  refuses to follow a redirect, so the page shows no rate. The refusal is
+  correct and the message says exactly why; the test's address was stale
+  and is updated. Re-run `api` when you want to see the rate on the page.
+- **The reminder job** (1 credit, no publish): `remind_tomorrow` is
+  registered for 09:00 London every day. With no mail key in the site's
+  Secrets it will say so rather than send.
+
+**Your call, filed**: should an addition the site's own checker says
+broke a page be published at all? Today it ships (your "ship it as it
+is" rule), the reply says so, and a BUILD would have run its repair pass
+on the same report — the addon does not have one. The options are to
+give the addon the build's repair pass (about 3 credits when it fires)
+or to refuse to publish a page that threw.
+
+**Next**: this goes to main (a deploy, and the container rolls — wait
+20 minutes), then a free republish of fretwork-1 puts the fixed kit on
+the site and the gear page comes back.

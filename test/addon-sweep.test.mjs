@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CASES, chooseCases, sitePathOf, watchJob, blindBackend } from "../scripts/addon-sweep.mjs";
+import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun } from "../scripts/addon-sweep.mjs";
 import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, addLayer } from "../builder/site-add.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
@@ -189,8 +189,25 @@ test("the harness posts to the addon route, follows one hop to the edit route, a
   // A claimed publish waits for the build id to move; a refusal is read at
   // once — and so is a pageless answer (2026-09-03), whose build never moves.
   assert.match(SRC, /if \(\(body\.ok === true && !c\.pageless\) \|\| extra\.hopOk\) \{/, "a publish is not waited for");
-  // Red on a lie, a lost answer, or a failure — never green by default.
-  assert.match(SRC, /\/LIE\|NO ANSWER\|\^failed\$\/\.test\(r\.verdict\)/, "a failed case is a green run");
+  // Red on a lie, a lost answer, a broken page or a failure — never green by
+  // default. The expression is READ OUT of the exit line and DRIVEN, rather
+  // than matched by its spelling: the first draft pinned the three-word
+  // regex, and the day BROKEN joined it (run 34) the guard reported the red
+  // rule gone while it had grown — the recorded "assert the property, not
+  // the spelling" trap.
+  const exitAt = SRC.indexOf("const bad = results.filter((r) => ");
+  assert.ok(exitAt > 0, "the exit line is missing");
+  const exitLine = SRC.slice(exitAt, SRC.indexOf("\n", exitAt));
+  const reSrc = exitLine.match(/\/((?:\\\/|[^/])+)\/\.test\(r\.verdict\)/);
+  assert.ok(reSrc, "the exit line does not test the verdict with a regex");
+  const red = new RegExp(reSrc[1]);
+  for (const v of ["failed", "LIE: reply says ok but the build did not move", "NO ANSWER", "BROKEN"]) {
+    assert.ok(red.test(v), `a "${v}" case is a green run`);
+  }
+  for (const v of ["ok", "ok (refused honestly)", "ok (job, no page)", "skipped"]) {
+    assert.ok(!red.test(v), `a "${v}" case is a red run`);
+  }
+  assert.match(SRC.slice(exitAt), /process\.exit\(bad\.length \? 1 : 0\)/, "a red case does not end the run red");
 });
 
 // ── THE WATCH, DRIVEN (run 22, 2026-09-03) ─────────────────────────────────
@@ -306,4 +323,42 @@ test("the table case asks for a thing no table the site has can hold, and passes
   assert.equal(reuse.ok, false);
   assert.match(reuse.note, /made no table/, "a publish without a table must say what that can mean, not only 'made []'");
   assert.match(c.check(before, moved, { ok: true, tables: ["waitlist"], provisioned: true }, {}).note, /got its database/);
+});
+
+// ── the site's own render verdict (run 34, 2026-09-04) ──────────────────────
+
+test("a publish the site's render check calls broken is BROKEN, red, and stops the run — never a -parts route", () => {
+  // The gear addon published with `render.findings` saying five real routes
+  // threw and `renderNote` saying so; the harness read neither and would have
+  // called it ok with the home page showing an error card to every visitor.
+  // The decision is DRIVEN — run 34's own findings, as the reply carried them.
+  const run34 = { ok: true, render: { ok: true, checked: 8, findings: [
+    { route: "/-parts/chord-diagram", viewport: "phone", kind: "threw", detail: "the page did not load (404)" },
+    { route: "/-parts/day-space-lookup", viewport: "phone", kind: "threw", detail: "the page did not load (404)" },
+    { route: "/es/gear", viewport: "phone", kind: "threw", detail: "Error: useFormField should be used within <FormItem> at Ie (…)" },
+    { route: "/es", viewport: "phone", kind: "threw", detail: "Minified React error #418" },
+    { route: "/fr/gear", viewport: "phone", kind: "threw", detail: "Error: useFormField should be used within <FormItem> at Ie (…)" },
+    { route: "/", viewport: "desktop", kind: "overflow", detail: "a band is wider than the page" },
+  ] } };
+  const crashed = crashedRoutes(run34);
+  assert.deepEqual(crashed.map((f) => f.route), ["/es/gear", "/es", "/fr/gear"], "the three real routes that threw, and neither -parts 404 nor the overflow");
+  // `blank` is the other serious kind; a mild finding is not.
+  assert.equal(crashedRoutes({ render: { findings: [{ route: "/", kind: "blank", detail: "rendered nothing" }] } }).length, 1);
+  assert.equal(crashedRoutes({ render: { findings: [{ route: "/", kind: "overflow" }, { route: "/", kind: "missing-alt" }] } }).length, 0);
+  // A reply with no render report answers NOTHING: cannot-tell is not broken.
+  assert.deepEqual(crashedRoutes({ ok: true }), []);
+  assert.deepEqual(crashedRoutes(null), []);
+  assert.deepEqual(crashedRoutes({ render: { findings: "seven" } }), []);
+  // A broken case ends the run the way a lie does; an honest verdict does not.
+  for (const v of ["BROKEN", "LIE", "NO ANSWER"]) assert.equal(stopsRun(v), true, `${v} lets the run go on`);
+  for (const v of ["ok", "ok (honest refusal)", "escalated", "failed", "skipped"]) assert.equal(stopsRun(v), false, `${v} stops the run`);
+  // THE CHAIN: the loop asks both, the downgrade applies only to a verdict that
+  // was ok, and it happens before the picture and the record are taken.
+  const src = readFileSync(new URL("../scripts/addon-sweep.mjs", import.meta.url), "utf8");
+  const loop = src.slice(src.indexOf("    const crashed = crashedRoutes(body);"), src.indexOf("    before = after;\n  }"));
+  assert.ok(loop.length > 100, "the loop no longer reads the render verdict, or reads it after the record");
+  assert.match(loop, /verdict\.startsWith\("ok"\) && crashed\.length/, "a verdict that was not ok is downgraded, or an ok one is not");
+  assert.match(loop, /verdict = "BROKEN";/);
+  assert.ok(loop.indexOf('verdict = "BROKEN";') < loop.indexOf("results.push("), "the record is taken before the downgrade");
+  assert.match(loop, /if \(stopsRun\(verdict\)\)/, "the loop does not ask stopsRun");
 });

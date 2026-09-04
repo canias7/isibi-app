@@ -1337,6 +1337,83 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   16 more credits on a false alarm that was already diagnosed. **The
   dropdown decides which harness runs; a fix on the branch is not a fix
   until the run is dispatched from the branch.**
+  **RUN 34 (2026-09-04 00:22Z, from main, `table,function,api,job`,
+  108 → 57): ALL FOUR BACKEND KINDS RAN LIVE, THE OLD HARNESS CALLED EVERY
+  ONE `ok`, AND THE FIRST SHIPPED A PAGE THAT CRASHES.** Read off
+  `edit_jobs`, the workflow log and the served site.
+  - `table` (job `926d417c…`, 770 s, **21**): the picker named `table` +
+    `page`, the `gear` table was made, `/gear` added (`gear.tsx`),
+    `index.tsx` and `prices.tsx` changed (the nav link), build
+    `mtm80c2o-3fzzvi`. **The render check's own report said 7 of 8 checked
+    routes threw**: `/gear`, `/es/gear`, `/fr/gear` with `useFormField
+    should be used within <FormItem>` (a form label used as an ordinary
+    label, outside the FormField → FormItem nesting), `/es` and `/fr` with
+    React #418 (hydration), and three `-parts/` 404s (task #44, which
+    inflates every note). `renderNote` ("I had a look at the finished
+    pages: 7 pages threw an error") rode the reply and the browser prints
+    it on both paths (`renderTail`). The harness read neither and printed
+    OK — **its own screenshot of `/gear` is the error card**
+    (`docs/edits/addon-01-table-page.png`). Live: `/gear` serves a
+    3,022-byte shell (the server render fell back) and the boundary's
+    "This page didn't load" to every visitor; the home page renders.
+  - `function` (`6fd85d3a…`, 617 s, **19**): `bookings_on_day` created, a
+    `day-space-lookup` part on the home page ("Space on a preferred day"),
+    `mtm8fcke-msstf3`.
+  - `api` (`551545f9…`, 423 s, **10**): the `gbp_eur` connection made,
+    `prices.tsx` changed, `mtm8ozl3-vo4zwg`. Live, the connection answers
+    **502 "that service redirected, which this connection does not
+    follow"**: `api.frankfurter.app/latest` 301s to
+    `api.frankfurter.dev/v1/latest`, and `site-apis.mjs` refuses a redirect
+    by design (a third-party read that redirects is a misconfigured
+    endpoint, said rather than chased). The page's own code shows the rate
+    only when it arrives (`t != null ? … : null`), so a visitor sees the
+    four lessons and no rate (`docs/edits/addon-run34-prices.png`, mirrored
+    with the site's API proxied live). **The refusal is the product's and
+    right; the stale host was the harness's** — the ask names
+    `api.frankfurter.dev/v1` now.
+  - `job` (`f663c267…`, 91 s, **1**, pageless): `lesson_reminders` +
+    `remind_tomorrow` registered in `site_functions` — `{at: "09:00", fn:
+    "lesson_reminders", tz: "Europe/London"}`, `schedule_minutes` 1440,
+    enabled, never run — no publish, build unmoved. With no mail key in the
+    site's Secrets it says so at nine instead of sending.
+  **Three fixes** (sweep: **17 mutants, 17 killed, none unapplied, the
+  comment-only control survived** — one only after its guard was
+  tightened: a conditional `useId` survived a read that looked for the hook
+  right after the `?`; every hook in `useFormField` is now required to be
+  the whole statement). (1) **The kit's wall**: `useFormField` no longer
+  throws outside `FormItem`/`FormField` — a bare `<FormLabel>` or
+  `<FormControl>` renders with a `useId` fallback and no field state, and
+  inside a real form nothing changes. `test/kit-form.test.mjs` DRIVES it:
+  the file transpiled with the root's TypeScript and rendered with
+  react-dom/server, bare and inside a real react-hook-form carrying an
+  error. **Eight packages are declared at the root for it, at the
+  template's ranges** (react, react-dom, react-hook-form, the two Radix
+  primitives, cva, clsx, tailwind-merge — CI's unit job installs the root
+  only; the template's copy is used when present; no skip). `Figure`'s
+  lesson again: the signature list cannot say "only inside a FormItem"
+  because a nesting is not a prop, so the obvious use is made to work.
+  (2) **The harness reads the site's own render verdict**:
+  `crashedRoutes(body)` — a `threw`/`blank` finding on a real route, never
+  `-parts/` — turns a verdict that was `ok` into `BROKEN`, `stopsRun` ends
+  the run on it, the exit regex counts it red; the guard drives both with
+  run 34's findings and reads the regex out of the exit line instead of
+  pinning it. (3) The api ask names the host that answers.
+  **A false fix caught before it shipped**: `addonReplyText` was about to
+  gain the render note on the reading that the reply dropped it — the call
+  site already appends it through `renderTail(a)` for both paths, so the
+  change would have printed the sentence twice. Reverted.
+  **NOT changed — owner's call, filed**: an addition the site's own check
+  says broke a page still publishes (the ship-it rule applied to a render
+  finding). The BUILD runs the repair pass on that report (`repairPages`,
+  the tweak rung, one file, ~3 credits) and the addon does not: the reason
+  the EDIT lanes get none — "re-checking pages the customer just changed
+  by hand" — does not describe the addon, whose page a model just wrote
+  exactly as a build's. Either the addon gets the build's repair pass, or a
+  page that threw is refused; today it ships and says so.
+  **Live state**: `/gear` stays the error card until a publish carries the
+  new kit — the push to main deploys it and rolls the container, and any
+  later edit or a free platform republish puts it on the site. Whether run
+  33's waiting-list table sits in the database is still unread.
 
 **DELETE deferred** (owner's call).
 
@@ -1633,8 +1710,8 @@ what the work cost.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 157 credits** (read by the harness 2026-09-03 17:02Z, after run
-  29's second QR code reserved 13; runs 26–28 cost 0). It was **0** on 08-29;
+- **Balance: 57 credits** (read by the harness 2026-09-04 00:57Z, after run
+  34's four backend cases: 21 + 19 + 10 + 1). It was **0** on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not
   trust this line.**
@@ -1669,9 +1746,8 @@ what the work cost.
   free and read-only.
 - **`site build` is 326/326** against the real container (2026-09-03, the QR
   list's two-code build and the pre-list payload added sixteen); the unit
-  suite is 4,960 (2026-09-03, after the backend services round: the CSV
-  reader, the import route, the idempotency store, the reset and verification
-  hooks, a job's `did`). **In this sandbox the
+  suite is 4,973 (2026-09-04, after run 34: the kit's form primitives driven
+  bare and inside a real form, the harness's render verdict). **In this sandbox the
   harness needs `playwright-core` at the root the way `site-build.yml`
   installs it** (`npm i --no-save playwright-core@<the template's playwright
   version>`) — without it the six card and touch-icon checks fail with
@@ -2393,6 +2469,20 @@ ENVIRONMENT with the code**, the CI-install trap's lesson one layer down: a
 new import in a container module is a new name on that COPY line, and only a
 check that derives the list from the imports notices. The source reads in
 `site-marks` and `site-qr-list` could never have.
+
+**A CHECK THAT REPORTS IS ONLY AS GOOD AS ITS READERS (2026-09-04, run 34).**
+The render check opened every route of the gear addon, saw seven throw, and
+said so — in `render.findings`, in `renderNote`, in the customer's reply. The
+publish shipped it (the ship-it rule), which is a decision; the harness
+called the case `ok` and took a screenshot of the error card as its proof,
+which is not. A report nobody acts on and nobody reads is a page that is
+down with a receipt. **When a check is report-only, list its readers**: the
+customer (the reply sentence), the harness (a verdict), the repair pass (the
+build has one, the addon does not — filed). Each missing reader is a way the
+finding ships silently. And the cause was a kit primitive that THROWS when
+used outside its nesting — the `Figure` shape: a rule the signature list
+cannot express is a rule the model will break, so the obvious use is made to
+work rather than described.
 
 ## Backlog
 
