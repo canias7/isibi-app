@@ -42,6 +42,7 @@ import {
   replayEditRequest, phaseDurations, readEditMessage, isTerminalEdit,
   newReplaySecret, packReplayMarker, readReplayMarker, packEditJob, readEditJob,
   editAsyncFor,
+  repairClock,
 } from "./builder/edit-job.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
@@ -21622,6 +21623,11 @@ async function handleRequest(request, env, ctx) {
             const aGateGen = aJob ? aJob.gate("editing") : null;
             if (aGateGen && !aGateGen.go) return await editStopped(env, { job: aJob, why: aGateGen.why, phase: "editing", trace: editTrace, ctx });
             let aGen = null;
+            // TIMED, because the repair round below reads it: what the page
+            // call took on this model, per page it wrote, is the measure of
+            // what a fix of one of those pages will take (run 36, 2026-09-04).
+            let aPagesMs = 0, aPagesWrote = 0;
+            const aPagesT0 = Date.now();
             aMark("pages", "start", { kinds: aAnswers.map((a) => a.kind) });
             try {
               // `images: 0` IS AN INSTRUCTION AND ITS ABSENCE IS NOT. Neither
@@ -21648,7 +21654,9 @@ async function handleRequest(request, env, ctx) {
               // THE JOB'S CLOCK RIDES THE PAGE CALL TOO — the one call on this
               // route that does not go through `aQuick`, and the longest.
               }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget);
-              aMark("pages", "ok", { files: aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0 });
+              aPagesMs = Date.now() - aPagesT0;
+              aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
+              aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
             } catch (e) {
               aMark("pages", "fail", { error: String((e && e.message) || e).slice(0, 200) });
               console.error("addon generate failed:", ownerSlug, e && e.message);
@@ -21821,12 +21829,34 @@ async function handleRequest(request, env, ctx) {
             // charged is charged before the commit point.
             let aRepairRound = null;
             const aTouched = [...(aMerge.added || []), ...(aMerge.changed || [])];
+            // THE ROOM IS MEASURED, NOT ASSUMED (run 36, 2026-09-04). A fix
+            // re-emits the file the page call just wrote, on the same model,
+            // so what THAT call took — per page it wrote — is the measure of
+            // what the fix will take. Run 36's fix ran to the 240 s quick-call
+            // cap and was cut, the page shipping as it was at 747 s of 840
+            // after four minutes the customer waited for nothing; asked this
+            // way it is refused before a second is spent, by name, when the
+            // room cannot hold it. Zero when nothing was measured, which is
+            // the floor alone — a call is never refused for a number we do
+            // not have.
+            const aRepairNeedMs = aPagesWrote > 0 ? Math.round(aPagesMs / aPagesWrote) : 0;
             const aAfterCompile = async ({ built, pages, langs, recompile, job }) => {
-              const room = !(job && job.budget && typeof job.budget.canRepair === "function") || job.budget.canRepair();
-              aMark("repair", "start", { room, touched: aTouched.length });
+              const aClock = job && job.budget && typeof job.budget.canRepair === "function" ? job.budget : null;
+              const room = !aClock || aClock.canRepair(aRepairNeedMs);
+              aMark("repair", "start", {
+                room, touched: aTouched.length, needMs: aRepairNeedMs,
+                roomMs: aClock && typeof aClock.repairMs === "function" ? aClock.repairMs() : null,
+              });
               aRepairRound = await addRepairRound({
                 report: built.render, pages, touched: aTouched, langs,
-                send: aQuick("repair"), model: aModels.quick, compile: recompile, room,
+                // THE CALL IS CAPPED AT THAT ROOM, under the quick-call ceiling
+                // `quickSend` keeps: `repairClock` holds back the second
+                // compile as well as the two reserves, so a slow fix cannot
+                // eat the recompile it exists to feed. Not `aQuick`, whose
+                // clock holds back the reserves alone — right for every call
+                // before the first compile, and what let run 36's fix run four
+                // minutes into the room its own recompile needed.
+                send: quickSend(env, "repair", repairClock(aClock)), model: aModels.quick, compile: recompile, room,
               });
               aMark("repair", aRepairRound.ran ? (aRepairRound.built ? "ok" : "fail") : "skip",
                 { why: String(aRepairRound.why || aRepairRound.failed || ""), repaired: aRepairRound.repaired.length, refused: aRepairRound.refused.length });

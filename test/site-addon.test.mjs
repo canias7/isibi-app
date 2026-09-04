@@ -143,6 +143,13 @@ test("the reply names the pages, including the one they did not ask about", () =
   assert.match(r, /\/gallery/);
   assert.match(r, /linked it from \//);
   assert.ok(!/undefined/.test(r));
+  // A CHANGED PAGE WITH NO PAGE ADDED IS THE PAGE THE ADDITION LANDED ON (run
+  // 35, 2026-09-04): a section, a code, a scene or a hand-written component
+  // changes the home page and adds nothing, and "linked it from /" then names
+  // a link that does not exist.
+  const section = addonReply({ added: [], changed: ["src/routes/index.tsx"] });
+  assert.match(section, /^✅ Done — updated \/\./, section);
+  assert.doesNotMatch(section, /linked/, section);
 });
 
 test("an unreachable page is said plainly, with the fix", () => {
@@ -786,6 +793,14 @@ test("the addon reply is DRIVEN, not grepped", () => {
   assert.match(reply({ added: [], changed: [], moved: [], jobs: [{ name: "j", everyMinutes: 60 }] }), /^✅ Done — scheduled j \(every hour\)\./, "a job alone does not read as done");
   const plain = reply({ added: ["src/routes/g.tsx"], changed: [] });
   assert.ok(!/function|connected|scheduled|database|Secrets/.test(plain), "an ordinary addition mentions the backend: " + plain);
+  // A CHANGED PAGE WITH NO PAGE ADDED (run 35, 2026-09-04): the page the
+  // addition landed on, not a link to a page that does not exist — the same
+  // rule the server's `addonReply` follows, driven on both.
+  const section = reply({ added: [], changed: ["src/routes/index.tsx"] });
+  assert.match(section, /^✅ Done — updated \/\./, section);
+  assert.doesNotMatch(section, /linked/, section);
+  const pair = reply({ added: ["src/routes/g.tsx"], changed: ["src/routes/index.tsx"] });
+  assert.match(pair, /added \/g, linked it from \//, pair);
 });
 
 test("a removed page leaves the picker", () => {

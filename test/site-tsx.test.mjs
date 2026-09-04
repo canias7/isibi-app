@@ -14,7 +14,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 
+import { routeOf } from "../builder/site-addon.mjs";
 import { TSX_FIELD, TSX_ITEM, MAX_TSX } from "../builder/site-plan.mjs";
 import { EDIT_FIELDS, mergeLook, currentStateNote } from "../builder/site-edit.mjs";
 import { LANE_FIELDS, DISPATCHED_LANES, laneLayer } from "../builder/site-lanes.mjs";
@@ -173,6 +175,40 @@ test("…and it lands where the container actually wipes between builds", () => 
   const reset = s.slice(s.indexOf("function resetRoutes()"), s.indexOf("function resetRoutes()") + 400);
   assert.ok(reset.length > 100, "resetRoutes is gone — this check would scan nothing");
   assert.match(reset, /rmSync\(ROUTES/, "resetRoutes no longer wipes the routes directory, so `-parts` survives into the next build");
+});
+
+test("…and the render check does not open it as a page: `routePaths()` honours the router's ignore prefix", () => {
+  // Every addon reply on fretwork-1 from run 22 to run 36 (2026-09-04) told the
+  // customer "3 pages threw an error" — the three `-parts/` components, which
+  // `routePaths()` offered to the render check as routes and which answered
+  // the 404 the router rightly gives them. DRIVEN, not read: the walk is
+  // lifted out of the build server and run over a fake tree, because the
+  // property is what the list CONTAINS, and a `startsWith("-")` in the source
+  // says nothing about where in the loop it sits.
+  const at = server.indexOf("function routePaths() {");
+  const end = server.indexOf("\n}\n", at);
+  assert.ok(at > 0 && end > at, "routePaths is gone or moved — this test drives nothing");
+  const make = new Function("fs", "path", "routeOf", "ROUTES", server.slice(at, end + 2) + "\nreturn routePaths;");
+  const tree = {
+    "/r": ["-parts", "-draft.tsx", "$id.tsx", "__root.tsx", "es", "gear.tsx", "index.tsx"],
+    "/r/-parts": ["chord-diagram.tsx", "day-space-lookup.tsx", "run-tally.tsx"],
+    "/r/es": ["gear.tsx", "index.tsx"],
+  };
+  const fakeFs = {
+    readdirSync: (d) => { if (!Object.hasOwn(tree, d)) throw new Error("ENOENT " + d); return tree[d]; },
+    statSync: (p) => ({ isDirectory: () => Object.hasOwn(tree, p) }),
+  };
+  const routes = make(fakeFs, path, routeOf, "/r")();
+  assert.deepEqual([...routes].sort(), ["/", "/es", "/es/gear", "/gear"],
+    "the routes the check opens are not the router's: " + JSON.stringify(routes));
+  // The property, stated on its own: nothing the router ignores is opened —
+  // not a directory of components, not a stray `-` file — and nothing the
+  // router serves is skipped.
+  assert.ok(!routes.some((r) => /parts|draft/.test(r)), "a `-`-prefixed name is offered as a route: " + JSON.stringify(routes));
+  assert.ok(routes.includes("/es/gear"), "a nested real route is dropped with the ignored ones");
+  // And the walk still refuses what it always refused — a dynamic segment and
+  // the root layout — so this is an addition to the filter, not a rewrite.
+  assert.ok(!routes.some((r) => r.includes("$")), "a $ route is offered");
 });
 
 test("a name is validated, never a path — there is no traversal surface at all", () => {

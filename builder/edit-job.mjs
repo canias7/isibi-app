@@ -208,6 +208,9 @@ export const isTerminalEdit = (s) => typeof s === "string" && TERMINAL_STATES.in
 export function makeEditBudget(totalMs = EDIT_JOB_MS, now = () => Date.now()) {
   const t0 = now();
   const left = () => Math.max(0, totalMs - Math.max(0, now() - t0));
+  // ONE EXPRESSION for the repair call's room, read by `capMs` and by
+  // `canRepair` — the cap and the gate cannot disagree about it.
+  const repairRoom = () => Math.max(0, left() - MIN_BUILD_MS - PUBLISH_RESERVE_MS - TERMINAL_RESERVE_MS);
   return {
     startedAt: t0,
     elapsed: () => Math.max(0, now() - t0),
@@ -230,12 +233,29 @@ export function makeEditBudget(totalMs = EDIT_JOB_MS, now = () => Date.now()) {
      * failed instantly" and hides the real reason under a wrong one. A caller
      * that must refuse asks `expired()`.
      */
-    capMs(cap, { publishing = false } = {}) {
+    capMs(cap, { publishing = false, repairing = false } = {}) {
       const room = publishing
         ? Math.max(0, left() - TERMINAL_RESERVE_MS)
-        : Math.max(0, left() - PUBLISH_RESERVE_MS - TERMINAL_RESERVE_MS);
+        : repairing
+          ? repairRoom()
+          : Math.max(0, left() - PUBLISH_RESERVE_MS - TERMINAL_RESERVE_MS);
       return Math.max(1, Math.min(Number(cap) || 0, room));
     },
+    /**
+     * The room a REPAIR CALL has: what is left less the second compile, the
+     * sweep and the terminal writes — the three things that MUST follow the
+     * call, or it was made for nothing (run 36, 2026-09-04).
+     *
+     * `capMs` alone holds back the two reserves, which is right for every
+     * call BEFORE the first compile: the compile's room is still ahead of
+     * them. A repair call sits after a compile that succeeded and in front
+     * of a second one, so the plain cap let run 36's fix run the whole 240 s
+     * quick-call ceiling — `phase_ms.repair` exactly 240,000, the job at 747
+     * of 840 s — and be cut with nothing to show. This is the number the
+     * call is capped at (`capMs(cap, { repairing: true })`) and the number
+     * `canRepair` judges against, so the two cannot disagree.
+     */
+    repairMs: repairRoom,
     /** No time left to do any work in. */
     expired: () => left() <= PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS,
     /**
@@ -257,9 +277,35 @@ export function makeEditBudget(totalMs = EDIT_JOB_MS, now = () => Date.now()) {
      * May a REPAIR ROUND start, after the first compile? Asked before the
      * model call, so a round there is no room for spends nothing and the
      * page ships as it is, said so.
+     *
+     * `needMs` IS WHAT THE CALL IS EXPECTED TO TAKE, MEASURED — the addon
+     * route hands in what its page call took per page it wrote, on the same
+     * model, because a fix re-emits that file and no better estimate exists
+     * in the job. The floor is `MIN_CORRECT_MS` whatever the estimate says:
+     * with nothing measured the answer is what it was before, `left() >=
+     * REPAIR_FLOOR_MS`, and a call is never refused for a number we do not
+     * have. With one, a round the room cannot hold is refused BEFORE it is
+     * bought — run 36's shape: 140 s of room against a page the same model
+     * had just spent 153 s writing.
      */
-    canRepair: () => left() >= REPAIR_FLOOR_MS,
+    canRepair: (needMs = 0) => repairRoom() >= Math.max(MIN_CORRECT_MS, Number(needMs) || 0),
   };
+}
+
+/**
+ * The clock a REPAIR CALL rides — `quickSend`'s `budget` argument, answering
+ * `capMs` with the room a repair call has (`repairMs`) rather than the room
+ * any call has. `null` without a job, which `quickSend` reads as its own flat
+ * ceiling, exactly as a synchronous addon's other calls do.
+ *
+ * ITS OWN FUNCTION so the addon route cannot hand the round the job's plain
+ * budget by habit: `aQuick(what)` does exactly that for every call before the
+ * first compile, and the only difference between the two spellings is the
+ * four minutes run 36 lost.
+ */
+export function repairClock(budget) {
+  if (!budget || typeof budget.capMs !== "function") return null;
+  return { capMs: (cap) => budget.capMs(cap, { repairing: true }) };
 }
 
 /**

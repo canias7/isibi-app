@@ -386,7 +386,7 @@ export function readPage(obs) {
   const o = obs && typeof obs === "object" ? obs : {};
   const route = String(o.route || "/");
   const viewport = String(o.viewport || "?");
-  const at = (kind, detail) => ({ route, viewport, kind, detail: clip(detail) });
+  const at = (kind, detail, max) => ({ route, viewport, kind, detail: clip(detail, max) });
   const found = [];
 
   // A page that never loaded is the only finding worth making about it —
@@ -417,7 +417,15 @@ export function readPage(obs) {
   // apart. An uncaught throw took the page down; a console error is very often
   // React telling us about a missing key, which is worth knowing and is not a
   // broken site. Collapsing them would bury the one that matters.
-  for (const e of (Array.isArray(o.pageErrors) ? o.pageErrors : []).slice(0, 2)) found.push(at("threw", e));
+  // A HYDRATION ERROR CARRIES THE TWO TEXTS (task #80): `hydrationDetail`
+  // reads the diff the harness took against the served document, so the
+  // finding names what differed rather than React's error number alone. Twice
+  // the room, because the two texts ARE the finding and a clip that keeps the
+  // server's and cuts the browser's is the code all over again.
+  for (const e of (Array.isArray(o.pageErrors) ? o.pageErrors : []).slice(0, 2)) {
+    const hydration = HYDRATION_ERROR.test(String(e == null ? "" : e));
+    found.push(at("threw", hydration ? hydrationDetail(e, o.hydration) : e, hydration ? MAX_DETAIL * 2 : undefined));
+  }
   for (const e of (Array.isArray(o.consoleErrors) ? o.consoleErrors : []).slice(0, 2)) found.push(at("logged", e));
 
   const text = Number(o.text) || 0;
@@ -520,6 +528,127 @@ export function renderReport(observations, { ok = true, error = "", cut = false,
   if (Array.isArray(landmarks) && landmarks.length) report.landmarks = landmarks;
   if (error) report.error = clip(error, 200);
   return report;
+}
+
+// ── A HYDRATION MISMATCH NAMES ITSELF (task #80, 2026-09-04) ─────────────────
+//
+// Runs 34 and 36 reported `/es threw: Minified React error #418` — React's
+// "the server rendered text didn't match the client" — and nothing in the
+// report said WHICH text. The production build strips the diff, so the finding
+// was a code, the repair round handed a model a code, and every reading of the
+// cause afterwards was a guess (a locale the container's Node has and its
+// Chromium lacks; a clock; a chunk that raced the hydration — each plausible,
+// none shown). The recorded "a failure that cannot name itself" trap, on the
+// one check whose findings are what the customer reads and the repair acts on.
+//
+// THE DIFF IS TAKEN HERE, NOT ASKED OF REACT: the document the server sent is
+// in hand (the navigation response), the DOM the browser regenerated is in
+// hand (React re-renders the tree from the root on a mismatch), and the first
+// text node that differs between the two IS the mismatch. Walked in document
+// order, scripts and styles excluded, whitespace-only nodes skipped, so a
+// formatting difference reads as one node rather than as everything after it.
+
+/** The browser's own words for a server/client difference — React 19's #418
+ *  (text), #423/#424 (a Suspense boundary or a root that could not recover),
+ *  #425 (React 18's text mismatch), or the unminified message. */
+export const HYDRATION_ERROR = /Minified React error #4(?:18|23|24|25)\b|hydrat/i;
+
+/**
+ * INSIDE THE PAGE, serialised by `page.evaluate` like `probe` — nothing here
+ * may reach for module scope. The server's document arrives as a string and is
+ * parsed by the browser's own parser, so entities and whitespace are read the
+ * way the browser read them when it hydrated.
+ *
+ * Answers the first differing text node — the server's text, the browser's,
+ * and where it sits (up to four ancestors, `data-slot` named) — or `null` when
+ * every text node matches, which is its own finding: a mismatch React saw and
+ * this walk cannot is one in an attribute, a tag or a script, not in the words.
+ */
+export function hydrationProbe(serverHtml) {
+  const walk = (root) => {
+    const out = [];
+    if (!root) return out;
+    const it = document.createNodeIterator(root, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = it.nextNode())) {
+      const p = n.parentElement;
+      if (!p) continue;
+      const tag = p.tagName;
+      if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT" || tag === "TEMPLATE") continue;
+      const t = String(n.nodeValue || "");
+      if (!t.trim()) continue;
+      const chain = [];
+      let e = p;
+      for (let i = 0; e && i < 4; i++) {
+        const slot = e.getAttribute ? e.getAttribute("data-slot") : "";
+        chain.unshift(e.tagName.toLowerCase() + (slot ? "[" + slot + "]" : ""));
+        e = e.parentElement;
+      }
+      out.push({ text: t, at: chain.join(">") });
+    }
+    return out;
+  };
+  let doc = null;
+  try { doc = new DOMParser().parseFromString(String(serverHtml || ""), "text/html"); } catch { doc = null; }
+  const server = walk(doc && doc.body);
+  const client = walk(document.body);
+  let i = 0;
+  while (i < server.length && i < client.length && server[i].text === client[i].text) i++;
+  if (i >= server.length && i >= client.length) return null;
+  const clipText = (s) => String(s == null ? "" : s).replace(/\s+/g, " ").trim().slice(0, 80);
+  return {
+    server: server[i] ? clipText(server[i].text) : "",
+    client: client[i] ? clipText(client[i].text) : "",
+    at: ((client[i] || server[i]) || {}).at || "",
+    index: i, serverCount: server.length, clientCount: client.length,
+  };
+}
+
+/**
+ * The finding's detail for a thrown error: the error as the browser gave it,
+ * and — when it is React saying the server and the browser disagreed — the two
+ * texts and where, off the diff the harness took. React's own message is cut
+ * to its number: the rest of it is a link to the unminified build, which no
+ * reader of a finding can follow.
+ */
+export function hydrationDetail(error, diff) {
+  const e = String(error == null ? "" : error);
+  if (!HYDRATION_ERROR.test(e)) return e;
+  const head = e.replace(/^Minified React error #(\d+);[\s\S]*$/, "React error #$1 (hydration mismatch)");
+  const d = diff && typeof diff === "object" ? diff : null;
+  if (!d) return head + " — no differing text was found once the page had settled";
+  return head + ` — the server rendered “${d.server}” where the browser then rendered “${d.client}”` + (d.at ? ` (at ${d.at})` : "");
+}
+
+/**
+ * The order the check opens routes in: THE PRIMARY PAGES FIRST, `/` first of
+ * all, then the language variants — because the loop has a 25 s budget and a
+ * site of three languages and three pages is nine routes at two widths.
+ *
+ * Run 34 (2026-09-04) is why: the check read the routes in directory order,
+ * so `/es`, `/es/gear`, `/es/prices`, `/fr`… came before `/gear`, `/` and
+ * `/prices`; it was cut after eight routes, and the English home page — the
+ * one most visitors see, and the one whose findings the other two are
+ * translations of — was never opened. A report that had checked the Spanish
+ * variant and not the page it was translated from read as "only the variants
+ * throw", a conclusion about a page nobody looked at.
+ *
+ * STABLE within each group, so a route list that was already in the right
+ * order comes back byte-identical. A route is a variant when its first segment
+ * IS one of the site's language prefixes — matched on a whole segment, because
+ * `/eshop` is not Spanish (the anchoring mistake the hostname rewrite recorded).
+ */
+export function checkOrder(routes, prefixes) {
+  const list = (Array.isArray(routes) ? routes : []).filter((r) => typeof r === "string" && r);
+  const pre = new Set((Array.isArray(prefixes) ? prefixes : []).filter((p) => typeof p === "string" && p).map((p) => p.toLowerCase()));
+  const isVariant = (r) => {
+    const seg = r.split("/").filter(Boolean)[0];
+    return !!seg && pre.has(seg.toLowerCase());
+  };
+  const home = list.filter((r) => r === "/");
+  const primary = list.filter((r) => r !== "/" && !isVariant(r));
+  const variants = list.filter((r) => r !== "/" && isVariant(r));
+  return [...home, ...primary, ...variants];
 }
 
 /** How bad is what we found — the one word a caller can branch on without

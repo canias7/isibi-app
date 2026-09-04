@@ -27,6 +27,7 @@ import {
   LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S, PUBLISH_LEASE_S,
   EDIT_PHASES, TERMINAL_STATES, isTerminalEdit,
   makeEditBudget, cleanIdemKey, newLeaseOwner, editAsyncOn, editAsyncFor, readCanaryList,
+  repairClock,
 } from "../builder/edit-job.mjs";
 
 const TABLES = readFileSync(new URL("../supabase/applied/20260901110738_edit_jobs_and_credit_events.sql", import.meta.url), "utf8");
@@ -402,6 +403,68 @@ test("a repair round needs a call, a compile and the publish: the floor is those
   t = 385000; assert.equal(b.canRepair(), true, "run 34's function addon would be denied a repair it had room for");
   t = 200000; assert.equal(b.canRepair(), true);
   t = 540000; assert.equal(b.canRepair(), false, "run 34's table addon would start a repair that cannot land");
+});
+
+// ── the repair CALL's own room (run 36, 2026-09-04) ─────────────────────────
+
+test("a repair call is capped at the room it really has — what is left less the second compile, the sweep and the terminal writes", () => {
+  // Run 36: the round had room by the floor, the tweak call was capped like
+  // any other call — the reserves alone held back — and ran the whole 240 s
+  // quick-call ceiling before it was cut, `phase_ms.repair` exactly 240,000,
+  // the job at 747 of 840 s, the page shipped as it was.
+  let t = 0;
+  const b = makeEditBudget(EDIT_JOB_MS, () => t);
+  const compileAndTail = MIN_BUILD_MS + PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS;
+  assert.equal(b.repairMs(), EDIT_JOB_MS - compileAndTail, "the room is not what is left less the compile and the tail");
+  // The cap and the gate read ONE expression: the same number, every time.
+  for (const at of [0, 100000, 445000, 600000, EDIT_JOB_MS - compileAndTail, EDIT_JOB_MS]) {
+    t = at;
+    assert.equal(b.capMs(240000, { repairing: true }), Math.max(1, Math.min(240000, b.repairMs())), "at " + at);
+  }
+  // Where the ROOM is what binds (a cap wider than the job), the repair view
+  // holds back exactly one compile more than the plain view; under the 240 s
+  // ceiling at the start of a job the two are the same number, which is the
+  // ceiling doing its job rather than the room.
+  t = 0;
+  assert.equal(b.capMs(240000, { repairing: true }), 240000, "at the start of a job the ceiling, not the room, is what binds");
+  assert.ok(b.capMs(EDIT_JOB_MS, { repairing: true }) < b.capMs(EDIT_JOB_MS), "the repair cap holds back no more than the plain cap does");
+  assert.equal(b.capMs(EDIT_JOB_MS) - b.capMs(EDIT_JOB_MS, { repairing: true }), MIN_BUILD_MS, "…and the difference is exactly the second compile");
+  // NEVER ZERO, like every other cap: a timer of 0 fires at once and hides the reason.
+  t = EDIT_JOB_MS;
+  assert.equal(b.capMs(240000, { repairing: true }), 1);
+  // With nothing measured the gate is what it was: the floor.
+  t = EDIT_JOB_MS - REPAIR_FLOOR_MS;
+  assert.equal(b.canRepair(), true);
+  assert.equal(b.canRepair(0), true);
+  assert.equal(b.canRepair(undefined), true);
+  t += 1;
+  assert.equal(b.canRepair(), false);
+  // WITH A MEASUREMENT the gate asks whether the room holds it: run 36's
+  // shape — the hook at ~445 s of 840 (140 s of room) against a page the same
+  // model had just spent 153 s writing (run 35's page call, the same page).
+  t = 445000;
+  assert.equal(b.repairMs(), 140000);
+  assert.equal(b.canRepair(153000), false, "run 36's fix would be bought again, and cut again");
+  assert.equal(b.canRepair(140000), true, "exactly the room is enough");
+  assert.equal(b.canRepair(140001), false);
+  // The floor still applies UNDER the measurement: a page written in ten
+  // seconds does not buy a call with less than a call's minimum.
+  t = EDIT_JOB_MS - compileAndTail - 30000;
+  assert.equal(b.repairMs(), 30000);
+  assert.equal(b.canRepair(10000), false, "a small estimate must not undercut MIN_CORRECT_MS");
+  // A non-number is no measurement, never a refusal for a number we do not have.
+  t = 385000;
+  assert.equal(b.canRepair("nope"), true);
+  assert.equal(b.canRepair(NaN), true);
+  // `repairClock` is the budget seen through `capMs(…, { repairing: true })`,
+  // and nothing without a budget — `quickSend` reads null as its own ceiling.
+  t = 445000;
+  const clock = repairClock(b);
+  assert.equal(clock.capMs(240000), b.capMs(240000, { repairing: true }));
+  assert.equal(clock.capMs(60000), 60000, "a cap under the room is the cap");
+  assert.equal(repairClock(null), null);
+  assert.equal(repairClock({}), null);
+  assert.equal(repairClock(undefined), null);
 });
 
 test("the numbers are measurements, not guesses: the sweep reserve covers the measured sweep, the teardown room the measured teardown", () => {

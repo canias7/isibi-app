@@ -1675,6 +1675,74 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   repair that runs out the clock. The next fix. The runner committed the
   results file to main (`3285b8ed`).
 
+- **RUN 36 FOLLOW-UPS (2026-09-04, owner: *"lets go back to the addon
+  issues we had"*).** Four of the five; the fifth — the second band laid out
+  differently from the first (#82) — is a design call and is the owner's.
+  (1) **THE REPAIR CALL RIDES ITS OWN CLOCK (#79).** `makeEditBudget` has
+  `repairMs()` — what is left less the second compile, the sweep and the
+  terminal writes (`MIN_BUILD_MS + PUBLISH_RESERVE_MS + TERMINAL_RESERVE_MS`)
+  — and `capMs(cap, { repairing: true })` caps a call at it; `repairClock(budget)`
+  is the view `quickSend` is handed for the round, IN PLACE OF `aQuick`, whose
+  clock holds back the two reserves alone (right for every call before the
+  first compile, and what let run 36's fix run the whole 240 s ceiling into
+  the room its own recompile needed). `canRepair(needMs)` refuses BEFORE
+  buying when the room cannot hold the MEASURED need: the addon route times
+  its page call and hands in `aPagesMs / aPagesWrote`, because a fix re-emits
+  the file that call wrote on the same model and no better estimate exists
+  in the job; zero when nothing was measured, which is the old floor — a call
+  is never refused for a number we do not have. Run 36's shape (140 s of
+  room against a page the model had spent 153 s writing) is now refused for
+  0 and said so, instead of bought and cut at 240 s with the job at 747 of
+  840. The `repair start` trace mark carries `roomMs` and `needMs`.
+  (2) **`-parts/` OUT OF THE RENDER CHECK (#44).** `routePaths()` skips a
+  name starting with `-`, the `routeFileIgnorePrefix` our vite config pins:
+  every reply on fretwork-1 since run 22 said "3 pages threw an error" for
+  three components that were never pages, and the check's 25 s budget spent
+  its first three navigations on their 404s. Driven: the walk is lifted out
+  of `build-server.mjs` and run over a fake tree (`test/site-tsx.test.mjs`);
+  the container harness's own-parts build asserts the render report names no
+  `-parts` route. **A container image input — the push rolls the container.**
+  (3) **THE REPLY'S WORDING (#81).** `updated /` for a changed page with
+  nothing added; `linked it from /` only beside an added page — the same rule
+  in `addonReplyText` (chat.js) and `addonReply` (site-addon.mjs), both driven.
+  (4) **#80 IS INSTRUMENTED, NOT FIXED, AND ITS PREMISE WAS WRONG.** The
+  served build (`mtn2pqqq-0q059t`) hydrates CLEAN in this sandbox on `/es`,
+  `/fr` and `/`, at 1280×900 and 375×812, with the site's API answering 200
+  or 404, with each of its four chunks delayed in turn: 239 text nodes,
+  server and browser identical, every time (`scratchpad/es-hydrate.mjs`, a
+  curl mirror of the served page under a local server, the diff taken in
+  Chromium). The container's check saw #418 on `/es` (runs 34 and 36) and
+  `/fr` (34) and NEVER OPENED `/`: read in directory order the variants came
+  first, the 25 s budget cut run 34 at eight routes, and "the English page is
+  clean" was a claim about a page nobody looked at — the "negative assertion
+  must prove its observer is alive" trap, in the render check. Two changes,
+  both container-side. `checkOrder(routes, prefixes)` (site-render.mjs) opens
+  `/` first, then the primary pages, then the language variants, matched on a
+  whole segment (`/eshop` is not Spanish); `build-server.mjs` derives the
+  prefixes from `payload.langs.extra`. And **a hydration mismatch names
+  itself**: the harness keeps the document the server sent (the navigation
+  response), and when React reports a mismatch `hydrationProbe` — serialised
+  into the page like `probe`, reaching for nothing outside it — walks the
+  served document's text nodes against the DOM the browser regenerated and
+  answers the first pair that differs; `hydrationDetail` writes the finding
+  as `React error #418 (hydration mismatch) — the server rendered “…” where
+  the browser then rendered “…” (at main>section>h3)`, at twice the usual
+  detail clip so the browser's half survives. That sentence is what the
+  customer's reply carries and what the repair round hands the model. Proven
+  through the real container by a page that disagrees with itself on purpose
+  (`hydrate-diff` in `test/integration/site-build.mjs`). **Two facts found on
+  the way, worth having**: fretwork-1's PRIMARY language is Welsh — the bundle
+  bakes `SITE_LANG = "cy"` and the switcher shows "Cymraeg" as current on an
+  English page (the lane sweep's `lang` case set it; `og:locale` says `cy`
+  and Chrome offers to translate); and Node 22 has Welsh locale data while
+  Chromium 141 does not (`Intl.DateTimeFormat("cy", { month: "long" })` →
+  "Medi" against "September") — the ICU class `build-server.mjs` already
+  records for `langLabel`. Nothing on the page formats with `cy` today (the
+  calendar and the price list say `"en-GB"`, the model's part says `void 0`),
+  so it is not THIS mismatch; it is the one waiting for the first page that
+  passes the site's language to a date. What the next addon run on fretwork-1
+  will show is the actual differing text, on `/` first.
+
 **DELETE deferred** (owner's call).
 
 ---
@@ -2776,6 +2844,23 @@ read off a list is only as good as the list is complete, so ask for the thing
 BY NAME (a HEAD on the manifest) rather than for the list it should be in.
 And when an instrument's answer decides a slow-versus-stale trade, make
 "could not tell" its own answer and choose the slow side out loud.
+
+**A REPORT CUT BY ITS BUDGET READ AS A VERDICT ON PAGES IT NEVER OPENED
+(2026-09-04, runs 34 and 36).** The render check reported `/es` and `/fr`
+throwing and said nothing about `/`, and three sessions read that as "the
+English page is clean" — it had not been opened: the routes came in directory
+order, the variants first, and the 25 s budget cut the run at eight routes,
+with `cut: true` in the report and no reader of it. The recorded "a negative
+assertion must prove its observer is alive", pointed at a list of pages: an
+absence in a report is only as good as the report's coverage, and a report
+that can stop early has to say what it did not reach before anybody reads
+what it found. Fixed by opening `/` first and the primary pages before their
+translations (the page every visitor sees, and the page the variants are
+translations of), which is where a fixed budget buys the most; the diagnosis
+itself — WHICH text differed — needed an instrument, because React's
+production error is a number and a link, and the round that repairs on it
+was being handed the number. When a check reports a code, make the check
+say the thing the code stands for.
 
 ## Backlog
 

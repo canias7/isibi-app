@@ -2516,6 +2516,54 @@ function H() { return <main><h1>Promised imports</h1></main>; }
         .filter(([k]) => k.endsWith("sitemap.xml")).map(([, v]) => v.t || "").join("");
       ok("…nor listed in sitemap.xml", !/run-tally|parts/.test(sm),
         sm.slice(0, 200) || "(no sitemap emitted)");
+
+      // AND THE RENDER CHECK DOES NOT OPEN IT AS A PAGE (task #44, 2026-09-04).
+      // `routePaths()` offered every `-parts/` component as a route; the check
+      // got the router's 404 and reported a page that threw, on every addon
+      // reply on fretwork-1 from run 22 to run 36. Read off the report a real
+      // browser produced, because that is the only reader of `routePaths()`.
+      const rr = parted.render && Array.isArray(parted.render.findings) ? parted.render.findings : [];
+      const asParts = rr.filter((f) => /^\/-parts\//.test(String((f && f.route) || "")));
+      ok("…and the render check does not open it as a route", parted.render && parted.render.ok !== false && asParts.length === 0,
+        asParts.length ? JSON.stringify(asParts.slice(0, 2)) : ("render ok=" + String(parted.render && parted.render.ok) + " findings=" + rr.length));
+    }
+  }
+
+  // ── A HYDRATION MISMATCH NAMES ITSELF (task #80, 2026-09-04) ───────────────
+  //
+  // Runs 34 and 36 reported `/es threw: Minified React error #418` and nothing
+  // that said which text. Only a real page in a real browser can prove the
+  // whole chain — React reports the mismatch as a page error, the harness keeps
+  // the served document, the probe finds the node, the finding carries the two
+  // strings — so it is proved here with a page that disagrees with itself on
+  // purpose: one sentence on the server, another in the browser.
+  {
+    const HYDRATE_INDEX = `import { createFileRoute } from "@tanstack/react-router";
+export const Route = createFileRoute("/")({ component: Page });
+function Page() {
+  const side = typeof window === "undefined" ? "written on the server" : "written in the browser";
+  return (
+    <main className="p-8">
+      <h1 className="text-2xl font-semibold">A page that disagrees with itself</h1>
+      <p>This sentence was {side}.</p>
+      <p>Enough other words follow so that the check reads a real page rather than a blank one, and the only difference between the two renders is the sentence above.</p>
+    </main>
+  );
+}
+`;
+    const hy = await post({ files: { "index.tsx": HYDRATE_INDEX }, slug: "hydrate-diff", ...themeAsSeeds("broadsheet") });
+    ok("A PAGE THAT HYDRATES DIFFERENTLY STILL BUILDS — the mismatch is a finding, never a refusal", hy.ok === true,
+      "stage=" + hy.stage + " error=" + String(hy.error || "").slice(0, 300));
+    if (hy.ok) {
+      const found = hy.render && Array.isArray(hy.render.findings) ? hy.render.findings : [];
+      const threw = found.filter((f) => f && f.kind === "threw" && f.route === "/");
+      ok("…and the browser reports the mismatch as a thrown error on /", hy.render && hy.render.ok !== false && threw.length > 0,
+        "render ok=" + String(hy.render && hy.render.ok) + " findings=" + JSON.stringify(found.slice(0, 3)).slice(0, 400));
+      const named = threw.find((f) => /written on the server/.test(String(f.detail)) && /written in the browser/.test(String(f.detail)));
+      ok("…and the finding NAMES the two texts, the server's and the browser's", !!named,
+        threw.map((f) => f.detail).join(" | ").slice(0, 400) || "(no threw finding on /)");
+      ok("…as a hydration mismatch by name, not a React error number and a link", !!threw.find((f) => /hydration mismatch/.test(String(f.detail)) && !/react\.dev/.test(String(f.detail))),
+        threw.map((f) => f.detail).join(" | ").slice(0, 300));
     }
   }
 

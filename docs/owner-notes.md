@@ -2467,3 +2467,42 @@ own call at what the job can afford. Two smaller things still on the
 list: "4 pages threw an error" counts the three component files the
 render check opens as pages (task #44), and the second band is laid out
 as stacked full-width cards while the first is three across.
+
+**The run 36 follow-ups (2026-09-04, "lets go back to the addon issues
+we had").** Four of the five are in the tree; the fifth (the second band's
+layout) is your design call and I have not touched it.
+
+1. *The repair round's clock.* The fix call is now capped at the time the
+   job really has for it — what is left minus the second compile, the
+   sweep and the finishing writes — and it is not started at all when that
+   room is less than the page took to write on the same model (the round
+   measures the page call it just made). Run 36's shape is refused for
+   nothing in a second instead of bought and cut after four minutes.
+2. *"3 pages threw an error" is gone.* The render check was opening the
+   three hand-written component files as if they were pages and counting
+   their 404s. It skips them now, which also gives its 25-second budget
+   three navigations back. This changes the container image, so the push
+   rolls the container — wait 15–20 minutes after the deploy before firing
+   an addon.
+3. *The reply says "updated /" when a section is added to the home page*,
+   and "linked it from /" only when a new page was added.
+4. *The Spanish hydration error: instrumented, not fixed, and the premise
+   was wrong.* I mirrored the served site and loaded it in a browser here
+   nine ways (both widths, the site's API answering and not, each script
+   delayed in turn, Spanish, French and English): it hydrates cleanly every
+   time, server and browser text identical. The container's check saw the
+   error on the Spanish and French home pages and never opened the English
+   one — it reads pages in folder order, the translations came first, and
+   its 25-second budget ran out after eight — so "the English page is
+   clean" was never established. Two changes: the check opens the English
+   home page first now, then the other English pages, then the
+   translations; and when React reports a mismatch, the check finds the
+   exact words that differed between what the server sent and what the
+   browser rendered and puts them in the finding — which is also what the
+   repair round is handed. Proven through the real build service with a
+   page written to disagree with itself. The next addon run on fretwork-1
+   will show the actual text. Two things I noticed: fretwork-1's main
+   language is set to Welsh ("Cymraeg" is the current language in the
+   switcher on an English page, from the lane sweep's language case), and
+   the build service's Node knows Welsh dates while its Chromium does not
+   — not what broke here, but worth knowing.

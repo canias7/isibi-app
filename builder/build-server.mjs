@@ -48,7 +48,11 @@ import { cleanFavicon, readWordmark, cleanGif } from "./site-favicon.mjs";
 // THE QR LIST'S NAME AND FILE RULES — the dependency-free half of the QR
 // module, so this container never has to carry the encoder (2026-09-03).
 import { QR_NAME, QR_FILE, qrFile, MAX_QRS } from "./site-qr-list.mjs";
-import { langLabel, resolveLangs } from "./site-langs.mjs";
+import { langLabel, resolveLangs, langPrefix } from "./site-langs.mjs";
+// The order the render check opens routes in — the primary pages before their
+// translations (task #80). Its own module so the rule is driven by a unit test;
+// this file listens on a port at import time and cannot be.
+import { checkOrder } from "./site-render.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { runStep } from "./run-step.mjs";
 import { startSiteServer } from "./site-ssr.mjs";
@@ -917,15 +921,30 @@ function collectDist(dir = DIST, base = "") {
 // function, not two agreeing functions.
 //
 // WHAT STAYS HERE is only what is genuinely this side's business: walking the
-// directory, and skipping a `$` file. `routeOf` passes a `$` through on purpose
-// — `siteRoutes` needs to see it to mark the site dynamic — so this filter is
-// load-bearing rather than belt-and-braces. `__root` and any pathless `_layout`
-// need no filter here: `routeOf` answers "" for both, which is the same answer
-// every other caller wants.
+// directory, skipping a `$` file, and skipping what the ROUTER skips — a name
+// starting with `-`, the `routeFileIgnorePrefix` our vite config pins, which is
+// where the `tsx` step's components live. `routeOf` passes a `$` through on
+// purpose — `siteRoutes` needs to see it to mark the site dynamic — so that
+// filter is load-bearing rather than belt-and-braces; and it would answer
+// `/-parts/name` for a component, so the `-` filter is load-bearing too (task
+// #44: three components reported as three pages that threw, on every reply).
+// `__root` and any pathless `_layout` need no filter here: `routeOf` answers
+// "" for both, which is the same answer every other caller wants.
 function routePaths() {
   const out = [];
   const walk = (dir, base) => {
     for (const name of fs.readdirSync(dir)) {
+      // THE ROUTER'S OWN IGNORE PREFIX, HONOURED HERE TOO (2026-09-04). A
+      // `-parts/` component is invisible to `tsr generate` because our vite
+      // config pins `routeFileIgnorePrefix: "-"`, so a name starting with `-`
+      // is not a route — and this walk offered every one as if it were: the
+      // render check opened `/-parts/chord-diagram`, got the 404 the router
+      // rightly answers, and reported a page that threw. Every reply on
+      // fretwork-1 since run 22 told the customer "3 pages threw an error"
+      // for three components that were never pages, and the add step's
+      // repair round read the same three as findings on routes it did not
+      // write. A directory or a file: the router ignores both.
+      if (name.startsWith("-")) continue;
       const full = path.join(dir, name);
       if (fs.statSync(full).isDirectory()) { walk(full, base + name + "/"); continue; }
       if (!name.endsWith(".tsx") || name.includes("$")) continue;
@@ -1950,7 +1969,17 @@ const server = http.createServer((req, res) => {
         // and uselessly. `cssUsed.applied` is also the gate: a build that sent
         // no stylesheet asks nothing and its report is unchanged.
         const cssSelectors = cssUsed && cssUsed.applied ? plainSelectors(readCss(payload.css).css) : [];
-        render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, routePaths(), ssr.fetch, ssr.down, { selectors: cssSelectors }));
+        // THE PRIMARY PAGES FIRST, `/` first of all (task #80, 2026-09-04): the
+        // loop has a 25 s budget, and read in directory order a three-language
+        // site's `/es/*` and `/fr/*` came before `/` — run 34's check was cut
+        // after eight routes with the English home page never opened. The
+        // prefixes are the languages this build was asked for, resolved the
+        // way `writeSiteBrand` resolves them; a language that was refused
+        // there has no routes on disk, so naming its prefix here is harmless.
+        const langPrefixes = (Array.isArray(payload.langs && payload.langs.extra) ? payload.langs.extra : [])
+          .map((t) => { try { return langPrefix(String(t || "")); } catch { return ""; } })
+          .filter(Boolean);
+        render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, checkOrder(routePaths(), langPrefixes), ssr.fetch, ssr.down, { selectors: cssSelectors }));
       } finally { ssr.stop(); }
 
       // ── THE SHARE CARD, COMPOSED FREE (2026-08-28, owner's call) ────────────

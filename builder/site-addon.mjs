@@ -411,7 +411,11 @@ export function addonReply({ added = [], changed = [], removed = [], kept = [], 
   const bits = [];
   if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));
   if (removed.length) bits.push("removed " + removed.map(routeOf).filter(Boolean).join(", "));
-  if (changed.length) bits.push("linked it from " + changed.map(routeOf).filter(Boolean).join(", "));
+  // WHAT A CHANGED PAGE MEANS DEPENDS ON WHETHER A PAGE WAS ADDED (run 35,
+  // 2026-09-04): beside a new page it is the nav link; on its own it is the
+  // page the addition landed on, and "linked it from /" names a link that does
+  // not exist. The browser's `addonReplyText` says the same, by the same rule.
+  if (changed.length) bits.push((added.length ? "linked it from " : "updated ") + changed.map(routeOf).filter(Boolean).join(", "));
   let head = bits.length ? "✅ Done — " + bits.join(", ") + "." : "✅ Done.";
   // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY, with the reason. Silently
   // keeping it is the silent partial this lane already had once: the owner asks

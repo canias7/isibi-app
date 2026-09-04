@@ -336,8 +336,15 @@ test("the designer can set it, and is TOLD what the site already offers", () => 
 });
 
 test("the container bakes the list, with each language's OWN direction", () => {
-  assert.match(server, /import \{ langLabel, resolveLangs \} from "\.\/site-langs\.mjs"/,
-    "used without being imported — a ReferenceError on the build path");
+  // THE PROPERTY, NOT THE SPELLING: both names are imported from the module
+  // that owns them. This was pinned to `{ langLabel, resolveLangs }` and went
+  // red on 2026-09-04 when `langPrefix` joined the same line for the render
+  // check's route order (task #80) — a guard reporting a feature as broken
+  // for an honest third name.
+  assert.match(server, /import \{[^}]*\blangLabel\b[^}]*\} from "\.\/site-langs\.mjs"/,
+    "langLabel is used without being imported — a ReferenceError on the build path");
+  assert.match(server, /import \{[^}]*\bresolveLangs\b[^}]*\} from "\.\/site-langs\.mjs"/,
+    "resolveLangs is used without being imported — a ReferenceError on the build path");
   assert.match(server, /const resolvedLangs = resolveLangs\(langValue,/);
   // AN ENGLISH SITE WITH AN ARABIC SECOND LANGUAGE needs `/ar` to read right to
   // left while `/` reads left to right — measured on a real build. Only

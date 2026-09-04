@@ -12105,7 +12105,12 @@ function addonReplyText(a) {
   const bits = [];
   if (added.length) bits.push('added ' + added.join(', '));
   if (removed.length) bits.push('removed ' + removed.join(', '));
-  if (changed.length) bits.push('linked it from ' + changed.join(', '));
+  // WHAT A CHANGED PAGE MEANS DEPENDS ON WHETHER A PAGE WAS ADDED (run 35,
+  // 2026-09-04). Beside a new page it is the nav link — "linked it from /" —
+  // and on its own it is the page the addition landed on: a section, a code,
+  // a scene or a hand-written component changes the page it sits on and adds
+  // no page, and "linked it from /" then names a link that does not exist.
+  if (changed.length) bits.push((added.length ? 'linked it from ' : 'updated ') + changed.join(', '));
   if (Array.isArray(a.tables) && a.tables.length) bits.push('now storing ' + a.tables.join(', '));
   // THE OTHER THREE TIERS OF THE BACKEND (2026-09-03): what the engine
   // really made, by name — a function a page can call, an outside service

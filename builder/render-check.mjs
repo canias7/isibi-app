@@ -19,7 +19,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS } from "./site-render.mjs";
+import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, HYDRATION_ERROR, hydrationProbe } from "./site-render.mjs";
 
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
@@ -406,16 +406,33 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
             const url = `http://127.0.0.1:${port}${route}`;
             const r = await page.goto(url, { waitUntil: "load", timeout: NAV_MS });
             if (!r || !r.ok()) throw new Error("the page did not load (" + (r ? r.status() : "no response") + ")");
+            // THE DOCUMENT THE SERVER SENT, kept for the hydration diff below —
+            // it is the one thing the page itself cannot show once React has
+            // regenerated the tree over it. Best-effort: a body that cannot be
+            // read costs the diff, never the check.
+            let serverHtml = "";
+            try { serverHtml = await r.text(); } catch { serverHtml = ""; }
             // Bottom and back, so a lazy image below the fold has started.
             await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
             await page.waitForTimeout(SETTLE_MS);
             await page.evaluate(() => window.scrollTo(0, 0));
             Object.assign(obs, await page.evaluate(probe));
+            // A HYDRATION MISMATCH NAMES ITSELF (task #80): when React reported
+            // that the server and the browser disagreed, the first text node
+            // that differs between the served document and the DOM the browser
+            // then rendered is taken here, after the page has settled, and
+            // rides the finding. Only then — the walk is a cost on every route
+            // otherwise, and a page with no such error has nothing to diff.
+            if (serverHtml && pageErrors.some((e) => HYDRATION_ERROR.test(e))) {
+              try { obs.hydration = await page.evaluate(hydrationProbe, serverHtml); } catch { obs.hydration = null; }
+            }
             // COUNTED HERE, INSIDE THE TRY AND AFTER THE NAV CHECK, so a route
             // that 404'd or threw contributes neither a hit nor a `looked`.
-            // `routePaths()` currently offers the `-parts/` components as if
-            // they were routes and they answer 404, so this distinction is not
-            // hypothetical on any site with a generated component.
+            // `routePaths()` offered the `-parts/` components as if they were
+            // routes until 2026-09-04 — they answer 404 — which is how this
+            // distinction was found; it honours the router's ignore prefix
+            // now, and the distinction stays because a real route can 404 for
+            // reasons of its own.
             looked++;
             if (selectors.length) {
               for (const s of await page.evaluate(countSelectors, selectors)) hit.add(s);

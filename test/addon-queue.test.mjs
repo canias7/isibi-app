@@ -164,8 +164,16 @@ test("every model call on the addon route rides the job's clock", () => {
   // ONE WRAPPER, so the clock reaches every small call without one chance per
   // call to forget it — and `aJob` null keeps the flat 240s ceiling.
   assert.match(b, /const aQuick = \(what = ""\) => quickSend\(env, what, aJob && aJob\.budget\);/, "aQuick does not carry the job's budget");
+  // TWO DIRECT CALLS SINCE 2026-09-04 (run 36), and the second is the job's
+  // clock too, seen through `repairClock`: the repair call holds back the
+  // second compile as well as the reserves, which `aQuick`'s view cannot
+  // express. Anything else reaching `quickSend` directly is a call off the
+  // clock, which is what this guard exists to refuse.
   const bare = [...b.matchAll(/quickSend\(env/g)].length;
-  assert.equal(bare, 1, `${bare} calls reach quickSend directly — only aQuick's own definition may`);
+  assert.equal(bare, 2, `${bare} calls reach quickSend directly — only aQuick's own definition and the repair round's may`);
+  assert.match(b, /quickSend\(env, "repair", repairClock\(aClock\)\)/, "the repair call does not ride the job's clock through repairClock");
+  assert.match(b, /const aClock = job && job\.budget && typeof job\.budget\.canRepair === "function" \? job\.budget : null;/,
+    "aClock is not the job's own budget, so the repair clock is not the job's");
   const wrapped = [...b.matchAll(/send: aQuick\(/g)].length;
   assert.ok(wrapped >= 3, `only ${wrapped} small calls go through aQuick — the picker, one per kind and the seed net all must`);
   // AND THE PAGE CALL, the one call that does not go through aQuick and the

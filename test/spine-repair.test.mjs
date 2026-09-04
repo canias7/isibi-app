@@ -108,12 +108,31 @@ test("the addon's hook IS the add step's own round: its module, its scope, the p
   const route = between(worker, "const aCharge = async (bill", "if (tx) {", "the addon's publish tail");
   const hook = between(route, "const aAfterCompile = async ({ built, pages, langs, recompile, job }) => {", "aMark(\"publish:1\", \"start\"", "the hook");
   assert.match(route, /const aTouched = \[\.\.\.\(aMerge\.added \|\| \[\]\), \.\.\.\(aMerge\.changed \|\| \[\]\)\];/, "the round is not scoped to the pages this addition wrote");
-  assert.match(hook, /const room = !\(job && job\.budget && typeof job\.budget\.canRepair === "function"\) \|\| job\.budget\.canRepair\(\);/,
-    "the room is not the job's own canRepair, or is not true without a job");
+  // THE SPELLING MOVED ON 2026-09-04 (run 36): the room is the job's own
+  // `canRepair` still, and true without a job still, but it is asked with the
+  // MEASURED need — what the page call took per page it wrote — rather than
+  // bare, and the clock is read into `aClock` once so the mark can say the room
+  // beside the need.
+  assert.match(hook, /const aClock = job && job\.budget && typeof job\.budget\.canRepair === "function" \? job\.budget : null;/,
+    "the room no longer comes from the job's own clock");
+  assert.match(hook, /const room = !aClock \|\| aClock\.canRepair\(aRepairNeedMs\);/,
+    "the room is not the job's own canRepair asked with the measured need, or is not true without a job");
+  assert.match(route, /const aRepairNeedMs = aPagesWrote > 0 \? Math\.round\(aPagesMs \/ aPagesWrote\) : 0;/,
+    "the need is not the page call's own time per page written, or is not zero when nothing was measured");
+  assert.match(route, /aPagesMs = Date\.now\(\) - aPagesT0;/, "the page call is not timed");
+  assert.ok(route.indexOf("const aPagesT0 = Date.now();") < route.indexOf("aGen = await generateSitePages(") &&
+    route.indexOf("aGen = await generateSitePages(") < route.indexOf("aPagesMs = Date.now() - aPagesT0;"),
+    "the page call is not what is timed");
   const call = between(hook, "aRepairRound = await addRepairRound({", "});", "the round call");
-  for (const needle of ["report: built.render, pages, touched: aTouched, langs,", 'send: aQuick("repair"), model: aModels.quick, compile: recompile, room,']) {
+  // AND THE CALL RIDES THE REPAIR CLOCK, not `aQuick`: `aQuick`'s budget holds
+  // back the two reserves alone, right for every call before the first
+  // compile, and it is what let run 36's fix run four minutes into the room
+  // its own recompile needed. `repairClock` holds back the compile too.
+  for (const needle of ["report: built.render, pages, touched: aTouched, langs,", 'send: quickSend(env, "repair", repairClock(aClock)), model: aModels.quick, compile: recompile, room,']) {
     assert.ok(call.includes(needle), `the round is not handed: ${needle}`);
   }
+  assert.ok(!call.includes('aQuick("repair")'), "the repair call is back on the plain clock");
+  assert.match(worker, /import \{[^}]*\brepairClock\b[^}]*\} from "\.\/builder\/edit-job\.mjs"/, "repairClock is not imported from the clock's own module");
   // Reserve #2 inside the hook — before the spine's gate — only under a job and only when something was spent.
   assert.match(hook, /if \(aJob && aRepairRound\.usage\.length\) \{/, "the round's spend is not reserved, or is reserved when nothing was spent");
   assert.match(hook, /aRepairRound\.charged = Number\(await aCharge\(pageCredits\(\.\.\.aRepairRound\.usage\), 2\)\) \|\| 0;/, "the round's reserve is not sequence #2");

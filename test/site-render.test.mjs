@@ -12,10 +12,100 @@ import {
   VIEWPORTS, BLANK_TEXT_CHARS, MIN_CONTRAST, OVERFLOW_SLACK, MAX_FINDINGS,
   OVERLAY_TRIGGERS, MAX_OPENS, MIN_PANEL_ALPHA,
   probe, probeOverlay, readPage, readOverlay, renderReport, renderNote, isSerious, SERIOUS,
+  HYDRATION_ERROR, hydrationProbe, hydrationDetail, checkOrder,
 } from "../builder/site-render.mjs";
 
 const clean = { route: "/", viewport: "phone", text: 900, images: 2, broken: [], overflow: 0, wide: [], contrast: [], pageErrors: [], consoleErrors: [] };
 const kinds = (f) => f.map((x) => x.kind);
+
+// ── a hydration mismatch names itself (task #80, 2026-09-04) ─────────────────
+
+const REACT_418 = "Minified React error #418; visit https://react.dev/errors/418?args[]=text&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.";
+
+test("a hydration error carries the two texts and where they sit; any other thrown error is what it was", () => {
+  // Runs 34 and 36: `/es threw: Minified React error #418` and nothing that
+  // said WHICH text — the repair round was handed a number.
+  const diff = { server: "Medi 2026", client: "September 2026", at: "main>section>h3", index: 41, serverCount: 239, clientCount: 239 };
+  const f = readPage({ ...clean, pageErrors: [REACT_418], hydration: diff });
+  assert.deepEqual(kinds(f), ["threw"]);
+  assert.match(f[0].detail, /React error #418 \(hydration mismatch\)/, f[0].detail);
+  assert.match(f[0].detail, /the server rendered “Medi 2026” where the browser then rendered “September 2026”/, f[0].detail);
+  assert.match(f[0].detail, /\(at main>section>h3\)/, f[0].detail);
+  assert.doesNotMatch(f[0].detail, /react\.dev\/errors/, "the link to the unminified build is noise in a finding");
+  // The diff was taken and found nothing: said, because a mismatch React saw
+  // and the walk cannot is one in an attribute, a tag or a script.
+  const none = readPage({ ...clean, pageErrors: [REACT_418], hydration: null });
+  assert.match(none[0].detail, /no differing text was found/, none[0].detail);
+  const absent = readPage({ ...clean, pageErrors: [REACT_418] });
+  assert.match(absent[0].detail, /no differing text was found/, absent[0].detail);
+  // An ordinary throw is untouched, diff or no diff.
+  const plain = readPage({ ...clean, pageErrors: ["x is not a function"], hydration: diff });
+  assert.equal(plain[0].detail, "x is not a function");
+  // The detail is what the customer reads and the repair acts on, so the two
+  // texts must survive the clip — a diff that arrives already bounded does,
+  // and a paragraph-long pair (the probe clips each to 80) still keeps the
+  // browser's text: a clip that kept the server's and cut the browser's would
+  // be the error number all over again.
+  assert.ok(f[0].detail.includes("September 2026"), "the browser's text was clipped away: " + f[0].detail);
+  const longServer = "The server said this rather long sentence about a Friday-to-Monday stay in".slice(0, 80);
+  const longClient = "The browser said a different long sentence about the very same weekend in".slice(0, 80);
+  const long = readPage({ ...clean, pageErrors: [REACT_418], hydration: { server: longServer, client: longClient, at: "main>section[availability-calendar]>div>h3" } });
+  assert.ok(long[0].detail.includes(longClient), "a long pair loses the browser's text to the clip: " + long[0].detail);
+  assert.ok(long[0].detail.includes("availability-calendar"), "a long pair loses where it sat: " + long[0].detail);
+  // The matcher: React 19's codes for a server/client difference, React 18's, and the unminified words; not a random throw.
+  for (const e of [REACT_418, "Minified React error #425; visit …", "Minified React error #423;", "Hydration failed because the server rendered text didn't match the client."]) assert.ok(HYDRATION_ERROR.test(e), e);
+  for (const e of ["Minified React error #31;", "x is not a function", "the page did not load (404)", "useFormField should be used within <FormItem>"]) assert.ok(!HYDRATION_ERROR.test(e), e);
+  assert.equal(hydrationDetail("x", diff), "x", "a non-hydration error must never carry the diff");
+});
+
+test("the hydration probe runs inside the page and reaches for nothing outside it", () => {
+  // `page.evaluate` serialises the function: a reference to module scope is a
+  // ReferenceError in the browser and a finding that never arrives. The probe
+  // may use only the DOM's own globals — the same discipline `probe` and
+  // `landmarkProbe` keep, checked the same way.
+  const src = hydrationProbe.toString();
+  assert.match(src, /new DOMParser\(\)/, "the server document is not parsed by the browser's own parser");
+  assert.match(src, /document\.createNodeIterator\(root, NodeFilter\.SHOW_TEXT\)/, "the walk is not over text nodes");
+  for (const forbidden of ["clip(", "MAX_DETAIL", "HYDRATION_ERROR", "readPage", "require(", "import("]) {
+    assert.ok(!src.includes(forbidden), "the probe reaches for module scope: " + forbidden);
+  }
+  assert.match(src, /"SCRIPT" \|\| tag === "STYLE"/, "scripts and styles are compared as text — a hashed bundle name would read as the mismatch");
+});
+
+test("the check opens the primary pages first, `/` first of all, and the language variants after — run 34's cut never reached `/`", () => {
+  const dir = ["/-parts/x", "/es", "/es/gear", "/es/prices", "/fr", "/fr/gear", "/fr/prices", "/gear", "/", "/prices"];
+  assert.deepEqual(checkOrder(dir, ["es", "fr"]), ["/", "/-parts/x", "/gear", "/prices", "/es", "/es/gear", "/es/prices", "/fr", "/fr/gear", "/fr/prices"]);
+  // Stable within each group: a list already in order comes back as it was.
+  const ordered = ["/", "/gear", "/prices", "/es", "/es/gear"];
+  assert.deepEqual(checkOrder(ordered, ["es"]), ordered);
+  // A whole segment, never a prefix: `/eshop` is not Spanish.
+  assert.deepEqual(checkOrder(["/es", "/eshop", "/"], ["es"]), ["/", "/eshop", "/es"]);
+  // No languages: only `/` moves, and only to the front.
+  assert.deepEqual(checkOrder(["/gear", "/", "/prices"], []), ["/", "/gear", "/prices"]);
+  assert.deepEqual(checkOrder(["/gear", "/prices"], null), ["/gear", "/prices"]);
+  // Junk in, nothing out — never a throw on the render path.
+  assert.deepEqual(checkOrder(null, ["es"]), []);
+  assert.deepEqual(checkOrder(["/x", 3, "", null], undefined), ["/x"]);
+  // Case: a prefix is matched the way `useActiveLang` matches it.
+  assert.deepEqual(checkOrder(["/ES/gear", "/"], ["es"]), ["/", "/ES/gear"]);
+});
+
+test("the harness takes the diff off the served document, only when React said the two disagreed, and the container orders the routes", () => {
+  const check = fs.readFileSync(new URL("../builder/render-check.mjs", import.meta.url), "utf8");
+  assert.match(check, /import \{[^}]*\bHYDRATION_ERROR\b[^}]*\bhydrationProbe\b[^}]*\} from "\.\/site-render\.mjs"/, "the probe and the matcher are not imported from the module that owns them");
+  const nav = check.indexOf("const r = await page.goto(url, { waitUntil: \"load\", timeout: NAV_MS });");
+  const probeAt = check.indexOf("Object.assign(obs, await page.evaluate(probe));");
+  assert.ok(nav > 0 && probeAt > nav, "the navigation and the probe moved — this window scans nothing");
+  const between = check.slice(nav, probeAt);
+  assert.match(between, /serverHtml = await r\.text\(\);/, "the served document is not kept for the diff");
+  const after = check.slice(probeAt, check.indexOf("looked++;", probeAt));
+  assert.match(after, /if \(serverHtml && pageErrors\.some\(\(e\) => HYDRATION_ERROR\.test\(e\)\)\) \{/, "the diff is not gated on a hydration error, or runs before the probe");
+  assert.match(after, /obs\.hydration = await page\.evaluate\(hydrationProbe, serverHtml\);/, "the diff is not handed the served document, or not stored where readPage reads it");
+  const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  assert.match(server, /import \{ checkOrder \} from "\.\/site-render\.mjs";/, "the container does not import the ordering");
+  assert.match(server, /checkRender\(CLIENT_DIST, checkOrder\(routePaths\(\), langPrefixes\), ssr\.fetch, ssr\.down/, "the check is not fed the ordered routes");
+  assert.match(server, /langPrefix\(String\(t \|\| ""\)\)/, "the prefixes are not the languages this build was asked for");
+});
 
 test("a page with words, pictures and no errors has nothing to report", () => {
   assert.deepEqual(readPage(clean), []);
