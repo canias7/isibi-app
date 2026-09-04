@@ -1,19 +1,19 @@
 {
-  "at": "2026-09-04T13:54:22.229Z",
+  "at": "2026-09-04T15:00:27.528Z",
   "site": "fretwork-1",
-  "start": 57,
-  "end": 41,
+  "start": 41,
+  "end": 24,
   "results": [
     {
       "name": "component",
       "kinds": [
         "component"
       ],
-      "verdict": "LIE",
-      "note": "reply says ok, build moved, but the addition is not on the site; changed [\"/\"]; home text 2106→2046 chars (no new quotes on the page); repair clean",
-      "cost": 16,
-      "wall": 469,
-      "build": "mtn0gbvz-j6l2e2",
+      "verdict": "BROKEN",
+      "note": "changed [\"/\"]; home text 2046→2356 chars; everything it said is still there; the site's own render check: 1 serious finding — /es threw: Minified React error #418; visit https://react.dev/errors/418?args[]=text&args[]= for the full message or use the non-minified dev environme; repair ran: fixed nothing (refused); refused /",
+      "cost": 17,
+      "wall": 747,
+      "build": "mtn2pqqq-0q059t",
       "pickedRight": true,
       "shots": []
     }
