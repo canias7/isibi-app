@@ -2589,10 +2589,13 @@ and a failed translation no longer writes English into the cache, while
 a cache that was filled that way is thrown out and the language asked
 again. The reply also carries what happened to each language now; the
 first version of that got lost between the lane's answer and the final
-publish. The next publish of fretwork-1 should translate all three
-languages; 1 credit for the edit plus about 1 per language. Balance 6.
-Sweep: 24 mutants, 24 killed, control survived. Not yet proven live: the
-same languages test after the deploy is the proof.
+publish. Sweep: 24 mutants, 24 killed, control survived. Not yet proven
+live: the languages test again, after the deploy, is the proof — and it
+now asks to take German OFF, because run 38 filled the site's three extra
+language slots and asking for German again would change nothing. The
+proof is the Spanish page coming back in Spanish, the German page gone,
+and the reply saying what happened to each language. About 1 credit for
+the edit plus 1 per language that translates. Balance 6.
 
    Sweep: 23 mutants, 23 killed, control survived. The build harness is
    331/331 through the real build service (five new checks), the unit

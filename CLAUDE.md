@@ -2002,9 +2002,15 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   `untranslated` always false, reading empty as poisoned, reading one real
   translation as poisoned; the merge dropping `langs` or the refused list.
   **Not proven live** — the re-run of `lanes: langs` after the deploy is the
-  proof: three languages translated on Grok (`healed: true` on `es` and
-  `fr`), the account in the reply, `/de` in German. About 1 credit for the
-  edit plus 1 per language; the balance is 6.
+  proof. **The case asks for German OFF now** ("Stop offering the site in
+  German"): run 38 left the site at `MAX_EXTRA_LANGS`, so asking for German
+  again answers "already" and publishes nothing and a fourth language is
+  refused at the cap, while a removal publishes just the same. The proof is
+  the SPANISH page — its poisoned cache read as none (`healed: true` on
+  `es` and `fr`), both asked again on Grok, `/es` translated, `/de` a 404
+  (the harness reads both, re-reading a stale edge copy until the new build
+  serves it), the account in the reply. About 1 credit for the edit plus 1
+  per language; the balance is 6.
 
 **DELETE deferred** (owner's call).
 

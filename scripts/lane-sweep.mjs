@@ -252,19 +252,28 @@ export const CASES = [
   // one it has answers "already" and publishes nothing), reads the new
   // variant's WORDS against the primary page's, and prints the reply's own
   // account of each language (`langs`), which the spine carries now.
-  { lane: "langs", ask: "Also offer the site in German", variant: "/de",
+  // RUN 38 ADDED GERMAN (2026-09-04) and left the site at its three-language
+  // cap, so this asks for the inverse — German off — which publishes just the
+  // same, and the proof is the SPANISH page: its cache was written as English
+  // by the failed calls, the spine reads that as no cache now and asks again,
+  // so /es comes back translated or the account says why not. A language
+  // taken off must stop answering, which is the removal's own evidence.
+  { lane: "langs", ask: "Stop offering the site in German", variant: "/es", gone: "/de",
     check: (b, a, r, x) => {
-      const named = /Deutsch/.test(a.headerText);
+      const named = /Espa[nñ]ol/.test(a.headerText) && !/Deutsch/.test(a.headerText);
       const v = (x && x.variant) || { status: 0, text: "", build: "" };
+      const g = (x && x.gone) || { status: 0 };
       const primary = words(a.html);
       // Translated means the primary's sentences are GONE from the variant —
       // at least half of them — not merely that some byte differs.
       const sentences = primary.split(/(?<=[.!?…”"])\s+/).map((s) => s.trim()).filter((s) => s.length >= 25);
-      const gone = lostSentences(primary, v.text);
-      const translated = v.status === 200 && v.text.length > 200 && sentences.length > 0 && gone.length * 2 >= sentences.length;
-      return { ok: named && translated,
-               note: `switcher ${named ? "names Deutsch" : "does not name Deutsch"}; /de answers ${v.status}${v.build ? " on build " + v.build : ""}; ` +
-                     `${gone.length} of ${sentences.length} primary sentences translated away; the spine's account: ${JSON.stringify(r && r.langs) || "none"}` };
+      const lost = lostSentences(primary, v.text);
+      const translated = v.status === 200 && v.text.length > 200 && sentences.length > 0 && lost.length * 2 >= sentences.length;
+      const removed = g.status === 404;
+      return { ok: named && translated && removed,
+               note: `switcher ${named ? "names Español and not Deutsch" : "still names Deutsch, or lost Español"}; /es answers ${v.status}${v.build ? " on build " + v.build : ""}; ` +
+                     `${lost.length} of ${sentences.length} primary sentences translated away; /de answers ${g.status}${removed ? " (gone)" : " (STILL SERVED)"}; ` +
+                     `the spine's account: ${JSON.stringify(r && r.langs) || "none"}` };
     } },
   // NOT THE HEADER BUTTON. The first ask ("press the button, open the
   // dialler") read as the button's link and went to the nav rung; a behaviour
@@ -619,6 +628,18 @@ async function main() {
         await new Promise((r) => setTimeout(r, 5000));
       }
       extra.variant = { status: v ? v.status : 0, build: v ? (v.headers.get("x-site-build") || "") : "", text: v && v.status === 200 ? words(v.text) : "" };
+    }
+    // A LANGUAGE TAKEN OFF must stop answering. Re-read while an edge still
+    // serves the OLD build's copy of it; a 200 on the new build is the answer
+    // that it was not taken off, and a 404 is the answer that it was.
+    if (c.gone) {
+      let g = null;
+      for (let i = 0; i < 12; i++) {
+        g = await site(c.gone);
+        if (!(g.status === 200 && (g.headers.get("x-site-build") || "") !== after.build)) break;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      extra.gone = { status: g ? g.status : 0 };
     }
     // THE RENAME'S EVIDENCE: both addresses, read plainly — the old one by the
     // name the site had when this lane began, since SITE has moved on.
