@@ -1,17 +1,68 @@
 {
-  "at": "2026-09-03T23:29:26.580Z",
+  "at": "2026-09-04T00:57:43.936Z",
   "site": "fretwork-1",
   "start": 108,
-  "end": 108,
+  "end": 57,
   "results": [
     {
       "name": "table",
-      "kinds": [],
-      "verdict": "LIE",
-      "note": "reply says ok but the build did not move; made []; build unmoved",
-      "cost": 0,
-      "wall": 681,
-      "build": "mtm3de6s-hg47bc",
+      "kinds": [
+        "table",
+        "page"
+      ],
+      "verdict": "ok",
+      "note": "made [\"gear\"]; build moved",
+      "cost": 21,
+      "wall": 770,
+      "build": "mtm80c2o-3fzzvi",
+      "pickedRight": true,
+      "shots": [
+        "docs/edits/addon-01-table.png",
+        "docs/edits/addon-01-table-page.png"
+      ]
+    },
+    {
+      "name": "function",
+      "kinds": [
+        "function",
+        "component"
+      ],
+      "verdict": "ok",
+      "note": "functions: [\"bookings_on_day\"]; pages [\"/\"]; build moved; judged off the reply — the database leaves no mark on the page",
+      "cost": 19,
+      "wall": 617,
+      "build": "mtm8fcke-msstf3",
+      "pickedRight": true,
+      "shots": [
+        "docs/edits/addon-02-function.png"
+      ]
+    },
+    {
+      "name": "api",
+      "kinds": [
+        "api"
+      ],
+      "verdict": "ok",
+      "note": "apis: [\"gbp_eur\"]; pages [\"/prices\"]; build moved; judged off the reply — the database leaves no mark on the page",
+      "cost": 10,
+      "wall": 423,
+      "build": "mtm8ozl3-vo4zwg",
+      "pickedRight": true,
+      "shots": [
+        "docs/edits/addon-03-api.png"
+      ]
+    },
+    {
+      "name": "job",
+      "kinds": [
+        "function",
+        "job"
+      ],
+      "verdict": "ok",
+      "note": "jobs: [\"remind_tomorrow\"]; pages []; build unmoved (a job changes no page); judged off the reply — the database leaves no mark on the page",
+      "cost": 1,
+      "wall": 91,
+      "build": "mtm8ozl3-vo4zwg",
       "pickedRight": true,
       "shots": []
     }
