@@ -167,10 +167,13 @@ path, a push or a day-long credential, the bearer dropped, a refusal
 unnamed, the wrong API route, the Basic user wrong, an empty token
 accepted, an unknown answer skipping the build, a throwing probe escaping,
 could-not-tell silent, a 404 said as unasked, the answer off the log, the
-retry dropped, the probe not required, a credential per image. **The roll half is proven live
-(deploy 2018: "no changes" on a rebuilt tag); the REUSE half is proven when a
-deploy says "reused"** — the first deploy carrying the manifest probe is that
-proof; stamp it here.
+retry dropped, the probe not required, a credential per image. **BOTH HALVES PROVEN LIVE.** Deploy 2018: "no changes" on a rebuilt tag
+(the roll). Deploy 2019 (13:33Z, the first with the probe): `reused` for both
+images, the registry answering 200 to each HEAD, the image step 1.4 s, the
+whole deploy **47 seconds** (14–15 minutes before the skip, ~4.5 with the
+listing), "no changes" on both container apps. A Worker-only push is a
+one-minute deploy that rolls nothing; a push that changes an image input
+still builds, still rolls, and still needs the 15–20 minute hold.
 
 Secrets live in GitHub Actions and upload to the Worker each deploy. **An
 optional secret must carry a `|| fallback`; a required one must not** — listing a

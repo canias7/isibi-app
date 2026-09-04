@@ -2406,3 +2406,13 @@ way Wrangler's own delete command does it). A registry that cannot be
 asked builds, and says so in the log, because a build is always right
 and only slow. Sweep: 23 mutants, 23 killed, control survived. The next
 deploy should read "reused" for both images and take about a minute.
+
+**Deploy 2019 (13:33 UTC): 47 seconds, both images reused, nothing
+rolled.** The registry answered "yes, it's there" for each image in
+just over a second, and Wrangler said "no changes" for both container
+apps. That is the whole change working: a push that changes only
+Worker code now deploys in under a minute and the container is
+untouched, so anything that builds can be fired the moment the deploy
+is green. A push that changes what an image is built from still
+rebuilds it, still rolls the container, and still needs the
+twenty-minute hold.
