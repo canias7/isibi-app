@@ -25,11 +25,15 @@
 //      and pushed under that tag (`wrangler containers build <ctx> -t … -p`),
 //      once more on a failure, since the registry's 500s are what failed twice
 //      today and a second attempt reuses every layer of the first;
-//   3. `wrangler.jsonc` IN THE CHECKOUT is rewritten to reference `<name>:<id>`
-//      — a bare reference, which Wrangler expands to this account's registry
-//      at deploy (`resolveImageName`), so no account id lives in the config —
-//      and the deploy that follows builds nothing and rolls nothing unless the
-//      reference moved.
+//   3. `wrangler.jsonc` IN THE CHECKOUT is rewritten to reference
+//      `registry.cloudflare.com/<account>/<name>:<id>` — the FULL reference,
+//      measured on deploy run 2016 (2026-09-04): Wrangler's config validator
+//      (`isDockerfile`) parses a non-file image with `new URL("https://" +
+//      image)`, and a bare `name:tag` is an invalid URL (the tag reads as a
+//      port), so the step built and pushed the image and the deploy then
+//      refused the config. The account id is the step's own env, never the
+//      repository's config — and the deploy that follows builds nothing and
+//      rolls nothing unless the reference moved.
 //
 // THE REPOSITORY'S OWN CONFIG IS UNCHANGED: it keeps the Dockerfile paths, so a
 // hand `wrangler deploy` and `wrangler dev` behave exactly as they always did.
@@ -178,12 +182,16 @@ export function containerInputs({ context, dockerfileText, hasDockerignore, git 
 }
 
 /** Run the whole flow. Every side effect is a dep so the test can drive it. */
-export async function main({ root, git, wrangler, log = console.log, write, read, exists } = {}) {
+export async function main({ root, git, wrangler, accountId, registry = "registry.cloudflare.com", log = console.log, write, read, exists } = {}) {
   const readText = read || ((p) => readFileSync(path.join(root, p), "utf8"));
   const has = exists || ((p) => existsSync(path.join(root, p)));
   const cfgText = readText("wrangler.jsonc");
   const { name: workerName, containers } = readContainers(cfgText);
   if (!containers.length) { log("no container is built from a Dockerfile — nothing to do"); return { images: [], config: cfgText }; }
+  // THE ACCOUNT, FIRST: the reference the config will carry names it, and
+  // Wrangler refuses a reference that does not (see the header). Asked before
+  // anything is built, so a missing id costs nothing.
+  if (!/^[a-f0-9]{32}$/i.test(String(accountId || ""))) throw new Error("CLOUDFLARE_ACCOUNT_ID is not set (or is not an account id) — the image reference must name this account's registry");
 
   // THE INPUTS FIRST, ALL OF THEM, before the registry is asked anything: a
   // missing input fails here by name, before any build is started.
@@ -198,20 +206,23 @@ export async function main({ root, git, wrangler, log = console.log, write, read
   const images = [];
   let text = cfgText;
   for (const p of planned) {
-    const ref = `${p.name}:${p.tag}`;
+    // THE BUILD TAG IS SHORT (`wrangler containers build -t` pushes it into
+    // this account's namespace itself); THE CONFIG'S REFERENCE IS FULL.
+    const tag = `${p.name}:${p.tag}`;
+    const ref = `${registry}/${accountId}/${tag}`;
     let action = "reused";
     if (!present(listing, p.name, p.tag)) {
       action = "built";
       // ONCE MORE ON A FAILURE: today's two deploy failures were the registry
       // answering 500 after minutes of layer retries, and a second attempt
       // reuses every layer the first one built.
-      let ok = wrangler.build(p.ctx, ref);
-      if (!ok) { log(`build of ${ref} failed — trying once more`); ok = wrangler.build(p.ctx, ref); }
-      if (!ok) throw new Error(`could not build and push ${ref} for ${p.class_name}`);
+      let ok = wrangler.build(p.ctx, tag);
+      if (!ok) { log(`build of ${tag} failed — trying once more`); ok = wrangler.build(p.ctx, tag); }
+      if (!ok) throw new Error(`could not build and push ${tag} for ${p.class_name}`);
     }
     text = rewriteImage(text, p.image, ref);
-    log(`IMAGE ${p.class_name}: ${action} ${ref}  (${p.inputs.length} inputs off ${p.ctx}/Dockerfile)`);
-    images.push({ class_name: p.class_name, ref, action, inputs: p.inputs.length });
+    log(`IMAGE ${p.class_name}: ${action} ${tag}  (${p.inputs.length} inputs off ${p.ctx}/Dockerfile)`);
+    images.push({ class_name: p.class_name, ref, tag, action, inputs: p.inputs.length });
   }
   (write || ((p, t) => writeFileSync(path.join(root, p), t)))("wrangler.jsonc", text);
   return { images, config: text };
@@ -250,7 +261,13 @@ function wranglerCli(root) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = process.cwd();
-  main({ root, git: gitObject(root), wrangler: wranglerCli(root) }).catch((e) => {
+  main({
+    root, git: gitObject(root), wrangler: wranglerCli(root),
+    accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+    // Wrangler's own knob for the registry host, honoured for the same reason
+    // Wrangler honours it; the default is the one it uses.
+    registry: process.env.CLOUDFLARE_CONTAINER_REGISTRY || "registry.cloudflare.com",
+  }).catch((e) => {
     console.error("FATAL:", (e && e.message) || e);
     process.exit(1);
   });

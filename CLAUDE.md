@@ -118,11 +118,17 @@ path it hashes the git objects the Dockerfile COPYs (plus the Dockerfile and
 its `.dockerignore`) into a 16-hex id, builds and pushes
 `isibi-app-<class>:<id>` only when the registry lacks that tag (once more on
 a failure — the registry's 500s are what failed two deploys on 2026-09-04),
-and rewrites the CHECKOUT's `wrangler.jsonc` to reference it. Wrangler expands
-a bare `name:tag` to this account's registry, so no account id is in the
-config, and **a deploy that references an image builds nothing and rolls
-nothing unless the reference moved**. The repository's own config keeps the
-Dockerfile paths, so a hand `wrangler deploy` behaves as it always did.
+and rewrites the CHECKOUT's `wrangler.jsonc` to reference
+`registry.cloudflare.com/<account>/<name>:<id>` — the FULL reference, the
+account id off the step's own env: **deploy run 2016 (12:22Z) built and pushed
+the site image and then refused the config**, because Wrangler's validator
+(`isDockerfile`) parses a non-file image with `new URL("https://" + image)` and
+a bare `name:tag` is an invalid URL, the tag reading as a port. (Its deploy-time
+`resolveImageName` WOULD have expanded a bare name — the validator runs first.)
+**A deploy that references an image builds nothing and rolls nothing unless
+the reference moved.** The repository's own config keeps the Dockerfile paths
+and never carries the account's registry path, so a hand `wrangler deploy`
+behaves as it always did.
 **What rolls the container now is a change to an image INPUT** — the
 Dockerfile, `.dockerignore`, `lovable/template/`, `theme-candidates/`, or one
 of the modules the COPY line names — not any push that touches `builder/`:
@@ -1839,9 +1845,9 @@ what the work cost.
   free and read-only.
 - **`site build` is 326/326** against the real container (2026-09-03, the QR
   list's two-code build and the pre-list payload added sixteen); the unit
-  suite is 4,999 (2026-09-04, after the container images stopped rebuilding
+  suite is 5,000 (2026-09-04, after the container images stopped rebuilding
   on every deploy: the id, the listing, the rewrite and the flow driven with
-  fakes, the wiring read). **In this sandbox the
+  fakes, the full reference under the account, the wiring read). **In this sandbox the
   harness needs `playwright-core` at the root the way `site-build.yml`
   installs it** (`npm i --no-save playwright-core@<the template's playwright
   version>`) — without it the six card and touch-icon checks fail with

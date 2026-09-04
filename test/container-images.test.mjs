@@ -21,6 +21,8 @@ const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
 const CONFIG = fs.readFileSync(path.join(ROOT, "wrangler.jsonc"), "utf8");
 const WORKFLOW = fs.readFileSync(path.join(ROOT, ".github/workflows/deploy.yml"), "utf8");
 const SCRIPT = fs.readFileSync(path.join(ROOT, ".github/scripts/container-images.mjs"), "utf8");
+// A 32-hex account id, the shape Wrangler's `resolveImageName` accepts.
+const ACCOUNT = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
 
 /* ───────────────────────────── the pure parts ───────────────────────────── */
 
@@ -147,7 +149,7 @@ function harness({ listing, buildOk = () => true, gitMissing = [] } = {}) {
     build: (ctx, ref) => { calls.builds.push([ctx, ref]); return buildOk(calls.builds.length, ref); },
   };
   const deps = {
-    root: ROOT, git, wrangler,
+    root: ROOT, git, wrangler, accountId: ACCOUNT,
     log: (s) => calls.logs.push(s),
     write: (p, t) => calls.writes.push([p, t]),
     read: (p) => fs.readFileSync(path.join(ROOT, p), "utf8"),
@@ -162,7 +164,10 @@ test("an image already in the registry is REUSED: no build, the config reference
   const out1 = await main(first.deps);
   assert.equal(out1.images.length, 2);
   assert.equal(first.calls.builds.length, 2, "an empty registry builds both");
-  const known = out1.images.map((i) => ({ name: i.ref.split(":")[0], tags: [i.ref.split(":")[1]] }));
+  // The listing's names are stripped of the account prefix, as Wrangler's
+  // `handleListImagesCommand` strips them — so the fixture is built off the
+  // short tag, the shape the real listing has.
+  const known = out1.images.map((i) => ({ name: i.tag.split(":")[0], tags: [i.tag.split(":")[1]] }));
 
   const { deps, calls } = harness({ listing: known });
   const out = await main(deps);
@@ -173,8 +178,22 @@ test("an image already in the registry is REUSED: no build, the config reference
   const written = calls.writes[0][1];
   for (const i of out.images) assert.match(written, new RegExp(`"image": ${JSON.stringify(i.ref)}`), `${i.ref} not in the written config`);
   assert.doesNotMatch(written, /"image": "\.\/builder/, "a Dockerfile path survived the rewrite — the deploy would build it");
-  // A bare reference, deliberately: Wrangler expands it to this account's registry.
-  for (const i of out.images) assert.doesNotMatch(i.ref, /registry\.cloudflare\.com|\//);
+  // THE FULL REFERENCE, under this account's registry (deploy run 2016,
+  // 2026-09-04: Wrangler's config validator parses the image as a URL, and a
+  // bare `name:tag` is an invalid one — the tag reads as a port).
+  for (const i of out.images) {
+    assert.match(i.ref, new RegExp(`^registry\\.cloudflare\\.com/${ACCOUNT}/isibi-app-(game|site)buildcontainer:[0-9a-f]{16}$`), `not a full registry reference: ${i.ref}`);
+    assert.doesNotThrow(() => new URL(`https://${i.ref}`), "Wrangler's validator would refuse this reference");
+    assert.equal(i.tag, i.ref.slice(i.ref.lastIndexOf("/") + 1), "the build tag is not the reference's own name:tag");
+  }
+});
+
+test("without an account id nothing is asked, built or written — the reference could not name the registry", async () => {
+  const { deps, calls } = harness({ listing: [] });
+  for (const bad of [undefined, "", "not-an-account-id"]) {
+    await assert.rejects(() => main({ ...deps, accountId: bad }), /CLOUDFLARE_ACCOUNT_ID/);
+  }
+  assert.equal(calls.list + calls.builds.length + calls.writes.length, 0);
 });
 
 test("an image the registry lacks is BUILT under its id, from its own context, and pushed", async () => {
@@ -220,6 +239,10 @@ test("the deploy runs the step between the queue check and the Wrangler deploy, 
   // The script runs Wrangler at exactly that version, and refuses to guess one.
   assert.match(SCRIPT, /`wrangler@\$\{version\}`/);
   assert.match(SCRIPT, /WRANGLER_VERSION is not set/);
+  // The account id the reference names is the step's env, never the config's.
+  assert.match(SCRIPT, /accountId: process\.env\.CLOUDFLARE_ACCOUNT_ID,/, "the reference cannot name the account");
+  assert.match(SCRIPT, /const ref = `\$\{registry\}\/\$\{accountId\}\/\$\{tag\}`;/, "the reference is not registry/account/name:tag");
+  assert.doesNotMatch(CONFIG, /registry\.cloudflare\.com/, "an account's registry path is committed in the config");
   // The repository's own config still builds from the Dockerfiles: only the checkout is rewritten.
   assert.match(CONFIG, /"image": "\.\/builder\/Dockerfile"/);
   assert.match(CONFIG, /"image": "\.\/builder-game\/Dockerfile"/);

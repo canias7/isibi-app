@@ -2342,6 +2342,17 @@ and rolls nothing, so there is no wait afterwards; a push that changes
 the template, the theme files or the build service still rebuilds and
 rolls, and the wait applies to those. If we ever need to force a rebuild
 (say, to pick up a newer Node base image), a one-line change to the
-Dockerfile does it. Sweep 28 of 28, suite green. **The first deploy
-after this is the proof**: it should say "reused" for both images and
-take a few minutes rather than fifteen.
+Dockerfile does it. Sweep 28 of 28, suite green.
+
+**The first deploy with it (12:22 UTC, run 2016) failed on a detail I
+got wrong**, after doing the useful half right: the step fingerprinted
+both images, built and pushed them under their fingerprints in under
+three minutes, then the deploy refused the config because I had written
+the image reference short (`name:tag`) and Wrangler's config check wants
+the full registry address (`registry.cloudflare.com/<account>/name:tag`).
+Nothing was half-deployed; the live Worker and container are unchanged
+from 12:03. Fixed to the full address, with the account id taken from
+the deploy's own environment and never written into the repository.
+**The next deploy is the proof**: both images are already in the
+registry under their fingerprints, so it should say "reused" twice and
+finish in a few minutes.
