@@ -2655,3 +2655,32 @@ when you want.
    before firing the component case again — that run is what shows the
    differing text, if the mismatch is still there, on the English home
    page first.
+
+## 2026-09-04 — The queue is open to everyone (the 273-second wall)
+
+You asked what stops 100 people, or 100,000, and said the container and
+the Worker were the worry. The first thing that stops them is not capacity
+at all: every edit and every addon for anybody except fretwork-1 was still
+running on the customer's own connection, which the edge cuts at about 273
+seconds — and a compile alone takes 150 to 220 seconds. So off the
+allowlist most edits and every addon died the way run 21 died. The queue
+that fixes it has run every lane and every addon kind on fretwork-1 since
+September 1; the allowlist was the proving ground.
+
+It is open now. A second word beside the master switch —
+`EDIT_ASYNC_EVERYONE`, on by default in the deploy — puts every signed-in
+owner's edit and addon through the queue. The allowlist still refuses a
+wildcard on purpose (a typo there must never widen anything), which is why
+this is its own variable. Two switches to know about, both GitHub secrets:
+set `EDIT_ASYNC_EVERYONE` to `off` and redeploy, and everyone is back on the
+old path with the canary allowlist still honoured; set `EDIT_ASYNC` to `off`
+and nothing queues at all. 8 mutants, 8 killed, control survived; suite
+5,028. Builds were never affected — they have always been queued, streamed
+and resumable.
+
+Two more container-and-Worker fixes follow this one: a container the
+account cannot start right now (the platform's own "no instance" and "too
+many starts per second" answers) is waited for inside the job's own clock
+instead of failing the build and blaming the customer's words, and the
+platform rebuild drain stops serialising on a reason that expired when
+every site got its own container.

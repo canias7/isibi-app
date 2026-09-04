@@ -26,7 +26,7 @@ import {
   TERMINAL_RESERVE_MS, CORRECT_FLOOR_MS, PUBLISH_FLOOR_MS, REPAIR_FLOOR_MS, MIN_CORRECT_MS, MIN_BUILD_MS, MIN_VERIFY_MS,
   LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S, PUBLISH_LEASE_S,
   EDIT_PHASES, TERMINAL_STATES, isTerminalEdit,
-  makeEditBudget, cleanIdemKey, newLeaseOwner, editAsyncOn, editAsyncFor, readCanaryList,
+  makeEditBudget, cleanIdemKey, newLeaseOwner, editAsyncOn, editAsyncFor, editAsyncEveryone, readCanaryList,
   repairClock,
 } from "../builder/edit-job.mjs";
 
@@ -317,6 +317,84 @@ test("the deploy's own fallback is one the code reads as absent", () => {
   assert.deepEqual(readCanaryList(m[1]), [], `the deploy's fallback ${JSON.stringify(m[1])} parses as a real allowlist entry`);
   assert.equal(editAsyncFor({ EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: m[1] }, { uid: CANARY_UID, slug: "fretwork-1" }), false,
     "the shipped default routes an edit asynchronously");
+});
+
+// ── THE WIDE DOOR (2026-09-04) ────────────────────────────────────────────
+//
+// Off the allowlist every edit ran on the customer's connection, which is
+// reset at ~273 s, and a compile alone is longer than that. So the platform
+// needed a way to put EVERYONE on the queue — and the allowlist refuses a
+// wildcard on purpose. The widening is a second variable, read the way the
+// master switch is read, so a typo in the allowlist still cannot widen it and
+// the master switch still turns everything off in one step.
+
+test("EVERYONE is its own word, read the way the master switch is read", () => {
+  for (const on of ["1", "true", "on", "yes", "TRUE", " On "]) {
+    assert.equal(editAsyncEveryone({ EDIT_ASYNC_EVERYONE: on }), true, `${JSON.stringify(on)} should read as everyone`);
+  }
+  // Not a wildcard either: the words that would widen an allowlist are not
+  // affirmative words here, and neither is anything that is not a string.
+  for (const off of ["off", "0", "false", "no", "", "maybe", "*", "all", "everyone", undefined, null, 1, true, ["1"], {}]) {
+    assert.equal(editAsyncEveryone({ EDIT_ASYNC_EVERYONE: off }), false, `${JSON.stringify(off)} should read as off`);
+  }
+  assert.equal(editAsyncEveryone({}), false);
+  assert.equal(editAsyncEveryone(null), false);
+});
+
+test("EVERYONE routes any signed-in identity, and only with the master switch on", () => {
+  const env = { EDIT_ASYNC: "1", EDIT_ASYNC_EVERYONE: "on", EDIT_ASYNC_CANARY: "-" };
+  assert.equal(editAsyncFor(env, { uid: "00000000-0000-0000-0000-000000000000", slug: "someone-else-1" }), true);
+  assert.equal(editAsyncFor(env, { uid: "", slug: "fretwork-2" }), true, "a slug alone is an identity");
+  assert.equal(editAsyncFor(env, { uid: "someone", slug: "" }), true, "a uid alone is an identity");
+  // THE MASTER SWITCH STILL WINS, in every spelling of off. This is the
+  // one-step rollback the canary was built with and the wide door keeps it.
+  for (const flag of [undefined, "", "off", "0", "false", "no", "maybe"]) {
+    assert.equal(editAsyncFor({ ...env, EDIT_ASYNC: flag }, { uid: "someone", slug: "site-1" }), false,
+      `flag ${JSON.stringify(flag)} routed an edit through the wide door`);
+  }
+  // EVERYONE STILL NEEDS SOMEBODY. No identity, or one that is not a string,
+  // routes nothing — the fork asks after `authUser`, so a real request always
+  // carries one, and a shape mistake must not widen anything.
+  assert.equal(editAsyncFor(env, {}), false);
+  assert.equal(editAsyncFor(env), false);
+  assert.equal(editAsyncFor(env, { uid: ["u"], slug: ["s"] }), false);
+  assert.equal(editAsyncFor(env, { uid: 1, slug: 2 }), false);
+  // The allowlist is not consulted through the wide door, so a malformed one
+  // cannot shut it, and neither can a well-formed one that names somebody else.
+  assert.equal(editAsyncFor({ ...env, EDIT_ASYNC_CANARY: "*" }, { uid: "someone", slug: "site-1" }), true);
+  assert.equal(editAsyncFor({ ...env, EDIT_ASYNC_CANARY: "other-site" }, { uid: "someone", slug: "site-1" }), true);
+  // A NON-AFFIRMATIVE VALUE IS THE NARROW DOOR EXACTLY AS BEFORE: the
+  // allowlist decides, and an empty one routes nothing.
+  assert.equal(editAsyncFor({ EDIT_ASYNC: "1", EDIT_ASYNC_EVERYONE: "maybe", EDIT_ASYNC_CANARY: "-" }, { uid: "someone", slug: "site-1" }), false);
+  assert.equal(editAsyncFor({ EDIT_ASYNC: "1", EDIT_ASYNC_EVERYONE: "off", EDIT_ASYNC_CANARY: CANARY_UID }, { uid: CANARY_UID, slug: "" }), true);
+  assert.equal(editAsyncFor({ EDIT_ASYNC: "1", EDIT_ASYNC_EVERYONE: "off", EDIT_ASYNC_CANARY: CANARY_UID }, { uid: "someone", slug: "site-1" }), false);
+});
+
+test("the deploy ships the wide door OPEN, uploads its secret, and keeps the master switch's kill", () => {
+  // THE FALLBACK HERE IS THE INTENDED STATE, which is the opposite of every
+  // other fallback in that block and worth pinning: the queue is the path every
+  // customer belongs on, so an account that never set the secret gets it, and
+  // the secret exists to turn it OFF.
+  const yml = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
+  const m = /EDIT_ASYNC_EVERYONE: \$\{\{ secrets\.EDIT_ASYNC_EVERYONE \|\| '([^']*)' \}\}/.exec(yml);
+  assert.ok(m, "the EVERYONE secret's fallback is gone or reshaped");
+  assert.equal(editAsyncEveryone({ EDIT_ASYNC_EVERYONE: m[1] }), true,
+    `the shipped default ${JSON.stringify(m[1])} does not open the wide door`);
+  // UPLOADED, not only given a value: a name missing from the `secrets:` block
+  // is a value the Worker never sees, and the door stays shut with the yml
+  // reading as if it were open.
+  const start = yml.indexOf("secrets: |");
+  assert.ok(start > 0, "deploy.yml no longer has a `secrets: |` block");
+  const block = yml.slice(start, yml.indexOf("\n        env:", start));
+  // A name is a whole line; the last one in the block has no newline after it.
+  assert.ok(block.length > 0 && /\n\s+EDIT_ASYNC(?:\n|$)/.test(block), "the secrets block could not be read");
+  assert.match(block, /\n\s+EDIT_ASYNC_EVERYONE(?:\n|$)/, "EDIT_ASYNC_EVERYONE is not in the uploaded secrets list");
+  // AND THE MASTER SWITCH'S OWN FALLBACK IS STILL OFF: with nothing set at all,
+  // nothing is queued — the wide door is behind the switch, never beside it.
+  const f = /EDIT_ASYNC: \$\{\{ secrets\.EDIT_ASYNC \|\| '([^']*)' \}\}/.exec(yml);
+  assert.ok(f, "the master switch's fallback is gone or reshaped");
+  assert.equal(editAsyncFor({ EDIT_ASYNC: f[1], EDIT_ASYNC_EVERYONE: m[1], EDIT_ASYNC_CANARY: "-" }, { uid: "someone", slug: "site-1" }), false,
+    "the shipped defaults queue an edit with the master switch unset");
 });
 
 test("no build route reads the canary configuration", () => {

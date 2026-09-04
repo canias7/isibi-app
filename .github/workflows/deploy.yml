@@ -150,6 +150,7 @@ jobs:
             XAI_API_KEY
             EDIT_ASYNC
             EDIT_ASYNC_CANARY
+            EDIT_ASYNC_EVERYONE
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -294,6 +295,23 @@ jobs:
           # `[a-z0-9]`, so it parses to an empty list and every edit stays
           # synchronous. Non-empty for wrangler, absent for the code.
           EDIT_ASYNC_CANARY: ${{ secrets.EDIT_ASYNC_CANARY || '-' }}
+          # ── EVERYONE (2026-09-04) ──────────────────────────────────────────
+          #
+          # The wide door. With the master switch on, every signed-in owner's
+          # edit and addon files a job and leaves the connection — because the
+          # synchronous path is reset at ~273 s and a compile alone is longer
+          # than that, so off the allowlist most edits and every addon died.
+          # Read the way EDIT_ASYNC is read: an affirmative word or nothing,
+          # never a wildcard in the allowlist above, which keeps working with
+          # this off and is not consulted with it on.
+          #
+          # ON BY DEFAULT, and that is the one fallback in this block that is
+          # the INTENDED state rather than the absent one: the queue is the
+          # path every customer belongs on (proved on fretwork-1, runs 22–39),
+          # and the secret exists to turn it OFF — set it to `off` in GitHub
+          # and redeploy, and every edit is synchronous again with the canary
+          # allowlist still honoured. `EDIT_ASYNC` off overrides both doors.
+          EDIT_ASYNC_EVERYONE: ${{ secrets.EDIT_ASYNC_EVERYONE || 'on' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

@@ -2209,8 +2209,20 @@ what the work cost.
   charges, metered on real usage via `pageCredits`; finalize is a state flip.
   The routing call cost **2** on Grok (not the ~0.3 quoted below, which was
   Haiku). Phase timings worth having: `pick_lanes` 7.5s, `lane:css` 47s,
-  `lane:correct` **134s**, `publish:1` 95s, `publish:2` 120s. Still only
-  `fretwork-1` on the allowlist; **general traffic is NOT enabled.**
+  `lane:correct` **134s**, `publish:1` 95s, `publish:2` 120s. Only
+  `fretwork-1` was on the allowlist until 2026-09-04; **THE WIDE DOOR IS
+  OPEN SINCE THEN** (owner, after the capacity review: *"lets start
+  fixing"*). Off the allowlist every edit ran on the customer's own
+  connection, reset at ~273 s (an addon died at 257 s on run 21), and a
+  compile alone is 150–220 s — so most edits and every addon failed for
+  every customer but one. `EDIT_ASYNC_EVERYONE` (`editAsyncEveryone`,
+  affirmative words only, `on` by default in `deploy.yml`, a GitHub secret
+  to turn off) puts every signed-in owner's edit and addon through the
+  queue; `EDIT_ASYNC` off still stops everything in one step, and the
+  allowlist still refuses a wildcard, which is why the widening is its own
+  variable rather than an entry. `test/edit-job.test.mjs`; sweep 8/8,
+  control survived. Builds were never on this fork: always queued, streamed
+  and resumable.
 - **THE LANE SWEEP RAN, 19 OF 21 LANES, ON `fretwork-1` THROUGH THE QUEUE
   (2026-09-01/02, `.github/workflows/lane-sweep.yml`, `scripts/lane-sweep.mjs`,
   screenshots in `docs/edits/`).** One real ask per lane, judged by reading the

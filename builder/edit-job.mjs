@@ -572,12 +572,38 @@ export function readCanaryList(raw) {
 }
 
 /**
+ * EVERYONE — the whole platform, once the master switch says on.
+ *
+ * ── A SECOND WORD, NOT A WILDCARD (2026-09-04) ─────────────────────────────
+ *
+ * `readCanaryList` refuses `*` and `all` on purpose: widening a canary to every
+ * customer must never be what a typo in the allowlist does. So the widening is
+ * its own variable, read exactly the way the master switch is read — an
+ * affirmative word or nothing — and it still needs the master switch:
+ * `EDIT_ASYNC` off keeps every edit synchronous whatever this says, which keeps
+ * the one-step rollback the canary was built with.
+ *
+ * WHY IT EXISTS. A synchronous edit is reset at ~273 s and an addon died at
+ * 257 s (run 21), and a compile alone is 150–220 s — so off the allowlist the
+ * edit path fails for most edits and the addon path for all of them. The queue
+ * has run every lane and every addon kind on fretwork-1 (runs 22–39); the
+ * allowlist was the proving ground, this is the door.
+ */
+export function editAsyncEveryone(env) {
+  const v = env && env.EDIT_ASYNC_EVERYONE;
+  if (typeof v !== "string") return false;
+  return ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
+}
+
+/**
  * Does THIS edit go through the queue?
  *
- * BOTH HAVE TO SAY YES. The flag is the master switch and the allowlist is the
- * blast radius; either alone routes nothing. An empty allowlist with the flag
- * on is a deploy that changed no behaviour at all, which is exactly what a
- * first deployment of this should be.
+ * THE MASTER SWITCH HAS TO SAY YES, AND THEN ONE OF TWO DOORS. The wide one
+ * (`editAsyncEveryone`) admits any identity at all; the narrow one is the
+ * allowlist, the blast radius the path was proved behind. Either door alone
+ * routes nothing with the switch off. An empty allowlist with the switch on and
+ * the wide door shut is a deploy that changed no behaviour at all, which is
+ * exactly what the first deployment of this was.
  *
  * MATCHED ON EITHER THE ACCOUNT OR THE SITE, because the two questions a canary
  * asks are different: one account's every edit, or one site's every edit
@@ -585,12 +611,17 @@ export function readCanaryList(raw) {
  */
 export function editAsyncFor(env, { uid = "", slug = "" } = {}) {
   if (!editAsyncOn(env)) return false;
-  const list = readCanaryList(env && env.EDIT_ASYNC_CANARY);
-  if (!list.length) return false;
   // NON-STRINGS ARE REFUSED, NOT COERCED. `String(["u1"])` is `"u1"`, and a
   // shape mistake that let an array match an allowlist entry would widen the
   // canary silently — the one direction this must never fail in.
   const u = typeof uid === "string" ? uid.toLowerCase() : "";
   const s = typeof slug === "string" ? slug.toLowerCase() : "";
+  // EVERYONE STILL NEEDS SOMEBODY. A call with no string identity has nothing
+  // to route and is refused under the wide door exactly as under the narrow
+  // one — the fork only ever asks after `authUser`, so a real request always
+  // carries one, and a shape mistake cannot widen anything.
+  if (editAsyncEveryone(env)) return !!(u || s);
+  const list = readCanaryList(env && env.EDIT_ASYNC_CANARY);
+  if (!list.length) return false;
   return (!!u && list.includes(u)) || (!!s && list.includes(s));
 }
