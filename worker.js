@@ -6249,6 +6249,15 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "" }) {
   let cancelled = false;
   let beats = 0;
   let reserves = 0;
+  // ── WHAT THE LEDGER REFUSED (2026-09-05) ──────────────────────────────
+  //
+  // A reserve the ledger answered with anything but ok — `insufficient`, a
+  // transport failure, a shape the helper could not read — counted APART from
+  // the reserves that landed. The two were one `0` to the publish gate: a job
+  // whose only reserve was refused looked exactly like a rung with no model
+  // call and was exempted, and the work shipped for nothing. Kept as the
+  // reasons, in order, so the gate can say which one.
+  const refusals = [];
   return {
     id, owner, budget, trace,
     // THE IMMUTABLE RECORD, carried so the front door can resolve identity from
@@ -6273,6 +6282,10 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "" }) {
      */
     reserves: () => reserves,
     noteReserve() { reserves++; },
+    /** How many reserves the ledger refused, and why — see `refusals` above. */
+    refused: () => refusals.length,
+    refusals: () => refusals.slice(),
+    noteRefusal(why) { refusals.push(String(why || "rpc")); },
     /**
      * Renew the lease and pick up a cancel, in one round trip.
      *
@@ -9256,6 +9269,21 @@ async function fetchSiteFonts(families = []) {
  * that the process never got to judge the code at all.
  */
 function compileMsg(pub, theirs) {
+  // ── A LEDGER THAT SAID NO (2026-09-05) ────────────────────────────────
+  //
+  // The spine refuses the publish when any reserve of the job was refused —
+  // see `unbilled` in `recompileAndPublish` — and that is the customer's
+  // balance or our billing service, never their change and never a compile.
+  // Named BEFORE the `ours` test below: a short balance is neither ours nor a
+  // compile, and the fallback sentence would call it one. "Wasn't published"
+  // rather than "nothing was changed", because a rung that writes rows before
+  // it reserves has already written them; what is true on every rung is that
+  // nothing published and, once the consumer's refund lands, nothing charged.
+  if (pub && pub.error === "unbilled") {
+    return pub.detail === "insufficient"
+      ? "That didn't go through — there aren't enough credits for it, so it wasn't published and nothing was charged. Top up and send it again."
+      : "That didn't go through — our billing service didn't answer, so it wasn't published and nothing was charged. Try again in a moment.";
+  }
   if (!pub || !pub.ours) return theirs;
   // ── AND A THIRD (2026-09-02) ─────────────────────────────────────────────
   //
@@ -9453,6 +9481,32 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
+  // ── A LEDGER THAT SAID NO STOPS THE PUBLISH (2026-09-05) ─────────────────
+  //
+  // Every charge a queued job makes is a reserve placed before the commit
+  // point: the rungs as each finishes, the translation funnel below, the
+  // repair round inside the seam. A reserve the ledger REFUSED answered 0
+  // exactly as a rung with no model call does, `reserves()` stayed at zero,
+  // and the free-rung step before the gate exempted the job — so the work
+  // shipped for nothing. Driven 2026-09-05 against the real consumer: a
+  // refused first reserve published under `exempt`, cost 0; a second reserve
+  // refused after the first landed published with the translation unpaid.
+  // Reachable at any balance below a bill, which the owner's own account was.
+  //
+  // Asked THREE times, each at the earliest point a refusal can be known and
+  // before the next thing that costs: here, before a translation is bought;
+  // after the translation charge, before the compile; and before the gate,
+  // after the seam's repair round. The consumer's own refund returns whatever
+  // did land, and `compileMsg` names the reason. A job that reserved NOTHING
+  // is still a free rung and is exempted before the gate exactly as before —
+  // the two zeros are different zeros now, and that is the whole change.
+  const unbilled = () => {
+    if (!job || typeof job.refused !== "function" || !(job.refused() > 0)) return null;
+    const why = (typeof job.refusals === "function" && job.refusals()[0]) || "rpc";
+    tm("publish:unbilled", "fail", { why, refused: job.refused() });
+    return { ok: false, error: "unbilled", ours: why !== "insufficient", detail: why };
+  };
+  { const u = unbilled(); if (u) return u; }
   let look = null, logo = "", icon = ""
   let verify = null, langStrings = null;
   // THE MODEL'S OWN STYLESHEET, read here for the reason every other look key is:
@@ -9738,6 +9792,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       tm("translate:charge", "fail", { calls: langUsage.length, error: String((e && e.message) || e).slice(0, 200) });
     }
   }
+  // The translation funnel is the second place a reserve can be refused, and
+  // the compile is the next thing that costs — asked again here, see `unbilled`.
+  { const u = unbilled(); if (u) return u; }
 
   // A DRAINED CONTAINER IS NOT THE CUSTOMER'S BROKEN CODE, and this path treated
   // it as exactly that. Measured live 2026-08-11, in the middle of a deploy: a
@@ -10056,6 +10113,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // AND IT MARKS `publish_started_at`, which is what makes everything after this
   // point un-refundable-by-default: from here the site Worker upload may or may
   // not have landed, and nobody outside can tell.
+  // The seam's repair round is the last place a reserve can be refused (the
+  // addon's #2), so the question is asked once more — before the free-rung
+  // step, which must never see a refusal, and before the gate. See `unbilled`.
+  { const u = unbilled(); if (u) return u; }
   // ── A FREE RUNG IS EXEMPTED FIRST ───────────────────────────────────────
   //
   // The gate grants only a job that is `reserved` or `exempt`, and a rung that
@@ -19199,6 +19260,12 @@ async function handleRequest(request, env, ctx) {
                 // Counted only on `ok`: a refused or unanswered reserve leaves
                 // the row at `none`, and the gate must go on reading it that way.
                 if (r && r.ok === true) { if (typeof eJob.noteReserve === "function") eJob.noteReserve(); return Number(r.charged) || 0; }
+                // RECORDED, NEVER SWALLOWED (2026-09-05). A refused reserve
+                // answers 0 here exactly as a free rung does, and the spine's
+                // gate — the one place every charge passes before the commit
+                // point — reads the count and refuses the publish. Answering
+                // 0 keeps every caller as it is; the stop is the spine's.
+                if (typeof eJob.noteRefusal === "function") eJob.noteRefusal((r && r.error) || "rpc");
                 return 0;
               }
               try { return await collectCredits(eAuth, pageCredits(...parts)); } catch { return 0; }
@@ -21916,6 +21983,8 @@ async function handleRequest(request, env, ctx) {
               if (aJob) {
                 const r = await editRpc(env, "edit_reserve", { p_id: aJob.id, p_seq: seq, p_cost: bill });
                 if (r && r.ok === true) { if (typeof aJob.noteReserve === "function") aJob.noteReserve(); return Number(r.charged) || 0; }
+                // RECORDED, NEVER SWALLOWED — the edit route's rule (2026-09-05).
+                if (typeof aJob.noteRefusal === "function") aJob.noteRefusal((r && r.error) || "rpc");
                 return 0;
               }
               try { return await collectCredits(aAuth, bill); } catch { return 0; }

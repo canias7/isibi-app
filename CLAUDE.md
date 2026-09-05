@@ -485,7 +485,7 @@ express the change. Cheapest first:
 
 | Layer | What it changes | Cost |
 |---|---|---|
-| `text` | words in the page source | 0 credits |
+| `text` | words in the page source | 1 (one small call; the old "0" was the Haiku-era rounding, measured 1 on run 10) |
 | `data` | rows, and a list's ORDER | ~0.3 |
 | `rules` | schema features enforced in Postgres or read from `_meta` | ~0.3 |
 | `look` | the EDIT PATH — 17 lanes, 8 of which act (see below) | 1 |
@@ -2682,8 +2682,10 @@ what the work cost.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,079
-  (2026-09-05, after the job runner's guards — the runtime's thirteen, the
+  build and the pre-list payload added sixteen); the unit suite is 5,088
+  (2026-09-05, after the refused-reservation guards — five driven consumer
+  runs and four source reads in `test/edit-reserve-refused.test.mjs` — and
+  before them 5,079 after the job runner's guards — the runtime's thirteen, the
   runner's sixteen, the Dockerfile guard's five — and before them the drain's
   concurrency case, the wide door's three and
   container room's sixteen —
@@ -3223,6 +3225,44 @@ the spine exempts a zero-reserve job immediately before `edit_may_publish`;
 Section 16 of `scripts/edit-rpc-check.sql` drives it (7 checks, and its first
 draft filed the free job on a slug section 15 had just put under review — a
 site under review takes no new edits, so every check read `no-job`).
+
+**A REFUSED RESERVATION READ AS A FREE RUNG (2026-09-05, found by driving,
+never live).** The state above made a second gap: a reserve the ledger
+REFUSED — `insufficient`, or a transport failure — answered 0 from the funnel
+exactly as a rung with no model call does, `reserves()` stayed at zero, the
+spine exempted the job, the gate granted `exempt`, and the work shipped for
+nothing; a later reserve refused after an earlier one landed shipped with the
+later work unpaid. Nothing logged it: `editRpc` logs only transport failures
+and the funnel returned 0 silently. Driven against the real consumer under
+fakes: refused #1 → `edit_exempt` → published, cost 0; #2 refused after #1
+landed → published, the translation unpaid. Reachable at any balance below a
+bill, which the owner's own account (5 credits against a 12–21-credit addon)
+was. **FIXED 2026-09-05 (stage 1a-i of the architecture plan, owner: *"ok
+start"*):** the job context counts refusals apart from reserves (`refused()`,
+`refusals()`, `noteRefusal`), both funnels record the ledger's own reason on
+any answer but ok and still return 0, and the spine asks `unbilled()` THREE
+times — before the translations, after the translation charge and before the
+compile, and before the free-rung step and the gate — answering `error:
+"unbilled"` (`ours` false for `insufficient`, true for a dead ledger) so
+nothing is compiled or written; the consumer's own refund returns whatever did
+land, and `compileMsg` names the reason BEFORE its `ours` test ("there aren't
+enough credits for it, so it wasn't published and nothing was charged" —
+"wasn't published", not "nothing was changed", because a rung that writes rows
+before it reserves has already written them). A job that reserved NOTHING is
+still exempted as before: the two zeros are different zeros now.
+`test/edit-reserve-refused.test.mjs` DRIVES the consumer through
+`worker.queue` for five cases (first refused, later refused, a dead ledger, a
+duplicate delivery's `repeat` answer counting as landed, a page removal still
+exempted) and reads the funnels, the context, the three asks and the sentence
+out of the source. **Sweep: 12 mutants, 12 killed, none unapplied, the
+comment-only control survived.** Not proven live; the proof is free — an
+addon ask on fretwork-1 at a balance below its bill now answers the credits
+sentence with the build unmoved. **Still open, the rest of stage 1a:** the
+`data` rung and the pageless addon place their reserve AFTER the write, so a
+refusal there prevents the publish but not the rows or the DDL already made;
+the synchronous path's collect has no refusal count; the addon funnel's
+refusal is guarded by a source read, not a drive, because no driven addon
+route harness exists.
 
 **A PUSH TO MAIN ROLLS THE CONTAINER UNDER WHATEVER IS RUNNING (2026-09-01,
 the first lane sweep).** Two pushes that touched only `scripts/` and `test/`

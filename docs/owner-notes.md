@@ -2784,3 +2784,38 @@ To prove it live: set `JOB_RUNNER_CANARY` to `fretwork-1` in the GitHub
 secrets, redeploy, wait the roll, make one small edit on fretwork-1 (about
 1 credit), and the Worker log will say "job runner: fired". Then
 `JOB_RUNNER_EVERYONE=on`.
+
+## 2026-09-05 — A refused reservation no longer publishes for free
+
+The first fix off the plan you approved ("ok start"), and the smallest one.
+Found by running our own queue consumer in the sandbox against a fake ledger:
+when a queued edit or add-on asked the ledger to reserve credits and the
+ledger said no — not enough credits, or the ledger not answering — the job
+carried on, the publish gate mistook it for a free step that had nothing to
+charge, and the site published for nothing. One step later, the same thing:
+a translation refused after the edit's own reserve had landed shipped with
+the translation unpaid. Nothing logged either. At your balance of 5 credits,
+the next add-on on fretwork-1 (12 to 21 credits) would have gone out free.
+
+Now the job remembers every refusal apart from every reserve that landed, and
+the publish spine asks three times — before buying a translation, before the
+compile, and right before the gate — and stops if any reserve was refused:
+nothing compiled, nothing written, whatever was reserved goes back through
+the usual refund, and the customer reads "there aren't enough credits for it,
+so it wasn't published and nothing was charged", or "our billing service
+didn't answer" when it is ours. A step that genuinely makes no model call,
+like taking a page away, is still free and still publishes.
+
+Driven end to end in the sandbox through the real consumer, five cases: first
+reserve refused, a later one refused, a dead ledger, a duplicate delivery,
+and a free page removal. 12 mutants, 12 killed, control survived; full suite
+5,088 green. On the branch, not deployed. Proving it live costs nothing: one
+add-on ask on fretwork-1 at the current balance should answer the credits
+sentence with the site unmoved and the job row `failed`, billing `none`.
+
+Still open from this stage, and next: a `data` edit writes its rows, and a
+pageless add-on creates its tables, BEFORE their reserve, so a refusal there
+stops the publish but not those writes — the reserve has to move ahead of
+the write. The synchronous path (the flag-off route) has no refusal count
+yet. And the add-on route's own funnel is guarded by reading the source, not
+by driving it, because no driven add-on harness exists.
