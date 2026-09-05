@@ -318,9 +318,16 @@ async function drive({ env, answer = () => new Response(JSON.stringify({ ok: tru
   const ns = fakeNamespace(answer);
   const supabase = [];
   const realFetch = globalThis.fetch;
+  // THE CLAIM IS ANSWERED (stage 6): the consumer claims the row BEFORE it
+  // asks a container, so a stub that refused every claim would fire nothing
+  // and prove nothing about the fire. Every other RPC is answered with junk
+  // the consumer tolerates, as before.
   globalThis.fetch = async (url, init) => {
-    supabase.push(String(url));
-    return new Response(JSON.stringify({ claimed: false, error: "test" }), { status: 200, headers: { "content-type": "application/json" } });
+    const u = String(url);
+    supabase.push(u);
+    const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { "content-type": "application/json" } });
+    if (/rpc\/edit_claim$/.test(u)) return json({ ok: true, claimed: true, state: "claimed", billing: "none", uid: UID, slug: SLUG, needs_review: false, deferrals: 0 });
+    return json({ claimed: false, error: "test" });
   };
   let acked = 0;
   try {
@@ -357,11 +364,34 @@ test("with the canary naming the site, the consumer FIRES the job at the site's 
   assert.equal(launch.secrets.CREDITS_MINT_SECRET, "mint");
   assert.equal(launch.secrets.SITE_SECRETS_KEY, "platform-secret");
   assert.equal("STRIPE_SECRET_KEY" in launch.secrets, false, "a Stripe key travelled into the container");
-  // THE CONSUMER DID NOT RUN THE JOB: no claim went to Supabase, and the
-  // stored request is still there for the runner to read and delete.
-  assert.deepEqual(supabase, [], "the inline consumer ran as well as the container");
+  // THE CONSUMER CLAIMED THE ROW FIRST AND HANDED THE LEASE ON (stage 6):
+  // ONE claim, before the container was asked, its owner's name in the
+  // launch for the runner to take the lease over from — and it did NOT run
+  // the job itself: no replay, no finalize, no refund, and the stored request
+  // still there for the runner to read and delete.
+  assert.deepEqual(supabase.map((u) => (u.match(/rpc\/(\w+)$/) || [])[1]), ["edit_claim"], "the consumer did more than claim before firing");
+  assert.match(String(launch.holder || ""), /^c_[A-Za-z0-9_-]{4,}$/, "the launch does not carry the consumer's lease name for the runner to take over");
   assert.equal(bucket.store.has(EDIT_JOB_PREFIX + ID), true, "the job object was deleted before the runner could read it");
   assert.equal(acked, 1);
+});
+
+test("with the claim refused for the site being busy, nothing is fired: the message is re-sent with a delay instead (stage 6)", async () => {
+  const worker = await loadWorker();
+  const bucket = fakeBucket({ [EDIT_JOB_PREFIX + ID]: JSON.stringify(packEditJob({ url: "https://" + APP_ZONE + "/api/site/edit", body: "{}", uid: UID, slug: SLUG, secret: SECRET, at: Date.now() })) });
+  const ns = fakeNamespace(() => new Response(JSON.stringify({ ok: true, id: ID, pid: 7 }), { status: 200 }));
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => new Response(JSON.stringify(/rpc\/edit_claim$/.test(String(url))
+    ? { ok: true, claimed: false, error: "site-busy", gave_up: false, other: "e_other", deferrals: 3, state: "queued" }
+    : { ok: false, error: "unexpected" }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    await worker.queue({ messages: [{ body: { kind: EDIT_JOB_KIND, id: ID }, ack() {} }] },
+      { SITES_BUCKET: bucket, SITE_BUILD_CONTAINER: ns, SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "mint", SITE_SECRETS_KEY: "platform-secret", JOB_RUNNER_EVERYONE: "on",
+        BUILD_QUEUE: { async send(msg, opts) { sent.push({ msg, opts }); } } }, makeCtx());
+  } finally { globalThis.fetch = realFetch; }
+  assert.equal(ns.calls.length, 0, "a busy site was fired at a container");
+  assert.deepEqual(sent.map((s) => s.msg), [{ kind: EDIT_JOB_KIND, id: ID }], "the message was not re-sent");
+  assert.ok(sent[0].opts && sent[0].opts.delaySeconds > 0, "the re-send carries no delay");
 });
 
 test("with the flags off, nothing is fired and the consumer runs the job itself — byte for byte the old path", async () => {
@@ -371,25 +401,36 @@ test("with the flags off, nothing is fired and the consumer runs the job itself 
   assert.equal(acked, 1);
 });
 
+// THE INLINE RUN IS UNDER THE CLAIM THE CONSUMER ALREADY MADE (stage 6): one
+// `edit_claim` for the whole job, and the run itself is what comes after it
+// (the replay's own RPCs — finalize, refund — under the same lease), never a
+// second claim, which would answer `leased` against our own lease and stop.
+const claims = (urls) => urls.filter((u) => /rpc\/edit_claim$/.test(u)).length;
+const ran = (urls) => urls.some((u) => /rpc\/edit_(finalize|refund)$/.test(u));
+
 test("a container without the endpoint (an older image), or refusing, is the inline path", async () => {
   for (const [status, body] of [[404, "nf"], [429, JSON.stringify({ ok: false, error: "too many jobs on this container" })], [500, JSON.stringify({ ok: false })], [200, JSON.stringify({ ok: false, error: "x" })]]) {
     const { ns, supabase } = await drive({ env: { SITE_SECRETS_KEY: "platform-secret", JOB_RUNNER_CANARY: SLUG }, answer: () => new Response(body, { status }) });
     assert.equal(ns.calls.length, 1, "no fire on " + status);
-    assert.ok(supabase.some((u) => /rpc\/edit_claim/.test(u)), "on " + status + " the consumer did not run the job itself");
+    assert.equal(claims(supabase), 1, "on " + status + " the consumer claimed " + claims(supabase) + " times");
+    assert.ok(ran(supabase), "on " + status + " the consumer did not run the job itself");
   }
 });
 
 test("the canary naming another identity, or no secrets key to mint with, is the inline path with nothing fired", async () => {
   const other = await drive({ env: { SITE_SECRETS_KEY: "platform-secret", JOB_RUNNER_CANARY: "other-1" } });
   assert.equal(other.ns.calls.length, 0);
-  assert.ok(other.supabase.some((u) => /rpc\/edit_claim/.test(u)));
+  assert.equal(claims(other.supabase), 1);
+  assert.ok(ran(other.supabase));
   const noKey = await drive({ env: { JOB_RUNNER_CANARY: SLUG } });
   assert.equal(noKey.ns.calls.length, 0, "a job was fired with no key to open the gateway");
-  assert.ok(noKey.supabase.some((u) => /rpc\/edit_claim/.test(u)));
-  // EVERYONE fires for a site the canary never named.
+  assert.equal(claims(noKey.supabase), 1);
+  assert.ok(ran(noKey.supabase));
+  // EVERYONE fires for a site the canary never named — after the one claim.
   const everyone = await drive({ env: { SITE_SECRETS_KEY: "platform-secret", JOB_RUNNER_EVERYONE: "on" } });
   assert.equal(everyone.ns.calls.length, 1);
-  assert.deepEqual(everyone.supabase, []);
+  assert.equal(claims(everyone.supabase), 1);
+  assert.equal(ran(everyone.supabase), false, "a fired job was also run inline");
 });
 
 test("the fire waits for room and shares one clock across its attempts, read off the Worker", () => {
@@ -404,11 +445,14 @@ test("the fire waits for room and shares one clock across its attempts, read off
   assert.doesNotMatch(fn, /SITES_BUCKET\.delete\(/, "the fire deletes the job object the runner must read");
   // The queue handler falls back for every non-fired answer but says nothing for "off".
   const q = src.slice(src.indexOf("async queue(batch, env, ctx)"), src.indexOf("async function runQueuedSiteBuild("));
-  assert.match(q, /const fire = await fireContainerJob\(env, edit\.id\);/);
-  assert.match(q, /if \(fire\.fired\)[\s\S]*?else \{[\s\S]*?await runQueuedSiteEdit\(env, ctx, edit\.id\);/);
-  // And the export the runner calls dispatches to the three consumers.
+  // RE-ANCHORED 2026-09-05 (stage 6): the consumer claims before it fires,
+  // the launch carries its lease name, and the inline run is under that lease.
+  assert.match(q, /fire = await fireContainerJob\(env, edit\.id, \{ holder: owner \}\);/);
+  assert.match(q, /if \(fire\.fired\)[\s\S]*?else \{[\s\S]*?await runQueuedSiteEdit\(env, ctx, edit\.id, \{ lease: owner, claim \}\);/);
+  // And the export the runner calls dispatches to the three consumers, the
+  // edit under a takeover from the launch's holder.
   const ex = src.slice(src.indexOf("export async function runContainerJob("), src.indexOf("\n}\n", src.indexOf("export async function runContainerJob(")));
-  assert.match(ex, /kind === "edit"\) return runQueuedSiteEdit\(env, ctx, id\)/);
+  assert.match(ex, /kind === "edit"\) return runQueuedSiteEdit\(env, ctx, id, \{ takeOver: /);
   assert.match(ex, /kind === "build"\) return runQueuedSiteBuild\(env, ctx, id\)/);
   assert.match(ex, /kind === "resume"\) return runResumedSiteBuild\(env, ctx, id\)/);
 });

@@ -2858,7 +2858,15 @@ test("the source that produced a build is stored, and read back on a revise", ()
   // stops salvage stubbing a working page. The route's own `revise:` field
   // carries a comment making exactly this correction; the partner gate was
   // never moved with it. What matters is that a revise reads it back.
-  assert.match(worker, /priorPages: existing \? await loadSiteSource\(env, slug\) : null/,
+  // RE-ANCHORED 2026-09-05 (stage 6): the reader is `loadSiteSourceForEdit`
+  // now — the same read, behind the hop that first repairs the editable copy
+  // from the pointer's version when a failed activation left it behind. This
+  // pinned the bare `loadSiteSource(` spelling and went red for that change,
+  // reporting the revise anchor as gone while it was being read more safely.
+  // Either spelling is the property this guard holds (the source arrives,
+  // gated on `existing`); WHICH reader the four editing call sites use is
+  // `test/site-busy.test.mjs`'s to hold, and it holds all four by name.
+  assert.match(worker, /priorPages: existing \? await loadSiteSource(?:ForEdit)?\(env, slug\) : null/,
     "…and a revise must read it back, gated on OWNERSHIP rather than the stored brief");
   // …and the last hop is in build-call.mjs, where `pagesRequest` is now called.
   assert.match(worker, /genPages\(keysFrom\(env\),(?:[^;]*?)priorPages\b/,

@@ -51,12 +51,15 @@ import {
   MIN_BUILD_MS,
   // The job runner (2026-09-04): who runs a queued job, what it is handed.
   jobRunnerOn, jobRunnerFor, jobSecrets, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
+  // One job per site at a time (stage 6, 2026-09-05): how long a refused
+  // claim waits before its message is re-sent.
+  SITE_BUSY_DEFER_S,
 } from "./builder/edit-job.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
-import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, isRowSlug, buildOutcome, rowVerdict, genBound } from "./builder/build-lease.mjs";
+import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, isRowSlug, buildOutcome, rowVerdict, genBound, BUSY_BUILD_MSG, BUSY_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -125,6 +128,10 @@ import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "
 import {
   mintVersion, stageBuild, activateBuild, readPointer, readBuild, listBuilds, pruneBuilds, deleteAllBuilds,
   assetKeyFor, mergeVersions, stateConfigOf, POINTER_KEY,
+  // THE EDITABLE COPY KNOWS WHICH BUILD IT CAME FROM (stage 6, 2026-09-05):
+  // the marker every state copy ends with, and the repair a job makes before
+  // it reads a site whose copy is behind the pointer — see `ensureEditableState`.
+  readHead, writeHead, repairNeeded, repairEditable, repairConfigOf, sameJson, buildPrefix, STATE_DIR,
 } from "./site-builds.mjs";
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
@@ -2613,22 +2620,49 @@ export default {
         // an edit's request as a build.
         const edit = readEditMessage(message && message.body);
         if (edit) {
-          // ── THE JOB RUNS IN THE SITE'S CONTAINER WHEN IT CAN (2026-09-04) ──
+          // ── THE CLAIM COMES FIRST, HERE, BEFORE ANY CONTAINER IS ASKED ──────
           //
-          // Owner: "that stuff gotta run on container". For the identities the
-          // runner flags admit, this fires the job at the site's own container
-          // — which runs this very module under Node and executes
-          // `runQueuedSiteEdit` itself — and returns; the invocation is over
-          // in seconds instead of holding a queue slot for the whole edit. A
-          // container that cannot take it (no room after the wait, an image
-          // without the endpoint, a refusal) is this consumer running the job
-          // exactly as it did before, said so in the log.
-          const fire = await fireContainerJob(env, edit.id);
-          if (fire.fired) {
-            console.log("job runner: fired", edit.id, "into the site's container");
+          // (stage 6, 2026-09-05) The site's own lock answers the claim: a
+          // site another job holds — a live lease, a publish in flight, the
+          // platform rebuilding it — refuses it `site-busy`, and THIS consumer
+          // is the one that can wait, by sending its own message again with a
+          // delay (the container's runtime cannot send). The refusal past the
+          // cap has already failed the row inside the RPC; the reply that says
+          // so is stored here, and nothing runs. A row claimed here holds the
+          // site from this moment: the runner takes the lease over by name, or
+          // the inline consumer runs under it — never a second claim.
+          const owner = newLeaseOwner();
+          const claim = await editRpc(env, "edit_claim", { p_id: edit.id, p_owner: owner, p_ttl: LEASE_TTL_S });
+          if (claim && claim.claimed !== true && claim.error === "site-busy") {
+            await deferEditJob(env, edit.id, claim);
+          } else if (!claim || claim.claimed !== true) {
+            console.log("edit queue: not claimed", edit.id, String((claim && claim.error) || "rpc"));
           } else {
-            if (fire.why !== "off") console.log("job runner: inline", edit.id, "—", fire.why);
-            await runQueuedSiteEdit(env, ctx, edit.id);
+            // THE LEASE IS RENEWED WHILE THE FIRE WAITS FOR ROOM (up to
+            // JOB_FIRE_MS), so a slow container cannot let it lapse under the
+            // sweep; cleared before the inline run, which beats for itself.
+            const beat = buildRowBeat(env, edit.id, owner);
+            let fire;
+            try {
+              // ── THE JOB RUNS IN THE SITE'S CONTAINER WHEN IT CAN (2026-09-04) ──
+              //
+              // Owner: "that stuff gotta run on container". For the identities the
+              // runner flags admit, this fires the job at the site's own container
+              // — which runs this very module under Node and executes
+              // `runQueuedSiteEdit` itself, taking the lease over from `owner` —
+              // and returns; the invocation is over in seconds instead of
+              // holding a queue slot for the whole edit. A container that cannot
+              // take it (no room after the wait, an image without the endpoint,
+              // a refusal) is this consumer running the job exactly as it did
+              // before, said so in the log.
+              fire = await fireContainerJob(env, edit.id, { holder: owner });
+            } finally { clearInterval(beat); }
+            if (fire.fired) {
+              console.log("job runner: fired", edit.id, "into the site's container");
+            } else {
+              if (fire.why !== "off") console.log("job runner: inline", edit.id, "—", fire.why);
+              await runQueuedSiteEdit(env, ctx, edit.id, { lease: owner, claim });
+            }
           }
         } else if (msg) {
           await runQueuedSiteBuild(env, ctx, msg.id);
@@ -2861,16 +2895,24 @@ async function runSiteRebuild(env) {
       // writes, and without this the claim would silently "succeed" on every
       // tick — which is the duplicate run, on the one failure that produces it
       // continuously rather than occasionally.
+      //
+      // THROUGH THE SAME LOCK AN EDIT'S CLAIM TAKES (stage 6, 2026-09-05).
+      // `rebuild_claim` re-states dueness inside Postgres exactly as the
+      // PATCH it replaced did, and asks the site's own question first: a
+      // site an edit, an addon or a build holds answers `busy` — deferred by
+      // the drain, never a failure — and this site's own earlier run still
+      // inside its window answers `running`, which is the claim the PATCH
+      // would have lost on dueness, and loses here the same way. A won claim
+      // leaves the mark the next edit's claim reads (`running_until`); the
+      // drain's forget and defer clear it.
+      //
+      // A CLAIM THAT CANNOT BE RECORDED IS A CLAIM LOST, still: a refusal, a
+      // transport failure and an unreadable answer are all `false`.
       claim: async (slug, sec) => {
-        const p = await rest(`site_rebuild?slug=eq.${encodeURIComponent(slug)}` +
-          `&next_try_at=lte.${encodeURIComponent(new Date().toISOString())}`, {
-          method: "PATCH",
-          headers: { Prefer: "return=representation" },
-          body: JSON.stringify({ next_try_at: new Date(Date.now() + Number(sec) * 1000).toISOString() }),
-        });
-        if (!p.ok) return false;
-        const got = await p.json().catch(() => null);
-        return Array.isArray(got) && got.length > 0;
+        const r = await editRpc(env, "rebuild_claim", { p_slug: slug, p_sec: Math.max(10, Math.min(3600, Math.round(Number(sec) || 600))) });
+        if (!r || r.ok !== true) return false;
+        if (r.busy === true) return "busy";
+        return r.won === true;
       },
       rebuild: async (slug) => {
         // THE SITE'S OWN STORED SOURCE, WHICH IS WHY THIS COSTS NO CREDITS. A
@@ -2883,7 +2925,7 @@ async function runSiteRebuild(env) {
         // genuinely sourceless site into the same null and the two cannot be told
         // apart here. Retrying heals the blip; a site that really has no stored
         // source parks at the backoff cap and stays visible with this sentence.
-        const pages = await loadSiteSource(env, slug);
+        const pages = await loadSiteSourceForEdit(env, slug);
         if (!pages) return { ok: false, error: "read", ours: true, detail: "no stored page source for " + slug };
         return await recompileAndPublish(env, {
           slug, pages,
@@ -2905,6 +2947,9 @@ async function runSiteRebuild(env) {
             attempts,
             last_error: String(why || "").slice(0, 300),
             next_try_at: new Date(Date.now() + Number(sec) * 1000).toISOString(),
+            // THE RUNNING MARK GOES WITH THE RUN (stage 6): a deferred row is
+            // not being rebuilt, and an edit's claim must not read it as busy.
+            running_until: null,
           }),
         });
         if (!d.ok) throw new Error("site_rebuild defer " + d.status);
@@ -6442,6 +6487,14 @@ async function claimBuildRow(env, id, owner, holder) {
   const c = await editRpc(env, "edit_claim", { p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S });
   if (c && c.claimed === true) return { held: true, row: true };
   if (!c || c.error === "no-job" || c.error === "no-service-key") return { held: false, row: false };
+  // THE SITE IS SOMEBODY ELSE'S RIGHT NOW (stage 6): the site's own lock
+  // refused the claim and counted it on the row, or gave the row up past the
+  // cap. Answered as its own case, because the two callers do opposite
+  // things with it — the fresh consumer waits, the collector goes on.
+  if (c.error === "site-busy") {
+    console.log("build row:", id, "the site is busy with", String(c.other || "?"), "— deferral", Number(c.deferrals) || 0, c.gave_up === true ? "(gave up)" : "");
+    return { held: false, row: true, busy: true, gaveUp: c.gave_up === true, other: String(c.other || ""), deferrals: Number(c.deferrals) || 0 };
+  }
   // HELD BY THE CONTAINER, TAKEN OVER BY NAME. A released lease is not yet
   // expired (`RELEASE_TTL_S`), and a container whose report never landed
   // still holds its thirty minutes — either way the collector knows the
@@ -6454,6 +6507,39 @@ async function claimBuildRow(env, id, owner, holder) {
   }
   console.log("build row:", id, "not claimed —", String(c.error || "rpc"));
   return { held: false, row: true };
+}
+
+/**
+ * A CLAIM THE SITE'S OWN LOCK REFUSED (stage 6): another job holds the site.
+ * The queue consumer sends its own message again with a delay — bounded by
+ * the row's count, which the RPC keeps and gives up on — and when the RPC has
+ * given up, stores the sentence the customer reads: the row is failed already
+ * with nothing charged, and the stored reply is what the poll route hands
+ * back. Only the queue consumer calls this: the container's runtime has no
+ * queue to send on, and never sees a busy claim (the consumer claimed before
+ * it fired).
+ */
+async function deferEditJob(env, id, claim) {
+  const n = Number(claim && claim.deferrals) || 0;
+  if (claim && claim.gave_up === true) {
+    console.log("edit queue:", id, "gave up waiting for its site after", n, "deferrals — held by", String(claim.other || "?"));
+    await editRpc(env, "edit_finalize", {
+      p_id: id, p_ok: false,
+      p_result: { status: 409, type: "application/json", body: JSON.stringify({ ok: false, error: "site-busy", job: id, deferrals: n, msg: BUSY_EDIT_MSG }) },
+    });
+    return { deferred: false, gaveUp: true };
+  }
+  try {
+    if (!env.BUILD_QUEUE) throw new Error("no queue to re-send on");
+    await env.BUILD_QUEUE.send({ kind: EDIT_JOB_KIND, id }, { delaySeconds: queueDelay(SITE_BUSY_DEFER_S) });
+    console.log("edit queue:", id, "deferred — the site is busy with", String(claim.other || "?"), "(" + n + ")");
+    return { deferred: true, gaveUp: false };
+  } catch (e) {
+    // NOTHING COMES BACK FOR THIS JOB IF THIS FAILS: the row sits queued with
+    // no lease, which nothing sweeps yet (stage 3a's territory). Said loudly.
+    console.error("edit queue: could not re-send", id, "after a busy claim:", String((e && e.message) || e));
+    return { deferred: false, gaveUp: false };
+  }
 }
 
 /** Renew the row's lease on a timer, as the edit consumer does. The caller clears it on every exit. */
@@ -6514,7 +6600,7 @@ async function buildRowStatus(env, id, uid) {
   if (!env.SUPABASE_SERVICE_KEY || !env.CREDITS_MINT_SECRET) return null;
   const g = await editRpc(env, "edit_get", { p_id: id, p_uid: uid });
   if (!g || g.ok !== true) return null;
-  const verdict = rowVerdict({ state: g.state, slug: g.slug, job: id });
+  const verdict = rowVerdict({ state: g.state, slug: g.slug, job: id, error: g.error });
   if (verdict && verdict.body.slug) {
     try { verdict.body.url = await publicUrlFor(env, verdict.body.slug); } catch { /* the address is a courtesy */ }
   }
@@ -8707,6 +8793,22 @@ async function loadSiteSource(env, slug) {
 }
 
 /**
+ * THE SOURCE A JOB IS ABOUT TO EDIT, with the copy repaired first (stage 6).
+ *
+ * The four readers that go on to PUBLISH what they read — the edit route, the
+ * addon route, a revise's anchor and the platform rebuild — read through this
+ * and nothing else does: a copy one version behind the live site is put back
+ * from that version's own state before it is read (`ensureEditableState`),
+ * so an edit can never quietly republish the site as it was before the edit
+ * that preceded it. A check that cannot be made never costs the read.
+ */
+async function loadSiteSourceForEdit(env, slug) {
+  try { await ensureEditableState(env, slug); }
+  catch (e) { console.error("editable state: check failed for", slug, e && e.message); }
+  return loadSiteSource(env, slug);
+}
+
+/**
  * WHAT THE GENERATOR ACTUALLY WROTE, KEPT WHETHER OR NOT IT BUILT.
  *
  * A SECOND KEY, NOT A SECOND WRITE TO `pages.json`, and the reason is the one
@@ -9045,6 +9147,9 @@ async function restoreVersion(env, slug, id) {
             await saveConfig({ put: (k, t) => env.SITES_BUCKET.put(k, t, json) }, slug, withConfig(cur.config, stateConfigOf(JSON.parse(b.config))));
           }
         }
+        // THE MARKER LAST (stage 6): a restore's copy is a copy like any
+        // other, and the next job reads it against the pointer it just moved.
+        await writeHead(deps, slug, id);
       },
     });
     _pointerCache.delete(slug);
@@ -9062,6 +9167,65 @@ async function restoreVersion(env, slug, id) {
   catch (e) { console.error("pointer delete failed:", slug, e && e.message); }
   _pointerCache.delete(slug);
   return rb;
+}
+
+/**
+ * THE EDITABLE COPY IS THE POINTER'S BEFORE A JOB READS IT (stage 6).
+ *
+ * Activation copies a version's state into the editable locations LAST and
+ * best-effort, so a job that dies between the pointer write and that copy
+ * leaves the live site one version ahead of `source/<slug>/pages.json` — and
+ * the next edit, reading the older pages, would publish them with its own
+ * change and quietly undo the one before it. Every copy ends with a marker
+ * naming its version (`writeHead`); this reads the pointer UNCACHED (the
+ * thirty-second cache would read an older pointer as a copy that is ahead)
+ * and the marker, and puts the copy back from the pointer's own version when
+ * the two disagree, or when there is no marker at all — the version's state
+ * IS the live site's, and a claim holds the site while this runs. Then the
+ * config on its own: a job that stored its look before a publish that never
+ * came, or a failed publish whose revert did not land, leaves the editable
+ * config ahead of the live site, and it is put back to the version's baked
+ * fields — never the translation cache, which a failed publish did not make
+ * wrong. Answers rather than throws; a check that cannot be made costs
+ * nothing but a line in the log.
+ */
+async function ensureEditableState(env, slug) {
+  if (!env || !env.SITES_BUCKET || !slug) return { ok: true, why: "no-bucket" };
+  const deps = buildDeps(env);
+  let pointer = null;
+  try { pointer = await readPointer(deps, slug); }
+  catch (e) { console.error("editable state: pointer unreadable for", slug, e && e.message); return { ok: false, why: "pointer" }; }
+  if (!pointer) return { ok: true, why: "no-pointer" };
+  const head = await readHead(deps, slug);
+  const need = repairNeeded({ pointer, head });
+  // THE CONFIG'S MERGE: the version's baked look over what stands, through
+  // `withConfig` so the owner's verification tag and chosen card survive it;
+  // written only when it differs, so an ordinary claim writes nothing.
+  const mergeConfig = async (stateText) => {
+    let want = null;
+    try { want = repairConfigOf(JSON.parse(stateText)); } catch { return false; }
+    const cur = await readSiteConfig(env, slug, null);
+    if (!cur || !cur.ok) return false;
+    if (sameJson(repairConfigOf(cur.config), want)) return false;
+    const w = await patchSiteConfig(env, slug, null, want);
+    return !!(w && w.ok);
+  };
+  try {
+    if (need.repair) {
+      const r = await repairEditable(deps, { slug, version: pointer.version, keys: { source: SOURCE_KEY(slug), parts: PARTS_KEY(slug) }, mergeConfig });
+      console.log("editable state:", slug, need.why, "→ repaired from", pointer.version, JSON.stringify(r.wrote || []), r.ok ? "" : "(" + r.why + ")");
+      return { ok: r.ok, why: need.why, wrote: r.wrote || [], version: pointer.version };
+    }
+    const o = await deps.get(buildPrefix(slug, pointer.version) + STATE_DIR + "config.json");
+    if (o && (await mergeConfig(await o.text())) === true) {
+      console.log("editable state:", slug, "config put back to", pointer.version);
+      return { ok: true, why: "config", wrote: ["config"], version: pointer.version };
+    }
+    return { ok: true, why: "same", wrote: [], version: pointer.version };
+  } catch (e) {
+    console.error("editable state: repair failed for", slug, e && e.message);
+    return { ok: false, why: "repair" };
+  }
 }
 
 /**
@@ -10651,15 +10815,27 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       tm("worker:put", wput && (wput.ok === false || wput.uploaded === false) ? "fail" : "ok", { status: (wput && wput.status) || 0 });
       return wput;
     },
+    // A REFUSED COMMIT IS SAID (stage 6). The RPC requires the lease to be
+    // LIVE beside the owner now — the third wall on a holder that stalled
+    // past its lease, after the prefix-confined writes and the pointer's
+    // conditional write — so a refusal here is a site that went live under
+    // a row nobody will finalize: the consumer's refund parks it in review,
+    // and the trace names the wall rather than leaving a silent `false`.
+    // Read AFTER the deployment identity is recorded, as an expression and
+    // not an `if`: the guard on the synchronous path reads the last condition
+    // before each RPC in this closure, and it must be the job's.
     commit: async () => {
       if (!job) return;
-      await editRpc(env, "edit_committed", {
+      const committed = await editRpc(env, "edit_committed", {
         p_id: job.id, p_owner: job.owner, p_build: (built.worker && built.worker.build) || null,
       });
       await editRpc(env, "edit_publish_mark", {
         p_id: job.id, p_owner: job.owner, p_artifact_build: null, p_dist_etag: null,
         p_sidecar_etag: null, p_source_etag: null, p_worker_status: Number((wput && wput.status) || 0) || null,
       });
+      const commitWhy = committed && committed.ok === true ? "" : String((committed && committed.error) || "rpc");
+      tm("commit", commitWhy ? "fail" : "ok", commitWhy ? { why: commitWhy } : undefined);
+      commitWhy && console.error("publish commit refused:", slug, job.id, commitWhy);
     },
     afterActivate: async () => {
       // THE STORED SOURCE IS WHAT THE NEXT EDIT READS — the same bytes the
@@ -10676,6 +10852,11 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       tm("r2:landmarks", "start");
       await saveLandmarks(env, slug, built.render && built.render.landmarks);
       tm("r2:landmarks", "ok", { marks: ((built.render && built.render.landmarks) || []).length });
+      // AND THE MARKER LAST (stage 6): the editable copy names the version it
+      // came from, so the next job can tell a finished copy from one that
+      // died between the pointer and here, and repair it before it reads.
+      await writeHead(buildDeps(env), slug, version);
+      tm("r2:head", "ok");
     },
   });
   } catch (e) { act = { ok: false, error: String((e && e.message) || e), code: (e && e.code) || undefined, key: (e && e.key) || undefined }; }
@@ -11439,6 +11620,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // as having removed it rather than resurrecting it forever.
           sourceStored = await saveSiteSource(env, slug, pages);
           await saveSiteParts(env, slug, partsBuilt);
+          // THE MARKER LAST (stage 6): which version this copy is, for the
+          // next job's repair to read against the pointer.
+          await writeHead(buildDeps(env), slug, bVersion);
         },
       });
       _pointerCache.delete(slug);
@@ -12058,9 +12242,12 @@ async function awaitJobResult(env, id, uid) {
  */
 async function runQueuedSiteBuild(env, ctx, id) {
   let job = null;
+  // THE RAW OBJECT IS KEPT for one reason: a claim the site's own lock refuses
+  // (stage 6) puts it back, so the message re-sent with a delay finds it.
+  let raw = null;
   try {
     const obj = await env.SITES_BUCKET.get(jobKey(id));
-    if (obj) job = readJob(JSON.parse(await obj.text()));
+    if (obj) { raw = await obj.text(); job = readJob(JSON.parse(raw)); }
   } catch (e) {
     console.error("build queue: could not read job", id, String((e && e.message) || e));
   }
@@ -12089,6 +12276,44 @@ async function runQueuedSiteBuild(env, ctx, id) {
   // — no row, no service key, a refusal — builds exactly as before.
   const rowOwner = newLeaseOwner();
   const row = await claimBuildRow(env, id, rowOwner, null);
+  // ── THE SITE IS SOMEBODY ELSE'S RIGHT NOW (stage 6) ────────────────────────
+  //
+  // A revise whose site an edit, an addon or the platform rebuild holds is
+  // WAITED, not run beside it: the job object goes back where the message
+  // finds it, and the message is sent again with a delay — bounded by the
+  // row's own count, which the RPC keeps. Past the cap the RPC has failed the
+  // row already; this side gives the deposit back (the one debit a build that
+  // never designed has made, under its own ref) and writes the answer the
+  // waiting request reads. A first build is filed under a placeholder no site
+  // can be, so its claim is never busy — nothing here reaches a customer whose
+  // site is new. An object that cannot be put back is a build that runs now,
+  // said in the log: serialisation is the row's, the deliverable is the site.
+  if (row.busy) {
+    if (row.gaveUp) {
+      const back = await reverseCredits(env, job.uid, "build:" + id + ":deposit", "busy", SITE_BUILD_FEE);
+      console.log("build queue:", id, "gave up waiting for its site after", row.deferrals, "deferrals — deposit back:", back.refunded);
+      try {
+        await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({
+          status: 409, type: "application/json", uid: job.uid,
+          body: JSON.stringify({ ok: false, stage: "queue", error: "site-busy", job: id, deferrals: row.deferrals, refunded: back.refunded, msg: BUSY_BUILD_MSG }),
+        })));
+      } catch (e) { console.error("build queue: could not write the busy answer for", id, String((e && e.message) || e)); }
+      return;
+    }
+    let kept = false;
+    try { await env.SITES_BUCKET.put(jobKey(id), raw); kept = true; }
+    catch (e) { console.error("build queue: could not put the job back for", id, String((e && e.message) || e)); }
+    if (kept) {
+      try {
+        await env.BUILD_QUEUE.send({ kind: JOB_KIND, id }, { delaySeconds: queueDelay(SITE_BUSY_DEFER_S) });
+        console.log("build queue:", id, "deferred — the site is busy with", row.other, "(" + row.deferrals + ")");
+        return;
+      } catch (e) {
+        console.error("build queue: could not re-send", id, "after a busy claim, running it now:", String((e && e.message) || e));
+        try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the token expires on its own */ }
+      }
+    }
+  }
   const lease = row.held ? rowOwner : null;
   const rowBeat = lease ? buildRowBeat(env, id, lease) : null;
 
@@ -12378,15 +12603,37 @@ function enqueueReply(q) {
  * charged. `max_retries` is 0 and this acks everything, but the handler is the
  * belt as well as the braces.
  */
-async function runQueuedSiteEdit(env, ctx, id) {
-  const owner = newLeaseOwner();
+async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = null, takeOver = null } = {}) {
+  const owner = lease || newLeaseOwner();
   let beat = null;
   try {
     if (!env.SITES_BUCKET) { console.error("edit queue: no bucket for", id); return; }
     // CLAIM FIRST, BEFORE READING ANYTHING. A second delivery of the same
     // message finds nothing to claim and leaves without touching the request,
     // the models or the money.
-    const claim = await editRpc(env, "edit_claim", { p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S });
+    //
+    // THREE WAYS IN SINCE STAGE 6 (2026-09-05), one lease whichever it is:
+    //   `lease`     the queue consumer claimed the row before it asked a
+    //               container and is running the job itself — the claim it
+    //               made rides in as `held`, and nothing is claimed twice;
+    //   `takeOver`  the job runner, inside the site's container: the consumer
+    //               that fired it holds the lease under that name, so a fresh
+    //               claim answers `leased` and the lease is taken over by
+    //               name (`edit_handoff`), the row's identity on the answer;
+    //   neither     a fresh claim, as before — the runner on a launch that
+    //               names no holder, or a test driving this function alone.
+    // A claim the site's own lock refuses (`site-busy`) is answered ONLY in
+    // the queue consumer, which can re-send; here it is a job that does not
+    // run, said in the log.
+    let claim = held && held.claimed === true ? held : null;
+    if (!claim) {
+      claim = await editRpc(env, "edit_claim", { p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S });
+      if (claim && claim.claimed !== true && claim.error === "leased" && takeOver) {
+        const h = await editRpc(env, "edit_handoff", { p_id: id, p_owner: takeOver, p_next: owner, p_ttl: LEASE_TTL_S, p_state: null, p_slug: null });
+        if (h && h.ok === true) claim = { ok: true, claimed: true, state: h.state, uid: h.uid, slug: h.slug, takenOver: true };
+        else console.log("edit queue: could not take the lease over from", takeOver, "for", id, String((h && h.error) || "rpc"));
+      }
+    }
     if (!claim || claim.claimed !== true) {
       console.log("edit queue: not claimed", id, String((claim && claim.error) || "rpc"));
       return;
@@ -12520,8 +12767,10 @@ async function runQueuedSiteEdit(env, ctx, id) {
  * covers the addon too — one queue kind, two ops, as `runQueuedSiteEdit` has
  * always read them.
  */
-export async function runContainerJob(env, ctx, { kind, id } = {}) {
-  if (kind === "edit") return runQueuedSiteEdit(env, ctx, id);
+export async function runContainerJob(env, ctx, { kind, id, holder = "" } = {}) {
+  // THE LEASE'S HOLDER RIDES THE LAUNCH (stage 6): the consumer claimed the
+  // row before it fired, and the runner takes the lease over from that name.
+  if (kind === "edit") return runQueuedSiteEdit(env, ctx, id, { takeOver: typeof holder === "string" && holder ? holder : null });
   if (kind === "build") return runQueuedSiteBuild(env, ctx, id);
   if (kind === "resume") return runResumedSiteBuild(env, ctx, id);
   throw new Error("no such job kind: " + String(kind));
@@ -12565,7 +12814,7 @@ function jobGateway(env) {
  * gateway and deletes it after its claim, exactly as this consumer would. The
  * token outlives the job's clock by a grace, for the finalize.
  */
-async function fireContainerJob(env, id) {
+async function fireContainerJob(env, id, { holder = "" } = {}) {
   if (!jobRunnerOn(env)) return { fired: false, why: "off" };
   if (!env || !env.SITES_BUCKET || !env.SITE_BUILD_CONTAINER) return { fired: false, why: "no-binding" };
   let job = null;
@@ -12583,6 +12832,10 @@ async function fireContainerJob(env, id) {
     gateway: { url: "https://" + APP_ZONE + "/api/job/" + id, token },
     secrets: jobSecrets(env),
     buildPort: 8080,
+    // WHO HOLDS THE ROW'S LEASE (stage 6): the consumer's own name, for the
+    // runner to take it over from. Not a secret — a lease name reaches
+    // nothing but the row's own WHERE.
+    ...(holder ? { holder } : {}),
   });
   const deadline = Date.now() + JOB_FIRE_MS;
   let out;
@@ -12846,6 +13099,13 @@ async function runResumedSiteBuild(env, ctx, id) {
   let holder = null;
   try { holder = containerOwner(stored.genId); } catch { holder = null; }
   const row = await claimBuildRow(env, id, rowOwner, holder);
+  // THE COLLECTOR GOES ON when the site's lock refuses it (stage 6). Its
+  // record is already claimed and marked charged, so a wait here would be a
+  // build that never publishes; what it is racing is a job that claimed the
+  // site in a first build's placeholder window or after a lost generation's
+  // lease lapsed, and the pointer's conditional write decides between them.
+  // Said in the log, and the stated residue of the stage.
+  if (row.busy) console.log("build resume:", id, "the row says the site is busy with", row.other, "— publishing anyway; the pointer decides");
   const lease = row.held ? rowOwner : null;
   const rowBeat = lease ? buildRowBeat(env, id, lease) : null;
 
@@ -14610,7 +14870,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // not fail the build — `livePages` turns an unreadable read into
             // `undefined` rather than `[]`, so salvage refuses instead of
             // destroying.
-            priorPages: existing ? await loadSiteSource(env, slug) : null,
+            priorPages: existing ? await loadSiteSourceForEdit(env, slug) : null,
             // WHAT THE CUSTOMER TYPED THIS TURN, for the Versions list alone.
             // The composed `brief` above is the anchor plus the change plus the
             // linked pages plus the researched facts — thousands of characters,
@@ -19154,6 +19414,10 @@ async function handleRequest(request, env, ctx) {
         review: row.needs_review === true ? true : undefined,
         kind: (row.error && row.error.kind) || undefined,
         failedPhase: (row.error && row.error.phase) || undefined,
+        // A JOB WAITING BEHIND ANOTHER ON ITS SITE says so (stage 6): the
+        // site's own lock refused its claim at least once, and it will be
+        // asked again. Absent otherwise, so the ordinary poll is unchanged.
+        waiting: Number(row.deferrals) > 0 ? true : undefined,
       }, { status: row.state === "done" ? 200 : 202 });
     }
 
@@ -19771,7 +20035,7 @@ async function handleRequest(request, env, ctx) {
             // THE STORED SOURCE IS THE WHOLE PREMISE. Without it there is
             // nothing to edit — a site built before the source was kept — and
             // the rung above regenerates from scratch, which is exactly right.
-            let eSrc = await loadSiteSource(env, ownerSlug);
+            let eSrc = await loadSiteSourceForEdit(env, ownerSlug);
             if (!eSrc || !eSrc.length) return escalate("no-source");
 
             // ── ONE PUBLISH PER MESSAGE ───────────────────────────────────
@@ -22357,7 +22621,7 @@ async function handleRequest(request, env, ctx) {
             // rung sends is what keeps that a fact rather than a coincidence.
             if (modelKeyMissing(env, modelsFor(ab && ab.picker).quick)) return aEscalate("unconfigured");
 
-            const aSrc = await loadSiteSource(env, ownerSlug);
+            const aSrc = await loadSiteSourceForEdit(env, ownerSlug);
             if (!aSrc || !aSrc.length) return aEscalate("no-source");
             // A SITE WITHOUT A DATABASE CAN STILL BE ADDED TO. This step opened
             // with `if (!adb) return aEscalate("no-backend")` — the same dead

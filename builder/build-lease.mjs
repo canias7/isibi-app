@@ -173,6 +173,10 @@ export const LOST_MSG = "That build stopped before it got anywhere and we lost t
 export const FAILED_MSG = "That build didn't finish. Send your brief again to try it once more.";
 export const CANCELLED_MSG = "That build was stopped.";
 export const COLLECTED_MSG = "That build has finished and its answer was already collected — open your project to see the site.";
+// ONE JOB PER SITE AT A TIME (stage 6): a job whose site stayed busy for the
+// whole of its wait is failed by the claim itself, with nothing charged.
+export const BUSY_BUILD_MSG = "Your site was busy with another change for the whole time this build waited, so it was set aside — nothing was charged for it. Send your brief again once the other change has finished.";
+export const BUSY_EDIT_MSG = "Your site was busy with another change for the whole time this edit waited, so it was set aside — nothing was charged for it. Ask again once the other change has finished.";
 
 /**
  * WHAT THE POLL ROUTE ANSWERS FROM THE ROW ALONE — asked only when the answer
@@ -202,7 +206,14 @@ export function rowVerdict(row) {
     }
     return { status: 410, body: { ok: false, lost: true, stage: "queue", job, msg: LOST_MSG } };
   }
-  if (state === "failed") return { status: 410, body: { ok: false, failed: true, stage: "queue", job, msg: FAILED_MSG } };
+  if (state === "failed") {
+    // FAILED BY THE CLAIM, NOT BY THE BUILD (stage 6): the row's own reason
+    // says the site was busy for the whole wait, and the sentence says so
+    // instead of blaming a build that never started.
+    const kind = row.error && typeof row.error === "object" && !Array.isArray(row.error) ? String(row.error.kind || "") : "";
+    if (kind === "site-busy") return { status: 410, body: { ok: false, failed: true, busy: true, stage: "queue", job, msg: BUSY_BUILD_MSG } };
+    return { status: 410, body: { ok: false, failed: true, stage: "queue", job, msg: FAILED_MSG } };
+  }
   if (state === "cancelled") return { status: 410, body: { ok: false, cancelled: true, stage: "queue", job, msg: CANCELLED_MSG } };
   if (state === "done") return { status: 410, body: { ok: false, collected: true, stage: "queue", job, msg: COLLECTED_MSG } };
   return null;

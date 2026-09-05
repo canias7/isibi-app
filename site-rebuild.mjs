@@ -101,6 +101,17 @@ export const BATCH = 8;
 export const CLAIM_SEC = 600;
 
 /**
+ * HOW LONG A REBUILD WAITS BEHIND A JOB THAT HOLDS THE SITE (stage 6,
+ * 2026-09-05). The claim asks the same question an edit's claim asks, under
+ * the site's own lock (`rebuild_claim`), and a site somebody's edit or build
+ * holds is not rebuilt under it: the row is pushed out by this much and asked
+ * again, NO ATTEMPT COUNTED and no rung climbed — a busy site is not a
+ * failing one. Five minutes: past most edits, and a rebuild is never urgent
+ * to the minute.
+ */
+export const BUSY_DEFER_SEC = 300;
+
+/**
  * What a rebuild outcome means. THREE answers, not two, and the third is the
  * one this queue needs that the teardown queue did not.
  *
@@ -148,7 +159,8 @@ export function verdictFor(res) {
  * deps:
  *   due(limit)                  → [{slug, attempts}]   rows whose next_try_at has passed
  *   exists(slug)                → boolean | throws     is this site still registered
- *   claim(slug, sec)            → boolean              push next_try_at out, atomically; did we win
+ *   claim(slug, sec)            → true | false | "busy"  push next_try_at out, atomically; did we win —
+ *                                 "busy" is a site a job holds (stage 6): deferred, never a failure
  *   rebuild(slug)               → the spine's result object
  *   forget(slug)                → void   delete the queue row
  *   defer(slug, attempts, sec, why) → void   push next_try_at out and record why
@@ -168,7 +180,7 @@ export function verdictFor(res) {
  * another.
  */
 export async function drainRebuild(deps, { limit = BATCH } = {}) {
-  const out = { attempted: 0, rebuilt: 0, gone: 0, deferred: 0, parked: 0, lost: 0, errors: [] };
+  const out = { attempted: 0, rebuilt: 0, gone: 0, deferred: 0, parked: 0, lost: 0, busy: 0, errors: [] };
   let rows = [];
   try { rows = (await deps.due(limit)) || []; }
   catch (e) {
@@ -228,9 +240,21 @@ async function drainOne(deps, row, out) {
     // wrong that way skips one site for ten minutes; being wrong the other way is
     // the duplicate run this exists to prevent.
     let won = false;
-    try { won = (await deps.claim(slug, CLAIM_SEC)) === true; }
+    try { won = await deps.claim(slug, CLAIM_SEC); }
     catch { won = false; }
-    if (!won) {
+    if (won === "busy") {
+      // THE SITE IS SOMEBODY'S RIGHT NOW (stage 6): an edit, a build or an
+      // addon holds it, and a rebuild that published under it would carry
+      // their pages back to before their change. Pushed out and asked again
+      // later — no attempt, no rung, the reason on the row for anyone reading
+      // it — because a busy site is not a failing one.
+      try {
+        await deps.defer(slug, Number(row.attempts || 0), BUSY_DEFER_SEC, "site busy: a job holds it");
+        out.busy++;
+      } catch (e) { out.errors.push("defer " + slug + ": " + String((e && e.message) || e).slice(0, 120)); }
+      return;
+    }
+    if (won !== true) {
       // LOSING A RACE IS NOT A FAILURE. No attempt counted, no backoff climbed,
       // no `last_error` written — the tick that won is doing the work, and
       // recording this as a failure would park a healthy site after five ticks

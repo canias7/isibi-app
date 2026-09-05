@@ -52,7 +52,13 @@ export function readLaunch(raw) {
   const secrets = {};
   for (const [k, v] of Object.entries(p.secrets && typeof p.secrets === "object" ? p.secrets : {})) if (typeof v === "string") secrets[k] = v;
   const buildPort = Number(p.buildPort) || 8080;
-  return { kind, id, gateway: { url: g.url, token: g.token }, secrets, buildPort };
+  // THE LEASE'S HOLDER (stage 6): the Worker's consumer claims the row before
+  // it fires, so the site's lock has answered before a container is asked,
+  // and the runner takes the lease over from that name. Optional — a launch
+  // without one is the runner claiming fresh, as it did before — and held to
+  // the shape a minted owner has, because it reaches an RPC's WHERE.
+  const holder = typeof p.holder === "string" && /^[A-Za-z0-9_:-]{4,80}$/.test(p.holder) ? p.holder : "";
+  return { kind, id, gateway: { url: g.url, token: g.token }, secrets, buildPort, ...(holder ? { holder } : {}) };
 }
 
 /**
@@ -68,8 +74,8 @@ export async function runJob(launch, { importWorker, env, ctx, log = () => {} } 
     const jobCtx = ctx || makeContainerCtx();
     const worker = await importWorker();
     if (!worker || typeof worker.runContainerJob !== "function") throw new Error("the Worker module has no runContainerJob export — the image's Worker tree is older than this runner");
-    log({ job: id, kind, started: true });
-    await worker.runContainerJob(jobEnv, jobCtx, { kind, id });
+    log({ job: id, kind, started: true, ...(launch.holder ? { holder: launch.holder } : {}) });
+    await worker.runContainerJob(jobEnv, jobCtx, { kind, id, ...(launch.holder ? { holder: launch.holder } : {}) });
     if (typeof jobCtx.drain === "function") await jobCtx.drain();
     return { ok: true, kind, id, ms: Date.now() - at };
   } catch (e) {

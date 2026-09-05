@@ -2670,6 +2670,207 @@ sweep ──an expired lease nobody renewed──► lost, nothing moved
   lost path is proven by the check and needs no spend. A first build under
   the placeholder slug proves the handoff's slug write.
 
+### ONE JOB PER SITE AT A TIME (2026-09-05, stage 6)
+
+Owner: *"go"*. `edit_create` checked review and the idempotency key and
+nothing about the SITE, so two edits with different keys, an edit and an
+addon, an edit and a revise, or an edit and the platform rebuild ran at once
+on one site — only the browser's own in-flight set stopped a second submit,
+per tab. Compiles serialised per lane; the writes did not, and stage 7's
+conditional pointer stops only a holder whose pointer moved under it, never
+a publish built from a source another job changed after it was read. Now:
+
+```
+claim ──private.site_busy(slug, self): pg_advisory_xact_lock('site:'||slug), then the question──►
+   │  nobody  → claimed (the row's `deferrals` on the answer)
+   │  another → deferrals + 1, phase 'waiting', {claimed:false, error:'site-busy', other, deferrals, gave_up}
+   │              ≤ 45 → the QUEUE CONSUMER re-sends its own message, delay SITE_BUSY_DEFER_S (60 s)
+   │              > 45 → edit_refund('failed', the reason on the row) INSIDE the RPC; the consumer stores the 409
+commit ──edit_committed: the holder AND lease_expires_at > now()──► {ok, published} | {ok:false, error: terminal|not-holder|lease-expired|refused}
+rebuild ──rebuild_claim(slug, sec): the same lock, the same question──► won (running_until marked) | busy {other} | running
+```
+
+- **THE LOCK IS THE CLAIM, AND THE CLAIM COMES FIRST.** `private.site_busy(p_slug,
+  p_self)` takes `pg_advisory_xact_lock(hashtext('site:' || slug))` for the
+  rest of the transaction and only then asks: another row on the slug — not
+  terminal, not reviewed, never the row asking — with `(lease_owner is not
+  null and lease_expires_at > now()) or state = 'publishing'` (a publisher
+  whose lease lapsed may still have shipped and the sweep settles it within a
+  tick, so a new job waits for that rather than racing it); else `'rebuild'`
+  while `site_rebuild.running_until > now()`; else nobody. Revoked from
+  public, anon and authenticated. `edit_claim` answers its OWN refusals first
+  (needs-review, terminal, settled, a live `leased`) and asks the site after,
+  so a job's own lease is never read as the site being busy; a first build's
+  placeholder slug (`build:<jobId>`) is never busy because no other row can
+  carry it. ONE JOB PER SITE, not one per customer: two sites of one owner run
+  side by side. Migration `20260905200655_site_serialization` (named for the
+  remote version): `edit_jobs.deferrals`, `site_rebuild.running_until`, the
+  helper, `edit_claim` and `edit_committed` REPLACED in place, `edit_get`
+  carrying `deferrals`, `edit_handoff` naming the row's `uid` on success,
+  `rebuild_claim` NEW and service-role only; all six read back with
+  `pg_get_functiondef` into the live snapshot, which `test/site-busy.test.mjs`
+  holds equal byte for byte.
+- **THE QUEUE CONSUMER CLAIMS BEFORE IT ASKS A CONTAINER — the handler's
+  order moved.** It fired first and let the runtime claim; now the claim
+  decides, and the fire carries the holder's name (`holder` on the launch,
+  admitted by `readLaunch` in a minted owner's shape and nothing else), the
+  runner takes the lease over BY NAME (`runQueuedSiteEdit`'s `takeOver`: a
+  fresh claim answers `leased`, `edit_handoff` moves it from the consumer's
+  name to the runner's, the row's `uid` and `slug` off the handoff's answer —
+  which is why the handoff names the uid now), and the inline run reuses the
+  claim it holds (`claim: held`) — never a second claim. **The container's
+  runtime NEVER sees a busy claim and cannot re-send** (it has no queue): the
+  consumer is the one that waits. `deferEditJob`: `BUILD_QUEUE.send({kind,
+  id}, {delaySeconds: 60})` once per refusal; a claim the RPC gave up on
+  stores the customer's sentence through `edit_finalize(p_ok: false)` as a
+  409 with `BUSY_EDIT_MSG` (the row is already failed and refunded inside the
+  RPC, so the reply is the only thing left to write). The lease is renewed
+  while the fire waits for room (`buildRowBeat`, cleared before the inline
+  run, which beats for itself).
+- **THE NUMBERS ARE BOUNDED FROM BOTH ENDS.** `MAX_SITE_BUSY_DEFERRALS` 45
+  (the Worker's copy of the RPC's `deferred > 45`, held equal by the guard) ×
+  `SITE_BUSY_DEFER_S` 60 = 45 minutes of waiting: under the browser's own
+  watch (400 looks × 8 s ≈ 53 min), so a waiting edit is still being watched
+  when it gives up, and above a generation's 1800 s handoff, so an edit filed
+  against a site mid-build outlives the build. The poll route carries
+  `waiting: true` on a pending answer once the row has been deferred; the
+  browser does not read it yet (the field is on the wire for 3b's sentence).
+- **A BUILD ROW WAITS THE SAME WAY, AND THE COLLECTOR DOES NOT.**
+  `claimBuildRow` answers busy as its own case because its two callers do
+  opposite things with it: the fresh consumer (`runQueuedSiteBuild`) puts the
+  raw job object BACK and re-sends `{kind: JOB_KIND, id}` with the delay; a
+  build the RPC gave up on reverses its deposit (`credit_reverse` under
+  `build:<id>:deposit`, reason `busy`) and stores a 409 with
+  `BUSY_BUILD_MSG`, which `rowVerdict` reads off the row's own `error.kind`
+  as 410 `busy: true` (any other failed row keeps the build's sentence). The
+  collector (`runResumedSiteBuild`) LOGS a busy answer and goes on — a stated
+  residue, not an oversight: the early stand-in publishes under the slug the
+  build claims at fire time, and a lost generation whose lease lapsed is
+  "busy with this build's own chain"; the pointer's conditional write decides
+  what lands.
+- **THE COMMIT NEEDS A LIVE LEASE.** `edit_committed` adds `lease_expires_at
+  > now()` to its owner check and says why it refused; the spine reads the
+  answer, marks `commit fail {why}` on the trace, logs it, and does NOT
+  finalize — the third wall on a stale holder, after the prefix-confined
+  writes (4a) and the conditional pointer (7). A refused commit leaves the
+  row to the consumer's own refund, which ends it in review with the money
+  question open (3b reads it).
+- **THE PLATFORM REBUILD ASKS THE SAME LOCK.** `rebuild_claim(p_slug, p_sec)`
+  replaces the drain's PATCH claim: `'rebuild'` → `running: true` (a previous
+  tick's rebuild still running), another job → `busy {other}`, else the
+  conditional update — `next_try_at <= now()` re-stated so two ticks cannot
+  both win — sets `next_try_at` AND `running_until`. `drainOne` reads
+  `"busy"` as a DEFERRAL (`BUSY_DEFER_SEC` 300 s, `attempts` unchanged,
+  `out.busy++`, the reason "site busy: a job holds it"), never an attempt
+  and never a lost claim; the `defer` PATCH clears `running_until`, as the
+  forget does. The mark is what the NEXT edit's claim reads while the
+  rebuild's compile runs — the two doors share one wall.
+- **THE EDITABLE COPY IS REPAIRED BEFORE AN EDITING READER READS IT.** Every
+  state copy ends with `source/<slug>/head.json` (`HEAD_KEY`, `{version,
+  at}`, written LAST by the spine's activation, the build's publish and
+  `restoreVersion`), and `ensureEditableState(env, slug)` — behind
+  `loadSiteSourceForEdit`, the reader the four editing call sites use (the
+  edit route's `eSrc`, the addon's `aSrc`, the revise's `priorPages`, the
+  drain's `rebuild`; the three non-editing reads stay on `loadSiteSource`) —
+  reads the pointer UNCACHED (`readPointer`, not `sitePointer`'s 30 s),
+  answers `repairNeeded({pointer, head})` (no pointer → nothing, the legacy
+  layout; no marker, or a marker naming another version → repair; the same
+  → the config belt alone), and `repairEditable` copies `pages.json` and
+  `parts.json` out of `builds/<slug>/<version>/state/`, merges the version's
+  baked config through `withConfig` (`REPAIR_CONFIG_FIELDS` =
+  `STATE_CONFIG_FIELDS` less `langStrings` — the translation cache is the
+  edit path's own record and is never rolled back; drift judged by `sameJson`,
+  key-order-blind; written only when it differs, so an ordinary claim writes
+  nothing), NEVER the sidecar (the rename lane patches it, and a repair would
+  undo a rename), and marks LAST. "No marker + a pointer" repairs: right for
+  a site published by stage 7's code before the marker existed, whose copy IS
+  the pointer's build (the copy is a no-op in content and the marker then
+  stops it repeating), and safe because a claim holds the site while it runs.
+  What it puts back: a failed activation that left the pointer ahead of the
+  copy (7's "a failed script upload leaves the pointer ahead"), or a state
+  copy that died half-written, before the next edit reads it as the site.
+- **Guards.** `test/site-busy.test.mjs` (19): the numbers, the migration's
+  order and grants, the six functions' snapshot equal byte for byte, section
+  20's order, `rowVerdict`, the edit consumer DRIVEN through `worker.queue`
+  five ways (busy re-sent with the delay, given up and finalized with the
+  sentence, claimed once and fired with the holder, refused answers, a
+  re-send that fails), the runner's takeover driven, the launch's `holder`,
+  the build consumer driven (busy re-put and re-sent; given up, reversed and
+  stored as 409), the poll's `waiting`, and every Worker hop read (the
+  handler's order, `deferEditJob`, `claimBuildRow`, the collector going on,
+  the spine's commit read, the drain's claim and defer, the four readers by
+  name with exactly four bare `loadSiteSource(env, …)` call sites left, the
+  three markers, `ensureEditableState`). `test/site-builds.test.mjs` +4 (the
+  marker's round trip, `repairNeeded`, the copy's order and what it never
+  touches, the config fields and `sameJson`); `test/site-rebuild.test.mjs`
+  +1 (the busy deferral); `test/site-rebuild-wiring.test.mjs` +1, its three
+  claim guards re-anchored on `rebuild_claim`'s body out of the newest
+  migration; `test/container-job.test.mjs` +1 (busy → re-sent, nothing
+  fired; the drive's stub answers the claim, now that the handler claims
+  first); `test/build-jobs.test.mjs` #24 and #32 re-anchored (the newest
+  migration defining `edit_handoff`; `rowVerdict` handed the row's error);
+  `test/page-gen.test.mjs`'s revise-anchor guard re-anchored on the reader's
+  spelling — seven older guards red for the change, each naming which
+  spelling moved and why, none appeased. **Driven on the live database,
+  rolled back**: section 20 RED at FAIL 81 against the old `edit_claim` ("a
+  second job claimed a site another job holds"), **24 of 24 after the
+  migration, ALL 137 CHECKS PASSED whole** — after the whole script first
+  went RED at FAIL 46: section 16 (2026-09-02) filed its free job on a slug
+  section 15's job still held, the new wall refused it `site-busy`,
+  `edit_exempt` on the unclaimed row answered `lease-lost`, and the "a
+  reserved job was exempted" check read that as the exemption being granted.
+  An older section assuming two jobs could share a site is the one red a
+  serialisation change is SUPPOSED to produce; j9 files on its own slug now,
+  with the comment beside it.
+- **Sweep: 64 mutants — 61 killed, none survived, none unapplied, three
+  comment-only controls survived** — the lock dropped, a lapsed publisher no
+  longer holding the site, the rebuild's mark ignored, a row its own blocker,
+  the cap gone, the give-up failing nothing, the refusal uncounted, the
+  commit without the live-lease check, the rebuild's claim not re-stating
+  dueness / leaving no mark / never asking the site / granted to nobody,
+  `edit_get` without the count, a handoff without the uid, the helper granted
+  to a caller; the handler firing unclaimed, a busy claim not deferred, the
+  fire without the holder, the inline run claiming again, the runner ignoring
+  the holder, the takeover never tried, the re-send without its delay, a
+  given-up job re-sent, the give-up storing no reply, the build's claim blind
+  to busy, the object not put back, the deposit kept, the give-up as a server
+  error, the collector stopping on busy, the verdict without the row's
+  reason, the commit's answer ignored, the poll silent, the drain reading
+  busy as lost, a deferred row keeping its mark, each of the four readers
+  past the repair, the wrapper never repairing, each of the three copies
+  without the marker, the repair on the cached pointer or never repairing,
+  the config put back without drift; the marker before the copy, no marker
+  as no repair, another version as no repair, the sidecar written, the
+  translation cache restored, drift by key order, a stateless build marking
+  anyway; a busy site as an attempt or a lost claim; the launch dropping the
+  holder, the runner keeping it; the cap drifting, the delay a few seconds;
+  a busy build in the build's sentence; the check without the refusal or the
+  money. Full suite **5,217**.
+- **Stated residues.** A job whose re-send fails sits `queued` with no lease
+  and nothing sweeps it (3a). A refused commit ends in review through the
+  consumer's refund (3b). The collector going on when refused (above). The
+  browser does not yet say "waiting". **AND A WINDOW THAT IS OPEN NOW, until
+  the deploy carrying this Worker**: the migration is live and the Worker on
+  main is not, so a second job filed against a busy site is refused
+  `site-busy` by the new `edit_claim`, and the OLD consumer reads any
+  non-claim as "not claimed" and returns — no re-send, nothing charged, the
+  row `queued` with no lease and the browser polling to its own bound. Before
+  the migration that second job ran concurrently; after the deploy it waits.
+  A build is untouched by the window: the Worker on main today (nine commits
+  behind this branch when stage 6 was pushed, before stage 2c) files no build
+  row and never asks, and 2c's consumer builds on a refused claim anyway (the
+  row is an instrument). The deploy closes the window; nothing else does.
+- **Not proven live.** The deploy rolls the container (`worker.js`,
+  `site-builds.mjs` and `container-job.mjs` are image inputs; the 15–20
+  minute hold applies). The canary is free: two edits on fretwork-1 a few
+  seconds apart — the second's row should show `deferrals ≥ 1` and `phase
+  waiting`, the log "deferred — the site is busy with <the first's id>", and
+  the second should publish AFTER the first, `x-site-build` moving twice in
+  order; the drain's busy defer needs a `site_rebuild` row filed while an
+  edit runs; the repair shows on the first claim of a site that has a pointer
+  as "editable state: <slug> no-head → repaired from <version>" in the log
+  (a legacy site, no pointer, is left alone), and nothing on the site changes.
+
 ---
 
 ## Data, auth, payments, mail
@@ -3146,8 +3347,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,191
-  (2026-09-05, after stage 2c's thirty-one in `test/build-jobs.test.mjs` —
+  build and the pre-list payload added sixteen); the unit suite is 5,217
+  (2026-09-05, after stage 6's twenty-six — `test/site-busy.test.mjs`'s
+  nineteen: the numbers, the migration and the snapshot, the check's order,
+  the edit and build consumers, the runner's takeover and the poll DRIVEN,
+  every Worker hop read; plus the repair's four in `site-builds`, the busy
+  deferral in `site-rebuild` and its wiring, and the busy re-send in
+  `container-job`; 5,191 the same day after stage 2c's thirty-one in `test/build-jobs.test.mjs` —
   the row's vocabulary, the migration and the snapshot, the check's order,
   every Worker hop, and the poll, beat, report and consumer DRIVEN; 5,160
   the same day after stage 2b's three in `test/edit-poll.test.mjs` — the

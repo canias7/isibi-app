@@ -82,10 +82,19 @@ test("`exists` THROWS on an unreadable answer — it never answers false", () =>
 // ── the claim, whose three load-bearing properties live only in worker.js ────
 //
 // The module's own tests cover the DECISION (a lost claim spends nothing, only
-// a literal true wins). None of them can see whether the PATCH that produces
-// that boolean is actually atomic — and a claim that always answers true, or
+// a literal true wins). None of them can see whether the claim that produces
+// that answer is actually atomic — and a claim that always answers true, or
 // always false, is worse than no claim at all. All three below were found by
 // mutation, not by reading.
+//
+// RE-ANCHORED 2026-09-05 (stage 6): the claim was a PATCH on site_rebuild
+// with three properties in worker.js — the WHERE re-stating dueness, the
+// write's status checked, the row asked back. It is the `rebuild_claim` RPC
+// now, which takes the same lock an edit's claim takes and asks the site's
+// question first; the three properties moved with it, so each guard reads
+// the property where it lives: the RPC's body in the applied migration (the
+// live snapshot is held equal to it elsewhere), and the dep that reads its
+// answer.
 
 const claimBody = () => {
   const body = bodyOf("runSiteRebuild");
@@ -96,33 +105,59 @@ const claimBody = () => {
   return body.slice(at, end);
 };
 
+const rebuildClaimSql = () => {
+  const dir = new URL("../supabase/applied/", import.meta.url);
+  const files = fs.readdirSync(dir).filter((f) => /^\d{14}_.+\.sql$/.test(f) && !/live_snapshot/.test(f) && fs.readFileSync(new URL(f, dir), "utf8").includes("CREATE OR REPLACE FUNCTION public.rebuild_claim(")).sort();
+  assert.ok(files.length >= 1, "no applied migration defines rebuild_claim");
+  const src = fs.readFileSync(new URL(files[files.length - 1], dir), "utf8");
+  const at = src.indexOf("CREATE OR REPLACE FUNCTION public.rebuild_claim(");
+  const end = src.indexOf("$function$;", src.indexOf("AS $function$", at) + 1);
+  assert.ok(end > at, "rebuild_claim has no dollar-quoted body");
+  return src.slice(at, end).replace(/^\s*--.*$/gm, "");
+};
+
 test("the claim's WHERE re-states DUENESS — without it both ticks win", () => {
-  // This is the entire atomicity. A PATCH filtered on the slug alone matches for
-  // every concurrent tick, so both claim it, both spend a container run, and the
-  // guard reads as present while protecting nothing.
-  assert.match(claimBody(), /next_try_at=lte\./,
-    "the claim must be conditional on the row still being due");
+  // This is the entire atomicity. An update filtered on the slug alone matches
+  // for every concurrent tick, so both claim it, both spend a container run,
+  // and the guard reads as present while protecting nothing.
+  assert.match(rebuildClaimSql(), /update public\.site_rebuild set next_try_at = \w+, running_until = \w+\s+where slug = p_slug and next_try_at <= now\(\)/,
+    "the claim must be conditional on the row still being due, and leave the running mark");
+  assert.match(claimBody(), /editRpc\(env, "rebuild_claim", \{ p_slug: slug, p_sec:/, "the dep does not go through rebuild_claim");
 });
 
 test("the claim CHECKS the write succeeded", () => {
-  // Supabase in read-only mode reads fine and 5xxs on writes. Unchecked, the
-  // claim would answer true on every tick for as long as that lasted — which is
-  // the duplicate run continuously rather than occasionally. `runScheduledSiteJobs`
-  // had this exact bug and its comment is the rule: a claim that cannot be
+  // A refusal, a transport failure and an answer that is not the RPC's own
+  // shape must all be a LOST claim, not a won one — `runScheduledSiteJobs` had
+  // this exact bug and its comment is the rule: a claim that cannot be
   // recorded is a claim lost.
-  assert.match(claimBody(), /if \(!\w+\.ok\) return false;/,
-    "a failed PATCH must be a LOST claim, not a won one");
+  assert.match(claimBody(), /if \(!r \|\| r\.ok !== true\) return false;/,
+    "a failed call must be a LOST claim, not a won one");
+  assert.match(claimBody(), /return r\.won === true;/, "the claim is won by anything but the RPC's own true");
 });
 
 test("the claim asks for the ROW BACK, or it can never win", () => {
-  // The subtlest of the three and the most total: with `return=minimal`
-  // PostgREST sends no body, so the answer is always empty, the claim always
-  // loses, and THE DRAIN NEVER REBUILDS ANYTHING — a queue that fills and is
-  // worked through by nobody, silently, which is the state this whole feature
-  // exists to end.
-  const seg = claimBody();
-  assert.match(seg, /Prefer:\s*["'`]return=representation/, "the claim needs the row back to know it won");
-  assert.doesNotMatch(seg, /return=minimal/, "return=minimal makes the claim permanently unwinnable");
+  // The subtlest of the three and the most total: a claim that never learns
+  // whether its update matched always loses, and THE DRAIN NEVER REBUILDS
+  // ANYTHING — a queue that fills and is worked through by nobody, silently.
+  // The RPC's update RETURNS the slug it matched and answers `won` off it.
+  const sql = rebuildClaimSql();
+  assert.match(sql, /returning slug into won;/, "the claim's update does not return the row it matched");
+  assert.match(sql, /if won is null then return jsonb_build_object\('ok', true, 'won', false/, "a claim that matched nothing is not answered as lost");
+  assert.match(sql, /return jsonb_build_object\('ok', true, 'won', true/, "a claim that matched is not answered as won");
+});
+
+test("the claim asks the site's question first, under its lock, and the busy answer is the drain's to defer (stage 6)", () => {
+  const sql = rebuildClaimSql();
+  const busy = sql.indexOf("other := private.site_busy(p_slug, null);");
+  const update = sql.indexOf("update public.site_rebuild set next_try_at");
+  assert.ok(busy > 0 && update > busy, "the site is not asked before the row is claimed");
+  assert.match(sql, /if other = 'rebuild' then return jsonb_build_object\('ok', true, 'won', false, 'busy', false, 'running', true\); end if;/, "this site's own running rebuild is not answered as running");
+  assert.match(sql, /if other is not null then return jsonb_build_object\('ok', true, 'won', false, 'busy', true, 'other', other\); end if;/, "a site a job holds is not answered as busy");
+  assert.match(claimBody(), /if \(r\.busy === true\) return "busy";/, "the dep does not hand `busy` to the drain");
+  // AND THE MARK GOES WITH THE RUN: a deferred row is not being rebuilt.
+  const body = bodyOf("runSiteRebuild");
+  const defer = body.slice(body.indexOf("defer: async"), body.indexOf("}, { limit:"));
+  assert.match(defer, /running_until: null/, "a deferred row keeps its running mark, and edits read the site as busy for nothing");
 });
 
 test("`rebuild` REFUSES without stored source rather than publishing an empty site", () => {
@@ -131,7 +166,10 @@ test("`rebuild` REFUSES without stored source rather than publishing an empty si
   const body = bodyOf("runSiteRebuild");
   const at = body.indexOf("rebuild: async");
   const seg = body.slice(at, body.indexOf("forget: async"));
-  assert.match(seg, /loadSiteSource\(/, "it must read the site's own stored source");
+  // RE-ANCHORED 2026-09-05 (stage 6): the reader that goes on to publish
+  // reads through the repairing wrapper, so a copy behind the pointer is put
+  // back before a rebuild republishes it.
+  assert.match(seg, /loadSiteSourceForEdit\(/, "it must read the site's own stored source, through the repairing reader");
   const guard = seg.indexOf("if (!pages)");
   const publish = seg.indexOf("recompileAndPublish(");
   assert.ok(guard !== -1 && guard < publish, "the refusal must come BEFORE the publish");

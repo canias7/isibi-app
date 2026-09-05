@@ -14,6 +14,9 @@
 -- a row five ticks could not settle is parked in review), read back the same
 -- way; test/sweep-recovery.test.mjs holds that block equal to its migration.
 -- AND, that evening, edit_create REPLACED IN PLACE and edit_handoff ADDED
+-- AND, later that night (stage 6, migration 20260905200655_site_serialization),
+-- edit_claim, edit_committed, edit_get and edit_handoff REPLACED IN PLACE,
+-- rebuild_claim and private.site_busy ADDED (at the end of the edit_* run)
 -- (stage 2c, migration 20260905190147_build_rows_lease_chain: a build's row is
 -- billed external from its op, and one lease moves along the build's chain -
 -- consumer, container, collector), both read back the same way;
@@ -91,11 +94,48 @@ CREATE OR REPLACE FUNCTION public.edit_claim(p_id text, p_owner text, p_ttl inte
  SECURITY DEFINER
  SET search_path TO 'public', 'private', 'extensions'
 AS $function$
-declare j public.edit_jobs%rowtype;
+declare j public.edit_jobs%rowtype; other text; deferred integer; res jsonb;
 begin
   if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
   if p_owner is null or length(p_owner) < 4 then raise exception 'bad owner'; end if;
   if p_ttl is null or p_ttl < 10 or p_ttl > 600 then raise exception 'bad ttl'; end if;
+  -- THE ROW'S OWN ANSWERS FIRST. A row that cannot be claimed for its own
+  -- reasons -- under review, over, settled, held by a live lease -- is told
+  -- so before the site is asked, and is never counted as a deferral.
+  select * into j from public.edit_jobs where id = p_id;
+  if not found then return jsonb_build_object('ok', false, 'claimed', false, 'error', 'no-job'); end if;
+  if j.needs_review or j.state in ('done','failed','cancelled','lost')
+     or j.billing in ('finalized','refunded')
+     or (j.lease_owner is not null and j.lease_expires_at >= now()) then
+    return jsonb_build_object('ok', true, 'claimed', false, 'state', j.state,
+      'error', case when j.needs_review then 'needs-review'
+                    when j.state in ('done','failed','cancelled','lost') then 'terminal'
+                    when j.billing in ('finalized','refunded') then 'settled'
+                    else 'leased' end);
+  end if;
+  -- ONE JOB PER SITE AT A TIME (stage 6). Under the site's own lock, another
+  -- job holding a live lease -- or publishing, or the platform rebuilding --
+  -- refuses this claim as site-busy, counted on the row: the consumer
+  -- re-sends its message with a delay, once per refusal, and the refusal past
+  -- the cap FAILS the row through the refund (nothing was reserved at a
+  -- claim, so nothing moves) with the reason on it, so a job cannot wait for
+  -- ever behind a site that never frees.
+  other := private.site_busy(j.slug, p_id);
+  if other is not null then
+    update public.edit_jobs set deferrals = deferrals + 1, phase = 'waiting', updated_at = now()
+     where id = p_id returning deferrals into deferred;
+    if deferred > 45 then
+      res := public.edit_refund(p_id, 'failed', 'the site was busy for the whole wait', p_mint);
+      update public.edit_jobs
+         set error = jsonb_build_object('kind', 'site-busy', 'phase', 'queued', 'other', other, 'deferrals', deferred),
+             updated_at = now()
+       where id = p_id;
+      return jsonb_build_object('ok', true, 'claimed', false, 'error', 'site-busy', 'gave_up', true,
+        'other', other, 'deferrals', deferred, 'state', 'failed', 'refund', res);
+    end if;
+    return jsonb_build_object('ok', true, 'claimed', false, 'error', 'site-busy', 'gave_up', false,
+      'other', other, 'deferrals', deferred, 'state', j.state);
+  end if;
   update public.edit_jobs
      set lease_owner = p_owner,
          lease_expires_at = now() + make_interval(secs => p_ttl),
@@ -113,11 +153,11 @@ begin
    returning * into j;
   if found then
     return jsonb_build_object('ok', true, 'claimed', true, 'state', j.state,
-      'billing', j.billing, 'uid', j.uid, 'slug', j.slug, 'needs_review', j.needs_review);
+      'billing', j.billing, 'uid', j.uid, 'slug', j.slug, 'needs_review', j.needs_review,
+      'deferrals', j.deferrals);
   end if;
-  -- A SECOND DELIVERY FINDS NOTHING TO CLAIM, and it is told WHY rather than
-  -- being handed a bare false: an already-leased job and a terminal one need
-  -- opposite reactions from the consumer.
+  -- RACED between the read above and this update -- a cancel, a refund, a
+  -- second delivery -- and told WHY rather than being handed a bare false.
   select * into j from public.edit_jobs where id = p_id;
   if not found then return jsonb_build_object('ok', false, 'claimed', false, 'error', 'no-job'); end if;
   return jsonb_build_object('ok', true, 'claimed', false, 'state', j.state,
@@ -134,15 +174,30 @@ CREATE OR REPLACE FUNCTION public.edit_committed(p_id text, p_owner text, p_buil
  SECURITY DEFINER
  SET search_path TO 'public', 'private', 'extensions'
 AS $function$
+declare j public.edit_jobs%rowtype;
 begin
   if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
+  -- THE HOLDER, WITH A LIVE LEASE (stage 6). A holder that lost its lease and
+  -- stalled is already stopped at the pointer (one conditional write); this is
+  -- the third wall: it cannot record a commit either, so the row it leaves
+  -- reads as the ambiguity it is and never as a clean ship.
   update public.edit_jobs
      set published_at = coalesce(published_at, now()),
          artifact_build = coalesce(p_build, artifact_build),
          updated_at = now()
    where id = p_id and lease_owner = p_owner
-     and state not in ('done','failed','cancelled','lost');
-  return jsonb_build_object('ok', found);
+     and lease_expires_at > now()
+     and state not in ('done','failed','cancelled','lost')
+   returning * into j;
+  if found then return jsonb_build_object('ok', true, 'published', j.published_at); end if;
+  -- TOLD WHY, so the spine's trace can name the wall that refused it.
+  select * into j from public.edit_jobs where id = p_id;
+  if not found then return jsonb_build_object('ok', false, 'error', 'no-job'); end if;
+  return jsonb_build_object('ok', false, 'state', j.state,
+    'error', case when j.state in ('done','failed','cancelled','lost') then 'terminal'
+                  when j.lease_owner is distinct from p_owner then 'not-holder'
+                  when j.lease_expires_at is null or j.lease_expires_at <= now() then 'lease-expired'
+                  else 'refused' end);
 end; $function$;
 
 -- edit_create(p_id text, p_uid uuid, p_slug text, p_op text, p_idem text, p_mint text)
@@ -243,7 +298,7 @@ begin
     'cost', j.cost, 'billing', j.billing, 'needs_review', j.needs_review,
     'cancel', j.cancel_requested_at is not null,
     'ms', (extract(epoch from (coalesce(j.updated_at, now()) - j.created_at)) * 1000)::bigint,
-    'result', j.result, 'error', j.error);
+    'result', j.result, 'error', j.error, 'deferrals', j.deferrals);
 end; $function$;
 
 -- edit_may_publish(p_id text, p_owner text, p_ttl integer, p_mint text)
@@ -627,8 +682,11 @@ begin
      and needs_review = false
    returning * into j;
   if found then
+    -- THE IDENTITY RIDES THE ANSWER (stage 6): the job runner takes a lease
+    -- over from the consumer by name and needs the row's uid and slug for the
+    -- same agreement check a fresh claim makes.
     return jsonb_build_object('ok', true, 'state', j.state, 'owner', j.lease_owner, 'slug', j.slug,
-                              'expires', j.lease_expires_at);
+                              'uid', j.uid, 'expires', j.lease_expires_at);
   end if;
   -- TOLD WHY, as edit_claim tells a second delivery: a stranger, a terminal
   -- row and a row under review need different reactions from the caller.
@@ -638,6 +696,77 @@ begin
     'error', case when j.needs_review then 'needs-review'
                   when j.state in ('done','failed','cancelled','lost') then 'terminal'
                   else 'not-holder' end);
+end; $function$;
+
+-- rebuild_claim(p_slug text, p_sec integer, p_mint text)
+-- ADDED 2026-09-05 (stage 6, migration 20260905200655_site_serialization), read
+-- back the same way after its apply; the platform rebuild drain's claim, in
+-- place of its PATCH: the same lock and the same question as edit_claim.
+-- EXECUTE held by postgres and service_role only.
+CREATE OR REPLACE FUNCTION public.rebuild_claim(p_slug text, p_sec integer, p_mint text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private', 'extensions'
+AS $function$
+declare other text; won text; upto timestamptz;
+begin
+  if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
+  if p_slug is null or p_slug = '' then raise exception 'bad slug'; end if;
+  if p_sec is null or p_sec < 10 or p_sec > 3600 then raise exception 'bad window'; end if;
+  -- THE SAME LOCK AND THE SAME QUESTION AS edit_claim (stage 6): a site an
+  -- edit or a build holds is not rebuilt under it. `rebuild` back is this
+  -- site's own rebuild still running from an earlier tick -- the claim it
+  -- would have lost on dueness anyway, said by name so the drain touches
+  -- nothing of that run's.
+  other := private.site_busy(p_slug, null);
+  if other = 'rebuild' then return jsonb_build_object('ok', true, 'won', false, 'busy', false, 'running', true); end if;
+  if other is not null then return jsonb_build_object('ok', true, 'won', false, 'busy', true, 'other', other); end if;
+  -- THE CLAIM RE-STATES DUENESS, as the PATCH it replaces did: an overlapping
+  -- tick that read the same row as due finds it pushed out and loses. The
+  -- running mark is what edit_claim reads, for the same window.
+  upto := now() + make_interval(secs => p_sec);
+  update public.site_rebuild set next_try_at = upto, running_until = upto
+   where slug = p_slug and next_try_at <= now()
+   returning slug into won;
+  if won is null then return jsonb_build_object('ok', true, 'won', false, 'busy', false, 'running', false); end if;
+  return jsonb_build_object('ok', true, 'won', true, 'busy', false, 'running', false, 'until', upto);
+end; $function$;
+
+-- private.site_busy(p_slug text, p_self text)
+-- ADDED 2026-09-05 (stage 6), read back the same way. The site's own lock
+-- and the one question both claims ask under it; postgres-only, called by
+-- the two SECURITY DEFINER claims and nothing else.
+CREATE OR REPLACE FUNCTION private.site_busy(p_slug text, p_self text)
+ RETURNS text
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'private', 'extensions'
+AS $function$
+declare other text;
+begin
+  -- THE SITE'S OWN LOCK (stage 6), held for the rest of the transaction, so
+  -- two claims on one site -- two edits, an edit and a build, an edit and the
+  -- platform rebuild -- are answered one after the other and the second sees
+  -- the first's lease. Nothing here reads without it.
+  if p_slug is null or p_slug = '' then return null; end if;
+  perform pg_advisory_xact_lock(hashtext('site:' || p_slug));
+  -- ANOTHER JOB HOLDS A LIVE LEASE ON THE SITE, OR IS PUBLISHING: a publisher
+  -- whose lease lapsed may still have shipped, and the sweep settles it within
+  -- a tick, so a new job waits for that rather than racing it. A reviewed row
+  -- is parked, never running; a terminal one is over; the row asking is never
+  -- its own blocker.
+  select o.id into other from public.edit_jobs o
+   where o.slug = p_slug and o.id is distinct from p_self
+     and o.state not in ('done','failed','cancelled','lost')
+     and o.needs_review = false
+     and ((o.lease_owner is not null and o.lease_expires_at > now()) or o.state = 'publishing')
+   order by o.lease_expires_at desc nulls last
+   limit 1;
+  if other is not null then return other; end if;
+  -- OR THE PLATFORM IS REBUILDING IT: rebuild_claim's mark, cleared when the
+  -- drain forgets or defers the row, expiring on its own if the drain dies.
+  if exists (select 1 from public.site_rebuild r where r.slug = p_slug and r.running_until > now()) then return 'rebuild'; end if;
+  return null;
 end; $function$;
 
 -- ── THE TWO REFUND FUNCTIONS, read with pg_get_functiondef on 2026-09-05 ──

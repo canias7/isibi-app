@@ -49,13 +49,37 @@ declare
   j13 text := 'e_'||substr(md5(random()::text),1,20);
   j14 text := 'e_'||substr(md5(random()::text),1,20);
   j15 text := 'e_'||substr(md5(random()::text),1,20);
-  st text; bl text; nr boolean; note text; tr int; rs jsonb; own text; ts timestamptz;
+  -- Section 20's five rows (stage 6): five jobs on ONE slug, the site's lock the subject.
+  j16 text := 'e_'||substr(md5(random()::text),1,20);
+  j17 text := 'e_'||substr(md5(random()::text),1,20);
+  j18 text := 'e_'||substr(md5(random()::text),1,20);
+  j19 text := 'e_'||substr(md5(random()::text),1,20);
+  j20 text := 'e_'||substr(md5(random()::text),1,20);
+  st text; bl text; nr boolean; note text; tr int; rs jsonb; own text; ts timestamptz; ts2 timestamptz; c1 text;
   -- A gen_charges request id for sections 14b and 16b (the media side's charge
   -- record), rolled back with everything else.
   req text := 'zz-verify-' || substr(md5(random()::text),1,12);
   r jsonb; b0 numeric; b1 numeric; n int; log text := '';
   ok_count int := 0;
--- LAST RUN 2026-09-05 (stage 2c): ALL 113 CHECKS PASSED, rolled back, driving
+-- LAST RUN 2026-09-05 (stage 6): ALL 137 CHECKS PASSED, rolled back, driving
+-- as a funded non-founder account (balance 500). Section 20 was added that
+-- night for the site's own lock; on its own it went RED against the OLD
+-- edit_claim at FAIL 81 ("a second job claimed a site another job holds":
+-- the live claim answering `claimed` for a second job on a slug the first
+-- still held, taken back by the rollback), the migration
+-- 20260905200655_site_serialization was applied against that baseline, and
+-- the section then passed 24 of 24. THE WHOLE SCRIPT THEN WENT RED AT FAIL 46
+-- - section 16, written on 2026-09-02 - and that was the new wall doing its
+-- job: section 16 filed its free job (j9) on the slug section 15's job (j8)
+-- still holds, so edit_claim refused it as site-busy, edit_exempt on the
+-- unclaimed row answered `lease-lost`, and the "a reserved job was exempted"
+-- check read that as the exemption being granted. Under stage 6 a site is
+-- ONE job at a time and the second must wait, so j9 files on its own slug
+-- now (`slug||'-g2'`, the comment beside it says why); the whole script then
+-- passed. An older section that assumed two jobs could share a site is the
+-- one kind of red a serialisation change is SUPPOSED to produce.
+--
+-- EARLIER THAT DAY (stage 2c): ALL 113 CHECKS PASSED, rolled back, driving
 -- as a funded non-founder account (balance 500). Section 19 was added that
 -- evening for the build's row and its lease chain; on its own it went RED
 -- against the OLD edit_create at FAIL 70 ("a build row is not billed
@@ -423,7 +447,12 @@ begin
   r := public.edit_may_publish(j8, 'ownerHHHH', 90, k);
   if (r->>'granted') <> 'true' then raise exception 'FAIL 45 (an exempt job was not granted a publish): %', r; end if;
   -- AND A BILLED JOB CANNOT BE EXEMPTED: money that moved is not free.
-  r := public.edit_create(j9, u, slug||'-g', 'edit', 'idem-gggggggggggggggg', k);
+  -- ON ITS OWN SITE since stage 6 (2026-09-05): j8 still holds slug-g's lease
+  -- above, and one job per site at a time means a second job there is refused
+  -- `site-busy` at the claim - so j9's exempt would have answered `lease-lost`
+  -- for a reason that has nothing to do with billing. The whole script found
+  -- this the hour section 20 was added; the property is the same on any site.
+  r := public.edit_create(j9, u, slug||'-g2', 'edit', 'idem-gggggggggggggggg', k);
   r := public.edit_reserve(j9, 1, 2, k);
   r := public.edit_claim(j9, 'ownerIIII', 90, k);
   r := public.edit_exempt(j9, 'ownerIIII', k);
@@ -674,6 +703,97 @@ begin
   if note not like '%external%' then raise exception 'FAIL 79b (the billing constraint does not admit external): %', note; end if;
   ok_count := ok_count + 21;
   log := log || format('19  build lease chain   -> filed external, claimed, handed to the container for the bound, stranger refused, container beat, released, taken over by name, live chain kept, broken chain lost with nothing moved, happy chain done%s', chr(10));
+
+  -- ── 20. ONE JOB PER SITE AT A TIME (stage 6) ────────────────────────────────
+  --
+  -- Two jobs on one site are answered one after the other under the site's own
+  -- lock: the second claim is refused site-busy and counted; the refusal past
+  -- the cap fails the row with nothing moved and the reason on it; an expired
+  -- lease frees the site; a publisher whose lease lapsed still holds it until
+  -- the sweep settles it, and a settled row does not; a row is never its own
+  -- blocker; the commit needs a live lease; and the platform rebuild's claim
+  -- asks the same question, leaves a mark the next edit reads, and sees its
+  -- own run rather than claiming twice.
+  c1 := slug||'-c1';
+  r := public.edit_create(j16, u, c1, 'edit', 'idem-nnnnnnnnnnnnnnnn', k);
+  r := public.edit_create(j17, u, c1, 'edit', 'idem-oooooooooooooooo', k);
+  r := public.edit_claim(j16, 'ownerRRRR', 90, k);
+  if (r->>'claimed') <> 'true' then raise exception 'FAIL 80 (the first job on a site could not claim): %', r; end if;
+  r := public.edit_claim(j17, 'ownerSSSS', 90, k);
+  if (r->>'claimed') <> 'false' or (r->>'error') <> 'site-busy' or (r->>'other') <> j16 or (r->>'gave_up') <> 'false' then
+    raise exception 'FAIL 81 (a second job claimed a site another job holds): %', r;
+  end if;
+  select deferrals, phase into tr, note from public.edit_jobs where id = j17;
+  if tr <> 1 or note <> 'waiting' then raise exception 'FAIL 81b (the refusal was not counted on the row): % %', tr, note; end if;
+  r := public.edit_claim(j17, 'ownerSSSS', 90, k);
+  if (r->>'deferrals') <> '2' then raise exception 'FAIL 81c (a second refusal did not count): %', r; end if;
+  -- THE CAP: the refusal past it fails the row, money untouched, the reason on it.
+  update public.edit_jobs set deferrals = 45 where id = j17;
+  select balance into b0 from public.credits where user_id = u;
+  r := public.edit_claim(j17, 'ownerSSSS', 90, k);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'gave_up') <> 'true' or (r->>'error') <> 'site-busy' then raise exception 'FAIL 82 (the refusal past the cap did not give up): %', r; end if;
+  select state, billing, error->>'kind', deferrals into st, bl, note, tr from public.edit_jobs where id = j17;
+  if st <> 'failed' or bl <> 'none' or note <> 'site-busy' or tr <> 46 or b1 <> b0 then
+    raise exception 'FAIL 82b (giving up did not fail the row with its reason and nothing moved): % % % % bal % -> %', st, bl, note, tr, b0, b1;
+  end if;
+  -- AN EXPIRED LEASE FREES THE SITE.
+  r := public.edit_create(j18, u, c1, 'edit', 'idem-pppppppppppppppp', k);
+  r := public.edit_claim(j18, 'ownerTTTT', 90, k);
+  if (r->>'error') <> 'site-busy' then raise exception 'FAIL 83a (a third job claimed a held site): %', r; end if;
+  update public.edit_jobs set lease_expires_at = now() - interval '1 second' where id = j16;
+  r := public.edit_claim(j18, 'ownerTTTT', 90, k);
+  if (r->>'claimed') <> 'true' then raise exception 'FAIL 83 (an expired lease still holds the site): %', r; end if;
+  -- A PUBLISHER WHOSE LEASE LAPSED STILL HOLDS THE SITE until the sweep settles it...
+  update public.edit_jobs set state = 'publishing', lease_expires_at = now() - interval '1 second' where id = j18;
+  r := public.edit_create(j19, u, c1, 'edit', 'idem-qqqqqqqqqqqqqqqq', k);
+  r := public.edit_claim(j19, 'ownerUUUU', 90, k);
+  if (r->>'error') <> 'site-busy' or (r->>'other') <> j18 then raise exception 'FAIL 84 (a lapsed publisher no longer holds the site): %', r; end if;
+  -- ...AND A SETTLED ONE DOES NOT.
+  r := public.edit_refund(j18, 'failed', 'died before publishing began', k);
+  r := public.edit_claim(j19, 'ownerUUUU', 90, k);
+  if (r->>'claimed') <> 'true' then raise exception 'FAIL 84b (a terminal row still holds the site): %', r; end if;
+  -- A ROW IS NEVER ITS OWN BLOCKER: the collector's re-claim after its own lease lapsed.
+  update public.edit_jobs set lease_expires_at = now() - interval '1 second' where id = j19;
+  r := public.edit_claim(j19, 'ownerVVVV', 90, k);
+  if (r->>'claimed') <> 'true' then raise exception 'FAIL 85 (a row counted itself as the site being busy): %', r; end if;
+  -- THE COMMIT NEEDS A LIVE LEASE.
+  r := public.edit_committed(j19, 'ownerVVVV', 'b1', k);
+  if (r->>'ok') <> 'true' then raise exception 'FAIL 86 (the holder could not commit): %', r; end if;
+  update public.edit_jobs set lease_expires_at = now() - interval '1 second' where id = j19;
+  r := public.edit_committed(j19, 'ownerVVVV', 'b2', k);
+  if (r->>'ok') <> 'false' or (r->>'error') <> 'lease-expired' then raise exception 'FAIL 86b (a holder whose lease lapsed recorded a commit): %', r; end if;
+  select artifact_build into note from public.edit_jobs where id = j19;
+  if note <> 'b1' then raise exception 'FAIL 86c (the refused commit changed the build id): %', note; end if;
+  r := public.edit_committed(j19, 'strangerWWWW', 'b3', k);
+  if (r->>'ok') <> 'false' or (r->>'error') <> 'not-holder' then raise exception 'FAIL 86d (a stranger''s commit was not refused by name): %', r; end if;
+  -- THE PLATFORM REBUILD ASKS THE SAME QUESTION: refused while a job holds the
+  -- site, won when it is free, its mark holding the site against the next edit.
+  insert into public.site_rebuild (slug, next_try_at) values (c1, now() - interval '1 minute');
+  r := public.edit_claim(j19, 'ownerVVVV', 90, k);
+  if (r->>'claimed') <> 'true' then raise exception 'FAIL 87a (could not re-take the lease for the rebuild check): %', r; end if;
+  r := public.rebuild_claim(c1, 600, k);
+  if (r->>'won') <> 'false' or (r->>'busy') <> 'true' or (r->>'other') <> j19 then raise exception 'FAIL 87 (the rebuild claimed a site a job holds): %', r; end if;
+  update public.edit_jobs set lease_expires_at = now() - interval '1 second' where id = j19;
+  r := public.rebuild_claim(c1, 600, k);
+  if (r->>'won') <> 'true' then raise exception 'FAIL 87b (the rebuild could not claim a free site): %', r; end if;
+  select running_until, next_try_at into ts, ts2 from public.site_rebuild where site_rebuild.slug = c1;
+  if ts is null or ts < now() + interval '9 minutes' or ts > now() + interval '11 minutes' or ts2 <> ts then raise exception 'FAIL 87c (the rebuild claim did not mark the site as running for its window): % %', ts, ts2; end if;
+  r := public.edit_create(j20, u, c1, 'edit', 'idem-rrrrrrrrrrrrrrrr', k);
+  r := public.edit_claim(j20, 'ownerXXXX', 90, k);
+  if (r->>'error') <> 'site-busy' or (r->>'other') <> 'rebuild' then raise exception 'FAIL 88 (an edit claimed a site the platform is rebuilding): %', r; end if;
+  r := public.rebuild_claim(c1, 600, k);
+  if (r->>'won') <> 'false' or (r->>'busy') <> 'false' or (r->>'running') <> 'true' then raise exception 'FAIL 88b (a second tick did not see its own rebuild running): %', r; end if;
+  update public.site_rebuild set running_until = null where site_rebuild.slug = c1;
+  r := public.edit_claim(j20, 'ownerXXXX', 90, k);
+  if (r->>'claimed') <> 'true' then raise exception 'FAIL 88c (a cleared rebuild mark still holds the site): %', r; end if;
+  -- THE ROW SAYS HOW OFTEN IT WAITED, AND A HANDOFF NAMES WHOSE ROW IT IS.
+  r := public.edit_get(j17, u, k);
+  if (r->>'deferrals') <> '46' then raise exception 'FAIL 89 (edit_get does not carry the deferral count): %', r; end if;
+  r := public.edit_handoff(j20, 'ownerXXXX', 'runnerYYYY', 90, null, null, k);
+  if (r->>'ok') <> 'true' or (r->>'uid') <> u::text or (r->>'slug') <> c1 then raise exception 'FAIL 89b (a handoff does not name the row''s owner and site): %', r; end if;
+  ok_count := ok_count + 24;
+  log := log || format('20  one job per site    -> second claim refused and counted, the cap fails the row untouched, an expired lease frees it, a lapsed publisher holds it, a settled row does not, never its own blocker, the commit needs a live lease, the rebuild refused/won/marked/sees itself, deferrals on edit_get, uid on a handoff%s', chr(10));
 
   update private.mint set key_hash = keep;
   raise exception E'ALL % CHECKS PASSED (transaction rolled back)\n%', ok_count, log;

@@ -175,6 +175,33 @@ export const STALE_GRACE_S = 60;
  */
 export const PUBLISH_LEASE_S = 300;
 
+// ── ONE JOB PER SITE AT A TIME (stage 6, 2026-09-05) ─────────────────────────
+//
+// The claim is the wall: under the site's own advisory lock, `edit_claim`
+// refuses a job whose site another job holds — a live lease, a publish in
+// flight, the platform rebuilding it — as `site-busy`, and COUNTS the refusal
+// on the row. The consumer re-sends its own message with a delay, once per
+// refusal; the refusal past the cap fails the row from inside the RPC, with
+// the reason on it, so nothing waits for ever behind a site that never frees.
+
+/**
+ * How long the consumer waits before asking again. A minute — the resume
+ * look's own cadence — so a job behind a fourteen-minute edit asks about
+ * fourteen times, and a queue message per ask costs nothing.
+ */
+export const SITE_BUSY_DEFER_S = 60;
+
+/**
+ * How many refusals a job may collect before the claim FAILS it. Forty-five
+ * minutes at the cadence above: room to sit behind a whole edit (fourteen
+ * minutes), a whole generation (the container's thirty-minute bound) or a
+ * rebuild (ten), and under the browser's own watch bound, so the customer is
+ * told rather than left with a spinner. THE DATABASE IS THE AUTHORITY — the
+ * RPC carries the literal and gives up on its own count; this copy exists for
+ * the guard that holds the two equal and for the sentence in the docs.
+ */
+export const MAX_SITE_BUSY_DEFERRALS = 45;
+
 // ── STATES ─────────────────────────────────────────────────────────────────
 
 /** Every state the database's own CHECK constraint admits, in order.

@@ -3170,3 +3170,73 @@ container, so the 15–20 minute hold after the deploy applies). The live
 proof is a build on a test slug: its row should go queued → claimed →
 generating → done. The lost path needs no spend; the check already proves
 it.
+
+## 2026-09-05 — One job per site at a time (stage 6)
+
+Your "go". Until now nothing stopped two changes running on one site at
+once: two edits sent a few seconds apart, an edit while a revise was still
+building, an addon beside an edit, or the platform's own rebuild under
+either. Each one read the site, worked on its own copy and published, and
+the last to finish won — the earlier change could be built over by a job
+that had read the site before it landed. Only the chat window's own "one
+at a time" per tab stood in the way, and a second tab has its own.
+
+Now a site is one job at a time. When a job asks to start, the database
+takes the site's own lock, looks for another job that holds the site (a
+live lease, a publish in flight, or the platform rebuilding it), and if
+there is one it says "busy" and counts it. The queue then puts the job back
+with a one-minute delay and asks again, up to forty-five times — about
+forty-five minutes, longer than any build — and only after that does it
+give up, with nothing charged and a plain sentence in the chat: "Your site
+was busy with another change for the whole time this edit waited, so it
+was set aside — nothing was charged for it. Ask again once the other change
+has finished." The same for a build ("…send your brief again…"), whose
+deposit is given back. The platform rebuild asks the same lock and steps
+aside for five minutes when a customer's job holds the site, and leaves a
+mark while it runs so a customer's edit waits for it in turn. A job that
+lost its lease (it ran too long, or the machine died and came back) can no
+longer commit a publish — the third wall on that after the last two
+stages. And before an edit reads the site, the editable copy is checked
+against the live build and put back if a failed publish had left it
+behind, so an edit is always an edit of what is actually live.
+
+What you will see: nothing, on a quiet site — an ordinary edit claims,
+writes nothing extra and runs as before. Two changes close together now
+land in order instead of one over the other; the second simply takes a
+little longer. The browser does not yet say "waiting for another change"
+while that happens (the field is there; the sentence is a later stage).
+
+How it was checked: the database half was driven against the live database
+inside a transaction that rolls back — the new section went red against the
+old function first (a second job claimed a site another job held), then 24
+of 24 after the migration, and the whole script passed all 137 checks. The
+whole script first went red on an OLDER section, written three days ago,
+that filed two jobs on one site and expected both to run — which is exactly
+what this stage forbids, so that section now uses two sites; that red was
+the new wall working, not a defect. The Worker's hops are driven and read
+in a new suite (the queue putting a busy job back with its delay, giving up
+with the sentence, claiming once and handing the lease to the container by
+name; the build consumer doing the same and giving the deposit back; the
+rebuild stepping aside; the editable copy repaired from the live build,
+never touching the redirects or the translations). The mutation sweep put
+61 deliberate breaks in (the lock removed, the cap removed, a busy job
+dropped instead of re-sent, the deposit kept, the rebuild counting a busy
+site as a failed attempt, the repair rewriting the redirects, and so on)
+and the tests caught all 61, with the three comment-only controls surviving
+as they should. The whole unit suite is 5,217 green.
+
+**One thing to know right now, before the deploy.** The database change is
+live already and the Worker on main is not. In that gap, if two jobs land
+on one site, the second is refused by the new database function and the
+OLD code does not know to wait: it just does not run — nothing is charged,
+the row sits queued, and the chat polls until it gives up. Before tonight
+that second job would have run at the same time as the first; after the
+deploy it waits its turn. So: two changes on one site inside the same few
+minutes, between now and the deploy, means the second one is lost and has
+to be sent again. The push to main closes the gap. (A build in that gap
+still builds, as it always did.)
+
+What this needs from you: the push to main (Worker and container change,
+so the 15–20 minute hold applies), then a free check: two edits on
+fretwork-1 a few seconds apart — the second should wait and then publish
+after the first, in order. NOT proven live until then.

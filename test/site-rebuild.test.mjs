@@ -15,7 +15,7 @@
 // that matters: a failed rebuild must leave the live site exactly as it was.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { drainRebuild, verdictFor, backoffFor, BACKOFF_SEC, BATCH, CLAIM_SEC } from "../site-rebuild.mjs";
+import { drainRebuild, verdictFor, backoffFor, BACKOFF_SEC, BATCH, CLAIM_SEC, BUSY_DEFER_SEC } from "../site-rebuild.mjs";
 
 const harness = (over = {}) => {
   const calls = { exists: [], claim: [], rebuild: [], forget: [], defer: [] };
@@ -261,6 +261,37 @@ test("a claim that cannot be RECORDED is a claim lost", async () => {
   const out = await drainRebuild(deps);
   assert.deepEqual(calls.rebuild, []);
   assert.equal(out.lost, 1);
+});
+
+test("a site a job holds is DEFERRED, not rebuilt and not failed: no attempt, no rung, the mark's own delay (stage 6)", async () => {
+  // The claim answers "busy" when an edit, an addon or a build holds the
+  // site's lease (rebuild_claim asks under the site's own lock). A rebuild
+  // published under it would carry their pages back to before their change,
+  // so the row is pushed out by BUSY_DEFER_SEC and asked again — attempts
+  // untouched, because a busy site is not a failing one, and the reason on
+  // the row for anyone reading it.
+  const { deps, calls } = harness({ claim: "busy", rows: [{ slug: "cafe", attempts: 3 }] });
+  const out = await drainRebuild(deps);
+  assert.deepEqual(calls.rebuild, [], "a busy site reached the container");
+  assert.deepEqual(calls.forget, []);
+  assert.equal(calls.defer.length, 1);
+  assert.equal(calls.defer[0].slug, "cafe");
+  assert.equal(calls.defer[0].attempts, 3, "a busy site was counted as an attempt");
+  assert.equal(calls.defer[0].sec, BUSY_DEFER_SEC);
+  assert.match(calls.defer[0].why, /site busy/);
+  assert.equal(out.busy, 1);
+  assert.equal(out.lost, 0, "a busy site was counted as a lost claim");
+  assert.equal(out.attempted, 0);
+  assert.deepEqual(out.errors, [], "a busy site was reported as an error");
+  // THE DELAY IS THE MODULE'S OWN AND A REAL WAIT: past most edits, never
+  // longer than the first backoff rung would make a failure wait ten times.
+  assert.ok(BUSY_DEFER_SEC >= 120 && BUSY_DEFER_SEC <= 1200, "the busy delay is not a few minutes: " + BUSY_DEFER_SEC);
+  // A DEFER THAT FAILS IS REPORTED, and still spends nothing.
+  const bad = harness({ claim: "busy", deferThrows: true });
+  const o2 = await drainRebuild(bad.deps);
+  assert.deepEqual(bad.calls.rebuild, []);
+  assert.equal(o2.busy, 0);
+  assert.ok(o2.errors.some((e) => /^defer cafe/.test(e)));
 });
 
 test("only a literal true wins the claim", async () => {

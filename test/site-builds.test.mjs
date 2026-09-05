@@ -18,6 +18,7 @@ import {
   stageBuild, activateBuild, readPointer, listBuilds, readBuild, pruneBuilds, deleteAllBuilds,
   assetKeyFor, mergeVersions, stateConfigOf, mintVersion, buildPrefix, POINTER_KEY, P_BUILDS,
   STATE_CONFIG_FIELDS, isVersionId,
+  HEAD_KEY, REPAIR_CONFIG_FIELDS, repairConfigOf, sameJson, readHead, writeHead, repairNeeded, repairEditable, STATE_DIR,
 } from "../site-builds.mjs";
 import { MAX_VERSIONS, versionId } from "../site-versions.mjs";
 import { CONFIG_FIELDS } from "../site-config.mjs";
@@ -433,4 +434,95 @@ test("the wall admits the build prefix and the pointer, and the image carries th
   assert.equal(allowedJobKey("cafe", "0123456789abcdef0123456789abcdef", "current/other.json"), false);
   assert.equal(allowedJobKey("cafe", "0123456789abcdef0123456789abcdef", "builds/other/x/manifest.json"), false);
   assert.match(DOCKERFILE, /\bsite-builds\.mjs\b/, "the image does not carry site-builds.mjs — the job runtime would die at import");
+});
+
+// ── THE EDITABLE COPY KNOWS WHICH BUILD IT CAME FROM (stage 6, 2026-09-05) ──
+//
+// Activation copies a version's state into the editable locations last and
+// best-effort, so a job that dies between the pointer write and the copy
+// leaves the live site a version ahead of what the next edit reads. The copy
+// ends with a marker naming its version; a job about to read asks whether the
+// marker names the pointer's version and repairs the copy from that version's
+// state when it does not. DRIVEN against the fake R2 above.
+
+const H1 = versionId(new Date("2026-09-05T10:00:00Z"), "aaaa");
+const H2 = versionId(new Date("2026-09-05T11:00:00Z"), "bbbb");
+
+test("the marker round-trips, refuses a bad version, and reads junk as no marker", async () => {
+  const r2 = fakeR2();
+  assert.equal(await readHead(r2, "fold-lane"), null);
+  const w = await writeHead(r2, "fold-lane", H1, "2026-09-05T10:00:01.000Z");
+  assert.deepEqual(w, { version: H1, at: "2026-09-05T10:00:01.000Z" });
+  assert.deepEqual(await readHead(r2, "fold-lane"), { version: H1, at: "2026-09-05T10:00:01.000Z" });
+  assert.equal(HEAD_KEY("Fold-Lane"), "source/fold-lane/head.json", "the marker is not beside the source it marks");
+  await assert.rejects(() => writeHead(r2, "fold-lane", "not-a-version"), /bad version id/);
+  r2.store.set(HEAD_KEY("x"), { body: "not json", etag: "e" });
+  assert.equal(await readHead(r2, "x"), null);
+  r2.store.set(HEAD_KEY("y"), { body: JSON.stringify({ version: "junk" }), etag: "e" });
+  assert.equal(await readHead(r2, "y"), null);
+});
+
+test("repairNeeded: no pointer never repairs; a pointer with no marker, or a marker naming another version, does; the same version does not", () => {
+  assert.deepEqual(repairNeeded({ pointer: null, head: null }), { repair: false, why: "no-pointer" });
+  assert.deepEqual(repairNeeded({ pointer: { version: "bad" }, head: null }), { repair: false, why: "no-pointer" });
+  assert.deepEqual(repairNeeded({ pointer: { version: H2 }, head: null }), { repair: true, why: "no-head" });
+  assert.deepEqual(repairNeeded({ pointer: { version: H2 }, head: { version: H1 } }), { repair: true, why: "behind" });
+  // A MARKER AHEAD OF THE POINTER IS A DISAGREEMENT TOO: a restore that moved
+  // the pointer back and died before its copy leaves the newer copy in place.
+  assert.deepEqual(repairNeeded({ pointer: { version: H1 }, head: { version: H2 } }), { repair: true, why: "behind" });
+  assert.deepEqual(repairNeeded({ pointer: { version: H2 }, head: { version: H2 } }), { repair: false, why: "same" });
+  assert.deepEqual(repairNeeded(), { repair: false, why: "no-pointer" });
+});
+
+test("the repair copies the version's pages and parts, merges the config through the caller, marks LAST, and never touches the sidecar", async () => {
+  const r2 = fakeR2();
+  const dest = buildPrefix("fold-lane", H2) + STATE_DIR;
+  await r2.put(dest + "pages.json", JSON.stringify([{ path: "index.tsx", source: "v2" }]), "application/json");
+  await r2.put(dest + "parts.json", JSON.stringify([{ name: "Chord", source: "p2" }]), "application/json");
+  await r2.put(dest + "config.json", JSON.stringify({ look: { theme: "ink" }, css: "b{}", logo: "", icon: "", langStrings: { es: { Hi: "Hola" } } }), "application/json");
+  await r2.put(dest + "sidecar.json", JSON.stringify({ origin: "https://fold-lane.gofarther.app/" }), "application/json");
+  await r2.put("source/fold-lane/pages.json", JSON.stringify([{ path: "index.tsx", source: "v1" }]), "application/json");
+  await r2.put("sitemeta/fold-lane.json", JSON.stringify({ origin: "https://crookes-guitar.gofarther.app/" }), "application/json");
+  r2.puts.length = 0;
+  const merged = [];
+  const r = await repairEditable(r2, {
+    slug: "fold-lane", version: H2, keys: { source: "source/fold-lane/pages.json", parts: "source/fold-lane/parts.json" },
+    mergeConfig: async (text) => { merged.push(JSON.parse(text)); return true; }, now: "2026-09-05T12:00:00.000Z",
+  });
+  assert.deepEqual(r, { ok: true, why: "repaired", wrote: ["source", "parts", "config"], version: H2 });
+  assert.equal(await r2.get("source/fold-lane/pages.json").then((o) => o.text()), JSON.stringify([{ path: "index.tsx", source: "v2" }]));
+  assert.equal(await r2.get("source/fold-lane/parts.json").then((o) => o.text()), JSON.stringify([{ name: "Chord", source: "p2" }]));
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].look.theme, "ink");
+  // THE MARKER IS THE LAST WRITE: a copy that dies before it leaves the old
+  // marker, which is exactly the disagreement the next repair reads.
+  assert.deepEqual(r2.puts, ["source/fold-lane/pages.json", "source/fold-lane/parts.json", HEAD_KEY("fold-lane")]);
+  assert.deepEqual(await readHead(r2, "fold-lane"), { version: H2, at: "2026-09-05T12:00:00.000Z" });
+  // NEVER THE SIDECAR: the rename lane patches the live one without a publish.
+  assert.equal(await r2.get("sitemeta/fold-lane.json").then((o) => o.text()), JSON.stringify({ origin: "https://crookes-guitar.gofarther.app/" }));
+  // A MERGE THAT WROTE NOTHING IS NOT COUNTED, and the marker still lands.
+  r2.puts.length = 0;
+  const r2b = await repairEditable(r2, { slug: "fold-lane", version: H2, keys: { source: "source/fold-lane/pages.json", parts: "source/fold-lane/parts.json" }, mergeConfig: async () => false });
+  assert.deepEqual(r2b.wrote, ["source", "parts"]);
+  assert.ok(r2.puts.includes(HEAD_KEY("fold-lane")));
+  // A VERSION WITH NO STATE COPIES NOTHING AND MARKS NOTHING.
+  r2.puts.length = 0;
+  const none = await repairEditable(r2, { slug: "fold-lane", version: H1, keys: { source: "source/fold-lane/pages.json" }, mergeConfig: async () => true });
+  assert.deepEqual(none, { ok: false, why: "no-state", wrote: [] });
+  assert.deepEqual(r2.puts, [], "a build with no state wrote something");
+  assert.deepEqual(await repairEditable(r2, { slug: "fold-lane", version: "junk", keys: { source: "x" } }), { ok: false, why: "bad-version", wrote: [] });
+});
+
+test("the config a repair restores is the baked look and never the translation cache; drift is judged without regard to key order", () => {
+  assert.deepEqual(REPAIR_CONFIG_FIELDS, STATE_CONFIG_FIELDS.filter((f) => f !== "langStrings"));
+  assert.ok(!REPAIR_CONFIG_FIELDS.includes("langStrings") && STATE_CONFIG_FIELDS.includes("langStrings"), "the cache is not a state field, or is a repair field");
+  assert.deepEqual(repairConfigOf({ look: { a: 1 }, css: "x", logo: "l", icon: "i", langStrings: { es: {} }, verify: { g: 1 }, share: "s" }), { look: { a: 1 }, css: "x", logo: "l", icon: "i" });
+  assert.deepEqual(repairConfigOf(null), {});
+  assert.deepEqual(repairConfigOf(["look"]), {});
+  assert.equal(sameJson({ look: { theme: "ink", kind: "tool" }, css: "" }, { css: "", look: { kind: "tool", theme: "ink" } }), true);
+  assert.equal(sameJson({ look: { theme: "ink" } }, { look: { theme: "paper" } }), false);
+  assert.equal(sameJson({ a: [1, 2] }, { a: [2, 1] }), false, "array order is meaning");
+  assert.equal(sameJson({ a: undefined }, {}), true, "an absent field and an undefined one are one thing");
+  assert.equal(sameJson(null, {}), false);
+  assert.equal(sameJson("x", "x"), true);
 });

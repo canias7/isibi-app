@@ -305,7 +305,20 @@ test("edit_create bills a row external from its op alone, and edit_handoff moves
 
 test("the live snapshot's read-back matches the migration byte for byte, for both functions", () => {
   assert.equal(fnBlock(SNAP, "edit_create"), fnBlock(MIG, "edit_create"), "the snapshot's edit_create differs from the migration");
-  assert.equal(fnBlock(SNAP, "edit_handoff"), fnBlock(MIG, "edit_handoff"), "the snapshot's edit_handoff differs from the migration");
+  // RE-ANCHORED 2026-09-05 (stage 6): this pinned the snapshot's edit_handoff
+  // to THIS migration's, and stage 6 replaced it in place (the row's uid on
+  // the success answer, for the job runner's takeover by name). The property
+  // is that the snapshot carries the NEWEST applied definition of it — found
+  // by version, never by name — and that this migration's is the one it
+  // started from, save the lines a later stage added.
+  const defs = fs.readdirSync(DIR).filter((f) => /^\d{14}_.+\.sql$/.test(f) && !/live_snapshot/.test(f) && fs.readFileSync(new URL(f, DIR), "utf8").includes("CREATE OR REPLACE FUNCTION public.edit_handoff(")).sort();
+  assert.ok(defs.length >= 2 && defs[0] === FILE, "edit_handoff's birth migration is not the oldest that defines it: " + defs.join(", "));
+  const newest = fs.readFileSync(new URL(defs[defs.length - 1], DIR), "utf8");
+  assert.equal(fnBlock(SNAP, "edit_handoff"), fnBlock(newest, "edit_handoff"), "the snapshot's edit_handoff differs from the newest migration that defines it (" + defs[defs.length - 1] + ")");
+  const born = blankSql(fnBlock(MIG, "edit_handoff")).split("\n").filter((l) => l.trim()).map((l) => l.trim());
+  const now = blankSql(fnBlock(SNAP, "edit_handoff")).split("\n").filter((l) => l.trim()).map((l) => l.trim());
+  const dropped = born.filter((l) => !now.includes(l) && !/^return jsonb_build_object\('ok', true, 'state', j\.state, 'owner', j\.lease_owner, 'slug', j\.slug,$/.test(l) && !/^'expires', j\.lease_expires_at\);$/.test(l));
+  assert.deepEqual(dropped, [], "a later stage took lines out of edit_handoff's birth body rather than adding to it");
   assert.match(SNAP, /edit_create REPLACED IN PLACE and edit_handoff ADDED/, "the snapshot's header does not record the change");
   // THE SWEEP IS UNTOUCHED: a build row falls into its own `lost` branch,
   // with `external` billing moving nothing in edit_refund.
@@ -485,7 +498,10 @@ test("the helpers: a takeover by name on `leased`, one retry on the handoff, a r
   const status = fnW("buildRowStatus");
   assert.match(status, /if \(!env\.SUPABASE_SERVICE_KEY \|\| !env\.CREDITS_MINT_SECRET\) return null;/, "a sandbox with no key reaches for the row");
   assert.match(status, /editRpc\(env, "edit_get", \{ p_id: id, p_uid: uid \}\)/, "the row is not read owner-scoped");
-  assert.match(status, /rowVerdict\(\{ state: g\.state, slug: g\.slug, job: id \}\)/);
+  // RE-ANCHORED 2026-09-05 (stage 6): the row's own reason rides into the
+  // verdict, so a row the claim failed as site-busy names that rather than
+  // wearing the build's failure sentence.
+  assert.match(status, /rowVerdict\(\{ state: g\.state, slug: g\.slug, job: id, error: g\.error \}\)/);
   const bind = fnW("genBindingFor");
   assert.match(bind, /if \(!isJobId\(id\) \|\| !genId \|\| genId\.length > 80 \|\| !env\.SITES_BUCKET\) return null;/);
   assert.match(bind, /return genBound\(rec, token, genId\) \? \{ id, genId \} : null;/);

@@ -323,6 +323,119 @@ export function assetKeyFor(pointer, slug, rel) {
     : "sites/" + String(slug || "").toLowerCase() + "/" + r;
 }
 
+// ── THE EDITABLE COPY KNOWS WHICH BUILD IT CAME FROM (stage 6, 2026-09-05) ──
+//
+// Activation copies a version's state into the editable locations LAST and
+// best-effort (step 6 above), so a job that dies between the pointer write and
+// that copy leaves the live site one version ahead of what the next edit
+// reads — and that edit then publishes the previous version's pages with its
+// own change, quietly undoing the one before it. So the copy ends with a
+// MARKER naming the version it was copied from, and a job about to read the
+// editable state asks first whether the marker names the pointer's version;
+// when it does not, it repairs the copy from that version's own state before
+// reading. The marker is written after the copy, never before: a copy that
+// died leaves the previous marker, which is exactly the disagreement the
+// repair reads.
+
+/** Where the editable copy records the version it was copied from. */
+export const HEAD_KEY = (slug) => "source/" + String(slug || "").toLowerCase() + "/head.json";
+
+/**
+ * The config fields a repair restores: the version's baked look, and NEVER
+ * the translation cache — `langStrings` is written before a publish as a
+ * cache, a translation bought is a translation still right when its publish
+ * fails, and restoring an older cache would buy them all again.
+ */
+export const REPAIR_CONFIG_FIELDS = STATE_CONFIG_FIELDS.filter((f) => f !== "langStrings");
+
+/** Those fields off a config, in one fixed order. */
+export function repairConfigOf(config) {
+  const out = {};
+  const c = config && typeof config === "object" && !Array.isArray(config) ? config : {};
+  for (const f of REPAIR_CONFIG_FIELDS) if (c[f] !== undefined) out[f] = c[f];
+  return out;
+}
+
+/** Deep equality that does not care about key order — two configs that
+ *  serialise differently and mean the same must not read as drift. */
+export function sameJson(a, b) {
+  if (a === b) return true;
+  if (typeof a !== typeof b || a === null || b === null || typeof a !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) return a.length === b.length && a.every((v, i) => sameJson(v, b[i]));
+  const ka = Object.keys(a).filter((k) => a[k] !== undefined).sort();
+  const kb = Object.keys(b).filter((k) => b[k] !== undefined).sort();
+  if (ka.length !== kb.length || ka.some((k, i) => k !== kb[i])) return false;
+  return ka.every((k) => sameJson(a[k], b[k]));
+}
+
+/** The marker, or null when there is none or it cannot be read as one. */
+export async function readHead(deps, slug) {
+  let o = null;
+  try { o = await deps.get(HEAD_KEY(slug)); } catch { return null; }
+  if (!o) return null;
+  try {
+    const h = JSON.parse(await o.text());
+    if (!h || !isVersionId(h.version)) return null;
+    return { version: h.version, at: typeof h.at === "string" ? h.at : "" };
+  } catch { return null; }
+}
+
+/** Written AFTER a copy, naming the version copied. */
+export async function writeHead(deps, slug, version, now) {
+  if (!isVersionId(version)) throw new Error("head marker: bad version id");
+  const at = typeof now === "string" ? now : new Date().toISOString();
+  await deps.put(HEAD_KEY(slug), JSON.stringify({ version, at }), "application/json");
+  return { version, at };
+}
+
+/**
+ * Does the editable copy need repairing from the pointer's version?
+ *
+ *   no-pointer  the site has never published under this layout: its editable
+ *               state is the legacy layout's and nothing here knows better
+ *   no-head     a pointer and no marker: the copy predates the marker, or the
+ *               first copy after it died before the marker — either way the
+ *               version's state IS the live site's, so copying it is right,
+ *               and safe because a claim holds the site while it happens
+ *   behind      the marker names another version than the pointer: a copy
+ *               that never finished, on a publish or on a restore
+ *   same        the copy is the pointer's
+ */
+export function repairNeeded({ pointer, head } = {}) {
+  if (!pointer || !isVersionId(pointer.version)) return { repair: false, why: "no-pointer" };
+  if (!head || !isVersionId(head.version)) return { repair: true, why: "no-head" };
+  if (head.version !== pointer.version) return { repair: true, why: "behind" };
+  return { repair: false, why: "same" };
+}
+
+/**
+ * Copy a version's state into the editable locations and mark it: the page
+ * source and the parts as they are, the config through the caller's merge —
+ * `mergeConfig(stateText)` answers whether it wrote — so the owner's own
+ * settings survive, and the translation cache with them. NEVER THE SIDECAR:
+ * the rename lane patches the live sidecar's origin without a publish, and a
+ * copy of the version's would name the old address again. A build staged
+ * without state (nothing to copy from) answers `no-state` and writes
+ * nothing, the marker included.
+ */
+export async function repairEditable(deps, { slug, version, keys = {}, mergeConfig, now } = {}) {
+  if (!isVersionId(version)) return { ok: false, why: "bad-version", wrote: [] };
+  const dest = buildPrefix(slug, version) + STATE_DIR;
+  const text = async (key) => { const o = await deps.get(key); return o ? await o.text() : null; };
+  const wrote = [];
+  const pages = await text(dest + "pages.json");
+  if (typeof pages !== "string" || !keys.source) return { ok: false, why: "no-state", wrote };
+  await deps.put(keys.source, pages, "application/json");
+  wrote.push("source");
+  const parts = await text(dest + "parts.json");
+  if (typeof parts === "string" && keys.parts) { await deps.put(keys.parts, parts, "application/json"); wrote.push("parts"); }
+  const config = await text(dest + "config.json");
+  if (typeof config === "string" && typeof mergeConfig === "function" && (await mergeConfig(config)) === true) wrote.push("config");
+  await writeHead(deps, slug, version, now);
+  return { ok: true, why: "repaired", wrote, version };
+}
+
 /** Both layouts in one list, newest first — the Versions panel's answer. */
 export function mergeVersions(legacy, builds) {
   const all = [...(Array.isArray(legacy) ? legacy : []), ...(Array.isArray(builds) ? builds : [])].filter((v) => v && isVersionId(v.id));
