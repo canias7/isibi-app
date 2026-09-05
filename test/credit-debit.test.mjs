@@ -214,7 +214,12 @@ test("the build's refs: one per debit, the job's id under the queue, carried to 
   const end = w.indexOf("pages = await buildAndPublishPages(env, buildArgs);", at);
   assert.ok(at > 0 && end > at, "buildArgs moved — rescope this");
   assert.match(w.slice(at, end), /\n\s+billRef,\n/, "the ref is not carried in buildArgs, so a resume would debit under a fresh one");
-  assert.match(w, /models = null, billRef = null \}\) \{/, "buildAndPublishPages does not take the ref");
+  // AMONG ITS PARAMETERS, not at the end of them: this was pinned to
+  // `models = null, billRef = null })` and went red the day stage 2c
+  // (2026-09-05) added `jobId = null` after it — reporting that the ref is
+  // not taken about a signature that still takes it. The property is that
+  // the parameter exists and defaults to null.
+  assert.match(w, /async function buildAndPublishPages\(env, \{[^}]*\bbillRef = null\b[^}]*\}\) \{/, "buildAndPublishPages does not take the ref");
   // Every reversal on the route goes through the ledger of refs; the old
   // number-based refund is gone from it.
   const route = w.slice(w.indexOf("async function runSiteBuild("), w.indexOf("\n}\n", w.indexOf("async function runSiteBuild(")));

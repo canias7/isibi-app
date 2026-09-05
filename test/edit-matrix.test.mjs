@@ -81,6 +81,24 @@ test("the check still covers every property the flag cannot ship without", () =>
     "a stuck row was not parked in review after five tries",
     "a parked row could not be reconciled",
     "a row under the ceiling was parked instead of settled",
+    // Stage 2c (2026-09-05): a build's row and the lease that moves along
+    // its chain — section 19 (filed external from its op with an edit row
+    // still none; claimed and beaten by the consumer; handed to the
+    // container for the generation bound, a stranger refused and the old
+    // holder's beat dead; the container's own beat; the release keeping the
+    // owner; the collector's takeover by name; a live chain left alone by
+    // the sweep and a broken one ended with nothing moved; a lost row not
+    // finalized afterwards; the happy chain done and still external).
+    "a build row is not billed external",
+    "an edit row is no longer billed none",
+    "a stranger moved the lease",
+    "the old holder still renews a handed-off lease",
+    "the release did not keep the owner and shorten the lease",
+    "the collector could not take the lease over from the container",
+    "the sweep took a build whose lease is live",
+    "a lost build moved money, or was not marked lost",
+    "a lost build was finalized afterwards",
+    "a finished build is not done and external with money untouched",
   ];
   for (const m of must) {
     assert.ok(SQL.includes(m), `the database check no longer proves: ${m}`);

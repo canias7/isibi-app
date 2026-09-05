@@ -53,6 +53,10 @@ import {
   jobRunnerOn, jobRunnerFor, jobSecrets, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
 } from "./builder/edit-job.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
+// THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
+// (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
+// beside `makeJobCtx`, and the module for every number and sentence.
+import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, isRowSlug, buildOutcome, rowVerdict, genBound } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -5842,7 +5846,7 @@ function containerPagesCall(env, slug, out) {
  * more after a deploy the previous image can still be serving. Degrading there
  * costs a build the new ceiling and loses nothing that worked before it.
  */
-function containerPagesFire(env, slug, out) {
+function containerPagesFire(env, slug, out, jobId = null) {
   const sync = containerPagesCall(env, slug, out);
   return async (keys, req, budget) => {
     const callMs = budget && typeof budget.capMs === "function" ? budget.capMs(BUILDER_CALL_MS) : BUILDER_CALL_MS;
@@ -5869,7 +5873,18 @@ function containerPagesFire(env, slug, out) {
         // notion of our origin. `APP_ZONE` is the one place that is written
         // down; a value threaded from a request would be whatever host the
         // customer happened to arrive on, including a custom domain.
-        body: JSON.stringify({ req, callMs, report: { url: `https://${APP_ZONE}/api/site/genresult`, token: report } }),
+        body: JSON.stringify({ req, callMs, report: {
+          url: `https://${APP_ZONE}/api/site/genresult`, token: report,
+          // THE ROW'S HALF (stage 2c): which job this generation belongs to,
+          // and where to beat while it runs. The container echoes `job` and
+          // its own generation id on the report, which is what lets the
+          // report route RELEASE the row's lease; the beat renews it in the
+          // meantime. Both are bound back to this build through the resume
+          // record on the Worker's side, so the token alone still authorises
+          // nothing but one answer's write. Absent on the inline path, which
+          // has no job and no row — and the container then beats nowhere.
+          ...(jobId ? { job: jobId, beat: `https://${APP_ZONE}/api/site/genbeat`, beatMs: GEN_BEAT_MS } : {}),
+        } }),
         // THE FIRE, NOT THE GENERATION. This hop stores a job and returns; it
         // is milliseconds of work, so it is bounded like one. Bounding it at
         // `callMs` would hold this invocation for ten minutes on a container
@@ -6392,6 +6407,139 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "" }) {
       return { go: true, phase };
     },
   };
+}
+
+// ── THE BUILD'S ROW IN edit_jobs, AND THE LEASE THAT MOVES ALONG ITS CHAIN ──
+//
+// (stage 2c, 2026-09-05; the vocabulary is builder/build-lease.mjs) A build
+// had an R2 record and nothing else — no row, no lease, no heartbeat, no
+// sweep — so a consumer evicted mid-design or a resume chain the queue
+// stopped delivering left the customer with the stand-in and a browser
+// polling `pending` to its own bound. Now the route files a row (op `build`,
+// billed `external`), the consumer claims and beats through the design, the
+// fire HANDS the lease to the container (`container:<genId>`, for the
+// generation bound), the container beats and its report RELEASES it, the
+// collector claims or takes it over by name, and the sweep marks a chain
+// nobody renews `lost` with nothing moved — its own `lost` branch, unchanged.
+//
+// THE ROW IS AN INSTRUMENT, NEVER THE AUTHORITY. Every helper here answers
+// rather than throws, and nothing on the build path waits on one: a build
+// that cannot file, claim or hand off its row builds exactly as it did before
+// this existed. The money and the site stay with the R2 record's etag claim
+// and charge marks. What the row buys is a verdict for the customer
+// (`rowVerdict`, read by the poll route and the POST's own wait) and a sweep
+// that closes a chain nobody will come back to.
+
+/**
+ * CLAIM THE ROW, OR TAKE ITS LEASE OVER FROM THE CONTAINER BY NAME. `holder`
+ * is the container's name off the resume record (the collector's case) or
+ * null (the consumer's, whose row is fresh). Answers whether this caller now
+ * holds the lease and whether a row exists at all — no row is a build filed
+ * before this existed, one whose route could not file, or a sandbox with no
+ * service key, and is not a failure.
+ */
+async function claimBuildRow(env, id, owner, holder) {
+  const c = await editRpc(env, "edit_claim", { p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S });
+  if (c && c.claimed === true) return { held: true, row: true };
+  if (!c || c.error === "no-job" || c.error === "no-service-key") return { held: false, row: false };
+  // HELD BY THE CONTAINER, TAKEN OVER BY NAME. A released lease is not yet
+  // expired (`RELEASE_TTL_S`), and a container whose report never landed
+  // still holds its thirty minutes — either way the collector knows the
+  // holder's name and the handoff moves the lease from that name to this.
+  if (c.error === "leased" && holder) {
+    const h = await editRpc(env, "edit_handoff", { p_id: id, p_owner: holder, p_next: owner, p_ttl: LEASE_TTL_S, p_state: null, p_slug: null });
+    if (h && h.ok === true) return { held: true, row: true };
+    console.log("build row:", id, "is held by another and not by", holder, "—", String((h && h.error) || "rpc"));
+    return { held: false, row: true };
+  }
+  console.log("build row:", id, "not claimed —", String(c.error || "rpc"));
+  return { held: false, row: true };
+}
+
+/** Renew the row's lease on a timer, as the edit consumer does. The caller clears it on every exit. */
+function buildRowBeat(env, id, owner) {
+  const t = setInterval(() => { editRpc(env, "edit_beat", { p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S, p_phase: null }).catch(() => {}); }, HEARTBEAT_S * 1000);
+  try { if (t && typeof t.unref === "function") t.unref(); } catch { /* workerd's timers have no unref */ }
+  return t;
+}
+
+/**
+ * THE FIRE HANDS THE LEASE TO THE CONTAINER, for the generation bound, naming
+ * the slug — a first build was filed under a placeholder before the designer
+ * named the site. ONE RETRY on a transport failure, because a handoff that
+ * never lands leaves the lease with a consumer whose beats stop the moment
+ * its invocation ends, and the sweep would then read a running generation as
+ * a dead consumer. Said in the log when both fail: the row is an instrument,
+ * and a wrong verdict on it is the stated residue, never a stopped build.
+ */
+async function handoffBuildRow(env, { id, from, genId, slug }) {
+  if (!id || !from) return null;
+  let next = null;
+  try { next = containerOwner(genId); } catch { return null; }
+  const args = { p_id: id, p_owner: from, p_next: next, p_ttl: HANDOFF_TTL_S, p_state: GENERATING, p_slug: isRowSlug(slug) ? slug : null };
+  let h = await editRpc(env, "edit_handoff", args);
+  if (h && h.ok !== true && h.error === "rpc") h = await editRpc(env, "edit_handoff", args);
+  if (!h || h.ok !== true) {
+    console.error("build row: the handoff to the container did not land for", id, "—", String((h && h.error) || "rpc"), "(the row may read lost while the build finishes)");
+  }
+  return h;
+}
+
+/** The container's report landed: a short expiry, the holder kept — the collector claims or takes over, or the sweep ends it. */
+async function releaseBuildRow(env, { id, genId }) {
+  return editRpc(env, "edit_handoff", { p_id: id, p_owner: containerOwner(genId), p_next: null, p_ttl: RELEASE_TTL_S, p_state: null, p_slug: null });
+}
+
+/**
+ * CLOSE THE ROW WITH WHAT THE BUILD ANSWERED (`buildOutcome`). `done` finalizes
+ * it — the four-argument form, an ok answer that never began publishing,
+ * since a build never marks a publish on its row; `failed` moves it through
+ * the refund, which moves nothing on `external` billing; `resuming` is not a
+ * close at all — the lease is the container's now and a later look closes
+ * the row.
+ */
+async function closeBuildRow(env, id, outcome, note) {
+  if (outcome === "resuming") return null;
+  if (outcome === "done") return editRpc(env, "edit_finalize", { p_id: id, p_result: null, p_ok: true });
+  return editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: String(note || "the build did not finish").slice(0, 200) });
+}
+
+/**
+ * WHAT THE ROW SAYS TO ITS OWNER: the module's verdict for a terminal row,
+ * with the site's public address beside a claimed slug, or the live state
+ * for the pending answer. Null with no service key, no row, or a stranger's
+ * id — every one of which is the 202 the poll route always gave.
+ */
+async function buildRowStatus(env, id, uid) {
+  if (!env.SUPABASE_SERVICE_KEY || !env.CREDITS_MINT_SECRET) return null;
+  const g = await editRpc(env, "edit_get", { p_id: id, p_uid: uid });
+  if (!g || g.ok !== true) return null;
+  const verdict = rowVerdict({ state: g.state, slug: g.slug, job: id });
+  if (verdict && verdict.body.slug) {
+    try { verdict.body.url = await publicUrlFor(env, verdict.body.slug); } catch { /* the address is a courtesy */ }
+  }
+  return { verdict, state: typeof g.state === "string" ? g.state : "", phase: typeof g.phase === "string" ? g.phase : "" };
+}
+
+/**
+ * DOES THIS BEAT OR REPORT BELONG TO THE BUILD IT NAMES? The report token is
+ * the only credential on those two routes and it was minted for one answer's
+ * write; naming a row is more than that, so the job and the generation in the
+ * body are matched against the resume record the Worker wrote for that job —
+ * the token AND the generation id it carries (`genBound`). Anything that does
+ * not bind is null: a stranger, a re-fired generation's old container, an
+ * older image that names nothing.
+ */
+async function genBindingFor(env, token, body) {
+  const id = body && typeof body.job === "string" ? body.job : "";
+  const genId = body && typeof body.gen === "string" ? body.gen : "";
+  if (!isJobId(id) || !genId || genId.length > 80 || !env.SITES_BUCKET) return null;
+  let rec = null;
+  try {
+    const obj = await env.SITES_BUCKET.get(resumeKey(id));
+    rec = obj ? readResume(JSON.parse(await obj.text())) : null;
+  } catch { rec = null; }
+  return genBound(rec, token, genId) ? { id, genId } : null;
 }
 
 async function writeBuildRecord(env, row) {
@@ -10709,7 +10857,7 @@ async function siteOgImage(env, slug, dist) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, picker = null, models = null, billRef = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, picker = null, models = null, billRef = null, jobId = null }) {
   // THE PICKER'S MODELS FOR THE TRANSLATION LOOP BELOW (run 38, 2026-09-04):
   // `models` when the caller resolved them, else resolved here from the
   // `picker` the build route stores beside `model` in the design — a job
@@ -10923,7 +11071,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       //               consumer invocation is ever long. Throws the sentinel.
       // otherwise     hold the hop for the whole generation, as before.
       const call = resumeCall
-        || (canFire ? containerPagesFire(env, slug, genPath) : containerPagesCall(env, slug, genPath));
+        || (canFire ? containerPagesFire(env, slug, genPath, jobId) : containerPagesCall(env, slug, genPath));
       try {
         // `plan.kind` RIDES ALONG so the page prompt can drop the chart
         // catalogue for a shopfront — 13,329 characters, 42% of the prompt, and
@@ -11776,10 +11924,35 @@ async function enqueueSiteBuild(request, env, { auth }) {
   try { body = JSON.stringify(rb.body); } catch { return { replay: replayRequest({ url, auth, body: "{}" }) }; }
   const back = () => ({ replay: replayRequest({ url, auth, body }) });
   const id = newJobId((b) => crypto.getRandomValues(b));
+  // ── THE ROW, BEFORE THE OBJECT AND THE MESSAGE (stage 2c) ──────────────────
+  //
+  // The edit path's order — row, object, message — for the same reason: a
+  // consumer that claims a row before it exists claims nothing, and the row
+  // is what every later reader (the consumer's claim, the poll route's
+  // verdict, the sweep) keys on. Op `build`, billed `external` by the RPC
+  // from that op; the idempotency key is the job id itself, because a build
+  // POST has never been retried and each is its own work. A revise names
+  // its site; a first build is filed under a placeholder the fire replaces
+  // once the designer has named one.
+  //
+  // A ROW THAT CANNOT BE FILED IS A BUILD THAT RUNS WITHOUT ONE — never a
+  // refusal. The row is an instrument; the build is the deliverable. Said in
+  // the log, except in a sandbox with no service key, where there is nothing
+  // to say.
+  const filed = await editRpc(env, "edit_create", {
+    p_id: id, p_uid: bu.id, p_slug: buildRowSlug(rb.body && rb.body.slug, id), p_op: BUILD_OP, p_idem: id,
+  });
+  const hasRow = !!(filed && filed.ok === true && filed.duplicate !== true);
+  if (!hasRow && !(filed && filed.error === "no-service-key")) {
+    console.log("build queue: no row for", id, "—", String((filed && filed.error) || "rpc"), "(the build runs without one)");
+  }
   try {
     await env.SITES_BUCKET.put(jobKey(id), JSON.stringify(packJob({ url, auth, body, uid: bu.id, at: Date.now() })));
   } catch (e) {
     console.error("build queue: could not store the job, running it inline instead:", String((e && e.message) || e));
+    // THE ROW MUST NOT OUTLIVE THE JOB IT NAMES: a queued row nobody will ever
+    // claim has no lease and is never swept, so it is closed here by name.
+    if (hasRow) await closeBuildRow(env, id, "failed", "could not store the job");
     return back();
   }
   try {
@@ -11789,6 +11962,7 @@ async function enqueueSiteBuild(request, env, { auth }) {
     // Best-effort tidy-up: the job will never be picked up, so leaving it is a
     // token sitting in a bucket for no reason.
     try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* not worth failing a build over */ }
+    if (hasRow) await closeBuildRow(env, id, "failed", "could not enqueue");
     return back();
   }
   // NO TRACE MARK HERE, and that is a decision rather than an omission. The
@@ -11835,6 +12009,20 @@ async function awaitJobResult(env, id, uid) {
       // own answer.
       console.error("build queue: unreadable result for job", id);
       return Response.json({ ok: false, stage: "queue", error: "the build's answer could not be read", job: id, msg: "Your site may well have been built — we lost the answer on the way back. Check your projects in a minute." }, { status: 503 });
+    }
+    // ── THE ROW SAYS WHEN THE CONSUMER IS GONE (stage 2c) ─────────────────
+    //
+    // A consumer evicted mid-design writes no answer, and this wait used to
+    // hold the socket its whole sixteen minutes for one. The row's lease
+    // expires ninety seconds after the last beat and the sweep marks it lost
+    // a minute later, so asking the row every tenth look (about every thirty
+    // seconds once the delays have grown) answers the customer in two or
+    // three minutes instead of sixteen. Every tenth, not every one: the
+    // answer object is the reply and is read every time; the row is one
+    // Supabase call, and three hundred of them per build buy nothing.
+    if (attempt % 10 === 9) {
+      const rs = await buildRowStatus(env, id, uid);
+      if (rs && rs.verdict) return Response.json(rs.verdict.body, { status: rs.verdict.status });
     }
     await new Promise((r) => setTimeout(r, pollDelayMs(attempt)));
   }
@@ -11886,6 +12074,24 @@ async function runQueuedSiteBuild(env, ctx, id) {
   }
   try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the token expires on its own */ }
 
+  // ── THE ROW (stage 2c): CLAIMED, BEATEN, AND HANDED ON AT THE FIRE ─────────
+  //
+  // The route filed a row under this id; this consumer claims it and renews
+  // the lease on a timer, exactly as the edit consumer does, so a consumer
+  // evicted mid-design (run 17's shape) leaves a lease that expires and a
+  // sweep that says `lost` — where before there was a record nobody closed
+  // and a browser polling to its own bound. The owner's name rides into the
+  // build as `lease`, for the fire to hand to the container.
+  //
+  // AFTER THE OBJECT, NOT BEFORE IT. The object's delete-on-read is what
+  // dedupes a second delivery here (`!job` above returns before any work);
+  // the row is an instrument on top of that, and a build that cannot claim it
+  // — no row, no service key, a refusal — builds exactly as before.
+  const rowOwner = newLeaseOwner();
+  const row = await claimBuildRow(env, id, rowOwner, null);
+  const lease = row.held ? rowOwner : null;
+  const rowBeat = lease ? buildRowBeat(env, id, lease) : null;
+
   const rec = makeRecorder({
     write: (row) => writeBuildRecord(env, row),
     hold: (p) => { try { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); } catch { /* never */ } },
@@ -11902,7 +12108,7 @@ async function runQueuedSiteBuild(env, ctx, id) {
     // NULL ON THE INLINE FALL-THROUGH, which is the honest answer there: a
     // build the producer ran itself has no queue job, so it cannot be resumed
     // and correctly keeps waiting for its generation the old way.
-    const res = await runSiteBuild(replayRequest(job), env, { rec, tr, budget, auth: job.auth, jobId: id });
+    const res = await runSiteBuild(replayRequest(job), env, { rec, tr, budget, auth: job.auth, jobId: id, lease });
     out = packResult({
       status: res.status,
       type: res.headers.get("content-type") || "application/json",
@@ -11926,6 +12132,11 @@ async function runQueuedSiteBuild(env, ctx, id) {
       body: JSON.stringify({ ok: false, stage: "queue", error: "the build failed", kind: String((e && e.name) || "Error") }),
       uid: job.uid,
     });
+  } finally {
+    // THE ROW'S HEARTBEAT STOPS WITH THE WORK. After a fire the lease is the
+    // container's and these beats would only answer `alive: false`; after an
+    // answer there is nothing left to hold.
+    if (rowBeat) clearInterval(rowBeat);
   }
   // THE RESULT IS THE LAST THING WRITTEN AND THE ONLY THING THE WAIT READS. A
   // failure to write it is not a failure of the build — the site may well be
@@ -11943,6 +12154,16 @@ async function runQueuedSiteBuild(env, ctx, id) {
     await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));
   } catch (e) {
     console.error("build queue: could not write the result for job", id, String((e && e.message) || e));
+  }
+  // THE ROW CLOSES LAST (stage 2c), after the answer is written — and not at
+  // all on a fired build, whose lease is the container's now and whose row a
+  // later look closes. A poll that reads `done` off the row and finds no
+  // answer object is then a build whose answer was collected, never one
+  // still being written.
+  if (row.row) {
+    let payload = null;
+    try { payload = JSON.parse(out.body); } catch { payload = null; }
+    await closeBuildRow(env, id, buildOutcome(out.status, payload), "the build failed");
   }
 }
 
@@ -12494,13 +12715,19 @@ function editReplayUser(request, slug) {
  * `unknown`, and refires — bounded, so it converges on an honest failure rather
  * than looping. Worth one wasted generation against losing the build outright.
  */
-async function recordRefire(env, id, claimed, stored, resume, decision, tr, rec) {
+async function recordRefire(env, id, claimed, stored, resume, decision, tr, rec, lease = null) {
   try {
     await env.SITES_BUCKET.put(resumeKey(id), JSON.stringify(packResume({
       ...claimed,
       lane: resume.lane, genId: resume.genId, report: resume.report, firedAt: resume.firedAt,
       looks: 0, refires: (Number(stored.refires) || 0) + 1,
     })));
+    // THE LEASE FOLLOWS THE NEW GENERATION (stage 2c): this look holds the
+    // row, and the container it just fired is the next holder — the same
+    // handoff the first fire makes, from this look's name instead of the
+    // consumer's, after the record and before the message, for the same
+    // reasons.
+    if (lease) await handoffBuildRow(env, { id, from: lease, genId: resume.genId, slug: claimed.slug });
     await env.BUILD_QUEUE.send(packResumeMessage(id), { delaySeconds: queueDelay(RESUME_FIRST_SECONDS) });
     console.log("build resume:", id, "started the generation again —", decision.why, "→", resume.genId);
   } catch (e) {
@@ -12602,6 +12829,25 @@ async function runResumedSiteBuild(env, ctx, id) {
     }
     return;
   }
+
+  // ── THE ROW: THE COLLECTOR CLAIMS, OR TAKES THE LEASE OVER BY NAME ───────
+  //
+  // (stage 2c) The R2 claim above decided who acts; this is the row's copy of
+  // that decision, so the sweep sees a live holder while this look publishes
+  // and the lease's chain reads consumer → container → collector. A released
+  // lease (the container's report landed) is not yet expired, and a
+  // container whose report never landed still holds its thirty minutes —
+  // either way the holder's name is the record's `genId`, and the takeover
+  // moves it from that name to this one. A row that cannot be claimed is
+  // logged and the look goes on: the row is an instrument, and nothing here
+  // waits on it. A `wait` look touches the row not at all — the container
+  // holds it, and its beats say so.
+  const rowOwner = newLeaseOwner();
+  let holder = null;
+  try { holder = containerOwner(stored.genId); } catch { holder = null; }
+  const row = await claimBuildRow(env, id, rowOwner, holder);
+  const lease = row.held ? rowOwner : null;
+  const rowBeat = lease ? buildRowBeat(env, id, lease) : null;
 
   // TERMINAL. One of: the answer is here, the container lost it and the Worker
   // will make the call itself, or we are out of clock. Each runs the second
@@ -12716,6 +12962,10 @@ async function runResumedSiteBuild(env, ctx, id) {
   try {
     pages = await buildAndPublishPages(env, {
       ...design,
+      // THE RECORD'S OWN ID, explicitly (stage 2c): the fire needs it to tell
+      // the container which row's lease it holds, and the stored design
+      // deliberately does not carry a copy.
+      jobId: id,
       mark: (n) => { try { tr.at(n); } catch { /* a trace must never break a build */ } },
       budget,
       // THE PICKER'S MODELS, for the build's own translation loop (run 38,
@@ -12748,7 +12998,7 @@ async function runResumedSiteBuild(env, ctx, id) {
     // saying `resuming` into a delete-on-read key and DELETE the record, losing
     // a generation that is running.
     if (pages && pages.stage === "resuming" && pages.resume) {
-      await recordRefire(env, id, claimed, stored, pages.resume, decision, tr, rec);
+      await recordRefire(env, id, claimed, stored, pages.resume, decision, tr, rec, lease);
       return;
     }
     out = packResult({ status: 200, type: "application/json", body: JSON.stringify({ ok: true, resumed: decision.act, ...pages }), uid: claimed.uid });
@@ -12802,6 +13052,11 @@ async function runResumedSiteBuild(env, ctx, id) {
         ...(rk.billing ? { billing: true } : {}),
       }),
     });
+  } finally {
+    // THE ROW'S HEARTBEAT STOPS WITH THE WORK, on every exit — a refire's
+    // early return included, whose lease has already moved to the new
+    // container and whose beats would answer `alive: false` for nothing.
+    if (rowBeat) clearInterval(rowBeat);
   }
   // ── AND THE SECOND HALF'S TRACE, CLOSED WITH WHAT ACTUALLY HAPPENED ────────
   //
@@ -12833,6 +13088,14 @@ async function runResumedSiteBuild(env, ctx, id) {
   } catch (e) {
     console.error("build resume: could not write the result for", id, String((e && e.message) || e));
   }
+  // THE ROW CLOSES LAST (stage 2c), after the answer is written: a poll that
+  // reads `done` off the row and finds no answer object is then a build whose
+  // answer was already collected, never one still being written.
+  if (row.row) {
+    let payload = null;
+    try { payload = JSON.parse(out.body); } catch { payload = null; }
+    await closeBuildRow(env, id, buildOutcome(out.status, payload), "the resumed build failed");
+  }
 }
 
 /**
@@ -12863,7 +13126,10 @@ async function runResumedSiteBuild(env, ctx, id) {
  * passes, esbuild bundles and the whole suite stays green on: the `sourceStored`
  * class, which answered 500 to every build on `main` for an hour on 2026-08-21.
  */
-async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null }) {
+async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null, lease = null }) {
+      // `lease` (stage 2c): the queue consumer's own name on the build's row,
+      // handed to the container at fire time. Null on the inline path and on
+      // a build whose row could not be claimed, where nothing is handed off.
       const bu = await authUser(request);
       if (!bu) return UNAUTHED();
       if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
@@ -14469,6 +14735,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             // three are what a resume needs: an id to key the record by, a
             // bucket to write it to, and a queue to be woken through.
             canFire: !!(jobId && env.SITES_BUCKET && env.BUILD_QUEUE),
+            // THE JOB ID RIDES TO THE FIRE (stage 2c), so the container can be
+            // told which row's lease it holds and where to beat. Null on the
+            // inline path, where there is no row to hold.
+            jobId,
           };
           pages = await buildAndPublishPages(env, buildArgs);
         } catch (e) {
@@ -14511,7 +14781,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
         // rebuilds there is discarded unread. Measured: `generateSitePages`
         // touches `attachments` in exactly one place, building that request.
         // Storing them would be megabytes per record for bytes nobody reads.
-        const { attachments: _drop, mark: _m, budget: _b, genPathOut: _g, canFire: _c, ...design } = buildArgs || {};
+        // …AND NOT THE JOB ID (stage 2c): the record is keyed by it and the
+        // resume passes its own explicitly, so a copy inside the design would
+        // be a second answer to a question the record already answers.
+        const { attachments: _drop, mark: _m, budget: _b, genPathOut: _g, canFire: _c, jobId: _j, ...design } = buildArgs || {};
         let stored = false;
         try {
           await env.SITES_BUCKET.put(resumeKey(jobId), JSON.stringify(packResume({
@@ -14534,6 +14807,16 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
           console.error("build: could not store the resume record for", slug, String((e && e.message) || e));
         }
         if (stored) {
+          // ── THE LEASE GOES TO THE CONTAINER (stage 2c) ─────────────────────
+          //
+          // After the record, before the message: the record is what binds
+          // the container's beat and release back to this build, and the
+          // handoff names the generation the record names. The consumer's own
+          // beats stop the moment this invocation returns, so without this
+          // the sweep would read a running generation as a dead consumer.
+          // Best-effort, like every touch of the row — the helper says so in
+          // the log when it does not land, and the build goes on.
+          if (lease) await handoffBuildRow(env, { id: jobId, from: lease, genId: pages.resume.genId, slug });
           try {
             await env.BUILD_QUEUE.send(packResumeMessage(jobId), { delaySeconds: queueDelay(RESUME_FIRST_SECONDS) });
             tr.at("fired", { genTried: 1 });
@@ -17621,9 +17904,44 @@ async function handleRequest(request, env, ctx) {
         console.error("gen result: could not store the answer —", String((e && e.message) || e));
         return Response.json({ ok: false, error: "could not store" }, { status: 503 });
       }
+      // ── THE REPORT RELEASES THE ROW'S LEASE (stage 2c) ──────────────────
+      //
+      // The container names the job and its own generation id beside the
+      // answer; bound through the resume record — the token AND the
+      // generation the Worker wrote there — the row's lease is released: a
+      // short expiry, the holder kept, so the collector claims it or takes it
+      // over by name, and the sweep ends it if no collector ever comes. A
+      // report that names nothing (an older image, the inline path) releases
+      // nothing; a report whose names do not bind is a stranger's, and the
+      // answer above was stored under a token nobody minted either way.
+      // Best-effort, after the answer is safe: the row is an instrument.
+      const bind = await genBindingFor(env, token, body);
+      if (bind) { try { await releaseBuildRow(env, bind); } catch { /* never worth the answer */ } }
       // NO JOB ID, NO SLUG, NOTHING ABOUT THE BUILD comes back. The caller is
       // the container and it needs one bit: did this land.
       return Response.json({ ok: true });
+    }
+
+    // POST /api/site/genbeat — THE CONTAINER RENEWS THE ROW'S LEASE WHILE IT
+    // GENERATES (stage 2c). The same credential as the report and the same
+    // binding: the token in the header, the job and the generation id in the
+    // body, all three matched against the resume record before the row is
+    // touched — so a beat can renew exactly the lease its own fire was handed
+    // and nothing else. 404 for anything that does not bind, as the report
+    // answers, and for the same reason. `edit_beat` refuses a name that is
+    // not the holder's, which is the wall under this one: a bound beat for a
+    // generation the collector has already taken over answers `alive: false`
+    // and moves nothing.
+    if (url.pathname === "/api/site/genbeat" && request.method === "POST") {
+      const token = request.headers.get("x-gen-report") || "";
+      if (!isReportToken(token) || !env.SITES_BUCKET) return Response.json({ ok: false }, { status: 404 });
+      const tlB = tooLargeBody(request, 4096); if (tlB) return tlB;
+      let body = null;
+      try { body = JSON.parse((await request.text()).slice(0, 4096)); } catch { body = null; }
+      const bind = await genBindingFor(env, token, body);
+      if (!bind) return Response.json({ ok: false }, { status: 404 });
+      const r = await editRpc(env, "edit_beat", { p_id: bind.id, p_owner: containerOwner(bind.genId), p_ttl: CONTAINER_BEAT_TTL_S, p_phase: null });
+      return Response.json({ ok: true, alive: !!(r && r.alive === true) });
     }
 
     if (url.pathname === "/api/site/genprobe" && request.method === "GET") {
@@ -18881,7 +19199,27 @@ async function handleRequest(request, env, ctx) {
             if (rec && rec.uid && rec.uid === bu.id) flight = flightOf(rec, Date.now());
           }
         } catch { /* the flight is a courtesy; `pending` is the answer */ }
-        return Response.json(flight ? { ok: false, pending: true, job: jid, flight } : { ok: false, pending: true, job: jid }, { status: 202 });
+        // ── THE ROW'S VERDICT (stage 2c) ───────────────────────────────────
+        //
+        // No answer object and a row that says `lost` is a build whose chain
+        // broke — the consumer evicted, the collector never delivered — and
+        // until now this route said `pending` for it until the browser gave
+        // up twenty minutes later. The verdict is the module's (`rowVerdict`):
+        // a lost build with a claimed slug is shaped as a placeholder build,
+        // so the browser records the slug it owns and renders the sentence;
+        // one with nothing claimed, and every other terminal row, answers 410
+        // with its sentence. Owner-scoped through `edit_get`, so a stranger's
+        // poll reads no row and gets the 202 it always got.
+        //
+        // THE ANSWER OBJECT ALWAYS WINS: it is read first, above, and only its
+        // absence reaches here — so a row that reads `done` is one whose
+        // answer was already collected, never one still being written.
+        const rs = await buildRowStatus(env, jid, bu.id);
+        if (rs && rs.verdict) return Response.json(rs.verdict.body, { status: rs.verdict.status });
+        const pend = { ok: false, pending: true, job: jid };
+        if (rs && rs.state) pend.state = rs.state;
+        if (flight) pend.flight = flight;
+        return Response.json(pend, { status: 202 });
       }
       let out = null;
       try { out = readResult(JSON.parse(await obj.text())); } catch { out = null; }

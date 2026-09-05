@@ -197,6 +197,54 @@ async function sendModelReport(report, body) {
   }
 }
 
+// ── THE ROW'S LEASE, RENEWED WHILE THE GENERATION RUNS (stage 2c) ───────────
+//
+// The Worker handed the build's row to this container at fire time — a lease
+// under this generation's own id, for the generation bound (thirty minutes).
+// A beat every `report.beatMs` renews it to ten minutes ahead, so a container
+// that dies is `lost` on the row within ten minutes rather than thirty. The
+// Worker binds every beat through the resume record — the token, the job and
+// this generation's id all three — so a beat can never touch another build.
+//
+// THE CADENCE IS THE WORKER'S, never chosen here: `beatMs` rides on the fire,
+// floored at five seconds (the container harness asks for exactly that, to
+// see one inside a short fake generation) and defaulting to a minute. A fire
+// that names no beat address beats nowhere — an older Worker, or the inline
+// path, which has no row.
+//
+// BEST-EFFORT, exactly as the report is, and for the same reason: this runs on
+// a timer nobody awaits, so it must never throw; a beat that does not land
+// costs the row a faster verdict and the generation nothing.
+const GEN_BEAT_DEFAULT_MS = 60_000;
+const GEN_BEAT_FLOOR_MS = 5_000;
+const BEAT_CALL_MS = 15_000;
+async function sendModelBeat(report, gen) {
+  if (!report || typeof report.beat !== "string" || !report.beat) return false;
+  if (typeof report.token !== "string" || !report.token) return false;
+  if (typeof report.job !== "string" || !report.job) return false;
+  try {
+    const r = await fetch(report.beat, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-gen-report": report.token },
+      body: JSON.stringify({ job: report.job, gen }),
+      signal: AbortSignal.timeout(BEAT_CALL_MS),
+    });
+    return r.ok;
+  } catch (e) {
+    console.error("model beat: could not renew the lease —", String((e && e.name) || "Error"));
+    return false;
+  }
+}
+/** The row's half of a report: which job and which generation, when the fire named one. */
+function genTag(report, gen) {
+  return report && typeof report.job === "string" && report.job ? { job: report.job, gen } : {};
+}
+/** How often to beat, as the Worker asked, never under the floor. */
+function beatEvery(report) {
+  const want = Number(report && report.beatMs);
+  return Math.max(GEN_BEAT_FLOOR_MS, Number.isFinite(want) && want > 0 ? want : GEN_BEAT_DEFAULT_MS);
+}
+
 // ── THE TRANSPORT UNDER THE MODEL CALL — `node:https`, NOT Node's fetch ─────
 //
 // Node's `fetch` is undici, and undici's HEADERS TIMEOUT is 300 seconds: not a
@@ -1830,10 +1878,17 @@ const server = http.createServer((req, res) => {
       // container looks idle with a generation in flight.
       oneAtATime(async () => {
         const at = Date.now();
+        // THE ROW'S LEASE IS RENEWED ON A TIMER FOR THE WHOLE CALL (stage 2c),
+        // and cleared on every exit below — after the report, whose `job` and
+        // `gen` are what release the lease on the Worker's side.
+        const beat = report && typeof report.beat === "string" && report.beat
+          ? setInterval(() => { sendModelBeat(report, id).catch(() => {}); }, beatEvery(report))
+          : null;
+        if (beat && typeof beat.unref === "function") beat.unref();
         try {
           const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost, { stream: true });
           MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
-          await sendModelReport(report, { state: "done", answer });
+          await sendModelReport(report, { state: "done", answer, ...genTag(report, id) });
         } catch (e) {
           // NAMED IN THE LOG, WITH THE ELAPSED MS — which is the whole diagnosis
           // for a status-less death: ~300000 is undici's headers wall (the
@@ -1875,7 +1930,10 @@ const server = http.createServer((req, res) => {
             detail: e && typeof e.detail === "string" ? e.detail : "",
             message: String((e && e.message) || e).slice(0, 300),
             kind: String((e && e.name) || "Error"),
+            ...genTag(report, id),
           });
+        } finally {
+          if (beat) clearInterval(beat);
         }
       });
       return send(res, 200, { ok: true, id });

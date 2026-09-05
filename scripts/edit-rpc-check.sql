@@ -45,13 +45,28 @@ declare
   j10 text := 'e_'||substr(md5(random()::text),1,20);
   j11 text := 'e_'||substr(md5(random()::text),1,20);
   j12 text := 'e_'||substr(md5(random()::text),1,20);
-  st text; bl text; nr boolean; note text; tr int; rs jsonb;
+  -- Section 19's three rows (stage 2c): two builds and one edit as the control.
+  j13 text := 'e_'||substr(md5(random()::text),1,20);
+  j14 text := 'e_'||substr(md5(random()::text),1,20);
+  j15 text := 'e_'||substr(md5(random()::text),1,20);
+  st text; bl text; nr boolean; note text; tr int; rs jsonb; own text; ts timestamptz;
   -- A gen_charges request id for sections 14b and 16b (the media side's charge
   -- record), rolled back with everything else.
   req text := 'zz-verify-' || substr(md5(random()::text),1,12);
   r jsonb; b0 numeric; b1 numeric; n int; log text := '';
   ok_count int := 0;
--- LAST RUN 2026-09-05 (stage 2a): ALL 92 CHECKS PASSED, rolled back, driving
+-- LAST RUN 2026-09-05 (stage 2c): ALL 113 CHECKS PASSED, rolled back, driving
+-- as a funded non-founder account (balance 500). Section 19 was added that
+-- evening for the build's row and its lease chain; on its own it went RED
+-- against the OLD edit_create at FAIL 70 ("a build row is not billed
+-- external, or not queued": `queued none`, taken back by the rollback), the
+-- migration 20260905190147_build_rows_lease_chain was applied against that
+-- baseline, and the section then passed 21 of 21 before the whole script ran
+-- green. Its first green run tripped on plpgsql's own ambiguity - the block
+-- declares `slug` and section 19 read the column by that bare name - fixed
+-- by qualifying the column; nothing about the product.
+--
+-- EARLIER THAT DAY (stage 2a): ALL 92 CHECKS PASSED, rolled back, driving
 -- as a funded non-founder account (balance 500). Section 18 was added that
 -- evening for the sweep's recovery; on its own it went RED against the OLD
 -- sweep at FAIL 65 ("the sweep re-picked a committed job instead of
@@ -574,6 +589,91 @@ begin
   end if;
   ok_count := ok_count + 14;
   log := log || format('18  sweep recovery      -> committed job finalized (recovered), reply servable, not re-swept; stuck row parked after five, reconciled; under the ceiling settled%s', chr(10));
+
+  -- ── 19. A BUILD'S ROW: ONE LEASE ALONG THE CHAIN (stage 2c) ─────────────────
+  --
+  -- A build files a row under op `build`, billed `external` because its money
+  -- moves through the build's own ledger (credit_debit, stage 1c) and never a
+  -- reserve here. The consumer claims it and beats; at fire time the lease is
+  -- HANDED to the container that generates, for the generation bound; the
+  -- container beats as its own name and its report RELEASES the lease (a
+  -- short expiry, the owner kept); the collector takes it over by name; and
+  -- the sweep leaves a live chain alone and ends a broken one with nothing
+  -- moved. The placeholder slug is what a first build files under before the
+  -- designer has named the site; the handoff sets the real one.
+  r := public.edit_create(j13, u, 'build:'||j13, 'build', 'idem-kkkkkkkkkkkkkkkk', k);
+  if (r->>'ok') <> 'true' then raise exception 'FAIL 70a (could not file the build row): %', r; end if;
+  select state, billing into st, bl from public.edit_jobs where id = j13;
+  if st <> 'queued' or bl <> 'external' then raise exception 'FAIL 70 (a build row is not billed external, or not queued): % %', st, bl; end if;
+  -- THE CONTROL: an edit's row is still billed none, decided from its op.
+  r := public.edit_create(j14, u, slug||'-s4', 'edit', 'idem-llllllllllllllll', k);
+  select billing into bl from public.edit_jobs where id = j14;
+  if bl <> 'none' then raise exception 'FAIL 70b (an edit row is no longer billed none): %', bl; end if;
+  -- THE CONSUMER CLAIMS AND BEATS, exactly as it does for an edit.
+  r := public.edit_claim(j13, 'consumerMMMM', 90, k);
+  if (r->>'claimed') <> 'true' or (r->>'billing') <> 'external' then raise exception 'FAIL 71 (the consumer could not claim the build row): %', r; end if;
+  r := public.edit_beat(j13, 'consumerMMMM', 90, 'design', k);
+  if (r->>'alive') <> 'true' then raise exception 'FAIL 71b (the consumer''s beat on a build row is dead): %', r; end if;
+  -- THE HANDOFF: to the container, for the generation bound, naming the slug.
+  r := public.edit_handoff(j13, 'consumerMMMM', 'container:gen-1', 1800, 'generating', slug||'-b1', k);
+  if (r->>'ok') <> 'true' then raise exception 'FAIL 72 (the handoff to the container was refused): %', r; end if;
+  select state, lease_owner, lease_expires_at, edit_jobs.slug into st, own, ts, note from public.edit_jobs where id = j13;
+  if st <> 'generating' or own <> 'container:gen-1' or note <> slug||'-b1' then raise exception 'FAIL 72b (the handoff did not move the lease, the state and the slug): % % %', st, own, note; end if;
+  if ts < now() + interval '29 minutes' or ts > now() + interval '31 minutes' then raise exception 'FAIL 72c (the handoff expiry is not the generation bound): %', ts; end if;
+  -- A STRANGER CANNOT MOVE IT, and the old holder's beat is dead.
+  r := public.edit_handoff(j13, 'strangerNNNN', 'container:gen-9', 1800, 'generating', null, k);
+  if (r->>'ok') <> 'false' or (r->>'error') <> 'not-holder' then raise exception 'FAIL 72d (a stranger moved the lease): %', r; end if;
+  select lease_owner into own from public.edit_jobs where id = j13;
+  if own <> 'container:gen-1' then raise exception 'FAIL 72d (a stranger moved the lease): owner %', own; end if;
+  r := public.edit_beat(j13, 'consumerMMMM', 90, null, k);
+  if (r->>'alive') <> 'false' then raise exception 'FAIL 72e (the old holder still renews a handed-off lease): %', r; end if;
+  -- THE CONTAINER BEATS AS ITS OWN NAME, shortening the bound to its own TTL.
+  r := public.edit_beat(j13, 'container:gen-1', 600, null, k);
+  if (r->>'alive') <> 'true' or (r->>'state') <> 'generating' then raise exception 'FAIL 73 (the container''s beat is dead): %', r; end if;
+  -- THE RELEASE: the report landed. The owner is kept, the expiry shortened,
+  -- the state untouched.
+  r := public.edit_handoff(j13, 'container:gen-1', null, 300, null, null, k);
+  if (r->>'ok') <> 'true' then raise exception 'FAIL 74 (the release was refused): %', r; end if;
+  select state, lease_owner, lease_expires_at into st, own, ts from public.edit_jobs where id = j13;
+  if st <> 'generating' or own <> 'container:gen-1' or ts > now() + interval '6 minutes' or ts < now() + interval '4 minutes' then raise exception 'FAIL 74b (the release did not keep the owner and shorten the lease): % % %', st, own, ts; end if;
+  -- THE COLLECTOR TAKES IT OVER BY NAME. A released lease is not yet expired,
+  -- so a plain claim is refused as leased - the takeover is the mechanism.
+  r := public.edit_claim(j13, 'resumeOOOO', 90, k);
+  if (r->>'claimed') <> 'false' or (r->>'error') <> 'leased' then raise exception 'FAIL 75a (a released lease was claimed before it expired, or refused for another reason): %', r; end if;
+  r := public.edit_handoff(j13, 'container:gen-1', 'resumeOOOO', 90, null, null, k);
+  if (r->>'ok') <> 'true' then raise exception 'FAIL 75 (the collector could not take the lease over from the container): %', r; end if;
+  -- THE SWEEP LEAVES A LIVE CHAIN ALONE.
+  select balance into b0 from public.credits where user_id = u;
+  r := public.edit_sweep_lost(20, 60, k);
+  select state into st from public.edit_jobs where id = j13;
+  if st <> 'generating' then raise exception 'FAIL 76 (the sweep took a build whose lease is live): % %', st, r; end if;
+  -- AND ENDS A BROKEN ONE WITH NOTHING MOVED: the collector never came back.
+  update public.edit_jobs set lease_expires_at = now() - interval '1 day' where id = j13;
+  r := public.edit_sweep_lost(20, 60, k);
+  select balance into b1 from public.credits where user_id = u;
+  select state, billing into st, bl from public.edit_jobs where id = j13;
+  if st <> 'lost' or bl <> 'external' or b1 <> b0 or coalesce((r->>'refunded')::numeric, 0) <> 0 then raise exception 'FAIL 77 (a lost build moved money, or was not marked lost): % % % -> % %', st, bl, b0, b1, r; end if;
+  -- A LOST ROW STAYS LOST: a late finalize is refused.
+  r := public.edit_finalize(j13, null, true, k);
+  if (r->>'ok') <> 'false' then raise exception 'FAIL 77b (a lost build was finalized afterwards): %', r; end if;
+  -- THE HAPPY CHAIN ENDS DONE, still billed external, money untouched.
+  r := public.edit_create(j15, u, 'build:'||j15, 'build', 'idem-mmmmmmmmmmmmmmmm', k);
+  r := public.edit_claim(j15, 'consumerPPPP', 90, k);
+  r := public.edit_handoff(j15, 'consumerPPPP', 'container:gen-2', 1800, 'generating', slug||'-b2', k);
+  r := public.edit_handoff(j15, 'container:gen-2', null, 300, null, null, k);
+  r := public.edit_handoff(j15, 'container:gen-2', 'resumeQQQQ', 90, null, null, k);
+  r := public.edit_finalize(j15, null, true, k);
+  select balance into b1 from public.credits where user_id = u;
+  select state, billing into st, bl from public.edit_jobs where id = j15;
+  if (r->>'ok') <> 'true' or st <> 'done' or bl <> 'external' or b1 <> b0 then raise exception 'FAIL 78 (a finished build is not done and external with money untouched): % % % % -> %', r, st, bl, b0, b1; end if;
+  -- THE TWO CONSTRAINTS ADMIT THE TWO NEW VALUES - asked of the catalogue,
+  -- not inferred from the updates above having landed.
+  select pg_get_constraintdef(oid) into note from pg_constraint where conrelid = 'public.edit_jobs'::regclass and conname = 'edit_jobs_state_ck';
+  if note not like '%generating%' then raise exception 'FAIL 79 (the state constraint does not admit generating): %', note; end if;
+  select pg_get_constraintdef(oid) into note from pg_constraint where conrelid = 'public.edit_jobs'::regclass and conname = 'edit_jobs_billing_ck';
+  if note not like '%external%' then raise exception 'FAIL 79b (the billing constraint does not admit external): %', note; end if;
+  ok_count := ok_count + 21;
+  log := log || format('19  build lease chain   -> filed external, claimed, handed to the container for the bound, stranger refused, container beat, released, taken over by name, live chain kept, broken chain lost with nothing moved, happy chain done%s', chr(10));
 
   update private.mint set key_hash = keep;
   raise exception E'ALL % CHECKS PASSED (transaction rolled back)\n%', ok_count, log;

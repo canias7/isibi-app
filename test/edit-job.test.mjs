@@ -20,7 +20,7 @@
 // that cannot land.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import {
   EDIT_JOB_KIND, CONSUMER_CEILING_MS, EDIT_JOB_MS, PUBLISH_RESERVE_MS,
   TERMINAL_RESERVE_MS, CORRECT_FLOOR_MS, PUBLISH_FLOOR_MS, REPAIR_FLOOR_MS, MIN_CORRECT_MS, MIN_BUILD_MS, MIN_VERIFY_MS,
@@ -30,13 +30,26 @@ import {
   repairClock,
 } from "../builder/edit-job.mjs";
 
-const TABLES = readFileSync(new URL("../supabase/applied/20260901110738_edit_jobs_and_credit_events.sql", import.meta.url), "utf8");
+// THE CONSTRAINT'S AUTHORITY IS THE NEWEST APPLIED FILE THAT SPELLS IT. It
+// was born in the table migration and REDEFINED by stage 2c's
+// (`generating` for a build row while the container holds its lease), and a
+// guard pinned to the birth file went red for the change while the module
+// and the live constraint agreed. Derived over the folder, newest first, so
+// the next redefinition needs no edit here.
+const APPLIED = new URL("../supabase/applied/", import.meta.url);
+const STATE_CK_RE = /edit_jobs_state_ck check \(state in \(([\s\S]*?)\)\)/;
+const STATE_CK_SRC = readdirSync(APPLIED).filter((f) => f.endsWith(".sql")).sort().reverse()
+  .map((f) => readFileSync(new URL(f, APPLIED), "utf8"))
+  .find((s) => STATE_CK_RE.test(s)) || "";
+// The table migration itself is still what the RLS guard below reads: the
+// policies were written once, there, and no later file restates them.
+const TABLES = readFileSync(new URL("20260901110738_edit_jobs_and_credit_events.sql", APPLIED), "utf8");
 const RPCS = readFileSync(new URL("../supabase/applied/20260901110952_edit_job_rpcs.sql", import.meta.url), "utf8");
 
 // ── THE SCHEMA AND THE MODULE AGREE ───────────────────────────────────────
 
 test("every state the module knows is a state the database admits, and back", () => {
-  const ck = /edit_jobs_state_ck check \(state in \(([\s\S]*?)\)\)/.exec(TABLES);
+  const ck = STATE_CK_RE.exec(STATE_CK_SRC);
   assert.ok(ck, "the state CHECK constraint is gone from the applied SQL");
   const inDb = [...ck[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]).sort();
   const inJs = [...EDIT_PHASES, ...TERMINAL_STATES].sort();

@@ -882,13 +882,24 @@ try {
     await new Promise((r) => sink.listen(0, "127.0.0.1", r));
     const sinkPort = sink.address().port;
     const TOKEN = "0123456789abcdef0123456789abcdef";
+    // THE ROW'S HALF (stage 2c): the fire names the build's job and a beat
+    // address, and the report must carry the job and the generation id back,
+    // which is what lets the Worker release the row's lease. The beat itself
+    // cannot be seen here — the generation refuses in milliseconds and the
+    // timer is cleared with it — so the beat's send is read out of the source
+    // by test/build-jobs.test.mjs; what this proves is the report's half of
+    // the binding, on the real wire.
+    const JOB = "fedcba9876543210fedcba9876543210";
     try {
       const started = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
           req: { model: "grok-4.6", messages: [] },
           callMs: 5000,
-          report: { url: `http://127.0.0.1:${sinkPort}/api/site/genresult`, token: TOKEN },
+          report: {
+            url: `http://127.0.0.1:${sinkPort}/api/site/genresult`, token: TOKEN,
+            job: JOB, beat: `http://127.0.0.1:${sinkPort}/api/site/genbeat`, beatMs: 5000,
+          },
         }),
       }).then((r) => r.json()).catch(() => ({}));
       ok("a fire carrying a report destination is accepted like any other",
@@ -916,6 +927,15 @@ try {
         JSON.stringify(sent).slice(0, 200));
       ok("…with no provider status, so the resume reads it as a call that was never made",
         sent && sent.status === null, `status ${JSON.stringify(sent && sent.status)}`);
+      // AND IT NAMES THE JOB AND THE GENERATION (stage 2c), so the Worker can
+      // bind the report to the build's row and release the lease it holds.
+      ok("…and it names the job it was fired for and the generation that answered",
+        sent && sent.job === JOB && sent.gen === started.id,
+        `job ${JSON.stringify(sent && sent.job)} gen ${JSON.stringify(sent && sent.gen)} (started ${started.id})`);
+      // A REPORT IS NOT A BEAT: nothing arrived at the beat address, because
+      // the generation settled before the first tick and the timer went with it.
+      ok("…and no beat arrived for a generation that settled at once",
+        seen.every((s) => !String(s.url).includes("genbeat")), `${seen.filter((s) => String(s.url).includes("genbeat")).length} beats`);
 
       // AND IT IS STILL IN MEMORY TOO. The report is a second copy rather than a
       // handover: a Worker that could not be reached must leave the in-memory

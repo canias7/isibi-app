@@ -2519,6 +2519,157 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   an RPC allowlist so the service key stays out of the container, #52's
   interrupted-job answer.
 
+### A BUILD HAS A ROW, AND ONE LEASE MOVES ALONG ITS CHAIN (2026-09-05, stage 2c)
+
+Owner: *"go"*. A build had an R2 record with an etag claim and charge marks
+(`build-resume.mjs`) and nothing else — no row, no lease, no heartbeat, no
+sweep. A consumer evicted mid-design (run 17's shape, nine minutes after a
+deploy) or a resume chain the queue stopped delivering (run 41) left the
+customer with the stand-in page and a browser polling `pending` to its own
+twenty-minute bound; nothing could say the build was gone, because nothing
+held it. Now:
+
+```
+route ──edit_create (op build, billed external)──► row: queued
+consumer ──edit_claim, edit_beat every 30 s──► claimed          (the design)
+fire ──edit_handoff(consumer → container:<genId>, 1800 s, generating, slug)──► generating
+container ──beats every 60 s under its own name, TTL 600──► (the generation)
+report ──edit_handoff(container → same owner, 300 s)──► released, owner kept
+collector ──edit_claim, or edit_handoff(container → resume:<x>) by name──► the publish
+close ──edit_finalize(null, ok) | edit_refund(failed)──► done | failed
+sweep ──an expired lease nobody renewed──► lost, nothing moved
+```
+
+- **THE ROW IS AN INSTRUMENT, NEVER THE AUTHORITY.** Every money and site
+  decision on the build path stays with the R2 record (`alreadyCharged`, the
+  etag claim). A build that cannot file, claim or hand off its row builds
+  exactly as it did before this existed; a look that cannot claim the row
+  still does its work; a row that reads `lost` does not stop a resume that
+  is alive. What the row buys is a verdict for the customer and an operator,
+  and a sweep that closes a chain nobody will come back to. Every helper in
+  `worker.js` beside `makeJobCtx` answers rather than throws; the vocabulary
+  and the verdict are `builder/build-lease.mjs`, dependency-free and driven.
+- **`external` billing, decided from the op.** The build's money moves through
+  `credit_debit` under `build:<jobId>` refs (stage 1c), never a reserve on
+  this row, so `edit_refund` and `edit_reconcile` never move it. `none`
+  behaves identically inside every RPC; the word says why a forty-credit
+  build's row reads `cost 0`. `edit_create` sets it from `p_op = 'build'`, so
+  no caller can file a build under a reserve. Migration
+  `20260905190147_build_rows_lease_chain` (named for the remote version):
+  the state CHECK gains `generating`, the billing CHECK gains `external`,
+  `edit_create` REPLACED in place, `edit_handoff(p_id, p_owner, p_next,
+  p_ttl ≤ 3600, p_state, p_slug, p_mint)` NEW — the holder moves the lease
+  to a named next holder or, with `p_next` null, RELEASES it (the owner kept,
+  only the expiry moves); state and slug set only when named; a stranger is
+  `not-holder`, a terminal or reviewed row refused as `edit_claim` refuses
+  it. Both read back with `pg_get_functiondef` into the live snapshot;
+  `test/build-jobs.test.mjs` holds them equal byte for byte.
+- **The slug at filing time.** A revise names its site and the review wall
+  applies; a first build has no name yet and is filed under `build:<jobId>`
+  — a placeholder no site can be, NEVER the empty string (`edit_create`
+  matches a reviewed slug by equality, and a build row parked under `''`
+  would refuse every first build on the platform for ever). The handoff at
+  fire time, which knows the slug, sets the real one; a build that never
+  fires keeps the placeholder, which is the honest answer for a refusal.
+- **The release is `RELEASE_TTL_S` = 300, NOT "now".** The plan said the
+  report shortens the lease to now; a release to now followed by the sweep's
+  two-minute tick would mark a build lost sixty seconds before its collector
+  claimed it, and the collector would then publish a site the customer had
+  just been told was gone. Five minutes is five missed looks. A released
+  lease is not yet expired, so the collector's plain `edit_claim` answers
+  `leased` — the TAKEOVER BY NAME is the mechanism (`claimBuildRow`: claim,
+  then `edit_handoff` from `container:<genId>`, which the record names),
+  and it is the same mechanism for a container whose report never landed.
+- **The container beats through the REPORT ROUTE'S OWN CREDENTIAL, not the
+  gateway's job token** — the plan's wording. The generation runs under
+  `/model/start`, which holds no job token until 5b puts builds through the
+  runner; the report token is the credential that route already has, and a
+  beat or a release is bound to the row through the RESUME RECORD (the
+  token AND the generation id it carries — `genBound`), so naming a row is
+  never more than the token was minted for. The fire's `report` object
+  carries `job`, `beat` (our zone's `/api/site/genbeat`) and `beatMs`; the
+  container echoes `job` and its own `gen` on the report (the route strips
+  them before storing the answer) and beats `{job, gen}` with the token in
+  the header; `edit_beat` under `container:<genId>` for 600 s is the wall
+  under the binding. The cadence is the Worker's, floored at 5 s in the
+  container (the harness asks for that), never the container's choice.
+- **The poll route's verdict (`rowVerdict`).** No answer object and a row
+  that says `lost` with a claimed slug is shaped AS A PLACEHOLDER BUILD —
+  200, `slug`, `page: "placeholder"`, the sentence in `notes` — because the
+  browser's success gate is `r.ok && d.slug` and inside it `page` picks the
+  ⚠️ sentence and the slug is RECORDED, which it must be: the stand-in is
+  live at a name the project owns, and a project that forgets it sends the
+  next message as a fresh first build against it and gets a 409. `lost`
+  with nothing claimed, `failed`, `cancelled` and `done`-with-no-object
+  ("already collected") answer 410 with their sentences. The answer object
+  always wins (read first); a pending answer now carries `state`. No
+  browser change was needed. The POST's own wait asks the row every tenth
+  look (~30 s), so a consumer evicted mid-design answers the customer in two
+  or three minutes instead of sixteen.
+- **The sweep is untouched**: a build row falls into its own `lost` branch,
+  `edit_refund` on `external` moving nothing. `EDIT_PHASES` knows
+  `generating`; `test/edit-job.test.mjs` derives the CHECK from the NEWEST
+  applied file that spells it (a guard pinned to the birth file went red for
+  the change).
+- **Stated residues.** A handoff both RPC attempts refuse leaves the lease
+  with a consumer whose beats end with its invocation, so the row may read
+  `lost` while the build finishes — said in the log, never a stopped build.
+  A row whose queue message is never delivered sits `queued` with no lease
+  and is not swept (stage 3a's territory); the POST's wait still ends at
+  sixteen minutes for it. The container→Worker beat leg is the one hop not
+  driven end to end: the harness proves the report's `job`/`gen` on the real
+  wire and a settled generation sends no beat; the beat's send is read out
+  of the source.
+- **Driven on the live database, rolled back**: `scripts/edit-rpc-check.sql`
+  section 19 — RED at FAIL 70 against the old `edit_create` (`queued none`),
+  **21 of 21 after the migration, ALL 113 CHECKS PASSED whole**; its first
+  green run tripped on plpgsql's own ambiguity (the block declares `slug`
+  and the section read the column by that bare name — qualified, nothing
+  about the product). `test/build-jobs.test.mjs` (31): the vocabulary, the
+  migration and the snapshot, the check's order, every Worker hop read, and
+  DRIVEN — the poll route's five answers through `worker.fetch` against a
+  stubbed `edit_get`, the beat route bound and unbound six ways, the report
+  route's release and its stored answer, and the consumer through
+  `worker.queue` claiming, running and closing (claimed, rowless, leased).
+  Five older guards went red for the change and were re-anchored, not
+  appeased: the fire's report regex (two fields pinned), the poll route's
+  FIRST return (the verdict now precedes the pending answer), the CHECK's
+  source file, `buildAndPublishPages`' signature END (`billRef = null })`),
+  and the auth audit's public count (five → six, `/api/site/genbeat`).
+  **Sweep: 48 mutants, 48 killed, none unapplied, three comment-only controls
+  survived** — the placeholder slug as the empty string, a lost build with
+  a slug not shaped as a placeholder, a build in flight read as lost, an
+  ok:false refusal read as done, another generation's container binding,
+  the release sweepable before the collector's next look, the handoff not
+  the generation bound, an array read as a slug; the route filing under the
+  edit op, a refused row stopping the build, a failed enqueue leaving its
+  row, the consumer beating without the lease, the lease not reaching the
+  build, the row never closed, the fire handing nothing off, the design
+  carrying the job id, buildArgs and the fire dropping it, the collector
+  unable to name the holder or calling itself the holder unclaimed, a refire
+  moving nothing or not handed the lease, no takeover on `leased`, no retry,
+  the handoff on the consumer's TTL, the release moving the owner, a fired
+  build closed by the consumer, the report never releasing, the beat route
+  token-blind or on the wrong TTL, the poll route without its verdict, the
+  wait never asking, the beat outliving the work, the row read owner-blind,
+  a beat bound by job alone; the module without `generating`; the container
+  never starting its timer, the report unnamed, the beat without its token,
+  the timer outliving the generation, the cadence unfloored; both SQL files
+  billing every row external or letting anyone move the lease, the CHECK
+  without `generating`, the snapshot drifting; the check losing the
+  no-money proof or the stranger's call; the image without the module.
+  **One survived the first pass and it was the guard's fault**: the sweep
+  cut the stranger's handoff CALL out of the check and left the second
+  `FAIL 72d` line (the owner read back unchanged), which passes trivially
+  when nobody tried — the order guard read the message and not the call;
+  it reads both now, re-run to a kill. Full suite 5,191.
+- **Not proven live.** The deploy rolls the container (`worker.js` and
+  `build-server.mjs` are image inputs), so the 15–20 minute hold applies.
+  The canary is the owner's: one build on a test slug — the row should go
+  `queued` → `claimed` → `generating` → `done`, `x-site-build` moving; the
+  lost path is proven by the check and needs no spend. A first build under
+  the placeholder slug proves the handoff's slug write.
+
 ---
 
 ## Data, auth, payments, mail
@@ -2995,8 +3146,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,160
-  (2026-09-05, after stage 2b's three in `test/edit-poll.test.mjs` — the
+  build and the pre-list payload added sixteen); the unit suite is 5,191
+  (2026-09-05, after stage 2c's thirty-one in `test/build-jobs.test.mjs` —
+  the row's vocabulary, the migration and the snapshot, the check's order,
+  every Worker hop, and the poll, beat, report and consumer DRIVEN; 5,160
+  the same day after stage 2b's three in `test/edit-poll.test.mjs` — the
   record driven, bounded at the write and the read; the poll after a resume;
   the wiring read; 5,157 the same day after stage 2a's nine — `test/sweep-recovery.test.mjs`'s
   eight, the migration and its column, the sweep's branches and their order,

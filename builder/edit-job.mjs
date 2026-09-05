@@ -177,10 +177,12 @@ export const PUBLISH_LEASE_S = 300;
 
 // ── STATES ─────────────────────────────────────────────────────────────────
 
-/** Every state the database's own CHECK constraint admits, in order. */
+/** Every state the database's own CHECK constraint admits, in order.
+ *  `generating` (stage 2c) is a BUILD row's state while the container holds
+ *  its lease — set by `edit_handoff`, never reached by an edit. */
 export const EDIT_PHASES = Object.freeze([
   "queued", "claimed", "routing", "editing", "building",
-  "verifying", "correcting", "rebuilding", "publishing",
+  "verifying", "correcting", "rebuilding", "publishing", "generating",
 ]);
 
 /** Nothing moves out of these. Kept in step with the CHECK constraint by a test. */

@@ -13,6 +13,11 @@
 -- finalized rather than re-picked, tries are counted in edit_jobs.sweep_tries,
 -- a row five ticks could not settle is parked in review), read back the same
 -- way; test/sweep-recovery.test.mjs holds that block equal to its migration.
+-- AND, that evening, edit_create REPLACED IN PLACE and edit_handoff ADDED
+-- (stage 2c, migration 20260905190147_build_rows_lease_chain: a build's row is
+-- billed external from its op, and one lease moves along the build's chain -
+-- consumer, container, collector), both read back the same way;
+-- test/build-jobs.test.mjs holds both equal to that migration.
 --
 -- WHY THIS FILE EXISTS: the folder had drifted from what was live. Four
 -- migrations applied earlier that day were never written here and one was
@@ -165,8 +170,11 @@ begin
   if p_idem is null or p_idem !~ '^[A-Za-z0-9_-]{16,64}$' then
     return jsonb_build_object('ok', false, 'error', 'bad-idem');
   end if;
-  insert into public.edit_jobs (id, uid, slug, op, idem_key)
-    values (p_id, p_uid, p_slug, p_op, p_idem)
+  -- THE OP DECIDES THE BILLING (stage 2c). A build's money moves through its
+  -- own ledger and never through a reserve on this row, so it is filed
+  -- `external` -- here, from the op, so no caller can file one under a reserve.
+  insert into public.edit_jobs (id, uid, slug, op, idem_key, billing)
+    values (p_id, p_uid, p_slug, p_op, p_idem, case when p_op = 'build' then 'external' else 'none' end)
     on conflict do nothing;
   select * into r from public.edit_jobs
    where uid = p_uid and slug = p_slug and op = p_op and idem_key = p_idem;
@@ -580,6 +588,56 @@ begin
                   when j.lease_expires_at <= now() then 'lease-expired'
                   when j.billing <> 'none' then 'billed'
                   else 'refused' end);
+end; $function$;
+
+-- edit_handoff(p_id text, p_owner text, p_next text, p_ttl integer, p_state text, p_slug text, p_mint text)
+-- ADDED 2026-09-05 (stage 2c, migration 20260905190147_build_rows_lease_chain),
+-- read back the same way after its apply; test/build-jobs.test.mjs holds it
+-- equal to that migration.
+CREATE OR REPLACE FUNCTION public.edit_handoff(p_id text, p_owner text, p_next text, p_ttl integer, p_state text, p_slug text, p_mint text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private', 'extensions'
+AS $function$
+declare j public.edit_jobs%rowtype;
+begin
+  if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
+  if p_owner is null or length(p_owner) < 4 then raise exception 'bad owner'; end if;
+  if p_next is not null and length(p_next) < 4 then raise exception 'bad owner'; end if;
+  -- UP TO AN HOUR, where edit_claim and edit_beat stop at ten minutes: the
+  -- handoff to the container is for the generation bound (thirty minutes),
+  -- which no heartbeat of the Worker's can renew. A release or a takeover
+  -- asks for far less.
+  if p_ttl is null or p_ttl < 10 or p_ttl > 3600 then raise exception 'bad ttl'; end if;
+  -- THE HOLDER MOVES IT, NOBODY ELSE. A null next holder is a RELEASE: the
+  -- owner stays and only the expiry moves, so the collector can still take it
+  -- over by that name, and the sweep ends it if no collector comes. The state
+  -- and the slug are set only when the caller knows them; the row's own CHECK
+  -- refuses a state that is not one of its own.
+  update public.edit_jobs
+     set lease_owner = coalesce(p_next, lease_owner),
+         lease_expires_at = now() + make_interval(secs => p_ttl),
+         heartbeat_at = now(),
+         state = coalesce(p_state, state),
+         slug = coalesce(nullif(p_slug, ''), slug),
+         updated_at = now()
+   where id = p_id and lease_owner = p_owner
+     and state not in ('done','failed','cancelled','lost')
+     and needs_review = false
+   returning * into j;
+  if found then
+    return jsonb_build_object('ok', true, 'state', j.state, 'owner', j.lease_owner, 'slug', j.slug,
+                              'expires', j.lease_expires_at);
+  end if;
+  -- TOLD WHY, as edit_claim tells a second delivery: a stranger, a terminal
+  -- row and a row under review need different reactions from the caller.
+  select * into j from public.edit_jobs where id = p_id;
+  if not found then return jsonb_build_object('ok', false, 'error', 'no-job'); end if;
+  return jsonb_build_object('ok', false, 'state', j.state,
+    'error', case when j.needs_review then 'needs-review'
+                  when j.state in ('done','failed','cancelled','lost') then 'terminal'
+                  else 'not-holder' end);
 end; $function$;
 
 -- ── THE TWO REFUND FUNCTIONS, read with pg_get_functiondef on 2026-09-05 ──

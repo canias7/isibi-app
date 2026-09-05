@@ -61,6 +61,7 @@ const PUBLIC = {
   "/api/stripe/site/*": "A SITE OWNER's own Stripe telling us one of their orders was paid. Separate from /api/stripe/webhook, which is isibi's own billing — different account, different signing secret, and one handler deciding whether an event mints platform credits or marks a barber shop's order is not a thing to build. Stripe cannot hold a session; what authenticates it is the HMAC over the raw body verified against THAT SITE's own webhook secret, so a signature valid for one shop proves nothing about another.",
   "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. As of 2026-07-30 it is TRANSPORT ONLY: the row routes were deleted and these paths forward to the site's Neon Data API and Neon Auth, where the site's own RLS policies decide every access question. What is enforced here is a per-source rate limit and that the slug resolves to a real site.",
   "/api/site/genresult": "THE BUILD CONTAINER handing back the generation it was fired. It holds no Supabase session and never will — it is our own compute, reached over the queue, not a person. What authenticates it is a 128-bit token minted for ONE generation at fire time and stored in that build's resume record, travelling in a HEADER rather than the path so it stays out of logs and proxies. Knowing it authorises writing exactly one build's answer to one R2 key and nothing else; it is the same shape as a site's inbound webhook secret. An unrecognised token is 404, not 401, because the route's existence is not worth confirming to somebody probing it and a container that got the token wrong has no recovery either way.",
+  "/api/site/genbeat": "THE BUILD CONTAINER renewing its build row's lease while it generates (stage 2c). The same caller as genresult with the same credential — the report token in a header — and a narrower authority: the job id and the generation id in the body are matched against the resume record the Worker wrote for that job (the token AND the generation it carries), and only then is `edit_beat` asked, under the container's own lease name, which the RPC refuses for anyone but the holder. A beat that does not bind is 404, as the report is, and writes nothing.",
 };
 
 // Every place the router dispatches on an /api path.
@@ -233,7 +234,7 @@ test("the public allow-list is exactly what we think it is", () => {
   for (const p of Object.keys(PUBLIC)) {
     assert.ok(names.includes(p), `${p} is allow-listed as public but no longer exists — remove it from PUBLIC`);
   }
-  assert.equal(Object.keys(PUBLIC).length, 5, "a new unauthenticated endpoint was added — is that intended?");
+  assert.equal(Object.keys(PUBLIC).length, 6, "a new unauthenticated endpoint was added — is that intended?");
 });
 
 test("the unauthenticated webhook verifies a signature instead", () => {

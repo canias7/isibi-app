@@ -3122,3 +3122,51 @@ What this needs from you: the push to main. It is the browser files only,
 so it builds nothing and rolls nothing. The live proof is free: refresh the
 page during an edit on fretwork-1 and reopen the site, and the reply should
 appear when the edit finishes.
+
+## 2026-09-05 — A build has a row, and one lease moves along its chain (stage 2c)
+
+Your "go". Until now a build had a record in storage and nothing that held
+it: if the machine running the design step was evicted (that happened on
+run 17, nine minutes after a deploy), or the queue stopped delivering the
+look that collects the pages (run 41), the customer was left with the
+stand-in page and a chat that kept saying "still building" for twenty
+minutes, then gave up. Nothing could say the build was gone.
+
+Now every build files a row in the same table the edits use, and one lease
+travels with the work: the queue consumer holds it while the site is
+designed and renews it every thirty seconds; when the pages are handed to
+the container to write, the lease is handed with them, for the half hour a
+generation may take; the container renews it every minute while it writes
+and hands it back when it reports the answer; the look that collects the
+answer takes it over; and if nobody renews it, the same sweep that closes a
+lost edit closes the build, moving no money. The build's own money is not
+on the row — it is billed the way stage 1c set up — so the row says so
+(`external`) and no refund logic can ever touch it.
+
+What you will see: a build that is lost now says so in the chat within a
+few minutes — "That build stopped part-way and we lost track of it on our
+side. There's a stand-in page at your address; send your brief again to
+build the site. You weren't charged for the pages." — instead of polling
+for twenty minutes. If the build had already claimed its name, the project
+keeps it, so the next message revises rather than colliding with it.
+
+How it was checked: the database half was driven against the live database
+inside a transaction that rolls back — the new section went red against the
+old function first (a build row billed like an edit), then 21 of 21 after
+the migration, and the whole script passed all 113 checks. The Worker's
+hops are read and driven in a new suite (the poll route's answers, the
+container's beat and report bound to the right build, the consumer
+claiming and closing its row), and the mutation sweep put 48 deliberate
+breaks in (the lease never handed to the container, the release moving the
+owner, a stranger's beat renewing a lease, a lost build read as a finished
+one, the sweep's proof cut out of the check) and the tests caught all 48,
+with the three comment-only controls surviving as they should; one break
+slipped the first pass because the guard read a failure message and not the
+call behind it, and that guard reads both now. The whole unit suite is
+5,191 green.
+
+What this needs from you: the push to main (it changes the Worker and the
+container, so the 15–20 minute hold after the deploy applies). The live
+proof is a build on a test slug: its row should go queued → claimed →
+generating → done. The lost path needs no spend; the check already proves
+it.

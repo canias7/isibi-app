@@ -304,15 +304,25 @@ test("A BUILD THAT ANSWERED 202 CAN BE ASKED ABOUT LATER", () => {
   // repeated; what has to hold is which status the branch answers.
   const missing = block.indexOf("if (!obj)");
   assert.ok(missing > 0, "the route no longer distinguishes a result that is not there yet");
-  // SCOPED TO THE BRANCH'S OWN RETURN, not to the first `;` after the `if`. That
-  // spelling assumed a one-line branch and stopped meaning anything the moment
-  // the branch grew a body — it would have sliced `let flight = null;` and
-  // reported that a pending build no longer answers 202.
-  const pendReturn = block.indexOf("return ", missing);
-  assert.ok(pendReturn > missing, "the no-result branch does not return");
+  // SCOPED TO THE PENDING ANSWER ITSELF, not to the first `return` after the
+  // `if`. That spelling assumed the branch had one return and went red the
+  // day stage 2c (2026-09-05) put the row's verdict — a terminal answer for a
+  // lost or failed build — AHEAD of it, reporting that a pending build no
+  // longer answers 202 about a branch that does. An earlier draft had sliced
+  // to the first `;` and would have read `let flight = null;`. The property:
+  // the branch composes a `pending: true` body and answers it 202, and the
+  // row's verdict, when there is one, is asked before that answer is given.
+  const pendObj = block.indexOf("const pend = ", missing);
+  assert.ok(pendObj > missing, "the no-result branch no longer composes a pending answer");
+  const pendDecl = block.slice(pendObj, block.indexOf(";", pendObj) + 1);
+  assert.match(pendDecl, /pending: true/, "a build still being written does not answer as pending");
+  const pendReturn = block.indexOf("return Response.json(pend", pendObj);
+  assert.ok(pendReturn > pendObj, "the pending answer is composed and never returned");
   const pend = block.slice(pendReturn, block.indexOf(";", pendReturn) + 1);
-  assert.match(pend, /pending: true/, "a build still being written does not answer as pending");
   assert.match(pend, /\b202\b/, "a build still being written does not answer 202");
+  const verdict = block.indexOf("rs.verdict", missing);
+  assert.ok(verdict > missing && verdict < pendReturn,
+    "the row's verdict is not asked before the pending answer — a lost build would be told `pending` until the browser gave up");
   // THE READ THAT FAILED. `catch` is where a bucket blip lands, and it must not
   // wear the same answer — "we could not look" and "it is not finished" want
   // opposite responses from anything polling.
@@ -898,10 +908,23 @@ test("THE FIRE MINTS A NAME FOR THE ANSWER AND TELLS BOTH SIDES", () => {
   // request would be whatever the customer arrived on, including a custom
   // domain — so the container would POST a site's whole generation at an
   // address the owner controls.
-  const body = /body: JSON\.stringify\(\{ req, callMs, report: \{ url: `([^`]+)`, token: report \} \}\)/.exec(fire);
-  assert.ok(body, "the fire no longer tells the container where to leave the answer");
-  assert.match(body[1], /^https:\/\/\$\{APP_ZONE\}\/api\/site\/genresult$/,
+  // THE REPORT OBJECT, BY ITS OWN BRACKETS. This was a regex pinned to the
+  // two-field spelling `{ url: …, token: report }`, and it went red the day
+  // stage 2c (2026-09-05) grew the object a job id and a beat address —
+  // reporting that the container is no longer told where to leave the answer,
+  // about a fire that tells it more. The property is the URL and whose it is.
+  const reportAt = fire.indexOf("body: JSON.stringify({ req, callMs, report: {");
+  assert.ok(reportAt > 0, "the fire no longer tells the container where to leave the answer");
+  const reportObj = fire.slice(reportAt, close(fire, fire.indexOf("report: {", reportAt) + "report: ".length));
+  const url = /url: `([^`]+)`/.exec(reportObj);
+  assert.ok(url, "the report object carries no url");
+  assert.match(url[1], /^https:\/\/\$\{APP_ZONE\}\/api\/site\/genresult$/,
     "the report URL is not built from APP_ZONE — a request-derived host lets a customer's domain collect their own generation");
+  assert.match(reportObj, /token: report\b/, "the report object drops the token — the route cannot authorise the write");
+  // AND THE ROW'S HALF (stage 2c), GATED ON A JOB: the job id and a beat
+  // address at our own zone, absent on the inline path that has no row.
+  assert.match(reportObj, /\.\.\.\(jobId \? \{ job: jobId, beat: `https:\/\/\$\{APP_ZONE\}\/api\/site\/genbeat`, beatMs: GEN_BEAT_MS \} : \{\}\)/,
+    "the fire does not tell the container which row it holds and where to beat, gated on a job id");
 
   // AND THE SENTINEL CARRIES IT, or the record cannot remember the one name the
   // answer was written under and the persisted copy is unreachable.
