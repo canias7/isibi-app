@@ -2371,12 +2371,49 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   `SITE_SECRETS_KEY` and never that key itself — minted by the consumer,
   verified on every request, nothing stored, expiring with the job's clock plus
   `JOB_TOKEN_GRACE_S` (900 s) for the finalize. `allowedJobKey` is the wall:
-  the site's five prefixes (`sites/ source/ versions/ uploads/ backups/` +
-  slug), its one config object, the job's own `jobs/` objects by id; `..`
-  refused. **A key outside it is 403 AND LOGGED WITH THE KEY** (`job gateway
-  refused: out-of-scope`), so the first live job on a site says exactly which
-  key it needed that the list lacks, and the answer is a line there, never a
-  wider wall. Mounted at the top of `handleRequest` on the APP zone only. R2's
+  the site's six prefixes (`sites/ source/ versions/ uploads/ backups/ builds/`
+  + slug), its config object, its pointer (`current/<slug>.json`), its sidecar
+  (`sitemeta/<slug>.json`) and its orphan marker (`orphans/<slug>.json`), the
+  job's own `jobs/` objects by id; `..` refused. **A key outside it is 403 AND
+  LOGGED WITH THE KEY** (`job gateway refused: out-of-scope`), so the first
+  live job on a site says exactly which key it needed that the list lacks,
+  and the answer is a line there, never a wider wall. **STAGE 4a (2026-09-05,
+  owner: *"go"*) ADDED THE SIDECAR AND THE MARKER, AND TYPED THE REFUSAL.**
+  Every publish reads the previous sidecar for its redirect map and writes the
+  new one at activation, and the read is fenced as best-effort — so the first
+  runner publish would have lost the site's redirects and share tags with
+  nothing in the reply; `test/container-runtime.test.mjs` had asserted both
+  keys REFUSED. The wall spells them (the module is dependency-free for the
+  container's sake) and `test/gateway-refusal.test.mjs` holds the spelling to
+  `siteMetaKey`, `P_ORPHANS`, `POINTER_KEY` and `CONFIG_KEY` — every
+  single-object key the Worker writes for a site, admitted for that site and
+  refused for another. And `GatewayBucket` throws `GatewayError` — `code`
+  (`forbidden` for 401/403, nothing a retry fixes; `transient` for the rest),
+  `status`, `key`, `op` — where it threw a plain Error on every non-2xx but
+  404 and 412, so a refused key read exactly like an R2 outage and reached
+  the customer as "our build service was restarting". The spine's stage and
+  activation catches carry `code` and `key` onto the refusal and the trace
+  (the activation is WRAPPED now: a store that refuses the pointer write
+  threw out of the module and escaped to the route's catch), and `compileMsg`
+  names a forbidden write as ours with the key — "our storage refused to
+  write “sitemeta/…”, so nothing was changed. This is on us" — while a
+  transient one keeps the restarting sentence; a forbidden code that is
+  theirs is still theirs. `compileMsg` is DRIVEN (evaluated out of the
+  source with `roomSentence` stubbed) rather than read. Runtime round-trips
+  through the real handler for both keys, a 403 and a 401 as `forbidden`, a
+  500 as `transient`, a batch delete naming the key it stopped on. **Sweep:
+  18 mutants, 18 killed, none unapplied, three comment-only controls
+  survived** — every refusal reading as transient, a refused token as
+  transient, `get` / `put` / `list` back on a plain throw, the batch
+  refusal losing the key the wall named, the status not kept; the wall
+  refusing the sidecar, refusing the marker, admitting every site's
+  sidecar; the spine's stage catch and stage refusal dropping the code and
+  key, a throw out of activation reading as a publish, the activation
+  refusal dropping them, the sentence never naming a refused write, the
+  sentence without the key, a refused write that is theirs named as ours,
+  the stage mark without the code and key. Full suite 5,148 green. **Not
+  proven live** — the proof is the 5a canary's first job through the
+  runner, whose publish now writes both keys through the wall. Mounted at the top of `handleRequest` on the APP zone only. R2's
   own shapes on both sides: metadata as headers, `onlyIf` as `x-gf-if-*`, a
   failed condition 412 → the shim answers `null` the way R2 does (the resume's
   claim depends on it), a missing object 404 → `null`.
@@ -2958,8 +2995,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,143
-  (2026-09-05, after stage 7's twenty-one — `test/site-builds.test.mjs`'s
+  build and the pre-list payload added sixteen); the unit suite is 5,148
+  (2026-09-05, after stage 4a's five — `test/gateway-refusal.test.mjs`'s
+  three, `compileMsg` driven and the wall's keys derived from their writers,
+  and the runtime's two, the typed refusal through the real handler and the
+  shim's round-trips for the sidecar and the marker; 5,143 the same day
+  after stage 7's twenty-one — `test/site-builds.test.mjs`'s
   twenty, the module driven against a fake R2 that keeps etags and honours
   `onlyIf` plus the wiring of both publish paths, the script, the container,
   the fallback, the card, the delete, the restore and the wall, and

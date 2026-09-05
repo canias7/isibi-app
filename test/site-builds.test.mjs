@@ -360,8 +360,14 @@ test("both publish paths mint the version before the compile, send it in the pay
   // A STAGE OR AN ACTIVATION THAT FAILED IS A REFUSAL, named, ours — never a
   // publish reported over a prefix that is not there or a pointer that did
   // not move.
-  assert.match(spine, /if \(!staged \|\| staged\.ok !== true\) \{[\s\S]{0,400}?return \{ ok: false, error: "stage", ours: true,/, "a failed stage does not refuse the publish");
-  assert.match(spine, /if \(!act \|\| act\.ok !== true\) \{[\s\S]{0,500}?error: act && act\.error === "superseded" \? "superseded" : "activate", ours: true,/, "a failed activation does not refuse the publish, or a superseded pointer is not named");
+  // LANDMARK TO LANDMARK, not `{0,400}` characters: the byte window was outrun
+  // by the comment stage 4a put between the condition and its return.
+  const stageIf = spine.indexOf("if (!staged || staged.ok !== true) {");
+  const stageRet = spine.indexOf('return { ok: false, error: "stage", ours: true,', stageIf);
+  assert.ok(stageIf > 0 && stageRet > stageIf && !spine.slice(stageIf, stageRet).includes("\n  }\n"), "a failed stage does not refuse the publish");
+  const actIf = spine.indexOf("if (!act || act.ok !== true) {");
+  const actRet = spine.indexOf('error: act && act.error === "superseded" ? "superseded" : "activate", ours: true,', actIf);
+  assert.ok(actIf > 0 && actRet > actIf && !spine.slice(actIf, actRet).includes("\n  }\n"), "a failed activation does not refuse the publish, or a superseded pointer is not named");
   // The platform's own readers must not serve a stale pointer from this
   // isolate: the cache is cleared right after activation, on both paths —
   // INSIDE the spine, between the activation and the prune. A first draft

@@ -9524,6 +9524,20 @@ function compileMsg(pub, theirs) {
   // 429 or 500 — waited for inside the cap and named when the wait ran out.
   // Which of the three matters to the customer: "full" is minutes, "rate" a
   // moment. See builder/container-room.mjs.
+  // ── AND A SIXTH (stage 4a, 2026-09-05): A KEY THE STORE REFUSED ──────────
+  //
+  // Inside the container the site's storage is the job gateway, and its wall
+  // admits only the site's own keys. A write it refused threw a plain error
+  // and wore the restarting sentence; the bucket answers a TYPED refusal now
+  // (`code: "forbidden"` with the key), the spine's stage and activation
+  // catches carry it, and this names it — ours, with the key, nothing
+  // changed. A `transient` code keeps the sentence below: a store that did
+  // not answer is, to the customer, the build service not answering.
+  if (pub.code === "forbidden") {
+    return "That didn't go through — our storage refused to write " +
+      (pub.key ? "“" + String(pub.key).slice(0, 120) + "”" : "a file this site needs") +
+      ", so nothing was changed. This is on us, not your change; nothing was charged.";
+  }
   if (pub.room) return roomSentence(pub.room);
   if (pub.timedOut) {
     return "That didn't go through — it took longer than the time we allow for one change, so nothing was changed. Nothing was charged. Try again, or ask for it in two smaller steps.";
@@ -10385,12 +10399,15 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
         langs: siteLangs.filter((l) => !l.primary).map((l) => l.prefix), routes: composed.routes,
       },
     });
-  } catch (e) { staged = { ok: false, error: String((e && e.message) || e) }; }
+  } catch (e) { staged = { ok: false, error: String((e && e.message) || e), code: (e && e.code) || undefined, key: (e && e.key) || undefined }; }
   if (!staged || staged.ok !== true) {
-    tm("stage", "fail", { why: String((staged && staged.error) || "stage").slice(0, 120) });
+    tm("stage", "fail", { why: String((staged && staged.error) || "stage").slice(0, 120), code: (staged && staged.code) || undefined, key: (staged && staged.key) || undefined });
     // OURS: the compile succeeded and R2 did not take the build. Nothing is
-    // live-changed, and `compileMsg` says so rather than blaming the change.
-    return { ok: false, error: "stage", ours: true, detail: String((staged && staged.error) || "the build could not be staged").slice(0, 200) };
+    // live-changed, and `compileMsg` says so rather than blaming the change —
+    // and WHICH way it is ours (stage 4a): a write the gateway's wall REFUSED
+    // carries `code: "forbidden"` and the key, a store that did not answer
+    // carries `transient`, and the sentence names the first by its key.
+    return { ok: false, error: "stage", ours: true, detail: String((staged && staged.error) || "the build could not be staged").slice(0, 200), code: (staged && staged.code) || undefined, key: (staged && staged.key) || undefined };
   }
   tm("stage", "ok", { files: staged.files, worker: staged.worker });
   // ── A FREE RUNG IS EXEMPTED FIRST ───────────────────────────────────────
@@ -10447,7 +10464,14 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   }
   tm("activate", "start", { version, from: pointerBefore ? pointerBefore.version : "" });
   let wput = null;
-  const act = await activateBuild(buildDeps(env), {
+  // CAUGHT, so a store that refuses or dies mid-activation answers as a
+  // named refusal and never escapes to the route's catch (which keeps only
+  // the error's class). The only R2 write in activation that is not fenced
+  // inside the module is the pointer's own — the first — so a throw here
+  // means nothing moved; a typed refusal's `code` and `key` ride out.
+  let act = null;
+  try {
+  act = await activateBuild(buildDeps(env), {
     slug, version, build: (built.worker && built.worker.build) || "", parent: parentVersion, job: job ? String(job.id) : null,
     expectEtag: pointerBefore ? pointerBefore.etag : null,
     sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
@@ -10506,12 +10530,13 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       tm("r2:landmarks", "ok", { marks: ((built.render && built.render.landmarks) || []).length });
     },
   });
+  } catch (e) { act = { ok: false, error: String((e && e.message) || e), code: (e && e.code) || undefined, key: (e && e.key) || undefined }; }
   _pointerCache.delete(slug);
   if (!act || act.ok !== true) {
-    tm("activate", "fail", { why: String((act && act.error) || "activate") });
+    tm("activate", "fail", { why: String((act && act.error) || "activate"), code: (act && act.code) || undefined, key: (act && act.key) || undefined });
     // OURS, and the live site is untouched: a superseded pointer is another
     // job's publish having landed first, never the customer's change.
-    return { ok: false, error: act && act.error === "superseded" ? "superseded" : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200) };
+    return { ok: false, error: act && act.error === "superseded" ? "superseded" : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
   }
   tm("activate", "ok", { uploaded: act.uploaded });
   const wrote = staged.files;

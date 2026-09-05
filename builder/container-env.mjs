@@ -56,6 +56,27 @@ export class GatewayObject {
   }
 }
 
+/**
+ * A refusal the gateway answered, TYPED (stage 4a, 2026-09-05). Before this
+ * every non-2xx but 404 and 412 threw a plain Error, so a 403 — the wall
+ * refusing a key the job needed — read exactly like an R2 outage, and the
+ * spine's catch called it "our build service was restarting". `code` says
+ * which of the two it is: `forbidden` (401 or 403 — nothing a retry fixes;
+ * the wall or the token) or `transient` (everything else); `status` and
+ * `key` ride with it so the sentence the customer reads can name the key and
+ * the log can say what the list lacks.
+ */
+export class GatewayError extends Error {
+  constructor(op, status, key) {
+    super("gateway " + op + " " + status + (key ? " for " + key : ""));
+    this.name = "GatewayError";
+    this.op = op;
+    this.status = Number(status) || 0;
+    this.key = key == null ? "" : String(key);
+    this.code = this.status === 403 || this.status === 401 ? "forbidden" : "transient";
+  }
+}
+
 /** The R2 bucket, over the gateway. */
 export class GatewayBucket {
   constructor({ url, token, fetch: f = globalThis.fetch }) {
@@ -74,13 +95,13 @@ export class GatewayBucket {
   async get(key) {
     const r = await this._req(this._key(key), { method: "GET" });
     if (r.status === 404) return null;
-    if (!r.ok) throw new Error("gateway get " + r.status + " for " + key);
+    if (!r.ok) throw new GatewayError("get", r.status, key);
     return new GatewayObject({ key: String(key), ...readMetaHeaders(r.headers) }, r);
   }
   async head(key) {
     const r = await this._req(this._key(key), { method: "HEAD" });
     if (r.status === 404) return null;
-    if (!r.ok) throw new Error("gateway head " + r.status + " for " + key);
+    if (!r.ok) throw new GatewayError("head", r.status, key);
     return new GatewayObject({ key: String(key), ...readMetaHeaders(r.headers) }, null);
   }
   async put(key, value, opts = {}) {
@@ -93,7 +114,7 @@ export class GatewayBucket {
     // A failed condition is R2's null, not a throw — the resume's claim and
     // every `onlyIf` caller reads it that way.
     if (r.status === 412) return null;
-    if (!r.ok) throw new Error("gateway put " + r.status + " for " + key);
+    if (!r.ok) throw new GatewayError("put", r.status, key);
     const j = await r.json();
     return new GatewayObject({ ...j, uploaded: j.uploaded ? new Date(j.uploaded) : undefined }, null);
   }
@@ -101,16 +122,22 @@ export class GatewayBucket {
     const list = Array.isArray(keys) ? keys.map(String) : [String(keys)];
     if (list.length === 1) {
       const r = await this._req(this._key(list[0]), { method: "DELETE" });
-      if (!r.ok && r.status !== 404) throw new Error("gateway delete " + r.status + " for " + list[0]);
+      if (!r.ok && r.status !== 404) throw new GatewayError("delete", r.status, list[0]);
       return;
     }
     if (!list.length) return;
     const r = await this._req("/r2/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ keys: list }) });
-    if (!r.ok) throw new Error("gateway delete " + r.status);
+    if (!r.ok) {
+      // THE KEY THE WALL NAMED, when it named one: a batch refusal says which
+      // of the list it stopped on, so the log and the sentence carry it.
+      let named = "";
+      try { named = String(((await r.json()) || {}).key || ""); } catch { named = ""; }
+      throw new GatewayError("delete", r.status, named);
+    }
   }
   async list(opts = {}) {
     const r = await this._req("/r2/list", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(opts || {}) });
-    if (!r.ok) throw new Error("gateway list " + r.status + " for " + String((opts && opts.prefix) || ""));
+    if (!r.ok) throw new GatewayError("list", r.status, String((opts && opts.prefix) || ""));
     const j = await r.json();
     return {
       objects: (j.objects || []).map((o) => new GatewayObject({ ...o, uploaded: o.uploaded ? new Date(o.uploaded) : undefined }, null)),

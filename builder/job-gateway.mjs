@@ -32,7 +32,8 @@
 // ── THE SCOPE ────────────────────────────────────────────────────────────────
 //
 // `allowedJobKey(slug, id, key)` is the wall: a site's own prefixes (`sites/`,
-// `source/`, `versions/`, `uploads/`, `backups/`), its one config object, and
+// `source/`, `versions/`, `uploads/`, `backups/`, `builds/`), its one config
+// object, its pointer, its sidecar, its orphan marker, and
 // the job's own objects under `jobs/` — read out of the key builders the code
 // uses, not guessed. A key outside it is refused with 403 and LOGGED with the
 // key, so the first live job on a site says exactly which key it needed that
@@ -133,6 +134,17 @@ export function allowedJobKey(slug, id, key) {
   if (k === "config/" + slug + ".json") return true;
   // The site's pointer (stage 7) — the one object activation moves.
   if (k === "current/" + slug + ".json") return true;
+  // THE SIDECAR AND THE ORPHAN MARKER (stage 4a, 2026-09-05). Every publish
+  // reads the previous sidecar for its redirect map and writes the new one at
+  // activation (`siteMetaKey`), and the legacy sweep keeps its marker under
+  // `orphans/` (`P_ORPHANS`) — both keyed by the slug alone, both outside the
+  // served prefix, both refused by this wall until now: the first runner
+  // canary would have lost every site's redirects and share tags at its first
+  // publish, silently, because the sidecar read is fenced as best-effort.
+  // Spelled here rather than imported (this file is dependency-free for the
+  // container's sake) and held to the two key builders by a guard.
+  if (k === "sitemeta/" + slug + ".json") return true;
+  if (k === "orphans/" + slug + ".json") return true;
   // The job's own objects: the request it replays, its result, its resume
   // record — every one named by the job's id, none by anybody else's.
   if (k.startsWith("jobs/") && k.includes(String(id))) return true;

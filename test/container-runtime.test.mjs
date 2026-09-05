@@ -23,7 +23,9 @@ import {
   gatewayKey, signJobToken, verifyJobToken, allowedJobKey, allowedJobPrefix, jobPrefixes,
   metaHeaders, readMetaHeaders, onlyIfHeaders, readOnlyIf, gatewayHandler, gatewayJobId,
 } from "../builder/job-gateway.mjs";
-import { GatewayBucket, GatewayObject, makeContainerEnv, makeContainerCtx, refusingQueue } from "../builder/container-env.mjs";
+import { GatewayBucket, GatewayObject, GatewayError, makeContainerEnv, makeContainerCtx, refusingQueue } from "../builder/container-env.mjs";
+import { siteMetaKey } from "../site-meta.mjs";
+import { P_ORPHANS } from "../site-sweep.mjs";
 
 const ROOT = new URL("..", import.meta.url);
 
@@ -109,12 +111,23 @@ test("a job may touch its own site's keys and its own job objects, and nothing e
     "jobs/edit/" + id, "jobs/" + id, "jobs/result/" + id + ".json",
     // The immutable layout (stage 7): the site's build prefixes and its pointer.
     "builds/fretwork-1/00000000001000-aaaaaa/manifest.json", "builds/fretwork-1/00000000001000-aaaaaa/client/assets/x.js", "current/fretwork-1.json",
+    // The sidecar and the orphan marker (stage 4a) — every publish reads and
+    // writes the first, the legacy sweep the second; both were refused, and the
+    // sidecar read is fenced as best-effort, so the first runner publish would
+    // have lost the site's redirects and share tags without a word.
+    "sitemeta/fretwork-1.json", "orphans/fretwork-1.json",
   ]) assert.equal(allowedJobKey(slug, id, k), true, k + " should be allowed");
+  // DERIVED FROM THE KEY BUILDERS, not typed twice: the wall spells the two
+  // keys (this module is dependency-free for the container's sake), and this
+  // is what holds the spelling to the modules that write them.
+  assert.equal(allowedJobKey(slug, id, siteMetaKey(slug)), true, "the wall does not admit the key the sidecar is written under");
+  assert.equal(allowedJobKey(slug, id, P_ORPHANS(slug)), true, "the wall does not admit the key the orphan marker is written under");
   for (const k of [
     "sites/fretwork-11/index.html", "sites/fretwork/index.html", "sites/other-1/index.html", "sites/", "sites",
     "config/other-1.json", "config/fretwork-1.json.bak", "config/", "config/fretwork-11.json",
     "builds/other-1/00000000001000-aaaaaa/manifest.json", "builds/fretwork-11/x", "current/other-1.json", "current/fretwork-1.json.bak",
     "jobs/edit/j_other", "jobs/", "jobs/edit/", "orphans/fretwork-1/x", "sitemeta/fretwork-1",
+    "sitemeta/other-1.json", "orphans/other-1.json", "sitemeta/fretwork-1.json.bak", "sitemeta/fretwork-11.json",
     "sites/fretwork-1/../other-1/index.html", "", null, undefined,
   ]) assert.equal(allowedJobKey(slug, id, k), false, String(k) + " should be refused");
   // A malformed identity admits nothing at all.
@@ -335,6 +348,78 @@ test("the gateway refuses another site's keys, another job's token, an expired t
   const odd = await rig();
   const res = await odd.fetch(base + "/r2/rename", { method: "POST", headers: { authorization: "Bearer " + odd.token } });
   assert.equal(res.status, 400);
+});
+
+test("the sidecar and the orphan marker round-trip through the real handler (stage 4a)", async () => {
+  // Every publish reads the previous sidecar for its redirect map and writes
+  // the new one at activation; the legacy sweep keeps its marker. Both were
+  // refused, and the sidecar read is fenced as best-effort — so the first
+  // runner publish would have lost the site's redirects and share tags with
+  // nothing in the reply. Driven through the real handler, keyed by the
+  // builders that write them.
+  const { bucket, r2, refused } = await rig();
+  const side = siteMetaKey(JOB.slug);
+  await bucket.put(side, JSON.stringify({ origin: "https://fretwork-1.gofarther.app/", routesCsv: "/" }), { httpMetadata: { contentType: "application/json" } });
+  assert.deepEqual(await (await bucket.get(side)).json(), { origin: "https://fretwork-1.gofarther.app/", routesCsv: "/" });
+  assert.ok(r2.store.has("sitemeta/fretwork-1.json"), "the sidecar did not land under its own key");
+  const marker = P_ORPHANS(JOB.slug);
+  await bucket.put(marker, JSON.stringify({ keys: ["assets/old.js"] }), { httpMetadata: { contentType: "application/json" } });
+  assert.deepEqual(await (await bucket.get(marker)).json(), { keys: ["assets/old.js"] });
+  assert.deepEqual(refused, [], "an own key was refused: " + JSON.stringify(refused));
+  // Another site's, still refused, by the same two builders.
+  await assert.rejects(bucket.get(siteMetaKey("other-1")), /403/);
+  await assert.rejects(bucket.put(P_ORPHANS("other-1"), "{}"), /403/);
+  assert.deepEqual(refused.map((r) => r.key), ["sitemeta/other-1.json", "orphans/other-1.json"]);
+});
+
+test("a refusal is a TYPED error — forbidden or transient, with the status and the key (stage 4a)", async () => {
+  // Before this every non-2xx but 404 and 412 threw a plain Error, so a 403 —
+  // the wall refusing a key the job needed — read exactly like an R2 outage
+  // and reached the customer as "our build service was restarting". The
+  // spine's sentence reads `code` and names the key; the log reads it too.
+  const { bucket, base, token } = await rig();
+  let err = null;
+  try { await bucket.put("config/other-1.json", "{}"); } catch (e) { err = e; }
+  assert.ok(err instanceof GatewayError, "a refusal is not a GatewayError");
+  assert.equal(err.code, "forbidden");
+  assert.equal(err.status, 403);
+  assert.equal(err.key, "config/other-1.json");
+  assert.equal(err.op, "put");
+  assert.match(err.message, /gateway put 403 for config\/other-1\.json/);
+  // A batch delete names the key the wall stopped on.
+  let del = null;
+  try { await bucket.delete(["sites/fretwork-1/a", "sites/other-1/b"]); } catch (e) { del = e; }
+  assert.ok(del instanceof GatewayError && del.code === "forbidden" && del.key === "sites/other-1/b", JSON.stringify(del && { code: del.code, key: del.key }));
+  // A token the gateway will not accept is forbidden too: nothing a retry fixes.
+  const late = await rig({ now: JOB.exp * 1000 + 1 });
+  let stale = null;
+  try { await late.bucket.get("sites/fretwork-1/index.html"); } catch (e) { stale = e; }
+  assert.ok(stale instanceof GatewayError && stale.code === "forbidden" && stale.status === 401);
+  // Anything else is transient — a Worker that answered 500, a gateway that
+  // was not there — and keeps today's reading.
+  const down = new GatewayBucket({ url: base, token, fetch: async () => new Response("boom", { status: 500 }) });
+  let five = null;
+  try { await down.get("sites/fretwork-1/index.html"); } catch (e) { five = e; }
+  assert.ok(five instanceof GatewayError, "a 500 is not a GatewayError");
+  assert.equal(five.code, "transient");
+  assert.equal(five.status, 500);
+  assert.equal(five.key, "sites/fretwork-1/index.html");
+  let lst = null;
+  try { await down.list({ prefix: "sites/fretwork-1/" }); } catch (e) { lst = e; }
+  assert.ok(lst instanceof GatewayError && lst.code === "transient" && lst.key === "sites/fretwork-1/");
+  // And the two R2 answers that are NOT errors stay what they were: a 404 is
+  // null, a 412 is null.
+  assert.equal(await bucket.get("sites/fretwork-1/nope"), null);
+  assert.equal(await bucket.put("jobs/" + JOB.id + "/x", "a", { onlyIf: { etagMatches: "no" } }), null);
+  // No plain throw is left in the bucket: every failure carries its code.
+  const src = readFileSync(new URL("../builder/container-env.mjs", import.meta.url), "utf8");
+  const cls = src.slice(src.indexOf("export class GatewayBucket {"), src.indexOf("/** A queue nothing inside the container may send to. */"));
+  assert.ok(cls.length > 500, "the bucket class moved — rescope this");
+  // Every failure the GATEWAY answers is typed. The constructor's own refusal
+  // of a missing url or token is a programming error and stays plain — a first
+  // draft of this scan flagged it.
+  assert.doesNotMatch(cls, /throw new Error\("gateway (get|head|put|delete|list)/, "a GatewayBucket failure is thrown untyped");
+  assert.ok((cls.match(/throw new GatewayError\(/g) || []).length >= 6, "not every bucket op throws the typed error");
 });
 
 test("gatewayJobId reads the job out of the path and nothing else", () => {

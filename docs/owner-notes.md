@@ -3018,3 +3018,34 @@ usual 15–20 minute hold applies), then any one edit on fretwork-1 is the
 live proof — the served page will answer with an `x-site-version` header and
 the Versions panel will show the new kind of row. A rollback from that
 panel is the second proof. Nothing costs more than the edit itself.
+
+## 2026-09-05 — The job's storage wall admits two keys it was missing, and a refusal says its name (stage 4a)
+
+Your "go". When an edit runs inside the site's container, its storage goes
+through a gate that admits only that site's own files. Two files every
+publish uses were not on the list: the small record the site's script reads
+for its share tags and redirect map, and the cleanup marker. The read of the
+first is deliberately best-effort, so the first run through the container
+would have published a site with no share tags and no redirects and said
+nothing about it. Both are on the list now, held to the code that writes
+them so the two cannot drift apart.
+
+And a refusal from that gate used to look exactly like an outage: the
+customer would have read "our build service was restarting" for a file the
+gate would never admit. A refusal now carries its own name, the file and the
+reason, and the customer reads "our storage refused to write that file, so
+nothing was changed — this is on us"; a real outage keeps the old sentence.
+
+How it was checked: the gate and the shim were driven together against a
+fake store for both files, for a refusal and for an outage; the customer's
+sentence was driven, not read; and the mutation sweep put 18 deliberate
+breaks in (a refusal read as an outage, the file's name dropped, the gate
+refusing one of the two files, the gate admitting another site's file, the
+sentence blaming the customer) and the tests caught all 18, with the three
+comment-only controls surviving as they should. The whole unit suite is
+5,148 green after it. Not proven live: the first job through the container
+runner (the stage 5a canary, yours) is the proof, since its publish writes
+both files through the gate.
+
+No deploy is needed for this on its own, but it must be on before the
+container canary (stage 5a), which is the next thing that waits on you.
