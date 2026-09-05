@@ -254,6 +254,9 @@ export async function listBuilds(deps, slug) {
     out.push({
       id, at: Number(m.at) || 0, label: String(m.label || "Build").slice(0, 80), files: m.files.length,
       build: typeof m.build === "string" ? m.build : "", parent: isVersionId(m.parent) ? m.parent : "",
+      // WHICH JOB STAGED IT (stage 3b): the reconcile finds a job's own version
+      // by this, so a row that never recorded its build id is still decidable.
+      job: typeof m.job === "string" ? m.job : null,
       layout: "build",
       // The script is what renders a document; a build staged without one can
       // still be listed, and a restore of it says so rather than serving nothing.

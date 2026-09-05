@@ -11247,7 +11247,9 @@ function reactLiveStepsHTML() {
   // the selector `paintReactLive` swaps — without it the transition from
   // thinking to the real steps would never repaint, which is invisible in the
   // markup and total at runtime.
-  if (sb.rphase === 'thinking') return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>Thinking</div></div>';
+  // WAITING IS NOT THINKING (stage 3b): a queued job refused by its site's
+  // lock or a deploy's gate says so, in the sentence the poll module chose.
+  if (sb.rphase === 'thinking') return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
   // NO "GENERATING IMAGES" STEP, because nothing generates any (owner's call,
   // 2026-08-08). The React builder has never produced an image: the generator in
   // worker.js is from the static-site era and is not reachable from the build
@@ -11867,6 +11869,11 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     }
     if (read.act === 'wait') {
       w.attempt++;
+      // A JOB WAITING BEHIND ANOTHER CHANGE, OR A PLATFORM UPDATE, SAYS SO
+      // (stage 3b): the sentence replaces "Thinking" in the live steps for as
+      // long as the poll says `waiting`, and the ordinary poll paints nothing.
+      const waitNote = EditPoll.waitingMessage(e);
+      if (siteBuild && siteOpenId === origin && (siteBuild.waitNote || '') !== waitNote) { siteBuild.waitNote = waitNote; paintReactLive(); }
       setTimeout(step, EditPoll.pollDelayMs(w.attempt));
       return;
     }

@@ -88,7 +88,8 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN
 import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, photoWait, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
-import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
+import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
+import { reconcileVerdict, reconcileReply, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
 // ── THE LOOK IS THE STYLESHEET, AND ONE NAME SURVIVES THE ENGINE ────────────
 //
 // Twenty-one names were imported here from `site-tokens.mjs` and
@@ -12575,6 +12576,12 @@ async function runLostEditJobs(env) {
   // stored where the poll reads it, a build's deposit given back. Before this,
   // such a row sat queued for ever behind a browser polling to its own bound.
   await runStaleEditJobs(env);
+  // ── AND EVERY ROW UNDER REVIEW (stage 3b) ────────────────────────────────
+  //
+  // The rows a dead consumer, the exhausted sweep or a refused commit parked
+  // for a person: decided from the pointer, the live script and the staged
+  // version, applied through the person's own door, or left there and said.
+  await runReviewReconcile(env);
 }
 
 export async function runStaleEditJobs(env) {
@@ -12625,6 +12632,175 @@ async function closeStaleJob(env, x) {
     p_id: id, p_ok: false,
     p_result: { status: 409, type: "application/json", body: JSON.stringify({ ok: false, error: "stale", job: id, msg: STALE_EDIT_MSG }) },
   });
+}
+
+// ── ACKNOWLEDGMENT LOST VERSUS SUPERSEDED (stage 3b, 2026-09-05) ─────────────
+//
+// A job that began publishing and never recorded its commit sits in review
+// with the money untouched, and the site closed to new edits, until a person
+// says `kept` or `refunded` — a verdict they had no instrument to form. Now
+// the verdict is formed from three facts stage 7 made readable: the pointer,
+// the live script's own stamps, and the job's staged version (the manifest
+// naming the job). `builder/site-reconcile.mjs` decides; this side reads the
+// facts, retries a lost upload from the immutable prefix, and applies the
+// answer through `edit_reconcile` — the same door a person uses — with the
+// customer's sentence stored where the poll route reads it. It runs at three
+// doors: the consumer, the moment its refund answers `needs-review`; the sweep
+// tick, over every row under review; and the owner's route, dry or applied.
+
+/** The columns the reconcile reads off a row — `edit_get` hands back none of the publish marks. */
+const EDIT_ROW_COLS = "id,uid,slug,op,state,phase,cost,billing,needs_review,review_note,artifact_build,worker_status,publish_started_at,published_at,result,updated_at";
+
+/**
+ * ROWS OF `edit_jobs`, READ WITH THE SERVICE KEY. The one read of that table
+ * outside the `edit_*` RPCs, and it moves nothing: the reconcile needs the
+ * publish marks `edit_get` does not return and a LIST of the rows under
+ * review, which no RPC answers. `query` is a PostgREST filter. NULL when the
+ * read failed — cannot-tell must never read as nothing-there, because the
+ * verdict on a null list would be "nothing to reconcile".
+ */
+async function readEditRows(env, query, limit = 20) {
+  if (!env.SUPABASE_SERVICE_KEY) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?${query}&select=${EDIT_ROW_COLS}&order=updated_at.asc&limit=${Math.max(1, Math.min(50, Number(limit) || 20))}`, { headers: svcHeaders(env) });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return Array.isArray(rows) ? rows : null;
+  } catch (e) {
+    console.error("reconcile: could not read edit_jobs", String((e && e.message) || e));
+    return null;
+  }
+}
+
+/**
+ * THE THREE FACTS, each read so that a failure to read is its own answer:
+ * the pointer (uncached, never the 30 s serve-path copy; `undefined` when it
+ * cannot be read, `null` when the site has none), the site's complete builds
+ * (`null` when the list fails), and the live script's stamps through the
+ * dispatch stub (`null` when there is no binding or no answer). `mine` is
+ * resolved here as well, because the retry needs the version to re-upload.
+ */
+async function reconcileFacts(env, row) {
+  const slug = String(row.slug || "");
+  const deps = buildDeps(env);
+  let pointer;
+  try { pointer = env.SITES_BUCKET ? await readPointer(deps, slug) : undefined; } catch { pointer = undefined; }
+  let builds = null;
+  try { builds = env.SITES_BUCKET ? await listBuilds(deps, slug) : null; } catch { builds = null; }
+  const live = env.SITE_WORKERS ? await probeSiteWorker({ stubFor: (n) => env.SITE_WORKERS.get(n), name: scriptNameFor(slug) }) : null;
+  const job = { id: String(row.id || ""), build: String(row.artifact_build || "") };
+  let mine = findMine(builds, job);
+  if (!mine && pointer && pointer.job === job.id) mine = { version: pointer.version, build: String(pointer.build || "") };
+  return { job, pointer, live, builds, mine };
+}
+
+/** How often this isolate has retried one row's upload — the cap is per isolate, said in the module. */
+const RECONCILE_TRIES = new Map();
+/** The unknown verdicts already said, per isolate, so a row that stays unknown is one log line and not one every tick. */
+const RECONCILE_SAID = new Set();
+
+/**
+ * A LOST UPLOAD, RETRIED FROM THE IMMUTABLE PREFIX. The pointer names our
+ * version and the live script is older, so the script under
+ * `builds/<slug>/<version>/server.js` — the same bytes the activation tried to
+ * upload — goes to the same address, and nothing else moves: not the pointer,
+ * not the sidecar, not the state copy. Then the live script is asked again,
+ * and only a script that now answers our version is `kept`; anything else
+ * stays unknown, said, and capped per isolate at RECONCILE_RETRY_MAX.
+ */
+async function retryLostUpload(env, row, facts, out) {
+  const id = String(row.id);
+  const n = RECONCILE_TRIES.get(id) || 0;
+  if (n >= RECONCILE_RETRY_MAX) return { ...out, verdict: "unknown", kind: "retry-exhausted", why: "the upload was retried " + n + " times by this isolate and the live script is still older" };
+  RECONCILE_TRIES.set(id, n + 1);
+  const slug = String(row.slug || "");
+  let staged = null;
+  try { staged = await readBuild(buildDeps(env), slug, facts.mine.version); } catch { staged = null; }
+  if (!staged || !staged.worker) return { ...out, verdict: "unknown", kind: "no-script-staged", why: "the staged prefix holds no script to upload again" };
+  const put = await putSiteWorker(env, slug, { ok: true, code: staged.worker, build: String((staged.manifest && staged.manifest.build) || facts.mine.build || "") });
+  if (!put) return { ...out, verdict: "unknown", kind: "no-dispatch", why: "no dispatch credentials to upload the script with" };
+  if (put.ok === false) return { ...out, verdict: "unknown", kind: "upload-refused", why: "the upload was refused again: " + String(put.status || 0) + " " + String(put.error || "").slice(0, 120) };
+  const live = env.SITE_WORKERS ? await probeSiteWorker({ stubFor: (n2) => env.SITE_WORKERS.get(n2), name: scriptNameFor(slug) }) : null;
+  const ours = !!(live && ((live.version && live.version === facts.mine.version) || (live.build && facts.mine.build && live.build === facts.mine.build)));
+  if (ours) return { ...out, verdict: "kept", kind: "upload-retried", why: "the upload was lost and retried, and the live script is this job's version now" };
+  return { ...out, verdict: "unknown", kind: "upload-not-serving", why: "the script was uploaded again and the live site still answers " + String((live && (live.version || live.build)) || "nothing") };
+}
+
+/**
+ * APPLY A VERDICT THROUGH THE PERSON'S OWN DOOR. `edit_reconcile` keeps or
+ * refunds exactly as a hand verdict would (it refuses a row not in review, so
+ * a race with a person is lost harmlessly); the customer's sentence is then
+ * stored through `edit_finalize`, which writes the reply whatever the state —
+ * except on a kept row that already holds the handler's own reply, which says
+ * more than "recovered" ever could and is left as it is. An unknown verdict
+ * applies nothing and is said once per isolate.
+ */
+async function applyReconcile(env, row, out, refundedHint = 0) {
+  const id = String(row.id);
+  if (out.verdict === "kept" || out.verdict === "refunded") {
+    const r = await editRpc(env, "edit_reconcile", { p_id: id, p_committed: out.verdict === "kept", p_note: ("reconciled: " + out.kind + " — " + out.why).slice(0, 200) });
+    if (!r || r.ok !== true) {
+      console.error("reconcile:", id, out.verdict, "(" + out.kind + ") could not be applied —", String((r && r.error) || "rpc"));
+      return { ...out, applied: false, error: String((r && r.error) || "rpc") };
+    }
+    const hasReply = !!(row.result && typeof row.result === "object" && typeof row.result.body === "string");
+    if (!(out.verdict === "kept" && hasReply)) {
+      await editRpc(env, "edit_finalize", { p_id: id, p_result: reconcileReply(out, row, Number(r.refunded) || refundedHint || 0), p_ok: out.verdict === "kept" });
+    }
+    console.log("reconcile:", id, out.verdict, "(" + out.kind + ") —", out.why, out.verdict === "refunded" ? "refunded " + String(Number(r.refunded) || 0) : "");
+    return { ...out, applied: true, refunded: Number(r.refunded) || 0 };
+  }
+  const key = id + ":" + out.kind;
+  if (!RECONCILE_SAID.has(key)) { RECONCILE_SAID.add(key); console.log("reconcile:", id, "unknown (" + out.kind + ") —", out.why, "— left in review"); }
+  return { ...out, applied: false };
+}
+
+/**
+ * RECONCILE ONE ROW: read it (or take the hint the sweep already read), refuse
+ * one that is not under review or is a build's (a build's money is external
+ * and its publish has no review path; a build row parked by the exhausted
+ * sweep is a person's), read the facts, decide, retry a lost upload, apply.
+ * Exported for the test, which drives it against a fake bucket, a fake
+ * dispatch stub and stubbed RPCs.
+ */
+export async function reconcileEditJob(env, id, hint = null) {
+  const rows = hint ? [hint] : await readEditRows(env, "id=eq." + encodeURIComponent(String(id)), 1);
+  const row = rows && rows[0];
+  if (!row) { console.error("reconcile:", id, "— the row could not be read"); return { verdict: "unknown", kind: "row-unreadable", applied: false }; }
+  if (row.needs_review !== true) return { verdict: "skip", kind: "not-in-review", applied: false };
+  if (String(row.op || "") === BUILD_OP) return { verdict: "skip", kind: "build-row", applied: false };
+  const facts = await reconcileFacts(env, row);
+  let out = reconcileVerdict(facts);
+  if (out.verdict === "retry") out = await retryLostUpload(env, row, facts, out);
+  const applied = await applyReconcile(env, row, out);
+  return { ...applied, job: String(row.id), facts: publicFacts(facts) };
+}
+
+/** The consumer's own door: the reconcile the moment its refund answered `needs-review`, never a throw out of the consumer. */
+async function reconcileAfterRefund(env, id, refund) {
+  if (!refund || refund.error !== "needs-review") return;
+  try { await reconcileEditJob(env, id); }
+  catch (e) { console.error("reconcile: threw for", id, String((e && e.message) || e)); }
+}
+
+/**
+ * THE SWEEP'S DOOR: every row under review, each tick. A row that stays
+ * unknown is read again every tick — deliberately, since its facts can change
+ * (a late upload landing, a newer publish standing) — and said once.
+ */
+export async function runReviewReconcile(env) {
+  const rows = await readEditRows(env, "needs_review=eq.true", 20);
+  if (!rows || !rows.length) return;
+  const counts = { kept: 0, refunded: 0, unknown: 0, skipped: 0 };
+  for (const row of rows) {
+    try {
+      const out = await reconcileEditJob(env, row.id, row);
+      if (out.verdict === "skip") counts.skipped++;
+      else if (out.applied) counts[out.verdict]++;
+      else counts.unknown++;
+    } catch (e) { console.error("reconcile: threw for", row.id, String((e && e.message) || e)); counts.unknown++; }
+  }
+  console.log("review reconcile:", JSON.stringify(counts));
 }
 
 /**
@@ -12882,14 +13058,22 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       // job outright and routes a job that died mid-publish to needs_review with
       // the money untouched, so calling it on an edit that actually shipped is
       // safe rather than merely unlikely.
-      await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "edit did not ship" });
+      const refund = await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "edit did not ship" });
+      // A REFUND ROUTED TO REVIEW IS RECONCILED AT ONCE (stage 3b): the facts
+      // are freshest here, and the pointer, the live script and the staged
+      // version usually settle what the row could not.
+      await reconcileAfterRefund(env, id, refund);
     } else if (fin && fin.ok !== true && fin.error === "not-published") {
       // AN OK ANSWER THAT BEGAN PUBLISHING AND DID NOT FINISH. Contradictory on
       // its face, and exactly the case the refund RPC routes to needs_review
       // with the money untouched. ONLY on `not-published` - a `terminal` refusal
       // means cancelled or lost already happened, and refund would overwrite
       // that state with `failed`.
-      await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "answered ok but publishing did not complete" });
+      const refund = await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "answered ok but publishing did not complete" });
+      // THE COMMIT WALL'S OWN CASE (stage 6): the script is up, the lease had
+      // lapsed, the commit was refused — the live script IS this job's, and
+      // the reconcile keeps it rather than a person a day later.
+      await reconcileAfterRefund(env, id, refund);
     }
     // The measured durations are written by the HANDLER, beside its trace flush
     // — that is where the trace lives, and copying it out here would be a second
@@ -12897,7 +13081,8 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
   } catch (e) {
     console.error("edit queue: job failed", id, String((e && e.stack) || e));
     try {
-      await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "consumer threw" });
+      const refund = await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "consumer threw" });
+      await reconcileAfterRefund(env, id, refund);
     } catch { /* an instrument may not break the thing it measures */ }
   } finally {
     if (beat) clearInterval(beat);
@@ -18452,6 +18637,39 @@ async function handleRequest(request, env, ctx) {
       // before this shipped lands in this branch.
       if (!stored) return Response.json({ ok: true, slug: aslug, answer: null, why: "nothing stored — this site has not been built since the answer store shipped" });
       return Response.json({ ok: true, slug: aslug, answer: stored });
+    }
+
+    // GET /api/site/reconcile?slug=&job=&apply=1 — WHAT BECAME OF A CHANGE
+    // THAT STOPPED MID-PUBLISH (stage 3b, 2026-09-05).
+    //
+    // The owner's window on the reconcile: every row of theirs under review on
+    // this site (or the one named), the three facts as read now, and the
+    // verdict they give — DRY by default, so the answer can be read before it
+    // is acted on; `apply=1` applies it through the same function the consumer
+    // and the sweep use. Ownership as the answer route above: a signed-in
+    // stranger gets the 404 a site that is not theirs gets. The owner's own
+    // rows only, by uid, on top of the slug — the belt under the gate.
+    if (url.pathname === "/api/site/reconcile" && request.method === "GET") {
+      const ru = await authUser(request);
+      if (!ru) return UNAUTHED();
+      const rslug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
+      if (!rslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      const rown = await siteOwnerBySlug(rslug, env);
+      if (!rown || rown !== ru.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      const rjob = String(url.searchParams.get("job") || "").trim();
+      if (rjob && !isJobId(rjob)) return Response.json({ ok: false, error: "bad job id" }, { status: 400 });
+      const rapply = url.searchParams.get("apply") === "1";
+      const rrows = await readEditRows(env, (rjob ? "id=eq." + encodeURIComponent(rjob) + "&" : "") + "slug=eq." + encodeURIComponent(rslug) + "&needs_review=eq.true", 20);
+      if (!rrows) return Response.json({ ok: false, error: "the jobs could not be read" }, { status: 503 });
+      const rout = [];
+      for (const row of rrows) {
+        if (String(row.uid || "") !== ru.id) continue;
+        if (rapply) { rout.push(await reconcileEditJob(env, row.id, row)); continue; }
+        const facts = await reconcileFacts(env, row);
+        const v = String(row.op || "") === BUILD_OP ? { verdict: "skip", kind: "build-row", why: "a build's row is a person's" } : reconcileVerdict(facts);
+        rout.push({ job: String(row.id), op: row.op, state: row.state, note: row.review_note || null, verdict: v.verdict, kind: v.kind, why: v.why, applied: false, facts: publicFacts(facts) });
+      }
+      return Response.json({ ok: true, slug: rslug, applied: rapply, rows: rout });
     }
 
     // GET /api/site/reach — CAN THE BUILD CONTAINER REACH A MODEL PROVIDER.

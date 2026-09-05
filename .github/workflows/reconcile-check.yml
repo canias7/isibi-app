@@ -1,0 +1,67 @@
+# WHAT BECAME OF A CHANGE THAT STOPPED MID-PUBLISH (stage 3b, 2026-09-05).
+#
+# FREE AND READ-ONLY BY DEFAULT: one admin sign-in and one authenticated GET. No
+# container is started, no model is called, no credit moves — so this is
+# `workflow_dispatch` ONLY and carries no marker gate, exactly as `answer read`
+# is. With `apply` on it applies the verdicts the Worker's reconcile forms,
+# through the same door a hand verdict uses (`edit_reconcile`): a kept charge or
+# a refund of the job's own reserve, never anything else.
+#
+# WHY IT IS A WORKFLOW AND NOT A LOCAL SCRIPT. The Supabase service key lives in
+# Actions secrets and nowhere else, so a session cannot sign in as the owner
+# from anywhere but here.
+#
+# WHAT IT IS FOR. The Worker reconciles a row under review on its own — in the
+# consumer the moment a refund routes there, and on every sweep tick — and a
+# row it cannot decide stays in review with its reason in the log. This reads
+# those rows back as the owner: the three facts as they stand now and the
+# verdict they give, so a person can see WHY a row is undecided before settling
+# it, and can apply a decided one without waiting for the next tick.
+name: reconcile check
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: 'the site to read (e.g. fretwork-1)'
+        required: true
+        type: string
+      job:
+        description: 'one job id, or empty for every row under review on the site'
+        required: false
+        type: string
+      apply:
+        description: 'apply the verdicts (kept charges, refunds) — off reads only'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: read the rows under review, and their verdicts
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          OWNER_BASE_URL: https://gofarther.dev
+          OWNER_SLUG: ${{ github.event.inputs.slug }}
+          RECONCILE_JOB: ${{ github.event.inputs.job }}
+          # A boolean input arrives as the string "true" or "false"; the script
+          # reads affirmative words only, so "false" reads.
+          RECONCILE_APPLY: ${{ github.event.inputs.apply }}
+        run: node scripts/reconcile-check.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reconcile-check-log
+          path: reconcile-check-log.md
+          if-no-files-found: ignore

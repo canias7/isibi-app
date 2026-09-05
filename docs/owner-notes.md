@@ -3334,3 +3334,74 @@ builder modules change, so the container rolls and the 15–20 minute hold
 applies). The free check: start an edit on fretwork-1 and push to main
 while it runs — the edit should finish normally, the deploy log should
 show the wait, and nothing should be lost. NOT proven live until then.
+
+## 2026-09-05 — A change that stopped mid-publish is now decided by looking, not by asking you (stage 3b)
+
+Your "ok go". Until now, a change that got as far as publishing and then
+died — the machine killed mid-upload, the upload timing out, the commit
+refused because the job had run past its lease — was parked "under
+review": the money untouched, the site closed to any new edit, and a
+question left for a person: did it go live or not? Nobody had a way to
+answer it except by looking at the site and guessing. Every failure past
+the publish gate went there, including the harmless ones (a job whose
+turn was taken by another change touched nothing and still parked).
+
+Now the platform answers the question itself, from three things the
+immutable-publish change (stage 7) made readable: which build the site's
+pointer names, which build the live site actually serves (it says so on
+every response), and which build this job staged. Live is this job's: it
+went live, so it is kept and the reply says "published, the details were
+lost along the way". The pointer names this job's build but the live site
+is older: the upload was lost, so the platform uploads the same script
+again from the copy it kept and checks the site again. A later change
+stands: if it was built on top of this one, this one is in what is live
+(kept); if it was built from before this one, this one never went live
+(refunded, with a sentence saying it was overtaken). The pointer never
+moved to this job: nothing of it is live, refunded, "your site is still
+serving what it served before". Anything that cannot be read stays under
+review, with the reason in the log, and is looked at again every two
+minutes in case the facts change.
+
+It runs in three places: the moment a job's refund is routed to review
+(seconds after the failure, when the facts are freshest), on every sweep
+tick for anything already parked, and on request — a new `reconcile
+check` workflow lists a site's rows under review with the facts and the
+verdict, without applying anything unless you tick `apply`. And the chat
+now says "Waiting — your site is busy with another change, or the
+platform is being updated" while a job waits its turn, instead of
+"Thinking" for up to forty-five minutes.
+
+How it was checked: the database half was driven against the live
+database inside a transaction that rolls back — a new section (11 checks:
+a parked row kept with the money standing and its reply readable, another
+refunded with the reserve back and the sentence stored, a settled row
+refusing a second verdict) passed first run, and the whole script passed
+all 176 checks. No database function changed. The decision itself is a
+plain function driven with every combination of facts; the Worker's part
+is driven against a fake site laid out exactly as a real one (the pointer,
+the staged builds, a fake live script that answers headers) — kept,
+refunded, overtaken, the upload retried and landing, retried and refused,
+capped, nothing to upload; the queue consumer through the real handler;
+the owner route through the real router (signed out, a stranger, dry,
+applied, a bad id, the table unreachable). The mutation sweep put
+53 deliberate breaks in (the pointer ignored, an overtaken change
+kept, a lost upload never retried, an accepted upload kept without asking
+the site, a stranger reading the route, a dry read applying, and so on)
+and the tests caught all 53, with the three comment-only controls
+surviving as they should. The whole unit suite is 5,257 green.
+
+One limit, said plainly: a BUILD that stopped mid-way is not covered by
+this — a build's money moves through its own ledger and its publish never
+parks under review; the piece the older plan mentioned (a build that
+marked itself charged and then died refusing to run again) is filed
+separately.
+
+What this needs from you: the push to main (Worker and builder modules
+change, so the container rolls and the 15–20 minute hold applies). There
+is nothing to try by hand — no row is under review today (read live: 0)
+and one cannot be made without breaking a publish on purpose — so the
+proof is the next mid-publish failure: the log will say `reconcile: <job>
+kept` or `refunded` with the reason, and the chat will show the sentence
+instead of "paused edits on this site". The `reconcile check` workflow on
+fretwork-1 runs free today and answers "nothing under review". NOT proven
+live until a real one happens.

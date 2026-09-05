@@ -61,13 +61,25 @@ declare
   j23 text := 'e_'||substr(md5(random()::text),1,20);
   j24 text := 'e_'||substr(md5(random()::text),1,20);
   j25 text := 'e_'||substr(md5(random()::text),1,20);
+  j26 text := 'e_'||substr(md5(random()::text),1,20);
+  j27 text := 'e_'||substr(md5(random()::text),1,20);
   st text; bl text; nr boolean; note text; tr int; rs jsonb; own text; ts timestamptz; ts2 timestamptz; c1 text; c2 text;
   -- A gen_charges request id for sections 14b and 16b (the media side's charge
   -- record), rolled back with everything else.
   req text := 'zz-verify-' || substr(md5(random()::text),1,12);
   r jsonb; b0 numeric; b1 numeric; n int; log text := '';
   ok_count int := 0;
--- LAST RUN 2026-09-05 (stage 3a): ALL 165 CHECKS PASSED, rolled back, driving
+-- LAST RUN 2026-09-05 (stage 3b): ALL 176 CHECKS PASSED, rolled back, driving
+-- as a funded non-founder account (balance 500). Section 22 was added that
+-- night for the reconcile's reply — 11 checks, green on their first run: a row
+-- routed to review is KEPT through edit_reconcile with the money standing and
+-- its recovered reply stored and readable as the poll route reads it; another
+-- is REFUNDED with the reserve back and the sentence stored on the FAILED row
+-- (edit_finalize writes the reply whatever the state, answering not-published);
+-- a settled row refuses a second verdict. No function changed for it: the
+-- section drives two properties of the existing RPCs that the Worker's
+-- reconcile (builder/site-reconcile.mjs) rests on and nothing had driven.
+-- EARLIER THAT DAY (stage 3a): ALL 165 CHECKS PASSED, rolled back, driving
 -- as a funded non-founder account (balance 500). Section 21 was added that
 -- night for the deploy gate and the stale sweep — 28 checks, green on their
 -- first run against the migration 20260905212602_deploy_gate_and_stale_sweep.
@@ -911,6 +923,58 @@ begin
                 and grantee in ('anon','authenticated','PUBLIC')) then raise exception 'FAIL 99 (a gate RPC, the stale sweep or the claim is granted to a caller)'; end if;
   ok_count := ok_count + 28;
   log := log || format('21  deploy gate         -> no gate claims, set/read/blocks an older deploy/never its own/never no id, refused and counted, the same cap with its own reason, a stranger''s clear leaves it, its own clears it, expired blocks nobody, newest overwrites, live count follows leases; stale: sent again once, left inside the window, failed the second time untouched, fresh and claimed rows never; grants%s', chr(10));
+
+  -- 22. A RECONCILE STORES THE CUSTOMER'S REPLY (stage 3b) ---------------------
+  --
+  -- The Worker forms the verdict on a row under review from the pointer, the
+  -- live script and the staged version (builder/site-reconcile.mjs) and
+  -- applies it through THIS door: edit_reconcile for the money and the state,
+  -- then edit_finalize for the reply the poll route serves. Two properties no
+  -- earlier section drives, and the Worker rests on both: a reply stored on a
+  -- row edit_reconcile has just FAILED (finalize writes the reply whatever the
+  -- state, and answers not-published), and a kept row's recovered reply
+  -- readable as the route reads it, with the reserve standing. Each row on its
+  -- own slug: a site under review takes no new edits (section 11) and a site
+  -- another job holds refuses a claim (section 20).
+  r := public.edit_create(j26, u, slug || '-r1', 'edit', 'idem-rrrrrrrrrrrrrrr1', k);
+  r := public.edit_reserve(j26, 1, 2, k);
+  r := public.edit_claim(j26, 'ownerRRR1', 90, k);
+  r := public.edit_publish_mark(j26, 'ownerRRR1', 'build-26', null, null, null, null, k);
+  select balance into b0 from public.credits where user_id = u;
+  r := public.edit_refund(j26, 'failed', 'edit did not ship', k);
+  if (r->>'error') <> 'needs-review' then raise exception 'FAIL 100 (the row did not reach review): %', r; end if;
+  -- KEPT: the live script was the job's. The money stays; the reply is the recovered one.
+  r := public.edit_reconcile(j26, true, 'reconciled: landed', k);
+  if (r->>'ok') <> 'true' or (r->>'outcome') <> 'kept' then raise exception 'FAIL 100b (a kept verdict was refused): %', r; end if;
+  r := public.edit_finalize(j26, jsonb_build_object('status', 200, 'type', 'application/json',
+         'body', '{"ok":true,"recovered":true,"reconciled":"landed","job":"' || j26 || '","cost":2,"build":"build-26"}'), true, k);
+  if (r->>'ok') <> 'true' then raise exception 'FAIL 100c (the kept reply could not be stored): %', r; end if;
+  select state, billing, needs_review, result->>'body' into st, bl, nr, c1 from public.edit_jobs where id = j26;
+  select balance into b1 from public.credits where user_id = u;
+  if st <> 'done' or bl <> 'finalized' or nr or b1 <> b0 then raise exception 'FAIL 100d (a kept row is not done/finalized with the money standing): % % % % -> %', st, bl, nr, b0, b1; end if;
+  if c1 is null or (c1::jsonb->>'recovered') <> 'true' or (c1::jsonb->>'job') <> j26 then raise exception 'FAIL 100e (the kept reply is not readable as the poll reads it): %', c1; end if;
+  -- REFUNDED: nothing of the job's went live. The reserve comes back; the reply says so, on a FAILED row.
+  r := public.edit_create(j27, u, slug || '-r2', 'edit', 'idem-rrrrrrrrrrrrrrr2', k);
+  r := public.edit_reserve(j27, 1, 3, k);
+  r := public.edit_claim(j27, 'ownerRRR2', 90, k);
+  r := public.edit_publish_mark(j27, 'ownerRRR2', 'build-27', null, null, null, null, k);
+  select balance into b0 from public.credits where user_id = u;
+  r := public.edit_refund(j27, 'failed', 'edit did not ship', k);
+  if (r->>'error') <> 'needs-review' then raise exception 'FAIL 101 (the second row did not reach review): %', r; end if;
+  r := public.edit_reconcile(j27, false, 'reconciled: never-activated', k);
+  if (r->>'ok') <> 'true' or (r->>'outcome') <> 'refunded' or (r->>'refunded')::numeric <> 3 then raise exception 'FAIL 101b (a refunded verdict did not refund the reserve): %', r; end if;
+  r := public.edit_finalize(j27, jsonb_build_object('status', 409, 'type', 'application/json',
+         'body', '{"ok":false,"error":"reconciled","kind":"never-activated","job":"' || j27 || '","refunded":3,"msg":"never went live"}'), false, k);
+  if (r->>'error') <> 'not-published' then raise exception 'FAIL 101c (finalize on a refunded row answered something other than not-published): %', r; end if;
+  select state, billing, needs_review, result->>'body' into st, bl, nr, c1 from public.edit_jobs where id = j27;
+  select balance into b1 from public.credits where user_id = u;
+  if st <> 'failed' or bl <> 'refunded' or nr or b1 <> b0 + 3 then raise exception 'FAIL 101d (a refunded row is not failed/refunded with the money back): % % % % -> %', st, bl, nr, b0, b1; end if;
+  if c1 is null or (c1::jsonb->>'error') <> 'reconciled' or (c1::jsonb->>'kind') <> 'never-activated' then raise exception 'FAIL 101e (the refunded reply was not stored on the failed row): %', c1; end if;
+  -- AND A SECOND VERDICT ON A SETTLED ROW IS REFUSED, so a sweep tick racing a person loses harmlessly.
+  r := public.edit_reconcile(j27, true, 'again', k);
+  if (r->>'error') <> 'not-in-review' then raise exception 'FAIL 102 (a settled row took a second verdict): %', r; end if;
+  ok_count := ok_count + 11;
+  log := log || format('22  reconcile reply     -> kept: done/finalized, money standing, recovered reply readable; refunded: failed/refunded, reserve back, the sentence on a failed row; a settled row refuses a second verdict%s', chr(10));
 
   update private.mint set key_hash = keep;
   raise exception E'ALL % CHECKS PASSED (transaction rolled back)\n%', ok_count, log;

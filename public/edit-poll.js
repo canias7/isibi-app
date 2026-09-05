@@ -189,6 +189,22 @@
   }
 
   /**
+   * WHAT A JOB THAT IS WAITING SAYS (stage 3b, 2026-09-05). The poll route
+   * marks a pending answer `waiting: true` once the site's own lock or a
+   * deploy's gate has refused the job's claim at least once (stages 6 and 3a):
+   * the job is queued behind another change to this site, or behind a platform
+   * update, and will be asked again by itself. Before this the browser showed
+   * "Thinking" for the whole wait — up to forty-five minutes — and a customer
+   * had no way to tell a queue from a hang. One sentence, chosen here from a
+   * fixed set as every sentence on this side is; "" when the job is not
+   * waiting, so the ordinary poll paints nothing new.
+   */
+  function waitingMessage(body) {
+    if (!body || typeof body !== "object" || body.waiting !== true) return "";
+    return "Waiting — your site is busy with another change, or the platform is being updated. This will carry on by itself.";
+  }
+
+  /**
    * The watch: which job, how far, and whether its result has been used.
    *
    * ── APPLIED EXACTLY ONCE ──────────────────────────────────────────────
@@ -451,6 +467,7 @@
     shouldRetryPoll: shouldRetryPoll,
     outcomeMessage: outcomeMessage,
     isRecovered: isRecovered,
+    waitingMessage: waitingMessage,
     makeWatch: makeWatch,
     isCancelConfirmed: isCancelConfirmed,
     isCancelTooLate: isCancelTooLate,

@@ -3135,6 +3135,199 @@ build-server ──POST /job/run while _stopping──► 503 {error: "stopping"
   <id> deferred — a deploy is rolling (<sha>)`; the stale sweep needs a
   stale row to exist and says `stale sweep: <id> sent again`.
 
+### A ROW UNDER REVIEW IS DECIDED FROM THE POINTER, THE LIVE SCRIPT AND THE STAGED VERSION — ACKNOWLEDGMENT LOST VERSUS SUPERSEDED (2026-09-05, stage 3b)
+
+Owner: *"ok go"*. A job that began publishing and never recorded its commit
+— its consumer died, its script upload timed out, the lease wall (stage 6)
+refused the commit, or an activation answered a failure after
+`edit_may_publish` had already stamped `publish_started_at` — landed in
+review: the money untouched, the site closed to new edits, and a person
+asked for `kept` or `refunded` with no instrument to form the answer.
+EVERY failure past the gate went there, the harmless ones included: a
+superseded pointer write touches nothing and still parked the row. Stage 7
+made the question answerable by comparison, and this stage asks it.
+
+```
+a row under review ──► FACTS: the pointer (uncached) · the live script's x-site-build / x-site-version (ONE probe through the dispatch stub)
+                              · the site's builds (manifests, carrying `job` now) · OURS = the manifest naming the job, else its build id, else the pointer's own `job`
+   live is ours                          KEPT (landed)                 edit_reconcile(true), the recovered reply stored unless the handler's own is
+   pointer ours, live older              RETRY (lost-upload)           builds/<slug>/<v>/server.js uploaded again to the same name, the live script asked again → kept (upload-retried) | unknown
+   pointer newer, built ON ours          KEPT (superseded-built-on)    the ancestry's `parent` links reach ours
+   pointer newer, from before ours       REFUNDED (superseded-not-built-on)
+   pointer older, none, nothing staged   REFUNDED (never-activated · never-staged)
+   a fact unreadable · live ahead of the pointer · a manifest gone · the retry refused or exhausted      UNKNOWN — stays in review, said once per isolate
+three doors: the consumer, the moment its refund answers needs-review · the sweep tick, every row under review · GET /api/site/reconcile (the owner: dry, or apply=1)
+```
+
+- **THE VERDICT IS A PURE FUNCTION AND ITS ORDER IS THE ARGUMENT.**
+  `builder/site-reconcile.mjs` (dependency-free, driven with literal facts):
+  unreadable facts first, because every later rule assumes them; then
+  whether anything of ours was staged at all (nothing → refunded, unless
+  a legacy-layout upload landed, which only the live build id can say);
+  then the live script, which settles a landed upload WHATEVER the pointer
+  says (by version, or by build id for a script with no version stamp);
+  then the pointer against ours — equal is a lost upload, newer is
+  superseded, older or absent is never activated. **The ancestry walk** (each
+  manifest's `parent` is the pointer when THAT publish began; the pointer's
+  own `parent` stands in for its manifest) answers `on` when ours is an
+  ancestor of what is live, `off` when the chain passes below ours or a
+  publish in it began with no pointer at all, `broken` when a manifest it
+  needs is gone — and it rests on stage 6: under the per-site claim a later
+  publish began after ours ended, so ours activated before it began exactly
+  when ours is in its chain. Version ids order as strings, so older and
+  newer are one comparison. `RECONCILE_KINDS` names every kind; the two
+  refunded sentences (`NEVER_LIVE_MSG`, `OVERTAKEN_MSG`) say the money came
+  back; a kept job gets the sweep's own recovered shape (stage 2a) naming
+  its kind, which the browser already renders as "published, the details
+  were lost". `publicFacts` is what an owner may read: no etag, no body.
+- **THE FACTS, EACH READ SO A FAILURE TO READ IS ITS OWN ANSWER.**
+  `reconcileFacts` reads the pointer UNCACHED (`readPointer`, never the
+  serve path's 30 s `sitePointer`; a throw is `undefined`, no pointer is
+  `null`), lists the builds (`listBuilds` rows carry `job` now — a job that
+  never recorded its build id is still decidable), and asks the live script
+  through `probeSiteWorker` — a sibling of `confirmSiteWorker` in
+  `site-dispatch.mjs`, one probe of the same file through the same stub,
+  no polling, both stamps, `null` when nothing can be read and never a
+  guess, because the reconcile refunds on the strength of it.
+  **`readEditRows` is the ONE read of `edit_jobs` outside the `edit_*`
+  RPCs** (PostgREST with the service key, the `site_aliases` convention):
+  the reconcile needs the publish marks `edit_get` does not hand back and a
+  LIST of the rows under review, which no RPC answers; it moves nothing,
+  and `null` (a failed read) is never read as "no rows".
+- **THE RETRY IS SAFE BECAUSE THE PREFIX IS IMMUTABLE.** The pointer names
+  our version and the live script is older, so the script under
+  `builds/<slug>/<version>/server.js` — the bytes the activation tried to
+  upload — goes to the same name through `putSiteWorker` (which confirms
+  and clears the placeholder as every publish does), and NOTHING else
+  moves: not the pointer, not the sidecar, not the state copy. Then the
+  live script is asked again, and only a script that answers our version is
+  kept (`upload-retried`); an accepted PUT that does not serve, a refusal,
+  no credentials, no staged script are each their own `unknown`, said.
+  **Capped per isolate at `RECONCILE_RETRY_MAX` (3)**, because a refusal
+  that repeats (a token scope, a namespace gone) would otherwise repeat a
+  Cloudflare API call every sweep tick for ever. A live script NEWER than
+  the pointer is `live-ahead`, never retried: the activation order forbids
+  it, and a retry would put our script over a newer one.
+- **APPLIED THROUGH THE PERSON'S OWN DOOR.** `edit_reconcile` keeps or
+  refunds exactly as a hand verdict does — and refuses a row not in review,
+  so a sweep tick racing a person loses harmlessly (section 22's FAIL 102)
+  — then `edit_finalize` stores the customer's sentence, which it writes
+  whatever the state (on a refunded row it answers `not-published` and the
+  reply is there; FAIL 101c–e). **A kept row that already holds the
+  handler's own reply keeps it**: it says what the change did, which
+  "recovered" never can. An `unknown` applies nothing and is logged once
+  per isolate per row and kind; the row is READ AGAIN every tick,
+  deliberately — its facts can change (a late upload landing, a newer
+  publish standing).
+- **THREE DOORS, ONE FUNCTION.** `reconcileEditJob(env, id, hint)` — the
+  consumer calls it the moment any of its three publish-time refunds
+  answers `needs-review` (`reconcileAfterRefund`; the two refunds before
+  the replay never reach review and are left alone); `runReviewReconcile`
+  reads every row under review on each cron tick, after the lost and stale
+  sweeps, and says what it did; `GET /api/site/reconcile?slug=&job=&apply=1`
+  is the owner's window — the site's rows of THEIRS under review (by uid,
+  under the ownership check every owner route makes), the facts as read
+  now and the verdict, DRY unless `apply=1`. `scripts/reconcile-check.mjs`
+  and the `reconcile check` workflow (dispatch-only, free; `apply` a
+  boolean input off by default, read as affirmative words only) call it.
+  A build's row is skipped at every door — its money is external and its
+  publish has no review path; one parked by the exhausted sweep is a
+  person's.
+- **THE BROWSER SAYS "WAITING" (the sentence stage 6 and 3a promised).**
+  `EditPoll.waitingMessage(body)` answers one fixed sentence when a
+  pending poll carries `waiting: true` (the site's lock or a deploy's gate
+  refused the claim at least once) and `""` otherwise; `watchEditJob`'s
+  wait branch puts it on `siteBuild.waitNote` and repaints, and the live
+  steps' "Thinking" line carries it, escaped. A refunded reconcile reply
+  prints its `msg` through the readers' existing `msg` branch; a kept one
+  is `recovered`.
+- **Guards.** `test/site-reconcile.test.mjs` (17): the verdict rule
+  by rule and in order (the matrix meets ten-plus kinds and each is a named
+  one), the ancestry six ways, `findMine`, the reply shapes and the owner's
+  facts, the probe with a fake stub, `listBuilds` carrying `job`; the
+  Worker DRIVEN through the real module against a fake bucket laid out as
+  a staged site, a fake dispatch namespace and stubbed RPCs — landed, the
+  handler's reply kept, never-activated, overtaken (its own sentence),
+  built-on, a refused verdict, unknown four ways, skip two ways, the retry
+  landing (the PUT to the dispatch namespace, then the verdict), refused
+  and capped, accepted but not serving, no credentials, no staged script;
+  the consumer through the real queue handler (a refund routed to review
+  reconciled inside the delivery, a refund that landed not); the sweep's
+  door; the owner's route (401, 404 on a stranger's site, dry with facts,
+  apply, 400, 503, another owner's row unseen); the hops read; the script
+  and the workflow; the check's section; the browser's sentence and its
+  two hops. **Driven on the live database, rolled back**: section 22 (FAIL
+  100–102, 11 checks) — a row routed to review kept with the money
+  standing and its recovered reply readable as the poll reads it; another
+  refunded with the reserve back and the sentence stored on the FAILED
+  row; a settled row refusing a second verdict: **11 of 11 first run, ALL
+  176 CHECKS PASSED whole.** No function changed; the section drives two
+  properties of the existing RPCs the reconcile rests on and nothing had
+  driven. The stamp was re-read by its guard after it was written (3a's
+  trap).
+- **Sweep: 53 mutants, 53 killed, none survived, none unapplied, three
+  comment-only controls survived** (the module, the Worker, the poll module
+  each) — in the module: an unreadable pointer or list deciding, the
+  pointer's job no longer naming a pruned version, a legacy upload that
+  landed refunded, a build id with no live read refunded, a script with no
+  version stamp not ours by its build id, no pointer read as landed, a live
+  script ahead of the pointer retried over, an older pointer walking the
+  ancestry, ours in the chain never found, the chain passing below ours
+  read as on, a missing manifest read as off, a publish that began with no
+  pointer read as on, a row marked before the upload never found by its
+  build id, an overtaken change given the never-live sentence, a retry
+  storing a recovered reply, a script with no build stamp answering, the
+  owner's facts carrying the etag, a listed build forgetting its job; in
+  the Worker: a row not under review or a build's reconciled, a lost upload
+  never retried, every verdict applied as kept, a kept row's own reply
+  overwritten, a refused verdict storing a reply, an unreadable table read
+  as no rows, an unreadable pointer read as none, no dispatch binding read
+  as a blank live script, the retry cap a hundred higher or never counted,
+  an accepted upload kept without asking the live script, a refused upload
+  going on to the probe, no credentials or no staged script unsaid, every
+  refund reconciled, the consumer's first refund site not reconciling, the
+  sweep tick never reconciling or reading the wrong rows, the tick's
+  summary counting nothing, the route answering a stranger, showing
+  another owner's row, applying on a dry read, reading rows not under
+  review, looking a bad job id up, a refunded reply finalized as ok; the
+  poll saying waiting on a poll that is not, the wait branch never asking,
+  the thinking line never carrying the sentence; the script applying on
+  any word, the workflow running on a push; the check losing the money
+  read or its count; the image without the module. Full suite **5,257**
+  (5,240 + the seventeen). The container harness
+  was not re-run: nothing under `builder/build-server.mjs` or the template
+  changed, and the one container-side consequence — the worker tree the
+  image copies gaining a module — is what `test/dockerfile.test.mjs` and
+  `test/container-images.test.mjs` read (the first went red the hour the
+  module was written, the recorded trap, and the second until the module
+  was in git at HEAD).
+- **Stated residues.** (a) **The collector's re-run rule is unchanged**: a
+  build whose look marked its record charged and then died still refuses
+  to run again on the mark alone (`alreadyCharged`) — the older plan's
+  build half, filed as its own task; the pages debit is idempotent by ref
+  since 1c, so the rule guards a duplicate PUBLISH now, not a double
+  charge. (b) An `unknown` row is re-read every tick and its retry capped
+  at three PER ISOLATE — a cron isolate's memory resets with it, so a row
+  whose upload is refused for ever costs a few API calls a day, said once
+  per isolate. (c) The ancestry argument needs stage 6's serialization; the
+  same push carries both. (d) The versions API rows carry `job` now (the
+  owner's own job ids). (e) `live-ahead` and `chain-broken` are a person's
+  — the owner's route shows why. (f) A kept `superseded-built-on` charges
+  for a change a later revise may have redrawn: it WAS live, the same rule
+  as any change followed by a revise. (g) The consumer's reconcile runs
+  inside the delivery after the refund, a few R2 reads and one probe;
+  under the job runner (task #93) it runs in the container with the same
+  facts. (h) No row under review exists today (read live: 0), so the
+  sweep's door is inert until the next mid-publish failure.
+- **Not proven live.** The deploy rolls the container (`worker.js`,
+  `site-builds.mjs` and the builder modules are image inputs; the 15–20
+  minute hold applies). The canary needs a row under review, and none can
+  be made without breaking a publish on purpose: the next mid-publish
+  failure is the proof, and the log line is `reconcile: <id> kept|refunded
+  (<kind>) — <why>` (or `unknown (<kind>) — … — left in review`) beside the
+  consumer's refund, then `review reconcile: {…}` on the tick. Free today:
+  the `reconcile check` workflow on fretwork-1 answers `rows: []` for 0.
+
 ---
 
 ## Data, auth, payments, mail
@@ -3616,8 +3809,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,240
-  (2026-09-05, after stage 3a's twenty-three in `test/deploy-gate.test.mjs`
+  build and the pre-list payload added sixteen); the unit suite is 5,257
+  (2026-09-05, after stage 3b's seventeen in `test/site-reconcile.test.mjs`
+  — the verdict rule by rule, the ancestry, the reply shapes, the probe,
+  the Worker's reconcile DRIVEN against a staged fake site with a fake
+  dispatch namespace, the consumer and the sweep's door and the owner's
+  route driven, the hops, the script and the workflow, the check's
+  section, the browser's waiting sentence; 5,240 the same day after stage 3a's twenty-three in `test/deploy-gate.test.mjs`
   — the numbers, the migration and the snapshot, the check's order, the
   workflow's three steps, the script's every function driven against a
   fake fetch and clock, the edit and build consumers and the collector
@@ -4455,6 +4653,17 @@ push.** Never push while a live run is in flight, and after any push wait
 **Re-run the thing the change is asserted by.** Appeasing a false alarm in one
 checker while never re-running the harness that actually proves the change has
 shipped red twice.
+
+**A BLANKER ERASES THE LANDMARK THE GUARD NEEDS (2026-09-05, found by stage 3b,
+the mirror of "prose contains the thing it forbids").** The check script's
+section headers are `--` comment lines, and the section-22 guard looked for
+"22. A RECONCILE STORES…" in the BLANKED text, where every comment is spaces:
+"section 22 is missing" for a section that was there. Blanking is for scans
+that FORBID a spelling; a scan that REQUIRES one finds its boundaries on the
+raw text and blanks only the body between them. The same guard had a second
+false alarm of its own the same hour: the owner lookup memoizes per slug for
+five minutes, so a "stranger's site" case that reused the owner's slug read the
+owner. A memoized reader in a driven test needs its own key per case.
 
 **A STAMP WRITTEN AFTER THE RUN IS A CHANGE THE SUITE HAS NOT SEEN (2026-09-05,
 found by stage 3a).** `test/build-jobs.test.mjs` #11 pinned the check script's

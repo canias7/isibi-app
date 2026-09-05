@@ -209,6 +209,30 @@ export async function confirmSiteWorker({ stubFor, name, build, origin = "https:
 }
 
 /**
+ * WHAT THE LIVE SCRIPT SAYS IT IS (stage 3b, 2026-09-05): one probe, no
+ * polling, both stamps. `confirmSiteWorker` waits for a stamp it EXPECTS; the
+ * reconcile's whole question is which version the live script is, so this asks
+ * for whatever is there — the same file, through the same stub, for the same
+ * reasons — and answers `{ build, version }` off the headers, `version` empty
+ * on a script built before stage 7. NULL when nothing can be read: no binding,
+ * no name, a stub that throws, a script with no build stamp at all. Never a
+ * guess, because the reconcile refunds on the strength of it.
+ */
+export async function probeSiteWorker({ stubFor, name, origin = "https://site.invalid" } = {}) {
+  if (typeof stubFor !== "function" || !name) return null;
+  try {
+    const stub = stubFor(name);
+    const res = stub && (await stub.fetch(new Request(origin + PROBE_PATH, { method: "GET" })));
+    if (!res || !res.headers) return null;
+    const build = res.headers.get("x-site-build");
+    if (!build) return null;
+    return { build, version: res.headers.get("x-site-version") || "" };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Did Cloudflare actually do it?
  *
  * THE HTTP STATUS IS NOT THE ANSWER ON THIS API, and reading it as though it
