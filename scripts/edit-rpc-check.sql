@@ -40,12 +40,27 @@ declare
   j7 text := 'e_'||substr(md5(random()::text),1,20);
   j8 text := 'e_'||substr(md5(random()::text),1,20);
   j9 text := 'e_'||substr(md5(random()::text),1,20);
+  -- Section 18's three rows (stage 2a), one slug each so a parked one cannot
+  -- block the next one's create.
+  j10 text := 'e_'||substr(md5(random()::text),1,20);
+  j11 text := 'e_'||substr(md5(random()::text),1,20);
+  j12 text := 'e_'||substr(md5(random()::text),1,20);
+  st text; bl text; nr boolean; note text; tr int; rs jsonb;
   -- A gen_charges request id for sections 14b and 16b (the media side's charge
   -- record), rolled back with everything else.
   req text := 'zz-verify-' || substr(md5(random()::text),1,12);
   r jsonb; b0 numeric; b1 numeric; n int; log text := '';
   ok_count int := 0;
--- LAST RUN 2026-09-05 (stage 1c): ALL 78 CHECKS PASSED, rolled back, driving
+-- LAST RUN 2026-09-05 (stage 2a): ALL 92 CHECKS PASSED, rolled back, driving
+-- as a funded non-founder account (balance 500). Section 18 was added that
+-- evening for the sweep's recovery; on its own it went RED against the OLD
+-- sweep at FAIL 65 ("the sweep re-picked a committed job instead of
+-- finalizing it" - the live sweep answering {lost: 1, refunded: 0} for a
+-- committed row, taken back by the rollback), the migration
+-- 20260905175752_sweep_finalizes_committed was applied against that baseline,
+-- and the section then passed 14 of 14 before the whole script ran green.
+--
+-- EARLIER THAT DAY (stage 1c): ALL 78 CHECKS PASSED, rolled back, driving
 -- as a funded non-founder account (balance 500). Sections 14c and 17 were
 -- added that day for credit_debit and credit_reverse, minutes after the
 -- migration that made them; both went green on the first run.
@@ -482,6 +497,83 @@ begin
   if n <> 3 then raise exception 'FAIL 64b (expected the debit and its two reversals on the ledger, found %)', n; end if;
   ok_count := ok_count + 10;
   log := log || format('17  explicit debit      -> taken 3, repeat prior 3, refused, partial short, reversals 1+2 bounded, repeat 0, stranger 0, balance %s%s', b1, chr(10));
+
+  -- ── 18. THE SWEEP SETTLES A COMMITTED JOB, AND PARKS ONE IT CANNOT (stage 2a) ─
+  --
+  -- A job that died after its commit point and before its finalize sat
+  -- `publishing` with `published_at` set: the sweep's refund answered
+  -- `published`, the sweep counted that as lost, changed nothing, and picked
+  -- the row again every tick — one of twenty slots held for ever, and a
+  -- browser polling a 202 with no bound. Now the sweep finalizes it with a
+  -- reply the poll route can serve, counts every attempt, and parks a row it
+  -- has tried five times in review, where a person settles it. One slug per
+  -- row, because a parked row blocks new edits on its site (section 11).
+  r := public.edit_create(j10, u, slug||'-s1', 'edit', 'idem-hhhhhhhhhhhhhhhh', k);
+  if (r->>'ok') <> 'true' then raise exception 'FAIL 65a (could not file the committed job): %', r; end if;
+  r := public.edit_reserve(j10, 1, 2, k);
+  r := public.edit_claim(j10, 'ownerJJJJ', 90, k);
+  r := public.edit_may_publish(j10, 'ownerJJJJ', 300, k);
+  r := public.edit_committed(j10, 'ownerJJJJ', 'build-s1', k);
+  if (r->>'ok') <> 'true' then raise exception 'FAIL 65b (the commit point did not record on j10): %', r; end if;
+  -- The consumer dies here: no finalize, the lease runs out, the row is still
+  -- `publishing`. A day past, so it sorts ahead of anything real in the batch.
+  update public.edit_jobs set lease_expires_at = now() - interval '1 day' where id = j10;
+  select balance into b0 from public.credits where user_id = u;
+  r := public.edit_sweep_lost(20, 60, k);
+  select balance into b1 from public.credits where user_id = u;
+  if coalesce((r->>'recovered')::int, 0) < 1 then raise exception 'FAIL 65 (the sweep re-picked a committed job instead of finalizing it): %', r; end if;
+  if b1 <> b0 then raise exception 'FAIL 65c (the sweep moved money on a published job): % -> %', b0, b1; end if;
+  select state, billing, sweep_tries, result into st, bl, tr, rs from public.edit_jobs where id = j10;
+  if st <> 'done' or bl <> 'finalized' then raise exception 'FAIL 65d (the recovered job is not done and finalized): % %', st, bl; end if;
+  if tr <> 1 then raise exception 'FAIL 65e (the attempt was not counted once): %', tr; end if;
+  -- THE REPLY IS ONE THE POLL ROUTE CAN SERVE: the consumer's own stored shape,
+  -- {status, type, body} with the body as TEXT, saying the change went live
+  -- and the details of what it did were lost.
+  if coalesce((rs->>'status')::int, 0) <> 200 or (rs->>'body') is null
+     or ((rs->>'body')::jsonb->>'ok') is distinct from 'true'
+     or ((rs->>'body')::jsonb->>'recovered') is distinct from 'true'
+  then raise exception 'FAIL 65f (the recovered reply is not one the poll route can serve): %', rs; end if;
+  -- AND IT IS NOT PICKED AGAIN.
+  r := public.edit_sweep_lost(20, 60, k);
+  select sweep_tries into tr from public.edit_jobs where id = j10;
+  if tr <> 1 then raise exception 'FAIL 66 (a finalized job was swept again): %', tr; end if;
+  -- A ROW THE SWEEP HAS TRIED FIVE TIMES AND COULD NOT SETTLE IS PARKED. No
+  -- answer the RPCs give today leaves a row in the batch after one tick, so
+  -- the count is set by hand: five ticks have been at it. The money stays.
+  r := public.edit_create(j11, u, slug||'-s2', 'edit', 'idem-iiiiiiiiiiiiiiii', k);
+  r := public.edit_reserve(j11, 1, 2, k);
+  r := public.edit_claim(j11, 'ownerKKKK', 90, k);
+  update public.edit_jobs set sweep_tries = 5, state = 'editing', lease_expires_at = now() - interval '1 day' where id = j11;
+  select balance into b0 from public.credits where user_id = u;
+  r := public.edit_sweep_lost(20, 60, k);
+  select balance into b1 from public.credits where user_id = u;
+  if coalesce((r->>'exhausted')::int, 0) < 1 then raise exception 'FAIL 67 (a stuck row was not parked in review after five tries): %', r; end if;
+  select needs_review, review_note, billing, sweep_tries into nr, note, bl, tr from public.edit_jobs where id = j11;
+  if not nr or note is distinct from 'sweep exhausted' then raise exception 'FAIL 67b (the parked row is not in review with its note): % %', nr, note; end if;
+  if b1 <> b0 or bl <> 'reserved' then raise exception 'FAIL 67c (parking moved money): % -> % billing %', b0, b1, bl; end if;
+  -- PARKED MEANS OUT OF THE BATCH: another tick leaves it alone.
+  r := public.edit_sweep_lost(20, 60, k);
+  select sweep_tries into tr from public.edit_jobs where id = j11;
+  if tr <> 5 then raise exception 'FAIL 67d (a parked row was swept again): %', tr; end if;
+  -- AND A PERSON CAN STILL SETTLE IT, through the door every review row has.
+  r := public.edit_reconcile(j11, false, 'never shipped', k);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'outcome') <> 'refunded' or b1 <> b0 + 2 then raise exception 'FAIL 68 (a parked row could not be reconciled): % bal % -> %', r, b0, b1; end if;
+  -- A ROW UNDER THE CEILING IS SETTLED, NOT PARKED: four tries, an expired
+  -- lease, nothing published — lost and refunded as always, the fifth counted.
+  r := public.edit_create(j12, u, slug||'-s3', 'edit', 'idem-jjjjjjjjjjjjjjjj', k);
+  r := public.edit_reserve(j12, 1, 2, k);
+  r := public.edit_claim(j12, 'ownerLLLL', 90, k);
+  update public.edit_jobs set sweep_tries = 4, lease_expires_at = now() - interval '1 day' where id = j12;
+  select balance into b0 from public.credits where user_id = u;
+  r := public.edit_sweep_lost(20, 60, k);
+  select balance into b1 from public.credits where user_id = u;
+  select state, sweep_tries, needs_review into st, tr, nr from public.edit_jobs where id = j12;
+  if st <> 'lost' or nr or tr <> 5 or b1 <> b0 + 2 then
+    raise exception 'FAIL 69 (a row under the ceiling was parked instead of settled): % tries % review % bal % -> %', st, tr, nr, b0, b1;
+  end if;
+  ok_count := ok_count + 14;
+  log := log || format('18  sweep recovery      -> committed job finalized (recovered), reply servable, not re-swept; stuck row parked after five, reconciled; under the ceiling settled%s', chr(10));
 
   update private.mint set key_hash = keep;
   raise exception E'ALL % CHECKS PASSED (transaction rolled back)\n%', ok_count, log;

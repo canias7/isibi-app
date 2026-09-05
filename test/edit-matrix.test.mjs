@@ -69,6 +69,18 @@ test("the check still covers every property the flag cannot ship without", () =>
     "a reversal was not bounded by the debit",
     "a retried reversal paid twice",
     "another account reversed a ref that is not its own",
+    // Stage 2a (2026-09-05): the sweep settles a committed job instead of
+    // re-picking it, and parks one it cannot settle — section 18 (a committed
+    // row finalized with a reply the poll route can serve and not swept
+    // again, money untouched; a row five ticks could not settle parked in
+    // review with its note, money untouched, still reconcilable; a row under
+    // the ceiling settled, not parked).
+    "the sweep re-picked a committed job instead of finalizing it",
+    "the recovered reply is not one the poll route can serve",
+    "a finalized job was swept again",
+    "a stuck row was not parked in review after five tries",
+    "a parked row could not be reconciled",
+    "a row under the ceiling was parked instead of settled",
   ];
   for (const m of must) {
     assert.ok(SQL.includes(m), `the database check no longer proves: ${m}`);

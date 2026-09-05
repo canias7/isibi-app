@@ -713,3 +713,26 @@ test("escalateAction: an escalate that names the addon rung goes there, not to t
   // And a reason alone is not a layer: the decision reads the layer the server named.
   assert.equal(P.escalateAction({ escalate: true, reason: "addon" }, { layer: "look", hasAsk: true }), "up");
 });
+
+test("recovered: the sweep's reply is a success whose details were lost", () => {
+  // STAGE 2a (2026-09-05). A job that committed and died before storing its
+  // reply is finalized by `edit_sweep_lost` with `{ ok, recovered }` in the
+  // consumer's own stored shape, so it arrives through the final-reply branch
+  // like any other. The change IS live and WAS charged for: the one wrong
+  // sentence is any that says the site is untouched or the money came back.
+  assert.equal(P.isRecovered({ ok: true, recovered: true, job: "e_1", cost: 2 }), true);
+  // `ok` IS REQUIRED beside the flag — nothing writes the other shape, and
+  // reading it as a success would put a green tick over a failure.
+  assert.equal(P.isRecovered({ recovered: true }), false);
+  assert.equal(P.isRecovered({ ok: true }), false);
+  assert.equal(P.isRecovered({ ok: true, recovered: "true" }), false);
+  assert.equal(P.isRecovered(null), false);
+  assert.equal(P.isRecovered("recovered"), false);
+  const msg = P.outcomeMessage("recovered");
+  assert.match(msg, /published/, "the recovered sentence does not say the change went live");
+  assert.match(msg, /lost/, "the recovered sentence does not say the details were lost");
+  assert.doesNotMatch(msg, /untouched|refunded|didn't finish|haven't been charged/,
+    "a published, charged edit is described as one that did not happen");
+  // It is served with the final header, so it is `reply` whatever its body says.
+  assert.deepEqual(P.readPoll(200, P.FINAL_VALUE, { ok: true, recovered: true }), { act: "reply" });
+});

@@ -12020,8 +12020,17 @@ async function runLostEditJobs(env) {
   // SILENT WHEN THERE IS NOTHING TO SAY. On an ordinary tick this is one call
   // that comes back zeroed, and logging that every two minutes would bury the
   // one line that matters.
-  if (r && r.ok === true && ((r.lost || 0) > 0 || (r.review || 0) > 0)) {
-    console.log("edit sweep:", JSON.stringify({ lost: r.lost, review: r.review, refunded: r.refunded }));
+  //
+  // FIVE COUNTS SINCE STAGE 2a (2026-09-05), and the last three are the ones
+  // worth a line: `recovered` is a job that committed and died before its
+  // finalize, finalized by the sweep with a reply the poll route can serve
+  // (before this it was counted as lost, changed nothing, and re-picked every
+  // tick — one of the batch's twenty slots held for ever); `exhausted` is a
+  // row five ticks could not settle, parked in review for a person;
+  // `stuck` is a row this tick left in the batch, which the ceiling ends.
+  const counts = { lost: r && r.lost, review: r && r.review, recovered: r && r.recovered, exhausted: r && r.exhausted, stuck: r && r.stuck };
+  if (r && r.ok === true && Object.values(counts).some((n) => (Number(n) || 0) > 0)) {
+    console.log("edit sweep:", JSON.stringify({ ...counts, refunded: r.refunded }));
   }
 }
 

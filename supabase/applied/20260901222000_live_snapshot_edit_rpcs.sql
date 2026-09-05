@@ -8,6 +8,11 @@
 -- credit_reverse (stage 1c, migration 20260905161410_credit_debit_and_reverse),
 -- read the same way after their apply — after those, at the very end;
 -- test/credit-debit.test.mjs holds them equal to that migration.
+-- AND, later the same day, edit_sweep_lost REPLACED IN PLACE (stage 2a,
+-- migration 20260905175752_sweep_finalizes_committed: a committed job is
+-- finalized rather than re-picked, tries are counted in edit_jobs.sweep_tries,
+-- a row five ticks could not settle is parked in review), read back the same
+-- way; test/sweep-recovery.test.mjs holds that block equal to its migration.
 --
 -- WHY THIS FILE EXISTS: the folder had drifted from what was live. Four
 -- migrations applied earlier that day were never written here and one was
@@ -468,19 +473,22 @@ begin
 end; $function$;
 
 -- edit_sweep_lost(p_limit integer, p_grace integer, p_mint text)
+-- Replaced 2026-09-05 (stage 2a, 20260905175752_sweep_finalizes_committed.sql)
+-- and read back with pg_get_functiondef after the apply, as the rule above
+-- says; test/sweep-recovery.test.mjs holds this block equal to that migration.
 CREATE OR REPLACE FUNCTION public.edit_sweep_lost(p_limit integer, p_grace integer, p_mint text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public', 'private', 'extensions'
 AS $function$
-declare r record; n_lost int := 0; n_review int := 0; refunded numeric := 0; res jsonb;
+declare r record; n_lost int := 0; n_review int := 0; n_recovered int := 0; n_exhausted int := 0; n_stuck int := 0; refunded numeric := 0; res jsonb;
 begin
   if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
   if p_limit is null or p_limit < 1 or p_limit > 200 then raise exception 'bad limit'; end if;
   if p_grace is null or p_grace < 30 or p_grace > 3600 then raise exception 'bad grace'; end if;
   for r in
-    select id from public.edit_jobs
+    select id, cost, artifact_build, sweep_tries from public.edit_jobs
      where state not in ('done','failed','cancelled','lost')
        and needs_review = false
        and lease_expires_at is not null
@@ -488,12 +496,54 @@ begin
      order by lease_expires_at
      limit p_limit
   loop
+    -- A ROW FIVE TICKS COULD NOT SETTLE IS PARKED, before a sixth try: out of
+    -- the batch (needs_review is excluded above, and closes its site to new
+    -- edits as every review row does), the money where it is, and a person
+    -- settles it through edit_reconcile. Held, it would keep one of the
+    -- batch's slots and a browser polling a 202 for ever. The sweep's own
+    -- conditions are asked again at the write, so a row another caller moved
+    -- since the select is left alone.
+    if r.sweep_tries >= 5 then
+      update public.edit_jobs
+         set needs_review = true, review_note = 'sweep exhausted', updated_at = now()
+       where id = r.id and needs_review = false
+         and state not in ('done','failed','cancelled','lost')
+         and lease_expires_at < now() - make_interval(secs => p_grace);
+      if found then n_exhausted := n_exhausted + 1; end if;
+      continue;
+    end if;
+    -- EVERY ATTEMPT IS COUNTED, and counted first, so a refusal below that
+    -- names no branch still moves the row toward the ceiling.
+    update public.edit_jobs set sweep_tries = sweep_tries + 1, updated_at = now() where id = r.id;
     res := public.edit_refund(r.id, 'lost', 'lease expired', p_mint);
-    if (res->>'error') = 'needs-review' then n_review := n_review + 1;
-    else n_lost := n_lost + 1; refunded := refunded + coalesce((res->>'refunded')::numeric, 0);
+    if (res->>'error') = 'published' then
+      -- THE JOB SHIPPED AND DIED BEFORE ITS FINALIZE: edit_committed set
+      -- published_at, the refund refuses it (rightly), and until stage 2a
+      -- this branch counted that as lost, changed nothing, and picked the
+      -- row again every tick. Finalized here with a reply the poll route
+      -- can serve - the consumer's own {status, type, body}, the body as
+      -- text - saying the change went live and the details of what it did
+      -- were lost. The reserve stands: nothing is refunded for work that is
+      -- live. A finalize that still refuses leaves the row for the ceiling.
+      res := public.edit_finalize(r.id, jsonb_build_object(
+               'status', 200, 'type', 'application/json',
+               'body', jsonb_build_object('ok', true, 'recovered', true, 'job', r.id,
+                                          'cost', r.cost, 'build', r.artifact_build)::text),
+             true, p_mint);
+      if (res->>'ok') = 'true' then n_recovered := n_recovered + 1;
+      else n_stuck := n_stuck + 1;
+      end if;
+    elsif (res->>'error') = 'needs-review' then n_review := n_review + 1;
+    elsif (res->>'ok') = 'true' then
+      n_lost := n_lost + 1; refunded := refunded + coalesce((res->>'refunded')::numeric, 0);
+    else
+      -- A REFUSAL WITH NO BRANCH (no-job, terminal: a race this tick lost).
+      -- The row stays, counted, and the ceiling above ends it.
+      n_stuck := n_stuck + 1;
     end if;
   end loop;
-  return jsonb_build_object('ok', true, 'lost', n_lost, 'review', n_review, 'refunded', refunded);
+  return jsonb_build_object('ok', true, 'lost', n_lost, 'review', n_review, 'recovered', n_recovered,
+    'exhausted', n_exhausted, 'stuck', n_stuck, 'refunded', refunded);
 end; $function$;
 
 -- edit_exempt(p_id text, p_owner text, p_mint text)

@@ -3049,3 +3049,45 @@ both files through the gate.
 
 No deploy is needed for this on its own, but it must be on before the
 container canary (stage 5a), which is the next thing that waits on you.
+
+## 2026-09-05 — A finished change that lost its receipt is closed by the sweep, not held for ever (stage 2a)
+
+Your "go". If an edit goes live and the worker running it dies in the seconds
+between "published" and "reply stored", the row sat half-open: the two-minute
+sweep looked at it, saw it was published, refused to refund it (right),
+counted it as lost (wrong), changed nothing, and looked again two minutes
+later, for ever. Each such row would have held one of the sweep's twenty
+slots, and the customer's browser would have spun on it with no end. It has
+never happened live (there are no such rows), but nothing stopped it.
+
+Now the sweep closes it: the job is marked done with a reply that says the
+change was published and the details of what it did were lost, the credits it
+reserved stand (the work is live), and your customer reads "✅ Your change was
+published — but the details of what it did were lost along the way. Reload
+the preview to see it." The balance and the preview refresh as after any
+edit, whichever route filed the job.
+
+And the sweep now counts how many times it has tried each row. A row it
+cannot settle after five tries is parked for you to look at, in the same
+"paused edits on this site" state a mid-publish death goes to, with the note
+"sweep exhausted", money untouched, settled through the same reconcile as
+today. Nothing the database answers today can produce such a row; the counter
+is the belt for the shape nobody has named yet.
+
+How it was checked: the check script's new section 18 was run against the OLD
+sweep first and failed exactly where predicted (FAIL 65, the live sweep
+answering "lost 1, refunded 0" for a committed row); the migration went in
+through the connector; the same section then passed 14 of 14, rolled back,
+and the function was read back out of the database into the snapshot beside
+the migrations, byte for byte. The whole check script then ran green on the
+migrated database, all 92 checks, rolled back. The mutation sweep put 28 deliberate
+breaks in (the published case counted as lost again, the reply stored in a
+shape the browser cannot read, the ceiling removed, the park moving money,
+the sentence saying the site was untouched, either reader ignoring it) and
+the tests caught all 28, with the four comment-only controls surviving as
+they should.
+
+What this needs from you: the Worker deploy (it rolls the container, so the
+usual hold applies), with the browser files riding the same push. The
+database half is already live and harmless on its own: the old Worker keeps
+calling the sweep and simply does not print the counts it does not know.

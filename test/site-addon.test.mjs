@@ -7,6 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import {
   MAX_RETURNED, mergeAddonPages, mergeAddonSchema, ADDON_TABLE_FIELDS, ADDON_SPEC_FIELDS,
   unlinkedPages, routeOf, addonReply, keptReply, rowLists, orderingMoved } from "../builder/site-addon.mjs";
@@ -765,8 +766,17 @@ test("the addon reply is DRIVEN, not grepped", () => {
     const end = chat.indexOf("\n}", at);
     return chat.slice(at, end + 2);
   };
-  const reply = new Function([cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("browserTimeZone"), cut("jobWords"), cut("addonReplyText")].join("\n") +
-    "\nreturn addonReplyText;")();
+  // THE POLL MODULE IS HANDED IN (stage 2a, 2026-09-05): both readers ask
+  // `EditPoll.isRecovered` before they count anything, so the evaluated
+  // function needs the browser's global — the real module, not a stub, so the
+  // recovered branch is driven here too rather than read.
+  const EditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
+  const reply = new Function("EditPoll", [cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("browserTimeZone"), cut("jobWords"), cut("addonReplyText")].join("\n") +
+    "\nreturn addonReplyText;")(EditPoll);
+  // THE SWEEP'S REPLY: a success whose details were lost, never '✅ Done.'
+  // with every list empty.
+  assert.match(reply({ ok: true, recovered: true, job: "e_1" }), /published/, "a recovered reply is not said as published");
+  assert.doesNotMatch(reply({ ok: true, recovered: true, job: "e_1" }), /Done —|Done\./, "a recovered reply reads as an ordinary success");
   // A CLOCK TIME (2026-09-03): said with the job, its zone only when it is
   // not this browser's own.
   const here = Intl.DateTimeFormat().resolvedOptions().timeZone;

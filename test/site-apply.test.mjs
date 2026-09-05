@@ -8,6 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import {
   TEXT_TOOL, TEXT_MODEL, TEXT_MAX_TOKENS, MAX_TEXT_ITEMS, MAX_TEXT_CHARS,
   textRequest, textItems, readTextEdits, textUsage, runTextEdit,
@@ -1300,8 +1301,15 @@ test("the replies are DRIVEN, not grepped", async () => {
     assert.ok(end > at, name + " has no end");
     return chat.slice(at, end + 2);
   };
-  const editReply = new Function([cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("editReply")].join("\n") +
-    "\nreturn editReply;")();
+  // THE POLL MODULE IS HANDED IN (stage 2a, 2026-09-05): `editReply` asks
+  // `EditPoll.isRecovered` before any layer, so the evaluated function needs
+  // the browser's global — the real module, so the branch is driven here too.
+  const EditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
+  const editReply = new Function("EditPoll", [cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("editReply")].join("\n") +
+    "\nreturn editReply;")(EditPoll);
+  // THE SWEEP'S REPLY: a success whose details were lost, never '✅ Done.'
+  assert.match(editReply({ ok: true, recovered: true, job: "e_1" }), /published/, "a recovered reply is not said as published");
+  assert.doesNotMatch(editReply({ ok: true, recovered: true, job: "e_1" }), /Done\./, "a recovered reply reads as an ordinary success");
 
   // A REMOVAL READS AS A REMOVAL, and says what it was. The row is gone from
   // the Data panel too, so the contents in the thread are the whole undo.
@@ -1617,8 +1625,11 @@ test("the look reply shows a lint problem and reports how far a rename got", () 
     assert.ok(at > 0, name + " is gone from chat.js");
     return chat.slice(at, chat.indexOf("\n}", at) + 2);
   };
-  const editReply = new Function(
-    [cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("editReply")].join("\n") + "\nreturn editReply;")();
+  // The poll module handed in, as the driver above: `editReply` asks
+  // `EditPoll.isRecovered` before any layer (stage 2a, 2026-09-05).
+  const editReply = new Function("EditPoll",
+    [cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("editReply")].join("\n") + "\nreturn editReply;")(
+    createRequire(import.meta.url)("../public/edit-poll.js"));
   assert.match(editReply({ layer: "look", moved: ["theme"], problems: ["index.tsx: names a colour"] }),
     /names a colour/, "the look reply hides what the lint found");
   // A rename that reached the pages says how far, and one that reached nothing

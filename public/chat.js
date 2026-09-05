@@ -12099,6 +12099,12 @@ function browserTimeZone() {
   try { return String(Intl.DateTimeFormat().resolvedOptions().timeZone || ''); } catch (e) { return ''; }
 }
 function addonReplyText(a) {
+  // THE SWEEP'S REPLY, BEFORE ANYTHING IS COUNTED (stage 2a, 2026-09-05) —
+  // the same rule `editReply` has, because an addon job that committed and
+  // died before its finalize is finalized by the same sweep with the same
+  // reply, and this is the reader its watcher hands it to. Counted, it would
+  // read as '✅ Done.' with every list empty.
+  if (EditPoll.isRecovered(a)) return EditPoll.outcomeMessage('recovered');
   const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
   const changed = (Array.isArray(a.changed) ? a.changed : []).map(sitePathOf).filter(Boolean);
   const removed = (Array.isArray(a.removed) ? a.removed : []).map(sitePathOf).filter(Boolean);
@@ -12219,6 +12225,13 @@ function problemNote(list) {
 // NAMES WHAT MOVED. A customer who asks for one thing and gets four changed
 // cannot see that from the site, and "done" tells them nothing they can check.
 function editReply(e) {
+  // THE SWEEP'S REPLY, BEFORE ANY LAYER (stage 2a, 2026-09-05). A job that
+  // committed and died before storing its reply is finalized by the sweep
+  // with `{ ok, recovered }` and nothing else: no layer, no pages, no words.
+  // Read past this, the switch below would say '✅ Done.' — true, and not
+  // the half the customer needs, which is that the details were lost. The
+  // decision lives in edit-poll.js so a test can drive it.
+  if (EditPoll.isRecovered(e)) return EditPoll.outcomeMessage('recovered');
   if (e.layer === 'text') {
     // NAMES WHAT IT NOW SAYS. "Updated the wording in 3 places" is a number the
     // owner cannot check — the same class as the two silent partials this file

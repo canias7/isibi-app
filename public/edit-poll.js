@@ -154,6 +154,13 @@
     // more than its likelihood. Telling somebody their live change did not
     // happen is the one wrong answer here.
     if (kind === "done") return "That edit finished and your site has been updated — I just couldn't read back what changed. Reload to see it.";
+    // A RECOVERED REPLY IS THE SWEEP'S, NOT THE HANDLER'S (stage 2a,
+    // 2026-09-05). The job shipped — `edit_committed` recorded it — and its
+    // consumer died before it could store what the change did, so the sweep
+    // finalized it with a reply that says only that. The change IS live and
+    // WAS charged for; the one wrong sentence here is any that says the site
+    // is untouched or the money came back.
+    if (kind === "recovered") return "✅ Your change was published — but the details of what it did were lost along the way. Reload the preview to see it.";
     if (kind === "cancelled") return "I stopped that edit — your site is untouched and you haven't been charged.";
     if (kind === "lost") return "That edit stopped before it finished. Your site is untouched and anything it cost has been refunded.";
     if (kind === "needs_review") {
@@ -161,6 +168,24 @@
         "edits on this site until that's settled. Your site is still serving whatever it was serving before.";
     }
     return "That edit didn't finish. Your site is untouched and anything it cost has been refunded.";
+  }
+
+  /**
+   * A STORED REPLY THE SWEEP WROTE, not the handler.
+   *
+   * `edit_sweep_lost` finalizes a job that committed and died before storing
+   * its reply, with `{ ok: true, recovered: true, job, cost, build }` in the
+   * consumer's own stored shape — so it reaches the browser through the
+   * ordinary final-reply branch, whichever route filed the job. Both readers
+   * ask this before they say what the change did, because neither can: the
+   * layer, the pages and the words are exactly what was lost.
+   *
+   * `ok` IS REQUIRED beside the flag. A reply that says recovered and not ok
+   * is not a shape anything writes, and reading it as a success would render
+   * a green tick over a failure.
+   */
+  function isRecovered(body) {
+    return !!(body && typeof body === "object" && body.ok === true && body.recovered === true);
   }
 
   /**
@@ -383,6 +408,7 @@
     classify: classify,
     shouldRetryPoll: shouldRetryPoll,
     outcomeMessage: outcomeMessage,
+    isRecovered: isRecovered,
     makeWatch: makeWatch,
     isCancelConfirmed: isCancelConfirmed,
     isCancelTooLate: isCancelTooLate,

@@ -2995,8 +2995,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,148
-  (2026-09-05, after stage 4a's five — `test/gateway-refusal.test.mjs`'s
+  build and the pre-list payload added sixteen); the unit suite is 5,157
+  (2026-09-05, after stage 2a's nine — `test/sweep-recovery.test.mjs`'s
+  eight, the migration and its column, the sweep's branches and their order,
+  the snapshot equal byte for byte, the grants, the check's three rows, the
+  Worker's log and both readers; and `test/edit-poll.test.mjs`'s recovered
+  case, `isRecovered` and the sentence driven; 5,148 the same day after stage
+  4a's five — `test/gateway-refusal.test.mjs`'s
   three, `compileMsg` driven and the wall's keys derived from their writers,
   and the runtime's two, the typed refusal through the real handler and the
   shim's round-trips for the sidecar and the marker; 5,143 the same day
@@ -3536,6 +3541,76 @@ working. Billing follows the synchronous path: the reserve stands.
 **The general shape**: a state machine with a terminal state only for "shipped"
 and "failed" has no name for "answered, nothing to ship", and the nameless case
 falls to whichever sweeper finds it first.
+
+**A COMMITTED JOB WITH NO FINALIZE HELD A SWEEP SLOT FOR EVER (2026-09-05,
+stage 2a of the architecture plan, owner: *"go"*; found by the plan's audit,
+never live — zero such rows).** The trap one entry up, one state over:
+"answered, nothing to ship" got its terminal state on 2026-09-01; "shipped,
+never answered" had none. A job that died after `edit_committed` and before
+`edit_finalize` sat `publishing` with `published_at` set: `edit_sweep_lost`
+called the refund, which refused it as `published` (rightly — the change is
+live), the sweep counted that as LOST, updated nothing, and selected the row
+again every two-minute tick — one of the batch's twenty slots held for ever,
+the poll route answering 202 to a browser whose `wait` branch has no bound,
+and only a hand `edit_finalize` closing it. **Driven RED against the live body
+before the fix** (`scripts/edit-rpc-check.sql` section 18, FAIL 65: the live
+sweep answering `{lost: 1, refunded: 0}` for a committed row), then migration
+`20260905175752_sweep_finalizes_committed` (applied through the connector,
+read back with `pg_get_functiondef` into the live snapshot): a `published`
+refusal FINALIZES the row with a reply the poll route can serve — the
+consumer's own stored shape `{status, type, body}`, the body as TEXT (the
+route serves a terminal row's reply only when `res.body` is a string), saying
+`{ok: true, recovered: true, job, cost, build}`; the reserve stands, as for
+any shipped edit, and a late real finalize still wins (`result =
+coalesce(p_result, result)` on a row already `done`). `edit_jobs.sweep_tries`
+counts every attempt, FIRST, so a refusal with no branch (`no-job`,
+`terminal`: a race this tick lost, counted `stuck`) still moves the row toward
+the ceiling; a row five ticks could not settle is PARKED in review before a
+sixth try — `review_note` "sweep exhausted", out of the batch, its site closed
+to new edits as every review row's is, the money untouched, a person settling
+it through `edit_reconcile` — with the sweep's own conditions re-asked at the
+write so a row another caller moved is left alone. No answer the RPCs give
+today leaves a row in the batch after one tick; the ceiling is the belt for
+the shape nobody has named yet. The Worker logs the five counts when any is
+positive. **The browser renders it as what it is**: `EditPoll.isRecovered`
+(ok AND recovered — nothing writes the other shape, and reading it as a
+success would put a green tick over a failure) and `outcomeMessage("recovered")`
+— "✅ Your change was published — but the details of what it did were lost
+along the way" — asked by BOTH readers (`editReply`, `addonReplyText`) before
+any layer or count, because the stored reply reaches whichever reader the
+route that filed the job uses; `applyEditResult` / `applyAddonResult` already
+refresh the balance and bump the preview. Section 18: **14 of 14 on the
+migrated database, rolled back** — a committed row finalized, money untouched,
+the reply readable as the route reads it, not swept again; a row at five
+parked with its note, money untouched, left alone by the next tick,
+reconciled; a row at four settled, not parked — the control without which a
+sweep that parked everything would pass. `test/sweep-recovery.test.mjs` reads
+the record (the migration and its column, the snapshot equal byte for byte,
+the check's three rows, the Worker's log, both readers) and
+`test/edit-poll.test.mjs` drives the browser half. **Sweep: 28 mutants, 28
+killed, none unapplied, four comment-only controls survived** (every SQL
+mutant applied to the migration AND the snapshot together, so the
+byte-equality guard was neutral and a property had to catch it) — the
+published branch never firing, the body stored as an object, the reply
+saying ok false, the finalize asked as not-ok, a recovered job counted as
+lost, the attempt never counted, the ceiling at five hundred, the park
+unconditional or without its note, a parked row still attempted, exhausted
+counted unparked, the batch never reading the counter, the answer without
+the count, the column nullable, a refusal with no branch dropped, the grant
+dropped; the check no longer requiring the count, not reading the balance,
+losing its control, never reconciling; the Worker's log dropping the count,
+gated on lost and review alone, the grace hardcoded; recovered without ok
+read as a success, the sentence saying untouched, either reader never
+asking, `editReply` answering Done. **The whole check script: ALL 92 CHECKS
+PASSED, rolled back.** Full suite 5,157 green — three older guards went red
+for the change and were re-anchored, not appeased: the drivers that evaluate
+`editReply` and `addonReplyText` out of chat.js (`site-addon`, `site-apply`
+×2) built the functions in a scope with no `EditPoll`, and now hand the real
+poll module in, so the recovered branch is driven there too. **Not proven
+live**: the deploy carrying the Worker and `public/` is the proof's
+precondition; the database half is live and harmless on its own (the old
+Worker reads `lost`, `review` and `refunded` off the sweep's answer and
+ignores the rest). No live row has ever had the shape.
 
 **A ZERO-COST RUNG CANNOT PUBLISH THROUGH THE QUEUE, AND THE REFUSAL WEARS
 THE COMPILE'S SENTENCE (2026-09-02, run 10, the logo lane).** The consumer
