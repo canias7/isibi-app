@@ -184,7 +184,24 @@ export function readMessage(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   if (body.kind !== JOB_KIND) return null;
   if (!isJobId(body.id)) return null;
-  return { id: body.id };
+  const tries = readTries(body);
+  return tries === undefined ? { id: body.id } : { id: body.id, tries };
+}
+
+/**
+ * HOW MANY TIMES A MESSAGE HAS BEEN SENT AGAIN BECAUSE ITS CLAIM COULD NOT BE
+ * READ (stage 3a, 2026-09-05). A consumer that cannot ask the deploy gate —
+ * the claim RPC failed in transport, was refused, or answered no shape — cannot
+ * tell whether a deploy is rolling under it, so it sends its own message again
+ * once, carrying this; the second delivery proceeds as the consumer always
+ * did. ONE READER for the three message kinds, so the edit, the build and the
+ * resume cannot read the count three ways. A small whole number or nothing: a
+ * message from before this existed, or one carrying junk, reads as a first
+ * delivery. The BOUND lives in the consumer (`CLAIM_RETRY_MAX`), never here.
+ */
+export function readTries(body) {
+  const t = body && body.tries;
+  return Number.isInteger(t) && t >= 0 && t <= 9 ? t : undefined;
 }
 
 /**

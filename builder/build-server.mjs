@@ -1629,6 +1629,12 @@ const server = http.createServer((req, res) => {
     let jBody = "", jTooBig = false;
     req.on("data", (c) => { jBody += c; if (jBody.length > MAX_JOB_BODY) { jTooBig = true; req.destroy(); } });
     req.on("end", async () => {
+      // STOPPING REFUSES FIRST (stage 3a, 2026-09-05). Once the platform has
+      // sent SIGTERM this instance is draining what it holds and will exit the
+      // moment that lands — a job started now would be killed with it, its
+      // lease lapsing under the sweep. A 503 is the Worker's inline path, said
+      // in its log; before this the door took launches while stopping.
+      if (_stopping) return send(res, 503, { ok: false, error: "stopping" });
       if (jTooBig) return send(res, 413, { ok: false, error: "request too large" });
       let launch;
       try { launch = readLaunch(jBody); } catch (e) { return send(res, 400, { ok: false, error: String((e && e.message) || e) }); }

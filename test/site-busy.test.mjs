@@ -149,9 +149,17 @@ const EDIT_JOB = () => JSON.stringify(packEditJob({ url: "https://gofarther.dev/
 // ── THE NUMBERS BOTH SIDES AGREE ON ──────────────────────────────────────────
 
 test("the deferral cap is the migration's literal, the wait fits the browser's own watch, and the delay is a real minute", () => {
-  const claim = blankSql(fnBlock(MIG, "public.edit_claim("));
-  const cap = /if deferred > (\d+) then/.exec(claim);
-  assert.ok(cap, "edit_claim no longer gives up on a count");
+  // RE-ANCHORED 2026-09-05 (stage 3a): the count and the cap moved out of
+  // edit_claim into private.claim_deferred (one body for a busy site and a
+  // deploy's gate), so the literal is read off the NEWEST migration that
+  // spells it — found by the file, never assumed to be this stage's — which
+  // is what keeps this guard reading the live cap rather than a copy that
+  // stopped being the one the database runs.
+  const spelled = fs.readdirSync(DIR).filter((f) => /^\d{14}_.*\.sql$/.test(f) && !/live_snapshot/.test(f))
+    .sort().reverse().find((f) => /if deferred > \d+ then/.test(fs.readFileSync(new URL(f, DIR), "utf8")));
+  assert.ok(spelled, "no migration gives up on a count");
+  const cap = /if deferred > (\d+) then/.exec(blankSql(fs.readFileSync(new URL(spelled, DIR), "utf8")));
+  assert.ok(cap, "the newest migration no longer gives up on a count");
   assert.equal(Number(cap[1]), MAX_SITE_BUSY_DEFERRALS, "the Worker's copy of the cap and the RPC's literal disagree");
   // THE WHOLE WAIT SITS INSIDE THE BROWSER'S WATCH: 400 attempts at the poll's
   // longest delay, read off the poll module, so a customer is told rather than
@@ -211,7 +219,17 @@ test("the migration: one lock per site taken before the question, both claims as
 });
 
 test("the live snapshot carries the six functions byte for byte as the migration applied them", () => {
-  for (const q of ["public.edit_claim(", "public.edit_committed(", "public.edit_get(", "public.edit_handoff(", "public.rebuild_claim(", "private.site_busy("]) {
+  // RE-ANCHORED 2026-09-05 (stage 3a): edit_claim was replaced again that
+  // night (a deploy id on the claim), so the snapshot holds the NEWEST
+  // migration's copy of it — found by the file, never assumed to be this one
+  // — and this stage's copy of the other five. The property is the same: the
+  // snapshot is the database's own answer, equal to the migration that put
+  // each function there.
+  const newest = fs.readdirSync(DIR).filter((f) => /^\d{14}_.*\.sql$/.test(f) && !/live_snapshot/.test(f))
+    .sort().reverse().find((f) => fs.readFileSync(new URL(f, DIR), "utf8").includes("CREATE OR REPLACE FUNCTION public.edit_claim("));
+  assert.ok(newest, "no migration defines edit_claim");
+  assert.equal(fnBlock(SNAP, "public.edit_claim("), fnBlock(fs.readFileSync(new URL(newest, DIR), "utf8"), "public.edit_claim("), "the snapshot's edit_claim differs from " + newest);
+  for (const q of ["public.edit_committed(", "public.edit_get(", "public.edit_handoff(", "public.rebuild_claim(", "private.site_busy("]) {
     assert.equal(fnBlock(SNAP, q), fnBlock(MIG, q), "the snapshot's " + q + " differs from the migration");
   }
   assert.match(SNAP, /edit_claim, edit_committed, edit_get and edit_handoff REPLACED IN PLACE,\s*-- rebuild_claim and private\.site_busy ADDED/, "the snapshot's header does not record the change");
@@ -280,7 +298,7 @@ test("a build row the claim failed as site-busy answers its own sentence, and an
 
 // ── DRIVEN: THE QUEUE CONSUMER CLAIMS FIRST, DEFERS, GIVES UP, OR RUNS UNDER ITS CLAIM ──
 
-async function driveEdit(claimAnswer, { env = {}, rpcAnswers = {}, entries } = {}) {
+async function driveEdit(claimAnswer, { env = {}, rpcAnswers = {}, entries, tries } = {}) {
   const b = bucket(entries || { [EDIT_JOB_PREFIX + ID]: EDIT_JOB() });
   const q = queue();
   const rpc = [];
@@ -292,7 +310,7 @@ async function driveEdit(claimAnswer, { env = {}, rpcAnswers = {}, entries } = {
     const worker = await loadWorker();
     const ctx = makeCtx();
     let acked = 0;
-    await worker.queue({ messages: [{ body: { kind: EDIT_JOB_KIND, id: ID }, ack() { acked++; } }] }, { ...ENV_KEYS, SITES_BUCKET: b, BUILD_QUEUE: q, ...env }, ctx);
+    await worker.queue({ messages: [{ body: { kind: EDIT_JOB_KIND, id: ID, ...(tries === undefined ? {} : { tries }) }, ack() { acked++; } }] }, { ...ENV_KEYS, SITES_BUCKET: b, BUILD_QUEUE: q, ...env }, ctx);
     await Promise.allSettled(ctx.pending);
     return { b, q, rpc, acked, fns: rpc.map((x) => x.fn) };
   } finally { restore(); }
@@ -326,11 +344,20 @@ test("a claimed row runs the job under that one claim — never a second — and
   assert.ok(r.fns.includes("edit_finalize"), "the job did not run under the consumer's claim: " + r.fns.join(","));
   assert.equal(r.b.store.has(EDIT_JOB_PREFIX + ID), false, "the request was not deleted once read");
   assert.deepEqual(r.q.sent, []);
-  for (const refused of [{ ok: true, claimed: false, error: "leased", state: "routing" }, { ok: false, claimed: false, error: "no-job" }, { ok: false, error: "rpc" }]) {
+  for (const refused of [{ ok: true, claimed: false, error: "leased", state: "routing" }, { ok: false, claimed: false, error: "no-job" }]) {
     const x = await driveEdit(refused);
     assert.deepEqual(x.fns, ["edit_claim"], JSON.stringify(refused) + " ran something");
     assert.deepEqual(x.q.sent, [], JSON.stringify(refused) + " was re-sent");
   }
+  // RE-ANCHORED 2026-09-05 (stage 3a). A claim that could not be READ — a
+  // transport failure, a refusal with a status — was "runs nothing" here; it
+  // is deferred ONCE now: the consumer cannot ask the deploy gate either, so
+  // its message is sent again carrying `tries`, and only the second
+  // unreadable claim leaves the row queued (for the stale sweep).
+  // test/deploy-gate.test.mjs drives both halves; this holds the first.
+  const unread = await driveEdit({ ok: false, error: "rpc" });
+  assert.deepEqual(unread.fns, ["edit_claim"], "an unreadable claim ran something");
+  assert.deepEqual(unread.q.sent, [{ msg: { kind: EDIT_JOB_KIND, id: ID, tries: 1 }, opts: { delaySeconds: SITE_BUSY_DEFER_S } }], "an unreadable claim was not deferred once");
 });
 
 test("a re-send that cannot be made is said, not thrown, and the message is acked", async () => {
@@ -454,15 +481,19 @@ test("the edit poll carries `waiting` once the site's lock has refused the claim
 
 test("the queue handler claims before it asks a container, defers a busy claim, hands its lease name to the fire and the inline run", () => {
   const br = editBranch();
-  const claim = br.indexOf('await editRpc(env, "edit_claim", { p_id: edit.id, p_owner: owner, p_ttl: LEASE_TTL_S })');
-  const defer = br.indexOf("await deferEditJob(env, edit.id, claim);");
+  // RE-ANCHORED 2026-09-05 (stage 3a): the claim's arguments come from
+  // `claimArgs`, which adds this Worker's deploy id; the deferral covers a
+  // gated claim and an unreadable one beside a busy site, and is handed the
+  // MESSAGE (with its `tries`) rather than the id. deploy-gate drives it.
+  const claim = br.indexOf('await editRpc(env, "edit_claim", claimArgs(env, edit.id, owner))');
+  const defer = br.indexOf("await deferEditJob(env, edit, claim);");
   const beat = br.indexOf("const beat = buildRowBeat(env, edit.id, owner);");
   const fire = br.indexOf("fire = await fireContainerJob(env, edit.id, { holder: owner });");
   const clear = br.indexOf("} finally { clearInterval(beat); }");
   const inline = br.indexOf("await runQueuedSiteEdit(env, ctx, edit.id, { lease: owner, claim });");
   assert.ok(claim > 0 && defer > claim && beat > defer && fire > beat && clear > fire && inline > clear,
     "the edit branch's order is not: claim, defer on busy, beat, fire with the holder, clear, run under the lease");
-  assert.match(br, /if \(claim && claim\.claimed !== true && claim\.error === "site-busy"\) \{/, "a busy claim is not the deferral's own case");
+  assert.match(br, /if \(deferredClaim\(claim\) \|\| unreadClaim\(claim\)\) \{/, "a busy or gated claim, or one that could not be read, is not the deferral's own case");
   assert.match(br, /\} else if \(!claim \|\| claim\.claimed !== true\) \{/, "any other refusal runs something");
   assert.equal((br.match(/edit_claim/g) || []).length, 1, "the handler claims more than once");
 });
@@ -477,12 +508,17 @@ test("the consumer runs under a handed lease, takes over on `leased` only when t
   assert.match(fn, /if \(h && h\.ok === true\) claim = \{ ok: true, claimed: true, state: h\.state, uid: h\.uid, slug: h\.slug, takenOver: true \};/, "a taken-over lease does not carry the row's identity for the agreement check");
   assert.doesNotMatch(fn, /BUILD_QUEUE\.send/, "the consumer re-sends from inside the run — the container's runtime has no queue");
   const defer = fnW("deferEditJob");
-  assert.match(defer, /if \(claim && claim\.gave_up === true\) \{/);
-  assert.match(defer, /p_id: id, p_ok: false,\s+p_result: \{ status: 409, type: "application\/json", body: JSON\.stringify\(\{ ok: false, error: "site-busy", job: id, deferrals: n, msg: BUSY_EDIT_MSG \}\) \},/,
+  // RE-ANCHORED 2026-09-05 (stage 3a): the give-up carries the claim's own
+  // reason and the sentence for it (busy or gated), and the re-send goes
+  // through `resendMessage` — one cadence for every deferral — after the
+  // unreadable case, which is sent again once. deploy-gate drives all three.
+  assert.match(defer, /if \(claim\.gave_up === true\) \{/);
+  assert.match(defer, /p_id: id, p_ok: false,\s+p_result: \{ status: 409, type: "application\/json", body: JSON\.stringify\(\{ ok: false, error: claim\.error, job: id, deferrals: n, msg: gated \? GATED_EDIT_MSG : BUSY_EDIT_MSG \}\) \},/,
     "the give-up does not store the customer's sentence as a stored reply");
-  assert.match(defer, /await env\.BUILD_QUEUE\.send\(\{ kind: EDIT_JOB_KIND, id \}, \{ delaySeconds: queueDelay\(SITE_BUSY_DEFER_S\) \}\);/, "the re-send is not the consumer's own message with the delay");
+  assert.match(defer, /return resendMessage\(env, \{ kind: EDIT_JOB_KIND, id \},/, "the re-send is not the consumer's own message");
+  assert.match(fnW("resendMessage"), /await env\.BUILD_QUEUE\.send\(msg, \{ delaySeconds: queueDelay\(SITE_BUSY_DEFER_S\) \}\);/, "the re-send is not with the delay");
   const gave = defer.indexOf("claim.gave_up === true");
-  const send = defer.indexOf("BUILD_QUEUE.send");
+  const send = defer.indexOf("return resendMessage(env, { kind: EDIT_JOB_KIND, id },");
   assert.ok(gave > 0 && send > gave, "a job the RPC gave up on could be re-sent");
   const ex = fnW("runContainerJob");
   assert.match(ex, /\{ kind, id, holder = "" \} = \{\}/);
@@ -494,21 +530,24 @@ test("the consumer runs under a handed lease, takes over on `leased` only when t
 
 test("the build consumer waits or gives the deposit back; the collector goes on and says so; the row's reason reaches the verdict", () => {
   const claim = fnW("claimBuildRow");
-  assert.match(claim, /if \(c\.error === "site-busy"\) \{[\s\S]*?return \{ held: false, row: true, busy: true, gaveUp: c\.gave_up === true, other: String\(c\.other \|\| ""\), deferrals: Number\(c\.deferrals\) \|\| 0 \};/,
-    "a busy claim is not its own answer");
+  // RE-ANCHORED 2026-09-05 (stage 3a): a claim refused for a newer deploy's
+  // gate is the same waited-out answer as a busy site, with `gated` kept so
+  // the sentence and the reason on the answer are its own.
+  assert.match(claim, /if \(c\.error === "site-busy" \|\| c\.error === "deploy-gated"\) \{[\s\S]*?return \{ held: false, row: true, busy: true, gated, gaveUp: c\.gave_up === true, other: String\(c\.other \|\| ""\), deferrals: Number\(c\.deferrals\) \|\| 0 \};/,
+    "a busy or gated claim is not its own answer");
   const build = fnW("runQueuedSiteBuild");
   const read = build.indexOf("raw = await obj.text(); job = readJob(JSON.parse(raw));");
   const del = build.indexOf("await env.SITES_BUCKET.delete(jobKey(id));");
   const rowAt = build.indexOf("const row = await claimBuildRow(env, id, rowOwner, null);");
   const busy = build.indexOf("if (row.busy) {");
-  const reverse = build.indexOf('await reverseCredits(env, job.uid, "build:" + id + ":deposit", "busy", SITE_BUILD_FEE);');
+  const reverse = build.indexOf('await reverseCredits(env, job.uid, "build:" + id + ":deposit", row.gated ? "gated" : "busy", SITE_BUILD_FEE);');
   const back = build.indexOf("await env.SITES_BUCKET.put(jobKey(id), raw);");
   const resend = build.indexOf("await env.BUILD_QUEUE.send({ kind: JOB_KIND, id }, { delaySeconds: queueDelay(SITE_BUSY_DEFER_S) });");
   const run = build.indexOf("const res = await runSiteBuild(replayRequest(job), env,");
   assert.ok(read > 0 && del > read && rowAt > del && busy > rowAt && reverse > busy && back > reverse && resend > back && run > resend,
     "the build consumer's order is not: read and keep the raw object, delete, claim, on busy give back or put back and re-send, then run");
   assert.match(build, /if \(row\.gaveUp\) \{/);
-  assert.match(build, /status: 409, type: "application\/json", uid: job\.uid,\s+body: JSON\.stringify\(\{ ok: false, stage: "queue", error: "site-busy", job: id, deferrals: row\.deferrals, refunded: back\.refunded, msg: BUSY_BUILD_MSG \}\),/,
+  assert.match(build, /status: 409, type: "application\/json", uid: job\.uid,\s+body: JSON\.stringify\(\{ ok: false, stage: "queue", error: why, job: id, deferrals: row\.deferrals, refunded: back\.refunded, msg: row\.gated \? GATED_BUILD_MSG : BUSY_BUILD_MSG \}\),/,
     "the give-up's answer is not the busy sentence for the waiting request");
   assert.match(build, /if \(kept\) \{\s+try \{\s+await env\.BUILD_QUEUE\.send/, "a message is re-sent for an object that was not put back");
   const resume = fnW("runResumedSiteBuild");

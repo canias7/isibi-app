@@ -177,6 +177,15 @@ export const COLLECTED_MSG = "That build has finished and its answer was already
 // whole of its wait is failed by the claim itself, with nothing charged.
 export const BUSY_BUILD_MSG = "Your site was busy with another change for the whole time this build waited, so it was set aside — nothing was charged for it. Send your brief again once the other change has finished.";
 export const BUSY_EDIT_MSG = "Your site was busy with another change for the whole time this edit waited, so it was set aside — nothing was charged for it. Ask again once the other change has finished.";
+// THE DEPLOY GATE (stage 3a): a job refused for the whole of its wait because a
+// deploy's gate stood under another id — reachable only when a gate is left
+// standing with no new Worker behind it, since new code claims through its own.
+export const GATED_BUILD_MSG = "Our platform was being updated for the whole time this build waited, so it was set aside — nothing was charged for it. Send your brief again in a few minutes.";
+export const GATED_EDIT_MSG = "Our platform was being updated for the whole time this edit waited, so it was set aside — nothing was charged for it. Ask again in a few minutes.";
+// A QUEUED JOB NOBODY PICKED UP (stage 3a): its message sent again once by the
+// sweep, then failed with nothing charged — a build's deposit given back.
+export const STALE_BUILD_MSG = "That build was never picked up on our side, so it was set aside — nothing was charged for it. Send your brief again.";
+export const STALE_EDIT_MSG = "That change was never picked up on our side, so it was set aside — nothing was charged for it. Ask again.";
 
 /**
  * WHAT THE POLL ROUTE ANSWERS FROM THE ROW ALONE — asked only when the answer
@@ -212,6 +221,10 @@ export function rowVerdict(row) {
     // instead of blaming a build that never started.
     const kind = row.error && typeof row.error === "object" && !Array.isArray(row.error) ? String(row.error.kind || "") : "";
     if (kind === "site-busy") return { status: 410, body: { ok: false, failed: true, busy: true, stage: "queue", job, msg: BUSY_BUILD_MSG } };
+    // FAILED BY THE CLAIM UNDER A DEPLOY GATE, OR NEVER PICKED UP (stage 3a):
+    // each its own reason on the row and its own sentence, never the build's.
+    if (kind === "deploy-gated") return { status: 410, body: { ok: false, failed: true, gated: true, stage: "queue", job, msg: GATED_BUILD_MSG } };
+    if (kind === "stale") return { status: 410, body: { ok: false, failed: true, stale: true, stage: "queue", job, msg: STALE_BUILD_MSG } };
     return { status: 410, body: { ok: false, failed: true, stage: "queue", job, msg: FAILED_MSG } };
   }
   if (state === "cancelled") return { status: 410, body: { ok: false, cancelled: true, stage: "queue", job, msg: CANCELLED_MSG } };

@@ -365,7 +365,14 @@ test("the check drives the chain: filed external with an edit as the control, cl
   // THE BALANCE IS READ ACROSS THE LOST SWEEP AND THE HAPPY CHAIN.
   assert.match(sec, /b1 <> b0 or coalesce\(\(r->>'refunded'\)::numeric, 0\) <> 0 then raise exception 'FAIL 77/);
   assert.match(sec, /ok_count := ok_count \+ 21;/);
-  assert.match(CHECK, /LAST RUN 2026-09-05 \(stage 2c\): ALL 113 CHECKS PASSED/, "the header does not record the run");
+  // RE-ANCHORED 2026-09-05 (stage 3a). This pinned `LAST RUN … (stage 2c)`
+  // and went red the moment a later stage stamped its own run above it — on
+  // the stage-6 push itself, because that header was stamped AFTER the
+  // suite had run and the suite was not run again (the recorded "stamp after
+  // the run" rule has a corollary: re-run whatever reads the stamp). What
+  // this guard holds is that the header RECORDS section 19's run — its
+  // stage and its count — wherever the later stamps have pushed it.
+  assert.match(CHECK, /\(stage 2c\): ALL 113 CHECKS PASSED/, "the header does not record the run");
 });
 
 // ── THE WORKER: THE ROUTE FILES THE ROW ──────────────────────────────────────
@@ -477,10 +484,14 @@ test("the collector claims or takes the lease over by name after the wait branch
 
 test("the helpers: a takeover by name on `leased`, one retry on the handoff, a release that keeps the owner, a close that never touches the ledger", () => {
   const claim = fnW("claimBuildRow");
-  assert.match(claim, /editRpc\(env, "edit_claim", \{ p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S \}\)/);
+  // RE-ANCHORED 2026-09-05 (stage 3a): the claim's arguments come from
+  // `claimArgs`, which adds this Worker's deploy id, and a claim that could
+  // not be READ is its own answer (`unread`) ahead of "no row" — so the fresh
+  // consumer can ask again once before building as it always did.
+  assert.match(claim, /editRpc\(env, "edit_claim", claimArgs\(env, id, owner\)\)/);
   assert.match(claim, /if \(c\.error === "leased" && holder\) \{\s+const h = await editRpc\(env, "edit_handoff", \{ p_id: id, p_owner: holder, p_next: owner, p_ttl: LEASE_TTL_S, p_state: null, p_slug: null \}\);/,
     "a leased row is not taken over from its named holder");
-  assert.match(claim, /if \(!c \|\| c\.error === "no-job" \|\| c\.error === "no-service-key"\) return \{ held: false, row: false \};/, "no row is read as a row");
+  assert.match(claim, /if \(unreadClaim\(c\)\) return \{ held: false, row: false, unread: true \};\s+if \(c\.error === "no-job" \|\| c\.error === "no-service-key"\) return \{ held: false, row: false \};/, "no row is read as a row, or an unreadable claim is read as no row");
   const hand = fnW("handoffBuildRow");
   assert.match(hand, /p_next: next, p_ttl: HANDOFF_TTL_S, p_state: GENERATING, p_slug: isRowSlug\(slug\) \? slug : null/, "the handoff is not for the generation bound, to generating, with the slug only when real");
   assert.match(hand, /if \(h && h\.ok !== true && h\.error === "rpc"\) h = await editRpc\(env, "edit_handoff", args\);/, "a transport failure is not retried once");

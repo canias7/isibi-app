@@ -4381,6 +4381,37 @@ function P() {
       JSON.stringify((faint.render && faint.render.findings) || []).slice(0, 300));
   }
 
+  // ── STOPPING REFUSES A LAUNCH (stage 3a, 2026-09-05) — LAST, because it ends the service ──
+  //
+  // Cloudflare stops an instance with SIGTERM; the service drains what it
+  // holds and exits the moment that lands. A launch taken inside that window
+  // would be killed with the instance, its lease lapsing under the sweep — so
+  // `/job/run` answers 503 while stopping and the Worker's consumer runs the
+  // job itself. DRIVEN FOR REAL rather than read: a hold keeps the service
+  // busy so SIGTERM cannot end it at once, the signal is sent, the door is
+  // asked, and the service is then let go by the kill in `finally`.
+  {
+    const held = await (await fetch(`http://127.0.0.1:${PORT}/hold?ms=20000`, { method: "POST" })).json().catch(() => ({}));
+    ok("a hold keeps the service busy for the stopping check", !!(held && held.held === true), JSON.stringify(held).slice(0, 120));
+    server.kill("SIGTERM");
+    let busy = null;
+    for (let i = 0; i < 50; i++) {
+      busy = await (await fetch(`http://127.0.0.1:${PORT}/busy`)).json().catch(() => null);
+      if (busy && busy.stopping === true) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    ok("SIGTERM under a hold: the service reports stopping and stays up for what it holds",
+      !!(busy && busy.stopping === true && busy.busy === true), JSON.stringify(busy).slice(0, 160));
+    const id = "harness_stop_" + Date.now().toString(36);
+    const launch = { v: 1, kind: "edit", id, gateway: { url: "https://gofarther.dev/api/job/" + id, token: "harness" }, secrets: {}, buildPort: PORT };
+    const r = await fetch(`http://127.0.0.1:${PORT}/job/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(launch) });
+    const j = await r.json().catch(() => ({}));
+    ok("POST /job/run answers 503 {error: stopping} while the service is stopping — the Worker's inline path, no child started",
+      r.status === 503 && j.ok === false && j.error === "stopping", `status ${r.status} ${JSON.stringify(j).slice(0, 120)}`);
+    const gone = await fetch(`http://127.0.0.1:${PORT}/job/${id}`);
+    ok("…and the refused launch left no job record", gone.status === 404, `status ${gone.status}`);
+  }
+
 } catch (e) {
   failed++;
   console.log("\nUNCAUGHT: " + ((e && (e.stack || e.message)) || e));

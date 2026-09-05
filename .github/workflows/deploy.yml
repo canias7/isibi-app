@@ -94,6 +94,22 @@ jobs:
             echo "The likeliest cause is CLOUDFLARE_API_TOKEN lacking the Queues edit"
             echo "permission; add it at Cloudflare > My Profile > API Tokens."
           fi
+      # ── THE DEPLOY GATE (stage 3a, 2026-09-05): SET BEFORE ANYTHING ROLLS ───
+      #
+      # One row in the platform's database names this deploy with a 45-minute
+      # expiry. From this moment every queue consumer of the PREVIOUS deploy —
+      # the isolates the roll is about to evict (run 17: a customer's edit
+      # cancelled nine minutes after a deploy) — has its claims refused and
+      # re-sends them with a delay; the new Worker, whose DEPLOY_ID below is
+      # this same sha, claims straight through. NEVER FAILS THE DEPLOY: a gate
+      # that cannot be set is the ungated deploy of yesterday, said in the log.
+      # Every decision is in .github/scripts/deploy-gate.mjs, driven in the suite.
+      - name: deploy gate (set)
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CREDITS_MINT_SECRET: ${{ secrets.CREDITS_MINT_SECRET }}
+          DEPLOY_ID: ${{ github.sha }}
+        run: node .github/scripts/deploy-gate.mjs set
       # ── THE CONTAINER IMAGES ARE BUILT ONLY WHEN THEIR INPUTS CHANGED ────────
       #
       # (owner, 2026-09-04: "Ok yeah lets do that"). With a Dockerfile path in
@@ -122,6 +138,20 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WRANGLER_VERSION: "4.107.0"
         run: node .github/scripts/container-images.mjs
+      # ── THE DRAIN: A JOB ON THE OLD CODE FINISHES BEFORE THE ROLL ─────────────
+      #
+      # With the gate set nothing new starts on the old code, so this waits —
+      # up to fourteen minutes, under the queue's own fifteen — for the live
+      # leases in edit_jobs to reach zero, then deploys REGARDLESS and says so:
+      # a generation is bounded at thirty minutes, and a job the roll cuts is
+      # what stages 2a and 2c recover. A database that will not answer three
+      # times running deploys at once, said so.
+      - name: deploy gate (drain)
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CREDITS_MINT_SECRET: ${{ secrets.CREDITS_MINT_SECRET }}
+          DEPLOY_ID: ${{ github.sha }}
+        run: node .github/scripts/deploy-gate.mjs drain
       # All Worker secrets are uploaded through wrangler-action as part of the
       # deploy. A standalone `wrangler secret put` after the deploy fails on this
       # account with "the latest version of your Worker isn't currently deployed"
@@ -134,6 +164,15 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.107.0"
+          # THE WORKER'S OWN DEPLOY ID (stage 3a): the sha the gate above was
+          # set for, bound as a plain var — part of the version's bindings, so
+          # the new code carries it from its first request — not a secret
+          # uploaded after the deploy (which would leave a window where the
+          # new code carried the OLD sha and deferred against its own gate).
+          # A hand `wrangler deploy` sets none, and a Worker with no id is
+          # never gated.
+          vars: |
+            DEPLOY_ID
           secrets: |
             FAL_KEY
             ANTHROPIC_API_KEY
@@ -154,6 +193,7 @@ jobs:
             JOB_RUNNER_CANARY
             JOB_RUNNER_EVERYONE
         env:
+          DEPLOY_ID: ${{ github.sha }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # REQUIRED FROM 2026-08-22, AND THE FALLBACK IS GONE. It carried
@@ -333,6 +373,25 @@ jobs:
           # A token IS needed by the Supabase send-email Edge Function, which runs
           # on Deno and cannot use a binding; that lives in Supabase's secrets as
           # CF_ACCOUNT_ID + CF_EMAIL_TOKEN, not here.
+
+      # ── THE GATE AFTER THE DEPLOY: CLEARED ON FAILURE, LEFT TO EXPIRE ON SUCCESS
+      #
+      # `if: always()`, so a deploy that failed or was cancelled — the OLD
+      # Worker still live, its id not the gate's — releases its own id at once
+      # and that Worker claims again. On success the gate stands until it
+      # expires: the new isolates claim through it, and the old ones, which
+      # keep receiving deliveries for minutes after a deploy, defer until they
+      # are gone. A clear clears only its own id, so a newer overlapping
+      # deploy's gate is never released here; a run killed before this step
+      # leaves the expiry to do it.
+      - name: deploy gate (clear on failure)
+        if: always()
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CREDITS_MINT_SECRET: ${{ secrets.CREDITS_MINT_SECRET }}
+          DEPLOY_ID: ${{ github.sha }}
+          DEPLOY_OUTCOME: ${{ job.status }}
+        run: node .github/scripts/deploy-gate.mjs clear
 
       # WHERE CUSTOM DOMAINS STAND, printed on every deploy. Read-only, dry run,
       # and it can NEVER fail the job — `continue-on-error` plus the script's own

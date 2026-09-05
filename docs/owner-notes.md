@@ -3240,3 +3240,97 @@ What this needs from you: the push to main (Worker and container change,
 so the 15–20 minute hold applies), then a free check: two edits on
 fretwork-1 a few seconds apart — the second should wait and then publish
 after the first, in order. NOT proven live until then.
+
+## 2026-09-05 — A deploy waits for running jobs and stops new ones on the old code (stage 3a)
+
+Your "ok go". Until now a deploy just rolled: the new Worker went live and
+a few minutes later Cloudflare quietly killed the old copies — with
+whatever they were doing. That is what happened on 2 September (run 17): a
+rename's job was cancelled nine minutes after a push, mid-flight, nothing
+caught it, and the sweep refunded it two minutes later. The 15–20 minute
+rule after a push was for us, not for the queue, which kept handing jobs
+to copies about to die.
+
+Now a deploy is three steps around the roll. First it writes ONE row in the
+database naming itself (the commit's id) with a 45-minute expiry. From
+that moment every copy of the OLD Worker that picks up a job is told "a
+newer deploy is rolling" and puts the job back with a one-minute delay,
+counted on the job's row the same way "site busy" is — same counter, same
+forty-five-minute cap, same give-up with nothing charged and a plain
+sentence ("Our platform was being updated for the whole time this edit
+waited, so it was set aside — nothing was charged for it. Ask again in a
+few minutes."). The NEW Worker carries the same id, so it claims straight
+through. Second, before the roll, the deploy WAITS — up to fourteen
+minutes, looking every fifteen seconds — for every job that is actually
+running to finish, and then deploys regardless, saying so in the log. A
+job that is cut anyway is what the last two stages already recover.
+Third, after the roll: if the deploy succeeded the row is left to expire
+on its own, because the old copies keep receiving jobs for minutes and
+must keep stepping aside until they are gone; if the deploy failed or was
+cancelled, the old Worker is still the live one, so the row is cleared at
+once and it claims again. None of the three steps can fail a deploy — if
+the database will not answer, the deploy rolls the way every deploy did
+before today, and the log says so.
+
+Two smaller things beside it. A job that lands in the queue and is never
+picked up — its message lost, its consumer killed before it even claimed,
+a re-send that failed — used to sit there for ever, with the chat window
+polling until it gave up. The sweep now finds any queued job nothing has
+touched for ten minutes and sends it again once; if it is still untouched
+ten minutes later it is closed with "That change was never picked up on
+our side, so it was set aside — nothing was charged for it. Ask again",
+and a build's deposit is given back. And the container's job door answers
+"stopping" while the container is shutting down, so a job fired at it in
+that moment runs inside the Worker instead of in a process the shutdown
+would kill.
+
+What you will see on the next deploy, in the Actions log: `deploy gate:
+set for <sha> until <time>` before the images build, `deploy drain: no
+live leases after 0s — deploying` right before Wrangler (or a line per
+fifteen seconds naming the sites still running, until zero or the clock),
+and `deploy gate: left to expire for <sha>` at the end. In the chat:
+nothing new, unless a job waits behind a deploy — and then it simply
+takes a minute or two longer. **The first deploy carrying this is a
+little different**: the old Worker copies, which do not know the new
+answer, will leave any job handed to them during that one roll sitting
+queued, and the new code's sweep picks those up within about ten minutes.
+Every deploy after that waits properly.
+
+How it was checked: the database half was driven against the live
+database inside a transaction that rolls back — the new section (28
+checks: the gate set, read, blocking an older id and not its own, the
+refusal counted, the cap with no money moved, a stranger unable to clear
+it, an expired gate, an overlapping newer deploy, the live-lease count,
+a stale job handed back once and then closed with nothing charged) passed
+first run, and the whole script passed all 165 checks. There is no "red
+first" for this one, and I have said so in the file: against the old
+functions the section stops on "function does not exist", which proves
+nothing. The Worker's hops are driven in a new suite (the consumer putting
+a gated job back with its delay and running nothing; asking once more
+when the database will not answer and leaving the job for the sweep the
+second time; a gated build giving its deposit back past the cap; the
+collector asking the gate before it touches its record; the sweep sending
+a queued job again and closing it with the sentence; the script's three
+verbs against a fake database and clock; the container's door refusing
+while stopping, through the real container). The mutation sweep put
+75 deliberate breaks in (the gate ignored, a deferral not
+counted, the cap removed, the drain not waiting, the clear releasing a
+newer deploy's gate, the sweep closing a job with no second chance, and
+so on) and the tests caught all 75, with the three comment-only
+controls surviving as they should. The container harness is 355 of 355
+through the real container (349 last time; this stage's four, and two from
+last night's stage 2c that were never counted). The whole unit suite is
+5,240 green.
+
+One thing found on the way, worth knowing: a guard in the suite had been
+RED since last night's stage-6 push, because the check script's header
+count was stamped after the suite ran (which is the rule) and nothing
+that reads the stamp was re-run — and the red CI run went unread. Fixed,
+and written into the traps: stamp after the run, then re-run whatever
+reads the stamp.
+
+What this needs from you: the push to main (Worker, build server and
+builder modules change, so the container rolls and the 15–20 minute hold
+applies). The free check: start an edit on fretwork-1 and push to main
+while it runs — the edit should finish normally, the deploy log should
+show the wait, and nothing should be lost. NOT proven live until then.

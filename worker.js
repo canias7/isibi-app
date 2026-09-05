@@ -54,12 +54,17 @@ import {
   // One job per site at a time (stage 6, 2026-09-05): how long a refused
   // claim waits before its message is re-sent.
   SITE_BUSY_DEFER_S,
+  // The deploy gate (stage 3a, 2026-09-05): this Worker's own deploy id on
+  // every claim, the two refusals the consumer waits out, the one it cannot
+  // read (deferred once), and the window after which a queued row nobody
+  // picked up is sent again.
+  deployIdOf, unreadClaim, deferredClaim, CLAIM_RETRY_MAX, STALE_QUEUED_S,
 } from "./builder/edit-job.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
-import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, isRowSlug, buildOutcome, rowVerdict, genBound, BUSY_BUILD_MSG, BUSY_EDIT_MSG } from "./builder/build-lease.mjs";
+import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, isRowSlug, buildOutcome, rowVerdict, genBound, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -2631,10 +2636,16 @@ export default {
           // so is stored here, and nothing runs. A row claimed here holds the
           // site from this moment: the runner takes the lease over by name, or
           // the inline consumer runs under it — never a second claim.
+          // AND THE CLAIM NAMES THIS WORKER'S DEPLOY (stage 3a): a gate set by
+          // a newer deploy refuses it `deploy-gated` — this is the isolate
+          // about to be evicted — and it waits exactly as it waits for a busy
+          // site. A claim that could not be read at all is deferred ONCE, the
+          // message carrying `tries`, since a consumer that cannot ask the
+          // gate cannot tell whether a deploy is rolling under it.
           const owner = newLeaseOwner();
-          const claim = await editRpc(env, "edit_claim", { p_id: edit.id, p_owner: owner, p_ttl: LEASE_TTL_S });
-          if (claim && claim.claimed !== true && claim.error === "site-busy") {
-            await deferEditJob(env, edit.id, claim);
+          const claim = await editRpc(env, "edit_claim", claimArgs(env, edit.id, owner));
+          if (deferredClaim(claim) || unreadClaim(claim)) {
+            await deferEditJob(env, edit, claim);
           } else if (!claim || claim.claimed !== true) {
             console.log("edit queue: not claimed", edit.id, String((claim && claim.error) || "rpc"));
           } else {
@@ -2665,9 +2676,9 @@ export default {
             }
           }
         } else if (msg) {
-          await runQueuedSiteBuild(env, ctx, msg.id);
+          await runQueuedSiteBuild(env, ctx, msg.id, { tries: msg.tries });
         } else if (resume) {
-          await runResumedSiteBuild(env, ctx, resume.id);
+          await runResumedSiteBuild(env, ctx, resume.id, { tries: resume.tries });
         } else {
           const kind = message && message.body && message.body.kind;
           console.error("build queue: no handler for message", JSON.stringify(kind || null));
@@ -6484,16 +6495,22 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "" }) {
  * service key, and is not a failure.
  */
 async function claimBuildRow(env, id, owner, holder) {
-  const c = await editRpc(env, "edit_claim", { p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S });
+  const c = await editRpc(env, "edit_claim", claimArgs(env, id, owner));
   if (c && c.claimed === true) return { held: true, row: true };
-  if (!c || c.error === "no-job" || c.error === "no-service-key") return { held: false, row: false };
-  // THE SITE IS SOMEBODY ELSE'S RIGHT NOW (stage 6): the site's own lock
-  // refused the claim and counted it on the row, or gave the row up past the
-  // cap. Answered as its own case, because the two callers do opposite
-  // things with it — the fresh consumer waits, the collector goes on.
-  if (c.error === "site-busy") {
-    console.log("build row:", id, "the site is busy with", String(c.other || "?"), "— deferral", Number(c.deferrals) || 0, c.gave_up === true ? "(gave up)" : "");
-    return { held: false, row: true, busy: true, gaveUp: c.gave_up === true, other: String(c.other || ""), deferrals: Number(c.deferrals) || 0 };
+  // NO ANSWER AT ALL (stage 3a): the RPC failed, was refused, or answered no
+  // shape — so the deploy gate could not be asked either. Its own case, so
+  // the fresh consumer can ask again once before building as it always did.
+  if (unreadClaim(c)) return { held: false, row: false, unread: true };
+  if (c.error === "no-job" || c.error === "no-service-key") return { held: false, row: false };
+  // THE SITE IS SOMEBODY ELSE'S RIGHT NOW (stage 6), OR A NEWER DEPLOY IS
+  // ROLLING (stage 3a): the claim refused and counted on the row, or gave the
+  // row up past the cap. Answered as one case with the reason kept, because
+  // the two callers do opposite things with it — the fresh consumer waits,
+  // the collector goes on.
+  if (c.error === "site-busy" || c.error === "deploy-gated") {
+    const gated = c.error === "deploy-gated";
+    console.log("build row:", id, gated ? "a deploy is rolling (" + String(c.other || "?") + ")" : "the site is busy with " + String(c.other || "?"), "— deferral", Number(c.deferrals) || 0, c.gave_up === true ? "(gave up)" : "");
+    return { held: false, row: true, busy: true, gated, gaveUp: c.gave_up === true, other: String(c.other || ""), deferrals: Number(c.deferrals) || 0 };
   }
   // HELD BY THE CONTAINER, TAKEN OVER BY NAME. A released lease is not yet
   // expired (`RELEASE_TTL_S`), and a container whose report never landed
@@ -6519,27 +6536,76 @@ async function claimBuildRow(env, id, owner, holder) {
  * queue to send on, and never sees a busy claim (the consumer claimed before
  * it fired).
  */
-async function deferEditJob(env, id, claim) {
+async function deferEditJob(env, edit, claim) {
+  const id = edit.id;
+  // THE CLAIM COULD NOT BE READ (stage 3a): asked again once, the message
+  // carrying how often it was; the second time it is left queued, where the
+  // stale sweep sends it again and then fails it if nothing picks it up.
+  if (unreadClaim(claim)) {
+    const tries = Number(edit.tries) || 0;
+    if (tries >= CLAIM_RETRY_MAX) {
+      console.error("edit queue: the claim could not be read twice for", id, "— leaving it queued for the stale sweep");
+      return { deferred: false, gaveUp: false, unread: true };
+    }
+    return resendMessage(env, { kind: EDIT_JOB_KIND, id, tries: tries + 1 },
+      "edit queue: " + id + " — the claim could not be read (" + String((claim && claim.error) || "no answer") + "), asking again in a minute");
+  }
   const n = Number(claim && claim.deferrals) || 0;
-  if (claim && claim.gave_up === true) {
-    console.log("edit queue:", id, "gave up waiting for its site after", n, "deferrals — held by", String(claim.other || "?"));
+  const gated = claim.error === "deploy-gated";
+  if (claim.gave_up === true) {
+    console.log("edit queue:", id, "gave up waiting after", n, "deferrals —", gated ? "a deploy's gate stood the whole time (" + String(claim.other || "?") + ")" : "held by " + String(claim.other || "?"));
     await editRpc(env, "edit_finalize", {
       p_id: id, p_ok: false,
-      p_result: { status: 409, type: "application/json", body: JSON.stringify({ ok: false, error: "site-busy", job: id, deferrals: n, msg: BUSY_EDIT_MSG }) },
+      p_result: { status: 409, type: "application/json", body: JSON.stringify({ ok: false, error: claim.error, job: id, deferrals: n, msg: gated ? GATED_EDIT_MSG : BUSY_EDIT_MSG }) },
     });
     return { deferred: false, gaveUp: true };
   }
+  return resendMessage(env, { kind: EDIT_JOB_KIND, id },
+    "edit queue: " + id + " deferred — " + (gated ? "a deploy is rolling (" + String(claim.other || "?") + ")" : "the site is busy with " + String(claim.other || "?")) + " (" + n + ")");
+}
+
+/**
+ * SEND A QUEUE MESSAGE AGAIN, A MINUTE OUT. One cadence for every deferral —
+ * a busy site, a deploy's gate, a claim that could not be read — and one
+ * place a re-send that cannot be made is said rather than thrown: the row it
+ * names sits queued with no lease, and the stale sweep is what finds it.
+ */
+async function resendMessage(env, msg, note) {
   try {
     if (!env.BUILD_QUEUE) throw new Error("no queue to re-send on");
-    await env.BUILD_QUEUE.send({ kind: EDIT_JOB_KIND, id }, { delaySeconds: queueDelay(SITE_BUSY_DEFER_S) });
-    console.log("edit queue:", id, "deferred — the site is busy with", String(claim.other || "?"), "(" + n + ")");
+    await env.BUILD_QUEUE.send(msg, { delaySeconds: queueDelay(SITE_BUSY_DEFER_S) });
+    console.log(note);
     return { deferred: true, gaveUp: false };
   } catch (e) {
-    // NOTHING COMES BACK FOR THIS JOB IF THIS FAILS: the row sits queued with
-    // no lease, which nothing sweeps yet (stage 3a's territory). Said loudly.
-    console.error("edit queue: could not re-send", id, "after a busy claim:", String((e && e.message) || e));
+    console.error("queue: could not re-send", String(msg && msg.kind), String(msg && msg.id), "—", String((e && e.message) || e));
     return { deferred: false, gaveUp: false };
   }
+}
+
+/**
+ * WHAT A CLAIM SENDS (stage 3a): the row, the holder, the lease — and this
+ * Worker's own deploy id when it has one, so the RPC can refuse a consumer a
+ * newer deploy is about to evict. A Worker with no id sends none and is never
+ * gated; the container's runtime has none by construction, and the runner's
+ * own claim there is a takeover by name, never a gated one.
+ */
+function claimArgs(env, id, owner) {
+  const deploy = deployIdOf(env);
+  return { p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S, ...(deploy ? { p_deploy: deploy } : {}) };
+}
+
+/**
+ * IS A NEWER DEPLOY ROLLING UNDER THIS WORKER? Asked of the gate directly by
+ * the look that collects a build, whose row is the container's while it
+ * generates and so cannot carry the answer on a claim. No deploy id is no
+ * question; a gate that cannot be read is said so the caller can defer once.
+ */
+async function deployGate(env) {
+  const mine = deployIdOf(env);
+  if (!mine) return { blocked: false, unread: false, deploy: "" };
+  const r = await editRpc(env, "deploy_gate_read", { p_deploy: mine });
+  if (!r || r.ok !== true) return { blocked: false, unread: true, deploy: "" };
+  return { blocked: r.blocks === true, unread: false, deploy: String(r.deploy_id || "") };
 }
 
 /** Renew the row's lease on a timer, as the edit consumer does. The caller clears it on every exit. */
@@ -12240,7 +12306,7 @@ async function awaitJobResult(env, id, uid) {
  * two come to disagree. What this side owns is the WORK, which outlives the
  * request by design.
  */
-async function runQueuedSiteBuild(env, ctx, id) {
+async function runQueuedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   let job = null;
   // THE RAW OBJECT IS KEPT for one reason: a claim the site's own lock refuses
   // (stage 6) puts it back, so the message re-sent with a delay finds it.
@@ -12288,14 +12354,17 @@ async function runQueuedSiteBuild(env, ctx, id) {
   // can be, so its claim is never busy — nothing here reaches a customer whose
   // site is new. An object that cannot be put back is a build that runs now,
   // said in the log: serialisation is the row's, the deliverable is the site.
+  // …AND A NEWER DEPLOY'S GATE (stage 3a) is waited out the same way, with its
+  // own reason on the row and its own sentence.
   if (row.busy) {
+    const why = row.gated ? "deploy-gated" : "site-busy";
     if (row.gaveUp) {
-      const back = await reverseCredits(env, job.uid, "build:" + id + ":deposit", "busy", SITE_BUILD_FEE);
-      console.log("build queue:", id, "gave up waiting for its site after", row.deferrals, "deferrals — deposit back:", back.refunded);
+      const back = await reverseCredits(env, job.uid, "build:" + id + ":deposit", row.gated ? "gated" : "busy", SITE_BUILD_FEE);
+      console.log("build queue:", id, "gave up waiting after", row.deferrals, "deferrals (" + why + ") — deposit back:", back.refunded);
       try {
         await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({
           status: 409, type: "application/json", uid: job.uid,
-          body: JSON.stringify({ ok: false, stage: "queue", error: "site-busy", job: id, deferrals: row.deferrals, refunded: back.refunded, msg: BUSY_BUILD_MSG }),
+          body: JSON.stringify({ ok: false, stage: "queue", error: why, job: id, deferrals: row.deferrals, refunded: back.refunded, msg: row.gated ? GATED_BUILD_MSG : BUSY_BUILD_MSG }),
         })));
       } catch (e) { console.error("build queue: could not write the busy answer for", id, String((e && e.message) || e)); }
       return;
@@ -12306,12 +12375,29 @@ async function runQueuedSiteBuild(env, ctx, id) {
     if (kept) {
       try {
         await env.BUILD_QUEUE.send({ kind: JOB_KIND, id }, { delaySeconds: queueDelay(SITE_BUSY_DEFER_S) });
-        console.log("build queue:", id, "deferred — the site is busy with", row.other, "(" + row.deferrals + ")");
+        console.log("build queue:", id, "deferred —", row.gated ? "a deploy is rolling (" + row.other + ")" : "the site is busy with " + row.other, "(" + row.deferrals + ")");
         return;
       } catch (e) {
         console.error("build queue: could not re-send", id, "after a busy claim, running it now:", String((e && e.message) || e));
         try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the token expires on its own */ }
       }
+    }
+  }
+  // ── THE CLAIM COULD NOT BE READ (stage 3a) ─────────────────────────────────
+  //
+  // No answer from the RPC means the deploy gate could not be asked either, so
+  // the build is asked again ONCE — the object put back, the message re-sent
+  // carrying `tries` — rather than started on an isolate a deploy may be about
+  // to evict. The second time it builds as it always did: the row is an
+  // instrument, and a database that is down is not a deploy.
+  if (row.unread && tries < CLAIM_RETRY_MAX) {
+    let kept = false;
+    try { await env.SITES_BUCKET.put(jobKey(id), raw); kept = true; }
+    catch (e) { console.error("build queue: could not put the job back for", id, String((e && e.message) || e)); }
+    if (kept) {
+      const sent = await resendMessage(env, { kind: JOB_KIND, id, tries: tries + 1 }, "build queue: " + id + " — the claim could not be read, asking again in a minute");
+      if (sent.deferred) return;
+      try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the token expires on its own */ }
     }
   }
   const lease = row.held ? rowOwner : null;
@@ -12478,6 +12564,67 @@ async function runLostEditJobs(env) {
   if (r && r.ok === true && Object.values(counts).some((n) => (Number(n) || 0) > 0)) {
     console.log("edit sweep:", JSON.stringify({ ...counts, refunded: r.refunded }));
   }
+  // ── A QUEUED ROW NOBODY PICKED UP (stage 3a, 2026-09-05) ───────────────────
+  //
+  // No lease and nothing touching it for STALE_QUEUED_S: its message was never
+  // delivered, its consumer was evicted before the claim landed (a deploy's
+  // eviction, the gate's own failure mode), or a re-send failed. The RPC marks
+  // it `stale` and hands it back to be SENT AGAIN, once; a row still untouched
+  // a window later comes back FAILED — the refund taken inside the RPC with
+  // the reason on the row — and this side closes it: the customer's sentence
+  // stored where the poll reads it, a build's deposit given back. Before this,
+  // such a row sat queued for ever behind a browser polling to its own bound.
+  await runStaleEditJobs(env);
+}
+
+export async function runStaleEditJobs(env) {
+  const s = await editRpc(env, "edit_sweep_stale", { p_after: STALE_QUEUED_S, p_limit: 20 });
+  if (!s || s.ok !== true) return;
+  const resend = Array.isArray(s.resend) ? s.resend : [];
+  const failed = Array.isArray(s.failed) ? s.failed : [];
+  for (const x of resend) {
+    const id = String((x && x.id) || "");
+    if (!id) continue;
+    // A BUILD ROW'S MESSAGE OR AN EDIT'S, by the row's own op; sent NOW, since
+    // the wait it is recovering from has already been ten minutes.
+    const msg = String(x.op) === BUILD_OP ? { kind: JOB_KIND, id } : { kind: EDIT_JOB_KIND, id };
+    try {
+      if (!env.BUILD_QUEUE) throw new Error("no queue to re-send on");
+      await env.BUILD_QUEUE.send(msg);
+      console.log("stale sweep:", id, "sent again —", msg.kind, "queued with no lease and nothing touching it");
+    } catch (e) { console.error("stale sweep: could not re-send", id, String((e && e.message) || e)); }
+  }
+  for (const x of failed) await closeStaleJob(env, x);
+  if (resend.length || failed.length) console.log("stale sweep:", JSON.stringify({ resent: resend.length, failed: failed.length }));
+}
+
+/**
+ * A stale row the RPC has already failed: the sentence the customer reads,
+ * stored where the row's poll route reads it — the result object for a build
+ * (its deposit, the one debit a build that never designed has made, given
+ * back first under its own ref), the finalize's stored reply for an edit.
+ */
+async function closeStaleJob(env, x) {
+  const id = String((x && x.id) || "");
+  if (!id) return;
+  const uid = String((x && x.uid) || "");
+  if (String(x.op) === BUILD_OP) {
+    let back = { refunded: 0 };
+    if (uid) back = await reverseCredits(env, uid, "build:" + id + ":deposit", "stale", SITE_BUILD_FEE);
+    console.log("stale sweep:", id, "failed — a build never picked up; deposit back:", back.refunded);
+    try {
+      await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({
+        status: 409, type: "application/json", uid,
+        body: JSON.stringify({ ok: false, stage: "queue", error: "stale", job: id, refunded: back.refunded, msg: STALE_BUILD_MSG }),
+      })));
+    } catch (e) { console.error("stale sweep: could not write the answer for", id, String((e && e.message) || e)); }
+    return;
+  }
+  console.log("stale sweep:", id, "failed — an edit never picked up");
+  await editRpc(env, "edit_finalize", {
+    p_id: id, p_ok: false,
+    p_result: { status: 409, type: "application/json", body: JSON.stringify({ ok: false, error: "stale", job: id, msg: STALE_EDIT_MSG }) },
+  });
 }
 
 /**
@@ -12627,7 +12774,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // run, said in the log.
     let claim = held && held.claimed === true ? held : null;
     if (!claim) {
-      claim = await editRpc(env, "edit_claim", { p_id: id, p_owner: owner, p_ttl: LEASE_TTL_S });
+      claim = await editRpc(env, "edit_claim", claimArgs(env, id, owner));
       if (claim && claim.claimed !== true && claim.error === "leased" && takeOver) {
         const h = await editRpc(env, "edit_handoff", { p_id: id, p_owner: takeOver, p_next: owner, p_ttl: LEASE_TTL_S, p_state: null, p_slug: null });
         if (h && h.ok === true) claim = { ok: true, claimed: true, state: h.state, uid: h.uid, slug: h.slug, takenOver: true };
@@ -12993,7 +13140,23 @@ async function recordRefire(env, id, claimed, stored, resume, decision, tr, rec,
   try { rec.step(tr.done()); } catch { /* the trace is never worth a build */ }
 }
 
-async function runResumedSiteBuild(env, ctx, id) {
+async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
+  // ── THE DEPLOY GATE, ASKED BEFORE THE RECORD IS TOUCHED (stage 3a) ────────
+  //
+  // This look claims its record before anything else, and a claim marked
+  // charged is a look that MUST publish — so "is a newer deploy about to evict
+  // me" is asked first, of the gate directly (the row is the container's while
+  // it generates, so a row claim cannot carry the answer), and a gated look
+  // sends its own message again with a delay, the record and its count
+  // untouched: bounded by the gate's own expiry, and by the container holding
+  // the answer in R2 however long the look takes to come back. A gate that
+  // cannot be read defers once; then the look goes on as it always did.
+  const gate = await deployGate(env);
+  if (gate.blocked || (gate.unread && tries < CLAIM_RETRY_MAX)) {
+    const again = { ...packResumeMessage(id), ...(gate.unread ? { tries: tries + 1 } : {}) };
+    const sent = await resendMessage(env, again, "build resume: " + id + (gate.blocked ? " deferred — a deploy is rolling (" + gate.deploy + ")" : " — the gate could not be read, asking again in a minute"));
+    if (sent.deferred) return;
+  }
   let stored = null;
   let etag = "";
   try {

@@ -355,7 +355,13 @@ test("THE RESULT RECORDS WHOSE BUILD IT IS, at every writer", () => {
       else if (CODE[j] === "}" || CODE[j] === "]" || CODE[j] === ")") { d--; if (!d) { end = j; break; } }
     }
     assert.ok(end > at, "a packResult call is not closed — the scan cannot read it");
-    assert.match(CODE.slice(at, end), /(^|[\s,{])uid:/,
+    // `uid: x` OR THE SHORTHAND `uid,` — the property is that the owner is
+    // recorded, not how the key is spelled. This pinned the colon form and went
+    // red on 2026-09-05 (stage 3a) for the stale sweep's writer, which carries
+    // the row's owner as a local named `uid` and writes it shorthand: correct
+    // code reported as a missing owner, the recorded spelling-versus-property
+    // trap. A key that is neither form is still the fault this guard is for.
+    assert.match(CODE.slice(at, end), /(^|[\s,{])uid(:|\s*[,}])/,
       "a build result is written with no owner, so the route that reads it later would refuse its own customer");
   }
 });

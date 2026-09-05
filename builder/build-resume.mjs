@@ -28,6 +28,7 @@
 // past its own deadline in a test, which is exactly the case that matters.
 
 import { BUILDER_CALL_MS, retryHere } from "./build-call.mjs";
+import { readTries } from "./build-job.mjs";
 
 // The one prefix, shared with `build-job.mjs` — under `jobs/`, which nothing
 // serves. A resume record holds the caller's own access token for the same
@@ -485,7 +486,10 @@ export function readResumeMessage(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   if (body.kind !== RESUME_KIND) return null;
   if (!isResumeId(body.id)) return null;
-  return { id: body.id };
+  // `tries` (stage 3a): how often this look was sent again because the deploy
+  // gate could not be read — build-job.mjs's one reader, bounded by the consumer.
+  const tries = readTries(body);
+  return tries === undefined ? { id: body.id } : { id: body.id, tries };
 }
 
 /**

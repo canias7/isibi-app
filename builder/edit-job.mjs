@@ -19,6 +19,10 @@
 // the part that acts.
 
 /** The queue message kind. `site-build` is the other one and neither may guess. */
+// The one reader of a re-sent message's `tries` (stage 3a), shared with the
+// build and resume messages so the count cannot be read three ways.
+import { readTries } from "./build-job.mjs";
+
 export const EDIT_JOB_KIND = "site-edit";
 
 /** Where a job's replayable request lives in R2, beside the build jobs. */
@@ -202,6 +206,62 @@ export const SITE_BUSY_DEFER_S = 60;
  */
 export const MAX_SITE_BUSY_DEFERRALS = 45;
 
+// ── THE DEPLOY GATE (stage 3a, 2026-09-05) ─────────────────────────────────
+//
+// A deploy SETS A GATE before it rolls — one row in private.platform_flags,
+// written by deploy_gate_set with the deploy's own id and an expiry — and
+// passes that id into the Worker as DEPLOY_ID. A consumer names its own id on
+// every claim; the RPC refuses the claim `deploy-gated` while a gate under a
+// DIFFERENT id stands, because that consumer is the isolate the deploy is
+// about to evict (run 17: a queue invocation cancelled nine minutes after a
+// deploy, the job it held swept as lost). The new code's id IS the gate's, so
+// it claims straight through; a Worker with no id — a hand deploy — sends
+// none and is never gated. The refusal is counted and bounded exactly as a
+// busy site's (the same column, the same cap, the same give-up), and the
+// consumer sends its own message again with the same delay.
+
+/** The shape of a deploy id: a git sha, or any short label a hand deploy might set. */
+export const DEPLOY_ID_RE = /^[A-Za-z0-9._-]{4,64}$/;
+
+/** This Worker's own deploy id, or "" when it has none or the value is not one. */
+export function deployIdOf(env) {
+  const v = env && env.DEPLOY_ID;
+  return typeof v === "string" && DEPLOY_ID_RE.test(v) ? v : "";
+}
+
+/**
+ * A CLAIM THAT COULD NOT BE READ — the RPC failed in transport, was refused
+ * with a status, or answered no shape — is deferred ONCE: the message is sent
+ * again carrying `tries`, because a consumer that cannot ask the gate cannot
+ * tell whether a deploy is rolling under it. The second unreadable claim
+ * proceeds as the consumer always did (a build builds, an edit is left for the
+ * stale sweep): the gate is a safety, not a wall, and a database that is down
+ * is not a deploy.
+ */
+export const CLAIM_RETRY_MAX = 1;
+
+/** Was this claim answer no answer at all — nothing, a transport failure, a refusal, no shape? */
+export function unreadClaim(c) {
+  return !c || (c.ok === false && (c.error === "rpc" || c.error === "rpc-shape"));
+}
+
+/** A claim refused for a reason the consumer waits out: the site is held, or a deploy is rolling. */
+export function deferredClaim(c) {
+  return !!c && c.claimed !== true && (c.error === "site-busy" || c.error === "deploy-gated");
+}
+
+/**
+ * A QUEUED ROW NOBODY HAS PICKED UP (stage 3a): no lease, and nothing has
+ * touched it for this long — its message was never delivered, its consumer
+ * was evicted before the claim landed, or a re-send failed. The sweep sends
+ * its message again ONCE (the row marked `stale`); a row still untouched a
+ * window later is failed with the reason on it, a build's deposit given back.
+ * Ten minutes: a deferred message is delivered within a minute or two, and
+ * every deferral touches the row, so a job waiting behind a site or a deploy
+ * is never stale.
+ */
+export const STALE_QUEUED_S = 600;
+
 // ── STATES ─────────────────────────────────────────────────────────────────
 
 /** Every state the database's own CHECK constraint admits, in order.
@@ -379,7 +439,11 @@ export function readEditMessage(body) {
   if (body.kind !== EDIT_JOB_KIND) return null;
   // A NON-STRING ID IS REFUSED, NOT COERCED. `String(["abc"])` is `"abc"`.
   if (typeof body.id !== "string" || !/^[0-9a-f]{32}$/.test(body.id)) return null;
-  return { kind: EDIT_JOB_KIND, id: body.id };
+  // `tries` (stage 3a): how often this message was sent again because its
+  // claim could not be read — build-job.mjs's one reader, bounded by the
+  // consumer (`CLAIM_RETRY_MAX`), absent on a first delivery.
+  const tries = readTries(body);
+  return tries === undefined ? { kind: EDIT_JOB_KIND, id: body.id } : { kind: EDIT_JOB_KIND, id: body.id, tries };
 }
 
 /**

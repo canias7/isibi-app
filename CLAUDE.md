@@ -2847,7 +2847,7 @@ rebuild ──rebuild_claim(slug, sec): the same lock, the same question──�
   a busy build in the build's sentence; the check without the refusal or the
   money. Full suite **5,217**.
 - **Stated residues.** A job whose re-send fails sits `queued` with no lease
-  and nothing sweeps it (3a). A refused commit ends in review through the
+  until the stale sweep sends it again (3a, the next section). A refused commit ends in review through the
   consumer's refund (3b). The collector going on when refused (above). The
   browser does not yet say "waiting". **AND A WINDOW THAT IS OPEN NOW, until
   the deploy carrying this Worker**: the migration is live and the Worker on
@@ -2870,6 +2870,270 @@ rebuild ──rebuild_claim(slug, sec): the same lock, the same question──�
   edit runs; the repair shows on the first claim of a site that has a pointer
   as "editable state: <slug> no-head → repaired from <version>" in the log
   (a legacy site, no pointer, is left alone), and nothing on the site changes.
+
+### A DEPLOY WAITS FOR RUNNING JOBS AND GATES THE OLD CODE, AND A QUEUED ROW NOBODY PICKED UP IS SWEPT (2026-09-05, stage 3a)
+
+Owner: *"ok go"*. Run 17's shape: a deploy rolls the Worker and the platform
+evicts the old isolates minutes later — a queue invocation carrying a
+customer's edit was `canceled` nine minutes after the 17:31 deploy, no
+catch, no finally, the lease lapsing under the sweep and the change lost.
+The isolate has no drain of its own and `deploy.yml` had no gate: the
+"15–20 minute hold" after a push was a rule for humans firing container
+work, never for the queue, which keeps delivering. And stage 6 left a row
+it twice called "3a's territory": a `queued` row with no lease that nothing
+touches — its message never delivered, its consumer evicted before the
+claim landed, a re-send that failed — sat queued for ever behind a browser
+polling to its own bound.
+
+```
+deploy.yml  set ──► private.platform_flags {name: deploy, deploy_id: <sha>, expires_at: now + 45 min}
+            (the container images)
+            drain ──► deploy_gate_read every 15 s until live leases = 0 | 14 min | 3 unread ──► wrangler deploy, DEPLOY_ID = <sha> (a var)
+            clear, if: always() ──► success: LEFT TO EXPIRE · failure/cancelled: cleared, own id only
+consumer ──edit_claim(…, p_deploy: DEPLOY_ID)──► private.gate_blocks: a live gate under ANOTHER id
+            → private.claim_deferred('deploy-gated'): deferrals + 1, phase waiting  (stage 6's body, one for both reasons)
+            → the consumer re-sends its message, delay 60 s · past 45: failed through the refund, GATED_*_MSG
+cron ──edit_sweep_stale(600 s)──► queued, no lease, untouched a window: marked stale, SENT AGAIN once
+            → still untouched a window later: failed, STALE_*_MSG, a build's deposit reversed
+build-server ──POST /job/run while _stopping──► 503 {error: "stopping"} FIRST ──► the consumer runs the job inline
+```
+
+- **THE GATE IS ONE ROW AND ONE COMPARISON.** `private.platform_flags`
+  (`name` pk, `deploy_id`, `started_at`, `expires_at`, `updated_at`),
+  revoked from public, anon and authenticated; the deploy is the row named
+  `deploy`. `private.gate_blocks(p_deploy)`: a caller naming NO deploy is
+  never blocked (a hand `wrangler deploy`, the container's runtime — whose
+  env carries no `DEPLOY_ID` by construction, `JOB_ENV_NAMES` does not list
+  it, and whose own claim is a takeover by name); a gate that names a
+  deploy, has not expired, and names a DIFFERENT id answers that id; the
+  gate's own id — the new code — claims straight through. **`edit_claim` is
+  DROPPED and re-created** as `edit_claim(p_id, p_owner, p_ttl, p_mint,
+  p_deploy text default null)`: `CREATE OR REPLACE` with a new parameter
+  leaves the old four-argument overload beside the new one, and the DEFAULT
+  is what lets the Worker on main, which names four arguments, keep
+  claiming through the migration. Its own answers come first (needs-review,
+  terminal, settled, a live `leased`), the gate second, the site's lock
+  third — a job's own lease never reads as gated or busy, and a first
+  build's placeholder slug is never busy.
+- **ONE DEFERRAL BODY FOR BOTH REASONS.** `private.claim_deferred(p_id,
+  p_kind, p_other, p_state, p_mint)` is stage 6's site-busy body lifted out
+  and called for `site-busy` and `deploy-gated` alike: deferrals + 1, phase
+  `waiting`; past the cap, `edit_refund(…, 'failed', …)` inside the RPC with
+  `error = {kind, phase: queued, other, deferrals}` and `gave_up: true` on
+  the answer. The cap is ONE literal (`if deferred > 45 then`), and
+  `test/deploy-gate.test.mjs` holds it equal to `MAX_SITE_BUSY_DEFERRALS`;
+  `test/site-busy.test.mjs` reads it off whichever migration spells it
+  now. The Worker side: `deferredClaim(c)` answers for both kinds,
+  `deferEditJob` re-sends `{kind, id}` through `resendMessage` — ONE cadence
+  for every deferral, `SITE_BUSY_DEFER_S` — and a give-up stores a 409 with
+  `GATED_EDIT_MSG` or `BUSY_EDIT_MSG` through `edit_finalize(p_ok: false)`.
+  `claimBuildRow` answers `busy: true, gated`: the fresh build consumer puts
+  its object back and re-sends, a give-up reverses the deposit under
+  `gated` (or `busy`) and stores the 409 — `rowVerdict` reads it as 410
+  `gated: true` with `GATED_BUILD_MSG` — and the collector goes on, as it
+  does for busy (2c's stated residue stands).
+- **THREE RPCs, SERVICE-ROLE ONLY.** `deploy_gate_set(p_deploy_id, p_ttl
+  60..7200, p_mint)` upserts the row and says what it replaced (`previous`,
+  `previous_active`); `deploy_gate_clear(p_deploy_id, p_mint)` clears ONLY
+  its own id (`{cleared, holder}` — an overlapping newer deploy's gate is
+  never released by an older one's failure); `deploy_gate_read(p_deploy,
+  p_mint)` answers the gate (`active`, `deploy_id`, `started_at`,
+  `expires_at`, `blocks` for the caller's id) and `live` — the count of
+  unexpired leases in `edit_jobs`, with up to twenty rows — which is what
+  the drain waits on. FAIL 99 reads the grants out of `pg_proc`.
+- **THE WORKFLOW: THREE STEPS, AND NONE OF THEM CAN FAIL THE DEPLOY.**
+  `.github/scripts/deploy-gate.mjs` — every decision a function taking its
+  clock and its fetch, `main` the thin wiring, and NEVER a non-zero exit: a
+  gate that cannot be set, a drain that cannot read, a clear that cannot
+  land is the ungated deploy of yesterday, said loudly in the step's log.
+  `set` runs BEFORE the container images, so the gate stands for the whole
+  image build and the deploy (`DEFAULT_TTL_S` 2700 = the drain's 14 + the
+  images + the deploy + the propagation window after; the expiry is what
+  bounds a workflow killed before its clear step). `drain` runs immediately
+  before `Deploy with Wrangler`: `deploy_gate_read` every `DRAIN_TICK_S`
+  15 s until `live` is zero, or `DRAIN_MAX_S` 840 s (under the queue's own
+  fifteen), or `READ_FAILS_MAX` 3 unread in a row — then deploys
+  REGARDLESS, saying which: a generation is bounded at thirty minutes, the
+  wait at fourteen, and a job cut by the roll is what 2a and 2c recover.
+  `clear` runs `if: always()` with `DEPLOY_OUTCOME: ${{ job.status }}`: on
+  SUCCESS the gate is LEFT TO EXPIRE — the new isolates claim through it
+  and the old ones, which keep receiving deliveries for minutes after a
+  deploy, defer until they are gone; on failure or cancellation the old
+  Worker is still the live one and its id is not the gate's, so our own id
+  is cleared at once and it claims again. `DEPLOY_ID` is `github.sha` and
+  reaches the Worker as a `vars:` entry of the wrangler-action step (the
+  block is new; it is a value the log may print, not a secret). A gate step
+  missing a secret logs "NOT SET — … rolls ungated, as every deploy before
+  2026-09-05 did".
+- **A GATE THAT CANNOT BE READ DEFERS ONCE.** `unreadClaim(c)` — no answer,
+  `rpc`, `rpc-shape` — is its own case, because no answer means the gate
+  could not be asked either: the consumer re-sends its own message carrying
+  `tries + 1` (`readTries`: an integer 0..9 on the message, else absent;
+  all three message readers carry it) bounded by `CLAIM_RETRY_MAX` 1, and
+  the second time the row is left `queued`, said in the log, for the stale
+  sweep — never built on an isolate a deploy may be about to evict, and
+  never waited for ever on a database that is down. The build consumer puts
+  its object back before re-sending. **The collector asks the gate
+  DIRECTLY** (`deployGate(env)`, `deploy_gate_read` with its own id): its
+  row is the container's while it generates, so a row claim cannot carry
+  the answer, and a gated look re-sends `packResumeMessage(id)` with the
+  delay before touching its record — bounded by the gate's own expiry, the
+  answer held in R2 however long the look takes to come back.
+- **THE STALE SWEEP.** `edit_sweep_stale(p_after 60..3600, p_limit, p_mint)`,
+  called by `runLostEditJobs` on every cron tick with `STALE_QUEUED_S` 600:
+  a `queued` row with no lease that nothing has touched for the window.
+  First look: `phase = 'stale'`, deferrals + 1, handed back in `resend`
+  with its op; a row already marked: `edit_refund('failed', 'never picked
+  up')` with `error = {kind: stale, …}`, handed back in `failed` with its
+  uid and slug. `runStaleEditJobs(env)` (exported, driven) sends a `resend`
+  row's own message NOW — the wait it recovers from was already ten
+  minutes; a build op is `{kind: JOB_KIND, id}`, anything else the edit
+  kind — and `closeStaleJob` closes a `failed` one: a build reverses
+  `build:<id>:deposit` under `stale` and writes the result object (409,
+  `stage: queue`, `error: stale`; `rowVerdict` → 410 `stale: true`,
+  `STALE_BUILD_MSG`), an edit or addon stores `STALE_EDIT_MSG` through
+  `edit_finalize(p_ok: false)`. The window is longer than a deferral's
+  delay plus a claim, so a message in flight is never swept (the numbers
+  guard reads that).
+- **THE CONTAINER'S DOOR.** `POST /job/run` answers 503 `{ok: false,
+  error: "stopping"}` FIRST while `_stopping`, before it reads the launch:
+  the fork reads any non-200 as "run inline" — the shape an older image's
+  404 already had — so a job fired at a container being shut down runs in
+  the consumer instead of in a child the shutdown will kill. Driven through
+  the real service by the harness's last case (a hold, SIGTERM, `/busy`
+  answering `stopping: true` and still busy, the 503, `GET /job/<id>` 404).
+- **WHAT IS NOT GATED, DELIBERATELY.** The platform rebuild drain
+  (`rebuild_claim`, a cron's own clock, one compile per row — a rebuild cut
+  by the roll is retried by its own `attempts`), and every claim that
+  names no deploy (above).
+- **Guards.** `test/deploy-gate.test.mjs` (23): the numbers; the migration
+  (the row and its comparison, one deferral body, the claim's order, the
+  DROP before the CREATE and the re-issued grants); the seven functions in
+  the live snapshot byte for byte; section 21's order; the workflow's three
+  `run:` lines and the `vars` entry (a count of the script's NAME was 4 —
+  the set step's comment names it; "prose contains the thing it forbids");
+  the script's every function driven with a fake fetch and clock (`readEnv`;
+  `rpc` — the mint in the body and the key in the headers, a refusal's
+  STATUS only, never its body, which quotes the request and so the mint;
+  `set`; `drain` to zero, to the clock, to three unreads; `clear` on
+  success, failure and another's gate; `main`); the consumer DRIVEN through
+  `worker.queue` — a gated claim re-sent with the delay and nothing run, an
+  unread claim re-sent once with `tries` and left the second time, a gated
+  build re-put and re-sent, past the cap the deposit reversed and the 409
+  stored, an unread build asked once, the collector's gate before its
+  record; the stale sweep driven (a re-send now, a failed edit's sentence,
+  a failed build's deposit); the hops read; the container's door driven;
+  the poll routes' two new sentences. Seven older guards went red for the
+  change and were re-anchored, not appeased — the handler's spelling
+  (`claimArgs`, `deferredClaim || unreadClaim`), `deferEditJob`'s shape,
+  `claimBuildRow`'s reverse reason, the snapshot of `edit_claim` now read
+  against the newest migration DEFINING it, the cap off `if deferred > N
+  then` wherever it lives, `build-resume-wiring`'s every-writer guard
+  (it pinned `uid:` and the stale writer records the owner as the
+  shorthand `uid,` — the property is the owner, not the colon; a writer
+  with no owner still fails it, driven both ways before the re-anchor),
+  and `build-jobs` #11 — **which had been RED
+  since the stage-6 push**: it pinned the check script's header stamp
+  `(stage 2c): ALL 113 CHECKS PASSED`, stage 6 restamped the header to 137
+  AFTER its suite run, as the stamping rule asks, and re-ran nothing that
+  reads the stamp; the `unit tests` run on that push was red and unread.
+  The guard reads the stage-2c line by name now (the header keeps every
+  stamp as its own line). The trap entry is in the traps.
+- **Driven on the live database, rolled back**: section 21 of
+  `scripts/edit-rpc-check.sql` (FAIL 90–99, 28 checks; it clears the live
+  gate first, inside the transaction) — a claim with no gate, the gate set
+  and read three ways (it blocks an older id, not its own, not a reader
+  naming none), an older deploy refused and counted on the row, the gate's
+  own deploy through it, a nameless claim through it, the cap failing the
+  row with its reason and no money moved, a stranger's clear refused with
+  the holder named and the gate still standing, the own clear, an expired
+  gate, the newest deploy overwriting and reporting what it replaced (live
+  or not), an overwritten deploy's clear not releasing the newer gate, the
+  live-lease count following the leases, a stale row handed back and
+  marked, not picked again inside the window, failed a window later with
+  the reason and whose it is, no money, a fresh row and a claimed row
+  never swept, the grants: **28 of 28 first run, ALL 165 CHECKS PASSED
+  whole. NO RED BASELINE EXISTS**, and it is said in both headers: against
+  the old functions the section stops on "function does not exist", which
+  proves nothing about behaviour — the driven proof is the green run.
+- **Sweep: 75 mutants, 75 killed, none survived, none unapplied, three
+  comment-only controls survived** (Worker, script and SQL each) — in the
+  SQL, applied to the migration AND the snapshot together so the
+  byte-equality guard was neutral: a caller naming no deploy blocked, an
+  expired gate still blocking, the gate blocking its own deploy, the cap
+  gone, the refusal not counted, the give-up failing nothing, the claim
+  never asking the gate, the old four-argument claim left beside the new,
+  the new claim granted to nobody, the newest deploy not overwriting, a
+  clear clearing any deploy's gate, the reader never saying it blocks, the
+  second stale look failing nothing, a stale row never marked, the stale
+  sweep taking leased rows, the writer or the table granted to callers, the
+  failed answer not saying whose; in the Worker, the claim never naming the
+  deploy, an unreadable claim not deferred, either retry unbounded or
+  without its count, a gated give-up wearing or stored as the busy
+  sentence, a re-send without its delay, an unreadable build claim read as
+  no row, a gated build not waited or read as busy, the gated deposit
+  reversed under the busy reason, the build or the look going on after
+  deferring, either message count not handed in, a nameless Worker asking
+  the gate, an unreadable gate read as open or never deferring, the gate's
+  answer ignored, the stale sweep never run, a stale build's message sent
+  as an edit's, a stale re-send delayed, a stale build keeping its deposit,
+  a stale edit wearing the build's sentence, a stale build's answer saying
+  nothing came back, the runner's fresh claim spelled bare; in the modules,
+  the retry more than once, any string a deploy id, only nothing
+  unreadable, the stale window inside a deferral's reach, each message
+  reader dropping its count or taking junk, either row sentence lost, the
+  door taking launches while stopping; in the script, a successful deploy
+  clearing its gate, the drain waiting ten times its bound or past the
+  queue's fifteen minutes or asking a dead database for ever, a set with no
+  credentials reaching for the database, the mint off the body, the
+  drain's read naming the deploy, the clear naming another id, the gate
+  outliving the wait a gated job is allowed; in the workflow, the clear
+  only on success, the var never bound, the drain step setting instead,
+  the clear not told the outcome; the check losing either money read; the
+  harness never stopping the service. Full suite **5,240** (5,217 + the
+  twenty-three). `site build`
+  **355/355** through the real container (349 stamped at stage 7; stage
+  2c added two — the report naming its job and generation, no beat for a
+  settled generation — and never restamped the count, the same shape as
+  the header stamp above; the stopping case's four).
+- **Stated residues.** (a) **The window is DIFFERENT from stage 6's.** The
+  migration is live and the Worker on main is not, and nothing changes for
+  it: its four-named-argument claim resolves through the DEFAULT, no gate
+  exists until a deploy sets one, and the FIRST deploy carrying this Worker
+  is the one that sets it. During that deploy the OLD consumers — which
+  know neither `deploy-gated` nor the re-send — read the refusal as "not
+  claimed" and return, so a job delivered to an old isolate inside that
+  first gated window is left `queued` with no lease: exactly the row the
+  stale sweep, running on the NEW code two ticks later, sends again. The
+  first gated deploy costs an affected job up to ten minutes, never the
+  job; every deploy after it defers as designed. (b) The collector goes on
+  when the ROW claim says gated after the gate read said open — a
+  seconds-wide race — and when the site is busy (2c). (c) A resume look
+  deferred by the gate does not bump `looks`, so a generation under a gate
+  waits the gate's length on top of its own. (d) The rebuild drain is not
+  gated (above). (e) Version skew inside the roll window: a job fired at
+  the new container in the minutes after a deploy runs the previous image's
+  tree (task #93). (f) A stale re-send for a build whose job object is gone
+  — the route died between the row and the object — is picked up by a
+  consumer that finds nothing to run and returns; the row is failed a
+  window later, deposit back. (g) The browser does not yet say "waiting"
+  or "a deploy is rolling" (3b's sentence). (h) `deploy_gate_read`'s
+  `live` counts `edit_jobs` leases only: a running platform rebuild is not
+  a lease and does not hold the drain.
+- **Not proven live.** The migration is live and inert until the first
+  deploy carrying `deploy.yml` (a docs/test push runs no deploy; this push
+  changes `worker.js`, `build-server.mjs` and the builder modules, so the
+  container rolls and the 15–20 minute hold applies). What the first
+  deploy's log will show: `deploy gate: set for <sha> until <time>` before
+  the images, `deploy drain: no live leases after 0s — deploying` (or `N
+  live leases after Ns — <slug> <state> (<s>s left)` lines until zero or
+  the clock), and `deploy gate: left to expire for <sha>` after. The
+  canary is free: an edit on fretwork-1, then a push to main while it runs
+  — the edit should finish and finalize on the old isolate (the drain
+  waits for its lease), the deploy roll, and the Worker log on a second
+  edit filed inside the gate's window on an OLD isolate say `edit queue:
+  <id> deferred — a deploy is rolling (<sha>)`; the stale sweep needs a
+  stale row to exist and says `stale sweep: <id> sent again`.
 
 ---
 
@@ -3332,7 +3596,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 349/349** against the real container (2026-09-05, stage
+- **`site build` is 355/355** against the real container (2026-09-05, stage
+  3a's stopping case added four — a hold, SIGTERM under it with the service
+  reporting `stopping` and staying up, `POST /job/run` answering 503
+  `{error: stopping}`, no job record left — and stage 2c's two, the report
+  naming its job and generation and no beat for a settled generation, were
+  measured for the first time on this run: 349 earlier the same day, stage
   7's version case added eleven: a site built with a version answers
   `x-site-version`, serves an asset from its OWN prefix, a previous build's
   chunk from the PARENT's, never the legacy prefix when a parent exists, a
@@ -3347,8 +3616,14 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,217
-  (2026-09-05, after stage 6's twenty-six — `test/site-busy.test.mjs`'s
+  build and the pre-list payload added sixteen); the unit suite is 5,240
+  (2026-09-05, after stage 3a's twenty-three in `test/deploy-gate.test.mjs`
+  — the numbers, the migration and the snapshot, the check's order, the
+  workflow's three steps, the script's every function driven against a
+  fake fetch and clock, the edit and build consumers and the collector
+  DRIVEN through `worker.queue` under a gate and under a database that
+  will not answer, the stale sweep driven, the container's door and the
+  poll routes; 5,217 the same day after stage 6's twenty-six — `test/site-busy.test.mjs`'s
   nineteen: the numbers, the migration and the snapshot, the check's order,
   the edit and build consumers, the runner's takeover and the poll DRIVEN,
   every Worker hop read; plus the repair's four in `site-builds`, the busy
@@ -4180,6 +4455,23 @@ push.** Never push while a live run is in flight, and after any push wait
 **Re-run the thing the change is asserted by.** Appeasing a false alarm in one
 checker while never re-running the harness that actually proves the change has
 shipped red twice.
+
+**A STAMP WRITTEN AFTER THE RUN IS A CHANGE THE SUITE HAS NOT SEEN (2026-09-05,
+found by stage 3a).** `test/build-jobs.test.mjs` #11 pinned the check script's
+header to `(stage 2c): ALL 113 CHECKS PASSED`. Stage 6 ran its suite — 5,217
+green — THEN restamped the header to 137, exactly as the rule at the top says
+to (a number only after its run), and pushed. Nothing that READS the stamp was
+re-run; the `unit tests` run on that push was red, and nobody read it (the
+entry two below, again). The stamping rule and the re-run rule pull opposite
+ways, and the honest order is: run, stamp, then **re-run whatever reads the
+stamp** — a guard, a workflow, a doc test — before the push. The guard reads the
+stage-2c line by its own name now, since the header keeps every stamp as its
+own line; a guard on the NEWEST stamp is a guard that goes red on every stage.
+The count is the same shape one layer over: stage 2c added two checks to the
+container harness and left the `site build` line at stage 7's 349, so the next
+run to read it (3a's) answered 355 for a change that added four. **A count
+nobody re-measured is a claim ahead of its evidence, the same as a number
+stamped early.**
 
 **`unit tests` WAS RED ON EVERY PUSH TO MAIN FOR A DAY AND NOBODY READ IT
 (2026-09-02, FIFTEEN runs, 12:25Z to 20:20Z — the fix's own commit message

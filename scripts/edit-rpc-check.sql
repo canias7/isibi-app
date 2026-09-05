@@ -55,13 +55,29 @@ declare
   j18 text := 'e_'||substr(md5(random()::text),1,20);
   j19 text := 'e_'||substr(md5(random()::text),1,20);
   j20 text := 'e_'||substr(md5(random()::text),1,20);
-  st text; bl text; nr boolean; note text; tr int; rs jsonb; own text; ts timestamptz; ts2 timestamptz; c1 text;
+  -- Section 21's five rows (stage 3a): three claims under the deploy gate, two the stale sweep finds.
+  j21 text := 'e_'||substr(md5(random()::text),1,20);
+  j22 text := 'e_'||substr(md5(random()::text),1,20);
+  j23 text := 'e_'||substr(md5(random()::text),1,20);
+  j24 text := 'e_'||substr(md5(random()::text),1,20);
+  j25 text := 'e_'||substr(md5(random()::text),1,20);
+  st text; bl text; nr boolean; note text; tr int; rs jsonb; own text; ts timestamptz; ts2 timestamptz; c1 text; c2 text;
   -- A gen_charges request id for sections 14b and 16b (the media side's charge
   -- record), rolled back with everything else.
   req text := 'zz-verify-' || substr(md5(random()::text),1,12);
   r jsonb; b0 numeric; b1 numeric; n int; log text := '';
   ok_count int := 0;
--- LAST RUN 2026-09-05 (stage 6): ALL 137 CHECKS PASSED, rolled back, driving
+-- LAST RUN 2026-09-05 (stage 3a): ALL 165 CHECKS PASSED, rolled back, driving
+-- as a funded non-founder account (balance 500). Section 21 was added that
+-- night for the deploy gate and the stale sweep — 28 checks, green on their
+-- first run against the migration 20260905212602_deploy_gate_and_stale_sweep.
+-- NO RED BASELINE EXISTS FOR IT: against the old functions the section stops
+-- on a function that does not exist, which proves nothing about behaviour;
+-- the driven proof is the green run. The section clears a real deploy's gate
+-- first, inside the transaction, so it proves the mechanism and not the
+-- moment it happens to run in.
+--
+-- EARLIER THAT DAY (stage 6): ALL 137 CHECKS PASSED, rolled back, driving
 -- as a funded non-founder account (balance 500). Section 20 was added that
 -- night for the site's own lock; on its own it went RED against the OLD
 -- edit_claim at FAIL 81 ("a second job claimed a site another job holds":
@@ -794,6 +810,107 @@ begin
   if (r->>'ok') <> 'true' or (r->>'uid') <> u::text or (r->>'slug') <> c1 then raise exception 'FAIL 89b (a handoff does not name the row''s owner and site): %', r; end if;
   ok_count := ok_count + 24;
   log := log || format('20  one job per site    -> second claim refused and counted, the cap fails the row untouched, an expired lease frees it, a lapsed publisher holds it, a settled row does not, never its own blocker, the commit needs a live lease, the rebuild refused/won/marked/sees itself, deferrals on edit_get, uid on a handoff%s', chr(10));
+
+  -- 21. THE DEPLOY GATE AND THE STALE SWEEP (stage 3a) -------------------------
+  -- Nothing here can be proved by reading: which id blocks whom, that a clear
+  -- clears only its own id, that a gated refusal is the SAME count as a busy
+  -- one with its own reason, that a stale row is sent again once and failed
+  -- the second time with nothing moved. The gate is a private row, so it is
+  -- read back through the RPC that reads it. A gate a real deploy may have
+  -- left standing is cleared first, inside this transaction, so the section
+  -- proves the mechanism and not the moment it happens to run in.
+  delete from private.platform_flags where name = 'deploy';
+  c2 := slug||'-d1';
+  r := public.edit_create(j21, u, c2, 'edit', 'idem-dddddddddddddddd', k);
+  r := public.edit_claim(j21, 'ownerAAAA', 90, k, 'sha-old-0001');
+  if (r->>'claimed') <> 'true' then raise exception 'FAIL 90 (a claim naming a deploy could not claim with no gate set): %', r; end if;
+  update public.edit_jobs set lease_owner = null, lease_expires_at = null, state = 'queued' where id = j21;
+  -- THE GATE SET: a newer deploy names itself; the answer says what stood before.
+  r := public.deploy_gate_set('sha-new-0002', 2700, k);
+  if (r->>'ok') <> 'true' or (r->>'deploy_id') <> 'sha-new-0002' or (r->>'previous') is not null or (r->>'previous_active') <> 'false' then raise exception 'FAIL 90b (the gate could not be set, or misreads an empty gate): %', r; end if;
+  r := public.deploy_gate_read('sha-old-0001', k);
+  if (r->>'active') <> 'true' or (r->>'blocks') <> 'true' or (r->>'deploy_id') <> 'sha-new-0002' then raise exception 'FAIL 90c (the gate does not read as blocking an older deploy): %', r; end if;
+  r := public.deploy_gate_read('sha-new-0002', k);
+  if (r->>'blocks') <> 'false' then raise exception 'FAIL 90d (the gate blocks its own deploy): %', r; end if;
+  r := public.deploy_gate_read(null, k);
+  if (r->>'blocks') <> 'false' or (r->>'active') <> 'true' then raise exception 'FAIL 90e (a reader naming no deploy is blocked, or the gate reads inactive): %', r; end if;
+  -- AN OLDER DEPLOY'S CLAIM IS REFUSED AND COUNTED; the new deploy claims; no id claims.
+  r := public.edit_claim(j21, 'ownerAAAA', 90, k, 'sha-old-0001');
+  if (r->>'claimed') <> 'false' or (r->>'error') <> 'deploy-gated' or (r->>'other') <> 'sha-new-0002' or (r->>'deferrals') <> '1' or (r->>'gave_up') <> 'false' then raise exception 'FAIL 91 (an older deploy claimed under a newer deploy''s gate, or the refusal was not counted): %', r; end if;
+  select deferrals, phase into tr, note from public.edit_jobs where id = j21;
+  if tr <> 1 or note <> 'waiting' then raise exception 'FAIL 91b (the gated refusal was not counted on the row): % %', tr, note; end if;
+  r := public.edit_claim(j21, 'ownerAAAA', 90, k, 'sha-new-0002');
+  if (r->>'claimed') <> 'true' or (r->>'deferrals') <> '1' then raise exception 'FAIL 91c (the gate''s own deploy could not claim through it): %', r; end if;
+  update public.edit_jobs set lease_owner = null, lease_expires_at = null, state = 'queued' where id = j21;
+  r := public.edit_claim(j21, 'ownerAAAA', 90, k);
+  if (r->>'claimed') <> 'true' then raise exception 'FAIL 91d (a claim naming no deploy was gated): %', r; end if;
+  update public.edit_jobs set lease_owner = null, lease_expires_at = null, state = 'queued' where id = j21;
+  -- THE CAP IS THE SAME CAP: the same count, the same give-up, its own reason, nothing moved.
+  update public.edit_jobs set deferrals = 45 where id = j21;
+  select balance into b1 from public.credits where user_id = u;
+  r := public.edit_claim(j21, 'ownerAAAA', 90, k, 'sha-old-0001');
+  select state, error->>'kind', deferrals into st, note, tr from public.edit_jobs where id = j21;
+  if (r->>'gave_up') <> 'true' or (r->>'error') <> 'deploy-gated' or st <> 'failed' or note <> 'deploy-gated' or tr <> 46 then raise exception 'FAIL 92 (the gated cap did not fail the row with its reason): % % % %', r, st, note, tr; end if;
+  if (select balance from public.credits where user_id = u) <> b1 then raise exception 'FAIL 92b (money moved on a gated give-up)'; end if;
+  -- A CLEAR UNDER ANOTHER ID LEAVES THE GATE; its own id clears it; a claim then passes.
+  r := public.deploy_gate_clear('sha-other-0003', k);
+  if (r->>'cleared') <> 'false' or (r->>'holder') <> 'sha-new-0002' then raise exception 'FAIL 93 (a clear under another id cleared the gate, or did not name the holder): %', r; end if;
+  r := public.edit_create(j22, u, c2, 'edit', 'idem-eeeeeeeeeeeeeeee', k);
+  r := public.edit_claim(j22, 'ownerBBBB', 90, k, 'sha-old-0001');
+  if (r->>'error') <> 'deploy-gated' then raise exception 'FAIL 93b (the gate did not stand after a stranger''s clear): %', r; end if;
+  r := public.deploy_gate_clear('sha-new-0002', k);
+  if (r->>'cleared') <> 'true' then raise exception 'FAIL 93c (the gate''s own id could not clear it): %', r; end if;
+  r := public.edit_claim(j22, 'ownerBBBB', 90, k, 'sha-old-0001');
+  if (r->>'claimed') <> 'true' then raise exception 'FAIL 93d (a cleared gate still blocks): %', r; end if;
+  -- AN EXPIRED GATE BLOCKS NOBODY; the newest deploy overwrites and says what it replaced.
+  r := public.deploy_gate_set('sha-new-0004', 60, k);
+  update private.platform_flags set expires_at = now() - interval '1 second' where name = 'deploy';
+  r := public.deploy_gate_read('sha-old-0001', k);
+  if (r->>'active') <> 'false' or (r->>'blocks') <> 'false' then raise exception 'FAIL 94 (an expired gate still blocks): %', r; end if;
+  r := public.deploy_gate_set('sha-new-0005', 2700, k);
+  if (r->>'previous') <> 'sha-new-0004' or (r->>'previous_active') <> 'false' then raise exception 'FAIL 94b (the newest deploy did not overwrite, or misreads what it replaced): %', r; end if;
+  r := public.deploy_gate_set('sha-new-0006', 2700, k);
+  if (r->>'previous') <> 'sha-new-0005' or (r->>'previous_active') <> 'true' then raise exception 'FAIL 94c (an overwritten live gate is not reported as live): %', r; end if;
+  r := public.deploy_gate_clear('sha-new-0005', k);
+  if (r->>'cleared') <> 'false' then raise exception 'FAIL 94d (an overwritten deploy''s clear released the newer gate): %', r; end if;
+  r := public.deploy_gate_clear('sha-new-0006', k);
+  -- THE LIVE COUNT THE DRAIN READS follows the leases: j22 holds one; lapsed, it does not.
+  r := public.deploy_gate_read(null, k);
+  n := (r->>'live')::int;
+  update public.edit_jobs set lease_expires_at = now() - interval '1 second' where id = j22;
+  r := public.deploy_gate_read(null, k);
+  if n < 1 or (r->>'live')::int <> n - 1 then raise exception 'FAIL 95 (the live-lease count does not follow the leases): % -> %', n, r; end if;
+  -- THE STALE SWEEP: a queued row nobody touched for the window is sent again,
+  -- once, marked and counted; a row just sent is left alone inside the window;
+  -- still untouched a window later it is FAILED with its reason and nothing
+  -- moved, a build's answer naming whose deposit to give back; a fresh queued
+  -- row and a claimed one are never stale.
+  r := public.edit_create(j23, u, slug||'-d2', 'edit', 'idem-ffffffffffffffff', k);
+  r := public.edit_create(j24, u, 'build:'||j24, 'build', 'idem-gggggggggggggggg', k);
+  update public.edit_jobs set updated_at = now() - interval '11 minutes' where id in (j23, j24);
+  r := public.edit_sweep_stale(600, 20, k);
+  if not (r->'resend' @> jsonb_build_array(jsonb_build_object('id', j23, 'op', 'edit'))) or not (r->'resend' @> jsonb_build_array(jsonb_build_object('id', j24, 'op', 'build'))) or (r->'failed' @> jsonb_build_array(jsonb_build_object('id', j23))) then raise exception 'FAIL 96 (a stale queued row was not handed back to be sent again): %', r; end if;
+  select phase, deferrals, state into note, tr, st from public.edit_jobs where id = j23;
+  if note <> 'stale' or tr <> 1 or st <> 'queued' then raise exception 'FAIL 96b (a stale row was not marked and counted, or moved): % % %', note, tr, st; end if;
+  r := public.edit_sweep_stale(600, 20, k);
+  if (r->'resend' @> jsonb_build_array(jsonb_build_object('id', j23))) or (r->'failed' @> jsonb_build_array(jsonb_build_object('id', j23))) then raise exception 'FAIL 96c (a row just sent again was picked again inside the window): %', r; end if;
+  update public.edit_jobs set updated_at = now() - interval '11 minutes' where id in (j23, j24);
+  select balance into b1 from public.credits where user_id = u;
+  r := public.edit_sweep_stale(600, 20, k);
+  if not (r->'failed' @> jsonb_build_array(jsonb_build_object('id', j23, 'op', 'edit'))) or not (r->'failed' @> jsonb_build_array(jsonb_build_object('id', j24, 'op', 'build', 'uid', u::text))) then raise exception 'FAIL 97 (a row sent again and still untouched was not failed, or the answer does not say whose): %', r; end if;
+  select state, error->>'kind' into st, note from public.edit_jobs where id = j23;
+  if st <> 'failed' or note <> 'stale' then raise exception 'FAIL 97b (a stale row failed without its reason): % %', st, note; end if;
+  if (select balance from public.credits where user_id = u) <> b1 then raise exception 'FAIL 97c (money moved on a stale failure)'; end if;
+  r := public.edit_create(j25, u, slug||'-d4', 'edit', 'idem-hhhhhhhhhhhhhhhh', k);
+  r := public.edit_sweep_stale(600, 20, k);
+  if (r->'resend' @> jsonb_build_array(jsonb_build_object('id', j25))) or (r->'resend' @> jsonb_build_array(jsonb_build_object('id', j22))) or (r->'failed' @> jsonb_build_array(jsonb_build_object('id', j22))) then raise exception 'FAIL 98 (a fresh queued row or a claimed row was swept as stale): %', r; end if;
+  -- THE GRANTS: the gate's writers, its reader, the sweep and the claim are the service's alone.
+  if exists (select 1 from information_schema.routine_privileges
+              where specific_schema = 'public'
+                and routine_name in ('deploy_gate_set','deploy_gate_clear','deploy_gate_read','edit_sweep_stale','edit_claim')
+                and grantee in ('anon','authenticated','PUBLIC')) then raise exception 'FAIL 99 (a gate RPC, the stale sweep or the claim is granted to a caller)'; end if;
+  ok_count := ok_count + 28;
+  log := log || format('21  deploy gate         -> no gate claims, set/read/blocks an older deploy/never its own/never no id, refused and counted, the same cap with its own reason, a stranger''s clear leaves it, its own clears it, expired blocks nobody, newest overwrites, live count follows leases; stale: sent again once, left inside the window, failed the second time untouched, fresh and claimed rows never; grants%s', chr(10));
 
   update private.mint set key_hash = keep;
   raise exception E'ALL % CHECKS PASSED (transaction rolled back)\n%', ok_count, log;

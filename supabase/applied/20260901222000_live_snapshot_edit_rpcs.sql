@@ -14,6 +14,10 @@
 -- a row five ticks could not settle is parked in review), read back the same
 -- way; test/sweep-recovery.test.mjs holds that block equal to its migration.
 -- AND, that evening, edit_create REPLACED IN PLACE and edit_handoff ADDED
+-- AND, later still (stage 3a, migration 20260905212602_deploy_gate_and_stale_sweep),
+-- edit_claim REPLACED IN PLACE under a new signature (p_deploy), private.gate_blocks,
+-- private.claim_deferred, deploy_gate_set, deploy_gate_clear, deploy_gate_read and
+-- edit_sweep_stale ADDED (at the very end); test/deploy-gate.test.mjs holds them.
 -- AND, later that night (stage 6, migration 20260905200655_site_serialization),
 -- edit_claim, edit_committed, edit_get and edit_handoff REPLACED IN PLACE,
 -- rebuild_claim and private.site_busy ADDED (at the end of the edit_* run)
@@ -88,20 +92,20 @@ begin
 end; $function$;
 
 -- edit_claim(p_id text, p_owner text, p_ttl integer, p_mint text)
-CREATE OR REPLACE FUNCTION public.edit_claim(p_id text, p_owner text, p_ttl integer, p_mint text)
+CREATE OR REPLACE FUNCTION public.edit_claim(p_id text, p_owner text, p_ttl integer, p_mint text, p_deploy text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public', 'private', 'extensions'
 AS $function$
-declare j public.edit_jobs%rowtype; other text; deferred integer; res jsonb;
+declare j public.edit_jobs%rowtype; other text;
 begin
   if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
   if p_owner is null or length(p_owner) < 4 then raise exception 'bad owner'; end if;
   if p_ttl is null or p_ttl < 10 or p_ttl > 600 then raise exception 'bad ttl'; end if;
   -- THE ROW'S OWN ANSWERS FIRST. A row that cannot be claimed for its own
   -- reasons -- under review, over, settled, held by a live lease -- is told
-  -- so before the site is asked, and is never counted as a deferral.
+  -- so before the gate or the site is asked, and is never counted as a deferral.
   select * into j from public.edit_jobs where id = p_id;
   if not found then return jsonb_build_object('ok', false, 'claimed', false, 'error', 'no-job'); end if;
   if j.needs_review or j.state in ('done','failed','cancelled','lost')
@@ -113,29 +117,19 @@ begin
                     when j.billing in ('finalized','refunded') then 'settled'
                     else 'leased' end);
   end if;
+  -- THE DEPLOY GATE (stage 3a), BEFORE THE SITE'S LOCK IS TAKEN: a consumer
+  -- naming its deploy is refused while a gate under ANOTHER id stands -- it is
+  -- the isolate that deploy is about to evict, and a job it started would die
+  -- with it. The new code's id IS the gate's, so it claims straight through;
+  -- a claim naming no deploy is never gated. Counted and bounded exactly as a
+  -- busy site is, with its own reason on the row.
+  other := private.gate_blocks(p_deploy);
+  if other is not null then return private.claim_deferred(p_id, 'deploy-gated', other, j.state, p_mint); end if;
   -- ONE JOB PER SITE AT A TIME (stage 6). Under the site's own lock, another
   -- job holding a live lease -- or publishing, or the platform rebuilding --
-  -- refuses this claim as site-busy, counted on the row: the consumer
-  -- re-sends its message with a delay, once per refusal, and the refusal past
-  -- the cap FAILS the row through the refund (nothing was reserved at a
-  -- claim, so nothing moves) with the reason on it, so a job cannot wait for
-  -- ever behind a site that never frees.
+  -- refuses this claim as site-busy, counted the same way.
   other := private.site_busy(j.slug, p_id);
-  if other is not null then
-    update public.edit_jobs set deferrals = deferrals + 1, phase = 'waiting', updated_at = now()
-     where id = p_id returning deferrals into deferred;
-    if deferred > 45 then
-      res := public.edit_refund(p_id, 'failed', 'the site was busy for the whole wait', p_mint);
-      update public.edit_jobs
-         set error = jsonb_build_object('kind', 'site-busy', 'phase', 'queued', 'other', other, 'deferrals', deferred),
-             updated_at = now()
-       where id = p_id;
-      return jsonb_build_object('ok', true, 'claimed', false, 'error', 'site-busy', 'gave_up', true,
-        'other', other, 'deferrals', deferred, 'state', 'failed', 'refund', res);
-    end if;
-    return jsonb_build_object('ok', true, 'claimed', false, 'error', 'site-busy', 'gave_up', false,
-      'other', other, 'deferrals', deferred, 'state', j.state);
-  end if;
+  if other is not null then return private.claim_deferred(p_id, 'site-busy', other, j.state, p_mint); end if;
   update public.edit_jobs
      set lease_owner = p_owner,
          lease_expires_at = now() + make_interval(secs => p_ttl),
@@ -916,4 +910,175 @@ begin
   insert into public.credit_events (uid, kind, ref, reason, delta, balance_after)
     values (p_target, 'build', p_ref, p_reason, give, bal);
   return jsonb_build_object('ok', true, 'refunded', give, 'debited', debited, 'already', already, 'balance', bal, 'repeat', false);
+end; $function$;
+
+-- ── STAGE 3a (migration 20260905212602_deploy_gate_and_stale_sweep): the deploy
+-- gate's two helpers, its three RPCs and the stale sweep, read back with
+-- pg_get_functiondef after the apply. edit_claim above was REPLACED IN PLACE
+-- under its new signature (p_deploy) the same minute.
+
+CREATE OR REPLACE FUNCTION private.gate_blocks(p_deploy text)
+ RETURNS text
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'private', 'extensions'
+AS $function$
+declare g text;
+begin
+  -- THE ONE COMPARISON (stage 3a): a gate that names a deploy, has not
+  -- expired, and names a DIFFERENT deploy than the caller's, blocks. A caller
+  -- naming no deploy is never blocked -- a hand deploy, the container's
+  -- runtime -- and neither is the gate's own deploy, which is the new code.
+  if p_deploy is null or p_deploy = '' then return null; end if;
+  select f.deploy_id into g from private.platform_flags f
+   where f.name = 'deploy' and f.deploy_id is not null and f.expires_at > now();
+  if g is null or g = p_deploy then return null; end if;
+  return g;
+end; $function$;
+
+CREATE OR REPLACE FUNCTION private.claim_deferred(p_id text, p_kind text, p_other text, p_state text, p_mint text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'private', 'extensions'
+AS $function$
+declare deferred integer; res jsonb; note text;
+begin
+  -- A CLAIM REFUSED FOR A REASON THE CONSUMER WAITS OUT -- the site held by
+  -- another job (stage 6), a newer deploy rolling (stage 3a) -- COUNTED on the
+  -- row, once per refusal: the consumer re-sends its message with a delay.
+  -- Past the cap the row is FAILED through the refund (nothing was reserved
+  -- at a claim, so nothing moves) with the reason on it, so a job cannot wait
+  -- for ever behind a site that never frees or a gate nobody clears. ONE BODY
+  -- for both reasons, so the count and the cap cannot drift apart.
+  update public.edit_jobs set deferrals = deferrals + 1, phase = 'waiting', updated_at = now()
+   where id = p_id returning deferrals into deferred;
+  if deferred > 45 then
+    note := case p_kind when 'site-busy' then 'the site was busy for the whole wait' else 'the platform was updating for the whole wait' end;
+    res := public.edit_refund(p_id, 'failed', note, p_mint);
+    update public.edit_jobs
+       set error = jsonb_build_object('kind', p_kind, 'phase', 'queued', 'other', p_other, 'deferrals', deferred),
+           updated_at = now()
+     where id = p_id;
+    return jsonb_build_object('ok', true, 'claimed', false, 'error', p_kind, 'gave_up', true,
+      'other', p_other, 'deferrals', deferred, 'state', 'failed', 'refund', res);
+  end if;
+  return jsonb_build_object('ok', true, 'claimed', false, 'error', p_kind, 'gave_up', false,
+    'other', p_other, 'deferrals', deferred, 'state', p_state);
+end; $function$;
+
+CREATE OR REPLACE FUNCTION public.deploy_gate_set(p_deploy_id text, p_ttl integer, p_mint text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private', 'extensions'
+AS $function$
+declare prev text; prev_until timestamp with time zone; until timestamp with time zone;
+begin
+  if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
+  if p_deploy_id is null or p_deploy_id !~ '^[A-Za-z0-9._-]{4,64}$' then raise exception 'bad deploy id'; end if;
+  if p_ttl is null or p_ttl < 60 or p_ttl > 7200 then raise exception 'bad ttl'; end if;
+  -- THE NEWEST DEPLOY OWNS THE GATE. Two deploys minutes apart overwrite in
+  -- order, and each clear clears only its own id, so the earlier one's clear
+  -- cannot release the later one's gate. What stood before is answered, so
+  -- the deploy's log says whether it took the gate over from a live one.
+  select deploy_id, expires_at into prev, prev_until from private.platform_flags where name = 'deploy';
+  until := now() + make_interval(secs => p_ttl);
+  insert into private.platform_flags (name, deploy_id, started_at, expires_at, updated_at)
+    values ('deploy', p_deploy_id, now(), until, now())
+    on conflict (name) do update
+      set deploy_id = excluded.deploy_id, started_at = excluded.started_at, expires_at = excluded.expires_at, updated_at = now();
+  return jsonb_build_object('ok', true, 'deploy_id', p_deploy_id, 'expires_at', until,
+    'previous', prev, 'previous_active', prev is not null and prev_until > now());
+end; $function$;
+
+CREATE OR REPLACE FUNCTION public.deploy_gate_clear(p_deploy_id text, p_mint text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private', 'extensions'
+AS $function$
+declare holder text;
+begin
+  if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
+  if p_deploy_id is null or p_deploy_id = '' then raise exception 'bad deploy id'; end if;
+  -- ONLY ITS OWN ID. A newer deploy's gate is left standing, and the answer
+  -- names whose it is.
+  update private.platform_flags set deploy_id = null, expires_at = null, updated_at = now()
+   where name = 'deploy' and deploy_id = p_deploy_id;
+  if found then return jsonb_build_object('ok', true, 'cleared', true); end if;
+  select deploy_id into holder from private.platform_flags where name = 'deploy';
+  return jsonb_build_object('ok', true, 'cleared', false, 'holder', holder);
+end; $function$;
+
+CREATE OR REPLACE FUNCTION public.deploy_gate_read(p_deploy text, p_mint text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private', 'extensions'
+AS $function$
+declare gid text; gstart timestamp with time zone; guntil timestamp with time zone; live_n integer; rows_j jsonb;
+begin
+  if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
+  select deploy_id, started_at, expires_at into gid, gstart, guntil from private.platform_flags where name = 'deploy';
+  -- THE LIVE LEASES, for the drain: every row a holder is still renewing, the
+  -- newest first, twenty named so the deploy's log says what it waited for.
+  select count(*) into live_n from public.edit_jobs
+   where state not in ('done','failed','cancelled','lost') and lease_expires_at > now();
+  select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'slug', x.slug, 'state', x.state, 'holder', x.lease_owner,
+                                               'left_s', extract(epoch from (x.lease_expires_at - now()))::integer)), '[]'::jsonb)
+    into rows_j
+    from (select id, slug, state, lease_owner, lease_expires_at from public.edit_jobs
+           where state not in ('done','failed','cancelled','lost') and lease_expires_at > now()
+           order by lease_expires_at desc limit 20) x;
+  return jsonb_build_object('ok', true,
+    'active', gid is not null and guntil > now(),
+    'deploy_id', gid, 'started_at', gstart, 'expires_at', guntil,
+    'blocks', private.gate_blocks(p_deploy) is not null,
+    'live', live_n, 'rows', rows_j);
+end; $function$;
+
+CREATE OR REPLACE FUNCTION public.edit_sweep_stale(p_after integer, p_limit integer, p_mint text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private', 'extensions'
+AS $function$
+declare r record; resend jsonb := '[]'::jsonb; failed jsonb := '[]'::jsonb; res jsonb;
+begin
+  if not private.mint_ok(p_mint) then raise exception 'bad key'; end if;
+  if p_after is null or p_after < 60 or p_after > 3600 then raise exception 'bad window'; end if;
+  if p_limit is null or p_limit < 1 or p_limit > 200 then raise exception 'bad limit'; end if;
+  -- A QUEUED ROW NOBODY HAS PICKED UP (stage 3a): no lease, and nothing has
+  -- touched it for the window -- its message never delivered, its consumer
+  -- evicted before the claim landed, a re-send that failed. Every deferral
+  -- touches the row, so a job waiting behind a site or a deploy is never here.
+  for r in
+    select id, op, uid, slug, phase, deferrals from public.edit_jobs
+     where state = 'queued' and lease_owner is null and needs_review = false
+       and billing not in ('finalized','refunded')
+       and updated_at < now() - make_interval(secs => p_after)
+     order by updated_at
+     limit p_limit
+  loop
+    if r.phase = 'stale' then
+      -- SENT AGAIN ONCE AND STILL UNTOUCHED: failed through the refund
+      -- (nothing was reserved on a queued row; a build's deposit is the
+      -- Worker's to give back, and the answer names whose it is), the
+      -- reason on the row for the poll route's sentence.
+      res := public.edit_refund(r.id, 'failed', 'never picked up', p_mint);
+      if (res->>'ok') = 'true' then
+        update public.edit_jobs
+           set error = jsonb_build_object('kind', 'stale', 'phase', 'queued', 'deferrals', r.deferrals), updated_at = now()
+         where id = r.id and state = 'failed';
+        failed := failed || jsonb_build_object('id', r.id, 'op', r.op, 'uid', r.uid, 'slug', r.slug);
+      end if;
+    else
+      -- MARKED AND COUNTED, and handed back to be sent again -- once: the
+      -- mark is what the next look reads, and the touch is what keeps a row
+      -- sent minutes ago out of this look.
+      update public.edit_jobs set phase = 'stale', deferrals = deferrals + 1, updated_at = now()
+       where id = r.id and state = 'queued' and lease_owner is null;
+      if found then resend := resend || jsonb_build_object('id', r.id, 'op', r.op); end if;
+    end if;
+  end loop;
+  return jsonb_build_object('ok', true, 'resend', resend, 'failed', failed);
 end; $function$;
