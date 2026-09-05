@@ -179,9 +179,11 @@ images, the registry answering 200 to each HEAD, the image step 1.4 s, the
 whole deploy **47 seconds** (14–15 minutes before the skip, ~4.5 with the
 listing), "no changes" on both container apps. A docs/test-only push is a
 one-minute deploy that rolls nothing; a push that changes an image input —
-which every Worker code push is since 2026-09-05 — builds the changed layers
-(~4.5 minutes; apt and the template's `npm ci` stay cached), rolls, and needs
-the 15–20 minute hold.
+which every Worker code push is since 2026-09-05 — builds, rolls, and needs
+the 15–20 minute hold: **3m09s measured on deploy 2029**, the image step
+2m20s with every layer rebuilt (the first build off the root context); a
+later push that changes only the worker tree should reuse the apt and
+template layers and come in under that — measure it, do not assume it.
 
 Secrets live in GitHub Actions and upload to the Worker each deploy. **An
 optional secret must carry a `|| fallback`; a required one must not** — listing a
@@ -2318,10 +2320,16 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   and the builder modules are image INPUTS now (`container-images.test.mjs`
   says so by name), so the 2026-09-04 property "a Worker-only push rolls
   nothing" is gone for as long as the container carries the Worker's code —
-  which is the design. A Worker push is a ~4.5-minute deploy (the apt and
-  template layers are cached; only the `worker/` layers rebuild) and **the
-  15–20 minute hold before container work applies to EVERY code push now.**
-  Docs, test and harness pushes still build nothing.
+  which is the design. **MEASURED on deploy 2029 (2026-09-05 00:22Z, the
+  first off the root context): the image step 2m20s** — every layer rebuilt
+  (the moved Dockerfile's instructions matched nothing cached: apt 35 s, the
+  template's `npm ci` 13 s, the worker tree's 1 s, the push 64 s), 151
+  inputs, `built isibi-app-sitebuildcontainer:b8fa5420d4b3a898`, Wrangler's
+  container deploy `EDIT`ing the app from `d902dc4c…` to it — **the whole
+  deploy 3m09s**, the roll at 00:25:10Z. **The 15–20 minute hold before
+  container work applies to EVERY code push now.** Docs, test and harness
+  pushes still build nothing (the test-only push that followed ran no deploy
+  at all: `deploy.yml` ignores those paths).
 - **Version skew inside the roll window**: a job fired in the minutes after a
   deploy may run on the PREVIOUS image's Worker tree. A tree without
   `runContainerJob` is refused at the door (503 → inline); a tree that has it

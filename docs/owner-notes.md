@@ -2765,9 +2765,10 @@ length of the job. Stripe and the other keys never travel.
 
 The cost, plainly: the container image now carries the Worker's code, so
 EVERY push that changes worker.js or a builder module rebuilds the image
-(about 4.5 minutes — the deploy was 47 seconds yesterday) and rolls the
-container, and the 15–20 minute hold before firing container work is back
-for every code push. Yesterday's "a Worker-only push rolls nothing" is gone
+and rolls the container — measured on this change's own deploy: 3 minutes
+9 seconds end to end, the image build 2m20s (the deploy was 47 seconds
+yesterday) — and the 15–20 minute hold before firing container work is
+back for every code push. Yesterday's "a Worker-only push rolls nothing" is gone
 for as long as the container runs the Worker's code, which is the whole
 point. Docs, tests and harness pushes still build nothing. The Dockerfile
 moved to the repository root for this (the image has to reach worker.js,
