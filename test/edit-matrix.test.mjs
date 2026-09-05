@@ -50,6 +50,13 @@ test("the check still covers every property the flag cannot ship without", () =>
     "a committed edit was refunded",
     "refunded a published edit",
     "MINTED CREDITS",
+    // Stage 1b (2026-09-05): the two refund RPCs refuse a founder and still pay
+    // a customer — sections 14b and 16b, driven as each in turn.
+    "credit_back paid a founder",
+    "refund_charge paid a founder",
+    "credit_back no longer pays a customer back",
+    "refund_charge no longer pays a customer back",
+    "a charge was refunded twice",
   ];
   for (const m of must) {
     assert.ok(SQL.includes(m), `the database check no longer proves: ${m}`);

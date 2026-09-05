@@ -2870,3 +2870,35 @@ catch-all "unavailable" now reads, rightly, as a dead ledger). On the
 branch, not deployed; nothing spent. Proving it live is still free: an add-on ask on
 fretwork-1 at the current balance should answer the credits sentence with the
 site and its database unmoved.
+
+## 2026-09-05 — The ledger no longer credits a founder (stage 1b)
+
+Your "ok go 1b". The finding from the billing audit: a founder account is
+never debited (the ledger answers the founder sentinel instead of taking
+anything), but the two functions that give credits back — the one the
+builder calls after a failed build or edit, and the one the media side calls
+after a failed generation — did not know that, and would have paid a founder
+back for money never taken. It could not happen yet only because the one
+founder has no credits row; the first purchase or grant on that account would
+have armed it.
+
+Both functions now ask the founders table first, the same way the debit does,
+and give nothing back to a founder. Nothing changed for customers.
+
+Proved on the live database itself, inside a transaction that rolls back so
+no balance or row survives it: with the old functions the check stopped at
+"credit_back paid a founder" (494 to 496, taken back by the rollback); with
+the new ones all 65 checks passed, the new ones included — a founder is paid
+nothing by either function, and a customer is still paid back by both, once,
+with a second attempt refused. The migration is applied to the live project
+and recorded in the repository under the version number the project's own
+migration list gave it, and the two functions were read back out of the
+database into the live snapshot so the folder cannot drift from what is live.
+No deploy was needed; the Worker did not change. A guard reads that record
+(the migration, the snapshot and the check agreeing with each other): 13
+mutants of it, 13 caught, two comment-only controls survived; full suite
+5,106 green.
+
+Not done here, by design: a customer who becomes a founder after a real
+debit would now be refused a refund of that debit. Stage 1c reads the actual
+debit row instead of the account and gives that back; 1b is the belt.

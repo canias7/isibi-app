@@ -2409,6 +2409,45 @@ storage is a membership benefit (10/50/100 GB).
 ZERO and returns -1. `collectCredits` takes what is there and `billed` records
 what the work cost.
 
+**A FOUNDER IS NEVER CREDITED BACK (2026-09-05, stage 1b of the architecture
+plan, owner: *"ok go 1b"*).** `use_credits`, `use_credits_for` and
+`get_credits` answer the founder sentinel (1000000) before any debit, and
+until this day `credit_back` and `refund_charge` credited a founder like
+anyone else — a build refund after a failure, or the media side's refund of a
+failed generation, would have paid back money never taken. Unreachable only
+while the one founder had no `credits` row; a purchase or a grant on that
+account would have armed it. Now both are decided by `private.founders` — the
+mirror of the check `use_credits` makes, NEVER a balance threshold — and
+answer without writing for a founder: `credit_back`'s one UPDATE is gated in
+its WHERE, `refund_charge` refuses before the row lock and leaves the charge
+row as it is, returning 0. Migration
+`supabase/applied/20260905154557_founder_guard_on_refunds.sql`, applied live
+through the Supabase connector and read back with `pg_get_functiondef` into
+the live snapshot beside it — which holds those two now as well as every
+`edit_*` — both still `service_role`-only (read from `pg_proc.proacl`, not
+assumed). **Driven on the live database, rolled back**:
+`scripts/edit-rpc-check.sql` sections 14b (as a founder — `use_credits`
+answers the sentinel and moves nothing, `credit_back` moves nothing,
+`refund_charge` answers 0 and leaves the row) and 16b (the same two still pay
+a customer back, once, and a repeat is refused; the control without which a
+guard that refused EVERYONE would pass) — **run RED against the old bodies
+first (FAIL 48: `credit_back` paid a founder, 494 → 496, taken back by the
+rollback) and GREEN after the migration: ALL 65 CHECKS PASSED**, driving as a
+funded non-founder account. The block impersonates the user for `use_credits`
+by setting the request's jwt claims (`set_config`, transaction-local), which is
+how a function keyed on `auth.uid()` is driven from a console.
+`test/refund-founder-guard.test.mjs` reads the record: the guard ahead of every
+write in both bodies, the grants, the snapshot equal to the migration byte for
+byte (a hand edit to either shows), the check driving both as a founder and
+then as a customer, in that order. The edit path never needed this —
+`edit_reserve` marks a founder's job `exempt` and `edit_refund` refunds only
+`reserved` — and what 1b does NOT do is refund a customer who became a founder
+after a real debit: the plan's stage 1c reads the debit row instead of the
+account. **The migration file is named for the REMOTE version** (read back
+from the migration list after the apply, as the folder's README asks); the
+previous entry (`…034000_edit_exempt_free_rung` for a remote `…035009`) was
+not, so line the two up by name, not by number.
+
 ---
 
 ## Live state (2026-08-28)
@@ -2682,8 +2721,10 @@ what the work cost.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,100
-  (2026-09-05, after stage 1a-ii/iii's twelve — the two rungs' `before` hook
+  build and the pre-list payload added sixteen); the unit suite is 5,106
+  (2026-09-05, after stage 1b's six — `test/refund-founder-guard.test.mjs`,
+  which reads the record of the founder guard; 5,100 the same day after stage
+  1a-ii/iii's twelve — the two rungs' `before` hook
   driven six ways, the synchronous route driven three ways against a stubbed
   ledger, and the stage's own source guards; 5,088 the same day after stage
   1a-i's nine — the five driven consumer cases and four source guards; before

@@ -1,5 +1,9 @@
 -- LIVE SNAPSHOT of every public.edit_* function, read out of the database with
--- pg_get_functiondef on 2026-09-01 after the finalize/refund fixes.
+-- pg_get_functiondef on 2026-09-01 after the finalize/refund fixes — AND,
+-- since 2026-09-05, the two refund functions credit_back and refund_charge,
+-- read the same way after stage 1b's founder guard (migration
+-- 20260905154557_founder_guard_on_refunds); they are at the end of this file,
+-- and test/refund-founder-guard.test.mjs holds them equal to that migration.
 --
 -- WHY THIS FILE EXISTS: the folder had drifted from what was live. Four
 -- migrations applied earlier that day were never written here and one was
@@ -523,3 +527,53 @@ begin
                   when j.billing <> 'none' then 'billed'
                   else 'refused' end);
 end; $function$;
+
+-- ── THE TWO REFUND FUNCTIONS, read with pg_get_functiondef on 2026-09-05 ──
+-- immediately after migration 20260905154557_founder_guard_on_refunds was
+-- applied (stage 1b: a founder is never credited back). EXECUTE is held by
+-- postgres and service_role only, read from pg_proc.proacl the same minute.
+-- scripts/edit-rpc-check.sql sections 14b and 16b drive them.
+
+-- credit_back(target uuid, amount numeric)
+CREATE OR REPLACE FUNCTION public.credit_back(target uuid, amount numeric)
+ RETURNS void
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  -- A FOUNDER IS NEVER CREDITED BACK (2026-09-05, stage 1b). use_credits and
+  -- use_credits_for answer the founder sentinel before any debit, so there is
+  -- nothing to give back, and a credit here would be credits created from
+  -- nothing. Decided by the founders table, never by the balance: the mirror
+  -- of the check those two functions make.
+  update public.credits
+     set balance = balance + least(greatest(amount, 0), 10),
+         updated_at = now()
+   where user_id = target
+     and not exists (select 1 from private.founders f where f.user_id = target);
+$function$;
+
+-- refund_charge(p_request_id text, p_user uuid)
+CREATE OR REPLACE FUNCTION public.refund_charge(p_request_id text, p_user uuid)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare c public.gen_charges%rowtype;
+begin
+  -- A FOUNDER WAS NEVER DEBITED (2026-09-05, stage 1b): use_credits answers
+  -- the sentinel before any debit, so a founder's charge row records money
+  -- that never moved. Refused before the row is touched — it stays as it is,
+  -- unrefunded, because nothing was paid — and decided by the founders table,
+  -- never by the balance: the mirror of the check use_credits makes.
+  if exists (select 1 from private.founders f where f.user_id = p_user) then return 0; end if;
+  select * into c from public.gen_charges
+    where request_id = p_request_id and user_id = p_user and refunded = false
+    for update;
+  if not found then return 0; end if;
+  update public.gen_charges set refunded = true where request_id = p_request_id;
+  update public.credits set balance = balance + c.cost, updated_at = now() where user_id = p_user;
+  return c.cost;
+end;
+$function$;

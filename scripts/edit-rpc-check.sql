@@ -40,9 +40,19 @@ declare
   j7 text := 'e_'||substr(md5(random()::text),1,20);
   j8 text := 'e_'||substr(md5(random()::text),1,20);
   j9 text := 'e_'||substr(md5(random()::text),1,20);
+  -- A gen_charges request id for sections 14b and 16b (the media side's charge
+  -- record), rolled back with everything else.
+  req text := 'zz-verify-' || substr(md5(random()::text),1,12);
   r jsonb; b0 numeric; b1 numeric; n int; log text := '';
   ok_count int := 0;
--- LAST RUN 2026-09-01 (late): ALL 48 CHECKS PASSED, rolled back. Section 15 was
+-- LAST RUN 2026-09-05 (stage 1b): ALL 65 CHECKS PASSED, rolled back, driving
+-- as a funded non-founder account (balance 500). Sections 14b and 16b were
+-- added that day; the same script against the OLD credit_back stopped at
+-- FAIL 48 ("credit_back paid a founder", 494 -> 496, taken back by the
+-- rollback) - the red baseline the migration was then applied against, and
+-- the second run went green the same hour.
+--
+-- RUN 2026-09-01 (late): ALL 48 CHECKS PASSED, rolled back. Section 15 was
 -- added that evening and its first run caught FAIL 9b - a regression in my own
 -- finalize migration, which had been rewritten from the applied folder's text
 -- rather than the live definition. See the live snapshot beside the migrations.
@@ -260,6 +270,35 @@ begin
   ok_count := ok_count + 3;
   log := log || format('14  founder round trip -> balance %s, %s ledger rows%s', b1, n, chr(10));
 
+  -- ── 14b. FOUNDER: THE TWO REFUND RPCS PAY NOTHING BACK (stage 1b, 2026-09-05) ─
+  --
+  -- use_credits answers the founder sentinel before any debit, and until stage
+  -- 1b credit_back and refund_charge credited a founder like anyone else:
+  -- credits created from nothing, unreachable only because the one founder
+  -- had no credits row. The test user is STILL A FOUNDER here (section 14 made
+  -- it one) and HAS a credits row, which is exactly the state that would have
+  -- minted. Driven AS the founder: auth.uid() reads the request's jwt claims
+  -- off a setting, so the block impersonates u for the rest of the
+  -- transaction (both spellings, the old claim.sub and the claims json).
+  perform set_config('request.jwt.claim.sub', u::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', u)::text, true);
+  select balance into b0 from public.credits where user_id = u;
+  if public.use_credits(2) <> 1000000 then raise exception 'FAIL 47 (a founder was debited, or was not read as one)'; end if;
+  select balance into b1 from public.credits where user_id = u;
+  if b1 <> b0 then raise exception 'FAIL 47b (use_credits moved a founder''s balance): % -> %', b0, b1; end if;
+  perform public.credit_back(u, 2);
+  select balance into b1 from public.credits where user_id = u;
+  if b1 <> b0 then raise exception 'FAIL 48 (credit_back paid a founder - MINTED CREDITS): % -> %', b0, b1; end if;
+  insert into public.gen_charges (request_id, user_id, cost) values (req, u, 3);
+  n := public.refund_charge(req, u);
+  select balance into b1 from public.credits where user_id = u;
+  if n <> 0 or b1 <> b0 then raise exception 'FAIL 49 (refund_charge paid a founder - MINTED CREDITS): returned % bal % -> %', n, b0, b1; end if;
+  if (select refunded from public.gen_charges where request_id = req) then
+    raise exception 'FAIL 49b (a founder''s charge row was marked refunded with nothing paid)';
+  end if;
+  ok_count := ok_count + 5;
+  log := log || format('14b founder refunds    -> use_credits sentinel, credit_back and refund_charge paid 0, balance %s%s', b1, chr(10));
+
   -- ── 15. AN OK ANSWER THAT NEVER BEGAN PUBLISHING IS DONE, NOT LOST ─────
   --
   -- Found live 2026-09-01: "Your site already looks like that" answered ok with
@@ -337,6 +376,32 @@ begin
   if (select billing from public.edit_jobs where id = j9) <> 'reserved' then raise exception 'FAIL 46b (billing moved off reserved)'; end if;
   ok_count := ok_count + 7;
   log := log || format('16  free rung exempt    -> unbilled refused, stranger refused, exempt granted, billed refused%s', chr(10));
+
+  -- ── 16b. THE SAME TWO RPCS STILL PAY A CUSTOMER BACK (the control for 14b) ─
+  --
+  -- Section 15 took u off the founders table, so this is the ordinary account:
+  -- the guard refuses founders and nobody else, and a repeat refund of one
+  -- charge is refused by the row's own flag. Without this half a guard that
+  -- refused EVERYONE would pass 14b.
+  perform set_config('request.jwt.claim.sub', u::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', u)::text, true);
+  select balance into b0 from public.credits where user_id = u;
+  if public.use_credits(2) <> b0 - 2 then raise exception 'FAIL 50 (use_credits did not debit a customer, or read one as a founder)'; end if;
+  perform public.credit_back(u, 2);
+  select balance into b1 from public.credits where user_id = u;
+  if b1 <> b0 then raise exception 'FAIL 51 (credit_back no longer pays a customer back): % -> %', b0, b1; end if;
+  insert into public.gen_charges (request_id, user_id, cost) values (req || '-c', u, 3);
+  n := public.refund_charge(req || '-c', u);
+  select balance into b1 from public.credits where user_id = u;
+  if n <> 3 or b1 <> b0 + 3 then raise exception 'FAIL 52 (refund_charge no longer pays a customer back): returned % bal % -> %', n, b0, b1; end if;
+  if not (select refunded from public.gen_charges where request_id = req || '-c') then
+    raise exception 'FAIL 52b (a paid refund did not mark its charge row)';
+  end if;
+  n := public.refund_charge(req || '-c', u);
+  select balance into b1 from public.credits where user_id = u;
+  if n <> 0 or b1 <> b0 + 3 then raise exception 'FAIL 53 (a charge was refunded twice): returned % bal %', n, b1; end if;
+  ok_count := ok_count + 5;
+  log := log || format('16b customer refunds   -> use_credits debited, credit_back and refund_charge paid, repeat refused%s', chr(10));
 
   update private.mint set key_hash = keep;
   raise exception E'ALL % CHECKS PASSED (transaction rolled back)\n%', ok_count, log;
