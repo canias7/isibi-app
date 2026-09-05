@@ -2995,8 +2995,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,157
-  (2026-09-05, after stage 2a's nine — `test/sweep-recovery.test.mjs`'s
+  build and the pre-list payload added sixteen); the unit suite is 5,160
+  (2026-09-05, after stage 2b's three in `test/edit-poll.test.mjs` — the
+  record driven, bounded at the write and the read; the poll after a resume;
+  the wiring read; 5,157 the same day after stage 2a's nine — `test/sweep-recovery.test.mjs`'s
   eight, the migration and its column, the sweep's branches and their order,
   the snapshot equal byte for byte, the grants, the check's three rows, the
   Worker's log and both readers; and `test/edit-poll.test.mjs`'s recovered
@@ -3479,8 +3481,10 @@ expensive thing" is a question about money.
 **Its third answer is the one that had no name before**: a watch resumed after a
 refresh holds the job id and nothing else, so falling through to `fallback`
 there would start a ~25-credit rewrite on page load for a sentence nobody
-re-typed. (`resumeEditJob` has no callers today — said out loud rather than left
-to be found, since wiring it starts real behaviour on page load.)
+re-typed. (`resumeEditJob` had no callers until stage 2b, 2026-09-05 — said out
+loud rather than left to be found, since wiring it starts real behaviour on page
+load; the entry below the sweep's records how it was wired, and the `lost`
+answer is what a record from before that day still gets.)
 
 **AND A THIRD IN THE SAME TAIL: `apply()` BUMPED THE PREVIEW AND NOTHING ELSE.**
 The synchronous success path also drops a DELETED PAGE from the site picker and
@@ -3611,6 +3615,70 @@ live**: the deploy carrying the Worker and `public/` is the proof's
 precondition; the database half is live and harmless on its own (the old
 Worker reads `lost`, `review` and `refunded` off the sweep's answer and
 ignores the rest). No live row has ever had the shape.
+
+**A REFRESH MID-EDIT LOST SIGHT OF THE JOB, AND THE FIX HAD BEEN WRITTEN AND
+LEFT UNWIRED (2026-09-05, stage 2b of the architecture plan, owner: *"ok
+go"*; `public/` only — builds nothing, rolls nothing).** `resumeEditJob`
+existed, `resumableJob` and the stored-reply poll existed, and no caller
+reached them (recorded two entries up, deliberately): a customer who
+refreshed while an edit ran came back to the project list with their
+message on the thread and no reply ever, while the job ran on and charged as
+normal. Wired now, in three hops. (1) **The record carries the ask.** Both
+enqueue sites (`siteEdit`, `siteAddon`) remember `{ ask, op, layer, page }`
+beside the job id — the customer's own words, which route filed the job, and
+the coordinates a sideways hop re-posts with — bounded as STRINGS at the
+write AND at the read (`ASK_MAX` 2000, the send box's own cap; `RESUME_OPS`;
+`String(["look"])` is "look", the recorded coercion), one record per site,
+an hour at most, never a body, a marker or an attachment (a logo is a
+megabyte of base64, and its job is already filed). `resumableRecord` is the
+reader; `resumableJob` still answers the id. A record from before the ask
+was stored resumes with no ask and no fallback, and an escalate then reads
+as `lost` — the sentence written for exactly that case while it had no
+caller. (2) **The open workspace resumes its site's job before it is drawn**
+(`resumeOpenSite`, from `renderSites`, so a card click after a refresh is
+the trigger): the send path's own tail as `finish`, the revise on the stored
+ask as the fallback (`reactSend(…, 'revise', …)`, without the attachments),
+the reader the route that filed the job uses (`addonAnswer` for an addon
+record), and busy plus the step rows set ONLY once a watch really started —
+a site with nothing to resume must not be stuck busy. (3) **One watch per
+job per page** (`editWatched`): the resume runs on every render the
+workspace gets (every reply triggers one), and the exactly-once latch inside
+a watch is per WATCH, so without the guard a job already being watched would
+gain a second watcher and the reply would print twice. Taken at the top of
+`watchEditJob`, released on the three ends (gone, reply, ended) and NOT on
+gave-up, so a render cannot start the next four hundred attempts on a job
+the page has already given up on — the sentence says to reload, and a
+reload is what resumes it. Two older guards went red for the change and
+were re-anchored, not appeased: the addon-queue pin on the remember call's
+spelling (it carries the ask and the route now) and its count of
+`addonAnswer` mentions (four: the resumed watch's reader is the fourth).
+`test/edit-poll.test.mjs` drives the record (bounded at the write and at
+the read, a planted hostile record, the hour, the old shape) and reads the
+wiring (the hook, the latch and its three releases, the ask-and-fallback
+pair, the reader, busy after the start). **Sweep: 22 mutants, 22 killed,
+none unapplied, three comment-only controls survived** — the ask stored
+unbounded or blank, an unknown route stored, a non-string layer coerced at
+the write, the read trusting a non-string ask or page, an unknown route
+read as an addon, the hour bound dropped, `resumableJob` answering nothing;
+the resume never running, a second watcher on a watched job, an addon
+record read with the edit tail, the fallback handed without the ask, busy
+set before the watch started, a busy site resumed over its own edit, the
+fallback a build instead of the revise, the latch never taken, released on
+gave-up or not released on the reply, the edit route storing no ask, the
+addon route storing its job as an edit, the resumed reply not re-drawing
+the workspace. **The write-side bounds were only catchable once the guard
+read the RAW store**: the read validates again, deliberately, so a writer
+that stored junk passed every read while the record outgrew its cap in
+storage — the "a guard proves the branch it drives" shape, met on the
+first draft of this guard. Full suite 5,160 green — one older guard went
+red for the change and was re-anchored, not appeased: `test/site-ask`'s
+`routeBlock` closed on a comment hundreds of lines past `siteRoute`, so it
+swallowed every function between (the recorded overlapping-window trap) and
+read the resumed tail's message push as `siteRoute` pushing a third; it
+closes on the next top-level declaration now. **Not proven live**: a
+refresh during a lane run on fretwork-1 with the reply appearing after the
+site is reopened is the proof — free, on the next push, which builds
+nothing and rolls nothing.
 
 **A ZERO-COST RUNG CANNOT PUBLISH THROUGH THE QUEUE, AND THE REFUSAL WEARS
 THE COMPILE'S SENTENCE (2026-09-02, run 10, the logo lane).** The consumer

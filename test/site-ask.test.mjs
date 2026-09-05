@@ -303,7 +303,17 @@ test("the router is BILLED, and only when the model answered", () => {
 const routeBlock = () => {
   const src = chat();
   const i = src.indexOf("function siteRoute(");
-  const end = src.indexOf("\n// What to say when a build could not run.", i);
+  // THE CLOSING LANDMARK IS THE NEXT TOP-LEVEL DECLARATION, not a named
+  // comment hundreds of lines on. It was `// What to say when a build could
+  // not run.`, which sits past siteEdit, the watcher and the resume — so the
+  // window swallowed every function between them, and stage 2b's resumed
+  // tail (one more `s.msgs.push`, in `resumeOpenSite`) read as siteRoute
+  // pushing a third message. The recorded overlapping-window trap; the end
+  // is derived from the real neighbour now, whatever its name.
+  const re = /\n(?:async )?function |\nconst |\nlet /g;
+  re.lastIndex = i + 1;
+  const m = re.exec(src);
+  const end = m ? m.index : -1;
   assert.ok(i > 0 && end > i, "siteRoute moved; this guard checks nothing");
   return src.slice(i, end);
 };

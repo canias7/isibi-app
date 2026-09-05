@@ -685,9 +685,9 @@ test("no ask means no spend, on the failure path as well as the escalate", () =>
   // branch, and there `o.fallback()` on a watch that has none is both a throw
   // and, if it ever gained one, a ~25-credit rewrite nobody re-typed.
   //
-  // UNREACHABLE TODAY and said so rather than asserted as live: `resumeEditJob`
-  // is the only caller that omits the ask and it has no callers of its own. It
-  // is guarded because what makes it unreachable is one wire away from changing.
+  // REACHABLE SINCE STAGE 2b (2026-09-05): `resumeEditJob` is wired now, and
+  // a record written before the ask was stored resumes with no ask and no
+  // fallback — exactly the caller this guard was written for while it had none.
   const open = CHAT.indexOf("function editAnswer(");
   const shut = CHAT.indexOf("function applyEditResult(");
   assert.ok(open > 0 && shut > open, "the editAnswer window's landmarks are gone or out of order");
@@ -735,4 +735,116 @@ test("recovered: the sweep's reply is a success whose details were lost", () => 
     "a published, charged edit is described as one that did not happen");
   // It is served with the final header, so it is `reply` whatever its body says.
   assert.deepEqual(P.readPoll(200, P.FINAL_VALUE, { ok: true, recovered: true }), { act: "reply" });
+});
+
+// ── RESUME CARRIES THE ASK (stage 2b, 2026-09-05) ─────────────────────────
+
+test("the record carries the ask, the route and the hop's coordinates, bounded", () => {
+  const store = fakeStore();
+  P.rememberJob("s1", "j1", store, { ask: "make the heading dark red", op: "edit", layer: "look", page: "/menu" });
+  assert.deepEqual(P.resumableRecord("s1", Date.now(), store),
+    { job: "j1", ask: "make the heading dark red", op: "edit", layer: "look", page: "/menu" });
+  assert.equal(P.resumableJob("s1", Date.now(), store), "j1", "resumableJob no longer answers the id");
+  // BOUNDED: the ask at the send box's own cap; an unknown route read as the
+  // edit reader; a non-string dropped rather than coerced — `String(["look"])`
+  // is "look", and this repo has shipped that coercion as a bug four times.
+  P.rememberJob("s2", "j2", store, { ask: "x".repeat(5000), op: "delete", layer: ["look"], page: 7 });
+  const r2 = P.resumableRecord("s2", Date.now(), store);
+  assert.equal(r2.ask.length, P.ASK_MAX);
+  assert.equal(r2.op, "edit");
+  assert.equal(r2.layer, "");
+  assert.equal(r2.page, "");
+  // AND BOUNDED AT THE WRITE, not only at the read: the read validates again
+  // (the store is the browser's), so a writer that stored junk would pass
+  // every read above while the record outgrew its cap in storage.
+  const rawS2 = JSON.parse(store.getItem(P.STORE_KEY)).s2;
+  assert.ok(rawS2.ask.length <= P.ASK_MAX, "the stored ask outgrew the send box's cap");
+  assert.deepEqual(Object.keys(rawS2).sort(), ["ask", "at", "job"], "junk fields were stored: " + Object.keys(rawS2).join(","));
+  // AN ADDON RECORD KEEPS ITS ROUTE, so the resumed watch reads with the addon's tail.
+  P.rememberJob("s4", "j4", store, { ask: "add a prices page", op: "addon" });
+  assert.equal(P.resumableRecord("s4", Date.now(), store).op, "addon");
+  // A RECORD SOMEBODY TYPED INTO THE STORE is read as strings or nothing:
+  // `String(["addon"])` is "addon", and the reader must not become the route.
+  store.setItem(P.STORE_KEY, JSON.stringify({ h1: { job: "jh", at: Date.now(), ask: ["x"], op: ["addon"], layer: 5, page: {} } }));
+  assert.deepEqual(P.resumableRecord("h1", Date.now(), store), { job: "jh", ask: "", op: "edit", layer: "", page: "" });
+  store.setItem(P.STORE_KEY, JSON.stringify({}));
+  P.rememberJob("s1", "j1", store, { ask: "make the heading dark red", op: "edit", layer: "look", page: "/menu" });
+  // THE HOUR BOUND APPLIES TO THE RECORD, ask and all.
+  assert.equal(P.resumableRecord("s1", Date.now() + 3600001, store), null);
+  assert.equal(P.resumableRecord("s1", Date.now() - 10000, store), null);
+  // A RECORD WRITTEN BEFORE THE ASK WAS STORED resumes with no ask: the id
+  // alone, and the watch then reads an escalate as `lost` rather than spending.
+  P.rememberJob("s3", "j3", store);
+  assert.deepEqual(P.resumableRecord("s3", Date.now(), store), { job: "j3", ask: "", op: "edit", layer: "", page: "" });
+  const raw = JSON.parse(store.getItem(P.STORE_KEY));
+  assert.deepEqual(Object.keys(raw.s3).sort(), ["at", "job"], "a bare remember stores more than the id");
+  // A BLANK ASK IS NO ASK, and an empty extra changes nothing — at the write,
+  // so the store never carries a field the read would only drop.
+  P.rememberJob("s5", "j5", store, { ask: "   ", op: "", layer: "", page: "" });
+  assert.deepEqual(Object.keys(JSON.parse(store.getItem(P.STORE_KEY)).s5).sort(), ["at", "job"], "a blank ask was stored");
+  assert.deepEqual(P.resumableRecord("s5", Date.now(), store), { job: "j5", ask: "", op: "edit", layer: "", page: "" });
+  // AND NEVER A BODY OR A MARKER, ask or no ask.
+  assert.ok(!/secret|marker|authorization|bearer|"body"/i.test(store.getItem(P.STORE_KEY)), "the resume store carries more than the ask");
+  // A hostile store still cannot fail an edit.
+  const hostile = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+  assert.equal(P.resumableRecord("s1", Date.now(), hostile), null);
+  assert.doesNotThrow(() => P.rememberJob("s1", "j1", hostile, { ask: "x", op: "edit" }));
+});
+
+test("after a resume the stored reply is read, and the ask makes a hop possible", () => {
+  // THE POLL DOES NOT KNOW THE WATCH WAS RESUMED, and must not: a stored reply
+  // is `reply` under the final header, and an escalate on it hops when the
+  // ask is there and is `lost` when it is not — which is the whole reason the
+  // record carries the ask now.
+  assert.deepEqual(P.readPoll(200, P.FINAL_VALUE, { ok: true, escalate: true, layer: "page" }), { act: "reply" });
+  assert.deepEqual(P.readPoll(422, P.FINAL_VALUE, { ok: false, msg: "That didn't compile" }), { act: "reply" });
+  assert.equal(P.escalateAction({ escalate: true, layer: "page" }, { layer: "look", hasAsk: true }), "hop");
+  assert.equal(P.escalateAction({ escalate: true, layer: "addon" }, { layer: "look", hasAsk: true }), "addon");
+  assert.equal(P.escalateAction({ escalate: true, layer: "page" }, { layer: "look", hasAsk: false }), "lost");
+});
+
+test("the resume is wired: on site selection, once per job, with the ask and the right reader", () => {
+  // THE CALLER. `resumeEditJob` had none by design until stage 2b; now the
+  // open workspace resumes the site's job before it is drawn, on the render
+  // every reply triggers, so it has to refuse a job already being watched.
+  const rs = CHAT.slice(CHAT.indexOf("function renderSites()"), CHAT.indexOf("function renderSiteWorkspace("));
+  assert.ok(rs.length > 200, "the renderSites window came out empty");
+  assert.match(rs, /if \(open\) \{ resumeOpenSite\(open\); renderSiteWorkspace\(view, open\); return; \}/,
+    "the open site is not resumed before it is drawn");
+  const re = CHAT.slice(CHAT.indexOf("function resumeEditJob("), CHAT.indexOf("function resumeOpenSite("));
+  const ro = CHAT.slice(CHAT.indexOf("function resumeOpenSite("), CHAT.indexOf("function siteAddon("));
+  assert.ok(re.length > 100 && ro.length > 100, "a resume window came out empty");
+  // THE RECORD, NOT THE ID: the ask, the route and the hop's coordinates.
+  assert.match(re, /EditPoll\.resumableRecord\(slug\)/, "the resume reads the id alone");
+  // ONCE PER JOB.
+  assert.match(re, /if \(editWatched\.has\(rec\.job\)\) return false;/, "a job already watched is resumed again");
+  // THE READER THE ROUTE THAT FILED IT USES, as a value.
+  assert.match(re, /rec\.op === 'addon' \? addonAnswer : editAnswer/, "an addon record is read with the edit tail");
+  // THE ASK AND THE FALLBACK TOGETHER, OR NEITHER — a fallback with no ask is
+  // a ~25-credit rewrite of nothing in particular.
+  assert.match(re, /watchEditJob\(site, d, rec\.job, origin, finish, ask \? fallback : undefined, ask \|\| undefined, undefined, reader\)/,
+    "the resumed watch does not hand the ask and the fallback as a pair");
+  // THE OPEN SITE: busy again only once a watch really started, the revise as
+  // the fallback on the ask the record kept, nothing while the site is busy.
+  assert.match(ro, /if \(!site \|\| !site\.slug \|\| siteBusy\) return false;/, "a busy site is resumed over the edit it is running");
+  assert.match(ro, /reactSend\(site, rec \? rec\.ask : '', origin, 'revise', \[\], finish, \[\]\)/, "the resumed fallback is not the revise on the stored ask");
+  const started = ro.indexOf("if (!resumeEditJob(site, origin, finish, go)) return false;");
+  const busy = ro.indexOf("siteBusy = true;");
+  const rows = ro.indexOf("siteBuildStart(true);");
+  assert.ok(started > 0 && busy > started && rows > busy, "busy is set before the watch is known to have started");
+  // THE TAIL IS THE SEND PATH'S: the reply onto the thread, saved, re-drawn.
+  assert.match(ro, /s\.msgs\.push\(\{ r: 'a', t: reply \}\);/, "the resumed reply does not reach the thread");
+  assert.match(ro, /if \(siteOpenId === origin\) renderSites\(\);/, "the resumed reply does not re-draw the workspace");
+  // BOTH ENQUEUE SITES WRITE THE ASK, each with its route.
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, e\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '' \}\)/,
+    "the edit route no longer stores the ask");
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, a\.job, undefined, \{ ask: instruction, op: 'addon'/, "the addon route no longer stores the ask");
+  // THE LATCH: declared, taken at the top of every watch, released when the
+  // watch ends — and NOT when it gave up, so a render does not restart it.
+  assert.match(CHAT, /const editWatched = new Set\(\);/, "the per-job latch is gone");
+  const w = CHAT.slice(CHAT.indexOf("function watchEditJob("), CHAT.indexOf("function cancelEditJob("));
+  assert.match(w, /if \(editWatched\.has\(w\.job\)\) return;\s+editWatched\.add\(w\.job\);/, "a second watcher can be put on a job");
+  assert.equal((w.match(/release\(\);/g) || []).length, 3, "the latch is not released on exactly the three ends: gone, reply, ended");
+  const gaveUp = w.split("\n").find((l) => l.includes("w.stopped = 'gave-up'"));
+  assert.ok(gaveUp && !/release\(/.test(gaveUp), "a job the page gave up on is released, so the next render restarts it");
 });

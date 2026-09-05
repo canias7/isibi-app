@@ -306,15 +306,20 @@ test("siteAddon mints one key per POST and watches a filed job with the addon's 
   assert.match(fn, /body: JSON\.stringify\(\{ instruction: instruction, picker: buildPicker, idem: idem\b[^}]*\}\)/, "the key does not ride the POST");
   // A RECEIPT IS NOT AN OUTCOME: a job with no result is watched, not applied.
   assert.match(fn, /if \(a && a\.ok && a\.job && !a\.result\) \{/, "a 202 receipt is read as the addon's reply");
-  assert.match(fn, /EditPoll\.rememberJob\(slug, a\.job\);/, "a filed addon is not remembered for a refresh");
+  // RE-ANCHORED 2026-09-05 (stage 2b): the record carries the ask and which
+  // route filed the job, so a watch resumed after a refresh reads the reply
+  // with THIS route's reader; the property is that a filed addon is
+  // remembered, as an addon, with its ask.
+  assert.match(fn, /EditPoll\.rememberJob\(slug, a\.job, undefined, \{ ask: instruction, op: 'addon'/, "a filed addon is not remembered for a refresh with its ask and route");
   assert.match(fn, /watchEditJob\(site, d, a\.job, origin, finish, fallback, instruction, undefined, addonAnswer\);/,
     "a filed addon is not watched through the shared watcher with the addon reader");
   // THE ONE READER, BOTH WAYS.
   assert.match(fn, /return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish, fallback, slug \}\);/, "the synchronous reply bypasses addonAnswer");
   // THE WORD, not the call: the watcher is handed the reader as a value, with
-  // no parenthesis after it.
+  // no parenthesis after it. FOUR since stage 2b: the resumed watch picks the
+  // same reader, as a value, for a record an addon filed.
   const readers = (CHAT.match(/\baddonAnswer\b/g) || []).length;
-  assert.equal(readers, 3, `addonAnswer has ${readers} mentions — one definition, the synchronous call and the watcher argument, and no fourth copy`);
+  assert.equal(readers, 4, `addonAnswer has ${readers} mentions — one definition, the synchronous call, the watcher argument and the resumed watch's reader, and no fifth copy`);
 });
 
 test("the shared watcher takes a reader and defaults to the edit's", () => {

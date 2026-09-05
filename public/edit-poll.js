@@ -245,9 +245,17 @@
   //
   // A queued edit outlives the page that started it, so a refresh must be able
   // to pick the same job back up rather than send a second one. The store is
-  // per-slug and holds only the job id — never the body, never the marker,
-  // never anything the server told us in confidence.
+  // per-slug — ONE record per site, an hour at most — and holds the job id
+  // and, since stage 2b (2026-09-05), THE ASK: the customer's own words, which
+  // route filed the job, and the layer and page a sideways hop re-posts with.
+  // Never the body, never the marker, never anything the server told us in
+  // confidence; the attachments are not kept either (a logo is a megabyte of
+  // base64, and the logo lane's job is already filed).
   var STORE_KEY = "gf.edit.watch.v1";
+  /** The send box's own cap on a message, so the record can never outgrow it. */
+  var ASK_MAX = 2000;
+  /** Which route filed the job — the resumed watch picks its reader by it. */
+  var RESUME_OPS = ["edit", "addon"];
 
   function readStore(store) {
     try {
@@ -257,11 +265,25 @@
     } catch (e) { return {}; }
   }
 
-  function rememberJob(slug, job, store) {
+  /**
+   * `extra` is `{ ask, op, layer, page }`, every field optional and kept only
+   * as a bounded STRING — `String(["look"])` is "look", and this repo has
+   * shipped that coercion as a bug four times, so a non-string is dropped
+   * rather than read. A remember with no extra stores the id and the time
+   * alone, exactly as before; a record read back by the old code is unchanged
+   * in the two fields it knows.
+   */
+  function rememberJob(slug, job, store, extra) {
     if (!slug || !job) return;
     try {
       var all = readStore(store);
-      all[String(slug)] = { job: String(job), at: Date.now() };
+      var rec = { job: String(job), at: Date.now() };
+      var x = extra && typeof extra === "object" ? extra : null;
+      if (x && typeof x.ask === "string" && x.ask.trim()) rec.ask = x.ask.slice(0, ASK_MAX);
+      if (x && typeof x.op === "string" && RESUME_OPS.indexOf(x.op) >= 0) rec.op = x.op;
+      if (x && typeof x.layer === "string" && x.layer) rec.layer = x.layer.slice(0, 64);
+      if (x && typeof x.page === "string" && x.page) rec.page = x.page.slice(0, 200);
+      all[String(slug)] = rec;
       (store || localStorage).setItem(STORE_KEY, JSON.stringify(all));
     } catch (e) { /* a private window is not a reason to fail an edit */ }
   }
@@ -275,20 +297,40 @@
   }
 
   /**
-   * The job to resume for this site, if any and if it is still worth resuming.
+   * The record to resume for this site, if any and if it is still worth
+   * resuming: `{ job, ask, op, layer, page }`, the strings empty when the
+   * record has none (a record written before the ask was stored has only the
+   * id, and resumes with no ask — the watch then reads an escalate as `lost`
+   * rather than spending), `op` falling to `edit` for anything unknown.
    *
    * STALE ENTRIES ARE DROPPED rather than polled. A job is bounded by the
    * consumer's fifteen minutes, so an entry older than an hour names something
    * that finished long ago — and polling it would answer 404 and tell the
    * customer their edit could not be followed, about an edit that succeeded.
+   *
+   * READ BACK THE WAY IT WAS WRITTEN: strings or nothing, bounded again, never
+   * a stored value trusted as something else — the store is the browser's
+   * and anything can be typed into it.
    */
-  function resumableJob(slug, now, store) {
+  function resumableRecord(slug, now, store) {
     var all = readStore(store);
     var v = all[String(slug)];
     if (!v || typeof v.job !== "string" || !v.job) return null;
     var age = (Number(now) || Date.now()) - (Number(v.at) || 0);
     if (age > 3600000 || age < 0) return null;
-    return v.job;
+    return {
+      job: v.job,
+      ask: typeof v.ask === "string" && v.ask.trim() ? v.ask.slice(0, ASK_MAX) : "",
+      op: typeof v.op === "string" && RESUME_OPS.indexOf(v.op) >= 0 ? v.op : "edit",
+      layer: typeof v.layer === "string" ? v.layer.slice(0, 64) : "",
+      page: typeof v.page === "string" ? v.page.slice(0, 200) : "",
+    };
+  }
+
+  /** The job id alone — the record's, or null. Kept for the callers that only need the id. */
+  function resumableJob(slug, now, store) {
+    var rec = resumableRecord(slug, now, store);
+    return rec ? rec.job : null;
   }
 
   // THE SAME TWO STRINGS `builder/edit-job.mjs` EXPORTS, and they cannot be
@@ -415,6 +457,9 @@
     rememberJob: rememberJob,
     forgetJob: forgetJob,
     resumableJob: resumableJob,
+    resumableRecord: resumableRecord,
+    ASK_MAX: ASK_MAX,
+    RESUME_OPS: RESUME_OPS,
     STORE_KEY: STORE_KEY,
   };
 

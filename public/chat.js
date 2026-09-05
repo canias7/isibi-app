@@ -10250,7 +10250,11 @@ function renderSites() {
   if (!view) return;
   const open = siteOpenId && siteById(siteOpenId);
   view.classList.toggle('ws-open', !!open);
-  if (open) { renderSiteWorkspace(view, open); return; }
+  // THE OPEN SITE PICKS ITS RUNNING EDIT BACK UP before it is drawn (stage 2b,
+  // 2026-09-05): a refresh mid-edit used to lose sight of the job for good.
+  // Idempotent — a job already watched is refused inside — so this is safe on
+  // the render every reply triggers.
+  if (open) { resumeOpenSite(open); renderSiteWorkspace(view, open); return; }
   siteOpenId = null;
   const sites = sitesLoad();
   view.innerHTML =
@@ -11513,6 +11517,11 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
 const editInFlight = new Set();
 const editIdem = new Map();
 const editBlocked = new Set();
+// `editWatched` is the jobs this page has a live watch on (stage 2b,
+// 2026-09-05). The resume runs on every render of the open workspace, and a
+// second watcher on one job would apply the reply twice — the exactly-once
+// latch inside a watch is per WATCH, not per job.
+const editWatched = new Set();
 
 function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOff) {
   const slug = String(site.slug || '');
@@ -11595,7 +11604,12 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
     // is to watch the ORIGINAL rather than treat it as new.
     if (e && e.ok && e.job && !e.result) {
       clearFlight();
-      EditPoll.rememberJob(slug, e.job);
+      // THE ASK RIDES THE RECORD (stage 2b, 2026-09-05), with the route that
+      // filed the job and the layer and page a sideways hop re-posts with — so
+      // a watch resumed after a refresh hops or falls to the revise exactly as
+      // this one would, instead of answering that the message was lost. The
+      // attachments are not kept: the logo lane's job is already filed.
+      EditPoll.rememberJob(slug, e.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '' });
       watchEditJob(site, d, e.job, origin, finish, fallback, instruction, imgs);
       return;
     }
@@ -11772,6 +11786,16 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
   const slug = String(site.slug || '');
   const w = EditPoll.makeWatch(job, slug);
   const reader = typeof answer === 'function' ? answer : editAnswer;
+  // ONE WATCH PER JOB IN THIS PAGE (stage 2b, 2026-09-05). The resume runs on
+  // every render of the open workspace, so a job already being watched would
+  // otherwise gain a second watcher, and two watchers apply the reply twice —
+  // the exactly-once latch below is per WATCH, not per job. Released when the
+  // watch ends, except when it GAVE UP: a render must not start the next four
+  // hundred attempts on a job this page has already given up on. The sentence
+  // tells the customer to reload, and a reload is what resumes it.
+  if (editWatched.has(w.job)) return;
+  editWatched.add(w.job);
+  const release = () => { editWatched.delete(w.job); };
   const apply = (e, r0) => {
     // ── EXACTLY ONCE ──────────────────────────────────────────────────────
     //
@@ -11782,6 +11806,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     const once = w.take(e);
     if (!once) return;
     EditPoll.forgetJob(slug);
+    release();
     // ── THE SAME READER THE SYNCHRONOUS PATH USES, ON THE SAME OBJECT ─────
     //
     // Including the escalate, which this function briefly checked for itself —
@@ -11835,6 +11860,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
       // here can be used to find out whether an id exists. All this side knows
       // is that it can no longer follow the edit.
       EditPoll.forgetJob(slug);
+      release();
       w.stopped = 'gone';
       finish('⚠️ I lost track of that edit. Your site is unchanged unless it had already published.');
       return;
@@ -11851,6 +11877,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // no stored reply to hand back at all: lost, cancelled, under review.
     if (w.take(true) === null) return;
     EditPoll.forgetJob(slug);
+    release();
     if (read.kind === 'needs_review') editBlocked.add(slug);
     scheduleCreditRefresh();
     // THE SERVER'S OWN SENTENCE WHEN IT WROTE ONE FOR A CUSTOMER TO READ, and a
@@ -11894,22 +11921,72 @@ function cancelEditJob(site, d, job, origin, finish, fallback, instruction, imgs
  * PICK BACK UP AFTER A REFRESH. A queued edit outlives the page that started
  * it, so the alternative to resuming is the customer sending a second one.
  *
- * NO INSTRUCTION AND NO ATTACHMENTS, and that is the truth rather than an
- * omission: the ask lived in the page that was refreshed away, and only the job
- * id is in storage. `escalatedEdit` reads the missing ask as its own case and
- * says so, because the alternative — falling straight through to `fallback` —
- * would start a ~25-credit rewrite on page load for a sentence nobody re-typed.
+ * THE ASK COMES BACK WITH THE JOB (stage 2b, 2026-09-05). The record the two
+ * enqueue sites write carries the customer's own words, which route filed the
+ * job, and the layer and page a sideways hop re-posts with — so an escalate
+ * read after a reload hops or falls to the revise exactly as it would have
+ * before the reload, instead of answering that the message was lost. A record
+ * written before the ask was stored still resumes: with no ask and no
+ * fallback, `escalatedEdit` reads that as its own `lost` case and says so,
+ * because falling straight through to `fallback` would start a ~25-credit
+ * rewrite on page load for a sentence nobody re-typed. The attachments are
+ * gone with the page either way.
  *
- * AND IT HAS NO CALLERS TODAY. Said out loud rather than left to be discovered:
- * everything below it works and nothing reaches it, so a refresh mid-edit still
- * loses sight of the job. Wiring it starts real behaviour on page load, which is
- * a product call, not a tidy-up.
+ * WIRED SINCE STAGE 2b: `resumeOpenSite` below calls it for the open
+ * workspace, once per job — `editWatched` is the latch, so a render never
+ * puts a second watcher on a job this page is already watching.
  */
 function resumeEditJob(site, origin, finish, fallback) {
   const slug = String(site.slug || '');
-  const job = EditPoll.resumableJob(slug);
-  if (!job) return false;
-  watchEditJob(site, {}, job, origin, finish, fallback);
+  const rec = EditPoll.resumableRecord(slug);
+  if (!rec) return false;
+  if (editWatched.has(rec.job)) return false;
+  const d = { layer: rec.layer, page: rec.page };
+  // THE READER THE ROUTE THAT FILED IT USES: an addon's stored reply is a
+  // different object — kinds, added pages, tables — read by a different tail.
+  const reader = rec.op === 'addon' ? addonAnswer : editAnswer;
+  // THE ASK, WHEN THE RECORD HAS ONE — and the fallback only beside it: the
+  // revise runs on the ask, and a fallback with no ask is a rewrite of nothing
+  // in particular.
+  const ask = rec.ask || '';
+  watchEditJob(site, d, rec.job, origin, finish, ask ? fallback : undefined, ask || undefined, undefined, reader);
+  return true;
+}
+/**
+ * THE OPEN WORKSPACE RESUMES ITS SITE'S JOB before it is drawn — `renderSites`
+ * calls this for the open site, so the step rows show a change in flight and
+ * the send box refuses a second edit on the site until it ends, as they did
+ * before the refresh. `finish` is the send path's own tail: the reply onto the
+ * thread, saved, the workspace re-drawn. The fallback is the revise
+ * `siteRoute`'s `go` would have run, on the ask the record kept, without the
+ * attachments a refresh lost.
+ *
+ * NOTHING HAPPENS while the site is busy (an edit filed in this page is
+ * already watched), and nothing happens twice: `resumeEditJob` refuses a job
+ * this page is watching, and a job the page GAVE UP on stays latched, so the
+ * next render does not start another four hundred attempts — the sentence
+ * says to reload, and a reload is what resumes it. Busy is set only once a
+ * watch really started, or a site with nothing to resume would be stuck busy.
+ */
+function resumeOpenSite(site) {
+  if (!site || !site.slug || siteBusy) return false;
+  const origin = site.id;
+  const finish = (reply) => {
+    siteBusy = false;
+    siteBuildMsg = '';
+    siteBuildStop();
+    const s = siteById(origin);
+    if (!s) return;
+    s.msgs.push({ r: 'a', t: reply });
+    s.updatedAt = Date.now();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  };
+  const rec = EditPoll.resumableRecord(String(site.slug));
+  const go = () => reactSend(site, rec ? rec.ask : '', origin, 'revise', [], finish, []);
+  if (!resumeEditJob(site, origin, finish, go)) return false;
+  siteBusy = true;
+  siteBuildStart(true);
   return true;
 }
 // The middle rung: add a page or a table, keep everything else.
@@ -11944,7 +12021,10 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
     // route, the two voices and the exactly-once latch are one copy for both
     // — and read, when the stored reply lands, by this route's own reader.
     if (a && a.ok && a.job && !a.result) {
-      EditPoll.rememberJob(slug, a.job);
+      // THE ASK RIDES THE RECORD with the route that filed it (stage 2b), so a
+      // watch resumed after a refresh reads the reply with THIS route's reader
+      // and can re-post the ask on a hop — `siteEdit`'s rule, one rung up.
+      EditPoll.rememberJob(slug, a.job, undefined, { ask: instruction, op: 'addon', layer: d && typeof d.layer === 'string' ? d.layer : '', page: d && d.page ? String(d.page) : '' });
       watchEditJob(site, d, a.job, origin, finish, fallback, instruction, undefined, addonAnswer);
       return;
     }

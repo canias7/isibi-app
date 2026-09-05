@@ -3091,3 +3091,34 @@ What this needs from you: the Worker deploy (it rolls the container, so the
 usual hold applies), with the browser files riding the same push. The
 database half is already live and harmless on its own: the old Worker keeps
 calling the sweep and simply does not print the counts it does not know.
+
+## 2026-09-05 — A refresh mid-edit picks the edit back up (stage 2b)
+
+Your "ok go". Until now, refreshing the page while an edit was running lost
+sight of it for good: the job kept running and charging as normal and the
+site changed, but the thread never got the reply, and the only way to find
+out was to look at the site. The pieces to resume it were written weeks ago
+and deliberately left unwired, because wiring them starts behaviour on page
+load, which was your call to make.
+
+Now, when you open the site again after a refresh, the page picks the
+running edit back up: the step rows show it in flight, the send box waits
+for it as it did before the refresh, and the reply lands on the thread when
+it finishes. The ask is remembered with the job (your own words, bounded,
+never an attachment), so if that edit turns out to need a bigger step the
+page can still take it, exactly as it would have without the refresh. An
+edit filed before this change still resumes; it only cannot re-post the
+words it never kept, and says so instead of starting a rewrite on its own.
+
+How it was checked: the record and its bounds are driven directly; the
+wiring is read out of the browser file; and the mutation sweep put 22
+deliberate breaks in (the resume never running, a second watcher on one
+job, the reply printed twice, a busy site resumed over its own edit, the
+ask stored unbounded, the fallback running without the ask) and the tests
+caught all 22, with the three comment-only controls surviving as they
+should. The whole unit suite is 5,160 green after it.
+
+What this needs from you: the push to main. It is the browser files only,
+so it builds nothing and rolls nothing. The live proof is free: refresh the
+page during an edit on fretwork-1 and reopen the site, and the reply should
+appear when the edit finishes.
