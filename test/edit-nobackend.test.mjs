@@ -139,6 +139,17 @@ async function withModel(run, { hasDb = false, owned = true } = {}) {
     if (url.includes("/rest/v1/site_project")) {
       return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
     }
+    // A HEALTHY LEDGER, answering what was asked for. Since 2026-09-05 (stage
+    // 1a-iii) the synchronous route counts a collect that threw as a refused
+    // reservation and the spine stops on it (`unbilled`), so the catch-all 503
+    // below read as a dead ledger and every publish here stopped one gate
+    // short of the one under test. A case about a dead or short ledger stubs
+    // its own (test/edit-reserve-refused.test.mjs).
+    if (url.includes("/rpc/use_credits")) {
+      let want = 0;
+      try { want = Number(JSON.parse(String(init && init.body) || "{}").cost) || 0; } catch { want = 0; }
+      return new Response(String(want), { status: 200, headers: { "content-type": "application/json" } });
+    }
     if (url.includes("/rest/v1/site_backends")) {
       // `owned:false` is a slug NOBODY owns — the deleted-site case the refusal
       // genuinely exists for, and the control that keeps the fix bounded.

@@ -1640,7 +1640,23 @@ test("the translation runs on the picked model like every other small call (owne
   assert.match(w, /async function recompileAndPublish\(env, \{[^}]*\bmodels = null\b[^}]*\}\)/, "the spine takes no models");
   assert.match(w, /const tModels = models && typeof models\.quick === "string" \? models : modelsFor\(\);/, "the spine does not resolve the picker's models");
   assert.match(w, /translateStrings\(env, l\.tag, missing, tModels\)/, "the spine translates on no model of the picker's");
-  const addon = w.slice(w.indexOf("const aPub = await recompileAndPublish(env, {"), w.indexOf("const aPub = await recompileAndPublish(env, {") + 900);
+  // THE ADDON'S CALL, WHOLE — walked by brace depth from the options object's
+  // own `{`. A 900-byte window from the call's first line was outrun on
+  // 2026-09-05 by the `charges` line and its comment (the recorded trap: never
+  // size a source-read window in bytes).
+  const aHead = "const aPub = await recompileAndPublish(env, {";
+  const aCall = w.indexOf(aHead);
+  assert.ok(aCall > 0, "the addon route's publish call is gone");
+  const addon = (() => {
+    const open = aCall + aHead.length - 1;
+    assert.equal(w[open], "{", "the addon call's options object does not open where the head says");
+    let d = 0;
+    for (let i = open; i < w.length; i++) {
+      if (w[i] === "{") d++;
+      else if (w[i] === "}") { d--; if (d === 0) return w.slice(aCall, i + 1); }
+    }
+    assert.fail("the addon route's publish call has no closing brace");
+  })();
   assert.match(addon, /models: aModels,/, "the addon route's publish carries no models");
   assert.match(w, /async function buildAndPublishPages\(env, \{[^}]*picker = null, models = null \}\)/, "the build's page builder takes no picker and no models");
   // THE BUILDER RESOLVES ITS OWN when a caller hands none — from the `picker`
@@ -1685,7 +1701,11 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   const spine = bodyOf("recompileAndPublish");
 
   // ── THE SPINE ──
-  assert.match(w, /async function recompileAndPublish\(env, \{[^}]*charge = null \}\)/, "the spine takes no charge funnel");
+  // (The list grew `charges = null` — the route's reader of its own refusals —
+  // after `charge` on 2026-09-05; the property is that the spine takes and
+  // defaults `charge`, wherever it sits. `\bcharge\b` does not match
+  // `charges`.)
+  assert.match(w, /async function recompileAndPublish\(env, \{[^}]*\bcharge = null\b[^}]*\}\)/, "the spine takes no charge funnel");
   const loopWrite = pos(spine, "patchSiteConfig(env, slug, db, { langStrings: nextStrings })", "the cache write");
   const charged = pos(spine, "let langCharged = 0;", "the charge");
   const compileDef = pos(spine, "const compile = async () => {", "the compile");
@@ -1710,7 +1730,9 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   assert.doesNotMatch(w, /usage: r\.usage \|\| null/, "the raw API usage still goes out of translateStrings");
 
   // ── THE EDIT ROUTE: `eCharge` itself, so the receipt and the bill stay one list ──
-  assert.match(w, /pendingPublish = \{ [^\n]*charge: \(usage\) => eCharge\(\{ langUsage: usage \}\) \};/,
+  // (The object grew `charges: eCharges` after `charge` on 2026-09-05 — the
+  // route's reader of its own refusals; the property here is the funnel.)
+  assert.match(w, /pendingPublish = \{ [^\n]*charge: \(usage\) => eCharge\(\{ langUsage: usage \}\)(?:, [^\n]*?)? \};/,
     "the deferred publish hands the spine no funnel, or one that is not eCharge");
   assert.match(w, /cost: done\.reduce\(\(n, d\) => n \+ \(Number\(d\.body && d\.body\.cost\) \|\| 0\), 0\) \+ \(finalPub \? Number\(finalPub\.langCharged\) \|\| 0 : 0\),/,
     "the merged reply's cost does not add what the spine charged — every step's own bill was placed before the spine ran");

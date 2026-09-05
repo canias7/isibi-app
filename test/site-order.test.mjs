@@ -466,12 +466,18 @@ test("the sort is charged like every other model call on this lane", () => {
   // A refusal used to answer `cost: 0`, which was honest when the only refusal
   // was "nothing matched" and stopped being so the moment a reorder could be
   // refused after a paid call.
+  // RE-ANCHORED 2026-09-05 (stage 1a-ii): the rung reserves through its
+  // `before` hook now — once the model has answered and BEFORE the first row
+  // is written — so a refusal that comes after that hook answers the cost the
+  // hook already took (`dBilled ? dCost`), and charges through `eCharge` only
+  // when the hook never ran (nothing matched, or the model failed). The
+  // property is unchanged: a refusal after a paid call is never `cost: 0`.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const at = w.indexOf('if (eLayer === "data")');
   const block = w.slice(at, w.indexOf('if (eLayer === "rules")', at));
   const refusal = block.indexOf('ok: false, error: dOut.reason');
   assert.ok(refusal > 0);
-  assert.match(block.slice(refusal, refusal + 200), /cost: await eCharge\(dOut\.usage\)/);
+  assert.match(block.slice(refusal, refusal + 200), /cost: dBilled \? dCost : await eCharge\(dOut\.usage\)/);
 });
 
 // ── THE CORPUS, WHICH IS WHAT DECIDES WHETHER THIS CAN EXIST ────────────────

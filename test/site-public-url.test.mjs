@@ -67,6 +67,16 @@ function withWire({ answers = {}, current = [], fail = false, former = [] } = {}
     const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
     if (url.includes("/auth/v1/user")) return json(USER);
     if (url.includes("/rest/v1/site_project")) return json([]);
+    // A HEALTHY LEDGER, answering what was asked for: since 2026-09-05 (stage
+    // 1a-iii) the synchronous route counts a collect that threw as a refused
+    // reservation and the spine stops on it (`unbilled`), so the catch-all
+    // 503 below read as a dead ledger and no edit here published. A case about
+    // a dead or short ledger stubs its own (test/edit-reserve-refused.test.mjs).
+    if (url.includes("/rpc/use_credits")) {
+      let want = 0;
+      try { want = Number(JSON.parse(String(init && init.body) || "{}").cost) || 0; } catch { want = 0; }
+      return json(want);
+    }
     // THE WANTED NAME IS FREE; the site's own slug is owned. One stub answering
     // the owner row for every slug would refuse every rename as "taken".
     if (url.includes("/rest/v1/site_backends")) return json(/sunset-shoes/.test(url) ? [] : [{ uid: USER.id, brief: "" }]);

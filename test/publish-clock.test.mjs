@@ -38,8 +38,15 @@ test("the job gate refuses a publish below the floor, by name, after cancel and 
 test("the addon asks the gate BEFORE it reserves credits, so a refusal for time charges nothing", () => {
   const route = between(worker, "// ── MAY THIS STILL PUBLISH? (async path)", "aMark(\"publish:1\", \"start\"", "the addon's publish gate");
   const gate = route.indexOf('aJob.gate("build")');
-  const charge = route.indexOf("aCost = await aCharge(aBill)");
-  assert.ok(gate > 0 && charge > gate, "the reserve is placed before the gate — a job refused for time would be charged and refunded instead of never charged");
+  // RE-ANCHORED 2026-09-05 (stage 1a-ii): the PAGE PATH's reserve — the one
+  // bill, or sequence #4 once #1 went ahead of a schema apply — still sits
+  // after the gate. Sequence #1 sits before the schema apply by design, so
+  // a job refused for time after a backend addon is charged #1 and refunded
+  // by the consumer, the same road a failed compile already takes; what this
+  // guard keeps is that the page call's spend is never reserved before the
+  // floor has been asked.
+  const charge = route.indexOf("aCost = aFirstPlaced ?");
+  assert.ok(gate > 0 && charge > gate, "the page path's reserve is placed before the gate — a job refused for time would be charged and refunded instead of never charged");
   assert.match(route, /return await editStopped\(env, \{ job: aJob, why: aGatePub\.why/, "a refused gate no longer stops the job through editStopped");
 });
 

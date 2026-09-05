@@ -977,6 +977,64 @@ test("nothing matched does NOT escalate — the rungs above cannot change a row 
   assert.ok(r.usage, "a call that happened is still billed");
 });
 
+// ── THE CALLER RESERVES BEFORE THE FIRST ROW IS WRITTEN (2026-09-05) ────────
+//
+// The route's reserve used to follow the apply, so a ledger that refused
+// prevented nothing: the rows were already changed. `before(usage)` is asked
+// with the usage in hand and nothing written; a refusal is `unbilled`, no
+// row applied, the usage carried so the caller can say what the call cost.
+test("`before` is asked with the usage before any row is applied, and a refusal applies nothing", async () => {
+  const seen = { before: [], applied: 0 };
+  const r = await runDataEdit({
+    send: async () => dataReply([{ table: "services", id: 1, values: { price: "£25" } }]),
+    before: async (usage) => { seen.before.push(usage); return false; },
+    apply: async () => { seen.applied++; return true; },
+  }, { instruction: "haircut to £25", tables: MENU });
+  assert.equal(r.ok, false);
+  assert.equal(r.escalate, false, "a refused ledger is not a reason to climb the ladder");
+  assert.equal(r.reason, "unbilled");
+  assert.equal(seen.before.length, 1, "before was asked " + seen.before.length + " times");
+  assert.ok(seen.before[0] && Number.isFinite(seen.before[0].in), "before was not handed the call's usage: " + JSON.stringify(seen.before[0]));
+  assert.equal(seen.applied, 0, "a row was written after the ledger refused");
+  assert.ok(r.usage, "the usage is dropped from an unbilled answer");
+  assert.deepEqual(r.applied, []);
+});
+
+test("a `before` that throws is a refusal too, and nothing is written", async () => {
+  let applied = 0;
+  const r = await runDataEdit({
+    send: async () => dataReply([{ table: "services", id: 1, values: { price: "£25" } }]),
+    before: async () => { throw new Error("ledger down"); },
+    apply: async () => { applied++; return true; },
+  }, { instruction: "haircut to £25", tables: MENU });
+  assert.equal(r.reason, "unbilled");
+  assert.equal(applied, 0);
+});
+
+test("with `before` answering yes the rows are applied exactly as before, and without it nothing changes", async () => {
+  for (const before of [async () => true, undefined]) {
+    let applied = 0;
+    const r = await runDataEdit({
+      send: async () => dataReply([{ table: "services", id: 1, values: { price: "£25" } }]),
+      ...(before ? { before } : {}),
+      apply: async () => { applied++; return true; },
+    }, { instruction: "haircut to £25", tables: MENU });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(applied, 1);
+  }
+});
+
+test("`before` is NOT asked when nothing was going to be written", async () => {
+  let asked = 0;
+  const r = await runDataEdit({
+    send: async () => dataReply([]),
+    before: async () => { asked++; return false; },
+    apply: async () => true,
+  }, { instruction: "remove the beard trim", tables: MENU });
+  assert.equal(r.reason, "no-match");
+  assert.equal(asked, 0, "a no-match answer asked the ledger to reserve for a write that was never going to happen");
+});
+
 test("a site with no display table DOES escalate", async () => {
   // Here the rung above really might help: they may be asking for a page change.
   const r = await runDataEdit({ send: async () => dataReply([]), apply: async () => true },

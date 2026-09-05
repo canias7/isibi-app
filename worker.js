@@ -9268,6 +9268,22 @@ async function fetchSiteFonts(families = []) {
  * `pub.ours` is set only when the container was KILLED twice, which is a signal
  * that the process never got to judge the code at all.
  */
+/**
+ * THE REPLY A RUNG GIVES WHEN THE LEDGER REFUSED ITS RESERVE (2026-09-05).
+ *
+ * Asked BEFORE the rung's first write — a row, a rule, a table — so the
+ * refusal prevents the write and not only the publish; the spine's own
+ * `unbilled` answer covers the rungs whose only write is the publish. The
+ * consumer's not-shipped refund returns whatever did land. 402 for a short
+ * balance, 503 for a ledger that did not answer; the sentence is
+ * `compileMsg`'s, so the two roads read the same.
+ */
+function unbilledReply(charges) {
+  const why = (charges && typeof charges.refusals === "function" && charges.refusals()[0]) || "rpc";
+  const pub = { ok: false, error: "unbilled", ours: why !== "insufficient", detail: why };
+  return Response.json({ ok: false, error: "unbilled", cost: 0, detail: why, msg: compileMsg(pub, "") }, { status: why === "insufficient" ? 402 : 503 });
+}
+
 function compileMsg(pub, theirs) {
   // ── A LEDGER THAT SAID NO (2026-09-05) ────────────────────────────────
   //
@@ -9477,7 +9493,7 @@ function hasLookField(look, field) {
  *   every mark a no-op, so every existing caller is unchanged — which is what
  *   keeps this instrumentation and not a behaviour change.
  */
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, charges = null }) {
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
@@ -9500,10 +9516,15 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // did land, and `compileMsg` names the reason. A job that reserved NOTHING
   // is still a free rung and is exempted before the gate exactly as before —
   // the two zeros are different zeros now, and that is the whole change.
+  // `charges` IS THE ROUTE'S OWN READER (1a-iii): the job's count under a
+  // job, the route's synchronous ledger otherwise, so the flag-off path is
+  // refused by the same line. A caller that hands neither is the platform
+  // rebuild drain, which spends nothing and is asked nothing.
+  const acct = charges || job;
   const unbilled = () => {
-    if (!job || typeof job.refused !== "function" || !(job.refused() > 0)) return null;
-    const why = (typeof job.refusals === "function" && job.refusals()[0]) || "rpc";
-    tm("publish:unbilled", "fail", { why, refused: job.refused() });
+    if (!acct || typeof acct.refused !== "function" || !(acct.refused() > 0)) return null;
+    const why = (typeof acct.refusals === "function" && acct.refusals()[0]) || "rpc";
+    tm("publish:unbilled", "fail", { why, refused: acct.refused() });
     return { ok: false, error: "unbilled", ours: why !== "insufficient", detail: why };
   };
   { const u = unbilled(); if (u) return u; }
@@ -19127,7 +19148,7 @@ async function handleRequest(request, env, ctx) {
               // every translation of the publish, before the compile and the
               // gate. A rung that stored nothing new to translate costs nothing
               // more.
-              pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null, parts, models: modelsFor(eb && eb.picker), charge: (usage) => eCharge({ langUsage: usage }) };
+              pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null, parts, models: modelsFor(eb && eb.picker), charge: (usage) => eCharge({ langUsage: usage }), charges: eCharges };
               // A DEFERRED PUBLISH REPORTS SUCCESS, because from the branch's
               // point of view its work IS done — it has stored what it changed
               // and handed over the pages. `files` and `render` are absent until
@@ -19224,6 +19245,10 @@ async function handleRequest(request, env, ctx) {
             const billedAll = [];
             // Which charge this is, for the ledger's per-charge idempotency key.
             let eSeq = 0;
+            // THE SYNCHRONOUS PATH'S OWN LEDGER (2026-09-05, 1a-iii): what its
+            // collects refused, and what they took, so a refused publish can
+            // give the earlier ones back. Under a job the row is the record.
+            const syncLedger = { refusals: [], taken: 0 };
             const eCharge = async (usage, ...more) => {
               const parts = billParts(usage, ...more).filter((p) => {
                 // THE ROUTING CALL IS BILLED ONCE PER MESSAGE, not once per
@@ -19268,7 +19293,24 @@ async function handleRequest(request, env, ctx) {
                 if (typeof eJob.noteRefusal === "function") eJob.noteRefusal((r && r.error) || "rpc");
                 return 0;
               }
-              try { return await collectCredits(eAuth, pageCredits(...parts)); } catch { return 0; }
+              // A COLLECT THAT TOOK NOTHING AGAINST A POSITIVE BILL IS THE
+              // LEDGER REFUSING, and a throw is the ledger silent — both are
+              // refusals the spine reads through `eCharges`, exactly as a
+              // job's. A short take is kept, as it always was.
+              const bill = pageCredits(...parts);
+              try {
+                const took = await collectCredits(eAuth, bill);
+                if (took > 0) syncLedger.taken += took; else if (bill > 0) syncLedger.refusals.push("insufficient");
+                return took;
+              } catch { syncLedger.refusals.push("rpc"); return 0; }
+            };
+            // ONE READER FOR BOTH ROADS: the job's count under a job, the
+            // route's own otherwise. The spine and the rungs ask THIS, never
+            // the job directly, so the flag-off path cannot read as "no job,
+            // no refusals".
+            const eCharges = {
+              refused: () => (eJob && typeof eJob.refused === "function") ? eJob.refused() : syncLedger.refusals.length,
+              refusals: () => (eJob && typeof eJob.refusals === "function") ? eJob.refusals() : syncLedger.refusals.slice(),
             };
 
             // OUR MODEL CALL DIED — ONE ANSWER, FOR ALL FOUR LANES.
@@ -19609,8 +19651,15 @@ async function handleRequest(request, env, ctx) {
                 } catch (e) { console.error("data edit row read failed:", ownerSlug, t.name, e && e.message); }
               }
 
+              // BILLED BEFORE THE FIRST ROW IS WRITTEN (2026-09-05, 1a-ii).
+              // The module calls `before` with the usage in hand and nothing
+              // applied; the funnel reserves here, and a refusal answers
+              // `unbilled` with no row touched. Recorded, so the replies below
+              // report this charge rather than placing a second one.
+              let dCost = 0, dBilled = false;
               const dOut = await runDataEdit({
                 send: eQuick(),
+                before: async (usage) => { dCost = await eCharge(usage); dBilled = true; return !(eCharges.refused() > 0); },
                 // ONE STATEMENT PER CHANGE, parameterised, with the table name
                 // taken from the DECLARED schema rather than from the model —
                 // it is the only part that cannot be a bound parameter.
@@ -19653,8 +19702,10 @@ async function handleRequest(request, env, ctx) {
                 // with the one thing the owner can actually do about it.
                 if (!dOut.escalate) {
                   if (dOut.reason === "send") return modelDown(dOut.error, "I couldn't reach the model that makes that change — try again in a moment.");
+                  // THE LEDGER REFUSED, before any row was written.
+                  if (dOut.reason === "unbilled") return unbilledReply(eCharges);
                   return Response.json({
-                    ok: false, error: dOut.reason, cost: await eCharge(dOut.usage), usage: dOut.usage,
+                    ok: false, error: dOut.reason, cost: dBilled ? dCost : await eCharge(dOut.usage), usage: dOut.usage,
                     // THE MODULE WRITES THE ORDERING SENTENCE, because it is the
                     // only thing that knows which pages work their own order out
                     // and could not be rewritten from outside.
@@ -19682,8 +19733,11 @@ async function handleRequest(request, env, ctx) {
                   // failed recompile that reported "nothing happened" would send
                   // somebody looking for a change that really did land.
                   return Response.json({
-                    ok: false, error: "compile", cost: await eCharge(dOut.usage, dPub), usage: dOut.usage,
-                    msg: compileMsg(dPub, dOut.applied.length
+                    ok: false, error: "compile", cost: dBilled ? dCost : await eCharge(dOut.usage, dPub), usage: dOut.usage,
+                    // THE ROWS STAY SAID on a ledger refusal too: `compileMsg`
+                    // answers its own sentence for `unbilled`, and the rows
+                    // really did land before the reorder was refused.
+                    msg: (dPub.error === "unbilled" && dOut.applied.length ? "Your rows are saved. " : "") + compileMsg(dPub, dOut.applied.length
                       ? "Your rows are saved, but the new order didn't compile — the site is untouched."
                       : "That ordering change didn't compile, so your site is untouched."),
                     detail: dPub.detail,
@@ -19709,7 +19763,7 @@ async function handleRequest(request, env, ctx) {
                   ? { table: c.table, id: c.id, removed: true, was: c.was || null }
                   : { table: c.table, id: c.id, columns: Object.keys(c.values) })),
                 failed: dOut.failed,
-                cost: await eCharge(dOut.usage, dPub), usage: dOut.usage,
+                cost: dBilled ? dCost : await eCharge(dOut.usage, dPub), usage: dOut.usage,
               });
             }
             if (eLayer === "rules") {
@@ -19746,8 +19800,13 @@ async function handleRequest(request, env, ctx) {
               // are exactly the `collect` ones the data layer will not touch.
               // Nothing here reads a ROW, so no customer's data is shown to a
               // model: the digest is names, columns, types and rules.
+              // BILLED BEFORE THE SCHEMA IS TOUCHED (2026-09-05, 1a-ii) — the
+              // data rung's shape: the module asks `before` with the usage in
+              // hand and no DDL emitted.
+              let rCost = 0, rBilled = false;
               const rOut = await runRulesEdit({
                 send: eQuick(),
+                before: async (usage) => { rCost = await eCharge(usage); rBilled = true; return !(eCharges.refused() > 0); },
                 // ONE APPLY FOR THE MERGED SPEC. `applySiteSchema` re-emits
                 // every table's REVOKEs, grants and policies in order, which is
                 // what makes a pair change and a `retired` take effect on a
@@ -19759,8 +19818,10 @@ async function handleRequest(request, env, ctx) {
               if (!rOut.ok) {
                 if (!rOut.escalate) {
                   if (rOut.reason === "send") return modelDown(rOut.error, "I couldn't reach the model that sets that rule — try again in a moment.");
+                  // THE LEDGER REFUSED, before any DDL was emitted.
+                  if (rOut.reason === "unbilled") return unbilledReply(eCharges);
                   return Response.json({
-                    ok: false, error: rOut.reason, cost: await eCharge(rOut.usage), usage: rOut.usage,
+                    ok: false, error: rOut.reason, cost: rBilled ? rCost : await eCharge(rOut.usage), usage: rOut.usage,
                     // A REFUSAL IS SAID IN FULL. `rulesReply` is the one place
                     // that turns a refused rule into words, and a no-match that
                     // silently reads as "nothing happened" is how a booking
@@ -19774,7 +19835,7 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [],
-                msg: rOut.msg, cost: await eCharge(rOut.usage), usage: rOut.usage,
+                msg: rOut.msg, cost: rBilled ? rCost : await eCharge(rOut.usage), usage: rOut.usage,
               });
             }
             if (eLayer === "rename") {
@@ -21359,6 +21420,13 @@ async function handleRequest(request, env, ctx) {
                 finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: false, job: eJob });
               }
               if (!finalPub.ok) {
+                // THE LEDGER'S REFUSAL GIVES BACK WHAT THE ROUTE COLLECTED
+                // (2026-09-05, 1a-iii). The flag-off path collects at each rung,
+                // so a later refusal leaves the earlier collects taken for work
+                // that never shipped; under a job the consumer's refund is this.
+                if (finalPub.error === "unbilled" && !eJob && syncLedger.taken > 0) {
+                  if (!await refundCredits(env, ou.id, syncLedger.taken)) console.error("edit unbilled refund short:", ownerSlug, syncLedger.taken);
+                }
                 // THE SITE IS UNTOUCHED — nothing was published — but the STORED
                 // state is not: each rung wrote its change before handing over
                 // the pages. Left there it applies silently on the customer's
@@ -21376,7 +21444,7 @@ async function handleRequest(request, env, ctx) {
                   console.error("edit rollback failed:", ownerSlug, e && e.message);
                 }
                 return Response.json({
-                  ok: false, error: "compile", cost: 0,
+                  ok: false, error: finalPub.error === "unbilled" ? "unbilled" : "compile", cost: 0,
                   msg: compileMsg(finalPub, restored
                     ? "That didn't compile, so your site is untouched."
                     : "That didn't compile. Your site is still live and unchanged, but the change is saved — ask again and I'll try to apply it."),
@@ -21793,6 +21861,31 @@ async function handleRequest(request, env, ctx) {
             const aFold = foldAdds(aAnswers, aLook, aSite);
             const aDesigned = aFold.designed;
 
+            // ── THE CHARGE, ONE FUNCTION FOR BOTH ROADS ────────────────────
+            //
+            // Declared HERE, above the backend block, because that block places
+            // sequence #1 ahead of the schema apply (stage 1a-ii). What it does
+            // and when each caller takes money is written up under "THE BILL,
+            // AND WHEN IT IS TAKEN", below the backend block, where it lived.
+            const aCharge = async (bill, seq = 1) => {
+              if (aJob) {
+                const r = await editRpc(env, "edit_reserve", { p_id: aJob.id, p_seq: seq, p_cost: bill });
+                if (r && r.ok === true) { if (typeof aJob.noteReserve === "function") aJob.noteReserve(); return Number(r.charged) || 0; }
+                // RECORDED, NEVER SWALLOWED — the edit route's rule (2026-09-05).
+                if (typeof aJob.noteRefusal === "function") aJob.noteRefusal((r && r.error) || "rpc");
+                return 0;
+              }
+              try { return await collectCredits(aAuth, bill); } catch { return 0; }
+            };
+            // THE ROUTE'S READER OF THE LEDGER'S REFUSALS (2026-09-05): the
+            // job's count. Synchronously this route collects AFTER the
+            // publish — a refusal there can prevent nothing — so it reads
+            // zero, honestly, rather than a count of nothing.
+            const aCharges = {
+              refused: () => (aJob && typeof aJob.refused === "function") ? aJob.refused() : 0,
+              refusals: () => (aJob && typeof aJob.refusals === "function") ? aJob.refusals() : [],
+            };
+
             // ── THE BACKEND, ANY TIER OF IT, AND A DATABASE ON FIRST TOUCH ──
             //
             // Owner, 2026-09-03: "the build step doesnt have backend so its
@@ -21815,6 +21908,9 @@ async function handleRequest(request, env, ctx) {
             const aBackend = backendDesigned(aDesigned);
             let aTables = [], aAltered = [], aSeeded = null, aSeedUsage = null, aSeedTopUp = null;
             let aProvisioned = false, aFunctions = [], aFnErrors = [], aApis = [], aJobs = [], aSecrets = [];
+            // What sequence #1 reserved ahead of the schema apply, and whether it
+            // did — see the block before `applySiteSchema`.
+            let aFirst = 0, aFirstPlaced = false;
             if (aBackend.length) {
               if (!adb) {
                 // MAY THE DATABASE BE MADE? (async path) A cold provision is
@@ -21907,6 +22003,21 @@ async function handleRequest(request, env, ctx) {
                 if (Object.keys(aTop.rows).length) aSeed = mergeSeed(aSeed, aTop.rows);
                 aSeedUsage = aTop.usage;
               }
+              // ── THE RESERVE PRECEDES THE FIRST WRITE (2026-09-05, 1a-ii) ──
+              //
+              // Under a job the designers' and the seed net's spend is reserved
+              // HERE, before the schema is applied, so a ledger that refuses
+              // prevents the DDL and not only the publish — the pageless
+              // outcome's whole bill, and the first half of the page path's
+              // (its page call is reserved as sequence #4 once it has run).
+              // Synchronously nothing moves: the collect stays after the work,
+              // as it always did. The consumer refunds a landed #1 when the
+              // rest does not ship.
+              if (aJob) {
+                aFirst = await aCharge(pageCredits(...aDesignUsage, aSeedUsage));
+                aFirstPlaced = true;
+                if (aCharges.refused() > 0) return unbilledReply(aCharges);
+              }
               let aMade = null;
               try {
                 aMade = await applySiteSchema(adb, merged);
@@ -21979,16 +22090,11 @@ async function handleRequest(request, env, ctx) {
             // cannot ride #1 — is #2, the edit route's own shape of one
             // reserve per rung. The RPC is idempotent per sequence, so a
             // repeat of either lands once.
-            const aCharge = async (bill, seq = 1) => {
-              if (aJob) {
-                const r = await editRpc(env, "edit_reserve", { p_id: aJob.id, p_seq: seq, p_cost: bill });
-                if (r && r.ok === true) { if (typeof aJob.noteReserve === "function") aJob.noteReserve(); return Number(r.charged) || 0; }
-                // RECORDED, NEVER SWALLOWED — the edit route's rule (2026-09-05).
-                if (typeof aJob.noteRefusal === "function") aJob.noteRefusal((r && r.error) || "rpc");
-                return 0;
-              }
-              try { return await collectCredits(aAuth, bill); } catch { return 0; }
-            };
+            // `aCharge` ITSELF IS DECLARED ABOVE THE BACKEND BLOCK (2026-09-05,
+            // stage 1a-ii), where sequence #1 is placed ahead of the schema
+            // apply — a `const` is in its dead zone until its line runs, and
+            // the first draft of #1 called it from here, seventy lines early,
+            // which `node --check` cannot see and no driven test reaches.
 
             // ── A CHANGE THAT TOUCHES NO PAGE ANSWERS HERE (2026-09-03) ──
             //
@@ -22001,7 +22107,9 @@ async function handleRequest(request, env, ctx) {
             // the page path's, with nothing added, changed or moved, so one
             // reader (`addonAnswer`) reads both.
             if (pageless(aAnswers)) {
-              const aCostNow = await aCharge(pageCredits(...aDesignUsage, aSeedUsage));
+              // Reserved ahead of the schema apply under a job (1a-ii); the
+              // synchronous collect happens here, after the work, as before.
+              const aCostNow = aFirstPlaced ? aFirst : await aCharge(pageCredits(...aDesignUsage, aSeedUsage));
               return Response.json({
                 ok: true,
                 kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
@@ -22214,9 +22322,15 @@ async function handleRequest(request, env, ctx) {
             // line — the page call was the last model call — so it is the
             // same number either way: reserved here under a job, collected
             // after the publish otherwise.
-            const aBill = pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);
+            // ONE BILL AND ONE ROUNDING when nothing was reserved yet; when #1
+            // went ahead of a schema apply (1a-ii) the page call's spend is its
+            // own reserve, #4 — a second floor of 1, the translation charge's
+            // own trade — and the reply carries the sum. A refusal here stops
+            // BEFORE the look is stored.
+            const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);
             let aCost = 0;
-            if (aJob) aCost = await aCharge(aBill);
+            if (aJob) aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill);
+            if (aJob && aCharges.refused() > 0) return unbilledReply(aCharges);
 
             // STORED NOW, NOT EARLIER: every refusal above leaves the site
             // exactly as it was, and the publish below is the only thing that
@@ -22313,6 +22427,9 @@ async function handleRequest(request, env, ctx) {
               // of them and finalize as if none existed; the trace is what
               // the spine's own marks land on.
               trace: editTrace, job: aJob,
+              // AND THE ROUTE'S READER OF ITS REFUSALS, so the spine's three
+              // asks read the same count the route does.
+              charges: aCharges,
               // THE ADD STEP'S REPAIR ROUND, at the spine's seam — see above.
               afterCompile: aAfterCompile,
               // THE PICKER'S MODELS, for the spine's translation call (run 38).

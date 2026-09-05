@@ -798,6 +798,20 @@ export async function runDataEdit(deps, { instruction, tables, recent, pages, mo
     return { ok: false, escalate: false, reason: "no-match", usage };
   }
 
+  // ── THE CALLER MAY RESERVE BEFORE THE FIRST ROW IS WRITTEN (2026-09-05) ──
+  //
+  // The usage is known here and nothing has been written yet, which is the
+  // one moment a reservation can precede the write. `deps.before(usage)` is
+  // the route's own funnel; a falsy answer, or a throw, means the ledger
+  // refused, and the answer is `unbilled` with the usage carried and NO row
+  // applied. Absent, the caller bills after the work as it always did. The
+  // no-change answers above never reach this: nothing was going to be written.
+  if (typeof deps.before === "function") {
+    let go = false;
+    try { go = !!(await deps.before(usage)); } catch { go = false; }
+    if (!go) return { ok: false, escalate: false, reason: "unbilled", usage, applied: [], failed: [] };
+  }
+
   const applied = [], failed = [];
   for (const c of changes) {
     try {

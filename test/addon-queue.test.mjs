@@ -226,9 +226,15 @@ test("one bill; reserved before the publish under a job, collected after it sync
   assert.match(closure, /return Number\(r\.charged\) \|\| 0;/, "the charge answered is not what the ledger charged");
   assert.match(closure, /try \{ return await collectCredits\(aAuth, bill\); \} catch \{ return 0; \}/, "the synchronous charge lost its never-fail-the-route catch");
   assert.equal((closure.match(/collectCredits\(/g) || []).length, 1);
-  const bill = at(b, "const aBill = pageCredits(", "bill");
+  // RE-ANCHORED 2026-09-05 (stage 1a-ii): the bill is the page call alone
+  // once #1 went ahead of a schema apply, the whole spend otherwise.
+  const bill = at(b, "const aBill = aFirstPlaced ?", "bill");
   const pub = at(b, "const aPub = await recompileAndPublish(env, {", "publish");
-  const reserveCall = at(b, "if (aJob) aCost = await aCharge(aBill);", "the page path's reserve");
+  // RE-ANCHORED 2026-09-05 (stage 1a-ii): when sequence #1 went ahead of a
+  // schema apply, the page call is its own reserve, #4, and the reply carries
+  // the sum; with no backend the one bill is reserved here as before. The
+  // property is unchanged — the reserve sits between the bill and the publish.
+  const reserveCall = at(b, "if (aJob) aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill);", "the page path's reserve");
   // RE-ANCHORED 2026-09-04: the synchronous collect no longer spells `aBill`
   // — it is the same usages plus the repair round's, one `pageCredits` and one
   // rounding — so the landmark is the call and the property is what it bills.
@@ -253,13 +259,20 @@ test("one bill; reserved before the publish under a job, collected after it sync
   // the same sum; the landmark is the round's charge joining the job's cost.)
   const jobAdd = at(b, "else aCost += (Number(aRepairRound && aRepairRound.charged) || 0)", "the job path's repair charge");
   assert.ok(jobAdd > collectCall, "the job path adds the repair charge before the collect line — the two paths are not two branches of one decision");
-  // AND THE PAGELESS ANSWER TAKES ITS MONEY THROUGH THE SAME CLOSURE, after
-  // the schema apply — the work that earns it — and before the page call.
+  // AND THE PAGELESS ANSWER TAKES ITS MONEY THROUGH THE SAME CLOSURE — after
+  // the schema apply and before the page call. RE-ANCHORED 2026-09-05 (stage
+  // 1a-ii): the closure is declared ABOVE the apply now, because the apply is
+  // preceded by sequence #1 under a job, and a `const` called before its line
+  // is a dead zone `node --check` cannot see — the first draft did exactly
+  // that. Under a job the pageless answer reports #1; synchronously it still
+  // collects here, after the work.
   const pageless = at(b, "if (pageless(aAnswers)) {", "pageless");
   const apply = at(b, "aMade = await applySiteSchema(adb, merged);", "apply");
   const gen = at(b, "aGen = await generateSitePages(", "page call");
-  assert.ok(charge > apply && pageless > charge && pageless < gen, "the pageless answer is not between the schema apply and the page call, after the charge closure");
-  assert.match(b.slice(pageless, gen), /const aCostNow = await aCharge\(pageCredits\(\.\.\.aDesignUsage, aSeedUsage\)\);/, "the pageless answer does not bill through aCharge");
+  const first = at(b, "aFirst = await aCharge(pageCredits(...aDesignUsage, aSeedUsage));", "sequence #1");
+  assert.ok(charge < first && first < apply, "the charge closure is not declared before sequence #1, which sits before the schema apply");
+  assert.ok(pageless > apply && pageless < gen, "the pageless answer is not between the schema apply and the page call");
+  assert.match(b.slice(pageless, gen), /const aCostNow = aFirstPlaced \? aFirst : await aCharge\(pageCredits\(\.\.\.aDesignUsage, aSeedUsage\)\);/, "the pageless answer does not report #1 under a job, or does not bill through aCharge synchronously");
 });
 
 test("the spine is handed the job and the trace, or a queued addon publishes past every gate", () => {

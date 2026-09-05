@@ -955,11 +955,37 @@ test("the addon prices both of its calls together", () => {
   // the publish, because a queued addon RESERVES it there and a synchronous
   // one collects it after; `const bill` inside the post-publish try went with
   // that. The property is unchanged: one variadic call, never two summed.
-  const i = WORKER_SRC.indexOf("const aBill = pageCredits(");
+  // RE-ANCHORED AGAIN 2026-09-05 (stage 1a-ii): the line is a conditional
+  // now. Synchronously, and under a job for an addon that designed no backend
+  // tier, `aBill` is still ONE variadic call over the design, the page call
+  // and the seed net. A BACKEND addon under a job reserves the design and the
+  // seed as sequence #1 BEFORE the DDL — it cannot know the page call's cost
+  // yet — and the page call alone as #4, so it pays two roundings,
+  // deliberately: the trade the translation charge made on run 39. The early
+  // reserve is gated INSIDE the backend block (asserted below by brace depth),
+  // so a page or a component still pays one bill.
+  const i = WORKER_SRC.indexOf("const aBill = aFirstPlaced ?");
   assert.ok(i > 0, "the addon bill was not found");
   const line = WORKER_SRC.slice(i, WORKER_SRC.indexOf("\n", i));
   assert.ok(!/\+\s*pageCredits\(/.test(line), "the addon adds two separately-rounded bills: " + line.trim());
-  assert.match(line, /pageCredits\([^)]*,[^)]*\)/, "both usages must go through one variadic call: " + line.trim());
+  // The path that placed nothing: every usage through one variadic call.
+  assert.match(line, /: pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage\);$/, "the unplaced path does not price every usage through one variadic call: " + line.trim());
+  // The path that placed #1: the page call ALONE, never the design again.
+  assert.match(line, /aFirstPlaced \? pageCredits\(aGen && aGen\.usage\) :/, "the placed path re-prices the design: " + line.trim());
+  // And #1 is placed only where a backend tier was designed: inside the
+  // `aBackend.length` block, before the schema apply, both within its braces.
+  const first = WORKER_SRC.indexOf("aFirst = await aCharge(pageCredits(...aDesignUsage, aSeedUsage));");
+  const apply = WORKER_SRC.indexOf("aMade = await applySiteSchema(adb, merged);");
+  assert.ok(first > 0 && apply > first, "the early reserve is not before the schema apply");
+  const gateHead = "if (aBackend.length) {";
+  const gate = WORKER_SRC.lastIndexOf(gateHead, first);
+  assert.ok(gate > 0, "the early reserve has no backend gate above it");
+  let d = 0, close = -1;
+  for (let k = gate + gateHead.length - 1; k < WORKER_SRC.length; k++) {
+    if (WORKER_SRC[k] === "{") d++;
+    else if (WORKER_SRC[k] === "}") { d--; if (d === 0) { close = k; break; } }
+  }
+  assert.ok(close > apply, "the early reserve and the schema apply are not both inside the backend block");
 });
 
 test("adding two pageCredits results really does overcharge", async () => {

@@ -2813,9 +2813,60 @@ and a free page removal. 12 mutants, 12 killed, control survived; full suite
 add-on ask on fretwork-1 at the current balance should answer the credits
 sentence with the site unmoved and the job row `failed`, billing `none`.
 
-Still open from this stage, and next: a `data` edit writes its rows, and a
-pageless add-on creates its tables, BEFORE their reserve, so a refusal there
-stops the publish but not those writes — the reserve has to move ahead of
-the write. The synchronous path (the flag-off route) has no refusal count
-yet. And the add-on route's own funnel is guarded by reading the source, not
-by driving it, because no driven add-on harness exists.
+What was still open from this stage — the reserve moving ahead of the write,
+and the flag-off path counting refusals — shipped the same day; the next
+section.
+
+## 2026-09-05 — The reserve now comes before the first write
+
+The second half of the same fix (your "o k"). Three places still asked the
+ledger AFTER they had already changed something: a `data` edit wrote its rows
+and then reserved, a `rules` edit changed the database's rules and then
+reserved, and an add-on that makes tables or functions made them and then
+reserved. So when the ledger said no, the site was not published — but the
+rows, the rules or the tables were already there, with nothing paid.
+
+Now each of those asks the ledger first, the moment the model has answered
+and before the first statement runs. A refusal stops right there: nothing
+written, nothing published, the customer reads the same two sentences as
+before ("there aren't enough credits for it…" or "our billing service didn't
+answer…"), and the reply's status says which (402 for credits, 503 for our
+ledger). The add-on's first reserve covers the picker, the designers and any
+seed rows; the page call is reserved on its own afterwards, so nothing is
+counted twice. The one honest exception is a reorder of rows that reserved
+fine and then could not publish: the rows stay saved and the sentence says
+so, because taking them back out is not something the publish failing should
+do on its own.
+
+One cost to know about: an add-on that touches the database (a table, a
+function, a connection, a job) and runs through the queue is reserved in two
+parts now — the design first, before the tables are made, and the page
+afterwards — and each part rounds up to a whole credit on its own, so such an
+add-on can cost one credit more than before. A page or a section, and every
+add-on on the flag-off path, still pays one rounded bill. It is the same
+trade the translation charge made on run 39, for the same reason: the part
+that has to be reserved first cannot know what the part after it will cost.
+
+The flag-off path (an edit that runs on the customer's own connection rather
+than through the queue) now counts its refusals too: it remembers when the
+ledger took nothing of a real bill, or did not answer, stops the publish the
+same way, and gives back anything it had already collected in that message.
+Before this it had no notion of a refusal at all.
+
+One real bug found on the way, by a test that checks the ORDER of things and
+not just their presence: the add-on's first reserve had been written above the
+closure it calls, which JavaScript only complains about at run time. Every
+parse check and text guard passed; a backend add-on under a job would have
+crashed on its first reserve. Moved, and the rule is in the CLAUDE.md traps.
+
+Driven in the sandbox: the flag-off route end to end against a stubbed ledger
+(refused, dead, healthy), and the two rungs' new "ask first" hook in their own
+modules. 20 mutants, 20 killed, two comment-only controls survived — one
+mutant did not apply on the first pass because its anchor named the wrong
+comment, and was re-anchored and re-run to a kill. Full suite 5,100 green,
+after ten older checks that were pinned to old spellings were re-anchored
+and three test fixtures were taught to answer the ledger properly (their
+catch-all "unavailable" now reads, rightly, as a dead ledger). On the
+branch, not deployed; nothing spent. Proving it live is still free: an add-on ask on
+fretwork-1 at the current balance should answer the credits sentence with the
+site and its database unmoved.

@@ -249,7 +249,12 @@ test("the spine asks `unbilled` three times: before the translations, before the
   // THE HELPER REFUSES ON THE COUNT, never on the reserves — a refused reserve
   // and a landed one are different zeros, which is the whole change.
   const helper = spine.slice(def, spine.indexOf("\n  };", def));
-  assert.match(helper, /job\.refused\(\) > 0/, "the helper does not read the refusal count");
+  // THROUGH THE ROUTE'S READER, never the job alone (1a-iii): the flag-off
+  // path hands its own ledger, and a helper that read the job would answer
+  // "no job, no refusals" for it.
+  assert.match(spine, /const acct = charges \|\| job;/, "the spine no longer reads the route's charges reader ahead of the job");
+  assert.match(helper, /acct\.refused\(\) > 0/, "the helper does not read the refusal count");
+  assert.match(spine.slice(0, def), /charges = null \}\) \{/, "the spine's signature no longer takes `charges`");
   assert.match(helper, /error: "unbilled"/, "the helper's refusal is not named `unbilled`");
   assert.match(helper, /ours: why !== "insufficient"/, "a short balance is reported as ours, or a dead ledger as the customer's");
   const asks = [...spine.matchAll(/const u = unbilled\(\); if \(u\) return u;/g)].map((m) => m.index);
@@ -275,4 +280,142 @@ test("compileMsg names a refused ledger before it tests `ours`, and tells a shor
   assert.match(branch, /enough credits/, "a short balance is not named");
   assert.match(branch, /billing service didn't answer/, "a dead ledger is not named");
   assert.doesNotMatch(branch, /nothing was changed/, "the sentence claims nothing was changed, which a rung that writes rows before it reserves cannot promise");
+});
+
+// ── THE SYNCHRONOUS PATH, DRIVEN (2026-09-05, stage 1a-iii) ─────────────────
+//
+// With the flag off the route collects at each rung instead of reserving, and
+// a collect that takes nothing against a positive bill used to be "never fail
+// an edit over the ledger": the work shipped and the reply said cost 0. Driven
+// through `worker.fetch` with the ledger stubbed: `use_credits` answering -1
+// and `get_credits` answering 0 is the ledger refusing; a 503 is the ledger
+// silent.
+
+const TOKEN = "Bearer some-token";
+
+async function syncEdit({ slug, ledger, answers = CSS }) {
+  const b = bucket(slug, [HOME]);
+  const seen = { useCredits: 0, getCredits: 0 };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const u = String((input && input.url) || input || "");
+    const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
+    if (u.includes("/auth/v1/user")) return json(USER);
+    if (u.includes("/rpc/use_credits")) { seen.useCredits++; return ledger.use(json); }
+    if (u.includes("/rpc/get_credits")) { seen.getCredits++; return json(ledger.balance || 0); }
+    if (u.includes("/rest/v1/site_project")) return json([]);
+    if (u.includes("/rest/v1/site_backends")) return json([{ uid: USER.id, brief: "" }]);
+    if (u.includes("/v1/messages")) {
+      let bj = {};
+      try { bj = JSON.parse(String(init && init.body) || "{}"); } catch { bj = {}; }
+      const tool = (bj.tool_choice && bj.tool_choice.name) || "";
+      if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
+      return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage: { input_tokens: 10, output_tokens: 5 } });
+    }
+    return new Response("unavailable", { status: 503 });
+  };
+  const c = installCompiler();
+  try {
+    const worker = await loadWorker();
+    const req = new Request("https://gofarther.dev/api/site/" + slug + "/edit", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: TOKEN },
+      body: JSON.stringify({ layer: "look", page: "", remove: false, rename: "", tab: false, instruction: "make the footer white", picker: "sonnet" }),
+    });
+    const res = await worker.fetch(req, { SITES_BUCKET: b, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key" }, makeCtx());
+    const body = await res.json().catch(() => null);
+    return { status: res.status, body, compiles: c.calls.length, seen, distWrites: b.writes.filter(([k]) => k.startsWith("sites/")).length };
+  } finally { c.uninstall(); globalThis.fetch = real; }
+}
+
+test("synchronous: a collect refused by the ledger stops the publish, nothing compiled, the customer told", async () => {
+  const r = await syncEdit({ slug: "sync-refused", ledger: { use: (json) => json(-1), balance: 0 } });
+  assert.ok(r.seen.useCredits > 0, "the ledger was never asked");
+  assert.equal(r.compiles, 0, "the container compiled work the ledger refused to pay for");
+  assert.equal(r.distWrites, 0);
+  assert.ok(r.body && r.body.ok === false, JSON.stringify(r.body));
+  assert.equal(r.body.error, "unbilled", "the refusal wears the compile's code: " + JSON.stringify(r.body));
+  assert.match(String(r.body.msg || ""), /enough credits/);
+});
+
+test("synchronous: a ledger that did not answer is a refusal too, named as ours", async () => {
+  const r = await syncEdit({ slug: "sync-down", ledger: { use: () => new Response("down", { status: 503 }) } });
+  assert.equal(r.compiles, 0);
+  assert.ok(r.body && r.body.ok === false && r.body.error === "unbilled", JSON.stringify(r.body));
+  assert.match(String(r.body.msg || ""), /billing service didn't answer/);
+});
+
+test("synchronous: a collect that landed publishes exactly as before", async () => {
+  const r = await syncEdit({ slug: "sync-ok", ledger: { use: (json) => json(48), balance: 50 } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(r.body && r.body.ok === true, JSON.stringify(r.body));
+  assert.equal(r.compiles, 1);
+  assert.ok(r.body.cost >= 1, "the landed collect is not on the reply: " + JSON.stringify(r.body));
+});
+
+// ── THE RESERVE PRECEDES THE WRITE: THE HOPS, READ (stage 1a-ii) ────────────
+
+test("the data and rules rungs reserve through `before`, answer `unbilled` before any write, and never bill twice", () => {
+  const route = blankComments(CODE.slice(at(CODE, 'if (eLayer === "data") {', "data rung"), at(CODE, 'if (eLayer === "rename") {', "rename rung")));
+  for (const [who, run, cost] of [["data", "runDataEdit(", "dCost"], ["rules", "runRulesEdit(", "rCost"]]) {
+    const start = at(route, run, who + " call");
+    const call = route.slice(start, start + 900);
+    assert.match(call, new RegExp("before: async \\(usage\\) => \\{ " + cost + " = await eCharge\\(usage\\); " + cost.replace("Cost", "Billed") + " = true; return !\\(eCharges\\.refused\\(\\) > 0\\); \\}"),
+      who + ": the module is not handed a `before` that reserves and reads the route's refusals");
+    // THE HOOK RESERVES, AND THE HOOK ALONE. A refusal answers before a write
+    // and, on every later reply, the recorded charge is reported rather than a
+    // second reserve placed under a new sequence.
+    const seg = route.slice(start, route.indexOf(who === "data" ? 'if (eLayer === "rules") {' : 'if (eLayer === "rename") {', start));
+    assert.match(seg, /reason === "unbilled"\) return unbilledReply\(eCharges\);/, who + ": a refused reserve does not answer `unbilledReply`");
+    const bare = [...seg.matchAll(/cost: await eCharge\(/g)].length;
+    assert.equal(bare, 0, who + ": " + bare + " reply still places a second charge after `before` billed");
+    assert.ok(seg.includes("cost: " + cost.replace("Cost", "Billed") + " ? " + cost + " : await eCharge("), who + ": the replies do not report the hook's charge");
+  }
+  // AND THE MODULES ASK BEFORE THEY WRITE.
+  const apply = blankComments(fs.readFileSync(new URL("../builder/site-apply.mjs", import.meta.url), "utf8"));
+  const dataBefore = at(apply, 'typeof deps.before === "function"', "site-apply before");
+  const dataApply = at(apply, "const applied = [], failed = [];", "site-apply apply loop");
+  assert.ok(dataBefore < dataApply, "runDataEdit asks `before` after it has started writing rows");
+  assert.match(apply.slice(dataBefore, dataApply), /reason: "unbilled", usage/, "a refused `before` does not answer unbilled with the usage");
+  const rules = blankComments(fs.readFileSync(new URL("../builder/site-rules.mjs", import.meta.url), "utf8"));
+  const rulesBefore = at(rules, 'typeof deps.before === "function"', "site-rules before");
+  const rulesApply = at(rules, "await deps.apply(spec)", "site-rules apply");
+  assert.ok(rulesBefore < rulesApply, "runRulesEdit asks `before` after the schema is applied");
+});
+
+test("the addon reserves the designers' spend before the schema apply, the page call as sequence 4, and stops before the look store", () => {
+  const addon = blankComments(CODE.slice(at(CODE, "const aCharge = async (bill", "addon charge"), at(CODE, "const aPub = await recompileAndPublish(env, {", "addon publish")));
+  const first = at(addon, "aFirst = await aCharge(pageCredits(...aDesignUsage, aSeedUsage));", "sequence #1");
+  const apply = at(addon, "aMade = await applySiteSchema(adb, merged);", "the apply");
+  const seed = at(addon, "aSeedUsage = aTop.usage;", "the seed net");
+  assert.ok(seed < first && first < apply, "sequence #1 does not sit between the seed net and the schema apply");
+  assert.match(addon.slice(first, apply), /if \(aCharges\.refused\(\) > 0\) return unbilledReply\(aCharges\);/, "a refused #1 does not stop before the DDL");
+  // The job-only guard: synchronously nothing moves ahead of the work.
+  const guard = addon.slice(addon.lastIndexOf("if (aJob) {", first), first);
+  assert.ok(guard.length > 0 && guard.length < 80, "sequence #1 is not gated on the job alone: " + JSON.stringify(guard));
+  assert.match(addon, /const aCostNow = aFirstPlaced \? aFirst : await aCharge\(/, "the pageless answer reserves a second time after #1");
+  const bill = at(addon, "const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);", "the page path's bill");
+  assert.match(addon.slice(bill, bill + 700), /aCharge\(aBill, 4\)/, "the page call is not reserved as sequence 4 after #1");
+  const stop = at(addon, "if (aJob && aCharges.refused() > 0) return unbilledReply(aCharges);", "the page path's stop");
+  const store = at(addon, "const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);", "the look store");
+  assert.ok(bill < stop && stop < store, "the page path's refusal does not stop before the look is stored");
+  // The reader the spine is handed.
+  const pub = CODE.slice(at(CODE, "const aPub = await recompileAndPublish(env, {", "addon publish"), at(CODE, 'aMark("publish:1", aPub && aPub.ok ? "ok" : "fail"', "addon publish end"));
+  assert.match(pub, /charges: aCharges,/, "the addon's publish is not handed the route's refusals reader");
+});
+
+test("the edit route keeps a synchronous ledger, hands the spine its reader, and gives back what it collected on a refused publish", () => {
+  // FROM THE DEFERRED PUBLISH, which is declared before the funnel and carries
+  // the reader to the spine; the window has to start there or the carry is
+  // outside it.
+  const route = blankComments(CODE.slice(at(CODE, "let pendingPublish = null;", "deferred publish"), at(CODE, "const ranOk = done.filter((d) => !d.failed);", "route tail")));
+  assert.ok(route.includes("const syncLedger = { refusals: [], taken: 0 };"), "the synchronous ledger is gone");
+  assert.match(route, /if \(took > 0\) syncLedger\.taken \+= took; else if \(bill > 0\) syncLedger\.refusals\.push\("insufficient"\);/, "a collect that took nothing is not recorded as a refusal");
+  assert.match(route, /catch \{ syncLedger\.refusals\.push\("rpc"\); return 0; \}/, "a ledger that threw is not recorded as a refusal");
+  assert.match(route, /charges: eCharges \};/, "the deferred publish does not carry the route's reader");
+  const fail = at(route, "if (!finalPub.ok) {", "failed publish");
+  const refund = at(route, "refundCredits(env, ou.id, syncLedger.taken)", "the refund");
+  assert.ok(refund > fail && refund - fail < 900, "the refund of the earlier collects does not sit inside the failed-publish branch");
+  assert.match(route.slice(fail, refund), /finalPub\.error === "unbilled" && !eJob && syncLedger\.taken > 0/, "the refund is not gated on an unbilled, synchronous, collected publish");
+  assert.match(route, /error: finalPub\.error === "unbilled" \? "unbilled" : "compile"/, "a refused publish still wears the compile's code");
 });

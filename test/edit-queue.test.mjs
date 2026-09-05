@@ -455,7 +455,11 @@ test("every async mechanism is reached only through a job that may be null", () 
 
   // The billing fork keeps `collectCredits` reachable — that IS the synchronous
   // path's charge, and losing it would leave the flag-off route billing nothing.
-  assert.match(CODE, /collectCredits\(eAuth, pageCredits\(\.\.\.parts\)\)/,
+  // RE-ANCHORED 2026-09-05 (stage 1a-iii): the bill is priced once into
+  // `bill` so the funnel can tell a collect that took nothing from a bill of
+  // nothing; the property is unchanged — the flag-off route charges through
+  // `collectCredits`, on the caller's own token.
+  assert.match(CODE, /collectCredits\(eAuth, bill\)/,
     "the synchronous edit no longer charges through collectCredits");
   const charge = CODE.slice(at(CODE, "const eCharge = async", "billing"), at(CODE, "const modelDown =", "billing end"));
   // BOTH ANCHORS PROVED FIRST. `indexOf` answers -1 for a missing one, and

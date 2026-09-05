@@ -539,6 +539,14 @@ export async function runRulesEdit(deps, { instruction, tables, model = RULES_MO
   // would revoke and re-grant only those and leave the rest untouched — correct
   // today and exactly the kind of partial application that stops being correct
   // the moment anything cross-table is added.
+  // THE CALLER MAY RESERVE BEFORE THE SCHEMA IS TOUCHED (2026-09-05) — the
+  // data layer's rule: the usage is known, nothing is written yet, and a
+  // ledger that refuses answers `unbilled` with no DDL emitted.
+  if (typeof deps.before === "function") {
+    let go = false;
+    try { go = !!(await deps.before(usage)); } catch { go = false; }
+    if (!go) return { ok: false, escalate: false, reason: "unbilled", usage, applied: [] };
+  }
   let ok = false;
   try { ok = !!(await deps.apply(spec)); }
   catch (e) { return { ok: false, escalate: false, reason: "apply", error: e, usage, applied }; }

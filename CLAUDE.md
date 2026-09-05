@@ -2682,7 +2682,12 @@ what the work cost.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,088
+  build and the pre-list payload added sixteen); the unit suite is 5,100
+  (2026-09-05, after stage 1a-ii/iii's twelve — the two rungs' `before` hook
+  driven six ways, the synchronous route driven three ways against a stubbed
+  ledger, and the stage's own source guards; 5,088 the same day after stage
+  1a-i's nine — the five driven consumer cases and four source guards; before
+  them 5,079
   (2026-09-05, after the refused-reservation guards — five driven consumer
   runs and four source reads in `test/edit-reserve-refused.test.mjs` — and
   before them 5,079 after the job runner's guards — the runtime's thirteen, the
@@ -3257,12 +3262,77 @@ exempted) and reads the funnels, the context, the three asks and the sentence
 out of the source. **Sweep: 12 mutants, 12 killed, none unapplied, the
 comment-only control survived.** Not proven live; the proof is free — an
 addon ask on fretwork-1 at a balance below its bill now answers the credits
-sentence with the build unmoved. **Still open, the rest of stage 1a:** the
-`data` rung and the pageless addon place their reserve AFTER the write, so a
-refusal there prevents the publish but not the rows or the DDL already made;
-the synchronous path's collect has no refusal count; the addon funnel's
-refusal is guarded by a source read, not a drive, because no driven addon
-route harness exists.
+sentence with the build unmoved.
+**THE REST OF STAGE 1a SHIPPED THE SAME DAY (1a-ii/iii, owner: *"o k"*): THE
+RESERVE PRECEDES THE FIRST WRITE, AND THE SYNCHRONOUS PATH COUNTS ITS
+REFUSALS.** The `data` and `rules` rungs and the pageless addon placed their
+reserve AFTER the write, so a refusal there stopped the publish and left the
+rows or the DDL made. Now `runDataEdit` and `runRulesEdit` take a
+`before(usage)` hook, asked once the model has answered and BEFORE the first
+statement: the route's hook charges through `eCharge` and answers whether the
+ledger refused (`eCharges.refused()`); a no, or a hook that throws, answers
+`reason: "unbilled"` with nothing applied, and the route returns
+`unbilledReply` (402 for `insufficient`, 503 for a dead ledger, the same two
+sentences, cost 0). The rungs' success replies read the cost the hook already
+took (`dBilled` / `rBilled`), so nothing bills twice. The addon route places
+sequence #1 — the picker's, the designers' and the seed's usage — BEFORE
+`applySiteSchema` under a job and stops on a refusal before any DDL; the page
+call is then sequence #4 for its own usage alone (the bill no longer re-counts
+the design), and the pageless path answers the number #1 took. The synchronous
+path: `eCharge` records `insufficient` when `collectCredits` took nothing of a
+positive bill and `rpc` when it threw; `eCharges` reads the job's count under
+a job and the sync ledger otherwise; the spine takes `charges` as its
+accounting view (`acct = charges || job`); and a refused final publish on the
+sync path refunds what was taken (`syncLedger.taken`) and answers `error:
+"unbilled"` instead of wearing `compile`. What it does NOT reverse, said
+rather than hidden: a reorder that reserved and then could not publish leaves
+the rows saved and the sentence opens "Your rows are saved." Guards:
+`test/edit-reserve-refused.test.mjs` DRIVES the synchronous route through
+`worker.fetch` against a stubbed ledger (refused → 402 and the credits
+sentence with no compile; a dead ledger → 503; healthy → published, one
+compile, cost ≥ 1) and reads the two rungs' `before` wiring, the addon's #1
+between the seed and the apply, the #4, the stop before the look store, the
+sync ledger and the refund; `test/site-apply.test.mjs` and
+`test/site-rules.test.mjs` drive the hook (a refusal applies nothing, a throw
+is a refusal, yes or absent applies, not asked when nothing matched).
+**A backend addon under a job pays two roundings now** — #1 prices the design
+and the seed before the DDL, when the page call's cost cannot be known, and
+#4 the page call alone; a synchronous addon, and any addon that designed no
+backend tier, still pays one variadic bill (`test/api-auth.test.mjs` asserts
+the gate by brace depth). The trade the translation charge made on run 39,
+for the same reason. Ten older guards went red for the change and were
+re-anchored, not appeased — each pinned to a spelling
+(`collectCredits(eAuth, pageCredits(...parts))`, `aCost = await
+aCharge(aBill)`, the addon's reserve and bill landmarks, the pageless charge
+sitting AFTER the apply, the data refusal's `cost: await eCharge(dOut.usage)`,
+the wall's page-bill landmark, `const aBill = pageCredits(`, the spine's
+`charge = null }` as its LAST parameter, the deferred publish's object ending
+at `charge`, and a 900-byte window on the addon's publish call that the
+`charges` line outran — the recorded byte-window trap, walked by brace depth
+now), each naming which spelling moved and why — and THREE driven fixtures
+(`test/edit-path.test.mjs`, `test/edit-nobackend.test.mjs`,
+`test/site-public-url.test.mjs`) answered `use_credits` with a catch-all 503,
+which the new rule rightly reads as a dead ledger, so each answers the ledger
+healthily unless a case says otherwise. **Sweep: 20 mutants, 20 killed, none
+unapplied, two comment-only controls survived** — one mutant's anchor named
+the wrong comment on the first pass (NOT APPLIED, the recorded trap) and was
+re-anchored and re-run to a kill. The addon's own funnel is still guarded by
+a source read, not a drive: no driven addon route harness exists.
+
+**A `const` CALLED ABOVE ITS OWN LINE PASSES THE PARSE CHECK AND EVERY TEXT
+GUARD (2026-09-05, stage 1a-ii).** The addon route's first reserve was written
+above the backend block and called `aCharge` — a `const` closure declared
+BELOW that block, in the same scope. `node --input-type=module --check` passed
+(the temporal dead zone is a runtime error, not a parse error), every source
+guard found its landmarks, and a backend addon under a job would have thrown
+`ReferenceError` on its first reserve, after the designers had run and before
+anything was charged. Found only because the new guard asserted the ORDER of
+landmarks — the closure above the reserve, the reserve above the apply — and
+could not find the closure where the reserve needed it. The closure and its
+reader moved above the block, with a pointer comment left where they were.
+**When a call is moved earlier in a function, check what it calls is declared
+earlier still**; a text read certifies the layer below the break, and the
+honest check is a drive, which the addon route still lacks.
 
 **A PUSH TO MAIN ROLLS THE CONTAINER UNDER WHATEVER IS RUNNING (2026-09-01,
 the first lane sweep).** Two pushes that touched only `scripts/` and `test/`

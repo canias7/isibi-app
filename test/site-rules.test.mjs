@@ -329,6 +329,31 @@ test("a site with no tables escalates — a page change really might be what the
   assert.equal(seen.requests.length, 0, "nothing is paid for when there was nothing to work with");
 });
 
+// ── THE CALLER RESERVES BEFORE THE SCHEMA IS TOUCHED (2026-09-05) ──────────
+test("`before` is asked with the usage before the apply, and a refusal emits no DDL", async () => {
+  const { deps, seen } = fake({ table: "bookings", unique: ["slot_date", "slot_time"] });
+  const before = [];
+  deps.before = async (usage) => { before.push(usage); return false; };
+  const r = await runRulesEdit(deps, { instruction: "stop double bookings", tables: TABLES });
+  assert.equal(r.ok, false);
+  assert.equal(r.escalate, false);
+  assert.equal(r.reason, "unbilled");
+  assert.equal(before.length, 1);
+  assert.ok(before[0] && Number.isFinite(before[0].in), "before was not handed the call's usage");
+  assert.equal(seen.applied.length, 0, "the schema was applied after the ledger refused");
+  assert.ok(r.usage, "the usage is dropped from an unbilled answer");
+});
+
+test("a `before` that throws is a refusal; one that answers yes applies as before; absent, nothing changes", async () => {
+  for (const [before, applied] of [[async () => { throw new Error("down"); }, 0], [async () => true, 1], [undefined, 1]]) {
+    const { deps, seen } = fake({ table: "bookings", unique: ["slot_date", "slot_time"] });
+    if (before) deps.before = before;
+    const r = await runRulesEdit(deps, { instruction: "stop double bookings", tables: TABLES });
+    assert.equal(seen.applied.length, applied, "applied " + seen.applied.length + " times for " + String(before));
+    assert.equal(r.ok, applied === 1, JSON.stringify(r));
+  }
+});
+
 test("a model that matched no rule does NOT escalate — the rungs above cannot do it either", async () => {
   const { deps } = fake({ table: "bookings" });
   const r = await runRulesEdit(deps, { instruction: "make it blue", tables: TABLES });

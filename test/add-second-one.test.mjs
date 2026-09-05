@@ -103,7 +103,17 @@ test("THE WALL: the addon route refuses a changed page that lost words — after
   // After every merge refusal and escalate, before the gate and the bill.
   assert.ok(route.indexOf("if (!aMerge.ok) return aEscalate(aMerge.reason") < route.indexOf("const aWas = new Map("), "the wall runs before the merge is judged");
   assert.ok(worker.indexOf("const aWas = new Map(") < worker.indexOf('const aGatePub = aJob ? aJob.gate("build") : null;'), "the wall runs after the gate");
-  assert.ok(worker.indexOf("const aWas = new Map(") < worker.indexOf("if (aJob) aCost = await aCharge(aBill);"), "the wall runs after the bill — a refused page would be charged");
+  // RE-ANCHORED 2026-09-05 (stage 1a-ii): the page bill's line reads
+  // `aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill)`
+  // now. Under a job a BACKEND addon reserves its design and seed usage as
+  // sequence #1 BEFORE the DDL — which is before the page call, and so before
+  // this wall — and the consumer's refund returns #1 on any refusal, so a
+  // refused page is still charged nothing. What this line keeps is that the
+  // PAGE bill (#4 under a job; the collect on the synchronous path, later
+  // still) sits after the wall.
+  const pageBill = worker.indexOf("if (aJob) aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill);");
+  assert.ok(pageBill > 0, "the page bill's line moved again — re-anchor, and say why");
+  assert.ok(worker.indexOf("const aWas = new Map(") < pageBill, "the wall runs after the bill — a refused page would be charged");
   // The pages it reads: the ones the addition CHANGED, against what the site stored — never the ones it added.
   assert.match(wall, /\(aSrc \|\| \[\]\)\.filter\(\(p\) => p && typeof p\.path === "string"\)\.map\(\(p\) => \[p\.path, String\(p\.source \|\| ""\)\]\)/, "the before is not the stored source");
   assert.match(wall, /for \(const p of aMerge\.pages \|\| \[\]\) \{\s*\n\s*if \(!p \|\| !aMerge\.changed\.includes\(p\.path\) \|\| !aWas\.has\(p\.path\)\) continue;/, "the wall does not read exactly the changed pages");

@@ -96,14 +96,19 @@ function withWire(answers, run, { owned = true, usage = null, billed = null } = 
     if (url.includes("/auth/v1/user")) {
       return new Response(JSON.stringify(USER), { status: 200, headers: { "content-type": "application/json" } });
     }
-    // THE LEDGER, WHEN A TEST IS WATCHING IT. Left unstubbed this 503s,
-    // `eCharge` swallows it and every reply reads `cost: 0` — so a bill can be
-    // wrong by a whole call and no test here would see it. `billed` collects
-    // what was actually asked for.
-    if (billed && url.includes("/rpc/use_credits")) {
+    // THE LEDGER ANSWERS, ALWAYS. This was stubbed only when a test was
+    // watching it (`billed`), and a silent ledger 503'd: `eCharge` swallowed
+    // that and every reply read `cost: 0`, so a bill could be wrong by a whole
+    // call and no test here would see it. Since 2026-09-05 (stage 1a-iii) a
+    // ledger that does not answer is a REFUSAL and the publish stops — the
+    // right answer to a dead ledger, and the wrong fixture for a test about
+    // lanes. So a healthy ledger is the default; `billed`, when handed in,
+    // collects what was actually asked for; a test about a dead or short
+    // ledger stubs its own (see test/edit-reserve-refused.test.mjs).
+    if (url.includes("/rpc/use_credits")) {
       let want = 0;
       try { want = Number(JSON.parse(String(init && init.body) || "{}").cost) || 0; } catch { want = 0; }
-      billed.push(want);
+      if (billed) billed.push(want);
       return new Response(String(want), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.includes("/rest/v1/site_project")) {
