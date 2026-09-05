@@ -189,6 +189,13 @@ the 15–20 minute hold: **3m09s measured on deploy 2029**, the image step
 2m20s with every layer rebuilt (the first build off the root context); a
 later push that changes only the worker tree should reuse the apt and
 template layers and come in under that — measure it, do not assume it.
+**MEASURED on deploy 2030 (2026-09-05 23:35Z, the merge of stages 1a–3b
+and 8): the image step 2m33s, the whole deploy 3m28s** — NOT under 2029's
+2m20s, and that push changed the Dockerfile's own COPY line (two builder
+modules added), which is a layer input; the first push that changes the
+worker tree and nothing above it is still the measurement to take. The
+step's line: `built isibi-app-sitebuildcontainer:e86…54e47 (registry
+answered 404; 155 inputs off ./Dockerfile)`, then `EDIT` on the app.
 
 Secrets live in GitHub Actions and upload to the Worker each deploy. **An
 optional secret must carry a `|| fallback`; a required one must not** — listing a
@@ -3480,8 +3487,23 @@ pageless (a job, an internal function): the apply runs directly, `applied` at on
   red on the clean tree, because the RETURN line names the field too — the
   count reads the condition's own spelling now. Full suite **5,275**
   (5,257 + the eighteen), run on the restored tree after the sweep.
-- **Not proven live.** The deploy rolls the container (`worker.js` and the
-  builder modules are image inputs; the 15–20 minute hold applies). The
+- **MERGED AND DEPLOYED (owner, 2026-09-05: *"ok lets merge then"*).**
+  Main was fast-forwarded to the branch tip (`12fff44b`, fourteen commits:
+  stages 1a–3b and 8 in one push; main had nothing of its own and
+  `merge-tree` was clean) at 23:35Z. **Deploy run 2030, the FIRST GATED
+  DEPLOY, green in 3m28s**: `deploy gate (set)` 1 s; the image step 2m33s —
+  `built isibi-app-sitebuildcontainer:e86…54e47 (registry answered 404;
+  155 inputs off ./Dockerfile)`, pushed, so the container ROLLED from
+  `b8fa5420d4b3a898` (`EDIT isibi-app-sitebuildcontainer`, applied
+  23:39:07Z; the game image `no changes`); `deploy drain: no live leases
+  after 1s — deploying` (nothing was running); Wrangler 21 s, `DEPLOY_ID`
+  as a var; the clear step on success: `deploy gate: left to expire for
+  12fff44b… — the new isolates claim through it, the old ones defer until
+  they are gone`. Both `unit tests` runs for the commit (2260 on the
+  branch, 2261 on main) green. The 15–20 minute hold after the roll ends
+  ~23:55Z; the gate expires ~00:21Z. The migrations of stages 1a–3b, live
+  and inert until now, have their Worker.
+- **Not proven live.** The
   proof is the next backend addon on fretwork-1 (~12–21 credits, owner's
   call): the reply carries `migration.status: "applied"` with the version,
   `/api/site/migrations?slug=fretwork-1` lists it, and the trace carries

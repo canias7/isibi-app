@@ -3465,3 +3465,22 @@ The "tables stand, page never came" shape cannot be made on purpose.
 **Open, your call.** Whether the DELETE step, when it comes, should offer to
 drop `waiting_list` (run 33's orphan) — it predates the record, so the
 record does not know it.
+
+**Merged and deployed, on your "ok lets merge then" (2026-09-05 23:35Z).**
+Main was moved to the branch tip — fourteen commits, stages 1a to 3b and 8
+together; main had nothing of its own. Deploy run 2030 went green in 3m28s
+and was the first deploy under the new gate: the gate was set, the container
+image was rebuilt (the Worker is part of it now) and rolled at 23:39Z, the
+drain found nothing running and deployed at once, and the gate was left to
+expire so old isolates defer to the new code. Both unit-test runs for the
+commit were green. **Hold off container work until about 23:55Z** (the
+15–20 minute rule after a roll). The database changes made earlier today for
+stages 1a–3b were live but idle until this Worker; they are in force now.
+
+What to expect from here, all free unless you choose otherwise:
+- An edit on fretwork-1 exercises stages 6 and 3a quietly (one job per site,
+  the deploy gate on future pushes).
+- The job runner (task #93) still waits on your canary secret
+  (`JOB_RUNNER_CANARY=fretwork-1`), which nothing here turned on.
+- The stage 8 proof is a backend addon on fretwork-1 (~12–21 credits) — the
+  reply's `migration.status` should read `applied`.
