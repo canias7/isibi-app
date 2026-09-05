@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
-  stripJsonc, readContainers, copySources, imageName, imageId, rewriteImage, containerInputs, main,
+  stripJsonc, readContainers, copySources, imageName, imageId, rewriteImage, containerInputs, contextDir, main,
   registryCredentials, manifestPresent, API_BASE,
 } from "../.github/scripts/container-images.mjs";
 
@@ -156,11 +156,25 @@ test("rewriteImage replaces exactly one image path with a reference, and refuses
 });
 
 test("containerInputs: the Dockerfile, the dockerignore when there is one, then every COPY source under the context", () => {
-  const git = (p) => ({ "b/Dockerfile": "1".repeat(40), "b/.dockerignore": "2".repeat(40), "b/x.mjs": "3".repeat(40), "b/dir": "4".repeat(40) })[p] || null;
+  const git = (p) => ({
+    "b/Dockerfile": "1".repeat(40), "b/.dockerignore": "2".repeat(40), "b/x.mjs": "3".repeat(40), "b/dir": "4".repeat(40),
+    // The root context's own objects, by their bare git paths.
+    "Dockerfile": "5".repeat(40), ".dockerignore": "6".repeat(40), "worker.js": "7".repeat(40), "builder/dir": "8".repeat(40),
+  })[p] || null;
   const inputs = containerInputs({ context: "./b/", dockerfileText: "COPY x.mjs ./\nCOPY dir/ ./dir/\n", hasDockerignore: true, git });
   assert.deepEqual(inputs.map((i) => i.path), ["b/Dockerfile", "b/.dockerignore", "b/x.mjs", "b/dir"]);
   const none = containerInputs({ context: "b", dockerfileText: "COPY x.mjs ./\n", hasDockerignore: false, git });
   assert.deepEqual(none.map((i) => i.path), ["b/Dockerfile", "b/x.mjs"]);
+  // THE ROOT IS A CONTEXT (2026-09-05, the site image): its inputs carry no
+  // prefix at all — `HEAD:./x` is not the git path of `x`, and the driven
+  // "an input git does not have" case below matches by path.
+  for (const root of [".", "./", ""]) {
+    const atRoot = containerInputs({ context: root, dockerfileText: "COPY worker.js ./worker/\nCOPY builder/dir/ ./worker/builder/dir/\n", hasDockerignore: true, git });
+    assert.deepEqual(atRoot.map((i) => i.path), ["Dockerfile", ".dockerignore", "worker.js", "builder/dir"], "context " + JSON.stringify(root));
+  }
+  assert.equal(contextDir("./builder/"), "builder");
+  assert.equal(contextDir("builder-game"), "builder-game");
+  for (const root of [".", "./", "", undefined]) assert.equal(contextDir(root), ".", "context " + JSON.stringify(root));
   assert.throws(() => containerInputs({ context: "b", dockerfileText: "COPY ghost.mjs ./\n", hasDockerignore: false, git }), /ghost\.mjs, which is not in git/);
 });
 
@@ -177,7 +191,10 @@ test("every input of both real images is a git object at HEAD, and the ids are s
     const ctx = c.context.replace(/^\.\//, "");
     const inputs = containerInputs({ context: ctx, dockerfileText: fs.readFileSync(path.join(ROOT, ctx, "Dockerfile"), "utf8"), hasDockerignore: fs.existsSync(path.join(ROOT, ctx, ".dockerignore")), git });
     assert.ok(inputs.length >= 3, `${c.class_name}: too few inputs (${inputs.length})`);
-    assert.ok(inputs[0].path.endsWith("/Dockerfile"), "the Dockerfile itself is the first input");
+    // `Dockerfile` bare for the root context, `builder-game/Dockerfile` for a
+    // directory — this pinned the slash and went red the day the site image's
+    // context became the root (2026-09-05).
+    assert.ok(/^(?:.*\/)?Dockerfile$/.test(inputs[0].path), "the Dockerfile itself is the first input: " + inputs[0].path);
     assert.equal(imageId(inputs), imageId(inputs));
     // The site image's inputs are the ones the container really carries. SINCE
     // 2026-09-04 THAT IS THE WORKER'S MODULE GRAPH TOO: the image carries
