@@ -56,6 +56,8 @@ import { checkOrder } from "./site-render.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { runStep } from "./run-step.mjs";
 import { startSiteServer } from "./site-ssr.mjs";
+import { spawn } from "node:child_process";
+import { readLaunch } from "./container-job.mjs";
 import { checkRender, screenshotHtml } from "./render-check.mjs";
 import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
@@ -1276,6 +1278,131 @@ function oneAtATime(fn) {
   return done;
 }
 
+/**
+ * Hold the busy counter for something that is not a chained step — a job
+ * child whose compile will itself take the chain. Answers the release, which
+ * is idempotent: a child's `close` and an early failure may both call it.
+ */
+function holdBusy() {
+  if (_busy === 0) _busySince = Date.now();
+  _busy++;
+  let done = false;
+  return () => { if (done) return; done = true; _busy = Math.max(0, _busy - 1); if (_busy === 0) _busySince = 0; };
+}
+
+// ── THE JOB CHILDREN ─────────────────────────────────────────────────────────
+//
+// One entry per `POST /job/run`, read back by `GET /job/<id>`. In memory, like
+// the generation jobs: the Worker's poll route reads the job's STORED reply,
+// which the child writes through the gateway, so this map is diagnosis and a
+// cap, never the record.
+const JOBS = new Map();
+const MAX_JOBS = 4;
+const MAX_JOB_BODY = 1 << 20;
+const JOB_KEEP_MS = 60 * 60 * 1000;
+function sweepJobs(now = Date.now()) {
+  for (const [id, j] of JOBS) if (j.state !== "running" && now - (j.touchedAt || 0) > JOB_KEEP_MS) JOBS.delete(id);
+}
+
+/** Where the image carries the Worker's own module tree (Dockerfile). */
+const WORKER_DIR = process.env.WORKER_DIR || path.join(APP, "worker");
+
+/**
+ * DOES THE WORKER TREE IMPORT? Asked ONCE, at startup, in a child under the
+ * loader — a few hundred milliseconds — and the answer gates every launch.
+ *
+ * A module the job imports and the image does not carry dies at import
+ * INSIDE the container, after the Worker's consumer has fired the job and
+ * gone: nothing claims it, and the lost-edit sweep is what closes it. The
+ * Worker runs a job itself only when this service REFUSES the launch. So a
+ * tree that does not import turns every launch into a 503 here, which is the
+ * Worker's inline path — the failure moves to the place with a fallback.
+ * `null` until the check has answered; the route awaits it.
+ */
+let WORKER_TREE = null;
+function checkWorkerTree() {
+  const runner = path.join(WORKER_DIR, "builder", "container-job.mjs");
+  const register = path.join(WORKER_DIR, "builder", "worker-register.mjs");
+  const entry = path.join(WORKER_DIR, "worker.js");
+  if (!fs.existsSync(runner) || !fs.existsSync(register) || !fs.existsSync(entry)) {
+    return Promise.resolve({ ok: false, error: "this image carries no Worker tree at " + WORKER_DIR });
+  }
+  return new Promise((resolve) => {
+    let out = "";
+    let child;
+    try {
+      // THE RUNNER ASKS ITS OWN TREE (`--check`): this service hands node no
+      // script of its own, because it may carry no `import(` in its source —
+      // the render boundary's guard reads this file for one.
+      child = spawn(process.execPath, ["--import", register, runner, "--check"],
+        { cwd: WORKER_DIR, env: cleanChildEnv({}), stdio: ["ignore", "pipe", "pipe"] });
+    } catch (e) { return resolve({ ok: false, error: String((e && e.message) || e) }); }
+    child.stdout.on("data", (c) => { out += c; });
+    child.stderr.on("data", (c) => { out += c; });
+    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, 60_000);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const ok = code === 0 && /\bok\b/.test(out);
+      console.log("build-server: worker tree " + (ok ? "imports" : "DOES NOT IMPORT — every launch will be refused") + (ok ? "" : ": " + out.slice(-800)));
+      resolve(ok ? { ok: true } : { ok: false, error: "the Worker tree does not import: " + out.slice(-400) });
+    });
+  });
+}
+const WORKER_TREE_CHECK = checkWorkerTree().then((r) => { WORKER_TREE = r; return r; });
+
+/**
+ * The environment a job child gets: the path, a home, the build service's
+ * port. NOT this process's environment — that is already scrubbed of the
+ * provider keys (build-keys.mjs) and carries nothing a job needs; and the
+ * job's own secrets travel on stdin, so no environment anywhere holds them.
+ */
+function cleanChildEnv(extra) {
+  return { PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin", HOME: process.env.HOME || "/tmp", LANG: process.env.LANG || "C.UTF-8", NODE_ENV: "production", ...(extra || {}) };
+}
+
+/** Start the runner for one launch. The payload goes down stdin, verbatim. */
+function startJob(launch, raw) {
+  const runner = path.join(WORKER_DIR, "builder", "container-job.mjs");
+  const register = path.join(WORKER_DIR, "builder", "worker-register.mjs");
+  if (!fs.existsSync(runner) || !fs.existsSync(register)) return { ok: false, error: "this image carries no Worker tree at " + WORKER_DIR };
+  const release = holdBusy();
+  let child;
+  try {
+    child = spawn(process.execPath, ["--import", register, runner], {
+      cwd: WORKER_DIR,
+      env: cleanChildEnv({ JOB_BUILD_PORT: String(PORT), JOB_ID: launch.id }),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch (e) { release(); return { ok: false, error: String((e && e.message) || e) }; }
+  const at = Date.now();
+  JOBS.set(launch.id, { state: "running", kind: launch.kind, startedAt: at, pid: child.pid, touchedAt: at });
+  child.stdin.on("error", () => {});
+  child.stdin.end(raw);
+  const tail = [];
+  const onLine = (stream, prefix) => {
+    let buf = "";
+    stream.on("data", (c) => {
+      buf += c;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (!line) continue;
+        console.log("job " + launch.id + " " + prefix + ": " + line.slice(0, 2000));
+        tail.push(line.slice(0, 300)); if (tail.length > 20) tail.shift();
+      }
+    });
+  };
+  onLine(child.stdout, "out");
+  onLine(child.stderr, "err");
+  child.on("error", (e) => { console.error("job " + launch.id + ": could not start —", String((e && e.message) || e)); });
+  child.on("close", (code, signal) => {
+    JOBS.set(launch.id, { state: code === 0 ? "done" : "failed", kind: launch.kind, startedAt: at, ms: Date.now() - at, code, signal: signal || null, touchedAt: Date.now(), tail: tail.slice(-5) });
+    console.log("job " + launch.id + ": " + (code === 0 ? "done" : "failed (" + (signal || code) + ")") + " after " + (Date.now() - at) + " ms");
+    release();
+  });
+  return { ok: true, pid: child.pid };
+}
+
 /** What `/busy` answers. Exported shape, so the Worker's hold rule can read it. */
 function busyState() {
   // `stopping` is the one bit that separates "the platform sent SIGTERM and the
@@ -1422,6 +1549,46 @@ const server = http.createServer((req, res) => {
   // milliseconds. A build that CANNOT answer it is one spinning the CPU, and
   // that is the container the caller should stop.
   if (req.method === "GET" && req.url === "/busy") { return send(res, 200, busyState()); }
+  // ── THE JOB RUNNER (2026-09-04): the Worker's consumer, run here ──────────
+  //
+  // `POST /job/run` starts the Worker's own module in a child of this process
+  // for one queued job (container-job.mjs) and answers at once; the Worker's
+  // consumer fired it and returns. The child's ENVIRONMENT IS CLEAN — the
+  // payload with the job's secrets goes down its stdin and nowhere else, which
+  // is build-keys.mjs's rule one process over — and it spawns nothing itself:
+  // the compile it needs comes back to this service over localhost through the
+  // ordinary `/build`, under `oneAtATime` like every compile. So this route
+  // must NOT go through `oneAtATime` (the job would wait on itself) — but it
+  // HOLDS `_busy` for the child's lifetime, so the idle clock cannot stop the
+  // container under a running job and the SIGTERM drain waits for it.
+  if (req.method === "POST" && req.url === "/job/run") {
+    let jBody = "", jTooBig = false;
+    req.on("data", (c) => { jBody += c; if (jBody.length > MAX_JOB_BODY) { jTooBig = true; req.destroy(); } });
+    req.on("end", async () => {
+      if (jTooBig) return send(res, 413, { ok: false, error: "request too large" });
+      let launch;
+      try { launch = readLaunch(jBody); } catch (e) { return send(res, 400, { ok: false, error: String((e && e.message) || e) }); }
+      // A TREE THAT DOES NOT IMPORT REFUSES HERE, where the Worker still has
+      // its inline path — never later, inside a child nobody is waiting on.
+      const tree = WORKER_TREE || await WORKER_TREE_CHECK;
+      if (!tree.ok) return send(res, 503, { ok: false, error: tree.error });
+      sweepJobs();
+      if (JOBS.has(launch.id) && JOBS.get(launch.id).state === "running") return send(res, 409, { ok: false, error: "that job is already running here", id: launch.id });
+      // BOUNDED, like the generation jobs: one lane is one site, so more than
+      // a few live jobs means the queue is delivering one site's edits faster
+      // than they finish. A refusal here is the Worker's inline path.
+      if ([...JOBS.values()].filter((j) => j.state === "running").length >= MAX_JOBS) return send(res, 429, { ok: false, error: "too many jobs on this container" });
+      const started = startJob(launch, jBody);
+      if (!started.ok) return send(res, 500, { ok: false, error: started.error });
+      return send(res, 200, { ok: true, id: launch.id, pid: started.pid });
+    });
+    return;
+  }
+  if (req.method === "GET" && req.url.startsWith("/job/")) {
+    const id = decodeURIComponent(req.url.slice("/job/".length));
+    const j = JOBS.get(id);
+    return j ? send(res, 200, { ok: true, id, ...j }) : send(res, 404, { ok: false, error: "no such job" });
+  }
   // OCCUPY THE QUEUE FOR N MILLISECONDS, AND NOTHING ELSE.
   //
   // The instrument for the one thing no unit test can reach: whether Cloudflare

@@ -335,6 +335,14 @@ test("EVERY SITE BUILD IS KEYED BY THE SLUG, and only a probe may key by a liter
         "a slug-addressed container is resolved outside the log branch — a caller-chosen lane must never be one this route can OCCUPY");
       continue;
     }
+    // THE JOB RUNNER'S FIRE IS THE FIFTH LEGAL SHAPE (2026-09-04), and it is the
+    // rule's own case rather than an exception to it: the queued edit is fired
+    // at the lane of the site it edits — `laneName(job.slug)`, the slug read off
+    // the STORED job object, which the consumer alone can read — so it lands
+    // on the container that will compile it, under `oneAtATime` with every
+    // other build of that site. Admitted by name AND by place: anywhere else,
+    // a job object's slug is a caller-supplied key.
+    if (arg === "laneName(job.slug)" && enclosing(at) === "fireContainerJob") continue;
     // Anything else that is not a build must be a FIXED literal. A probe keyed by
     // something caller-supplied could pick a container and starve a real build.
     assert.ok(arg === "laneName(slug)" || /^laneName\("[a-z0-9-]+"\)$/.test(arg),

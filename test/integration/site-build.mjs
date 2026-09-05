@@ -656,9 +656,14 @@ try {
   // spawn rather than of whichever machine it runs on. The /model check below
   // reads the named refusal that produces, which costs nothing and still drives
   // every layer between the socket and the provider.
+  // WORKER_DIR IS THE REPOSITORY (2026-09-05): the image lays the Worker's own
+  // module graph out under /app/worker as the job runtime, and this checkout
+  // IS that tree, so the service's startup check imports the real worker.js
+  // and `/job/run` below spawns the real runner.
   server = spawn("node", [path.join(ROOT, "builder", "build-server.mjs")], {
     env: {
       ...process.env, APP_DIR: sandbox, PORT: String(PORT), NODE_ENV: "production", ...chromiumEnv(),
+      WORKER_DIR: ROOT,
       ANTHROPIC_API_KEY: "", XAI_API_KEY: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -673,6 +678,50 @@ try {
   }
   ok("the build service answers /health", up);
   if (!up) throw new Error("build service never came up");
+
+  // ── THE JOB RUNNER'S DOOR, THROUGH THE REAL SERVICE (2026-09-05) ─────────
+  //
+  // `POST /job/run` is how a queued edit comes to run INSIDE the site's
+  // container: the Worker's consumer fires the launch and returns, and this
+  // service spawns the Worker's own module (the `worker/` tree in the image;
+  // this checkout, here) under the loader with the launch on stdin. FREE, and
+  // whole: a launch with no secrets runs the real consumer to its own named
+  // refusal — the claim is first, and the RPC helper refuses before any fetch
+  // without the service key — so nothing reaches Supabase, R2 or a provider,
+  // and every hop between the socket and the consumer is exercised.
+  {
+    const post = (body) => fetch(`http://127.0.0.1:${PORT}/job/run`, { method: "POST", headers: { "content-type": "application/json" }, body });
+    const bad = await post("not a launch");
+    const badBody = await bad.json().catch(() => ({}));
+    ok("POST /job/run refuses a launch it cannot read, 400, before any child is started",
+      bad.status === 400 && badBody.ok === false && /not JSON/.test(String(badBody.error)), `status ${bad.status} ${JSON.stringify(badBody).slice(0, 120)}`);
+    const id = "harness_" + Date.now().toString(36);
+    const launch = { v: 1, kind: "edit", id, gateway: { url: "https://gofarther.dev/api/job/" + id, token: "harness" }, secrets: {}, buildPort: PORT };
+    const r = await post(JSON.stringify(launch));
+    const j = await r.json().catch(() => ({}));
+    ok("…and takes one it can: 200 {ok, id, pid} — the launch is running, the caller is free to go",
+      r.status === 200 && j.ok === true && j.id === id && j.pid > 0, `status ${r.status} ${JSON.stringify(j).slice(0, 160)}`);
+    // The child is the real runner: the Worker imported under the loader, the
+    // consumer run to its refusal, one done line, exit 0. Read back off the
+    // service's own record of the job.
+    let job = null;
+    for (let i = 0; i < 450; i++) {
+      job = await (await fetch(`http://127.0.0.1:${PORT}/job/${id}`)).json().catch(() => null);
+      if (job && job.state !== "running") break;
+      await new Promise((res) => setTimeout(res, 200));
+    }
+    ok("…and the child ran the Worker's consumer to its end: done, exit 0",
+      job && job.state === "done" && job.code === 0, JSON.stringify(job).slice(0, 400));
+    ok("…with the consumer's own refusal in the job's tail — no service key, so no claim, no network",
+      job && Array.isArray(job.tail) && job.tail.some((l) => /no-service-key/.test(l)), JSON.stringify(job && job.tail).slice(0, 400));
+    ok("…and the done line names the job", job && job.tail && job.tail.some((l) => l.includes('"job":"' + id + '"') && l.includes('"done":true')), JSON.stringify(job && job.tail).slice(0, 400));
+    // Busy is released with the child: a container is held under a running
+    // job and not a moment longer.
+    const busy = await (await fetch(`http://127.0.0.1:${PORT}/busy`)).json().catch(() => ({}));
+    ok("…and the container is not held busy after it", busy && !busy.busy, JSON.stringify(busy).slice(0, 120));
+    const gone = await fetch(`http://127.0.0.1:${PORT}/job/no_such_job_1`);
+    ok("GET /job/<id> answers 404 for a job this service never ran", gone.status === 404, `status ${gone.status}`);
+  }
 
   // ── THE CONTAINER CAN MAKE THE MODEL CALL, DRIVEN ──────────────────────────
   //

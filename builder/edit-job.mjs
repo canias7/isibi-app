@@ -596,6 +596,87 @@ export function editAsyncEveryone(env) {
 }
 
 /**
+ * WHO RUNS THE JOB — the Worker's queue consumer, or the site's container?
+ *
+ * ── THE JOB RUNS IN THE CONTAINER (2026-09-04; owner: "that stuff gotta run
+ * on container") ──────────────────────────────────────────────────────────
+ *
+ * The consumer used to hold a Worker invocation for the whole job. Now, for
+ * the identities these two say yes to, it fires the job at the site's own
+ * container (`/job/run` on the build service, which runs the Worker's module
+ * under Node — worker-loader.mjs) and returns; the container does the work
+ * and finalizes. The same two-door shape as the async fork: a canary list of
+ * uids and slugs (`readCanaryList`, no wildcard) for proving it on one site,
+ * and a second word, `JOB_RUNNER_EVERYONE`, for the whole platform once it is
+ * proven. Nothing set means nobody: the Worker's consumer runs the job itself,
+ * exactly as it did. The consumer also falls back to itself when the container
+ * cannot take the job — no room, an old image without the endpoint — so the
+ * wide door can never turn a full account into a queue of failed edits.
+ */
+export function jobRunnerEveryone(env) {
+  const v = env && env.JOB_RUNNER_EVERYONE;
+  if (typeof v !== "string") return false;
+  return ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
+}
+
+/** Is the container runner on for ANYBODY? Asked before the job is read, so an
+ *  off platform pays no extra read. */
+export function jobRunnerOn(env) {
+  return jobRunnerEveryone(env) || readCanaryList(env && env.JOB_RUNNER_CANARY).length > 0;
+}
+
+export function jobRunnerFor(env, { uid = "", slug = "" } = {}) {
+  const u = typeof uid === "string" ? uid.toLowerCase() : "";
+  const s = typeof slug === "string" ? slug.toLowerCase() : "";
+  if (!u && !s) return false;
+  if (jobRunnerEveryone(env)) return true;
+  const list = readCanaryList(env && env.JOB_RUNNER_CANARY);
+  if (!list.length) return false;
+  return (!!u && list.includes(u)) || (!!s && list.includes(s));
+}
+
+/**
+ * THE STRING BINDINGS A JOB CARRIES INTO THE CONTAINER, by name.
+ *
+ * An explicit list rather than "every string on `env`", because the Worker's
+ * env also holds the Stripe keys, the Composio and Domain Connect keys — none
+ * of which an edit or an addon ever reads, and none of which belong in a
+ * container's memory. What IS here is what the edit route, the addon route
+ * and the publish spine read: the provider keys, the service key for the site
+ * rows AND the credit mint secret, because every `edit_*` RPC carries it as
+ * `p_mint` (`editRpc` refuses without both — found by reading it, not by a
+ * live job), the Neon key for the addon's first-touch database, fal for the
+ * picture rung, the API token and account for the site's script upload, the
+ * secrets key for a site's own vault, and the flags the replay reads. A name
+ * a job needs that is missing here fails inside the container as the code's
+ * own named refusal, never silently — and the answer is a line here.
+ * `test/container-job.test.mjs` derives the RPC helper's reads and holds
+ * this list to them.
+ */
+export const JOB_ENV_NAMES = [
+  "SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GEMINI_API_KEY", "FAL_KEY",
+  "NEON_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "SITE_SECRETS_KEY",
+  "SITE_WORKERS_NAMESPACE", "SITE_WORKERS_API_ACCOUNT", "SITES_BUCKET_NAME", "SAAS_FALLBACK_ORIGIN", "EMAIL_FROM",
+  "EDIT_ASYNC", "EDIT_ASYNC_CANARY", "EDIT_ASYNC_EVERYONE",
+];
+
+/** The subset of `env` a job is handed: the names above, strings only. */
+export function jobSecrets(env) {
+  const out = {};
+  for (const name of JOB_ENV_NAMES) {
+    const v = env && env[name];
+    if (typeof v === "string" && v) out[name] = v;
+  }
+  return out;
+}
+
+/** How long the consumer waits to FIRE a job (room waits included) before
+ *  running it itself; the fire is one short call, not the job. */
+export const JOB_FIRE_MS = 90_000;
+/** A gateway token outlives the job's clock by this much, for the finalize. */
+export const JOB_TOKEN_GRACE_S = 900;
+
+/**
  * Does THIS edit go through the queue?
  *
  * THE MASTER SWITCH HAS TO SAY YES, AND THEN ONE OF TWO DOORS. The wide one

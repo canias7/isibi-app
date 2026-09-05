@@ -144,14 +144,20 @@ for both apps — a rebuild under the same tag rolls nothing; the roll is decide
 by the reference, which moves only when an input changed. The repository's own
 config keeps the Dockerfile paths and never carries the account's registry
 path, so a hand `wrangler deploy` behaves as it always did.
-**What rolls the container now is a change to an image INPUT** — the
-Dockerfile, `.dockerignore`, `lovable/template/`, `theme-candidates/`, or one
-of the modules the COPY line names — not any push that touches `builder/`:
-`site-add.mjs`, `edit-job.mjs`, `page-gen.mjs` live there and are Worker
-modules, and a change to them reuses the image. After such a push, wait
-**15–20 minutes** before firing a build that must run the new code (an
-instance started seconds after "deploy completed" is still on the previous
-image); after a Worker-only push there is nothing to wait for. Measured
+**What rolls the container is a change to an image INPUT — and SINCE
+2026-09-05 THE WORKER'S OWN MODULE GRAPH IS ONE.** The site image carries
+`worker.js` and every module it imports as the job runtime (task #93, the
+section "THE JOB RUNS INSIDE THE SITE'S CONTAINER"), so a push that changes
+`worker.js`, `site-add.mjs`, `edit-job.mjs`, `page-gen.mjs` or any of the
+115 files in that closure rebuilds the image and rolls the container, exactly
+as a change to the Dockerfile, `.dockerignore`, `lovable/template/` or
+`theme-candidates/` always did. What still reuses the image: a push that
+touches only `docs/`, `test/`, `scripts/`, `public/`, `supabase/` or the
+workflows. After any code push, wait **15–20 minutes** before firing
+container work that must run the new code (an instance started seconds after
+"deploy completed" is still on the previous image). Between 2026-09-04 and
+2026-09-05 a Worker-only push rolled nothing; that property was traded for
+the runner, knowingly. Measured
 before the change: 14 and 15 minutes per deploy, on pushes that changed
 nothing under either Dockerfile. **The base image is not an input**: an
 upstream `node:22-slim` update reaches the image only when something here
@@ -171,9 +177,11 @@ retry dropped, the probe not required, a credential per image. **BOTH HALVES PRO
 (the roll). Deploy 2019 (13:33Z, the first with the probe): `reused` for both
 images, the registry answering 200 to each HEAD, the image step 1.4 s, the
 whole deploy **47 seconds** (14–15 minutes before the skip, ~4.5 with the
-listing), "no changes" on both container apps. A Worker-only push is a
-one-minute deploy that rolls nothing; a push that changes an image input
-still builds, still rolls, and still needs the 15–20 minute hold.
+listing), "no changes" on both container apps. A docs/test-only push is a
+one-minute deploy that rolls nothing; a push that changes an image input —
+which every Worker code push is since 2026-09-05 — builds the changed layers
+(~4.5 minutes; apt and the template's `npm ci` stay cached), rolls, and needs
+the 15–20 minute hold.
 
 Secrets live in GitHub Actions and upload to the Worker each deploy. **An
 optional secret must carry a `|| fallback`; a required one must not** — listing a
@@ -2206,6 +2214,151 @@ is the one thing there that truly needs a connection, so it is gated on `if (edb
 — **without that, relaxing the gate only trades a wrong refusal for a
 `sqlQuery(null, …)` throw the same catch escalates as `no-meta`.**
 
+### THE JOB RUNS INSIDE THE SITE'S CONTAINER (2026-09-05, task #93)
+
+Owner: *"most of the stuff should be in the users container, not our worker"*
+→ *"yeah that stuff gotta run on container tho"*. A queued edit or addon held a
+Worker queue invocation for its whole length — routing, lanes, the page call,
+the translations, the compile wait, the publish — under a fifteen-minute
+ceiling, 250 at a time, and evicted by every deploy (#52). Now **the Worker's
+own module runs inside the site's container as the job runtime**: the SAME
+`worker.js`, imported under Node, executing the SAME consumer function, and the
+Worker's consumer only fires the job and returns. One definition of the
+pipeline; the whole suite still describes the thing that runs.
+
+```
+queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug) ─► returns in seconds
+                                          │
+              build-server.mjs spawns  node --import worker-register.mjs container-job.mjs
+              (a CLEAN env; the launch — job id, gateway url + token, the string secrets — on STDIN)
+                                          │
+              container-job.mjs → makeContainerEnv → import("../worker.js") under the loader
+              → worker.runContainerJob(env, ctx, { kind: "edit", id }) = runQueuedSiteEdit, to the end
+                                          │
+              R2 through the gateway: https://gofarther.dev/api/job/<id>/r2?key=…  (a signed, slug-scoped token)
+              the compile: getContainer(…).fetch("http://build/build") → the shim → http://127.0.0.1:8080/build
+```
+
+- **The loader** (`builder/worker-loader.mjs`, registered by
+  `worker-register.mjs` through `node --import`): three mappings and nothing
+  else — `cloudflare:*` → `cloudflare-shim.mjs` (the DO base classes as
+  shells; nothing instantiates one on this path), `@cloudflare/containers` →
+  `containers-shim.mjs` (`getContainer(…).fetch` rewrites `http://build/…` to
+  the build service on localhost; **the lane name is ignored, because the job
+  runs IN that lane**), `@cf-wasm/photon` → its own Node build — plus an
+  extension repair for the containers library's extensionless relative import.
+  Measured: `worker.js` imports under Node in ~555 ms.
+- **The gateway** (`builder/job-gateway.mjs`, BOTH ENDS in one module so the
+  shim is driven against the real handler): a `v1.<payload>.<sig>` token —
+  `{ id, slug, uid, exp }`, HMAC-SHA256 under a key DERIVED from
+  `SITE_SECRETS_KEY` and never that key itself — minted by the consumer,
+  verified on every request, nothing stored, expiring with the job's clock plus
+  `JOB_TOKEN_GRACE_S` (900 s) for the finalize. `allowedJobKey` is the wall:
+  the site's five prefixes (`sites/ source/ versions/ uploads/ backups/` +
+  slug), its one config object, the job's own `jobs/` objects by id; `..`
+  refused. **A key outside it is 403 AND LOGGED WITH THE KEY** (`job gateway
+  refused: out-of-scope`), so the first live job on a site says exactly which
+  key it needed that the list lacks, and the answer is a line there, never a
+  wider wall. Mounted at the top of `handleRequest` on the APP zone only. R2's
+  own shapes on both sides: metadata as headers, `onlyIf` as `x-gf-if-*`, a
+  failed condition 412 → the shim answers `null` the way R2 does (the resume's
+  claim depends on it), a missing object 404 → `null`.
+- **The env** (`builder/container-env.mjs`): the string secrets as they are,
+  `SITES_BUCKET` = `GatewayBucket`, `BUILD_QUEUE` = a loud refusal (nothing on
+  the edit path sends), `SITE_BUILD_CONTAINER` = a marker the shim ignores,
+  `SITE_ROUTES` absent (an optional cache whose miss falls back to Supabase),
+  nothing else. `ctx.waitUntil` collects and the runner drains it before it
+  exits.
+- **THE SECRETS TRAVEL ON STDIN, NEVER IN THE ENVIRONMENT** — `build-keys.mjs`'s
+  rule (the container executes model-written page code in a child that
+  inherits env). `JOB_ENV_NAMES` is an explicit list, held by a guard to what
+  `editRpc` and `svcHeaders` read: the service key AND `CREDITS_MINT_SECRET`
+  (every `edit_*` RPC sends it as `p_mint` — found by reading `editRpc`, not
+  live), the provider keys, Neon, fal, the CF token and account, the secrets
+  key, the flags; never Stripe, Composio or Domain Connect. **The cost, stated:
+  the job process holds those in memory for the job's length.** The model's
+  page code never runs in that process — the render child gets its clean env
+  from the build server, as before.
+- **The build service** (`POST /job/run`, answers in this order): 413 (over
+  1 MB), 400 (a launch it cannot read), **503 while the Worker tree does not
+  import** — `checkWorkerTree`, asked ONCE at startup by spawning
+  `container-job.mjs --check`, so a tree missing a module becomes the Worker's
+  inline path rather than a child nobody is waiting on — 409 (that id already
+  running here), 429 (`MAX_JOBS` 4), 500 (the spawn failed), 200
+  `{ ok, id, pid }`. The child: `cleanChildEnv` (PATH, HOME, LANG, NODE_ENV,
+  the port, the id — nothing of the service's own), outside `oneAtATime` (the
+  job's own compile comes back through `/build` under it; on the chain the job
+  would wait on itself), holding `_busy` for the child's life so the idle
+  clock cannot stop the container under a running job. `GET /job/<id>` reads
+  the record; the child's lines are logged as `job <id> out: …`.
+- **The fork** (`fireContainerJob`): off → no read at all; the job object is
+  READ AND LEFT (the runner reads and deletes it after its own claim); the
+  flags per identity; no secrets key → inline; the fire waits for room
+  (`withRoom`, `JOB_FIRE_MS` 90 s, one clock across the attempts); `fired`
+  ONLY on 200 `{ ok: true }`. Anything else — 404 (an older image without the
+  endpoint), 429, 503, a throw — is the consumer running the job itself
+  exactly as before, said so in the log (`job runner: inline <id> — <why>`).
+- **Flags, BOTH OFF in the deploy**: `JOB_RUNNER_CANARY` (identities; the
+  deploy's `-` is nobody; no wildcard) and `JOB_RUNNER_EVERYONE` (affirmative
+  words only) — `EDIT_ASYNC`'s two-door pattern.
+- **The image — `Dockerfile` IS AT THE REPOSITORY ROOT NOW.** `builder/Dockerfile`
+  is gone, `wrangler.jsonc` says `./Dockerfile`, the root `.dockerignore` keeps
+  the context small, and every COPY source is root-relative
+  (`builder/build-server.mjs`). The Worker's module graph is laid out under
+  `/app/worker/` exactly as the repository is — the root modules, `builder/`,
+  `builder/theme-candidates/`, `builder-game/game-gen.mjs`, **115 files in the
+  closure** — with `npm ci --omit=dev` off the ROOT lockfile.
+  `test/dockerfile.test.mjs` walks the closure from `container-job.mjs`
+  through `worker.js` (the walker descends `.js` now; a dynamic import that
+  leaves a tree is the other program's), checks each file lands where its
+  imports expect (`builder/x.mjs` → `./worker/builder/`), that every bare
+  package is a production dependency, a builtin or a shim, and that no COPY
+  source is dockerignored. The game image is untouched.
+- **THE COST, STATED: A WORKER PUSH ROLLS THE CONTAINER AGAIN.** `worker.js`
+  and the builder modules are image INPUTS now (`container-images.test.mjs`
+  says so by name), so the 2026-09-04 property "a Worker-only push rolls
+  nothing" is gone for as long as the container carries the Worker's code —
+  which is the design. A Worker push is a ~4.5-minute deploy (the apt and
+  template layers are cached; only the `worker/` layers rebuild) and **the
+  15–20 minute hold before container work applies to EVERY code push now.**
+  Docs, test and harness pushes still build nothing.
+- **Version skew inside the roll window**: a job fired in the minutes after a
+  deploy may run on the PREVIOUS image's Worker tree. A tree without
+  `runContainerJob` is refused at the door (503 → inline); a tree that has it
+  runs the previous deploy's code for that job.
+- **Guards**: `test/container-runtime.test.mjs` (the loader, the real import
+  in a spawn, the token, the scope, the shim round-trips against the real
+  handler and a fake R2, the env, the ctx), `test/container-job.test.mjs`
+  (the launch, `runJob`, the entrypoint on a bad launch, **THE REAL RUNNER ON
+  A SECRETLESS LAUNCH, END TO END** — the Worker imported under the loader,
+  the consumer run to its own `no-service-key` refusal with no network, exit
+  0; `checkWorkerTree` and `startJob` DRIVEN out of the build server's source
+  with the real spawn; the flags; the secrets list held to `editRpc`'s reads;
+  the fork through the real queue handler in every case; the gateway mount
+  through `worker.fetch`), `test/dockerfile.test.mjs` (the worker tree), and
+  the container harness's `/job/run` case through the real service. **Sweep:
+  69 mutants, 69 killed, none unapplied, the comment-only control survived** —
+  66 in the first pass; of the three survivors one was the sweep's own inert
+  mutant (two branches, both 401 — the recorded trap, replaced), and two were
+  real gaps each closed by a guard and re-run to a kill: the mount matched
+  anywhere in a path (now anchored at its start, `/s/<slug>/api/job/…` is a
+  site's route), and the runner's failure exit was unobserved (now driven: a
+  runner started without the loader says so on its one line and exits 1).
+  **The end-to-end runner test killed a dispatch mutant the text read had
+  covered** (`runContainerJob` sending an edit to the build consumer) — the
+  reason it exists.
+- **NOT PROVEN LIVE.** The proof is the owner's: `JOB_RUNNER_CANARY=fretwork-1`
+  as a GitHub secret, redeploy, wait the roll, one edit on fretwork-1 (~1
+  credit); the Worker log says `job runner: fired <id>`, the build service's
+  log carries `job <id> out: {"job":…,"started":true}` … `"done":true`, and the
+  reply arrives through the poll route as always. Then `JOB_RUNNER_EVERYONE=on`.
+- **Later phases**: builds through the same runner (`kind: "build"` and
+  `"resume"` are dispatched by `runContainerJob` already; the fork is not),
+  a longer clock inside the container (nothing there is bounded by the queue's
+  fifteen minutes; `EDIT_JOB_MS` still is), Supabase through the gateway with
+  an RPC allowlist so the service key stays out of the container, #52's
+  interrupted-job answer.
+
 ---
 
 ## Data, auth, payments, mail
@@ -2512,13 +2665,19 @@ what the work cost.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 331/331** against the real container (2026-09-04, the
+- **`site build` is 338/338** against the real container (2026-09-05, the
+  job runner's door added seven: `POST /job/run` refusing an unreadable
+  launch, taking a good one, the real runner run to the consumer's own
+  refusal with exit 0, its lines in the job's tail, busy released, `GET
+  /job/<id>` for a job never run; 331 on 2026-09-04 after the
   run-36 follow-ups added five: the own-parts build's render report naming
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,045
-  (2026-09-04, after the drain's concurrency case, the wide door's three and
+  build and the pre-list payload added sixteen); the unit suite is 5,079
+  (2026-09-05, after the job runner's guards — the runtime's thirteen, the
+  runner's sixteen, the Dockerfile guard's five — and before them the drain's
+  concurrency case, the wide door's three and
   container room's sixteen —
   the library's three answers, the loop, both call sites, the no-room
   build — and before them the translation charge's three — the spine's funnel and
@@ -2586,6 +2745,11 @@ arrives, reporting that the feature is gone. Anchor on what must be TRUE.
 its reasoning in comments, so any byte window is outrun by the next comment.
 Window from landmark to landmark, and assert both landmarks exist — `indexOf`
 answering -1 gives `slice(-1, -1)` = `""`, which passes every assertion inside it.
+**And `slice(start, -1)` is the OTHER half of that trap (2026-09-05)**: the
+report-send guard's closing landmark was `async function sweepModelJobs(` —
+declared WITHOUT `async` — so its window was the whole rest of build-server.mjs,
+passed on any `catch` anywhere below, and went red for a `throw` inside a string
+a thousand lines away. A missing END landmark is a window that swallows the file.
 
 **Overlapping windows.** A window that runs to a NAMED neighbour swallows whatever
 is inserted between them, and a mutation in the wrong half then passes. Derive the

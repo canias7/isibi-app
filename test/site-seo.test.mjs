@@ -476,7 +476,7 @@ test("THE MANIFEST CAN NEVER BE NARROWER THAN THE APP'S OWN ROUTES", () => {
   // Asserted on the premise, not on the conclusion: the `@/examples/*` lesson,
   // where a deletion was safe only while a fact stayed true and the guard had
   // to hold the fact.
-  const docker = fs.readFileSync(new URL("../builder/Dockerfile", import.meta.url), "utf8");
+  const docker = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
   const at = docker.indexOf("mkdir -p /app/.routes-base");
   assert.ok(at > 0, "the routes-base bake moved — the manifest's completeness premise is unchecked");
   const block = docker.slice(at, at + 400);

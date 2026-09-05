@@ -173,7 +173,7 @@ test("nothing the deploy ships, and nothing either container image copies, comes
   // The images: every COPY source, read the way test/dockerfile.test.mjs
   // reads them (flags skipped, `--from=` stages skipped).
   let copies = 0;
-  for (const df of ["../builder/Dockerfile", "../builder-game/Dockerfile"]) {
+  for (const df of ["../Dockerfile", "../builder-game/Dockerfile"]) {
     const text = readFileSync(new URL(df, import.meta.url), "utf8");
     for (const m of text.matchAll(/^COPY\s+(.+?)\s+\S+\s*$/gm)) {
       const parts = m[1].split(/\s+/).filter((p) => !p.startsWith("--"));

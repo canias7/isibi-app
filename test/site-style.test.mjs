@@ -853,7 +853,7 @@ test("THE CONTAINER IMAGE CARRIES THE MODULE", () => {
   // A module the Dockerfile does not COPY is an import that throws on startup,
   // which stops the build container rather than degrading anything. Caught this
   // way once already, for `site-tokens.mjs`.
-  const dockerfile = fs.readFileSync(new URL("../builder/Dockerfile", import.meta.url), "utf8");
+  const dockerfile = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
   assert.match(dockerfile, /\bsite-style\.mjs\b/, "site-style.mjs is not copied into the image");
 });
 

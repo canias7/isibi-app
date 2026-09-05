@@ -92,7 +92,15 @@ export function installCompiler({ ok = true, error = "", render = null } = {}) {
   return { calls, uninstall: () => { COMPILER = null; } };
 }
 
-export function getContainer() {
+export function getContainer(binding, name) {
+  // A TEST-SUPPLIED NAMESPACE IS HONOURED THE WAY THE LIBRARY HONOURS THE REAL
+  // ONE (2026-09-04): `binding.get(binding.idFromName(name))`, which is the
+  // library's own two lines. It is what lets a case watch WHICH lane the
+  // Worker fires a job at and what it sends — the job runner's fork — without
+  // a compiler. An env with no such binding behaves exactly as before.
+  if (binding && typeof binding.idFromName === "function" && typeof binding.get === "function") {
+    return binding.get(binding.idFromName(name));
+  }
   if (COMPILER) return COMPILER;
   throw new Error("the container is not available in a routing test — this request reached a real build");
 }

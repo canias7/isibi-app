@@ -36,6 +36,7 @@ import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "./builder/build-budget.mjs";
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
+import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken } from "./builder/job-gateway.mjs";
 import { JOB_KIND, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -48,6 +49,8 @@ import {
   // (2026-09-04) — the same number the publish gate and the repair round
   // hold back for a compile, read from where it lives.
   MIN_BUILD_MS,
+  // The job runner (2026-09-04): who runs a queued job, what it is handed.
+  jobRunnerOn, jobRunnerFor, jobSecrets, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
 } from "./builder/edit-job.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
@@ -2539,7 +2542,23 @@ export default {
         // an edit's request as a build.
         const edit = readEditMessage(message && message.body);
         if (edit) {
-          await runQueuedSiteEdit(env, ctx, edit.id);
+          // ── THE JOB RUNS IN THE SITE'S CONTAINER WHEN IT CAN (2026-09-04) ──
+          //
+          // Owner: "that stuff gotta run on container". For the identities the
+          // runner flags admit, this fires the job at the site's own container
+          // — which runs this very module under Node and executes
+          // `runQueuedSiteEdit` itself — and returns; the invocation is over
+          // in seconds instead of holding a queue slot for the whole edit. A
+          // container that cannot take it (no room after the wait, an image
+          // without the endpoint, a refusal) is this consumer running the job
+          // exactly as it did before, said so in the log.
+          const fire = await fireContainerJob(env, edit.id);
+          if (fire.fired) {
+            console.log("job runner: fired", edit.id, "into the site's container");
+          } else {
+            if (fire.why !== "off") console.log("job runner: inline", edit.id, "—", fire.why);
+            await runQueuedSiteEdit(env, ctx, edit.id);
+          }
         } else if (msg) {
           await runQueuedSiteBuild(env, ctx, msg.id);
         } else if (resume) {
@@ -11898,6 +11917,104 @@ async function runQueuedSiteEdit(env, ctx, id) {
 }
 
 /**
+ * RUN ONE JOB IN THIS PROCESS — the export the container's runner calls.
+ *
+ * Inside the site's container (builder/container-job.mjs) this module is
+ * imported under Node and handed a job by kind and id; this dispatches to the
+ * same consumer function the queue handler above dispatches to, so the
+ * container runs byte-for-byte the code the Worker would have run. `edit`
+ * covers the addon too — one queue kind, two ops, as `runQueuedSiteEdit` has
+ * always read them.
+ */
+export async function runContainerJob(env, ctx, { kind, id } = {}) {
+  if (kind === "edit") return runQueuedSiteEdit(env, ctx, id);
+  if (kind === "build") return runQueuedSiteBuild(env, ctx, id);
+  if (kind === "resume") return runResumedSiteBuild(env, ctx, id);
+  throw new Error("no such job kind: " + String(kind));
+}
+
+/** The gateway's signing key, derived once per secret per isolate. */
+const _gatewayKeys = new Map();
+async function gatewayKeyFor(env) {
+  const secret = String((env && env.SITE_SECRETS_KEY) || "");
+  if (!secret) return null;
+  let k = _gatewayKeys.get(secret);
+  if (!k) { k = await gatewayKey(secret); _gatewayKeys.set(secret, k); }
+  return k;
+}
+
+/** The gateway as this Worker mounts it: the real bucket, the derived key. */
+function jobGateway(env) {
+  return gatewayHandler({
+    bucket: env && env.SITES_BUCKET,
+    verify: async (t) => { const k = await gatewayKeyFor(env); return k ? verifyJobToken(t, k, Date.now()) : null; },
+    log: (why, d) => console.error("job gateway refused:", why, JSON.stringify(d)),
+  });
+}
+
+/**
+ * FIRE ONE QUEUED EDIT AT THE SITE'S CONTAINER.
+ *
+ * Answers `{ fired: true }` when the container has taken the job — it will
+ * claim, run and finalize it; this consumer is done — or `{ fired: false,
+ * why }` for every other case, each of which is the inline path:
+ *
+ *   off            neither runner flag names anybody; no read was made
+ *   no-object      the stored request is missing — the inline path refunds
+ *   not-this-one   the flags do not name this uid or slug
+ *   no-key         no secrets key to mint a token from
+ *   room:<kind>    the container had no room after JOB_FIRE_MS of waiting
+ *   answered <n>   404 (an image without the endpoint), 429 (too many jobs
+ *                  on that container), anything else
+ *
+ * THE JOB OBJECT IS READ AND LEFT: the runner reads it again through the
+ * gateway and deletes it after its claim, exactly as this consumer would. The
+ * token outlives the job's clock by a grace, for the finalize.
+ */
+async function fireContainerJob(env, id) {
+  if (!jobRunnerOn(env)) return { fired: false, why: "off" };
+  if (!env || !env.SITES_BUCKET || !env.SITE_BUILD_CONTAINER) return { fired: false, why: "no-binding" };
+  let job = null;
+  try {
+    const obj = await env.SITES_BUCKET.get(editJobKey(id));
+    if (obj) job = readEditJob(JSON.parse(await obj.text()));
+  } catch { job = null; }
+  if (!job) return { fired: false, why: "no-object" };
+  if (!jobRunnerFor(env, { uid: job.uid, slug: job.slug })) return { fired: false, why: "not-this-one" };
+  const key = await gatewayKeyFor(env);
+  if (!key) return { fired: false, why: "no-key" };
+  const token = await signJobToken({ id, slug: job.slug, uid: job.uid, exp: Math.floor((Date.now() + EDIT_JOB_MS) / 1000) + JOB_TOKEN_GRACE_S }, key);
+  const payload = JSON.stringify({
+    v: 1, kind: "edit", id,
+    gateway: { url: "https://" + APP_ZONE + "/api/job/" + id, token },
+    secrets: jobSecrets(env),
+    buildPort: 8080,
+  });
+  const deadline = Date.now() + JOB_FIRE_MS;
+  let out;
+  try {
+    const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(job.slug));
+    out = await withRoom(async () => {
+      const r = await c.fetch(new Request("http://build/job/run", {
+        method: "POST", headers: { "content-type": "application/json" }, body: payload,
+        signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())),
+      }));
+      return { status: (r && r.status) || 0, text: await r.text().catch(() => "") };
+    }, { deadline, floorMs: 0, onWait: (w) => console.log("job runner: waiting for room", id, JSON.stringify(w)) });
+  } catch (e) {
+    return { fired: false, why: "fetch: " + String((e && e.message) || e).slice(0, 120) };
+  }
+  if (out.room) return { fired: false, why: "room:" + out.room.kind };
+  const { status, text } = out.answer;
+  if (status === 200) {
+    let j = null;
+    try { j = JSON.parse(text); } catch { j = null; }
+    if (j && j.ok === true) return { fired: true };
+  }
+  return { fired: false, why: "answered " + status + (text ? ": " + String(text).slice(0, 80) : "") };
+}
+
+/**
  * The job contexts this isolate is currently running, KEYED BY THE REPLAY SECRET.
  *
  * A MAP RATHER THAN A GLOBAL, and the key is what makes it safe twice over. One
@@ -14456,6 +14573,18 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
 
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
+
+    // ── THE JOB GATEWAY (2026-09-04) ─────────────────────────────────────
+    //
+    // A job running inside the site's container reaches R2 through here and
+    // nowhere else: `/api/job/<id>/…` on the app zone, opened by the signed
+    // token the consumer minted when it fired the job, scoped to that job's
+    // own site. See builder/job-gateway.mjs. Mounted before every rewrite and
+    // every other route, because nothing else on the platform may answer it.
+    if (isAppHostname(url.hostname)) {
+      const gid = gatewayJobId(url.pathname);
+      if (gid) return jobGateway(env)(request, gid);
+    }
 
     // A PUBLISHED SITE ON THE OWNER'S OWN DOMAIN.
     //

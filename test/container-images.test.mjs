@@ -37,9 +37,12 @@ test("stripJsonc removes comments and trailing commas outside strings, and nothi
 test("the real config names the Worker and both Dockerfile-backed containers, with their build contexts", () => {
   const { name, containers } = readContainers(CONFIG);
   assert.equal(name, "isibi-app");
+  // RE-ANCHORED 2026-09-04: the site image builds from the repository root
+  // (its Dockerfile moved there) because it carries the Worker's module graph
+  // as the job runtime, which a builder/-rooted context cannot reach.
   assert.deepEqual(containers.map((c) => [c.class_name, c.image, c.context]), [
     ["GameBuildContainer", "./builder-game/Dockerfile", "./builder-game"],
-    ["SiteBuildContainer", "./builder/Dockerfile", "./builder"],
+    ["SiteBuildContainer", "./Dockerfile", "."],
   ]);
   // A container already on a registry reference is NOT one this step touches.
   const { containers: none } = readContainers('{"name":"w","containers":[{"class_name":"A","image":"w-a:abc"}]}');
@@ -55,8 +58,8 @@ test("copySources reads every COPY/ADD source, skips flags and staged sources, d
   assert.deepEqual(copySources("COPY --from=builder /app/dist/ ./dist/\n"), [], "a staged source is not in the build context");
   assert.deepEqual(copySources("RUN echo COPY not a copy\n# COPY commented ./\n"), []);
   // The real Dockerfile: the template, the service and the theme directory are all inputs.
-  const real = copySources(fs.readFileSync(path.join(ROOT, "builder/Dockerfile"), "utf8"));
-  for (const must of ["lovable/template/package.json", "lovable/template", "build-server.mjs", "site-qr-list.mjs", "theme-candidates"]) {
+  const real = copySources(fs.readFileSync(path.join(ROOT, "Dockerfile"), "utf8"));
+  for (const must of ["builder/lovable/template/package.json", "builder/lovable/template", "builder/build-server.mjs", "builder/site-qr-list.mjs", "builder/theme-candidates", "worker.js", "package-lock.json", "builder/container-job.mjs"]) {
     assert.ok(real.includes(must), `the real Dockerfile's ${must} is not read as an input`);
   }
 });
@@ -143,13 +146,13 @@ test("manifestPresent is a HEAD on the tag's manifest under the account: 200 is 
 });
 
 test("rewriteImage replaces exactly one image path with a reference, and refuses zero or two", () => {
-  const out = rewriteImage(CONFIG, "./builder/Dockerfile", "isibi-app-sitebuildcontainer:abc");
+  const out = rewriteImage(CONFIG, "./Dockerfile", "isibi-app-sitebuildcontainer:abc");
   assert.match(out, /"image": "isibi-app-sitebuildcontainer:abc"/);
-  assert.doesNotMatch(out, /"image": "\.\/builder\/Dockerfile"/);
+  assert.doesNotMatch(out, /"image": "\.\/Dockerfile"/);
   assert.match(out, /"image": "\.\/builder-game\/Dockerfile"/, "the other container's path must stay for its own rewrite");
-  assert.equal(out.length - CONFIG.length, '"isibi-app-sitebuildcontainer:abc"'.length - '"./builder/Dockerfile"'.length, "something other than the one value moved");
+  assert.equal(out.length - CONFIG.length, '"isibi-app-sitebuildcontainer:abc"'.length - '"./Dockerfile"'.length, "something other than the one value moved");
   assert.throws(() => rewriteImage(CONFIG, "./nowhere/Dockerfile", "x:y"), /found 0/);
-  assert.throws(() => rewriteImage(CONFIG + '\n"image": "./builder/Dockerfile"', "./builder/Dockerfile", "x:y"), /found 2/);
+  assert.throws(() => rewriteImage(CONFIG + '\n"image": "./Dockerfile"', "./Dockerfile", "x:y"), /found 2/);
 });
 
 test("containerInputs: the Dockerfile, the dockerignore when there is one, then every COPY source under the context", () => {
@@ -176,14 +179,19 @@ test("every input of both real images is a git object at HEAD, and the ids are s
     assert.ok(inputs.length >= 3, `${c.class_name}: too few inputs (${inputs.length})`);
     assert.ok(inputs[0].path.endsWith("/Dockerfile"), "the Dockerfile itself is the first input");
     assert.equal(imageId(inputs), imageId(inputs));
-    // The site image's inputs are the ones the container really carries — a
-    // Worker module living in builder/ (site-add.mjs, edit-job.mjs) is NOT one,
-    // so a change to it must not rebuild the image.
+    // The site image's inputs are the ones the container really carries. SINCE
+    // 2026-09-04 THAT IS THE WORKER'S MODULE GRAPH TOO: the image carries
+    // `worker.js` and the builder modules it imports as the job runtime, so a
+    // change to edit-job.mjs or site-add.mjs IS an image input now and rolls
+    // the container — the price of running the job inside it, stated here
+    // rather than left to be found on the next deploy's timing. The context is
+    // the repository root, so the ignore file is the root's.
     if (c.class_name === "SiteBuildContainer") {
       const paths = inputs.map((i) => i.path);
-      assert.ok(paths.includes("builder/build-server.mjs") && paths.includes("builder/lovable/template") && paths.includes("builder/.dockerignore"));
-      assert.ok(!paths.includes("builder/site-add.mjs") && !paths.includes("builder/edit-job.mjs") && !paths.includes("builder/page-gen.mjs"),
-        "a Worker-side module counts as an image input — every Worker push would rebuild the image");
+      assert.ok(paths.includes("builder/build-server.mjs") && paths.includes("builder/lovable/template") && paths.includes(".dockerignore"), paths.join(", "));
+      assert.ok(paths.includes("worker.js") && paths.includes("builder/edit-job.mjs") && paths.includes("package-lock.json"),
+        "the Worker's own module graph is not an input of the image that runs it");
+      assert.ok(!paths.some((p) => /^(test|docs|scripts|public)\//.test(p)), "a test, doc or script counts as an image input");
     }
     assert.equal(imageName(name, c.class_name), `isibi-app-${c.class_name.toLowerCase()}`);
   }
@@ -265,7 +273,9 @@ test("an image the registry lacks is BUILT under its id, from its own context, a
   const { deps, calls } = harness({ answer: () => ABSENT });
   const out = await main(deps);
   assert.deepEqual(out.images.map((i) => i.action), ["built", "built"]);
-  assert.deepEqual(calls.builds.map(([ctx]) => ctx), ["builder-game", "builder"], "the build context is the Dockerfile's directory");
+  // The site image's context is the REPOSITORY ROOT since 2026-09-04 — its
+  // Dockerfile moved there so the image can carry the Worker's module graph.
+  assert.deepEqual(calls.builds.map(([ctx]) => ctx), ["builder-game", "."], "the build context is the Dockerfile's directory");
   for (const [, ref] of calls.builds) assert.match(ref, /^isibi-app-(game|site)buildcontainer:[0-9a-f]{16}$/);
   assert.deepEqual(calls.seq.map(([k]) => k), ["ask", "build", "ask", "build"], "an image is built before the registry is asked for it");
   for (const [i, [name, tag]] of calls.asked.entries()) assert.equal(`${name}:${tag}`, calls.builds[i][1], "the tag asked for is not the tag built");
@@ -329,7 +339,7 @@ test("the deploy runs the step between the queue check and the Wrangler deploy, 
   assert.match(SCRIPT, /const ref = `\$\{registry\}\/\$\{accountId\}\/\$\{tag\}`;/, "the reference is not registry/account/name:tag");
   assert.doesNotMatch(CONFIG, /registry\.cloudflare\.com/, "an account's registry path is committed in the config");
   // The repository's own config still builds from the Dockerfiles: only the checkout is rewritten.
-  assert.match(CONFIG, /"image": "\.\/builder\/Dockerfile"/);
+  assert.match(CONFIG, /"image": "\.\/Dockerfile"/, "the site image's Dockerfile is at the repository root since 2026-09-04");
   assert.match(CONFIG, /"image": "\.\/builder-game\/Dockerfile"/);
   // And the action deploys from the rewritten checkout — it must not re-check out.
   assert.equal((WORKFLOW.match(/uses: actions\/checkout@/g) || []).length, 1, "a second checkout would discard the rewrite");

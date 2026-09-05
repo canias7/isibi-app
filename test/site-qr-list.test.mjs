@@ -179,7 +179,7 @@ test("the container writes each code to the file its name gives it, and emits th
     "the template stub does not declare `SITE_QRS` as a record — a page reading a name off it is a type error standalone");
   // And the image carries the module the container imports — the hop the
   // unit suite's import walk caught missing the hour the module was written.
-  assert.match(read("../builder/Dockerfile"), /^COPY [^\n]*\bsite-qr-list\.mjs\b/m, "the container image does not copy site-qr-list.mjs — the service cannot start");
+  assert.match(read("../Dockerfile"), /^COPY [^\n]*\bsite-qr-list\.mjs\b/m, "the container image does not copy site-qr-list.mjs — the service cannot start");
 });
 
 test("the edit route folds the lane's patch over the stored list and refuses with the module's sentence", () => {

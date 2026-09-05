@@ -578,7 +578,7 @@ test("A HARNESS FAILURE IS STILL RETURNED, or a broken check reads as a clean si
 });
 
 test("the image carries the browser AND installs it apart from the template", () => {
-  const d = fs.readFileSync(new URL("../builder/Dockerfile", import.meta.url), "utf8");
+  const d = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
 
   // ANCHORED ON THE COMMAND, NOT ON THE WORD. `/apt-get install[\s\S]*chromium/`
   // was the first draft and a sweep mutant deleting the package from the install

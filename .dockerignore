@@ -1,0 +1,15 @@
+# The site image's build context is the REPOSITORY ROOT (Dockerfile, 2026-09-04),
+# so this is what keeps that context small. node_modules is reinstalled from
+# the lockfiles inside the image; dist/ and routeTree.gen.ts are produced per
+# build; the rest is nothing the image copies.
+.git
+**/node_modules
+**/dist
+builder/lovable/template/src/routeTree.gen.ts
+builder/GENERATOR.md
+docs
+public
+test
+scripts
+supabase
+*.log

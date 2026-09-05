@@ -151,6 +151,8 @@ jobs:
             EDIT_ASYNC
             EDIT_ASYNC_CANARY
             EDIT_ASYNC_EVERYONE
+            JOB_RUNNER_CANARY
+            JOB_RUNNER_EVERYONE
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -312,6 +314,19 @@ jobs:
           # and redeploy, and every edit is synchronous again with the canary
           # allowlist still honoured. `EDIT_ASYNC` off overrides both doors.
           EDIT_ASYNC_EVERYONE: ${{ secrets.EDIT_ASYNC_EVERYONE || 'on' }}
+          # ── WHO RUNS A QUEUED JOB (2026-09-04) ────────────────────────────
+          #
+          # The job runner: for the uids and slugs the canary names, or for
+          # everyone with the second word on, the queue consumer fires the job
+          # at the site's own container — which runs the Worker's module under
+          # Node — and returns, instead of holding a queue slot for the whole
+          # edit. Same two doors as the async fork above, same reading of each
+          # value. OFF BY DEFAULT, both: the runtime is new and is proved on
+          # one site first. `-` is the canary's "nobody" (readCanaryList drops
+          # it); `off` is not an affirmative word. The consumer falls back to
+          # running the job itself whenever the container cannot take it.
+          JOB_RUNNER_CANARY: ${{ secrets.JOB_RUNNER_CANARY || '-' }}
+          JOB_RUNNER_EVERYONE: ${{ secrets.JOB_RUNNER_EVERYONE || 'off' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

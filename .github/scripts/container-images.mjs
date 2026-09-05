@@ -115,6 +115,12 @@ export function stripJsonc(text) {
 }
 
 /** The Worker's name and every container whose image is a Dockerfile path. */
+/** A build context as a directory: `./builder/` → `builder`, `./` or `.` or `` → `.` (the root). */
+export function contextDir(context) {
+  const c = String(context == null ? "" : context).replace(/^\.\//, "").replace(/\/+$/, "");
+  return c === "" || c === "." ? "." : c;
+}
+
 export function readContainers(jsoncText) {
   const cfg = JSON.parse(stripJsonc(jsoncText));
   const name = String(cfg.name || "");
@@ -216,8 +222,11 @@ export function rewriteImage(jsoncText, imagePath, ref) {
 
 /** The inputs of one container, resolved to git objects. `git(path)` answers an oid or null. */
 export function containerInputs({ context, dockerfileText, hasDockerignore, git }) {
-  const ctx = String(context).replace(/^\.\//, "").replace(/\/+$/, "");
-  const at = (rel) => (ctx ? `${ctx}/${rel}` : rel);
+  // THE ROOT IS A CONTEXT TOO (2026-09-04: the site image's Dockerfile moved to
+  // the repository root), and its paths carry no prefix at all — `HEAD:./x`
+  // is not the git path of `x`, and the input list is compared by path.
+  const ctx = contextDir(context);
+  const at = (rel) => (ctx === "." ? rel : `${ctx}/${rel}`);
   const paths = [at("Dockerfile")];
   if (hasDockerignore) paths.push(at(".dockerignore"));
   for (const src of copySources(dockerfileText)) paths.push(at(src.replace(/^\.\//, "")));
@@ -249,7 +258,7 @@ export async function main({ root, git, wrangler, tagPresent, accountId, registr
   // THE INPUTS FIRST, ALL OF THEM, before the registry is asked anything: a
   // missing input fails here by name, before any build is started.
   const planned = containers.map((c) => {
-    const ctx = String(c.context).replace(/^\.\//, "").replace(/\/+$/, "");
+    const ctx = contextDir(c.context);
     const inputs = containerInputs({ context: ctx, dockerfileText: readText(`${ctx}/Dockerfile`), hasDockerignore: has(`${ctx}/.dockerignore`), git });
     const tag = imageId(inputs);
     return { ...c, ctx, tag, name: imageName(workerName, c.class_name), inputs };

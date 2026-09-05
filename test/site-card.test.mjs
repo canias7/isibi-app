@@ -14,7 +14,7 @@ import { cardHtml, cardColors, CARD_W, CARD_H } from "../builder/site-card.mjs";
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
 const render = fs.readFileSync(new URL("../builder/render-check.mjs", import.meta.url), "utf8");
-const docker = fs.readFileSync(new URL("../builder/Dockerfile", import.meta.url), "utf8");
+const docker = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
 
 // Comments here spell the things being asserted (the prose-contains-the-
 // spelling trap, nine-plus recorded instances), so source scans run over a

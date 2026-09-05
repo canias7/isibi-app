@@ -1,5 +1,14 @@
-# isibi SITE build-service. Clone of ../builder-game/Dockerfile with the React
+# isibi SITE build-service. Clone of builder-game/Dockerfile with the React
 # template swapped in for kaplay.
+#
+# AT THE REPOSITORY ROOT SINCE 2026-09-04, so the build context is the whole
+# repository: this image carries the Worker's own module graph as the job
+# runtime (the `worker/` tree at the bottom), and that graph spans builder/,
+# builder-game/ and the root modules — a context rooted at builder/ cannot
+# reach above itself. Every COPY source below is therefore root-relative
+# (`builder/…`), and wrangler.jsonc names this file as `./Dockerfile`, whose
+# directory is the context for a hand `wrangler deploy` and for the CI image
+# step alike. The game image is untouched next door.
 #
 # Deps are baked at image-build time so each per-site build is just
 # `tsr generate` → `tsc --noEmit` → `vite build`, which is ~20s rather than ~90s.
@@ -42,7 +51,7 @@ WORKDIR /app
 # zod, and the 46 shadcn components' dependencies. npm ci runs BEFORE NODE_ENV is set
 # to production below, so the devDependencies the build needs (typescript, vite,
 # @vitejs/plugin-react) are actually installed.
-COPY lovable/template/package.json lovable/template/package-lock.json ./
+COPY builder/lovable/template/package.json builder/lovable/template/package-lock.json ./
 RUN npm ci --no-audit --no-fund --loglevel=error
 
 # THE BUILD SERVICE'S OWN DEPENDENCY, NOT THE TEMPLATE'S. `--no-save` keeps it
@@ -54,7 +63,7 @@ RUN npm install --no-save --no-audit --no-fund --loglevel=error playwright-core@
 
 # The template itself — the shadcn UI, the app shell, the design system, and
 # src/lib/rows.ts (the only way a generated page is allowed to reach the API).
-COPY lovable/template/ ./
+COPY builder/lovable/template/ ./
 
 # A pristine src/routes, restored before every build. Only the root layout: the
 # template's own routes are the REFERENCE pages, written against a barber shop's
@@ -119,7 +128,10 @@ RUN mkdir -p /app/.routes-base \
 # same hour it was written: a module the container imports and the image does
 # not carry is a service that never starts, and nothing else would have said so
 # before the first build after the deploy.
-COPY build-server.mjs build-keys.mjs build-call.mjs model-xai.mjs exit-reason.mjs run-step.mjs site-ssr.mjs render-server-child.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs site-seeds.mjs site-tokens.mjs site-css.mjs site-freecss.mjs site-authored.mjs site-style.mjs site-identity.mjs site-favicon.mjs site-qr-list.mjs site-card.mjs site-langs.mjs render-check.mjs site-render.mjs site-worker.mjs ./
+# `container-job.mjs`, `container-env.mjs` and `job-gateway.mjs` (2026-09-04)
+# are the job runner's launch reader and its dependencies, imported by the
+# build server to check a launch before it spawns the runner.
+COPY builder/build-server.mjs builder/build-keys.mjs builder/build-call.mjs builder/model-xai.mjs builder/exit-reason.mjs builder/run-step.mjs builder/site-ssr.mjs builder/render-server-child.mjs builder/site-addon.mjs builder/site-fonts.mjs builder/font-index.json builder/site-theme.mjs builder/site-theme-registry.mjs builder/site-seeds.mjs builder/site-tokens.mjs builder/site-css.mjs builder/site-freecss.mjs builder/site-authored.mjs builder/site-style.mjs builder/site-identity.mjs builder/site-favicon.mjs builder/site-qr-list.mjs builder/site-card.mjs builder/site-langs.mjs builder/render-check.mjs builder/site-render.mjs builder/site-worker.mjs builder/container-job.mjs builder/container-env.mjs builder/job-gateway.mjs ./
 # THE 500 THEMES ARE BACK IN THE PRODUCT (2026-08-27, owner's call) and the
 # registry imports them as a DIRECTORY, which the single-file COPY above cannot
 # carry. This is the exact line whose ghost the comment above records outliving
@@ -127,7 +139,34 @@ COPY build-server.mjs build-keys.mjs build-call.mjs model-xai.mjs exit-reason.mj
 # test/dockerfile.test.mjs sees `./theme-candidates/batch-1.mjs` et al through
 # site-theme-registry.mjs, so a deleted directory fails a test before it fails
 # the deploy this time.
-COPY theme-candidates/ ./theme-candidates/
+COPY builder/theme-candidates/ ./theme-candidates/
+
+# ── THE WORKER'S OWN MODULE, AS THE JOB RUNTIME (2026-09-04) ─────────────────
+#
+# Owner: "that stuff gotta run on container". A queued edit or addon now runs
+# INSIDE this container: build-server.mjs's `/job/run` spawns
+# worker/builder/container-job.mjs, which imports worker/worker.js under the
+# loader in worker/builder/worker-loader.mjs and executes the same consumer
+# function the Worker's queue handler executes. So the image carries the
+# Worker's whole module graph, laid out exactly as the repository is — every
+# relative import in it has to resolve — and its runtime dependencies from
+# the ROOT lockfile, installed once here.
+#
+# THE LIST IS DERIVED AND ENFORCED, never remembered: test/dockerfile.test.mjs
+# walks the imports from container-job.mjs and fails on a module this tree
+# does not carry, and names the loader's own four files by hand, since
+# nothing imports them (the same reason render-server-child.mjs is named
+# above). A module the job imports and the tree lacks is a job that dies at
+# import — inside the container, with the consumer already gone: the Worker
+# runs a job itself only when the container REFUSES the launch. So the build
+# server also imports this tree once at startup and refuses every launch
+# while it does not import, which turns that death into the inline path.
+COPY package.json package-lock.json ./worker/
+RUN cd worker && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error
+COPY worker.js billing.mjs rate-limit.mjs request-limits.mjs site-access.mjs site-apis.mjs site-backup.mjs site-config.mjs site-cookie.mjs site-csv.mjs site-db.mjs site-dns.mjs site-domain-connect.mjs site-domains.mjs site-errors.mjs site-export.mjs site-idem.mjs site-inbound.mjs site-jobs.mjs site-live.mjs site-mail.mjs site-meta.mjs site-notify.mjs site-owner.mjs site-payments.mjs site-provision.mjs site-rebuild.mjs site-registrar.mjs site-rls.mjs site-routing.mjs site-schema.mjs site-secrets.mjs site-seo.mjs site-sms.mjs site-ssrf.mjs site-sweep.mjs site-teardown.mjs site-turnstile.mjs site-uploads.mjs site-versions.mjs site-webhook-queue.mjs site-webhooks.mjs stripe-webhook.mjs ttl-cache.mjs worker-finance.mjs ./worker/
+COPY builder/build-budget.mjs builder/build-call.mjs builder/build-job.mjs builder/build-lane.mjs builder/build-models.mjs builder/build-record.mjs builder/build-resume.mjs builder/chart-api.mjs builder/chart-usage.mjs builder/component-api.mjs builder/container-env.mjs builder/container-hold.mjs builder/container-job.mjs builder/container-room.mjs builder/edit-job.mjs builder/edit-trace.mjs builder/font-index.json builder/job-gateway.mjs builder/model-xai.mjs builder/page-gen.mjs builder/publish-pages.mjs builder/site-add.mjs builder/site-addon.mjs builder/site-alias.mjs builder/site-apply.mjs builder/site-ask.mjs builder/site-authored.mjs builder/site-context.mjs builder/site-css.mjs builder/site-dispatch.mjs builder/site-edit.mjs builder/site-favicon.mjs builder/site-fonts.mjs builder/site-freecss.mjs builder/site-identity.mjs builder/site-images.mjs builder/site-lanes.mjs builder/site-langs.mjs builder/site-logo.mjs builder/site-nav.mjs builder/site-order.mjs builder/site-picture.mjs builder/site-plan.mjs builder/site-qr-list.mjs builder/site-qr.mjs builder/site-render.mjs builder/site-repair.mjs builder/site-rules.mjs builder/site-seed.mjs builder/site-seeds.mjs builder/site-style.mjs builder/site-table.mjs builder/site-text.mjs builder/site-theme-registry.mjs builder/site-theme.mjs builder/site-tokens.mjs builder/site-translate.mjs builder/site-tweak.mjs builder/site-verify.mjs builder/site-worker.mjs builder/trace.mjs builder/ui-components.mjs builder/worker-loader.mjs builder/worker-register.mjs builder/cloudflare-shim.mjs builder/containers-shim.mjs ./worker/builder/
+COPY builder/theme-candidates/ ./worker/builder/theme-candidates/
+COPY builder-game/game-gen.mjs ./worker/builder-game/
 
 # THIS IMAGE DOES EXECUTE MODEL-WRITTEN CODE, AND THIS COMMENT USED TO DENY IT.
 #

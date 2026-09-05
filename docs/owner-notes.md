@@ -2732,3 +2732,54 @@ hour before anyone waits in line. Moving the compile to "fire and report"
 seconds) is the next real step toward what you described, and it is a
 bigger change than these three — it needs the publish's continuation kept
 in storage. Filed as the next piece; your call when.
+
+## 2026-09-05 — Edits and addons run inside the site's container
+
+The one you asked for ("that stuff gotta run on container"). Until now a
+queued edit or addon ran in our Worker's queue consumer for its whole length
+— every model call, the translation, the compile wait, the publish — under
+the queue's fifteen-minute ceiling, 250 at a time, and a deploy could evict
+it mid-job. Now the Worker's own code runs INSIDE the site's container for
+that job: the consumer tells the container "run job X" and returns within
+seconds, and the container runs the very same program to the end — reading
+and writing the site's files through a signed, per-job, per-site door back
+on gofarther.dev, compiling on its own build service next door, publishing,
+finalizing. Nothing was rewritten; it is the same code, loaded in the
+container. So the Worker's queue slot is free after a few seconds, the job
+has no fifteen-minute platform clock over it (the edit's own 14-minute
+budget still applies), and a deploy that recycles the Worker no longer takes
+a running job with it.
+
+Switched OFF in the deploy: two GitHub secrets, `JOB_RUNNER_CANARY` (a site
+or account to try it on) and `JOB_RUNNER_EVERYONE` (`on` for everybody).
+With both off nothing changes. If the container cannot take a job for any
+reason — no room, an older image, too many running — the Worker runs it
+itself as before and the log says why.
+
+Secrets: the job needs the service key, the credit mint secret, the provider
+keys, the Neon key and the Cloudflare token to do its work, and they reach
+the job process on a pipe, never through the environment — so the
+model-written page code, which runs in a separate child with a clean
+environment, cannot read them. They sit in that one process's memory for the
+length of the job. Stripe and the other keys never travel.
+
+The cost, plainly: the container image now carries the Worker's code, so
+EVERY push that changes worker.js or a builder module rebuilds the image
+(about 4.5 minutes — the deploy was 47 seconds yesterday) and rolls the
+container, and the 15–20 minute hold before firing container work is back
+for every code push. Yesterday's "a Worker-only push rolls nothing" is gone
+for as long as the container runs the Worker's code, which is the whole
+point. Docs, tests and harness pushes still build nothing. The Dockerfile
+moved to the repository root for this (the image has to reach worker.js,
+which lives above builder/), and the guard that checks the image against the
+code now checks the Worker tree too — 115 files, each at the path its
+imports expect, every package a production dependency.
+
+69 mutants, 69 killed, control survived (three needed a guard added first);
+suite 5,079. Proven in the sandbox end to end — the real runner ran the real
+Worker's consumer in a spawned process, and the build service's door was
+driven through the real service in the container harness — and NOT live.
+To prove it live: set `JOB_RUNNER_CANARY` to `fretwork-1` in the GitHub
+secrets, redeploy, wait the roll, make one small edit on fretwork-1 (about
+1 credit), and the Worker log will say "job runner: fired". Then
+`JOB_RUNNER_EVERYONE=on`.

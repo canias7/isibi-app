@@ -1036,8 +1036,18 @@ test("THE CONTAINER REPORTS A FAILURE AS WELL AS AN ANSWER", () => {
   // POST is a few hundred kilobytes over an already-open path; bounding it at
   // `callMs` would hold the container for ten more minutes on a Worker that is
   // not answering, having already made the call it was fired for.
-  const send = srv.slice(srv.indexOf("async function sendModelReport("), srv.indexOf("async function sweepModelJobs("));
-  assert.ok(send.length > 200, "the window on sendModelReport is too small — rescope this guard");
+  // THE FUNCTION'S OWN CLOSE, NOT A NAMED NEIGHBOUR. This ran the window to
+  // `async function sweepModelJobs(` — which is declared WITHOUT `async`, so
+  // `indexOf` answered -1 and the window was the whole rest of the file: the
+  // guard passed on any `catch` anywhere below, and went red on 2026-09-04 for
+  // a `throw` inside a string a thousand lines away (the job runner's tree
+  // check). The vacuous-window trap. The function is top-level, so its close
+  // is the first `\n}\n` after its start; both landmarks are asserted.
+  const sendAt = srv.indexOf("async function sendModelReport(");
+  const sendEnd = srv.indexOf("\n}\n", sendAt);
+  assert.ok(sendAt > 0 && sendEnd > sendAt, "sendModelReport moved — rescope this guard");
+  const send = srv.slice(sendAt, sendEnd + 3);
+  assert.ok(send.length > 200 && send.length < 4000, "the window on sendModelReport is the wrong size (" + send.length + ") — rescope this guard");
   assert.match(send, /AbortSignal\.timeout\(REPORT_CALL_MS\)/, "the report POST is unbounded — a hung Worker holds the container open");
   assert.match(send, /"x-gen-report": report\.token/, "the container does not send the token — the route cannot authorise the write");
 

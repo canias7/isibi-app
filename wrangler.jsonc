@@ -186,7 +186,10 @@
     },
     {
       "class_name": "SiteBuildContainer",
-      "image": "./builder/Dockerfile",
+      // AT THE ROOT SINCE 2026-09-04: the image carries the Worker's own
+      // module graph as the job runtime, which spans builder/, builder-game/
+      // and the root modules, so its build context is the whole repository.
+      "image": "./Dockerfile",
       "max_instances": 1000,
       "instance_type": "standard-1"
     }

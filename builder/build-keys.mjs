@@ -49,7 +49,8 @@
 //
 // ── AND THE ENTRYPOINT IS WHY STARTUP IS EARLY ENOUGH ──────────────────────
 //
-// `builder/Dockerfile` ends `CMD ["node", "build-server.mjs"]` — no shell, no
+// The site image's `Dockerfile` (at the repository root since 2026-09-04)
+// ends `CMD ["node", "build-server.mjs"]` — no shell, no
 // sibling process, no wrapper. So the build service is the first thing in the
 // container to see the environment, and an import-time delete happens before it
 // listens on a port, let alone before a build can spawn anything.

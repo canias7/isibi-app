@@ -131,7 +131,7 @@ test("build-call.mjs is still a leaf the container can package", () => {
 });
 
 test("the Dockerfile ships what the /model route imports", () => {
-  const df = fs.readFileSync(new URL("../builder/Dockerfile", import.meta.url), "utf8");
+  const df = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
   for (const f of ["build-call.mjs", "model-xai.mjs", "build-keys.mjs"]) {
     assert.match(df, new RegExp(`\\b${f.replace(".", "\\.")}\\b`), `${f} is not COPYd into the build image`);
   }

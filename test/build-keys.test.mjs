@@ -185,6 +185,9 @@ test("the Dockerfile ships build-keys.mjs", () => {
   // walks the import graph and would catch it too; this names it, because the
   // file this one protects is the one whose absence is a SECURITY change rather
   // than an outage.
-  const df = fs.readFileSync(path.join(BUILDER, "Dockerfile"), "utf8");
-  assert.match(df, /\bbuild-keys\.mjs\b/, "build-keys.mjs is not COPYd into the build image");
+  // AT THE REPOSITORY ROOT since 2026-09-04 (the image carries the Worker's
+  // module graph as the job runtime, and a context rooted at builder/ cannot
+  // reach above itself), so the COPY names `builder/build-keys.mjs`.
+  const df = fs.readFileSync(path.join(BUILDER, "..", "Dockerfile"), "utf8");
+  assert.match(df, /\bbuilder\/build-keys\.mjs\b/, "build-keys.mjs is not COPYd into the build image");
 });

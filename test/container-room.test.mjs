@@ -281,7 +281,13 @@ test("both compile call sites fetch INSIDE the room loop, with the compile's flo
     assert.match(opts, /deadline: \w+Deadline, floorMs: MIN_BUILD_MS/, "the loop at " + i + " does not hold the compile's floor back");
   }
   assert.match(CODE, /^import \{ withRoom, roomSentence \} from "\.\/builder\/container-room\.mjs";/m);
-  assert.match(CODE, /^\s+MIN_BUILD_MS,\n\} from "\.\/builder\/edit-job\.mjs";/m, "MIN_BUILD_MS is not read from edit-job.mjs");
+  // THE NAME INSIDE THE IMPORT LIST, wherever it sits: this pinned `MIN_BUILD_MS`
+  // as the LAST name before the closing brace, and went red the day the job
+  // runner's names joined the same import (2026-09-04). The property is that
+  // the floor is read from edit-job.mjs, not where in the list it lands.
+  const editJobImport = CODE.slice(CODE.lastIndexOf("\nimport {", CODE.indexOf('} from "./builder/edit-job.mjs";')), CODE.indexOf('} from "./builder/edit-job.mjs";'));
+  assert.ok(editJobImport.length > 0 && editJobImport.length < 4000, "the edit-job import moved");
+  assert.match(editJobImport, /\bMIN_BUILD_MS\b/, "MIN_BUILD_MS is not read from edit-job.mjs");
 });
 
 test("the spine names a room failure as ours, and the build path as a free build-stage failure", () => {
