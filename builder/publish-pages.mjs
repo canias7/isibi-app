@@ -632,6 +632,12 @@ export function salvageNote(stubbed) {
  *                     dep that returns nothing here is a fake more capable than
  *                     the real thing, and that is how this shipped charging
  *                     nothing while reporting `charged: true`.
+ *                     OR (stage 1c) the ledger's own answer, `{ taken, exempt,
+ *                     repeat }`: `taken` is read as the number above, `exempt`
+ *                     rides out as `out.exempt` (a founder — nothing taken by
+ *                     rule, said rather than reported as a free build) and
+ *                     `repeat` as `out.repeat` (an earlier attempt of this
+ *                     build already paid for these pages).
  *
  * `livePages` is what this slug is SERVING right now — the paths of the pages a
  * visitor can load today, `[]` on a first build. It exists for exactly one
@@ -1054,10 +1060,20 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     let took = 0;
     try {
       const got = await deps.useCredits(c);
-      // A dep that reports nothing is the legacy void contract; treat it as
-      // having taken the full amount rather than silently reading 0, or every
-      // older caller would start reporting free builds.
-      took = typeof got === "number" ? Math.max(0, got) : c;
+      if (got && typeof got === "object") {
+        // THE LEDGER'S OWN ANSWER (stage 1c): `taken` is what left the account,
+        // `exempt` says the account pays nothing by rule (a founder) and is
+        // carried on the reply instead of a charge being claimed, `repeat` says
+        // an earlier attempt of this same build already paid for these pages.
+        took = Math.max(0, Number(got.taken) || 0);
+        if (got.exempt === true) out.exempt = true;
+        if (got.repeat === true) out.repeat = true;
+      } else {
+        // A dep that reports nothing is the legacy void contract; treat it as
+        // having taken the full amount rather than silently reading 0, or every
+        // older caller would start reporting free builds.
+        took = typeof got === "number" ? Math.max(0, got) : c;
+      }
     } catch { took = 0; /* never fail a build over the ledger */ }
     out.cost += took;
     // `charged` is about the LEDGER, not about the intent. A build that billed

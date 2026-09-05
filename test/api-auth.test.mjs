@@ -646,7 +646,12 @@ test("the page-generation catch returns the stage, not only a note", () => {
 test("the design catch returns the error's class, and its message only for a ReferenceError", () => {
   const branch = WORKER_SRC.slice(WORKER_SRC.indexOf('console.error("schema design failed:'));
   const block = branch.slice(0, branch.indexOf("{ status: 503 }"));
-  assert.ok(block.length > 200 && block.length < 4000, "the design catch was not found whole: " + block.length);
+  // THE CEILING IS A SANITY BOUND ON THE WINDOW, NOT A PROPERTY. It was 4,000
+  // bytes and the catch outgrew it on 2026-09-05 (stage 1c: the reply's `cost`
+  // is read off the ledger of refs now, with its reason beside it) — the
+  // recorded byte-window trap, on a guard whose landmarks are sound. The
+  // floor and the landmark are what say the catch was found whole.
+  assert.ok(block.length > 200 && block.length < 6000, "the design catch was not found whole: " + block.length);
   assert.match(block, /kind: String\(\(e && e\.name\) \|\| "Error"\)/, "the class must be returned");
   // THE MESSAGE IS WITHHELD FROM EVERY CLASS BUT ONE. A provider message can
   // quote the request, and the request carries the brief. A ReferenceError's
@@ -832,7 +837,11 @@ for (const [what, anchor] of [
     // that function was given specifically so a failed reversal stops being
     // invisible — all six refusals then answered a literal `cost: 0` while the
     // customer kept being charged up to the whole settled schema cost.
-    assert.match(block, /await refundFields\(schemaCost\)/, what + " keeps the customer's money on our own failure");
+    // RE-ANCHORED 2026-09-05 (stage 1c): `refundFields()` takes no amount any
+    // more — it reverses every ref this build debited, bounded by the
+    // ledger's own rows, and reports what stayed. The property is the same:
+    // the refusal reverses, and says what it could not give back.
+    assert.match(block, /await refundFields\(\)/, what + " keeps the customer's money on our own failure");
     assert.match(block, /\.\.\.back/, "…and must report what really stayed on the ledger, or the response asserts a refund that did not land");
   });
 }

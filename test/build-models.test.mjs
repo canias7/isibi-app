@@ -339,10 +339,20 @@ test("the whole build is affordable before anything is spent", () => {
   const block = w.slice(i, end);
   assert.ok(block.length > 400, "the affordability window is empty — rescope this");
   // Off the ledger value the deposit returned, not a second read that could race.
-  assert.match(block, /balanceAfter \+ SITE_BUILD_FEE < floor/, "the floor is compared against something else");
+  // RE-ANCHORED FOR STAGE 1c (2026-09-05): the deposit is `credit_debit`'s own
+  // answer now, so the figure is the balance it answered plus what it took
+  // (`prior` on a duplicate delivery), and a founder — exempt, nothing being
+  // spent — is not gated at all. This read `balanceAfter + SITE_BUILD_FEE <
+  // floor` and went red for the change, not for a bug.
+  assert.match(block, /dep\.balance \+ \(dep\.repeat \? dep\.prior : dep\.taken\)/, "the floor is compared against something other than the balance the ledger answered plus what it took");
+  assert.match(block, /dep\.exempt \|\| dep\.balance == null \? Infinity/, "a founder, or a balance the ledger did not answer, is gated on a guess");
+  assert.match(block, /if \(haveNow < floor\) \{/, "the floor is compared against something else");
   // The deposit comes BACK — nothing was spent, so this is a refusal and not a
   // failure. Without it the gate itself takes 2 credits for doing nothing.
-  assert.match(block, /creditBack\(env, bu\.id, SITE_BUILD_FEE\)/, "the refusal keeps the deposit");
+  // Through the deposit's OWN ref and under its own reason since stage 1c (it
+  // was `creditBack(env, bu.id, SITE_BUILD_FEE)`, a number the route
+  // remembered), so a founder's deposit — never taken — is never "returned".
+  assert.match(block, /await giveBack\(debitRef\("deposit"\), "floor", SITE_BUILD_FEE\)/, "the refusal keeps the deposit");
   assert.match(block, /status: 402/);
   // And it names the way out that is not "give us money" — the customer picking
   // Opus with 20 credits can simply pick Sonnet.
@@ -380,7 +390,9 @@ test("`cost` means the same thing on both of the route's credit refusals", () =>
   // because the neighbouring 503's own `msg` kept the total up — a mutation
   // proved it. What matters is that THIS refusal speaks, not that the region
   // contains enough colons.
-  const dep = block.slice(0, block.indexOf("balanceAfter + SITE_BUILD_FEE < floor"));
+  // (The floor's comparison is `haveNow < floor` since stage 1c — the figure
+  // is the ledger's own answer; the property here is the refusal ABOVE it.)
+  const dep = block.slice(0, block.indexOf("if (haveNow < floor) {"));
   assert.ok(dep.length > 100, "the deposit refusal moved — rescope this");
   const depRefusal = dep.slice(dep.indexOf("not enough credits"));
   assert.ok(depRefusal.length > 40, "the deposit refusal is gone — rescope this");
@@ -388,9 +400,14 @@ test("`cost` means the same thing on both of the route's credit refusals", () =>
     "the deposit refusal carries no msg, so the customer sees the generic sentence with no figure in it");
   assert.match(depRefusal, /floor/, "the deposit refusal does not quote what a build actually needs");
 
-  // …and it quotes NO balance, deliberately: `use_credits` answers -1 for "the
-  // bill exceeds the balance" and that is also where an unparseable RPC answer
-  // lands, so a figure there is a claim we cannot support.
+  // …and it quotes NO balance, deliberately. It was "`use_credits` answers -1
+  // for 'the bill exceeds the balance' and that is also where an unparseable
+  // RPC answer lands"; since stage 1c the ledger refuses the deposit WHOLE
+  // (`insufficient`, nothing taken) and an unreadable answer is its own 503
+  // above, so the reason is narrower now: this branch is the refusal with
+  // nothing taken, and the figure the customer can act on — the balance after
+  // the deposit was taken, plus the deposit — belongs to the floor refusal
+  // below, which is the one that has it.
   assert.doesNotMatch(dep, /and you have/, "the deposit refusal quotes a balance it may not know");
 });
 

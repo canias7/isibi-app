@@ -1204,6 +1204,45 @@ test("a published site IS billed, and billed AFTER it is live", async () => {
   assert.equal((src.match(/deps\.useCredits\(/g) || []).length, 1, "a second charge site can double-bill");
 });
 
+// THE LEDGER'S OWN ANSWER (stage 1c, 2026-09-05): the dep may answer
+// `{ taken, exempt, repeat }` instead of a number. `taken` is read as the
+// number always was; `exempt` rides out as `out.exempt` — a founder, nothing
+// taken BY RULE, said rather than reported as a free build; `repeat` says an
+// earlier attempt of this build already paid for these pages. The legacy
+// number and void contracts are untouched, or every older caller would change.
+test("a dep that answers the ledger's object is read for taken, exempt and repeat", async () => {
+  const paid = await publishPages(harness({ useCredits: async () => ({ taken: 7, exempt: false, repeat: false }) }).deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(paid.page, "app");
+  assert.equal(paid.cost, 7, "`taken` is not read as what left the ledger");
+  assert.equal(paid.charged, true);
+  assert.equal(paid.exempt, undefined, "a paid build says exempt");
+  assert.equal(paid.repeat, undefined);
+
+  const founder = await publishPages(harness({ useCredits: async () => ({ taken: 0, exempt: true, repeat: false }) }).deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(founder.page, "app");
+  assert.equal(founder.cost, 0);
+  assert.equal(founder.charged, false, "an exempt build claims a charge");
+  assert.equal(founder.exempt, true, "an exempt build does not say so — it reads like a free build");
+  // ITS OWN FIELD, NOT A SENTENCE GLUED ONTO `notes` — this module's own rule
+  // (the salvage note's comment): `notes` is the model's summary and renders as
+  // one paragraph, so the exemption rides as `exempt` and the summary is left
+  // exactly as the paid build's. A first draft of this case demanded a
+  // "weren't charged" sentence in `notes` and was wrong by that rule.
+  assert.equal(founder.notes, paid.notes, "the settle changed the model's summary for an exempt build");
+
+  const again = await publishPages(harness({ useCredits: async () => ({ taken: 0, repeat: true, prior: 7 }) }).deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(again.cost, 0, "a repeat took something from this attempt");
+  assert.equal(again.charged, false);
+  assert.equal(again.repeat, true, "a repeat is not said");
+  assert.equal(again.exempt, undefined);
+
+  // The number contract is byte-for-byte what it was.
+  const legacy = await publishPages(harness({ useCredits: async () => 4 }).deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(legacy.cost, 4);
+  assert.equal(legacy.charged, true);
+  assert.equal(legacy.exempt, undefined);
+});
+
 // ── the container dying is not the code being wrong ──────────────────────────
 
 test("a killed container is retried once, and the retry publishes", async () => {
@@ -1695,8 +1734,15 @@ test("every after-the-fact settle goes through collectCredits, not useCredits", 
   // that SETTLES after the work was done must collect what it can. Mixing them up
   // is how this shipped charging nothing.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(src, /useCredits: \(n\) => collectCredits\(auth, n\)/, "publishPages' dep still only asks");
-  assert.match(src, /schemaCost = SITE_BUILD_FEE \+ await collectCredits\(/, "the schema settlement still only asks");
+  // RE-ANCHORED 2026-09-05 (stage 1c): the build's two settles go through
+  // `credit_debit` with `partial: true` — the ledger takes what is there and
+  // says what it took — under the build's own ref; a stored job from before
+  // the ref existed still collects. The router is unchanged. The property is
+  // the same: a settle after the work COLLECTS, it never merely asks.
+  assert.match(src, /useCredits: \(n\) => billRef \? debitCredits\(auth, n, billRef \+ ":pages", "debit", true\) : collectCredits\(auth, n\)/,
+    "publishPages' dep still only asks");
+  assert.match(src, /noteDebit\(debitRef\("settle"\), await debitCredits\(auth, settle, debitRef\("settle"\), "debit", true\)\)/,
+    "the schema settlement still only asks");
   assert.match(src, /rCost = await collectCredits\(auth, rCost\)/, "the router still only asks");
 });
 
@@ -1726,7 +1772,9 @@ test("a refusal AFTER the design call refunds the schema charge", () => {
   // exists because every one of these called `refundCredits` as a bare
   // statement and threw away the boolean it returns — so a reversal that did
   // not land was invisible and the response said `cost: 0` anyway.
-  const refunds = (src.match(/await refundFields\(schemaCost\)/g) || []).length;
+  // RE-ANCHORED 2026-09-05 (stage 1c): `refundFields()` takes no amount — it
+  // reverses every ref the build debited, bounded by the ledger's rows.
+  const refunds = (src.match(/await refundFields\(\)/g) || []).length;
   assert.ok(refunds >= 4, `only ${refunds} post-design refusals refund the schema charge — expected the 409, the 503, the no-tables 400 and the provisioning conflict`);
   // …AND EVERY ONE REPORTS WHAT IT COULD NOT GIVE BACK. Refunding and then
   // asserting `cost: 0` regardless is the bug, not the absence of a refund.

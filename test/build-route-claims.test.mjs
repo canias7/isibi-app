@@ -191,7 +191,13 @@ test("a refund that did not land is reported", () => {
   // the whole fee more than `schemaCost` says, invisibly.
   const seg = buildRoute();
   assert.match(seg, /refundShort/, "a failed reversal is silent again");
-  assert.match(seg, /if \(!await creditBack\(/, "the reversal's answer is discarded again");
+  // RE-ANCHORED 2026-09-05 (stage 1c): every reversal on this route goes
+  // through `giveBack`, which reads `credit_reverse`'s own answer — `ok`,
+  // `already`, `refunded` — and sets `refundShort` when what stays on the
+  // ledger is more than it should be. `if (!await creditBack(` was the
+  // settle's one inline reversal and is gone with it.
+  assert.match(seg, /const r = await reverseCredits\(env, bu\.id, ref, reason, want\);/, "the reversal's answer is discarded again");
+  assert.match(seg, /if \(!r\.ok \|\| owedAfter > owedBefore - want\) \{\s*\n\s*refundShort = true;/, "a short or unanswered reversal no longer says so");
 });
 
 test("refundFields READS the answer — the reporting line is reachable", () => {
@@ -203,27 +209,32 @@ test("refundFields READS the answer — the reporting line is reachable", () => 
   // regex looking for the word passes while every refusal answers `cost: 0`
   // whether or not the customer's credits came back. That is the exact audit
   // finding restored, on the money path, invisibly.
-  const at = WORKER.indexOf("const refundFields = async (amount)");
+  //
+  // RE-ANCHORED 2026-09-05 (stage 1c): `refundFields()` takes no amount. It
+  // walks the build's ledger of refs, reverses each through `giveBack` — the
+  // one place a reversal's answer is read — and reports what the ledger says
+  // stayed. The property is unchanged: the answer decides the reply.
+  const at = WORKER.indexOf("const refundFields = async () => {");
   assert.ok(at > 0, "refundFields moved — rescope this");
   const body = WORKER.slice(at, WORKER.indexOf("\n      };", at));
   assert.ok(body.length > 100, "the refundFields window is empty — rescope this");
+  assert.match(body, /for \(const \[ref, e\] of bill\)/, "refundFields no longer walks the build's refs");
+  assert.match(body, /await giveBack\(ref, "refund", e\.taken - e\.back\)/, "refundFields no longer reverses each ref for what is owed on it");
+  // WHAT STAYED decides both the field and the flag.
+  assert.match(body, /const left = owed\(\);/, "the reply is not read off the ledger");
+  assert.match(body, /refundShort = left > 0;/, "the flag is not recomputed from what stayed");
+  assert.match(body, /return left > 0 \? \{ cost: left, refundShort: true \} : \{ cost: 0 \};/,
+    "a reversal that did not land no longer reports what the customer is still charged");
 
-  // THE PROPERTY: the ledger call's answer is read, never discarded. Asserted
-  // over EVERY call in the body rather than pinning one spelling, so a second
-  // reversal added here has to read its answer too.
-  const calls = [...body.matchAll(/await refundCredits\(/g)];
-  assert.ok(calls.length >= 1, "refundFields no longer reverses anything");
-  for (const m of calls) {
-    const before = body.slice(Math.max(0, m.index - 12), m.index);
-    assert.match(before, /if \(!?$/,
-      "refundFields discards the ledger's answer — a failed reversal reports as a successful one");
-  }
-
-  // AND THE FAILURE ARM STILL COSTS SOMETHING. `cost` is what LEFT the ledger,
-  // so a reversal that did not land must not report 0 — that is the number the
-  // customer reads and the one the shortfall hides behind.
-  assert.match(body, /return \{ cost: n, refundShort: true \}/,
-    "a failed reversal no longer reports what the customer is still charged");
+  // AND THE ONE PLACE THAT REVERSES READS THE LEDGER'S ANSWER — the helper the
+  // loop calls. A `giveBack` that ignored `r.ok` would make every branch above
+  // answer `cost: 0` with the money still gone.
+  const gAt = WORKER.indexOf("const giveBack = async (ref, reason, amount) => {");
+  assert.ok(gAt > 0, "giveBack moved — rescope this");
+  const gBody = WORKER.slice(gAt, WORKER.indexOf("\n      };", gAt));
+  assert.match(gBody, /if \(r\.ok\) e\.back = Math\.min\(e\.taken, Math\.max\(e\.back, r\.already \+ r\.refunded\)\);/,
+    "giveBack does not record what the ledger says came back");
+  assert.match(gBody, /if \(!r\.ok \|\| owedAfter > owedBefore - want\)/, "giveBack does not judge short by the ledger's answer");
 });
 
 test("creditBack reports rather than swallowing, and logs either way", () => {

@@ -857,6 +857,64 @@ function durMp3(b) {
   return ((total - i) * 8) / bitrate; // CBR
 }
 
+/**
+ * THE LEDGER SAYS WHAT IT DID (stage 1c, 2026-09-05). `credit_debit` answers
+ * `{ ok, exempt, taken, repeat, prior, balance, short }` — a founder is
+ * `exempt` with nothing taken and no row; a short balance is `ok: false` with
+ * nothing taken, or `short` with what was there when `partial` is asked; a
+ * retried debit under the same ref and reason answers `repeat` with `prior`,
+ * what the first one took. The ref is the build's own id plus a step name, so
+ * a duplicate delivery cannot charge twice. Throws on a transport failure the
+ * way `useCredits` does; a caller that must not fail the work catches it.
+ */
+async function debitCredits(authHeader, amount, ref, reason = "debit", partial = false) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/credit_debit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: authHeader },
+    body: JSON.stringify({ p_amount: amount, p_ref: ref, p_reason: reason, p_partial: !!partial }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) throw new Error("credit_debit rpc " + r.status);
+  const a = await r.json();
+  if (!a || typeof a !== "object") throw new Error("credit_debit answered nothing");
+  return {
+    ok: a.ok === true, exempt: a.exempt === true, repeat: a.repeat === true, short: a.short === true,
+    taken: Math.max(0, Number(a.taken) || 0), prior: Math.max(0, Number(a.prior) || 0),
+    balance: Number.isFinite(Number(a.balance)) && a.balance !== null ? Number(a.balance) : null,
+    error: typeof a.error === "string" ? a.error : null,
+  };
+}
+
+/**
+ * A REVERSAL BOUNDED BY THE LEDGER'S OWN RECORD (stage 1c). `credit_reverse`
+ * finds the debit row by ref AND account and gives back at most what that row
+ * took less what earlier reversals already returned (`already`), writing its
+ * own row under `reason` so the same reversal retried answers `repeat`. It
+ * reads the row and never the account: a founder at debit time wrote no row
+ * and gets 0 back. Service-role only. Never throws — a refund is the recovery
+ * path — and every failure is logged and answered `ok: false` so the caller
+ * can say what stayed on the ledger instead of asserting a refund.
+ */
+async function reverseCredits(env, uid, ref, reason, amount) {
+  const none = { ok: false, refunded: 0, already: 0, debited: 0, repeat: false };
+  if (!env.SUPABASE_SERVICE_KEY || !uid || !ref || !(amount > 0)) return none;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/credit_reverse`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+      body: JSON.stringify({ p_target: uid, p_ref: ref, p_reason: reason, p_amount: amount }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) { console.error("credit_reverse refused:", r.status, ref, reason, amount); return none; }
+    const a = await r.json().catch(() => null);
+    if (!a || typeof a !== "object") { console.error("credit_reverse answered nothing:", ref, reason); return none; }
+    return {
+      ok: a.ok === true, repeat: a.repeat === true,
+      refunded: Math.max(0, Number(a.refunded) || 0), already: Math.max(0, Number(a.already) || 0), debited: Math.max(0, Number(a.debited) || 0),
+    };
+  } catch (e) { console.error("credit_reverse failed:", ref, reason, amount, e && e.message); return none; }
+}
+
 // Deduct credits atomically under the caller's own JWT. Returns the new
 // balance, or -1 when the balance is too low; throws if the ledger is down.
 async function useCredits(authHeader, cost) {
@@ -10429,7 +10487,7 @@ async function siteOgImage(env, slug, dist) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, picker = null, models = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, picker = null, models = null, billRef = null }) {
   // THE PICKER'S MODELS FOR THE TRANSLATION LOOP BELOW (run 38, 2026-09-04):
   // `models` when the caller resolved them, else resolved here from the
   // `picker` the build route stores beside `model` in the design — a job
@@ -11036,7 +11094,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     // the next edit as the site's source.
     keep: (answer) => saveGenAnswer(env, slug, answer),
     readCredits: () => readCredits(auth),
-    useCredits: (n) => collectCredits(auth, n),
+    // THE PAGES DEBIT IS EXPLICIT (stage 1c): under the build's own ref,
+    // partial when the balance is short, `exempt` for a founder, `repeat` on a
+    // duplicate delivery — the ledger's answer rides to `publishPages`, which
+    // reads `taken` for `cost` and carries `exempt` on the reply. A job stored
+    // before the ref existed falls back to the collect it always made.
+    useCredits: (n) => billRef ? debitCredits(auth, n, billRef + ":pages", "debit", true) : collectCredits(auth, n),
     // What the web-research step already spent, so it is billed by the same rule
     // as generation: charged when a real app publishes, free when the customer
     // ends up with the placeholder.
@@ -12863,6 +12926,60 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
       // Whether a reversal we tried to make did not land — see the negative
       // settle below. Declared out here so the response literal can read it.
       let refundShort = false;
+      // WHETHER THE LEDGER SAID THIS ACCOUNT IS EXEMPT (a founder): nothing is
+      // taken, nothing is reversed, and the reply says so instead of claiming a
+      // charge. Read off the debit's own answer, never off a balance.
+      let exempt = false;
+
+      // ── THE BILL IS A LEDGER OF REFS, NOT A NUMBER (stage 1c, 2026-09-05) ──
+      //
+      // Every debit this build makes goes through `credit_debit` under its own
+      // ref — the build's id plus the step — and is remembered here as what the
+      // LEDGER said it took, with what has since been given back. Every reversal
+      // goes through `credit_reverse` on one of those refs, which is bounded by
+      // the ledger's own row: a refund can never exceed what was taken, a
+      // founder (exempt, no row) is never credited, and a retried reversal
+      // answers `repeat` instead of paying twice. Before this, `refundFields`
+      // handed `credit_back` a NUMBER the route remembered — the deposit plus
+      // whatever it believed it collected — which for a founder was the full
+      // amount with nothing debited, and for a short balance more than was.
+      //
+      // THE REF IS THE JOB'S ID when the build runs under the queue, so a
+      // duplicate delivery re-running this whole body meets its own rows and
+      // takes nothing twice; an inline build mints one.
+      const billRef = "build:" + (jobId || crypto.randomUUID());
+      const debitRef = (step) => billRef + ":" + step;
+      const bill = new Map(); // ref → { taken, back }
+      const owed = () => { let n = 0; for (const e of bill.values()) n += Math.max(0, e.taken - e.back); return n; };
+      // RECORD what a debit answered. A repeat is the earlier attempt's debit,
+      // remembered at what the ledger says it took (`prior`), so the refund
+      // path can still reverse it by ref.
+      const noteDebit = (ref, d) => {
+        if (d.exempt) { exempt = true; return; }
+        const took = d.repeat ? d.prior : d.taken;
+        if (took > 0) bill.set(ref, { taken: took, back: 0 });
+      };
+      // GIVE BACK up to `amount` of one ref. What the ledger says has been
+      // returned in total (`already` + this reversal) is the record; what stays
+      // is `taken` less that, and `refundShort` — the field the response
+      // already carries — is set when the reversal returned less than it was
+      // asked for, net. A `repeat` is an earlier attempt's reversal and counts
+      // as returned. Never a `slug` read here: this runs before `slug` exists.
+      const giveBack = async (ref, reason, amount) => {
+        const e = bill.get(ref);
+        if (!e) return 0;
+        const owedBefore = Math.max(0, e.taken - e.back);
+        const want = Math.min(Math.max(0, Number(amount) || 0), owedBefore);
+        if (!(want > 0)) return 0;
+        const r = await reverseCredits(env, bu.id, ref, reason, want);
+        if (r.ok) e.back = Math.min(e.taken, Math.max(e.back, r.already + r.refunded));
+        const owedAfter = Math.max(0, e.taken - e.back);
+        if (!r.ok || owedAfter > owedBefore - want) {
+          refundShort = true;
+          console.error("reversal short:", ref, reason, "asked", want, "stays", owedAfter, r.ok ? "" : "(no answer)");
+        }
+        return owedBefore - owedAfter;
+      };
 
       // ── A REFUND THAT DID NOT LAND IS NOT `cost: 0` ──────────────────────
       //
@@ -12873,20 +12990,23 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
       // answered a literal containing `cost: 0`. So the customer kept being
       // charged up to the whole settled schema cost (12 credits cold Sonnet, 21
       // Opus) while the response asserted they were charged nothing, and
-      // nothing anywhere recorded it. `credit_back` chunks at 10, so a
-      // 13-credit refund is two calls and either can fail on its own.
+      // nothing anywhere recorded it.
       //
       // ONE HELPER, so the six refusals cannot each remember separately. It
       // returns the FIELDS rather than a boolean, because the honest response
       // needs both halves: what really stayed on the ledger, and a flag naming
-      // it. `refundShort` is the same field the negative-settlement branch
-      // already sets and the success response already carries.
-      const refundFields = async (amount) => {
-        const n = Math.max(0, Number(amount) || 0);
-        if (n <= 0) return { cost: 0 };
-        if (await refundCredits(env, bu.id, n)) return { cost: 0 };
-        console.error("refund did not land:", slug, n);
-        return { cost: n, refundShort: true };
+      // it. SINCE STAGE 1c it takes no amount: it reverses every ref this build
+      // debited, in full, and reports what the ledger says still stays —
+      // `refundShort` is recomputed from that, so a settle reversal that fell
+      // short and a refund that then returned everything read as whole.
+      const refundFields = async () => {
+        for (const [ref, e] of bill) {
+          if (e.taken - e.back > 0) await giveBack(ref, "refund", e.taken - e.back);
+        }
+        const left = owed();
+        schemaCost = left;
+        refundShort = left > 0;
+        return left > 0 ? { cost: left, refundShort: true } : { cost: 0 };
       };
       if (!body.schema) {
         if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
@@ -12901,12 +13021,18 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
         // call — `models` is in scope and `buildFloor` is imported — so no I/O
         // and no new failure mode.
         const floor = buildFloor(models.design);
-        let balanceAfter;
+        // THE DEPOSIT IS AN EXPLICIT DEBIT (stage 1c): the ledger answers what
+        // it did. A founder is `exempt` — nothing taken, no row, no gate to
+        // pass; a short balance is refused with nothing taken; a duplicate
+        // delivery of this job meets its own deposit row and takes nothing
+        // twice (`repeat`, at what the first delivery took).
+        let dep;
         try {
-          balanceAfter = await useCredits(auth, SITE_BUILD_FEE);
+          dep = await debitCredits(auth, SITE_BUILD_FEE, debitRef("deposit"), "debit", false);
         } catch {
           return Response.json({ ok: false, msg: "Credits check failed — try again in a moment." }, { status: 503 });
         }
+        noteDebit(debitRef("deposit"), dep);
         // `cost` IS WHAT A BUILD NEEDS, on this branch as on the one below. It
         // used to be `SITE_BUILD_FEE` — so the same field meant the 2-credit
         // deposit here and the whole build's 20 one line down, which is a number
@@ -12914,37 +13040,39 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
         // client renders `d.msg` and falls back to a generic sentence with no
         // figure in it.
         //
-        // NO BALANCE CLAUSE, unlike the branch below: `use_credits` answers -1
-        // for "the bill is larger than the balance" AND this is where an
-        // unparseable RPC answer lands, so quoting a figure would sometimes be a
-        // claim we cannot support.
-        if (!(balanceAfter >= 0)) {
+        // NO BALANCE CLAUSE, unlike the branch below: the ledger refused the
+        // deposit whole ("insufficient"), and nothing was taken.
+        if (!dep.exempt && !dep.repeat && !(dep.ok && dep.taken > 0)) {
           return Response.json({
             ok: false, error: "not enough credits", need: "credits", cost: floor,
             msg: "A build needs about " + floor + " credits.",
           }, { status: 402 });
         }
         // ENOUGH FOR THE WHOLE BUILD, not just for the deposit — the gap the
-        // Builder picker fell straight into. `use_credits` returns the balance
+        // Builder picker fell straight into. The ledger answers the balance
         // AFTER taking the fee, so this is the real ledger value and needs no
         // second read that could race; a concurrent build slipping past it just
-        // lands in the old behaviour rather than in something new.
+        // lands in the old behaviour rather than in something new. A founder is
+        // not gated — nothing is being spent — and a balance the ledger did not
+        // answer is not guessed at.
         //
-        // Refunds the deposit, because nothing has been spent yet: this is a
+        // Reverses the deposit, because nothing has been spent yet: this is a
         // refusal, not a failure. The message names the cheaper picker, since
         // "top up" is not the only way out and is the less useful one.
-        if (balanceAfter + SITE_BUILD_FEE < floor) {
-          await creditBack(env, bu.id, SITE_BUILD_FEE);
+        const haveNow = dep.exempt || dep.balance == null ? Infinity : dep.balance + (dep.repeat ? dep.prior : dep.taken);
+        if (haveNow < floor) {
+          await giveBack(debitRef("deposit"), "floor", SITE_BUILD_FEE);
           return Response.json({
             ok: false,
             error: "not enough credits",
             need: "credits",
             cost: floor,
+            refundShort: refundShort || undefined,
             msg: models.picker === "opus"
               ? "An Opus build needs about " + floor + " credits and you have " +
-                (balanceAfter + SITE_BUILD_FEE) + ". Switch the Builder to Sonnet 5, or top up."
+                haveNow + ". Switch the Builder to Sonnet 5, or top up."
               : "A build needs about " + floor + " credits and you have " +
-                (balanceAfter + SITE_BUILD_FEE) + ".",
+                haveNow + ".",
           }, { status: 402 });
         }
         // The credit gate is a Supabase round trip and it was folded into the
@@ -13142,24 +13270,26 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
           // be built on it, and losing that over a ledger round trip would be a
           // far more expensive failure than a credit in either direction.
           const settle = schemaSettlement([schemaUsage, seedUsage], SITE_BUILD_FEE);
-          schemaCost = SITE_BUILD_FEE + settle;
-          if (settle > 0) {
-            // COLLECT, not just ask. `use_credits` refuses a bill larger than
-            // the balance and debits zero, so the settlement has to report what
-            // it really took or `schemaCost` becomes a number nobody was charged.
-            try { schemaCost = SITE_BUILD_FEE + await collectCredits(auth, settle); }
-            catch { schemaCost = SITE_BUILD_FEE; /* keep the build */ }
-          } else if (settle < 0) {
-            // A REFUND THAT DID NOT LAND LEAVES `schemaCost` OVERSTATING WHAT
-            // WAS TAKEN, in the direction the customer pays for. Silent before
-            // this: `creditBack` swallowed both a throw and a refusal, so the
-            // ledger and this number disagreed by up to the whole fee with
-            // nothing anywhere recording it. Not fatal — the build is fine and
-            // the deposit is small — but it is now on the response.
-            if (!await creditBack(env, bu.id, Math.min(SITE_BUILD_FEE, -settle))) refundShort = true;
+          if (settle > 0 && !exempt) {
+            // COLLECT, not just ask: `partial` takes what is there when the
+            // balance cannot cover the difference, and the ledger says what it
+            // took — `schemaCost` is read off the ledger below, never assumed.
+            try { noteDebit(debitRef("settle"), await debitCredits(auth, settle, debitRef("settle"), "debit", true)); }
+            catch { /* keep the build */ }
+          } else if (settle < 0 && !exempt) {
+            // A cheaper call than the deposit gives the difference back — a
+            // reversal of the deposit's OWN row, bounded by it. A reversal that
+            // did not land leaves `schemaCost` overstating what was taken, in
+            // the direction the customer pays for; `giveBack` says so on the
+            // response (`refundShort`). Not fatal — the build is fine and the
+            // deposit is small.
+            await giveBack(debitRef("deposit"), "settle", Math.min(SITE_BUILD_FEE, -settle));
           }
+          // WHAT THE SCHEMA STEP REALLY TOOK, by the ledger's own account: every
+          // ref debited so far less what came back. A founder's is 0.
+          schemaCost = owed();
         } catch (e) {
-          await creditBack(env, bu.id, SITE_BUILD_FEE);
+          await giveBack(debitRef("deposit"), "design", SITE_BUILD_FEE);
           console.error("schema design failed:", e && (e.detail || e.message));
           // `upstream` is the numeric status from the model API and nothing else
           // — never `detail`, which echoes back parts of the request. It is the
@@ -13188,8 +13318,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
             // WHAT THE CUSTOMER WAS LEFT WITH, on the one refusal that said
             // nothing about money at all. The deposit is refunded a few lines
             // up and the response never mentioned it, so somebody watching a
-            // build fail had no way to know whether they had paid for it.
-            cost: 0,
+            // build fail had no way to know whether they had paid for it. Since
+            // stage 1c it is what the ledger says stayed — 0 when the deposit's
+            // reversal landed — with `refundShort` beside it when it did not.
+            cost: owed(),
+            refundShort: refundShort || undefined,
             upstream: (e && e.status) || null,
             // The provider's own error TYPE, shape-checked. Never its message,
             // which a 400 can fill with the request.
@@ -13338,7 +13471,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
           // no site and a real charge — and the client is told they were not
           // charged. Same reasoning as the no-tables path: this returns before
           // anything is provisioned, so they are left with literally nothing.
-          const back = await refundFields(schemaCost);
+          const back = await refundFields();
           return Response.json({ ok: false, error: "that name is taken", ...back, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
         }
         // Free — this lookup already happens for the ownership check.
@@ -13347,7 +13480,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
         priorBrief = (owner && owner.brief) || "";
       } catch (e) {
         console.error("ownership check failed:", slug, e && (e.detail || e.message));
-        const back = await refundFields(schemaCost);
+        const back = await refundFields();
         return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment.", ...back }, { status: 503 });
       }
 
@@ -13448,7 +13581,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
       // schema with no tables in it is still an integrator sending nonsense, and
       // that path never went near the frontend tool.
       if (!spec.tables.length && !existing && !(firstBuild && !body.schema)) {
-        const back = await refundFields(schemaCost);
+        const back = await refundFields();
         // AND SAY WHICH OF THE FOUR IT WAS. This refusal reads identically for a
         // model that made no tool call, one that called it and declared nothing,
         // one whose answer would not parse, and one whose every table NAME was
@@ -13499,7 +13632,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
         tr.at("provision", needsDb ? undefined : { db: 0 });
       } catch (e) {
         if (e && e.conflict) {
-          const back = await refundFields(schemaCost);
+          const back = await refundFields();
           return Response.json({ ok: false, error: "that name is taken", ...back, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
         }
         console.error("site provision failed:", slug, e && e.status, e && (e.detail || e.message));
@@ -13513,7 +13646,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
         // a provisioning failure leaves them in exactly that state, and
         // infrastructure being down is an our-fault stage by `ourFault`'s own
         // list. During an outage each retry cost half a grant for nothing.
-        const back = await refundFields(schemaCost);
+        const back = await refundFields();
         // THE STATUS IS THE DIAGNOSIS. A dead key (401), a plan or permission
         // limit (403), a project quota (422) and Neon being down (5xx) all read
         // identically without it, and each needs a completely different fix —
@@ -13550,7 +13683,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
         // anything the customer wrote, and `ourFault` treats an unclassified
         // stage as ours by design. They are left with an empty database and no
         // site — technically an artifact, practically nothing.
-        const back = await refundFields(schemaCost);
+        const back = await refundFields();
         // SCRUBBED, like the provisioning detail one branch up and unlike this
         // line until now. A Postgres or Neon error can quote the statement, and
         // the statement is built from the connection the vault handed us.
@@ -13947,6 +14080,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
               files: attached.texts,
             }),
             spec: pageSpec, slug, brand,
+            // THE BUILD'S OWN LEDGER REF (stage 1c), so the pages debit lands
+            // under `<billRef>:pages` — and, because this object is what the
+            // resume record stores, so a resumed build debits under the SAME
+            // ref and a duplicate delivery meets its own row and takes nothing.
+            billRef,
             // A REVISE, and the signal is free: `existing` is read off
             // site_backends during the ownership check and is true exactly when
             // this slug has already been built. No new field on the request, and
@@ -14578,6 +14716,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null 
         // compile failed and here is why nothing could be rescued.
         salvage: (pages.salvage && pages.salvage.reason) ? pages.salvage : undefined,
         cost: schemaCost + pages.cost, buildMs: pages.buildMs || undefined,
+        // THE LEDGER SAID THIS ACCOUNT PAYS NOTHING BY RULE (a founder): said
+        // as such instead of a `cost` of 0 that reads like a free build. From
+        // the deposit's own answer, or the pages debit's. Omitted otherwise.
+        exempt: (exempt || (pages && pages.exempt === true)) ? true : undefined,
         // WHAT THE BUILD ACTUALLY DID, step by step, with the time each took.
         //
         // Returned rather than only logged — the lesson `publish-pages.mjs` and

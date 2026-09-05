@@ -45,10 +45,14 @@ declare
   req text := 'zz-verify-' || substr(md5(random()::text),1,12);
   r jsonb; b0 numeric; b1 numeric; n int; log text := '';
   ok_count int := 0;
--- LAST RUN 2026-09-05 (stage 1b): ALL 65 CHECKS PASSED, rolled back, driving
--- as a funded non-founder account (balance 500). Sections 14b and 16b were
--- added that day; the same script against the OLD credit_back stopped at
--- FAIL 48 ("credit_back paid a founder", 494 -> 496, taken back by the
+-- LAST RUN 2026-09-05 (stage 1c): ALL 78 CHECKS PASSED, rolled back, driving
+-- as a funded non-founder account (balance 500). Sections 14c and 17 were
+-- added that day for credit_debit and credit_reverse, minutes after the
+-- migration that made them; both went green on the first run.
+--
+-- EARLIER THAT DAY (stage 1b): ALL 65 CHECKS PASSED, rolled back. Sections 14b
+-- and 16b were added then; the same script against the OLD credit_back stopped
+-- at FAIL 48 ("credit_back paid a founder", 494 -> 496, taken back by the
 -- rollback) - the red baseline the migration was then applied against, and
 -- the second run went green the same hour.
 --
@@ -299,6 +303,27 @@ begin
   ok_count := ok_count + 5;
   log := log || format('14b founder refunds    -> use_credits sentinel, credit_back and refund_charge paid 0, balance %s%s', b1, chr(10));
 
+  -- ── 14c. FOUNDER: THE EXPLICIT DEBIT SAYS EXEMPT AND WRITES NOTHING (stage 1c) ─
+  --
+  -- credit_debit answers `exempt` for a founder with no debit and no row, and
+  -- credit_reverse — which reads the debit row and never the account — finds
+  -- nothing to give back. Still impersonating u, still a founder.
+  r := public.credit_debit(3, req || ':f', 'debit', false);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'exempt') <> 'true' or (r->>'taken')::numeric <> 0 or b1 <> b0 then
+    raise exception 'FAIL 54 (credit_debit debited a founder, or did not say exempt): % bal % -> %', r, b0, b1;
+  end if;
+  if (select count(*) from public.credit_events where ref = req || ':f') <> 0 then
+    raise exception 'FAIL 54b (a founder''s exempt debit wrote a ledger row)';
+  end if;
+  r := public.credit_reverse(u, req || ':f', 'refund', 3);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'refunded')::numeric <> 0 or b1 <> b0 then
+    raise exception 'FAIL 55 (credit_reverse paid a founder with no debit row - MINTED CREDITS): % bal % -> %', r, b0, b1;
+  end if;
+  ok_count := ok_count + 3;
+  log := log || format('14c founder debit      -> exempt, no row, reverse 0, balance %s%s', b1, chr(10));
+
   -- ── 15. AN OK ANSWER THAT NEVER BEGAN PUBLISHING IS DONE, NOT LOST ─────
   --
   -- Found live 2026-09-01: "Your site already looks like that" answered ok with
@@ -402,6 +427,61 @@ begin
   if n <> 0 or b1 <> b0 + 3 then raise exception 'FAIL 53 (a charge was refunded twice): returned % bal %', n, b1; end if;
   ok_count := ok_count + 5;
   log := log || format('16b customer refunds   -> use_credits debited, credit_back and refund_charge paid, repeat refused%s', chr(10));
+
+  -- ── 17. THE EXPLICIT DEBIT AND ITS REVERSAL, AS A CUSTOMER (stage 1c) ─────
+  --
+  -- The build route's new money path, driven end to end on one account: a
+  -- debit that writes its row and says what it took; the same debit again
+  -- answering `repeat` with `prior` and taking nothing; a bill the balance
+  -- cannot cover refused whole, or taken in part when asked and said `short`;
+  -- a reversal bounded by the debit less what was already given back; the
+  -- same reversal again refused; another account's reversal of the ref
+  -- answering 0. Still impersonating u, no longer a founder.
+  select balance into b0 from public.credits where user_id = u;
+  r := public.credit_debit(3, req || ':d', 'debit', false);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'ok') <> 'true' or (r->>'taken')::numeric <> 3 or (r->>'exempt') <> 'false' or b1 <> b0 - 3 then
+    raise exception 'FAIL 56 (credit_debit did not take the bill, or read a customer as exempt): % bal % -> %', r, b0, b1;
+  end if;
+  select count(*) into n from public.credit_events where ref = req || ':d' and reason = 'debit' and kind = 'build' and delta = -3;
+  if n <> 1 then raise exception 'FAIL 56b (the debit did not write its row): % rows', n; end if;
+  r := public.credit_debit(3, req || ':d', 'debit', false);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'repeat') <> 'true' or (r->>'taken')::numeric <> 0 or (r->>'prior')::numeric <> 3 or b1 <> b0 - 3 then
+    raise exception 'FAIL 57 (a retried debit charged again, or did not say what the first took): % bal %', r, b1;
+  end if;
+  r := public.credit_debit(b1 + 1000, req || ':big', 'debit', false);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'ok') <> 'false' or (r->>'error') <> 'insufficient' or (r->>'taken')::numeric <> 0 or b1 <> b0 - 3 then
+    raise exception 'FAIL 58 (a bill above the balance was not refused whole): % bal %', r, b1;
+  end if;
+  r := public.credit_debit(b1 + 1000, req || ':part', 'debit', true);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'ok') <> 'true' or (r->>'short') <> 'true' or (r->>'taken')::numeric <> b0 - 3 or b1 <> 0 then
+    raise exception 'FAIL 59 (a partial debit did not take what was there, or did not say short): % bal %', r, b1;
+  end if;
+  -- Put the partial back through its own reversal, which is also the proof
+  -- that a reversal gives back exactly the debit and no more.
+  r := public.credit_reverse(u, req || ':part', 'undo', 100000);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'refunded')::numeric <> b0 - 3 or b1 <> b0 - 3 then
+    raise exception 'FAIL 60 (a reversal was not bounded by the debit): % bal %', r, b1;
+  end if;
+  r := public.credit_reverse(u, req || ':d', 'settle', 1);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'refunded')::numeric <> 1 or b1 <> b0 - 2 then raise exception 'FAIL 61 (a partial reversal did not give back 1): % bal %', r, b1; end if;
+  r := public.credit_reverse(u, req || ':d', 'refund', 5);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'refunded')::numeric <> 2 or b1 <> b0 then raise exception 'FAIL 62 (the second reversal was not bounded by the debit less the first): % bal %', r, b1; end if;
+  r := public.credit_reverse(u, req || ':d', 'refund', 5);
+  select balance into b1 from public.credits where user_id = u;
+  if (r->>'repeat') <> 'true' or (r->>'refunded')::numeric <> 0 or b1 <> b0 then raise exception 'FAIL 63 (a retried reversal paid twice): % bal %', r, b1; end if;
+  r := public.credit_reverse('00000000-0000-0000-0000-000000000000'::uuid, req || ':d', 'refund', 5);
+  if (r->>'refunded')::numeric <> 0 or (r->>'debited')::numeric <> 0 then raise exception 'FAIL 64 (another account reversed a ref that is not its own): %', r; end if;
+  select count(*) into n from public.credit_events where ref = req || ':d';
+  if n <> 3 then raise exception 'FAIL 64b (expected the debit and its two reversals on the ledger, found %)', n; end if;
+  ok_count := ok_count + 10;
+  log := log || format('17  explicit debit      -> taken 3, repeat prior 3, refused, partial short, reversals 1+2 bounded, repeat 0, stranger 0, balance %s%s', b1, chr(10));
 
   update private.mint set key_hash = keep;
   raise exception E'ALL % CHECKS PASSED (transaction rolled back)\n%', ok_count, log;

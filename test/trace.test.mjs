@@ -245,8 +245,14 @@ test("the schema call is captured, reported, AND billed on measured usage", () =
   // consumer, where there is no request to read a header off, and the four
   // ledger calls that read it now take it as `auth`. The property is that the
   // deposit is taken atomically before any paid call, which is unchanged.
-  assert.match(w, /useCredits\([A-Za-z_$][\w$.]*(?:\([^)]*\))?[^,]*,\s*SITE_BUILD_FEE\)/,
+  // RE-ANCHORED 2026-09-05 (stage 1c): the deposit is an explicit debit under
+  // the build's own ref — `credit_debit`, whole (`partial: false`), which
+  // answers what it did — and the refusal reads that answer. The property is
+  // unchanged: taken atomically before any paid call, refused when not taken.
+  assert.match(w, /debitCredits\(auth, SITE_BUILD_FEE, debitRef\("deposit"\), "debit", false\)/,
     "the affordability gate is gone — an empty account can start a paid model call");
+  assert.match(w, /if \(!dep\.exempt && !dep\.repeat && !\(dep\.ok && dep\.taken > 0\)\) \{/,
+    "a deposit the ledger refused no longer refuses the build");
   // THE PROPERTY IS "THE DEPOSIT IS SETTLED AGAINST WHAT THE STEP REALLY COST",
   // not the exact argument list. Pinned to `schemaSettlement(schemaUsage, …)`
   // this went red when the schema step legitimately became two calls — the
@@ -274,8 +280,15 @@ test("the schema call is captured, reported, AND billed on measured usage", () =
   // COLLECTED, not merely asked for: `use_credits` refuses a bill larger than the
   // balance and debits ZERO, so a settlement that discards the answer trues the
   // deposit up against money that never moved.
-  assert.match(sBlock, /if \(settle > 0\)[\s\S]*?collectCredits/, "a costlier call than the deposit is never charged for");
-  assert.match(sBlock, /settle < 0[\s\S]*?creditBack/, "a cheaper call than the deposit is never refunded");
+  // RE-ANCHORED 2026-09-05 (stage 1c): the costlier call is DEBITED under its
+  // own ref with `partial: true` (the ledger takes what is there and says what
+  // it took), and the cheaper one is a REVERSAL of the deposit's own row —
+  // both skipped for an exempt account, which paid nothing to settle.
+  assert.match(sBlock, /if \(settle > 0 && !exempt\)[\s\S]*?debitCredits\(auth, settle, debitRef\("settle"\), "debit", true\)/,
+    "a costlier call than the deposit is never charged for");
+  assert.match(sBlock, /settle < 0 && !exempt[\s\S]*?giveBack\(debitRef\("deposit"\), "settle", Math\.min\(SITE_BUILD_FEE, -settle\)\)/,
+    "a cheaper call than the deposit is never refunded");
+  assert.match(sBlock, /schemaCost = owed\(\);/, "the schema cost is not read off the ledger of refs");
 
   // AND THE BILL REPORTS THE SETTLED NUMBER, not the deposit. Anchored on the
   // whole expression rather than a prefix — a substring match survives anything
@@ -319,7 +332,11 @@ test("a refused build gives back what was actually taken, not the flat fee", () 
   assert.ok(block.length > 200 && block.length < 2000, "the refusal block scan lost its bounds");
   assert.match(block, /That brief didn't describe anything to store/,
     "the refusal no longer says anything a customer can act on");
-  assert.match(block, /await refundFields\(schemaCost\)/,
+  // RE-ANCHORED 2026-09-05 (stage 1c): `refundFields()` reverses every ref the
+  // build debited — the deposit's and the settle's — bounded by the ledger's
+  // own rows, so "what was actually taken" is the ledger's answer, not a
+  // number the route remembered.
+  assert.match(block, /await refundFields\(\)/,
     "a refused build refunds the deposit and keeps the settlement");
   // NO `|| SITE_BUILD_FEE` FALLBACK. This one refusal now serves the designer
   // path AND the explicit-schema path, and on the second one nothing was ever

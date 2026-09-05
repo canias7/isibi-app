@@ -781,7 +781,10 @@ log(`step 5 — page=${d.page} slug=${d.slug} url=${d.url}`);
 // that reads as a brochure can still declare a table, and then the build really
 // did provision one and this run measured something else.
 log(`step 5 — backend=${d.backend} tables=${JSON.stringify(d.tables)}`);
-log(`step 5 — cost=${JSON.stringify(d.cost)} charged=${d.charged}`);
+// `exempt` (stage 1c, 2026-09-05) is the ledger's own word for a founder's
+// build: nothing taken BY RULE, said on the reply rather than read off a cost
+// of 0 — which is also what a build that failed for free reports.
+log(`step 5 — cost=${JSON.stringify(d.cost)} charged=${d.charged}` + (d.exempt === true ? " exempt=true (a founder — nothing was charged)" : ""));
 // WHICH MODELS ACTUALLY RAN, read off the response rather than assumed from
 // what was asked for. `modelsFor` ignores a picker it does not recognise and
 // falls back to the default — silently, by design — so a typo'd picker produces

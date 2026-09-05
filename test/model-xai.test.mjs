@@ -509,7 +509,14 @@ test("a timeout is told from a provider outage, by NAME", () => {
   const catchAt = WORKER_CODE.lastIndexOf("catch (e) {", stageAt);
   assert.ok(catchAt > 0 && stageAt - catchAt < 6000,
     "the design refusal is no longer inside a catch — retarget this check rather than widening it");
-  const seg = WORKER.slice(catchAt, stageAt + 400);
+  // …TO A LANDMARK INSIDE THE REPLY, not `stageAt + 400`. That tail was outrun
+  // on 2026-09-05 by the comment above `cost:` growing one sentence — the
+  // recorded byte-window trap, in the guard that had already fixed one — so
+  // the window now ends at the reply's provider-type field, which sits after
+  // the money fields it reads.
+  const segEnd = WORKER_CODE.indexOf("upstreamType: kind.type,", stageAt);
+  assert.ok(segEnd > stageAt, "the design refusal's reply lost its provider-type field — rescope this");
+  const seg = WORKER.slice(catchAt, segEnd);
 
   // THE CONDITION ITSELF, NOT MERELY PRESENT SOMEWHERE IN THE BRANCH. Found by
   // mutation: `/isCallTimeout\(e\)/` alone is satisfied by
@@ -526,5 +533,11 @@ test("a timeout is told from a provider outage, by NAME", () => {
   assert.match(seg, /:\s*isCallTimeout\(e\)\s*\n?\s*\?/,
     "a design timeout wears the provider's 'busy' message again — the arm is present but not the condition");
   assert.match(seg, /nothing was charged/, "the timeout no longer tells the customer they were not charged");
-  assert.match(seg, /cost: 0,/, "the design refusal is silent about money again");
+  // WHAT THE LEDGER SAYS STAYED, not a literal. This was `cost: 0,` — the
+  // literal every refusal on the route answered while a reversal that had not
+  // landed left the customer charged — and went red for stage 1c (2026-09-05),
+  // which reverses the deposit by its own ref and reports `owed()`: 0 when
+  // the reversal landed, the deposit otherwise, with `refundShort` beside it.
+  assert.match(seg, /cost: owed\(\),/, "the design refusal is silent about money again, or answers a literal instead of the ledger");
+  assert.match(seg, /refundShort: refundShort \|\| undefined,/, "the design refusal does not say when its reversal did not land");
 });

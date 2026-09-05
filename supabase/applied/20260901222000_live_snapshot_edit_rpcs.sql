@@ -4,6 +4,10 @@
 -- read the same way after stage 1b's founder guard (migration
 -- 20260905154557_founder_guard_on_refunds); they are at the end of this file,
 -- and test/refund-founder-guard.test.mjs holds them equal to that migration.
+-- AND, the same day, the two explicit-ledger functions credit_debit and
+-- credit_reverse (stage 1c, migration 20260905161410_credit_debit_and_reverse),
+-- read the same way after their apply — after those, at the very end;
+-- test/credit-debit.test.mjs holds them equal to that migration.
 --
 -- WHY THIS FILE EXISTS: the folder had drifted from what was live. Four
 -- migrations applied earlier that day were never written here and one was
@@ -577,3 +581,102 @@ begin
   return c.cost;
 end;
 $function$;
+
+-- ── THE EXPLICIT LEDGER, read with pg_get_functiondef on 2026-09-05 ─────────
+-- immediately after migration 20260905161410_credit_debit_and_reverse was
+-- applied (stage 1c). credit_debit: EXECUTE held by postgres, authenticated
+-- and service_role (it is keyed on auth.uid(), like use_credits);
+-- credit_reverse: postgres and service_role only. Both read from
+-- pg_proc.proacl the same minute. scripts/edit-rpc-check.sql sections 14c and
+-- 17 drive them.
+
+-- credit_debit(p_amount numeric, p_ref text, p_reason text, p_partial boolean)
+CREATE OR REPLACE FUNCTION public.credit_debit(p_amount numeric, p_ref text, p_reason text, p_partial boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare uid uuid := auth.uid(); have numeric; took numeric; bal numeric; prior numeric;
+begin
+  if uid is null then raise exception 'not authenticated'; end if;
+  if p_amount is null or p_amount <= 0 or p_amount > 100000 then raise exception 'bad amount'; end if;
+  if p_ref is null or length(p_ref) < 8 or length(p_ref) > 200 then raise exception 'bad ref'; end if;
+  if p_reason is null or p_reason !~ '^[a-z][a-z0-9_-]{0,31}$' then raise exception 'bad reason'; end if;
+  -- A FOUNDER IS EXEMPT, AND SAYS SO: no debit and no row, decided by the
+  -- founders table and never by the balance. Before the grant insert below,
+  -- so a founder never acquires a credits row through this door either.
+  if exists (select 1 from private.founders f where f.user_id = uid) then
+    return jsonb_build_object('ok', true, 'exempt', true, 'taken', 0, 'repeat', false);
+  end if;
+  insert into public.credits (user_id, balance) values (uid, 20) on conflict (user_id) do nothing;
+  -- THE ACCOUNT ROW IS LOCKED BEFORE THE REPEAT CHECK, which is what makes a
+  -- duplicate delivery safe: the second caller waits here, then finds the
+  -- first one's row and takes nothing.
+  select balance into have from public.credits where user_id = uid for update;
+  have := coalesce(have, 0);
+  select -e.delta into prior from public.credit_events e where e.ref = p_ref and e.reason = p_reason;
+  if prior is not null then
+    return jsonb_build_object('ok', true, 'repeat', true, 'taken', 0, 'prior', prior, 'exempt', false, 'balance', have);
+  end if;
+  took := case when have >= p_amount then p_amount
+               when p_partial then floor(greatest(have, 0) * 1000000) / 1000000
+               else 0 end;
+  if took <= 0 then
+    -- REFUSED, NOT PARTIALLY TAKEN: the gate use_credits always was.
+    return jsonb_build_object('ok', false, 'error', 'insufficient', 'taken', 0, 'balance', have, 'exempt', false, 'repeat', false);
+  end if;
+  update public.credits set balance = balance - took, updated_at = now()
+    where user_id = uid returning balance into bal;
+  insert into public.credit_events (uid, kind, ref, reason, delta, balance_after)
+    values (uid, 'build', p_ref, p_reason, -took, bal);
+  return jsonb_build_object('ok', true, 'taken', took, 'balance', bal, 'exempt', false, 'repeat', false, 'short', took < p_amount);
+end; $function$;
+
+-- credit_reverse(p_target uuid, p_ref text, p_reason text, p_amount numeric)
+CREATE OR REPLACE FUNCTION public.credit_reverse(p_target uuid, p_ref text, p_reason text, p_amount numeric)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare debited numeric; already numeric; give numeric; bal numeric;
+begin
+  if p_target is null then raise exception 'bad target'; end if;
+  if p_ref is null or length(p_ref) < 8 or length(p_ref) > 200 then raise exception 'bad ref'; end if;
+  if p_reason is null or p_reason = 'debit' or p_reason !~ '^[a-z][a-z0-9_-]{0,31}$' then raise exception 'bad reason'; end if;
+  if p_amount is null or p_amount <= 0 or p_amount > 100000 then raise exception 'bad amount'; end if;
+  -- THE DEBIT ROW DECIDES, NEVER THE ACCOUNT. A founder at debit time wrote no
+  -- row and gets 0 back; a customer who became a founder after a real debit
+  -- still has the row and gets the money back. Matched on the account too, so
+  -- one account's ref can never be reversed onto another.
+  select coalesce(-sum(e.delta), 0) into debited
+    from public.credit_events e where e.ref = p_ref and e.uid = p_target and e.delta < 0;
+  if debited <= 0 then
+    return jsonb_build_object('ok', true, 'refunded', 0, 'debited', 0, 'repeat', false);
+  end if;
+  -- ONE ACCOUNT'S REVERSALS RUN ONE AT A TIME: the lock is what keeps two
+  -- concurrent reversals of one debit from both reading "nothing refunded yet".
+  perform 1 from public.credits where user_id = p_target for update;
+  -- WHAT EARLIER REVERSALS ALREADY GAVE BACK rides on every answer, the repeat
+  -- included, so a caller re-running a build can tell "returned before" from
+  -- "kept": what stays on the ledger is debited less already less refunded.
+  select coalesce(sum(e.delta), 0) into already
+    from public.credit_events e where e.ref = p_ref and e.uid = p_target and e.delta > 0;
+  if exists (select 1 from public.credit_events e where e.ref = p_ref and e.reason = p_reason) then
+    return jsonb_build_object('ok', true, 'refunded', 0, 'debited', debited, 'already', already, 'repeat', true);
+  end if;
+  give := least(p_amount, debited - already);
+  if give <= 0 then
+    return jsonb_build_object('ok', true, 'refunded', 0, 'debited', debited, 'already', already, 'repeat', false);
+  end if;
+  update public.credits set balance = balance + give, updated_at = now()
+    where user_id = p_target returning balance into bal;
+  if bal is null then
+    -- A debited account always has a row; a refund must never vanish anyway.
+    insert into public.credits (user_id, balance) values (p_target, give) returning balance into bal;
+  end if;
+  insert into public.credit_events (uid, kind, ref, reason, delta, balance_after)
+    values (p_target, 'build', p_ref, p_reason, give, bal);
+  return jsonb_build_object('ok', true, 'refunded', give, 'debited', debited, 'already', already, 'balance', bal, 'repeat', false);
+end; $function$;

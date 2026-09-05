@@ -57,6 +57,18 @@ test("the check still covers every property the flag cannot ship without", () =>
     "credit_back no longer pays a customer back",
     "refund_charge no longer pays a customer back",
     "a charge was refunded twice",
+    // Stage 1c (2026-09-05): the explicit debit and its reversal — sections
+    // 14c (a founder is exempt, no row, nothing reversed) and 17 (the debit's
+    // row, a repeat with prior, refused whole, partial and short, reversals
+    // bounded by the debit, a repeat reversal, a stranger's reversal).
+    "credit_debit debited a founder, or did not say exempt",
+    "credit_reverse paid a founder with no debit row",
+    "a retried debit charged again",
+    "a bill above the balance was not refused whole",
+    "a partial debit did not take what was there",
+    "a reversal was not bounded by the debit",
+    "a retried reversal paid twice",
+    "another account reversed a ref that is not its own",
   ];
   for (const m of must) {
     assert.ok(SQL.includes(m), `the database check no longer proves: ${m}`);

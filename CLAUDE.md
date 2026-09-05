@@ -2448,6 +2448,122 @@ from the migration list after the apply, as the folder's README asks); the
 previous entry (`…034000_edit_exempt_free_rung` for a remote `…035009`) was
 not, so line the two up by name, not by number.
 
+**EXEMPTION AND DEBIT ARE EXPLICIT RESULTS ON THE BUILD PATH (2026-09-05,
+stage 1c, owner: *"ok go 1c"*).** The build route paid with `use_credits`,
+whose answer is a balance or -1: a founder's call answered the sentinel and
+the route read it as a debit; a short balance answered -1 and `collectCredits`
+took what it could; and every refund was a NUMBER the route remembered
+(`refundCredits(schemaCost + SITE_BUILD_FEE)`), handed to `credit_back`, which
+credited it whether or not it had ever been taken. Now the ledger says what it
+did. Two RPCs, migration
+`supabase/applied/20260905161410_credit_debit_and_reverse.sql` (named for the
+remote version), read back with `pg_get_functiondef` into the live snapshot:
+- **`credit_debit(p_amount, p_ref, p_reason, p_partial)`** — caller-scoped
+  (`auth.uid()`), answers `{ok, exempt, taken, repeat, prior, balance, short}`.
+  A founder answers `exempt` with nothing taken and NO row, decided by
+  `private.founders` before the grant insert; the account row is locked
+  BEFORE the repeat check, so a duplicate delivery waits and then meets the
+  first one's row (`repeat: true, prior: <what it took>`); a bill above the
+  balance is refused whole (`ok: false, error: "insufficient"`) unless
+  `p_partial`, when it takes what is there and says `short`; a real debit
+  writes a `credit_events` row of kind `build` under the caller's ref.
+  Granted to `authenticated` and `service_role`.
+- **`credit_reverse(p_target, p_ref, p_reason, p_amount)`** — service-role
+  only; finds the debit row by ref AND account (one account's ref can never be
+  reversed onto another), refunds `least(p_amount, debited − already)` and
+  writes the refund row under the reversal's own reason (`debit` refused as a
+  reason), so a retried reversal answers `repeat`, two reversals of one debit
+  never exceed it, and `already` rides on every answer so a re-run build can
+  tell "returned before" from "kept". **It reads the row and never the
+  founders table**: a founder at debit time wrote no row and gets 0; a
+  customer who became a founder after a real debit still has the row and is
+  paid back — the case 1b could not cover.
+**The route is a ledger of refs.** `billRef = "build:" + (jobId ||
+randomUUID())` — the JOB'S id under the queue, so a duplicate delivery
+re-running the body meets its own rows — and `debitRef(step)` names each
+debit: `:deposit`, `:settle`, `:pages`. `bill` (ref → `{taken, back}`),
+`owed()`, `noteDebit` (exempt → the route's `exempt` flag; a repeat remembered
+at `prior`), `giveBack(ref, reason, amount)` (records `back` from the ledger's
+`already + refunded`, sets `refundShort` when the reversal did not land or
+left more than asked), `refundFields()` (NO amount any more: reverses every
+ref for what stays, recomputes `refundShort` from `owed()`). The deposit is an
+explicit whole debit; a refused one is the 402 with no balance clause; the
+floor reads the balance the ledger answered plus what it took (a founder is
+not gated: nothing is being spent); under the floor the deposit is reversed
+under `floor`; the settle is a PARTIAL debit under `:settle` and a cheaper
+call reverses the deposit's own row under `settle`; a failed design call
+reverses under `design` and the reply's `cost` is `owed()`; the six later
+refusals `await refundFields()`; `schemaCost = owed()`. The pages debit rides
+`billRef + ":pages"` through `buildAndPublishPages`' `useCredits` dep
+(partial), falling back to `collectCredits` for a resume record stored before
+the ref existed, and **`billRef` is in `buildArgs`** so a resume debits under
+the SAME ref. `publishPages`' `settle` reads the ledger's object — `taken`
+for `cost`/`charged`, `exempt` and `repeat` carried on its reply; the number
+and void contracts untouched — and the route's reply carries `exempt: true`
+(its own flag, or the pages') instead of claiming a charge; `notes` is left
+the model's (the salvage note's rule: its own field, never a sentence glued
+on). `scripts/build-as-owner.mjs` step 5 prints it. **What stays**: the
+media side on `use_credits` with 1b's founder guard as the belt; the edit
+path's sequenced reserves; `use_credits` itself, for every caller not moved.
+**Driven on the live database, rolled back**: `scripts/edit-rpc-check.sql`
+sections 14c (as a founder — exempt, no row, a reversal of that ref answers
+0) and 17 (as a customer — the debit and its row, a repeat with `prior`, a
+refusal whole, a partial that says `short` and is reversed bounded, a settle
+of 1 then a refund of 2 bounded by the debit less the first, a retried
+reversal `repeat`, a stranger's reversal 0, three rows on the ledger):
+**ALL 78 CHECKS PASSED.** `test/credit-debit.test.mjs` DRIVES the route
+through `worker.fetch` against a stubbed ledger — a founder, under the floor,
+a failed design, a reversal refused, a reversal short, a reversal that counts
+`already`, an account that cannot pay, a duplicate delivery — and reads the
+helpers, the route's refs and flags, the record and the check;
+`test/publish-pages.test.mjs` drives the object contract; the must-list in
+`test/edit-matrix.test.mjs` names the eight new FAIL messages. Thirteen
+older guards went red for the change and were re-anchored, not appeased,
+each naming the spelling that moved (the deposit's `useCredits(auth,
+SITE_BUILD_FEE)`, `collectCredits(auth, settle`, `refundCredits(`, the
+design catch's window, the settle regexes, `balanceAfter + SITE_BUILD_FEE <
+floor` and `creditBack(env, bu.id, SITE_BUILD_FEE)` in `build-models`, the
+design refusal's literal `cost: 0,` in `model-xai`, and `picker = null,
+models = null })` pinned as the END of the page builder's signature in
+`wiring`) — and one of them was a byte window, `stageAt + 400`, in the guard
+whose own comment records fixing a byte window: the tail was outrun by the
+comment above `cost:` growing one sentence, and it ends at a landmark inside
+the reply now. **Three false alarms in the new guards, each the guard's
+fault**: the sentinel
+forbidden as `1000000)` matched the partial debit's rounding
+(`floor(… * 1000000) / 1000000`; it forbids `return 1000000` now); a
+"weren't charged" sentence demanded in `notes`, against the module's own
+rule; and the route's one free hop between the deposit and the design call —
+`use_quota` for the sitelinks read, fail-open, no credits — read as an
+unstubbed ledger call. **Sweep: 41 mutants, 41 killed, none unapplied, three
+comment-only controls survived** (one applied to the migration AND the
+snapshot together, so the byte-equality guard was neutral and every SQL
+mutant had to be caught by a property) — the helpers reading a founder as a
+customer, dropping `repeat` or `prior`, a refused or short reversal read as
+landed, a throw on the recovery path; the route's flag not set, a repeat
+remembered at 0, `back` never recorded or ignoring `already`, `refundShort`
+never set, the deposit and floor gates gone, the balance quoted without the
+deposit, the floor reversal under the wrong reason, the design catch
+reversing nothing or answering 0, a founder settled or "given back",
+`schemaCost` assumed, the pages debit off the ref, the ref not stored, the
+reply without `exempt`, `refundFields` reversing 1 or never short; the
+pages settle taking the bill, dropping `exempt` or `repeat`, or reading the
+object as void; the SQL granting a founder a row first, the repeat checked
+before the lock, a part taken unasked, the ref matched without the account,
+a reversal unbounded, `already` read before the lock, the reversal reading
+the founders table, the service function granted to callers, the repeat
+answer without `prior`; the check losing a case, its founder debit partial,
+its customer half run as a founder. Full suite 5,122 green. **One survived the first pass and it was
+the RUNNER's**: `String.prototype.replace` read the `$'` at the end of the
+mutant's regex literal as "the text after the match", so the file changed,
+the checksum said applied, and the mutant that landed was not the one
+written — the recorded "a mutant that never applied", one layer down, past
+a checksum. The runner replaces through a function now and verifies the
+landed text IS the written text; re-run, killed. **Not proven live**: the migration is live and inert
+until the Worker carrying the route deploys (nothing calls the two functions
+before that); the first build after it is the proof, and the owner's own
+builds are the founder case — `exempt=true` on the owner-build log's step 5.
+
 ---
 
 ## Live state (2026-08-28)
@@ -2721,8 +2837,12 @@ not, so line the two up by name, not by number.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,106
-  (2026-09-05, after stage 1b's six — `test/refund-founder-guard.test.mjs`,
+  build and the pre-list payload added sixteen); the unit suite is 5,122
+  (2026-09-05, after stage 1c's sixteen — `test/credit-debit.test.mjs`'s
+  fifteen, the route DRIVEN eight ways against a stubbed ledger plus the
+  helpers, the refs, the record and the check read, and the pages settle's
+  object contract in `publish-pages`; 5,106 the same day after stage 1b's six —
+  `test/refund-founder-guard.test.mjs`,
   which reads the record of the founder guard; 5,100 the same day after stage
   1a-ii/iii's twelve — the two rungs' `before` hook
   driven six ways, the synchronous route driven three ways against a stubbed

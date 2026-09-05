@@ -1658,7 +1658,11 @@ test("the translation runs on the picked model like every other small call (owne
     assert.fail("the addon route's publish call has no closing brace");
   })();
   assert.match(addon, /models: aModels,/, "the addon route's publish carries no models");
-  assert.match(w, /async function buildAndPublishPages\(env, \{[^}]*picker = null, models = null \}\)/, "the build's page builder takes no picker and no models");
+  // (The parameter list grew `billRef = null` after `models` in stage 1c, the
+  // build's ledger ref for the pages debit; the property is that the page
+  // builder takes and defaults `picker` and `models`, wherever they sit — the
+  // same shape as the spine's check above.)
+  assert.match(w, /async function buildAndPublishPages\(env, \{[^}]*\bpicker = null\b[^}]*\bmodels = null\b[^}]*\}\)/, "the build's page builder takes no picker and no models");
   // THE BUILDER RESOLVES ITS OWN when a caller hands none — from the `picker`
   // the build route stores beside `model` in the design, which is what the
   // consumer that finishes a build has in hand. `test/build-params.test.mjs`

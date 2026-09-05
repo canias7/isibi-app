@@ -2902,3 +2902,71 @@ mutants of it, 13 caught, two comment-only controls survived; full suite
 Not done here, by design: a customer who becomes a founder after a real
 debit would now be refused a refund of that debit. Stage 1c reads the actual
 debit row instead of the account and gives that back; 1b is the belt.
+
+## 2026-09-05 — The build pays through an explicit debit, and refunds are bounded by it (stage 1c)
+
+Your "ok go 1c". What was wrong: the build route asked the ledger to take
+credits and got back a number — the new balance, or -1 for "not enough" —
+and had to guess the rest. Your own builds came back with the founder
+sentinel, which the route read as a debit; a short balance answered -1 and
+the route took what it could; and every refund was a number the route
+REMEMBERED (the deposit plus what it believed it had collected), handed to
+the credit-back function, which paid it whether or not it had ever been
+taken. For a founder that meant a refund of money never taken; for a short
+balance, a refund of more than was.
+
+Now the ledger says what it did, in two new database functions:
+
+- **Debit.** The build asks "take N under this reference" and gets back an
+  answer: `exempt` (a founder — nothing taken, no row written, decided by the
+  founders table and never by the balance), `taken` (what really left the
+  account), `repeat` (this reference was already debited by an earlier
+  delivery of the same job — nothing taken twice, and what the first one
+  took comes back as `prior`), or a refusal that takes nothing. Each real
+  debit writes its own row on the ledger under the build's reference.
+- **Reversal.** A refund names the debit's reference and gets back at most
+  what that row took, less what earlier reversals already returned, writing
+  its own row so a retried refund pays nothing twice. It reads the debit
+  row and never the account — so a customer who became a founder after a
+  real debit still gets that money back, which 1b alone could not do.
+
+The build route keeps a small ledger of its own references (the deposit,
+the schema settle, the pages), reverses by reference, and reports what the
+ledger says stayed, with `refundShort` beside it when a reversal did not
+land. The reply now says `exempt` for a founder's build instead of claiming
+a charge, and the owner-build log prints it. The queue's job id is the
+reference, so a job delivered twice meets its own rows and takes nothing
+twice; a resumed build debits under the same reference.
+
+Proved on the live database, inside a transaction that rolls back: as a
+founder the debit answers exempt and writes no row, and a reversal of that
+reference pays nothing; as a customer the debit takes 3 and writes its row,
+a retry takes nothing and says the first took 3, a bill above the balance
+is refused whole, a partial debit takes what is there and says so, two
+reversals are bounded by the debit, a retried reversal pays nothing, and
+another account cannot reverse it — all 78 checks passed. The migration is
+applied to the live project and recorded under the version number the
+project's migration list gave it, both functions read back into the live
+snapshot. The route itself is driven in the test suite through the real
+Worker against a stubbed ledger: a founder, a balance under the floor, a
+failed design call, a reversal the ledger refused, one it answered short,
+one that counted an earlier return, an account that cannot pay, and a
+duplicate delivery. Mutation sweep over the route, the two helpers, the
+pages settle, both database functions and the check: 41 mutants, 41 caught,
+three comment-only controls survived. One survived the first pass and it
+was my sweep tool's own bug (a `$'` in the mutant text was read as a
+substitution pattern, so a different change landed than the one written);
+fixed, re-run, caught. Full suite 5,122 green, after thirteen older guards
+that were pinned to the old spellings were re-anchored on what must be true.
+
+What this needs from you: nothing for the database — the two functions are
+live and inert until the Worker that calls them deploys. The Worker change
+ships on the next push to main (it rolls the container, so the usual 15–20
+minute hold before container work applies). The first build after that is
+the live proof; your own builds are the founder case, and the owner-build
+log's step 5 will say `exempt=true` on them.
+
+Not changed, by design: the media side still pays through the old gate with
+1b's founder guard as the belt, and the edit path keeps its own sequenced
+reserves. The chat does not yet print anything new for an exempt build;
+the reply carries it, the owner-build log reads it.
