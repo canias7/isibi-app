@@ -149,3 +149,14 @@ export const SITE_TOUCH_ICON: string = "";
 // Empty in the template, because a standalone build is not a published site and
 // has nothing to confirm.
 export const SITE_BUILD = "";
+// WHICH PUBLISHED VERSION THIS SCRIPT SERVES (stage 7, 2026-09-05) — the
+// prefix `src/server.ts` reads its assets from, `builds/<slug>/<version>/client`,
+// and the header it answers as `x-site-version`. Empty in the template and on
+// every script built before the layout existed: an empty version means the
+// legacy `sites/<slug>/` prefix, exactly as those scripts always read.
+export const SITE_VERSION = "";
+// THE VERSION THAT WAS LIVE WHEN THIS BUILD STARTED — the one fallback hop for
+// an asset this build's prefix does not carry, which is a chunk a visitor's
+// previous document still asks for. Empty when there was none, and then the
+// hop goes to the legacy prefix.
+export const SITE_PARENT = "";

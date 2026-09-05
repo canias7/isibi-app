@@ -73,9 +73,15 @@ test("the spine offers a seam between the compile's verdict and the first write,
   const deadCss = spine.indexOf('error: "dead-css"');
   const seamAt = spine.indexOf('if (typeof afterCompile === "function") {');
   const gate = spine.indexOf('editRpc(env, "edit_may_publish"');
-  const write = spine.indexOf("await writeSiteDistToR2(");
+  // THE FIRST WRITE IS THE STAGING (stage 7, 2026-09-05), which sits BEFORE
+  // the gate by design — additive, under the build's own prefix — and the
+  // live site moves at the activation after it. The seam must precede the
+  // staging, because what it answers is what gets staged; this read
+  // `writeSiteDistToR2` after the gate and went red for the change.
+  const write = spine.indexOf("await stageBuild(buildDeps(env), {");
+  const live = spine.indexOf("await activateBuild(buildDeps(env), {");
   assert.ok(verdict > 0 && deadCss > verdict && seamAt > deadCss, "the seam runs before the compile is judged or before a dead stylesheet is refused");
-  assert.ok(gate > seamAt && write > gate, "the seam runs after the publish gate or after the dist write");
+  assert.ok(write > seamAt && gate > write && live > gate, "the seam runs after the first write, or the staging is not before the gate, or the activation not after it");
   // What the hook is handed: the build, the pages, the site's languages, the
   // job, and a recompile of a corrected list through the ONE file assembly.
   const call = between(seam, "seamOut = await afterCompile({", "});", "the hook call");

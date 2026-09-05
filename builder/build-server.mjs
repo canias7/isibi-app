@@ -7,7 +7,8 @@
 //   POST /build   { "files": { "index.tsx": "<tsx source>", ... },   // relative to src/routes/
 //                   "slug":  "<site slug>",                          // OPTIONAL, baked as VITE_SITE_SLUG
 //                   "title": "<brand>",                              // OPTIONAL, the <title> tag + the mark
-//                   "lang":  "<bcp-47>" }                            // OPTIONAL, the <html lang> attribute
+//                   "lang":  "<bcp-47>",                             // OPTIONAL, the <html lang> attribute
+//                   "version": "<14 digits>-<tail>", "parent": "…" } // OPTIONAL, the publish's own prefix (stage 7), baked as SITE_VERSION / SITE_PARENT
 //     → 200 { "ok": true,  "files": {…dist…}, "ms": N }
 //     → 200 { "ok": false, "error": "<tsc output>",  "stage": "typecheck" }
 //     → 200 { "ok": false, "error": "<vite stderr>", "stage": "build" }
@@ -389,7 +390,15 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon, wordmark, theme, tokens, gif, qr }) {
+// THE VERSION AND ITS PARENT ARE THE WORKER'S, minted before the compile and
+// baked here so the script reads its own prefix (stage 7, 2026-09-05). Held to
+// the id shape `site-versions.mjs` mints; anything else bakes as "" — a
+// versionless script, which reads the legacy prefix — rather than as a key
+// the script would build into an address nothing wrote.
+const VERSION_RE = /^[0-9]{14}-[a-z0-9]{1,6}$/;
+const versionValue = (v) => (typeof v === "string" && VERSION_RE.test(v) ? v : "");
+
+function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition, favicon, wordmark, theme, tokens, gif, qr, version, parent }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
   // ── THE ANIMATED MARK AND THE QR (2026-08-29) ─────────────────────────────
@@ -694,14 +703,21 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
       "export const SITE_NAME = " + JSON.stringify(titleValue) + ";\n" +
       "export const SITE_THEME_COLOR: string = " + JSON.stringify(themeColorValue) + ";\n" +
       "export const SITE_TOUCH_ICON: string = " + JSON.stringify(touchValue) + ";\n" +
-      "export const SITE_BUILD = " + JSON.stringify(buildValue) + ";\n",
+      "export const SITE_BUILD = " + JSON.stringify(buildValue) + ";\n" +
+      // WHICH PREFIX THIS SCRIPT SERVES, and the one it may fall back to —
+      // see the template's own comment on both. Written on every build, so a
+      // payload with no version bakes "" and the script reads `sites/<slug>/`
+      // as every script before this did.
+      "export const SITE_VERSION = " + JSON.stringify(versionValue(version)) + ";\n" +
+      "export const SITE_PARENT = " + JSON.stringify(versionValue(parent)) + ";\n",
   );
   // `ownIcon` SEPARATES THE TWO OUTCOMES the single `icon` boolean could not:
   // a site drawing its initials and a site serving the owner's own artwork
   // both answered true, so a favicon that was stored and then refused by the
   // shape check reported as a working icon.
   return { lang: langValue, dir: dirValue, langs: langsValue, transition: transitionValue, icon: !!icon, ownIcon: iconOk, favicon: faviconDrawn, wordmark: wordmarkUsed, logo: !!logoValue, slug: !!slugValue,
-    touch: !!touchValue, refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
+    touch: !!touchValue, refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue,
+    version: versionValue(version) };
 }
 
 // The site's typeface, written per build.
@@ -1968,7 +1984,10 @@ const server = http.createServer((req, res) => {
       // once, passed to both, and `parseStyle` is idempotent so `applyStyle`
       // re-reading it downstream cannot change the answer.
       const styleUsed = parseStyle(payload.style, { max: MAX_STYLE_BUILD }).style;
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, wordmark: payload.wordmark, gif: payload.gif, qr: payload.qr, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition, theme: payload.theme, tokens: payload.tokens });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, favicon: payload.favicon, wordmark: payload.wordmark, gif: payload.gif, qr: payload.qr, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition, theme: payload.theme, tokens: payload.tokens,
+        // THE PUBLISH'S OWN PREFIX (stage 7): minted by the Worker before this
+        // call, baked so the script serves it and answers it.
+        version: payload.version, parent: payload.parent });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts, payload.cssFonts);
       // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
       // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly
@@ -2294,6 +2313,9 @@ const server = http.createServer((req, res) => {
       // answers with. Only on a script that exists — a failed packaging has
       // nothing to confirm.
       if (worker && worker.ok && brandUsed.build) worker.build = brandUsed.build;
+      // AND THE VERSION IT SERVES, beside the stamp, for the same reason: the
+      // uploader is the one that stages the prefix this script will read.
+      if (worker && worker.ok && brandUsed.version) worker.version = brandUsed.version;
 
       // `prerendered`/`prerenderSkipped` ARE GONE, not emptied. The step does not
       // exist under Start, and reporting an empty list for it would read to every

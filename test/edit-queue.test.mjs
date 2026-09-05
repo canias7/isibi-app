@@ -329,13 +329,20 @@ test("the publish gate precedes every R2 write in the spine", () => {
   const spine = CODE.slice(at(CODE, "async function recompileAndPublish", "spine"),
                            at(CODE, "async function siteRedirectFor", "spine end"));
   const gate = spine.indexOf("edit_may_publish");
-  const dist = spine.indexOf("writeSiteDistToR2");
+  const stage = spine.indexOf("stageBuild(buildDeps(env), {");
+  const activate = spine.indexOf("activateBuild(buildDeps(env), {");
   const source = spine.indexOf("saveSiteSource");
   const put = spine.indexOf("putSiteWorker");
   assert.ok(gate > 0, "the publish gate is gone from the spine");
   // THE ORDER IS THE WHOLE GUARANTEE. A stale or cancelled consumer must lose
-  // before anything is written, or "the live site is retained" stops being true.
-  for (const [name, i] of [["writeSiteDistToR2", dist], ["saveSiteSource", source], ["putSiteWorker", put]]) {
+  // before anything LIVE is written, or "the live site is retained" stops being
+  // true. SINCE STAGE 7 (2026-09-05) the build is STAGED before the gate — an
+  // additive write under its own prefix that nothing serves — and every write
+  // that changes what a visitor sees (the pointer, the sidecar, the script,
+  // the editable source) is the activation, after it. This read
+  // `writeSiteDistToR2` as the first write and went red for the change.
+  assert.ok(stage > 0 && stage < gate, "the build is not staged before the gate — a refused gate would have nothing staged to abandon, or the live prefix was written");
+  for (const [name, i] of [["activateBuild", activate], ["saveSiteSource", source], ["putSiteWorker", put]]) {
     assert.ok(i > gate, `${name} runs before the publish gate — a stolen lease could still write`);
   }
   // AND THE COMMIT POINT IS RECORDED AFTER THE UPLOAD, never before: it is what
@@ -429,7 +436,10 @@ test("every async mechanism is reached only through a job that may be null", () 
   ]) {
     const i = at(CODE, needle, name);
     const before = CODE.slice(Math.max(0, i - 400), i);
-    assert.match(before, /if \(job/, `${name} is not gated on a job being present`);
+    // `if (job` or its inverse `if (!job) return` — the commit rides inside the
+    // activation's own closure since stage 7 (2026-09-05), and an early return
+    // is the same gate written the other way round.
+    assert.match(before, /if \(job|if \(!job\) return/, `${name} is not gated on a job being present`);
   }
   // AND THE GUARD IS THE JOB, WITH NOTHING ELSE IN IT. A sweep that turned one
   // of these into `if (job && false)` survived an order assertion perfectly: the

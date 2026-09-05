@@ -2970,3 +2970,51 @@ Not changed, by design: the media side still pays through the old gate with
 1b's founder guard as the belt, and the edit path keeps its own sequenced
 reserves. The chat does not yet print anything new for an exempt build;
 the reply carries it, the owner-build log reads it.
+
+## 2026-09-05 — Every publish is its own copy, and the site moves to it in one step (stage 7)
+
+Your "ok go". What was wrong: every publish wrote the new site's files over
+the one live folder, deleted what it did not write, and then uploaded a
+script that read that folder — and a rollback copied an old set of files
+back over the same place. Two things writing to one address, so every
+failure was a window: a script that landed before its files and showed a
+page with no styles for a few seconds, a visitor mid-session asking for a
+file the cleanup had just removed, a rollback that died halfway, a job that
+died between the files and the script.
+
+Now every publish is staged as its own complete copy — the files, the
+script, and the page source, design and translations that produced it — in
+a folder nothing serves yet, and the site is switched to it by changing ONE
+small record. The script baked into each publish knows which copy it serves,
+so uploading a script can never point a live page at files that are not
+there; the old script keeps serving its own copy until the new one is up.
+A rollback is the same switch to an older copy: its own script, its own
+share tags, its own source and design put back for the next edit to work
+from (your Search Console tag and your chosen share picture are kept, they
+are settings rather than part of a build). Ten copies are kept per site, as
+before; the one that is live and the one before it are never pruned.
+
+Nothing changes for any site until its next publish: a site published before
+this keeps serving exactly what it serves today, and its next edit or
+rebuild moves it onto the new layout. The Versions panel shows both kinds in
+one list.
+
+Proved by driving the new module against a fake store with the one property
+that matters — a stale job cannot move the switch once a newer one has —
+and by executing a real site bundle built with a version against a bucket
+laid out the new way: it serves from its own copy, falls back once to the
+previous copy for a file an open tab may still ask for, and never to the old
+folder when a previous copy exists. Thirty-one older checks that were
+written against the old one-folder layout were re-pointed at the same
+properties in the new one. Mutation sweep over the new module, both publish
+paths, the site script, the container and the wall: 41 mutants, 41 caught,
+three comment-only controls survived (two survived the first pass — one was
+a mutant that changed nothing observable and was replaced, one was my own
+check comparing the wrong offsets, fixed and caught). The container harness
+passed 349 of 349, the eleven new checks being the versioned site.
+
+What this needs from you: the Worker deploy (it rolls the container, so the
+usual 15–20 minute hold applies), then any one edit on fretwork-1 is the
+live proof — the served page will answer with an `x-site-version` header and
+the Versions panel will show the new kind of row. A rollback from that
+panel is the second proof. Nothing costs more than the edit itself.

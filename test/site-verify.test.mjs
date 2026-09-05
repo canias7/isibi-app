@@ -154,7 +154,10 @@ test("BOTH publish paths carry the stored verification", () => {
   // next time they fixed a typo. Derived over every call rather than the two
   // that exist today, because a hand-written list is what leaves the third bare.
   const w = read("worker.js");
-  const calls = [...w.matchAll(/writeSiteDistToR2\(env, [a-z]+, [a-zA-Z.]+, \{/g)];
+  // `composePublish` since stage 7 (2026-09-05): the sidecar is composed there
+  // and written at activation, and `verify` rides into it exactly as it rode
+  // into the live-prefix writer this used to name.
+  const calls = [...w.matchAll(/composePublish\(env, [a-z]+, [a-zA-Z.]+, \{/g)];
   assert.ok(calls.length >= 2, "only " + calls.length + " publish calls found — the scan stopped matching");
   for (const m of calls) {
     const win = w.slice(m.index, w.indexOf("}, ", m.index));

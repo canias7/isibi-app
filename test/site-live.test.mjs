@@ -214,6 +214,24 @@ test("a caller that has not wired the script deps cannot be told the site is liv
   assert.equal(r.how, "recompile");
 });
 
+test("a restore that ACTIVATED (stage 7) is back online with its script up, and nothing is settled twice", async () => {
+  // A build-layout version's own script goes up inside `deps.rollback`; the
+  // answer says so, and this module must neither upload it again nor read the
+  // absence of a code string as "drop the standing script" — the outcome that
+  // would take a just-restored site down.
+  const { d, seen } = deps({ versions: [{ id: "00000000001000-aaaaaa" }] });
+  d.rollback = async () => ({ ok: true, id: "00000000001000-aaaaaa", files: 4, activated: true, uploaded: true });
+  d.putWorker = async () => { throw new Error("must not upload twice"); };
+  d.dropWorker = async () => { throw new Error("must not drop"); };
+  const r = await putBackOnline(d, { slug: "cafe" });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.live, true);
+  assert.equal(r.how, "version");
+  assert.equal(r.worker, "uploaded");
+  assert.equal(r.files, 4);
+  assert.equal(seen.recompiled, 0, "an activated restore fell through to the recompile");
+});
+
 test("an unconfigured dispatch namespace is not a failure", async () => {
   // `putSiteWorker`/`dropSiteWorker` both answer `null` when there are no
   // credentials — a platform with no scripts anywhere, not this site's problem.
@@ -337,7 +355,16 @@ test("THE ROUTE WIRES BOTH SCRIPT DEPS, to the real dispatch functions", () => {
   assert.match(block, /putWorker:[^\n]*ok:\s*true,\s*code,\s*build/);
   // And both halves reach the function that decides between them.
   assert.match(src.slice(close, close + 200), /putBackOnline\(liveDeps/);
-  assert.match(block, /rollback:[^\n]*rollbackVersion/);
+  // THE ONE RESTORE (stage 7, 2026-09-05): `restoreVersion` activates a
+  // build-layout version itself and answers `activated: true`, and falls to
+  // `rollbackVersion` for a legacy one — whose script this route's deps then
+  // settle. This read `rollbackVersion` here and went red for the change.
+  assert.match(block, /rollback:[^\n]*restoreVersion\(env, slug, id\)/);
+  const restore = src.slice(src.indexOf("async function restoreVersion("), src.indexOf("\n}\n", src.indexOf("async function restoreVersion(")));
+  assert.match(restore, /rollbackVersion\(versionDepsWithSweep\(env\), \{ slug, id \}\)/, "the legacy copy path is gone from the one restore");
+  // And the module reads the activated answer as the script being up.
+  const live = fs.readFileSync(new URL("../site-live.mjs", import.meta.url), "utf8");
+  assert.match(live, /if \(out && out\.ok && out\.activated === true\) \{/, "putBackOnline does not recognise an activated restore");
 });
 
 // ── the module's own boundary ───────────────────────────────────────────────

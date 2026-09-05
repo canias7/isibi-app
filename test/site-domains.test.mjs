@@ -338,7 +338,10 @@ test("the published bundle learns its own slug from the head", () => {
   // shape — and went red the day the publish dep grew a block body, on a change
   // that had nothing to do with the slug. A guard that breaks on reformatting
   // is a guard somebody deletes.
-  const call = worker.indexOf("writeSiteDistToR2(env, slug, dist, {");
+  // `composePublish` since stage 7 (2026-09-05): the meta is composed into the
+  // sidecar the site's script reads, and the slug rides on it exactly as it
+  // rode on the live-prefix writer this used to name.
+  const call = worker.indexOf("composePublish(env, slug, dist, {");
   assert.ok(call > 0, "the publish call moved — re-point this guard");
   const args = worker.slice(call, worker.indexOf("});", call));
   assert.match(args, /(^|[\s,{])slug\s*,/m, "and the publisher passes it");

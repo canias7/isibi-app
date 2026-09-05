@@ -251,16 +251,22 @@ test("every archive call site carries the stamp, and the restore passes it on", 
     }
     return "";
   };
+  // THE ARCHIVE IS THE STAGED PREFIX (stage 7, 2026-09-05): `stageBuild` keeps
+  // the script as `server.js` and the stamp in the manifest, off `worker:
+  // { code, build }`. This scanned `archiveVersion(` and went red for the
+  // change; the property — every version stores its script WITH its stamp —
+  // is read off the stage calls now.
   const calls = [];
-  for (const m of src.matchAll(/archiveVersion\(versionDeps\(env\), (\{)/g)) {
+  for (const m of src.matchAll(/stageBuild\(buildDeps\(env\), (\{)/g)) {
     calls.push(argsOf(m.index + m[0].length - 1));
   }
-  assert.ok(calls.length >= 2, "found " + calls.length + " archiveVersion calls — the scan for them broke");
+  assert.ok(calls.length >= 2, "found " + calls.length + " stageBuild calls — the scan for them broke");
   for (const c of calls) {
     assert.ok(c.length > 40, "the argument object did not close — the brace walk broke");
-    assert.match(c, /\bbuild:/, "an archive that stores a script without its stamp: " + c.slice(0, 140));
+    assert.match(c, /worker:[\s\S]*?\bcode:[\s\S]*?\bbuild:/, "a stage that stores a script without its stamp: " + c.slice(0, 140));
   }
-  assert.match(src, /code: rb\.worker, build: rb\.build/, "the restore uploads a script without saying which build it is");
+  assert.match(src, /code: rb\.worker, build: rb\.build/, "the legacy restore uploads a script without saying which build it is");
+  assert.match(src, /code: b\.worker, build: b\.manifest\.build/, "the build-layout restore uploads a script without saying which build it is");
 });
 
 test("the stamp rides back on the packaged script, or nothing can wait for it", async () => {

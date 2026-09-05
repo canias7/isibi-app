@@ -99,9 +99,14 @@ distinction that still exists once the branding does not.
 - **Supabase** (`ujrqdmmtcptvimazlhom`) — platform auth, the credit ledger, the
   `media` bucket, `site_backends` / `site_project` / `site_builds`.
 - **Neon** — one project per SITE, holding that site's own database.
-- **R2** — everything that is not rows: `sites/` (published), `source/` (page
-  source), `uploads/`, `versions/`, `backups/`, `sitemeta/`, `config/`,
-  `orphans/`, `jobs/`.
+- **R2** — everything that is not rows: `builds/<slug>/<version>/` (every
+  publish since stage 7, immutable: the dist under `client/`, the script as
+  `server.js`, the state under `state/`, the manifest last), `current/<slug>.json`
+  (the ONE mutable pointer: which build is live), `sites/` (the legacy served
+  prefix — frozen for a site until its next publish, and still where
+  `site.live` and the early placeholder live), `source/` (page source),
+  `uploads/`, `versions/` (the legacy copy archive), `backups/`, `sitemeta/`,
+  `config/`, `orphans/`, `jobs/`.
 - **Media Agent** — Instagram/YouTube manager via Composio. Read + comment
   auto-reply live; DM auto-reply blocked on Meta App Review. Details in
   `docs/media-agent.md`.
@@ -450,6 +455,116 @@ per-chain isolation; the two guards that pinned `BATCH === 1` and its reason
 were re-anchored. Sweep 8/8, control survived; suite 5,045. Not proven live:
 the next platform-wide republish is the measurement).
 
+- **EVERY PUBLISH IS IMMUTABLE AND THE SCRIPT READS ITS OWN PREFIX (2026-09-05,
+  stage 7 of the architecture plan, owner: *"ok go"*).** A publish used to write
+  its dist over the ONE served prefix (`sites/<slug>/`), sweep what it did not
+  write, upload a script that named that prefix, and roll back by copying an
+  old dist over the same keys — two writers to one address, and every failure
+  under it was a window (a script ahead of its files 404ing every stylesheet,
+  a mid-session visitor asking for a chunk the sweep took, a rollback half
+  copied, a job dead between the files and the script). Now
+  `site-builds.mjs` (root, dependency-free, driven with a fake R2 that keeps
+  etags and honours `onlyIf`): every publish is STAGED under
+  `builds/<slug>/<version>/` — `client/…` (the dist, sitemap and robots and
+  card included), `server.js`, `state/{pages,parts,config,sidecar}.json`, and
+  `manifest.json` LAST so a prefix with one is whole — and ACTIVATED by one
+  write of `current/<slug>.json`: `{version, build, parent, job, activatedAt}`.
+  The version is minted by the Worker BEFORE the compile (`mintVersion`, the
+  14-digit-plus-tail id `site-versions.mjs` always used), sent in the container
+  payload and baked as `SITE_VERSION` beside `SITE_BUILD`; the script's asset
+  branch reads `builds/<slug>/<SITE_VERSION>/client` and answers
+  `x-site-version`. **The order is the safety argument**: compose (sitemap,
+  robots, the sidecar — a read of the previous sidecar for the redirect map,
+  nothing written live) → stage (additive; a gate that refuses or a job that
+  dies leaves the live site as it was and a prefix the cap prunes) → the gate
+  (`edit_may_publish`, unchanged) → activate: the pointer, CONDITIONAL on the
+  etag read after the gate (a stale holder answers `superseded` and touches
+  nothing — the wall stage 6 will also lock in Postgres), then the sidecar
+  (before the script, so a new isolate reads the new head), the live marker
+  at its old address `sites/<slug>/site.live` (where every script, old and
+  new, probes), the script, the commit (`edit_committed`, only once the script
+  is up), and the state copy into the editable locations (best-effort; the
+  site is live). A failed script upload leaves the pointer ahead of the live
+  script and does NOT commit: the state stage 3b's reconcile reads. **THE
+  POINTER IS `current/<slug>.json`, NOT THE PLAN'S `sites/<slug>/current.json`**:
+  that prefix is served verbatim by every script built before this (the file
+  would be fetchable) and is the prefix the legacy sweep wipes. **The legacy
+  prefix is FROZEN**: a script with no `SITE_VERSION` reads `sites/<slug>/`
+  for ever, so a version-aware publish never writes or sweeps it; it stays
+  as it was until the site's next publish uploads a version-aware script.
+  **ONE FALLBACK HOP, BAKED**: `SITE_PARENT` is the pointer's version when
+  the build started; an asset the own prefix lacks is tried once against the
+  parent's prefix (or `sites/<slug>/` when there is none) — the in-session
+  grace `site-sweep.mjs` gave by deferring deletes, as a read — and pruning
+  (`MAX_VERSIONS` prefixes) never takes the pointer's version or its parent.
+  The platform's own readers resolve through the pointer (`sitePointer`, 30 s
+  per isolate, cleared by activation and delete): the fallback serve path,
+  which answers `robots.txt` and `sitemap.xml` on every request and the rest
+  when the script is absent, and the card lookup. `listVersions` and
+  `listBuilds` merge (`mergeVersions`, newest first, `layout: "build"` on the
+  new rows); **`restoreVersion` is the ONE restore for both layouts**: a
+  build-layout version is an activation (its own `server.js`, its sidecar,
+  its state copied back — the config's baked fields merged over what stands
+  through `withConfig`, so `verify` and `share` survive; answers
+  `activated: true`, which `putBackOnline` reads as the script being up), a
+  legacy one is `rollbackVersion`'s copy path with the POINTER DROPPED (the
+  site is back on the legacy layout the old script reads). Delete takes
+  `builds/<slug>/` and the pointer; the gateway wall admits `builds/<slug>/`
+  and `current/<slug>.json`; the Dockerfile carries the module. `x-site-build`
+  and its wait are unchanged. **What did NOT change**: the early placeholder
+  and the extensionless fallback still read `sites/<slug>/index.html`;
+  `site.live` and the take-down (`deleteSitePrefix`) are where they were;
+  `edit_publish_mark` records the build id as before (the version rides on
+  the spine's result and the manifest — no migration); nothing on the media
+  side. **Guards**: `test/site-builds.test.mjs` drives the module (staging,
+  the manifest last, activation order, the conditional pointer against a
+  stale holder, a failed upload not committing, the list, the read, the
+  prune keeping the parent, the delete) and reads both publish paths, the
+  script, the container's baking, the fallback, the card, the delete, the
+  restore and the wall; the container harness (`site build`) executes a real
+  bundle built with a version against a bucket laid out as a staged build
+  (own prefix, the parent's hop, never the legacy one when a parent exists,
+  a malformed version baking as none). **Thirty-one older guards went red
+  for the change and were re-anchored, not appeased** — every one pinned to
+  the live-prefix writer (`writeSiteDistToR2`), the copy archive
+  (`archiveVersion`), the sweep on the publish path, the `r2:dist` mark, the
+  sidecar's inline put, the marker in the dist, the `.html`-last sort, or
+  the rollback route's spelling — each naming the spelling that moved and
+  the property that stayed. **Sweep: 41 mutants, 41 killed, none unapplied,
+  three comment-only controls survived** — the pointer written
+  unconditionally, a failed condition activating on, a refused upload read as
+  up, the commit over a script that is not up, the state copy unfenced, the
+  list oldest first or offering a scriptless build, pruning taking the parent
+  or a nonsense cap pruning harder, a deleted site keeping its pointer, the
+  readers ignoring the pointer, the state keeping the owner's settings, a junk
+  pointer read as one, the marker never written, the script up before the
+  sidecar, a manifest naming no files listed or restored; on the Worker the
+  spine's activation unconditional, its prune taking the parent, either
+  payload dropping the version, the fallback reading the legacy prefix only,
+  a deleted site keeping its builds, a legacy restore leaving the pointer, a
+  restore not putting the config back, a failed stage or activation ignored,
+  the cache not cleared, the commit without a job, the version never minted,
+  an activated version's script uploaded again; the script always reading the
+  legacy prefix, its hop gone, its header unsent; a malformed version baked,
+  the script's answer without its version; the wall refusing the prefix or
+  the pointer; an activated restore settled again; the image without the
+  module. **Two survived the first pass, and neither was the product's**: one
+  was INERT (a placeholder manifest written before the client files is
+  overwritten by the real one and refused by every reader — deleted and
+  replaced by the two readers' filters, both then driven to a kill), and one
+  slipped a guard that compared an absolute offset with a relative one and
+  passed on the cache clear inside `restoreVersion`, three thousand lines
+  away (re-anchored inside the spine, killed). **`site build` 349/349
+  through the real container** (338 before; the eleven are the version case).
+  **Not proven live**: the first publish after the
+  deploy carrying this is the proof (a css edit on fretwork-1, then a
+  rollback: the site should serve `x-site-version`, `robots.txt` should
+  resolve through the pointer, and `/api/site/<slug>/versions` should list
+  a `layout: "build"` row); every existing site stays on its legacy prefix
+  until its next publish, which is the compatibility half — a Worker deploy
+  changes nothing a visitor sees until a site republishes. The deploy rolls
+  the container (the template's `server.ts` and `site-brand.ts` are image
+  inputs), so the 15–20 minute hold applies.
 - **One public address**: `<slug>.gofarther.app`. `/s/<slug>/` 301s to it and is
   the internal addressing scheme. A custom domain returns to ITSELF.
 - **The document is rendered per request** from `__root.tsx` — there is no
@@ -2828,8 +2943,14 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 338/338** against the real container (2026-09-05, the
-  job runner's door added seven: `POST /job/run` refusing an unreadable
+- **`site build` is 349/349** against the real container (2026-09-05, stage
+  7's version case added eleven: a site built with a version answers
+  `x-site-version`, serves an asset from its OWN prefix, a previous build's
+  chunk from the PARENT's, never the legacy prefix when a parent exists, a
+  404 for a file nobody has; a versionless script sends no header and reads
+  the legacy prefix as before; a malformed version bakes as none — the
+  bundle EXECUTED against a bucket laid out as a staged build; 338 earlier
+  the same day, when the job runner's door added seven: `POST /job/run` refusing an unreadable
   launch, taking a good one, the real runner run to the consumer's own
   refusal with exit 0, its lines in the job's tail, busy released, `GET
   /job/<id>` for a job never run; 331 on 2026-09-04 after the
@@ -2837,8 +2958,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,122
-  (2026-09-05, after stage 1c's sixteen — `test/credit-debit.test.mjs`'s
+  build and the pre-list payload added sixteen); the unit suite is 5,143
+  (2026-09-05, after stage 7's twenty-one — `test/site-builds.test.mjs`'s
+  twenty, the module driven against a fake R2 that keeps etags and honours
+  `onlyIf` plus the wiring of both publish paths, the script, the container,
+  the fallback, the card, the delete, the restore and the wall, and
+  `site-live`'s activated-restore case; 5,122 the same day after stage 1c's
+  sixteen — `test/credit-debit.test.mjs`'s
   fifteen, the route DRIVEN eight ways against a stubbed ledger plus the
   helpers, the refs, the record and the check read, and the pages settle's
   object contract in `publish-pages`; 5,106 the same day after stage 1b's six —

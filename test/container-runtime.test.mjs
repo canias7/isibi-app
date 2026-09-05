@@ -107,17 +107,23 @@ test("a job may touch its own site's keys and its own job objects, and nothing e
     "source/fretwork-1/pages.json", "source/fretwork-1/parts.json", "versions/fretwork-1/mtn/manifest.json",
     "uploads/fretwork-1/logo.png", "backups/fretwork-1/2026-09-04.json", "config/fretwork-1.json",
     "jobs/edit/" + id, "jobs/" + id, "jobs/result/" + id + ".json",
+    // The immutable layout (stage 7): the site's build prefixes and its pointer.
+    "builds/fretwork-1/00000000001000-aaaaaa/manifest.json", "builds/fretwork-1/00000000001000-aaaaaa/client/assets/x.js", "current/fretwork-1.json",
   ]) assert.equal(allowedJobKey(slug, id, k), true, k + " should be allowed");
   for (const k of [
     "sites/fretwork-11/index.html", "sites/fretwork/index.html", "sites/other-1/index.html", "sites/", "sites",
     "config/other-1.json", "config/fretwork-1.json.bak", "config/", "config/fretwork-11.json",
+    "builds/other-1/00000000001000-aaaaaa/manifest.json", "builds/fretwork-11/x", "current/other-1.json", "current/fretwork-1.json.bak",
     "jobs/edit/j_other", "jobs/", "jobs/edit/", "orphans/fretwork-1/x", "sitemeta/fretwork-1",
     "sites/fretwork-1/../other-1/index.html", "", null, undefined,
   ]) assert.equal(allowedJobKey(slug, id, k), false, String(k) + " should be refused");
   // A malformed identity admits nothing at all.
   assert.equal(allowedJobKey("Bad Slug", id, "sites/Bad Slug/x"), false);
   assert.equal(allowedJobKey(slug, "", "sites/fretwork-1/x"), false);
-  assert.deepEqual(jobPrefixes("cafe"), ["sites/cafe/", "source/cafe/", "versions/cafe/", "uploads/cafe/", "backups/cafe/"]);
+  // `builds/` joined the list with stage 7 (2026-09-05): every publish stages
+  // its own prefix there, so a job that could not write it would fail at its
+  // first put.
+  assert.deepEqual(jobPrefixes("cafe"), ["sites/cafe/", "source/cafe/", "versions/cafe/", "uploads/cafe/", "backups/cafe/", "builds/cafe/"]);
 });
 
 test("a listing is allowed only inside a prefix the job may touch", () => {

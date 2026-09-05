@@ -82,7 +82,12 @@ test("the upload happens AFTER the files are written, never before", () => {
   // (`rollbackVersion`), and it restores that version's OWN script afterwards —
   // which is the whole reason a rollback stopped being a `dropSiteWorker`, since
   // under Start there is no static path for a dropped script to fall back to.
-  const PUT_FILES = ["writeSiteDistToR2(", "rollbackVersion("];
+  // SINCE STAGE 7 (2026-09-05) a publish STAGES the files under the build's own
+  // prefix (`stageBuild`), a build-layout restore reads a prefix that is already
+  // whole (`readBuild`) and the route's legacy branch copies (`rollbackVersion`)
+  // through the one restore (`restoreVersion`). Every one puts the files in
+  // place before the script that names them goes up.
+  const PUT_FILES = ["stageBuild(", "rollbackVersion(", "readBuild(", "restoreVersion("];
   for (const at of calls) {
     const open = starts.filter((s) => s < at).pop();
     assert.ok(open !== undefined, "a putSiteWorker call sits outside any function — rescope this");
@@ -126,18 +131,26 @@ test("A ROLLBACK PUTS THE VERSION'S OWN SCRIPT BACK, after its files", () => {
   // asset names, so it would name assets the restore has just swept away.
   //
   // AFTER the files, like every other publish: the script serves them out of R2.
-  const at = code.indexOf("rollbackVersion(versionDepsWithSweep(env), { slug: ownerSlug");
+  // THE ONE RESTORE (stage 7, 2026-09-05): the route calls `restoreVersion`,
+  // and the legacy branch's script rides on its return for the route to put up.
+  const at = code.indexOf("const rb = await restoreVersion(env, ownerSlug");
   assert.ok(at > 0, "the versions route's rollback call moved — re-anchor this check");
   const put = code.indexOf("putSiteWorker(env, ownerSlug", at);
   assert.ok(put > at, "the rollback no longer restores the version's own script after its files");
   // AND THE ARCHIVE CARRIES IT, or there is nothing to restore. Either half alone
   // passes while the wire is cut: an archive with no script leaves the route
-  // reading `rb.worker` as undefined on every version for ever.
+  // reading `rb.worker` as undefined on every version for ever. Both layouts:
+  // the legacy archive under `versions/`, the staged prefix under `builds/`.
   const vers = fs.readFileSync(new URL("../site-versions.mjs", import.meta.url), "utf8");
   assert.match(vers, /export async function archiveVersion\(deps, \{[^}]*\bworker\b/,
     "archiveVersion no longer takes the script, so no version can be restored to a working site");
   assert.match(vers, /deps\.put\(dest \+ WORKER_FILE, worker/,
     "the archived script is never written");
+  const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
+  assert.match(builds, /await deps\.put\(dest \+ SERVER_FILE, worker\.code, "application\/javascript"\)/,
+    "the staged script is never written");
+  assert.match(builds, /worker: manifest\.worker === true \? await text\(dest \+ SERVER_FILE\) : null/,
+    "a build-layout restore never reads the version's own script back");
 });
 
 test("A VERSION WITH NO SCRIPT DROPS WHATEVER IS STANDING", () => {
@@ -145,9 +158,27 @@ test("A VERSION WITH NO SCRIPT DROPS WHATEVER IS STANDING", () => {
   // path genuinely is where they belong — and leaving a NEWER script over them is
   // the naming-dead-assets failure. Read as a ternary on the archived script so
   // the two arms cannot be reordered into one.
-  const at = code.indexOf("rollbackVersion(versionDepsWithSweep(env), { slug: ownerSlug");
-  const win = code.slice(at, at + 1200);
-  assert.match(win, /rb\.worker[\s\S]{0,200}?putSiteWorker\(env, ownerSlug[\s\S]{0,200}?dropSiteWorker\(env, ownerSlug\)/,
+  // LANDMARK TO LANDMARK, not `at + 1200`: the byte window was outrun by the
+  // comments stage 7 (2026-09-05) put between the call and the ternary.
+  const at = code.indexOf("const rb = await restoreVersion(env, ownerSlug");
+  assert.ok(at > 0, "the versions route's restore call moved — re-anchor this check");
+  // The SUCCESS reply, not the refusal one line after the call — the first
+  // `return Response.json({` after the call is the `!rb.ok` refusal, and a
+  // window closed there holds the call alone (found by this guard's own red
+  // run on the day it was re-anchored).
+  const end = code.indexOf("ok: true, id: rb.id", at);
+  assert.ok(end > at, "the restore route's reply moved — re-anchor this check");
+  const win = code.slice(at, end);
+  // A build-layout version arrives ACTIVATED (its own script already up), so
+  // the choice below is the legacy branch's: restore that version's script or
+  // drop the standing one.
+  assert.match(win, /rb\.activated\s*\?\s*rb\.wput/, "an activated restore's script is uploaded twice or dropped");
+  // IN ORDER, BY LANDMARK — not `{0,200}` characters apart, which the comment
+  // between the arms outran the day the ternary gained its first arm.
+  const w = win.indexOf("rb.worker");
+  const p = win.indexOf("putSiteWorker(env, ownerSlug", w);
+  const d = win.indexOf("dropSiteWorker(env, ownerSlug)", p);
+  assert.ok(w > 0 && p > w && d > p,
     "the rollback no longer chooses between restoring the version's script and dropping the live one");
 });
 
@@ -313,16 +344,19 @@ test("EVERY ARCHIVE PASSES THE SCRIPT, or the version cannot be restored", () =>
   // which is the recurring shape here: the module is correct and tested, the
   // Worker never hands it the argument, and nothing spans the two. Twelfth
   // recorded instance.
-  const calls = offsets(code, /archiveVersion\(versionDeps\(env\), \{/g);
+  // THE ARCHIVE IS THE STAGED PREFIX (stage 7, 2026-09-05): `stageBuild` takes
+  // `worker: { code, build }` and writes the script as `server.js`. Same
+  // property, read off the stage calls.
+  const calls = offsets(code, /stageBuild\(buildDeps\(env\), \{/g);
   assert.ok(calls.length >= 2,
-    "expected the build path and the cheap-edit spine to both archive; found " + calls.length);
+    "expected the build path and the cheap-edit spine to both stage; found " + calls.length);
   for (const at of calls) {
     // To the matching close of the object literal, so a neighbouring call's
     // argument cannot satisfy this one — the overlapping-window bug.
     const end = code.indexOf("});", at);
-    assert.ok(end > at, "an archiveVersion call has no closing — rescope this");
-    assert.match(code.slice(at, end), /\bworker:/,
-      "an archiveVersion call passes no script, so that version restores to a site with no document");
+    assert.ok(end > at, "a stageBuild call has no closing — rescope this");
+    assert.match(code.slice(at, end), /\bworker:[\s\S]*?\bcode:/,
+      "a stageBuild call passes no script, so that version restores to a site with no document");
   }
 });
 

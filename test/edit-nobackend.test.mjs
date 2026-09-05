@@ -815,7 +815,11 @@ test("a rule matching nothing does NOT publish — it is corrected first, once",
   assert.ok(at > 0, "the publish spine is gone");
   const body = src.slice(at, src.indexOf("\nasync function", at + 10));
   const gate = body.indexOf('error: "dead-css"');
-  const publish = body.indexOf("writeSiteDistToR2(");
+  // THE FIRST WRITE IS THE STAGING (stage 7, 2026-09-05): the build lands under
+  // its own prefix before anything moves. This read `writeSiteDistToR2(` and
+  // went red for the change; the property — refuse BEFORE the first write — is
+  // unchanged.
+  const publish = body.indexOf("stageBuild(buildDeps(env), {");
   assert.ok(gate > 0, "the spine no longer withholds a publish for a dead selector");
   assert.ok(publish > 0, "the publish itself is gone");
   // ORDER IS THE WHOLE PROPERTY: refusing AFTER the write would mean the

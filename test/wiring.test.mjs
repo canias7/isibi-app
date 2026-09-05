@@ -1249,19 +1249,35 @@ test("EVERY prerendered document is written after the assets it names", () => {
   // document now — stable names, written in readdir order — so `book.html` PUT
   // before the hashed chunks it references is a blank page at a public URL for
   // the seconds of a republish.
+  //
+  // SINCE STAGE 7 (2026-09-05) THE ORDER WITHIN A PUBLISH CANNOT BE OBSERVED:
+  // every file is staged under a prefix nothing serves, and the site moves to
+  // it by one pointer write after the last file landed — so the property "no
+  // document is visible before the assets it names" is the stage-then-activate
+  // order on both publish paths, read here. The write-order sort survives on
+  // the one path that still writes over the served prefix: the LEGACY
+  // rollback in `site-versions.mjs`, driven below as it always was.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = src.indexOf("const entries = Object.entries(dist || {})");
-  assert.ok(at > 0, "the publish ordering moved — rescope this");
-  const sortExpr = src.slice(at, src.indexOf(";", at));
+  const stages = [...src.matchAll(/await stageBuild\(buildDeps\(env\), \{/g)].map((m) => m.index);
+  assert.equal(stages.length, 2, "expected both publish paths to stage; found " + stages.length);
+  for (const at of stages) {
+    const activate = src.indexOf("await activateBuild(buildDeps(env), {", at);
+    const nextFn = src.indexOf("\nasync function ", at);
+    assert.ok(activate > at && (nextFn < 0 || activate < nextFn), "a staged build is not activated after its files are all in place");
+  }
+  const vers = fs.readFileSync(new URL("../site-versions.mjs", import.meta.url), "utf8");
+  const at = vers.indexOf("const ordered = names.slice().sort(");
+  assert.ok(at > 0, "the legacy rollback's ordering moved — rescope this");
+  const sortExpr = vers.slice(at, vers.indexOf(";", at));
   assert.ok(!/\^index\\\.html\$/.test(sortExpr),
     "only index.html is ordered last again — every other prerendered page can point at unwritten assets");
 
   // DRIVEN, not only read: a sort that matches the right pattern and compares
   // the wrong way round reads identically.
   // eslint-disable-next-line no-new-func
-  const cmp = new Function("return (" + /\.sort\((\(a, b\) => [^;]+)\)/.exec(sortExpr)[1] + ")")();
+  const cmp = new Function("return (" + /\.sort\((\(a, b\) =>[\s\S]+)\)$/.exec(sortExpr)[1] + ")")();
   const order = ["index.html", "assets/app-abc.js", "book.html", "assets/x.css", "work.html"]
-    .map((n) => [n, {}]).sort(cmp).map(([n]) => n);
+    .sort(cmp);
   const firstHtml = order.findIndex((n) => /\.html$/.test(n));
   const lastAsset = order.map((n) => /\.html$/.test(n)).lastIndexOf(false);
   assert.ok(firstHtml > lastAsset,

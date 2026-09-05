@@ -112,7 +112,16 @@ const DISPLAY_PAIR = ACCESS_PRESETS.display;
 import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf, orderingMoved } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
-import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
+import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
+// IMMUTABLE PUBLISHING (stage 7, 2026-09-05): every publish is staged under its
+// own prefix and made live by moving one pointer. `archiveVersion` and
+// `versionId` left this list with it — the archive IS the staged prefix now,
+// and the id is minted by `mintVersion` before the compile so the container
+// can bake it.
+import {
+  mintVersion, stageBuild, activateBuild, readPointer, readBuild, listBuilds, pruneBuilds, deleteAllBuilds,
+  assetKeyFor, mergeVersions, stateConfigOf, POINTER_KEY,
+} from "./site-builds.mjs";
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
@@ -8794,6 +8803,120 @@ function versionDepsWithSweep(env) {
 }
 
 /**
+ * R2 plumbing for site-builds.mjs (stage 7). `put` passes `onlyIf` through,
+ * which is what makes activation's pointer write conditional; R2 answers a
+ * failed condition with NULL, and the module reads exactly that.
+ */
+function buildDeps(env) {
+  return {
+    put: (key, body, contentType, onlyIf) => env.SITES_BUCKET.put(key, body, {
+      httpMetadata: { contentType: contentType || "application/octet-stream" },
+      ...(onlyIf ? { onlyIf } : {}),
+    }),
+    get: (key) => env.SITES_BUCKET.get(key),
+    list: versionDeps(env).list,
+    remove: (key) => env.SITES_BUCKET.delete(key),
+    mime: (rel) => {
+      const ext = (String(rel).match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
+      return R2_MIME[ext.toLowerCase()] || "application/octet-stream";
+    },
+    log: (...a) => console.error(...a),
+  };
+}
+
+/**
+ * Which build a site serves, for the platform's OWN readers — the fallback
+ * serve path (which answers `robots.txt` and `sitemap.xml` on every request)
+ * and the card lookup. Cached briefly per isolate: the pointer moves once per
+ * publish and is read on every crawler hit. `null` — a site that has never
+ * published under the layout, or a pointer that could not be read — is not
+ * cached (`makeCache` never caches absence), so a site's first activation is
+ * seen at once. Activation and delete clear it in their own isolate.
+ */
+const _pointerCache = makeCache({ ttlMs: 30_000, max: 500 });
+async function sitePointer(env, slug) {
+  if (!env.SITES_BUCKET || !slug) return null;
+  const hit = _pointerCache.get(slug);
+  if (hit !== undefined) return hit;
+  let p = null;
+  try { p = await readPointer(buildDeps(env), slug); }
+  catch (e) { console.error("pointer unreadable:", slug, e && e.message); p = null; }
+  if (p) _pointerCache.set(slug, p);
+  return p;
+}
+
+/**
+ * Put a version back — THE ONE RESTORE, for both layouts (stage 7).
+ *
+ * A build-layout version (`builds/<slug>/<id>/`) is an ACTIVATION with that
+ * version: the pointer, that prefix's own `server.js` through `putSiteWorker`,
+ * the sidecar it was published with, and its state copied back into the
+ * editable locations — the page source, the parts, and the baked half of the
+ * config merged over what stands (`withConfig`, so the owner's verification
+ * tag and chosen card survive it). Answers `activated: true`, and the script
+ * is already up: a caller must not upload it again and must not read the
+ * absence of a code string as "drop the script".
+ *
+ * A legacy version (`versions/<slug>/<id>/`) is today's copy path, unchanged,
+ * and the POINTER IS DROPPED: the site is back on the legacy layout, whose
+ * script reads `sites/<slug>/`, so a pointer left standing would send the
+ * platform's own readers to a build that is not what the script serves. The
+ * next publish mints a fresh pointer whose parent is none — and the new
+ * script's fallback hop is then the legacy prefix, which is exactly where
+ * the restored files are.
+ */
+async function restoreVersion(env, slug, id) {
+  const deps = buildDeps(env);
+  let b = null;
+  try { b = await readBuild(deps, slug, id); } catch (e) { console.error("build read failed:", slug, id, e && e.message); b = null; }
+  if (b) {
+    if (b.manifest.worker !== true) {
+      return { ok: false, status: 409, error: "that version's script was never saved, so it cannot be put back — pick another build, or make any change to publish a fresh one" };
+    }
+    if (!b.worker) return { ok: false, status: 409, error: "that version's script is missing, so it cannot be put back" };
+    let before = null;
+    try { before = await readPointer(deps, slug); }
+    catch { return { ok: false, status: 503, error: "the site's pointer could not be read — try again in a moment" }; }
+    let wput = null;
+    const act = await activateBuild(deps, {
+      slug, version: id, build: b.manifest.build || "", parent: b.manifest.parent || "", job: null,
+      expectEtag: before ? before.etag : null,
+      sidecar: typeof b.sidecar === "string" ? b.sidecar : undefined, sidecarKey: siteMetaKey(slug),
+      liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
+      putWorker: async () => {
+        wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" });
+        return wput;
+      },
+      afterActivate: async () => {
+        const json = { httpMetadata: { contentType: "application/json" } };
+        if (typeof b.pages === "string") await env.SITES_BUCKET.put(SOURCE_KEY(slug), b.pages, json);
+        if (typeof b.parts === "string") await env.SITES_BUCKET.put(PARTS_KEY(slug), b.parts, json);
+        if (typeof b.config === "string") {
+          const cur = await readSiteConfig(env, slug, null);
+          if (cur && cur.ok) {
+            await saveConfig({ put: (k, t) => env.SITES_BUCKET.put(k, t, json) }, slug, withConfig(cur.config, stateConfigOf(JSON.parse(b.config))));
+          }
+        }
+      },
+    });
+    _pointerCache.delete(slug);
+    if (!act.ok) {
+      return {
+        ok: false, status: 409,
+        error: act.error === "superseded" ? "the site changed while that version was being put back — try again" : "restore failed: " + act.error,
+      };
+    }
+    return { ok: true, id, files: b.manifest.files.length, swept: 0, worker: b.worker, build: b.manifest.build || "", activated: true, uploaded: act.uploaded, wput };
+  }
+  const rb = await rollbackVersion(versionDepsWithSweep(env), { slug, id });
+  if (!rb.ok) return rb;
+  try { await env.SITES_BUCKET.delete(POINTER_KEY(slug)); }
+  catch (e) { console.error("pointer delete failed:", slug, e && e.message); }
+  _pointerCache.delete(slug);
+  return rb;
+}
+
+/**
  * The credentials the dispatch API needs, or null.
  *
  * ONE READER, because the alternative is five call sites each deciding what
@@ -9019,8 +9142,19 @@ async function dropSiteWorker(env, slug) {
  * assets exist is what makes the switch atomic from a visitor's side. Then the
  * sweep removes whatever the new build does not use.
  */
-async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null, langPrefixes = null) {
-  const wrote = new Set();
+// ── COMPOSE A PUBLISH: THE SITEMAP, THE ROBOTS AND THE SIDECAR (stage 7) ────
+//
+// This was `writeSiteDistToR2`, which composed these AND wrote the dist over
+// `sites/<slug>/`, the marker, the sidecar and the sweep in one function. Since
+// 2026-09-05 nothing writes the live prefix: every publish is staged under its
+// own `builds/<slug>/<version>/` (site-builds.mjs) and activated by moving the
+// pointer, so what is left here is the pure half — the route list becomes a
+// sitemap and a robots.txt written INTO the dist (so they are staged, listed
+// and restored with it), and the sidecar object the site's script reads is
+// composed and RETURNED, to be kept as the version's state and written to its
+// live key only at activation. Reads the previous publish's sidecar for the
+// redirect map, which is a read and therefore safe before the gate.
+async function composePublish(env, slug, dist, meta, pages, renamed = null, langPrefixes = null) {
   // ── WHAT THIS PUBLISH TELLS A SEARCH ENGINE (site-seo.mjs) ────────────────
   //
   // The route list becomes three things at once: `sitemap.xml` + a `robots.txt`
@@ -9110,7 +9244,11 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null, l
   // down: under Start the document renders from the bundle and needs no R2, so
   // without this a deleted site keeps serving its pages. Measured exactly that
   // way by the container harness before it existed.
-  if (dist && typeof dist === "object") dist[SITE_LIVE_FILE] = { t: "1" };
+  //
+  // THE MARKER IS NOT IN THE DIST ANY MORE (stage 7): it stays at
+  // `sites/<slug>/site.live`, where every script — old and new — probes for it,
+  // and activation writes it there. A version's prefix carries only what that
+  // version serves.
 
   // ── WHAT THE SITE'S OWN WORKER READS BACK ────────────────────────────────
   //
@@ -9120,70 +9258,58 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null, l
   // built shell — and under Start there is no shell, because the document is
   // `__root.tsx` rendered per request.
   //
-  // OUTSIDE `sites/<slug>/`, deliberately. The site's Worker serves that prefix
+  // COMPOSED HERE, WRITTEN AT ACTIVATION (stage 7). It used to be put to its
+  // live key here, ahead of the gate and ahead of the script; now it is kept
+  // as this version's `state/sidecar.json` and `activateBuild` writes it to
+  // `sitemeta/<slug>.json` after the pointer moves and BEFORE the script goes
+  // up, so a new isolate of the new script finds the new head. Outside
+  // `sites/<slug>/`, as it always was: the site's Worker serves that prefix
   // verbatim, so a file under it would be fetchable at `/site-meta.json`.
-  // Nothing here is secret, but a file the site never meant to publish is not
-  // one to publish by accident — and it keeps the publish sweep, which wipes by
-  // that prefix, from deleting the thing every request reads.
   //
   // BEST-EFFORT, AND IT SAYS SO: every field is decoration on a document that
   // renders perfectly without it, so a failure costs a plainer link preview
   // rather than the site. Failing the publish over a share tag would trade a
   // working site for a preview card.
-  if (meta || manifest) {
-    try {
-      const sidecar = {
-        description: (meta && meta.description) || "",
-        image: (meta && meta.image) || "",
-        origin: (meta && meta.url) || "",
-        routesCsv: (manifest && manifest.routesCsv) || "",
-        redirectsCsv: (manifest && manifest.redirectsCsv) || "",
-        // OWNERSHIP VERIFICATION, resolved to `{name, content}` pairs by
-        // `site-verify.mjs` — which owns the allow-list of names, so the site's
-        // own document renders what it is handed and can never name its own tag.
-        verify: verificationPairs(meta && meta.verify),
-      };
-      await env.SITES_BUCKET.put(siteMetaKey(slug), JSON.stringify(sidecar), {
-        httpMetadata: { contentType: "application/json" },
-      });
-    } catch (e) { console.error("site meta sidecar failed:", slug, e && e.message); }
-  }
+  const sidecar = {
+    description: (meta && meta.description) || "",
+    image: (meta && meta.image) || "",
+    origin: (meta && meta.url) || "",
+    routesCsv: (manifest && manifest.routesCsv) || "",
+    redirectsCsv: (manifest && manifest.redirectsCsv) || "",
+    // OWNERSHIP VERIFICATION, resolved to `{name, content}` pairs by
+    // `site-verify.mjs` — which owns the allow-list of names, so the site's
+    // own document renders what it is handed and can never name its own tag.
+    verify: verificationPairs(meta && meta.verify),
+  };
+  return { sidecar, routes: manifest && manifest.routesCsv ? manifest.routesCsv.split("\n").filter(Boolean) : [] };
+}
 
-  // EVERY DOCUMENT LAST — a page names the new hashed bundle, so nothing may see
-  // it until the bundle it points at is fully written. Kept as a sort rather than
-  // dropped with the prerender: a site published BEFORE Start still has its
-  // documents in the archive, and a rollback copies them back through this same
-  // ordering.
-  const entries = Object.entries(dist || {})
-    .sort((a, b) => (/\.html$/i.test(a[0]) ? 1 : 0) - (/\.html$/i.test(b[0]) ? 1 : 0));
-  for (const [rel, v] of entries) {
-    const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
-    const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
-    const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
-    let bodyOut;
-    if (v && typeof v.t === "string") bodyOut = v.t;
-    else if (v && typeof v.b === "string") { const bin = atob(v.b); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); bodyOut = u8; }
-    else continue;
-    await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
-    wrote.add(safeRel);
-  }
-  // AND ONLY NOW the previous build's leftovers — DEFERRED ONE PUBLISH.
-  //
-  // Write-then-sweep fixed the click-through 404 for a visitor ARRIVING during a
-  // republish and not for one already there: a generated site is code-split one
-  // chunk per route with content-hashed names, so somebody who had the page open
-  // still holds the old document and clicking to a route they have not visited
-  // asks for a chunk this sweep had just deleted. On every republish — every
-  // revise, text fix, colour change and picture swap.
-  //
-  // `sweepAfterPublish` deletes what the LAST publish marked and marks what this
-  // one orphaned, so a chunk outlives the build that replaced it by one publish.
-  // Self-healing: the deferred list is recomputed from a live listing every time,
-  // so a lost marker costs one round of cleanup and never a leak. Best-effort for
-  // the reason the old call was: the site is already published by the time this
-  // runs, and a failed sweep must never cost the response.
-  try { await sweepAfterPublish(sweepDeps(env), { slug, wrote }); } catch (e) { console.error("sweep failed:", slug, e && e.message); }
-  return wrote.size;
+/** The page source as the store keeps it — ONE serializer, so a version's
+ *  state and the editable copy are the same bytes. */
+function pagesJson(pages) {
+  const list = (Array.isArray(pages) ? pages : [])
+    .filter((p) => p && typeof p.path === "string" && typeof p.source === "string")
+    .map((p) => ({ path: p.path, source: p.source }));
+  return list.length ? JSON.stringify(list) : null;
+}
+
+/** The parts the same way. An empty list IS an answer here (see `saveSiteParts`). */
+function partsJson(parts) {
+  const list = (Array.isArray(parts) ? parts : [])
+    .filter((p) => p && typeof p.name === "string" && typeof p.source === "string" && p.name && p.source)
+    .map((p) => ({ name: p.name, source: p.source }));
+  return JSON.stringify(list);
+}
+
+/** The baked half of the stored config, as a version's state keeps it. Null
+ *  when it cannot be read — a version without a config snapshot restores
+ *  files and source and leaves the config as it stands, said in the manifest
+ *  by the file's absence. */
+async function stateConfigText(env, slug) {
+  try {
+    const cfg = await readSiteConfig(env, slug, null);
+    return cfg && cfg.ok ? JSON.stringify(stateConfigOf(cfg.config)) : null;
+  } catch { return null; }
 }
 
 /**
@@ -9890,6 +10016,18 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // again buys 20-40 seconds of container time to fail identically. A kill is a
   // signal that the process never got to judge the code at all, which is the one
   // failure worth repeating.
+  // ── THE VERSION THIS PUBLISH WILL ACTIVATE AS (stage 7, 2026-09-05) ───────
+  //
+  // Minted BEFORE the compile, because the container bakes it (`SITE_VERSION`)
+  // and the script reads its own prefix from it; the parent is whatever is
+  // live now — the one fallback hop for a visitor still holding the previous
+  // document, and the version pruning keeps beside this one. A pointer that
+  // cannot be read is no parent: the new script then falls back to the legacy
+  // prefix, which is never wrong, only occasionally empty.
+  const version = mintVersion();
+  let parentVersion = "";
+  try { const p = await readPointer(buildDeps(env), slug); parentVersion = p ? p.version : ""; }
+  catch (e) { console.error("pointer unreadable before compile:", slug, e && e.message); parentVersion = ""; }
   const compile = async () => {
     try {
       // KEYED BY SLUG, so two customers editing two sites compile at the same
@@ -9901,6 +10039,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // see `withRoom` below the payload.
       const cPayload = JSON.stringify({
           files, slug, title: (look && look.brand) || slug,
+          // THE PREFIX THIS SCRIPT WILL SERVE (stage 7) and the one it may fall
+          // back to, baked as `SITE_VERSION` / `SITE_PARENT`.
+          version, parent: parentVersion || undefined,
           // THE SITE'S OWN LANGUAGE, out of the same stored look as everything
           // else here. Absent on every site built before 2026-08-12, and
           // `applyIdentity` leaves the attribute alone rather than guessing —
@@ -10196,6 +10337,62 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // addon's #2), so the question is asked once more — before the free-rung
   // step, which must never see a refusal, and before the gate. See `unbilled`.
   { const u = unbilled(); if (u) return u; }
+  // ── COMPOSE AND STAGE, BEFORE THE GATE (stage 7, 2026-09-05) ─────────────
+  //
+  // Everything from here to the gate is ADDITIVE. The sitemap, the robots and
+  // the sidecar are composed (a read of the previous sidecar for the redirect
+  // map, nothing written to its live key), and the whole build — the dist, the
+  // script, the state that produced it, the manifest last — lands under
+  // `builds/<slug>/<version>/`, a prefix nothing serves yet. A gate that
+  // refuses or a job that dies here leaves the live site exactly as it was and
+  // a prefix the cap prunes. See site-builds.mjs.
+  tm("compose", "start");
+  const composed = await composePublish(env, slug, built.files, {
+    brand: (look && look.brand) || slug,
+    description: (look && look.description) || undefined,
+    image: await siteOgImage(env, slug, built.files),
+    // THE PUBLIC ADDRESS, FROM THE PUBLIC NAME — not the storage slug, which
+    // is what this line passed until 2026-09-02, so every publish after a
+    // rename baked the old address back into the canonical. See `publicUrlFor`.
+    url: await publicUrlFor(env, slug),
+    slug,
+    // THE STORED VERIFICATION, carried on every publish path. The sidecar is
+    // rewritten whole, so a path that omits this takes the owner's Search
+    // Console tag off their site — silently, on an edit that asked for
+    // something else entirely.
+    verify,
+  }, pages, renamed, siteLangs.filter((l) => !l.primary).map((l) => l.prefix));
+  tm("compose", "ok", { routes: composed.routes.length });
+  tm("stage", "start", { version, files: Object.keys(built.files || {}).length });
+  let staged = null;
+  try {
+    staged = await stageBuild(buildDeps(env), {
+      slug, version, files: built.files,
+      // THE SCRIPT IS PART OF THE VERSION. Under Start it is the only thing that
+      // produces a document at all, and it names THIS build's hashed assets —
+      // so a version staged without it restores to a blank page or a 404.
+      worker: built.worker && built.worker.ok === true && built.worker.code
+        ? { code: built.worker.code, build: built.worker.build || "" } : null,
+      // WHAT PRODUCED IT — the same bytes the editable copies get at activation,
+      // through the same serializers, so a rollback restores exactly the state
+      // the next edit would have read.
+      state: {
+        pages: pagesJson(pages), parts: partsJson(siteParts || []),
+        config: await stateConfigText(env, slug), sidecar: JSON.stringify(composed.sidecar),
+      },
+      manifest: {
+        parent: parentVersion, job: job ? String(job.id) : null, label: label || "Rebuilt",
+        langs: siteLangs.filter((l) => !l.primary).map((l) => l.prefix), routes: composed.routes,
+      },
+    });
+  } catch (e) { staged = { ok: false, error: String((e && e.message) || e) }; }
+  if (!staged || staged.ok !== true) {
+    tm("stage", "fail", { why: String((staged && staged.error) || "stage").slice(0, 120) });
+    // OURS: the compile succeeded and R2 did not take the build. Nothing is
+    // live-changed, and `compileMsg` says so rather than blaming the change.
+    return { ok: false, error: "stage", ours: true, detail: String((staged && staged.error) || "the build could not be staged").slice(0, 200) };
+  }
+  tm("stage", "ok", { files: staged.files, worker: staged.worker });
   // ── A FREE RUNG IS EXEMPTED FIRST ───────────────────────────────────────
   //
   // The gate grants only a job that is `reserved` or `exempt`, and a rung that
@@ -10227,109 +10424,105 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     }
     tm("publish:gate", "ok");
   }
-  tm("r2:dist", "start", { files: Object.keys(built.files || {}).length });
-  const wrote = await writeSiteDistToR2(env, slug, built.files, {
-    brand: (look && look.brand) || slug,
-    description: (look && look.description) || undefined,
-    image: await siteOgImage(env, slug, built.files),
-    // THE PUBLIC ADDRESS, FROM THE PUBLIC NAME — not the storage slug, which
-    // is what this line passed until 2026-09-02, so every publish after a
-    // rename baked the old address back into the canonical. See `publicUrlFor`.
-    url: await publicUrlFor(env, slug),
-    slug,
-    // THE STORED VERIFICATION, carried on every publish path. The sidecar is
-    // rewritten whole, so a path that omits this takes the owner's Search
-    // Console tag off their site — silently, on an edit that asked for
-    // something else entirely.
-    verify,
-  }, pages, renamed, siteLangs.filter((l) => !l.primary).map((l) => l.prefix));
-  // `writeSiteDistToR2` returns `wrote.size`, a NUMBER. This read it as an
-  // array and reported 0 objects on every publish that wrote dozens - a lying
-  // instrument, found while diagnosing a theme edit that had in fact shipped.
-  tm("r2:dist", "ok", { objects: Number.isFinite(wrote) ? wrote : Array.isArray(wrote) ? wrote.length : 0 });
-  tm("archive", "start");
-  try {
-    await archiveVersion(versionDeps(env), {
-      slug,
-      id: versionId(Date.now(), Math.random().toString(36).slice(2)),
-      label: label || "Rebuilt",
-      files: Object.keys(built.files || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
-      // AND THE SCRIPT THAT SERVES THEM. Under Start it is the only thing that
-      // produces a document at all, and it names THIS build's hashed assets —
-      // so a version archived without it can be restored to a blank page or to
-      // a 404 and to nothing else. See `archiveVersion`.
-      worker: (built.worker && built.worker.ok === true && built.worker.code) || undefined,
-      // AND WHICH BUILD IT IS, so a restore can wait for the site to really
-      // serve it. Stored beside the script rather than dug out of the bundle.
-      build: (built.worker && built.worker.build) || undefined,
-    });
-    tm("archive", "ok");
-  } catch (e) { tm("archive", "fail", { name: String((e && e.name) || "Error") }); console.error("archive failed:", slug, e && e.message); }
-  // LAST, AND ONLY ON SUCCESS. The stored source is what the next edit reads, so
-  // writing it before the compile is proved would hand the next edit a version
-  // that does not build.
-  tm("r2:source", "start");
-  await saveSiteSource(env, slug, pages);
-  // AND THE PARTS BESIDE THEM, on the same terms: stored only once the publish
-  // is real, so a failed compile cannot leave the stored list naming a
-  // component the live site never got.
-  if (Array.isArray(parts)) await saveSiteParts(env, slug, parts);
-  tm("r2:source", "ok");
-  // AND THE MAP OF WHAT THE PUBLISHED PAGE CONTAINS, for the next edit to aim
-  // by. Best-effort and after the source, in that order deliberately: the source
-  // is what the next edit EDITS and the map is only what helps it aim, so a map
-  // that fails to store must never be able to cost the source.
-  tm("r2:landmarks", "start");
-  await saveLandmarks(env, slug, built.render && built.render.landmarks);
-  tm("r2:landmarks", "ok", { marks: ((built.render && built.render.landmarks) || []).length });
-  // AND THE REFRESHED SCRIPT, after the files — the ordering `putSiteWorker`
-  // owns, and the same one the build path uses one function over.
+  // ── ACTIVATE (stage 7): pointer → sidecar → live marker → script → commit → state ──
   //
-  // ITS ANSWER IS KEPT, because it stopped being harmless. This discarded the
-  // result while the build path one function over reported it — a real
-  // asymmetry, not a stylistic one: under Start the script is the ONLY thing
-  // that renders a document (`dist/client` holds no HTML, measured), so a failed
-  // upload on a text fix leaves the site 404ing while the customer is told the
-  // typo is corrected. Same `uploaded`/`status`/`error` shape as the build
-  // response, so one client branch reads both.
-  // ── DEPLOYMENT IDENTITY, RECORDED BEFORE THE COMMIT POINT ────────────────
-  //
-  // So a job that dies in the next few seconds can be reconciled by COMPARISON
-  // rather than by guessing: `artifact_build` is the id baked into the script
-  // about to be uploaded, and the live site reports it back on every response as
-  // `x-site-build`. Written before the upload, deliberately — recorded after, it
-  // would be missing on exactly the failure it exists to resolve.
-  if (job) {
-    await editRpc(env, "edit_publish_mark", {
-      p_id: job.id, p_owner: job.owner,
-      p_artifact_build: (built.worker && built.worker.build) || null,
-      p_dist_etag: null, p_sidecar_etag: null,
-      p_source_etag: String(Array.isArray(pages) ? pages.length : 0),
-      p_worker_status: null,
-    });
-  }
-  tm("worker:put", "start");
-  const wput = await putSiteWorker(env, slug, built.worker);
-  tm("worker:put", wput && wput.uploaded === false ? "fail" : "ok", { status: (wput && wput.status) || 0 });
-  // ── THE COMMIT POINT ─────────────────────────────────────────────────────
-  //
-  // Under Start `dist/client` holds no HTML — the document is `__root.tsx`
-  // rendered per request by this script, and this script names THIS build's
-  // hashed assets. So the live site becomes the new build exactly here and
-  // nowhere else, which is why everything above is additive and safe to abandon.
+  // The staged build becomes the live one by ONE conditional write of the
+  // pointer, keyed on the etag read HERE, after the gate was granted — so a
+  // holder that lost its lease and stalled cannot move it once anyone else
+  // has (`superseded`, nothing else touched). Then the sidecar, so a new
+  // isolate of the new script finds the new head; the live marker where every
+  // script probes for it; the script itself, which reads its own prefix, so
+  // there is no window in which a live document names assets that are not
+  // there; the commit, only once the script is up; and the state copy into the
+  // editable locations, best-effort, because the site is live by then.
   //
   // `published_at` IS WHAT THE TWO BILLING INTERLOCKS READ: finalize requires it
-  // set, refund requires it null. Recording it is therefore the difference
-  // between an edit that can be paid for and one that can be refunded.
-  if (job && !(wput && wput.uploaded === false)) {
-    await editRpc(env, "edit_committed", {
-      p_id: job.id, p_owner: job.owner, p_build: (built.worker && built.worker.build) || null,
-    });
-    await editRpc(env, "edit_publish_mark", {
-      p_id: job.id, p_owner: job.owner, p_artifact_build: null, p_dist_etag: null,
-      p_sidecar_etag: null, p_source_etag: null, p_worker_status: Number((wput && wput.status) || 0) || null,
-    });
+  // set, refund requires it null. The commit rides inside the activation, after
+  // the upload, exactly where it always was.
+  let pointerBefore = null;
+  try { pointerBefore = await readPointer(buildDeps(env), slug); }
+  catch (e) {
+    tm("activate", "fail", { why: "pointer-unreadable" });
+    return { ok: false, error: "pointer", ours: true, detail: ("the site's pointer could not be read: " + String((e && e.message) || e)).slice(0, 200) };
   }
+  tm("activate", "start", { version, from: pointerBefore ? pointerBefore.version : "" });
+  let wput = null;
+  const act = await activateBuild(buildDeps(env), {
+    slug, version, build: (built.worker && built.worker.build) || "", parent: parentVersion, job: job ? String(job.id) : null,
+    expectEtag: pointerBefore ? pointerBefore.etag : null,
+    sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
+    putWorker: async () => {
+      // ── DEPLOYMENT IDENTITY, RECORDED BEFORE THE COMMIT POINT ────────────
+      //
+      // So a job that dies in the next few seconds can be reconciled by
+      // COMPARISON rather than by guessing: `artifact_build` is the id baked
+      // into the script about to be uploaded, and the live site reports it
+      // back on every response as `x-site-build`. Written before the upload,
+      // deliberately — recorded after, it would be missing on exactly the
+      // failure it exists to resolve.
+      if (job) {
+        await editRpc(env, "edit_publish_mark", {
+          p_id: job.id, p_owner: job.owner,
+          p_artifact_build: (built.worker && built.worker.build) || null,
+          p_dist_etag: null, p_sidecar_etag: null,
+          p_source_etag: String(Array.isArray(pages) ? pages.length : 0),
+          p_worker_status: null,
+        });
+      }
+      // ITS ANSWER IS KEPT, because it stopped being harmless: under Start the
+      // script is the ONLY thing that renders a document, so a failed upload on
+      // a text fix leaves the site on its previous build while the customer is
+      // told the typo is corrected. Same `uploaded`/`status`/`error` shape as
+      // the build response, so one client branch reads both.
+      tm("worker:put", "start");
+      wput = await putSiteWorker(env, slug, built.worker);
+      tm("worker:put", wput && (wput.ok === false || wput.uploaded === false) ? "fail" : "ok", { status: (wput && wput.status) || 0 });
+      return wput;
+    },
+    commit: async () => {
+      if (!job) return;
+      await editRpc(env, "edit_committed", {
+        p_id: job.id, p_owner: job.owner, p_build: (built.worker && built.worker.build) || null,
+      });
+      await editRpc(env, "edit_publish_mark", {
+        p_id: job.id, p_owner: job.owner, p_artifact_build: null, p_dist_etag: null,
+        p_sidecar_etag: null, p_source_etag: null, p_worker_status: Number((wput && wput.status) || 0) || null,
+      });
+    },
+    afterActivate: async () => {
+      // THE STORED SOURCE IS WHAT THE NEXT EDIT READS — the same bytes the
+      // version's state holds, written once the site is live and never before.
+      tm("r2:source", "start");
+      await saveSiteSource(env, slug, pages);
+      // AND THE PARTS BESIDE THEM, on the same terms.
+      if (Array.isArray(parts)) await saveSiteParts(env, slug, parts);
+      tm("r2:source", "ok");
+      // AND THE MAP OF WHAT THE PUBLISHED PAGE CONTAINS, for the next edit to
+      // aim by. After the source, deliberately: the source is what the next
+      // edit EDITS and the map is only what helps it aim, so a map that fails
+      // to store must never be able to cost the source.
+      tm("r2:landmarks", "start");
+      await saveLandmarks(env, slug, built.render && built.render.landmarks);
+      tm("r2:landmarks", "ok", { marks: ((built.render && built.render.landmarks) || []).length });
+    },
+  });
+  _pointerCache.delete(slug);
+  if (!act || act.ok !== true) {
+    tm("activate", "fail", { why: String((act && act.error) || "activate") });
+    // OURS, and the live site is untouched: a superseded pointer is another
+    // job's publish having landed first, never the customer's change.
+    return { ok: false, error: act && act.error === "superseded" ? "superseded" : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200) };
+  }
+  tm("activate", "ok", { uploaded: act.uploaded });
+  const wrote = staged.files;
+  // THE CAP, kept clear of the pointer's version and its parent — the build a
+  // visitor's previous document still asks for. Best-effort: storage, never
+  // the response.
+  tm("prune", "start");
+  let pruned = 0;
+  try { pruned = await pruneBuilds(buildDeps(env), { slug, keep: [version, parentVersion] }); }
+  catch (e) { console.error("prune failed:", slug, e && e.message); }
+  tm("prune", "ok", { pruned });
   // THE RENDER REPORT REACHES THE CALLER. Every edit lane pays ~6s for the
   // check inside the container and used to throw the result away (2026-08-14
   // audit) — so a cheap edit that turned the site blank or unreadable
@@ -10349,6 +10542,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     lookSoft.push({ what, notes: (Array.isArray(r.notes) ? r.notes : []).slice(0, 2).map((x) => String(x).slice(0, 160)) });
   }
   return { ok: true, files: wrote, look, render, renderNote: renderNote(built.render) || undefined,
+    // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
+    // what a reconcile compares against the pointer and `x-site-version`.
+    version,
     lookSoft: lookSoft.length ? lookSoft : undefined,
     // ── WHAT THE TRANSLATION CALLS COST, so somebody can bill them ──────────
     //
@@ -10451,7 +10647,8 @@ async function siteOgImage(env, slug, dist) {
     // preview at a file with one publish left to live.
     if (!dist) {
       try {
-        if (await env.SITES_BUCKET.head("sites/" + slug + "/card.png")) {
+        // Through the pointer (stage 7): the live card is the live build's.
+        if (await env.SITES_BUCKET.head(assetKeyFor(await sitePointer(env, slug), slug, "card.png"))) {
           card = siteOrigin(slug, "https://" + APP_ZONE) + "/card.png";
         }
       } catch (e) { /* cannot tell → no card claim; the uploads may still answer */ }
@@ -10636,6 +10833,16 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // cannot live inside the build. A mutable object passed IN is written through
   // by the closure and readable by the caller whether this returns or throws.
   const genPath = genPathOut || {};
+  // ── THE VERSION THIS BUILD WILL PUBLISH AS (stage 7, 2026-09-05) ─────────
+  //
+  // Minted BEFORE the compile so the container bakes it (`SITE_VERSION`) and
+  // the script reads its own prefix; the parent is whatever is live now — a
+  // revise's previous build, or nothing on a first build — the one fallback
+  // hop for a visitor still holding the previous document.
+  const bVersion = mintVersion();
+  let bParent = "";
+  try { const p = await readPointer(buildDeps(env), slug); bParent = p ? p.version : ""; }
+  catch (e) { console.error("pointer unreadable before build:", slug, e && e.message); bParent = ""; }
   const out = await publishPages({
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
@@ -10825,6 +11032,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // THE PAYLOAD ONCE, THE CALL AS MANY TIMES AS ROOM TAKES (2026-09-04) —
       // see `withRoom` below the payload.
       const bPayload = JSON.stringify({ files, slug, title: brand,
+          // THE PREFIX THIS SCRIPT WILL SERVE (stage 7) and its fallback hop.
+          version: bVersion, parent: bParent || undefined,
           // THE COMPONENTS THE MODEL JUST WROTE, straight off the `write_pages`
           // answer. NOT read from R2 here, which is the difference between this
           // call and the spine's: on a first build nothing is stored yet, and on
@@ -11002,91 +11211,68 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // nothing and named a step that no longer runs there. With `container`
       // above it, this delta is finally the lookup and nothing else.
       try { mark?.("og"); } catch { /* a trace must never break a build */ }
-      const wrote = await writeSiteDistToR2(env, slug, dist, {
-        // RESOLVED AT PUBLISH TIME, not before the build — byte-identical to the
-        // cheap-edit spine's line, so the answer is derived in ONE place.
-        //
-        // It used to be captured before `buildAndPublishPages` ran, and
-        // PHOTOGRAPHS ARE BOUGHT IN BETWEEN: `deps.images` writes them to
-        // `uploads/<slug>/`, which is exactly the prefix `siteOgImage` scans. So a
-        // build that generated its own pictures published with NO og:image at all
-        // and every share of it degraded to a small card — self-healing only on
-        // the owner's next edit, which is the one thing they have no reason to do
-        // after a build that looked fine.
-        brand, description: siteDescription, image: ogImage,
-        // The stored verification — see the note on the cheap-edit spine.
-        verify,
-        // THE PUBLIC ADDRESS, which is what a link preview and a search result
-        // show — so it has to be the one a customer would hand out, not the one
-        // that happens to be convenient to build. `siteUrlFor` answers the
-        // `<slug>.gofarther.app` form once that zone is live and the `/s/<slug>/`
-        // one until then, from the single switch in site-domains.mjs. FROM THE
-        // PUBLIC NAME (2026-09-02): a site rebuilt after a rename keeps its new
-        // canonical — see `publicUrlFor`.
-        url: await publicUrlFor(env, slug),
-        // WHICH SITE THIS IS, so the bundle can address its own API from a custom
-        // domain — where there is no `/s/<slug>/` in the path to read it from.
-        slug,
+      // ── COMPOSE, STAGE, ACTIVATE (stage 7, 2026-09-05) ───────────────────
+      //
+      // The same three steps as the cheap-edit spine, with no gate between
+      // the second and the third: a build's charge is the debit, not a lease.
+      // The meta is RESOLVED AT PUBLISH TIME, not before the build —
+      // PHOTOGRAPHS ARE BOUGHT IN BETWEEN: `deps.images` writes them to
+      // `uploads/<slug>/`, which is exactly the prefix `siteOgImage` scans, so
+      // a card captured earlier would have missed every picture this build
+      // made. The public address comes from the public name (`publicUrlFor`),
+      // so a site rebuilt after a rename keeps its new canonical.
+      const composed = await composePublish(env, slug, dist, {
+        brand, description: siteDescription, image: ogImage, verify, url: await publicUrlFor(env, slug), slug,
       }, pages, null, pubPrefixes);
-      // ARCHIVE THE BUILD THAT JUST WENT LIVE, so it can be rolled back to.
-      //
-      // AFTER the publish and never allowed to fail it: the site is already up
-      // by this point, so a failed archive costs a rollback point, while
-      // throwing here would trade a working site for a bookkeeping entry. Same
-      // rule as the meta injection and the sweep above it.
-      try {
-        await archiveVersion(versionDeps(env), {
-          slug,
-          id: versionId(Date.now(), Math.random().toString(36).slice(2)),
-          // WHAT THE BUILD WAS, not what the site is called. Labelled with the
-          // brand, every row in the list read "Sharp Fade Barbers" and the only
-          // thing telling three builds apart was the timestamp — which makes
-          // the list nearly useless for the one question it is opened to
-          // answer: which of these do I want back. A revise is named by the
-          // change the customer asked for, in their own words.
+      // STAGED UNDER ITS OWN PREFIX, the script and the state with it — the
+      // state through the same serializers the editable copies use, so a
+      // rollback restores exactly what the next edit would have read. A stage
+      // that fails THROWS: `publishPages` reads a throw out of this dep as our
+      // failure, structurally uncharged, and the site is exactly as it was.
+      const staged = await stageBuild(buildDeps(env), {
+        slug, version: bVersion, files: dist,
+        worker: worker && worker.ok === true && worker.code ? { code: worker.code, build: worker.build || "" } : null,
+        state: {
+          pages: pagesJson(pages), parts: partsJson(partsBuilt),
+          config: await stateConfigText(env, slug), sidecar: JSON.stringify(composed.sidecar),
+        },
+        manifest: {
+          parent: bParent, job: null,
+          // WHAT THE BUILD WAS, not what the site is called: a revise is named
+          // by the change the customer asked for, in their own words.
           label: versionLabel({ revise, changeNote, brand }),
-          files: Object.keys(dist || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
-          // AND THE SCRIPT THAT SERVES THEM — the same reason as the cheap-edit
-          // spine one function up: it is what renders the document, and it names
-          // this build's own hashed assets, so a version without it restores to
-          // a blank page or a 404. See `archiveVersion`.
-          worker: (worker && worker.ok === true && worker.code) || undefined,
-          // AND ITS STAMP, for the reason above: a restore has to know what
-          // to wait for, and only the manifest can tell it.
-          build: (worker && worker.build) || undefined,
-        });
-      } catch (e) { console.error("archive failed:", slug, e && e.message); }
-      // AND THE SOURCE THAT PRODUCED IT, so the next revise is an edit rather
-      // than a rewrite. After the publish and never allowed to fail it, for the
-      // same reason the archive is not: the site is already live, and losing
-      // this costs the next revise its anchor — which is exactly the behaviour
-      // it replaces.
-      // AND WHETHER IT LANDED. `saveSiteSource` swallows its own throw and
-      // returns a boolean, and both call sites awaited it and discarded the
-      // answer — so a lost source store turned the NEXT revise into a full
-      // rewrite of every page's copy from the brief (the exact bug the source
-      // store exists to prevent) with nothing on the response saying it had
-      // happened. The comment above this call already said losing it "costs the
-      // next revise its anchor", which is accurate about the consequence and
-      // gave the caller no way to know.
-      sourceStored = await saveSiteSource(env, slug, pages);
-      // AND THE COMPONENTS WRITTEN FOR THIS SITE, beside the pages and for the
-      // same reason one line up — except that losing THESE does not cost the next
-      // edit its anchor, it breaks the site: `recompileAndPublish` re-sends what
-      // is stored here on every cheap edit, and a page importing a component that
-      // is not sent does not compile. Written unconditionally, including an empty
-      // list, so a revise that removed the last one is recorded as having removed
-      // it rather than resurrecting it forever.
-      //
-      // AFTER the publish and never allowed to fail it, exactly as the source
-      // store above: the site is already live at this point.
-      await saveSiteParts(env, slug, partsBuilt);
-      // AND THE SITE'S OWN WORKER, LAST — after the files it serves are all in
-      // R2. See `putSiteWorker`: the dispatch answers ahead of the static read,
-      // so a script that lands first renders a document naming assets that have
-      // not been written yet.
-      workerUpload = await putSiteWorker(env, slug, worker);
-      return wrote;
+          langs: pubPrefixes, routes: composed.routes,
+        },
+      });
+      if (!staged || staged.ok !== true) throw new Error("the build could not be staged: " + String((staged && staged.error) || "stage"));
+      // ACTIVATED: pointer, sidecar, live marker, the site's own script LAST —
+      // after the files it serves are all in R2 — then the source and the
+      // parts into the editable locations. A pointer that cannot be read is
+      // activated over unconditionally: a build holds the slug's claim, so no
+      // second holder is racing it here.
+      let before = null;
+      try { before = await readPointer(buildDeps(env), slug); }
+      catch (e) { console.error("pointer unreadable, activating over it:", slug, e && e.message); before = null; }
+      const act = await activateBuild(buildDeps(env), {
+        slug, version: bVersion, build: (worker && worker.build) || "", parent: bParent, job: null,
+        expectEtag: before ? before.etag : null,
+        sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
+        putWorker: async () => { workerUpload = await putSiteWorker(env, slug, worker); return workerUpload; },
+        afterActivate: async () => {
+          // AND WHETHER THE SOURCE LANDED: a lost source store turns the NEXT
+          // revise into a full rewrite from the brief, so the answer rides out
+          // as `sourceStored`. The parts are written unconditionally, an empty
+          // list included, so a revise that removed the last one is recorded
+          // as having removed it rather than resurrecting it forever.
+          sourceStored = await saveSiteSource(env, slug, pages);
+          await saveSiteParts(env, slug, partsBuilt);
+        },
+      });
+      _pointerCache.delete(slug);
+      if (!act || act.ok !== true) throw new Error("the build could not be activated: " + String((act && act.error) || "activate"));
+      try { await pruneBuilds(buildDeps(env), { slug, keep: [bVersion, bParent] }); }
+      catch (e) { console.error("prune failed:", slug, e && e.message); }
+      return staged.files;
     },
     // THE RAW ANSWER, BEFORE ANYTHING JUDGES IT — see the call site in
     // publish-pages.mjs for why this is not in the failure branches. Its own key,
@@ -11338,6 +11524,14 @@ async function deleteSiteFor(env, uid, dslug) {
     try {
       if (env.SITES_BUCKET) versionsRemoved = await deleteAllVersions(versionDeps(env), { slug: dslug });
     } catch (e) { console.error("site versions delete failed:", dslug, e && e.message); }
+    // AND THE IMMUTABLE BUILDS WITH THEIR POINTER (stage 7) — the same leak
+    // one layout over: up to ten whole builds under `builds/<slug>/` and the
+    // one object that names the live one, none of it under the prefix the
+    // wipe above walks.
+    try {
+      if (env.SITES_BUCKET) versionsRemoved += await deleteAllBuilds(buildDeps(env), dslug);
+      _pointerCache.delete(dslug);
+    } catch (e) { console.error("site builds delete failed:", dslug, e && e.message); }
 
     // AND THE ORPHAN MARKER, which lives OUTSIDE `sites/<slug>/` precisely so the
     // served prefix cannot expose it — and therefore is not touched by the sweep
@@ -15159,8 +15353,17 @@ async function handleRequest(request, env, ctx) {
         const last = rest.split("/").pop() || "";
         const ext = (last.match(/\.([a-z0-9]{1,8})$/i) || [])[1];
         let key, ctype, immutable = false;
+        // A FILE RESOLVES THROUGH THE POINTER (stage 7): a site published under
+        // the immutable layout keeps its dist under `builds/<slug>/<version>/`,
+        // and this is the branch that serves `robots.txt` and `sitemap.xml` on
+        // EVERY request (they carry the origin token, so the script never
+        // serves them) and everything else when the script is absent or threw.
+        // A site with no pointer reads the frozen `sites/<slug>/` exactly as
+        // before; the documents (`index.html`, the extensionless fallback) stay
+        // there too — the stand-in and the pre-Start prerenders live nowhere
+        // else.
         if (rest === "") { key = "sites/" + slug + "/index.html"; ctype = "text/html; charset=utf-8"; }
-        else if (ext) { key = "sites/" + slug + "/" + rest.replace(/[^a-z0-9/._-]/gi, "-"); ctype = R2_MIME[ext.toLowerCase()] || "application/octet-stream"; immutable = ext.toLowerCase() !== "html"; }
+        else if (ext) { key = assetKeyFor(await sitePointer(env, slug), slug, rest.replace(/[^a-z0-9/._-]/gi, "-")); ctype = R2_MIME[ext.toLowerCase()] || "application/octet-stream"; immutable = ext.toLowerCase() !== "html"; }
         else { key = "sites/" + slug + "/" + rest.replace(/[^a-z0-9/_-]/gi, "-") + ".html"; ctype = "text/html; charset=utf-8"; }
         let obj = await env.SITES_BUCKET.get(key);
         // THE SPA FALLBACK, AND IT IS WHAT MAKES REAL ADDRESSES POSSIBLE AT ALL.
@@ -22738,7 +22941,9 @@ async function handleRequest(request, env, ctx) {
             const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
             if (g.error) return Response.json(g.error.body, { status: g.error.status });
             if (!vr[2] && request.method === "GET") {
-              return Response.json({ ok: true, versions: await listVersions(versionDeps(env), { slug: ownerSlug }) });
+              // BOTH LAYOUTS (stage 7): the legacy copies under `versions/`
+              // and the immutable builds under `builds/`, newest first.
+              return Response.json({ ok: true, versions: mergeVersions(await listVersions(versionDeps(env), { slug: ownerSlug }), await listBuilds(buildDeps(env), ownerSlug)) });
             }
             if (vr[2] && request.method === "POST") {
               const vb = await request.json().catch(() => ({}));
@@ -22768,7 +22973,11 @@ async function handleRequest(request, env, ctx) {
               // `rollbackVersion` reads the archived script BEFORE it copies
               // anything, so a version that claims one and cannot produce it
               // refuses rather than half-restoring.
-              const rb = await rollbackVersion(versionDepsWithSweep(env), { slug: ownerSlug, id: vb && vb.id });
+              // THE ONE RESTORE, FOR BOTH LAYOUTS (stage 7): a build-layout
+              // version is an activation — its own script is already up when
+              // this answers — and a legacy one is the copy path, whose script
+              // rides on the return for THIS side to settle.
+              const rb = await restoreVersion(env, ownerSlug, vb && vb.id);
               if (!rb.ok) return Response.json({ ok: false, error: rb.error || "rollback failed" }, { status: rb.status || 500 });
 
               // AFTER THE FILES, like every other publish: the script serves the
@@ -22779,14 +22988,16 @@ async function handleRequest(request, env, ctx) {
               // the pre-Start versions, which carry real prerendered documents —
               // so the static path genuinely is where they belong, and leaving a
               // newer script over them is the naming-dead-assets failure above.
-              const wput = rb.worker
-                // `build` IS THE VERSION'S OWN STAMP, not this moment's. A
-                // rollback deliberately serves an OLD build, so what the wait
-                // must watch for is that build's id — which the manifest kept
-                // for exactly this. Versions archived before it carry none, and
-                // then nothing waits, which is the behaviour they had anyway.
-                ? await putSiteWorker(env, ownerSlug, { ok: true, code: rb.worker, build: rb.build })
-                : await dropSiteWorker(env, ownerSlug);
+              const wput = rb.activated
+                ? rb.wput
+                : rb.worker
+                  // `build` IS THE VERSION'S OWN STAMP, not this moment's. A
+                  // rollback deliberately serves an OLD build, so what the wait
+                  // must watch for is that build's id — which the manifest kept
+                  // for exactly this. Versions archived before it carry none, and
+                  // then nothing waits, which is the behaviour they had anyway.
+                  ? await putSiteWorker(env, ownerSlug, { ok: true, code: rb.worker, build: rb.build })
+                  : await dropSiteWorker(env, ownerSlug);
               // LOUD BUT NOT FATAL, and the asymmetry with the old code is
               // deliberate. The files ARE restored by this point, so refusing
               // now would report a failure over a change that has happened. What
@@ -23131,7 +23342,7 @@ async function handleRequest(request, env, ctx) {
             if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
             const lb = await request.json().catch(() => ({}));
             const liveDeps = {
-              versions: ({ slug }) => listVersions(versionDeps(env), { slug }),
+              versions: async ({ slug }) => mergeVersions(await listVersions(versionDeps(env), { slug }), await listBuilds(buildDeps(env), slug)),
               // The stored page source — the second, independent way back. Read
               // as a COUNT rather than kept, so a large site does not pull its
               // whole source into memory to answer a yes/no question.
@@ -23154,7 +23365,10 @@ async function handleRequest(request, env, ctx) {
                 if (dropped && !dropped.ok) throw new Error("site worker still up: " + dropped.error);
                 return deleteSitePrefix(env, slug);
               },
-              rollback: ({ slug, id }) => rollbackVersion(versionDepsWithSweep(env), { slug, id }),
+              // THE ONE RESTORE (stage 7): a build-layout version activates
+              // and answers `activated: true` — `putBackOnline` then settles
+              // nothing, because the script is already up.
+              rollback: ({ slug, id }) => restoreVersion(env, slug, id),
               // AND THE SCRIPT THAT MAKES THOSE FILES A SITE. `rollbackVersion`
               // RETURNS the archived script instead of uploading it — it is
               // driveable with a fake store and no Cloudflare account, so the

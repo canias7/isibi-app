@@ -3929,6 +3929,63 @@ function Home() {
   // confirming, so the wait would time out on every new site.
   const stampDead = await stampOf(withLogo, "logo-site", deadBucket);
   ok("…and on a site whose files are not there yet", stampDead === stamp1, JSON.stringify(stampDead));
+
+  // ── THE SCRIPT READS ITS OWN PREFIX (stage 7, 2026-09-05) ─────────────────
+  //
+  // A publish stages its dist under `builds/<slug>/<version>/client/` and the
+  // version is baked beside the build id, so the script serves THAT prefix and
+  // falls back one hop to its parent's — or to the legacy `sites/<slug>/` when
+  // there is none. Only executing a real bundle against a bucket can prove
+  // the keys it builds, which is the same reason the stamp is proven here.
+  console.log("\nbuilding a site that knows which version it is…");
+  const VER = "00000000001000-aaaaaa", PARENT = "00000000000500-bbbbbb";
+  const versioned = await post({ files: { "index.tsx": CHROMED }, slug: "ver-site", title: "Sharp Fade Barbers", worker: true, version: VER, parent: PARENT });
+  ok("a site with a version builds", versioned.ok === true, versioned.stage + ": " + versioned.error);
+  ok("…and the container reports the version beside the script's stamp",
+    !!(versioned.worker && versioned.worker.version === VER), JSON.stringify(versioned.worker && { build: versioned.worker.build, version: versioned.worker.version }));
+  // A bucket laid out the way a staged build is: one asset under the own
+  // prefix, one only under the parent's, the live marker where it always was.
+  const layoutBucket = (slug) => {
+    const keys = new Map([
+      ["builds/" + slug + "/" + VER + "/client/assets/own.js", "own"],
+      ["builds/" + slug + "/" + PARENT + "/client/assets/old.js", "old"],
+      ["sites/" + slug + "/assets/legacy.js", "legacy"],
+    ]);
+    const obj = (k) => (keys.has(k) ? { body: keys.get(k), writeHttpMetadata() {}, async text() { return keys.get(k); } } : null);
+    return { get: async (k) => obj(k), head: async (k) => (k === "sites/" + slug + "/site.live" ? {} : null) };
+  };
+  const serveAt = async (build, slug, bucket, pathname) => {
+    if (!build.ok || !build.worker || !build.worker.ok) return null;
+    const f = path.join(sandbox, "ver-bundle-" + Math.random().toString(36).slice(2) + ".mjs");
+    fs.writeFileSync(f, build.worker.code);
+    try {
+      const app = (await import("file://" + f)).default;
+      return await app.fetch(new Request("https://x.gofarther.app" + pathname), { SITES: bucket(slug) }, { waitUntil() {} });
+    } catch (e) { return new Response("IMPORT FAILED: " + String((e && e.message) || e), { status: 500 }); }
+  };
+  const vHome = await serveAt(versioned, "ver-site", layoutBucket, "/");
+  ok("a served page says which version answered", !!vHome && vHome.headers.get("x-site-version") === VER, vHome && vHome.headers.get("x-site-version"));
+  const vOwn = await serveAt(versioned, "ver-site", layoutBucket, "/assets/own.js");
+  ok("an asset is served from the script's OWN prefix", !!vOwn && vOwn.status === 200 && (await vOwn.text()) === "own", vOwn && vOwn.status);
+  const vOld = await serveAt(versioned, "ver-site", layoutBucket, "/assets/old.js");
+  ok("…and a chunk the previous build had is served from the PARENT's prefix — the one fallback hop",
+    !!vOld && vOld.status === 200 && (await vOld.text()) === "old", vOld && vOld.status);
+  const vLegacy = await serveAt(versioned, "ver-site", layoutBucket, "/assets/legacy.js");
+  ok("…and never from the legacy prefix when a parent exists", !!vLegacy && vLegacy.status === 404, vLegacy && vLegacy.status);
+  const vMiss = await serveAt(versioned, "ver-site", layoutBucket, "/assets/none.js");
+  ok("…and a file nobody has is a 404", !!vMiss && vMiss.status === 404, vMiss && vMiss.status);
+  // The versionless script — every site published before this — is untouched:
+  // no version header, the legacy prefix, no fallback.
+  const legacyHome = await serveAt(withLogo, "logo-site", layoutBucket, "/");
+  ok("a versionless script sends no version header", !!legacyHome && legacyHome.headers.get("x-site-version") === null, legacyHome && legacyHome.headers.get("x-site-version"));
+  const legacyAsset = await serveAt(withLogo, "logo-site", layoutBucket, "/assets/legacy.js");
+  ok("…and reads the legacy prefix exactly as before", !!legacyAsset && legacyAsset.status === 200 && (await legacyAsset.text()) === "legacy", legacyAsset && legacyAsset.status);
+  // A version that is not one bakes as none: the script must never build a
+  // key out of a string the Worker did not mint.
+  const junkVer = await post({ files: { "index.tsx": CHROMED }, slug: "ver-site", title: "Sharp Fade Barbers", worker: true, version: "../current", parent: "x" });
+  ok("a malformed version bakes as none", junkVer.ok === true && !(junkVer.worker && junkVer.worker.version), JSON.stringify(junkVer.worker && junkVer.worker.version));
+  const junkHome = await serveAt(junkVer, "ver-site", layoutBucket, "/");
+  ok("…and that script sends no version header", !!junkHome && junkHome.headers.get("x-site-version") === null, junkHome && junkHome.headers.get("x-site-version"));
   // ── a link to a page that does not exist ─────────────────────────────────────
   //
   // PROVEN AS A CHAIN, not as a regex. The unit test asserts validatePages rewrites

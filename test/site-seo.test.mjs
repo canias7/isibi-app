@@ -343,7 +343,11 @@ test("ON A CUSTOM DOMAIN THE SITEMAP IS THE OWNER'S OWN ADDRESS, never ours", as
 
 // ── The publish wiring (source-reads, the layer below the harness) ──────────
 
-test("writeSiteDistToR2 derives the manifest and writes both files into the dist", () => {
+test("composePublish derives the manifest and writes both files into the dist", () => {
+  // `composePublish` since stage 7 (2026-09-05): the pure half of what
+  // `writeSiteDistToR2` did — the manifest, the sitemap and the robots into
+  // the dist, the sidecar composed and returned — with the live-prefix writes
+  // gone to `site-builds.mjs`. Same window, same properties.
   // ANCHORED ON THE PROPERTY, NOT THE SPELLING. This pinned the exact parameter
   // list and went red the moment a sixth argument was added for renames — a test
   // about word order, which is this repo's most repeated own-goal. What it needs
@@ -353,10 +357,10 @@ test("writeSiteDistToR2 derives the manifest and writes both files into the dist
   // both, which is why this half survived; the CALL-SITE check below did not,
   // and had to be widened a second time. A guard that pins an arity is a guard
   // that goes red on every honest addition.
-  const at = worker.search(/async function writeSiteDistToR2\(env, slug, dist, meta, pages\b/);
+  const at = worker.search(/async function composePublish\(env, slug, dist, meta, pages\b/);
   assert.ok(at > 0, "the publish choke point no longer takes pages — the manifest has no source");
-  const end = worker.indexOf("const entries = Object.entries(dist || {})", at);
-  assert.ok(end > at, "the entries sort moved — the manifest window has no end");
+  const end = worker.indexOf("const sidecar = {", at);
+  assert.ok(end > at, "the sidecar composition moved — the manifest window has no end");
   const head = worker.slice(at, end);
   // …AND THE LANGUAGE PREFIXES GO WITH THEM. Pinned as `siteRoutes(pages)`
   // exactly, this is the third arity in this file to go red on an honest
@@ -420,26 +424,34 @@ test("the sitemap and robots are archived with the build, so a restore keeps the
   // It is entirely an ORDERING property, which is what makes it worth pinning:
   // hoist either `Object.keys` above the write and the files silently stop
   // being archived, with nothing else changing.
-  const archives = [...worker.matchAll(/archiveVersion\(versionDeps\(env\), \{/g)].map((m) => m.index);
-  assert.equal(archives.length, 2, "expected both archive call sites, found " + archives.length);
-  for (const at of archives) {
-    const write = worker.lastIndexOf("writeSiteDistToR2(", at);
-    assert.ok(write > 0 && write < at,
-      "an archive runs BEFORE its publish — the sitemap and robots are left out of the version");
-    const files = worker.slice(at, at + 700).match(/files: Object\.keys\((\w+)[^)]*\)/);
-    assert.ok(files, "the archive no longer enumerates the dist — it cannot see what was published");
+  // THE ARCHIVE IS THE STAGED PREFIX (stage 7, 2026-09-05): `composePublish`
+  // adds the two files to the dist, and `stageBuild` writes THAT dist under
+  // the version's prefix — so the ordering that matters is compose before
+  // stage, at both call sites, with the stage handed the same dist object.
+  // This read `archiveVersion(` after `writeSiteDistToR2(` and went red for
+  // the change.
+  const stages = [...worker.matchAll(/stageBuild\(buildDeps\(env\), \{/g)].map((m) => m.index);
+  assert.equal(stages.length, 2, "expected both stage call sites, found " + stages.length);
+  for (const at of stages) {
+    const compose = worker.lastIndexOf("composePublish(", at);
+    assert.ok(compose > 0 && compose < at,
+      "a stage runs BEFORE its compose — the sitemap and robots are left out of the version");
+    const files = worker.slice(at, at + 400).match(/files: (built\.files|dist),/);
+    assert.ok(files, "the stage is not handed the composed dist — it cannot see the sitemap");
   }
-  // And the sweep keeps them: they go through the same loop that fills `wrote`.
-  const at = worker.indexOf("async function writeSiteDistToR2");
-  const body = worker.slice(at, worker.indexOf("deleteSitePrefix(env, slug, wrote)", at));
-  assert.match(body, /wrote\.add\(safeRel\)/,
-    "the keep-set is not filled from the write loop — a publish would sweep its own sitemap");
+  // And every entry of that dist is what the manifest lists: the module counts
+  // what it wrote off the same loop.
+  const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
+  const stage = builds.slice(builds.indexOf("export async function stageBuild("), builds.indexOf("export async function readPointer("));
+  assert.match(stage, /names\.push\(safe\)/, "the manifest's file list is not filled from the write loop");
 });
 
 test("both publish paths hand their pages to the choke point", () => {
   // The spine and the build dep — miss one and that path's publishes silently
   // stop writing a sitemap and stop leaving redirects. Derived over every call.
-  const calls = [...worker.matchAll(/await writeSiteDistToR2\(env, slug, [^;]+?\);/gs)].map((m) => m[0]);
+  // `composePublish` since stage 7 (2026-09-05) — the choke point that sees
+  // the pages; the live-prefix writer this used to name is gone.
+  const calls = [...worker.matchAll(/await composePublish\(env, slug, [^;]+?\);/gs)].map((m) => m[0]);
   assert.ok(calls.length >= 2, "expected both publish call sites, found " + calls.length);
   for (const c of calls) {
     // `pages` LAST OR FOLLOWED BY THE RENAME PAIR. It was pinned to `}, pages);`

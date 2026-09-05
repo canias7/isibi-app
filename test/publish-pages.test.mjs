@@ -975,8 +975,16 @@ test("THE PUBLISH-TIME HEAD IS A SIDECAR, and no document is patched", async () 
   // Either half alone passes while the wire is cut: a publish that writes no
   // sidecar loses every site's share tags, and a bundle with no slug addresses
   // the wrong API.
-  assert.match(src, /await env\.SITES_BUCKET\.put\(siteMetaKey\(slug\)/,
-    "the publish no longer writes the meta sidecar");
+  // COMPOSED BEFORE THE GATE, WRITTEN AT ACTIVATION (stage 7, 2026-09-05): the
+  // sidecar is composed by `composePublish`, kept as the version's state, and
+  // `activateBuild` writes it to its live key (`sidecarKey`) after the pointer
+  // moves and before the script goes up. This read a direct put of
+  // `siteMetaKey(slug)` and went red for the change; the property is that
+  // both publish paths hand the key in and the module writes it.
+  assert.equal((src.match(/sidecarKey: siteMetaKey\(slug\)/g) || []).length, 3,
+    "the meta sidecar's key is not handed to activation on the spine, the build path and the restore");
+  const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
+  assert.match(builds, /await deps\.put\(sidecarKey, sidecar, "application\/json"\)/, "activation no longer writes the meta sidecar");
   const brand = fs.readFileSync(new URL("../builder/lovable/template/src/site-brand.ts", import.meta.url), "utf8");
   assert.match(brand, /export const SITE_SLUG/, "the bundle no longer carries its own slug");
 });

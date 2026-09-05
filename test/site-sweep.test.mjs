@@ -203,13 +203,27 @@ test("BOTH publish paths get the grace period", () => {
   const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /import \{[^}]*sweepAfterPublish[^}]*\} from "\.\/site-sweep\.mjs"/,
     "the Worker does not import the sweep");
-  assert.match(worker, /await sweepAfterPublish\(sweepDeps\(env\), \{ slug, wrote \}\)/,
-    "the ordinary publish no longer defers");
+  // THE GRACE PERIOD IS A READ NOW, NOT A DEFERRED DELETE (stage 7, 2026-09-05).
+  // The ordinary publish writes nothing to the live prefix and sweeps nothing:
+  // every build keeps its own prefix, the script falls back ONE HOP to its
+  // parent's prefix for a chunk a visitor's previous document still asks for,
+  // and pruning keeps the pointer's version and its parent. So the property —
+  // an in-session visitor survives one republish — holds through three
+  // things read here. This asserted the sweep call on the publish path and
+  // went red for the change; the legacy sweep stays on the legacy rollback.
+  assert.doesNotMatch(worker, /await sweepAfterPublish\(sweepDeps\(env\), \{ slug, wrote \}\)/,
+    "the ordinary publish sweeps the live prefix again — a version-aware publish never writes there");
+  assert.match(worker, /keep: \[version, parentVersion\]/, "the spine's prune does not keep the parent");
+  assert.match(worker, /keep: \[bVersion, bParent\]/, "the build path's prune does not keep the parent");
+  const entry = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
+  assert.match(entry, /if \(!obj && PARENT_ASSETS\) obj = env\.SITES && \(await env\.SITES\.get\(PARENT_ASSETS \+ url\.pathname\)\);/,
+    "the script no longer falls back to its parent's prefix — an in-session visitor 404s on the first republish");
   assert.doesNotMatch(worker, /deleteSitePrefix\(env, slug, wrote\)/,
     "the immediate sweep is back on the publish path");
-  // The rollback goes through the deps that carry it, at every call site.
+  // The LEGACY rollback goes through the deps that carry the sweep — one call
+  // site now, inside the one restore function both routes use.
   const calls = [...worker.matchAll(/rollbackVersion\((\w+)\(env\)/g)].map((m) => m[1]);
-  assert.ok(calls.length >= 2, `only ${calls.length} rollback call sites found — the scan stopped matching`);
+  assert.ok(calls.length >= 1, `no rollback call site found — the scan stopped matching`);
   for (const d of calls) assert.equal(d, "versionDepsWithSweep", "a rollback call site sweeps immediately");
 });
 

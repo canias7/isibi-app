@@ -243,19 +243,25 @@ test("editing the words asks no model anything", () => {
 test("a failed compile leaves the live site alone", () => {
   const block = spine();
   const refuse = block.indexOf('error: "compile"');
-  const publish = block.indexOf("writeSiteDistToR2");
-  assert.ok(refuse > 0 && publish > refuse,
+  // THE FIRST WRITE IS THE STAGING (stage 7, 2026-09-05) — additive, under the
+  // build's own prefix — and the live site moves only at `activateBuild`. This
+  // read `writeSiteDistToR2` and went red for the change; the property is the
+  // order.
+  const publish = block.indexOf("stageBuild(buildDeps(env), {");
+  const live = block.indexOf("activateBuild(buildDeps(env), {");
+  assert.ok(refuse > 0 && publish > refuse && live > publish,
     "the compile refusal must come BEFORE anything is published");
 });
 
 test("the edited source is stored back, or the next edit starts from the old words", () => {
   const block = spine();
   assert.match(block, /saveSiteSource\(env, slug, pages\)/);
-  assert.match(block, /archiveVersion\(/, "and it must be a version, so it can be rolled back like any build");
+  assert.match(block, /stageBuild\(/, "and it must be a version, so it can be rolled back like any build");
   // AFTER the publish, never before: the stored source is what the NEXT edit
   // reads, so writing it before the compile is proved hands that edit a version
-  // which does not build.
-  assert.ok(block.indexOf("saveSiteSource") > block.indexOf("writeSiteDistToR2"),
+  // which does not build. Since stage 7 it is the activation's state copy,
+  // after the pointer moved and the script went up.
+  assert.ok(block.indexOf("saveSiteSource") > block.indexOf("activateBuild(buildDeps(env), {"),
     "the source is stored before the publish is proved");
   // …and the route must hand it the edited pages, or the spine stores nothing.
   assert.match(textRoute(), /pages: ed\.pages/, "the edited pages never reach the spine");
@@ -321,7 +327,7 @@ test("a failed compile leaves the live site alone — the ordering IS the guaran
   assert.match(block, /if \(!built \|\| built\.ok !== true \|\| !built\.files\) \{/,
     "the compile result must be the condition, not merely mentioned");
   const refuse = block.indexOf("if (!built || built.ok !== true");
-  const publish = block.indexOf("writeSiteDistToR2");
+  const publish = block.indexOf("stageBuild(buildDeps(env), {");
   assert.ok(refuse > 0 && publish > refuse, "nothing may publish before that check");
 });
 

@@ -189,7 +189,11 @@ test("siteOgImage: the owner's CHOICE, then an owner upload, then the card — n
   // the bucket whether the LAST publish left a card serving. Gated on `!dist`,
   // because on a publish whose own compose failed the published card is about
   // to be swept by the very publish the answer rides on.
-  const headAt = body.indexOf('.head("sites/" + slug + "/card.png")');
+  // THROUGH THE POINTER (stage 7, 2026-09-05): the live card is the live
+  // build's, under `builds/<slug>/<version>/client/` when the site has a
+  // pointer and the frozen legacy prefix otherwise. This read the legacy key
+  // alone and went red for the change.
+  const headAt = body.indexOf('.head(assetKeyFor(await sitePointer(env, slug), slug, "card.png"))');
   const distGate = body.indexOf("if (!dist) {");
   assert.ok(headAt > 0, "with no dist in hand the published card is never looked for");
   assert.ok(distGate > 0 && distGate < headAt,

@@ -119,7 +119,9 @@ export async function verifyJobToken(token, key, now = Date.now()) {
 /** The prefixes a site's job may read and write under. */
 export function jobPrefixes(slug) {
   const s = String(slug || "");
-  return ["sites/", "source/", "versions/", "uploads/", "backups/"].map((p) => p + s + "/");
+  // `builds/` since stage 7 (2026-09-05): every publish stages its own prefix
+  // there, so a job that could not write it would fail at its first put.
+  return ["sites/", "source/", "versions/", "uploads/", "backups/", "builds/"].map((p) => p + s + "/");
 }
 
 /** May a job for `slug` with id `id` touch `key`? */
@@ -129,6 +131,8 @@ export function allowedJobKey(slug, id, key) {
   if (k.includes("..")) return false;
   if (jobPrefixes(slug).some((p) => k.startsWith(p))) return true;
   if (k === "config/" + slug + ".json") return true;
+  // The site's pointer (stage 7) — the one object activation moves.
+  if (k === "current/" + slug + ".json") return true;
   // The job's own objects: the request it replays, its result, its resume
   // record — every one named by the job's id, none by anybody else's.
   if (k.startsWith("jobs/") && k.includes(String(id))) return true;

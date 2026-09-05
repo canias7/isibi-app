@@ -410,12 +410,13 @@ test("the archive is labelled with the change, and the change reaches it", () =>
   assert.match(worker, /changeNote:\s*brief,/, "the route must send the raw turn message");
   assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*changeNote/,
     "…and the build function must take it");
-  // Inside the BUILD path: the shared spine archives too, with its own label,
-  // and it is defined above — so the first `archiveVersion(` in the file is no
-  // longer this one.
+  // Inside the BUILD path: the shared spine stages too, with its own label,
+  // and it is defined above — so the first `stageBuild(` in the file is no
+  // longer this one. THE ARCHIVE IS THE STAGED PREFIX since stage 7
+  // (2026-09-05): the label rides in the manifest `stageBuild` writes.
   const bp = worker.indexOf("async function buildAndPublishPages");
   assert.ok(bp > 0, "the build function is gone");
-  const i = worker.indexOf("await archiveVersion(", bp);
+  const i = worker.indexOf("await stageBuild(", bp);
   assert.ok(i > bp, "the build path no longer archives");
   const call = worker.slice(i, worker.indexOf("});", i));
   assert.match(call, /label: versionLabel\(\{[^}]*changeNote/, "…and the label must be built from it");
@@ -442,14 +443,24 @@ test("the publish path archives, and cannot fail a publish that succeeded", asyn
   // both ends are proved present before anything is read between them
   // (`indexOf` answering -1 gives `slice(-1, -1)` = "", which passes every
   // assertion inside it).
-  const i = worker.indexOf("await archiveVersion(");
-  assert.ok(i > 0, "nothing archives — version history is dead at the publish end");
-  const open = worker.lastIndexOf("try {", i);
-  assert.ok(open >= 0 && open < i, "the archive call is not inside a try");
-  const nextFn = worker.indexOf("\nasync function ", i);
-  assert.ok(nextFn > i, "could not find the next sibling to close the window on");
-  assert.match(worker.slice(i, nextFn), /\}\s*catch\s*\(/,
-    "the archive call's try has no catch before the end of its function");
+  // SINCE STAGE 7 (2026-09-05) THE ARCHIVE IS THE STAGED PREFIX, written
+  // BEFORE the site is live — a failed stage refuses the publish with the live
+  // site untouched, which is the right answer there. The bookkeeping that
+  // runs AFTER the site is live is the state copy (fenced inside
+  // `activateBuild`) and the prune, which must never fail a publish that
+  // succeeded: both are read here, the prune on both publish paths.
+  const prunes = [...worker.matchAll(/await pruneBuilds\(buildDeps\(env\), \{ slug, keep: \[/g)].map((m) => m.index);
+  assert.equal(prunes.length, 2, "expected the spine and the build path to both prune; found " + prunes.length);
+  for (const i of prunes) {
+    const open = worker.lastIndexOf("try {", i);
+    assert.ok(open >= 0 && i - open < 200, "a prune is not inside a try");
+    const nextFn = worker.indexOf("\nasync function ", i);
+    assert.ok(nextFn > i, "could not find the next sibling to close the window on");
+    assert.match(worker.slice(i, nextFn), /\}\s*catch\s*\(/, "a prune's try has no catch before the end of its function");
+  }
+  const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
+  assert.match(builds, /try \{ await afterActivate\(\); \}\s*catch \(e\) \{ if \(deps\.log\) deps\.log\("state copy failed"/,
+    "the state copy after activation is not fenced — a lost source store could fail a publish that succeeded");
 });
 
 test("the restore route rolls back the version the CALLER named", () => {
@@ -462,11 +473,13 @@ test("the restore route rolls back the version the CALLER named", () => {
   // `rollbackVersion(versionDeps(env)` exactly, and went red on a correct change
   // the moment a rollback started getting the sweep — a test about word order,
   // which is this repo's most repeated own-goal.
-  const i = worker.indexOf("const rb = await rollbackVersion(");
+  // `restoreVersion(env, slug, id)` since stage 7 (2026-09-05) — the one
+  // restore for both layouts; the positional call carries the same two facts.
+  const i = worker.indexOf("const rb = await restoreVersion(");
   assert.ok(i > 0, "the restore route is gone — re-point this guard");
-  const call = worker.slice(i, worker.indexOf(")", worker.indexOf("{", i)) + 1);
-  assert.match(call, /slug:\s*ownerSlug/, "the slug comes from the authorised route, never the body");
-  assert.match(call, /id:\s*vb\s*&&\s*vb\.id/, "the id must come from the request body");
+  const call = worker.slice(i, worker.indexOf(";", i));
+  assert.match(call, /restoreVersion\(env, ownerSlug,/, "the slug comes from the authorised route, never the body");
+  assert.match(call, /,\s*vb\s*&&\s*vb\.id\)/, "the id must come from the request body");
 });
 
 test("the restore route's id is shape-checked exactly once", () => {
@@ -497,11 +510,15 @@ test("the versions route hands the module's answer through, unprojected", () => 
   // response literal are one statement, so the landmark is `\n`. If the route
   // legitimately grows a projection, re-point this at whatever preserves the
   // flag rather than deleting it.
-  const i = worker.indexOf("versions: await listVersions(");
+  // BOTH LAYOUTS THROUGH `mergeVersions` since stage 7 (2026-09-05), which
+  // keeps every row as it came — `restorable` included — and only orders and
+  // de-duplicates.
+  const i = worker.indexOf("versions: mergeVersions(await listVersions(");
   assert.ok(i > 0, "the versions listing route is gone — re-point this guard");
   const stmt = worker.slice(i, worker.indexOf("\n", i));
   assert.ok(!/\.map\(|\.filter\(|\.slice\(/.test(stmt),
     "the route projects the version list — `restorable` would never reach the panel: " + stmt.trim());
+  assert.match(stmt, /await listBuilds\(buildDeps\(env\), ownerSlug\)/, "the immutable builds are not listed");
 });
 
 test("deleting a site deletes its versions, after the live files", async () => {

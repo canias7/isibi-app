@@ -46,8 +46,16 @@ test("the publish WRITES it and reads the previous one from the same place", () 
   // 301ing a moment earlier.
   assert.match(WORKER, /const po = await env\.SITES_BUCKET\.get\(siteMetaKey\(slug\)\)/,
     "the previous manifest is no longer read from the sidecar");
-  assert.match(WORKER, /await env\.SITES_BUCKET\.put\(siteMetaKey\(slug\)/,
-    "the publish no longer writes the sidecar — every site would lose its share tags");
+  // WRITTEN AT ACTIVATION (stage 7, 2026-09-05): the publish composes the
+  // sidecar before the gate, keeps it as the version's state, and hands its
+  // live key to `activateBuild`, which writes it after the pointer moves and
+  // before the script goes up. This read a direct put and went red for the
+  // change; the property — the same key is read and written — holds through
+  // `siteMetaKey(slug)` on both sides.
+  assert.ok((WORKER.match(/sidecarKey: siteMetaKey\(slug\)/g) || []).length >= 2,
+    "the publish paths no longer hand the sidecar's key to activation — every site would lose its share tags");
+  const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
+  assert.match(builds, /await deps\.put\(sidecarKey, sidecar, "application\/json"\)/, "activation does not write the sidecar");
 });
 
 test("A FAILURE COSTS THE SHARE TAGS, NEVER THE PUBLISH", () => {
@@ -55,11 +63,15 @@ test("A FAILURE COSTS THE SHARE TAGS, NEVER THE PUBLISH", () => {
   // without it. Failing a publish over a preview card would trade a working site
   // for a link preview, which is the wrong way round — the same rule the theme
   // and font writers already live under.
-  const at = WORKER.indexOf("await env.SITES_BUCKET.put(siteMetaKey(slug)");
+  // THE WRITE LIVES IN `activateBuild` SINCE STAGE 7 (2026-09-05), fenced
+  // there: a failed sidecar put is logged and the activation goes on to the
+  // script, exactly the rule this held when the write was inline.
+  const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
+  const at = builds.indexOf("await deps.put(sidecarKey, sidecar,");
   assert.ok(at > 0, "the sidecar write moved — rescope this");
-  const open = WORKER.lastIndexOf("try {", at);
-  const win = WORKER.slice(open, WORKER.indexOf("\n", WORKER.indexOf("catch", at)));
-  assert.match(win, /catch \(e\) \{ console\.error\("site meta sidecar failed:"/,
+  const open = builds.lastIndexOf("try {", at);
+  const win = builds.slice(open, builds.indexOf("\n", builds.indexOf("catch", at)));
+  assert.match(win, /catch \(e\) \{ if \(deps\.log\) deps\.log\("sidecar write failed"/,
     "the sidecar write is not fenced — a share tag can fail a customer's publish");
 });
 
@@ -87,11 +99,16 @@ test("THE LIVENESS MARKER IS THE TAKE-DOWN, and both sides spell it the same", (
   assert.ok(inEntry, "the site's Worker no longer names a liveness marker");
   assert.equal(inEntry[1], SITE_LIVE_FILE,
     "the platform publishes a different marker than the site probes for");
-  // PUBLISHED WITH THE DIST, not written separately — so it rides the same
-  // ordering, the same sweep keep-set and the same prefix wipe as every other
-  // file, and no second path can leave it behind.
-  assert.match(WORKER, /dist\[SITE_LIVE_FILE\] = \{ t: "1" \}/,
-    "the marker is not published with the site's files");
+  // WRITTEN AT ACTIVATION, AT ITS OLD ADDRESS (stage 7, 2026-09-05). It rode
+  // in the dist while the dist was written over the served prefix; a version's
+  // prefix now carries only what that version serves, and the marker stays at
+  // `sites/<slug>/site.live` — where every script, old and new, probes for it
+  // — written by `activateBuild` on every activation (the spine, the build
+  // path, the restore) and still under the prefix the take-down wipes.
+  assert.equal((WORKER.match(/liveKey: "sites\/" \+ slug \+ "\/" \+ SITE_LIVE_FILE/g) || []).length, 3,
+    "the marker is not handed to activation on every path that makes a site live");
+  const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
+  assert.match(builds, /await deps\.put\(liveKey, "1", "text\/plain"\)/, "activation does not write the marker");
 });
 
 test("A MISS IS PERMANENT AND A THROW IS TRANSIENT", () => {

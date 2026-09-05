@@ -23,8 +23,28 @@
 // dispatch namespace. Stated because it is the first design anybody reaches for
 // and the runtime refuses it, not our architecture.
 import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server";
-import { SITE_BUILD, SITE_SLUG } from "./site-brand";
+import { SITE_BUILD, SITE_SLUG, SITE_VERSION, SITE_PARENT } from "./site-brand";
 import { setSiteMeta, type SiteMeta } from "./site-runtime";
+
+// ── THIS SCRIPT READS ITS OWN PREFIX (stage 7, 2026-09-05) ────────────────────
+//
+// A publish stages its dist under `builds/<slug>/<version>/client/` and never
+// changes it; the version is baked here beside the build id. So the assets
+// this document names are the ones under this script's own prefix, whatever
+// is published after it — uploading a script can never point a live page at
+// files that are not there, and an old script keeps serving its own build
+// until the new one is live.
+//
+// ONE FALLBACK HOP, and it is the in-session grace the platform's sweep used
+// to give by deferring deletes: a visitor holding the PREVIOUS build's
+// document asks this script for that build's chunk, which lives under the
+// parent's prefix — or under the frozen `sites/<slug>/` for a site whose last
+// publish was made before this. A script built before this has no version
+// and reads `sites/<slug>/` exactly as it always did.
+const OWN_ASSETS = SITE_VERSION ? "builds/" + SITE_SLUG + "/" + SITE_VERSION + "/client" : "sites/" + SITE_SLUG;
+const PARENT_ASSETS = SITE_VERSION
+  ? (SITE_PARENT ? "builds/" + SITE_SLUG + "/" + SITE_PARENT + "/client" : "sites/" + SITE_SLUG)
+  : "";
 
 // KEPT IN STEP WITH `site-meta.mjs`'s `SITE_LIVE_FILE` BY A TEST. The template is
 // built separately and cannot import it, and a mismatch here is silent in the
@@ -107,6 +127,9 @@ const stamp = (res: Response): Response => {
   try {
     const h = new Headers(res.headers);
     h.set("x-site-build", SITE_BUILD);
+    // AND WHICH VERSION — the prefix this script serves. Empty on a script
+    // built before the layout existed, and then not sent at all.
+    if (SITE_VERSION) h.set("x-site-version", SITE_VERSION);
     // THE BODY IS PASSED THROUGH, NOT READ. Start streams its SSR response, so
     // buffering it here would hold every page until the last byte and give up
     // the streaming the handler exists to do.
@@ -134,7 +157,10 @@ const site = {
     // request for what a CDN does for nothing, on the files requested most.
     // Only the document is rendered.
     if (isAsset(url.pathname)) {
-      const obj = env.SITES && (await env.SITES.get("sites/" + SITE_SLUG + url.pathname));
+      let obj = env.SITES && (await env.SITES.get(OWN_ASSETS + url.pathname));
+      // The one hop back — see `PARENT_ASSETS` above. Never for a versionless
+      // script, whose own prefix IS the legacy one.
+      if (!obj && PARENT_ASSETS) obj = env.SITES && (await env.SITES.get(PARENT_ASSETS + url.pathname));
       if (!obj) return new Response("Not found", { status: 404 });
       const h = new Headers();
       obj.writeHttpMetadata(h);

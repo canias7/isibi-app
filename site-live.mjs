@@ -159,6 +159,14 @@ export async function putBackOnline(deps, { slug } = {}) {
   if (back.how === "version") {
     let out = null;
     try { out = await deps.rollback({ slug, id: back.id }); } catch (e) { out = { ok: false, error: e }; }
+    if (out && out.ok && out.activated === true) {
+      // A VERSION-AWARE RESTORE (stage 7) IS AN ACTIVATION: the pointer moved
+      // and the version's own script went up inside `deps.rollback`, so there
+      // is no second half to settle here — uploading it again would only be a
+      // repeat, and reading `worker` as absent would DROP it. Said as uploaded,
+      // because it was.
+      return { ok: true, live: true, how: "version", files: out.files, worker: "uploaded", msg: "✅ Back online at the same address." };
+    }
     if (out && out.ok) {
       // AFTER THE FILES, ALWAYS. `rollbackVersion` has already copied them by
       // the time it returns, which is why the script rides on the RETURN rather
