@@ -90,6 +90,7 @@ import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
 import { reconcileVerdict, reconcileReply, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
+import { MIGRATIONS_KEY, readMigrations, newMigration, withApplied, upsertMigration, markMigration, pendingMigration, migrationNote, migrationSummary } from "./builder/site-migrations.mjs";
 // ── THE LOOK IS THE STYLESHEET, AND ONE NAME SURVIVES THE ENGINE ────────────
 //
 // Twenty-one names were imported here from `site-tokens.mjs` and
@@ -152,7 +153,7 @@ import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LA
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec } from "./builder/site-add.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -8986,6 +8987,59 @@ async function loadAddonAnswer(env, slug) {
   } catch (e) { console.error("addon answer read failed:", slug, e && e.message); return null; }
 }
 
+// ── THE MIGRATION RECORD (stage 8, 2026-09-05) ─────────────────────────────
+//
+// What an addition did to the site's database, by job: `pending` before the
+// first statement, `applied` once the page went live, `applied_without_page`
+// when the publish after it failed, `failed` when the apply itself refused.
+// The vocabulary and the shapes are `builder/site-migrations.mjs`; these
+// three are the store — `source/<slug>/migrations.json`, the answer store's
+// own pattern and key prefix, under the gateway wall's `source/` admission.
+//
+// AN INSTRUMENT, NEVER THE AUTHORITY: every write is best-effort and answers
+// rather than throws, because a record that could not be written must never
+// fail the addition it records — the tables are what the customer paid for,
+// the record is what says so. A read that fails reads as no record.
+const readSiteMigrations = async (env, slug) => {
+  if (!env.SITES_BUCKET) return [];
+  try {
+    const o = await env.SITES_BUCKET.get(MIGRATIONS_KEY(slug));
+    return o ? readMigrations(await o.text()) : [];
+  } catch (e) { console.error("migrations read failed:", slug, e && e.message); return []; }
+};
+const writeSiteMigrations = async (env, slug, list) => {
+  if (!env.SITES_BUCKET) return false;
+  try {
+    await env.SITES_BUCKET.put(MIGRATIONS_KEY(slug), JSON.stringify({ at: new Date().toISOString(), slug, migrations: list }), { httpMetadata: { contentType: "application/json" } });
+    return true;
+  } catch (e) { console.error("migrations write failed:", slug, e && e.message); return false; }
+};
+/**
+ * The customer's sentence for a schema the engine refused to apply. "Your
+ * site is untouched" is TRUE here by construction since stage 8: the apply
+ * runs after the compile and before the publish gate, so a refusal leaves
+ * nothing activated and nothing charged once the consumer's refund lands.
+ */
+const ADDON_SCHEMA_FAIL_MSG = "That change needed the site's database and it couldn't be applied — this is on us, and your site is untouched. Try again in a few minutes.";
+/** File a fresh `pending` record for this job — replacing an earlier record of the same job — and answer it. */
+async function recordSiteMigration(env, slug, entry) {
+  const list = upsertMigration(await readSiteMigrations(env, slug), entry);
+  await writeSiteMigrations(env, slug, list);
+  return entry;
+}
+/**
+ * Move one job's record to a state. Answers the moved record, or null when
+ * the job has none (a record that was never filed, or a store that could not
+ * be read) — the caller says what it can without it.
+ */
+async function settleSiteMigration(env, slug, job, status, patch = {}) {
+  const list = await readSiteMigrations(env, slug);
+  const moved = markMigration(list, job, status, patch);
+  if (!moved.entry) return null;
+  await writeSiteMigrations(env, slug, moved.list);
+  return moved.entry;
+}
+
 /**
  * AND THE COMPONENTS WRITTEN FOR THIS SITE, which the kit does not have.
  *
@@ -10689,12 +10743,26 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     try {
       seamOut = await afterCompile({
         built, pages, langs: siteLangs, job,
+        // AND THE VERSION THIS PUBLISH WILL ACTIVATE (stage 8), minted before
+        // the compile, so a record the hook writes can name it.
+        version,
         recompile: async (list) => { files = filesFor(list); return compile(); },
       });
     } catch (e) {
       tm("seam", "fail", { name: String((e && e.name) || "Error") });
       console.error("afterCompile failed:", slug, e && e.message);
       seamOut = null;
+    }
+    // A SEAM THAT REFUSES (stage 8, 2026-09-05). The hook may answer `refuse`
+    // — something it had to do before the first write did not happen (the
+    // addon's schema apply refused by the database) — and the publish stops
+    // HERE, before the staging and the gate: nothing written, nothing
+    // activated, the refund clean. Only an object naming an error is a
+    // refusal; anything else is read as before. Said as ours unless the hook
+    // says otherwise: a database that refused DDL is not the customer's words.
+    if (seamOut && typeof seamOut === "object" && seamOut.refuse && typeof seamOut.refuse === "object" && seamOut.refuse.error) {
+      tm("seam", "refused", { why: String(seamOut.refuse.error) });
+      return { ok: false, error: String(seamOut.refuse.error), ours: seamOut.refuse.ours !== false, detail: String(seamOut.refuse.detail || "").slice(0, 200) };
     }
     const replaced = !!(seamOut && seamOut.built && seamOut.built.ok === true && seamOut.built.files && Array.isArray(seamOut.pages));
     if (replaced) { built = seamOut.built; pages = seamOut.pages; }
@@ -12747,6 +12815,19 @@ async function applyReconcile(env, row, out, refundedHint = 0) {
     if (!(out.verdict === "kept" && hasReply)) {
       await editRpc(env, "edit_finalize", { p_id: id, p_result: reconcileReply(out, row, Number(r.refunded) || refundedHint || 0), p_ok: out.verdict === "kept" });
     }
+    // THE MIGRATION RECORD FOLLOWS THE VERDICT (stage 8). An addon that
+    // applied its schema and then died between the seam and its own mark
+    // left the record `pending`; the verdict is the same fact the route would
+    // have marked with — the page is live (`applied`) or it is not
+    // (`applied_without_page`, the tables standing either way). Best-effort,
+    // after the money: a record that cannot be written never undoes a verdict.
+    try {
+      const mig = pendingMigration(await readSiteMigrations(env, row.slug), id);
+      if (mig) {
+        await settleSiteMigration(env, row.slug, id, out.verdict === "kept" ? "applied" : "applied_without_page",
+          { version: (out.mine && out.mine.version) || mig.version || null, publish: { ok: out.verdict === "kept", reconciled: out.kind } });
+      }
+    } catch (e) { console.error("reconcile: migration record", id, String((e && e.message) || e)); }
     console.log("reconcile:", id, out.verdict, "(" + out.kind + ") —", out.why, out.verdict === "refunded" ? "refunded " + String(Number(r.refunded) || 0) : "");
     return { ...out, applied: true, refunded: Number(r.refunded) || 0 };
   }
@@ -18672,6 +18753,25 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ ok: true, slug: rslug, applied: rapply, rows: rout });
     }
 
+    // GET /api/site/migrations?slug= — WHAT EACH ADDITION DID TO THE SITE'S
+    // DATABASE (stage 8, 2026-09-05).
+    //
+    // The record the addon route writes, newest first: which job designed
+    // which tables, functions, connections and jobs; what the engine applied
+    // and what it refused; whether the page those were made for went live
+    // (`applied`), never came (`applied_without_page`) or the apply itself
+    // refused (`failed`). Read-only, the owner's own site, the answer route's
+    // gate: a signed-in stranger gets the 404 a site that is not theirs gets.
+    if (url.pathname === "/api/site/migrations" && request.method === "GET") {
+      const mu = await authUser(request);
+      if (!mu) return UNAUTHED();
+      const mslug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
+      if (!mslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      const mown = await siteOwnerBySlug(mslug, env);
+      if (!mown || mown !== mu.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      return Response.json({ ok: true, slug: mslug, migrations: await readSiteMigrations(env, mslug) });
+    }
+
     // GET /api/site/reach — CAN THE BUILD CONTAINER REACH A MODEL PROVIDER.
     //
     // The one question the container-generation change rests on, and it has cost
@@ -23271,8 +23371,26 @@ async function handleRequest(request, env, ctx) {
             let aTables = [], aAltered = [], aSeeded = null, aSeedUsage = null, aSeedTopUp = null;
             let aProvisioned = false, aFunctions = [], aFnErrors = [], aApis = [], aJobs = [], aSecrets = [];
             // What sequence #1 reserved ahead of the schema apply, and whether it
-            // did — see the block before `applySiteSchema`.
+            // did — see the block before `aApplyBackend`.
             let aFirst = 0, aFirstPlaced = false;
+            // ── THE APPLY IS DEFERRED (stage 8, 2026-09-05) ─────────────────
+            //
+            // The schema used to be applied HERE, before the page call and the
+            // compile, so a publish that then failed kept the tables and said
+            // "your site is untouched": run 33 left `waiting_list` on
+            // fretwork-1 with no page showing it. Nothing in the page call, the
+            // compile or the render check needs the schema applied — the page
+            // call reads the SPEC (the union below), the render check answers
+            // every `/api/` request with `[]` — so the apply moves to the last
+            // moment before the publish gate: the spine's seam on the page
+            // path (after the repair round and the reservation check, before
+            // staging), and straight away on the pageless path, which has no
+            // compile. Built inside the block below, where `merged` and the
+            // seed are in scope; `null` when this addition designed no backend.
+            // Under a record: `builder/site-migrations.mjs`.
+            let aApplyBackend = null;
+            let aMigration = null;
+            const aMigJob = aJob ? String(aJob.id) : "sync:" + String((editTrace && editTrace.cid) || Date.now());
             if (aBackend.length) {
               if (!adb) {
                 // MAY THE DATABASE BE MADE? (async path) A cold provision is
@@ -23380,45 +23498,83 @@ async function handleRequest(request, env, ctx) {
                 aFirstPlaced = true;
                 if (aCharges.refused() > 0) return unbilledReply(aCharges);
               }
-              let aMade = null;
-              try {
-                aMade = await applySiteSchema(adb, merged);
-                // WHAT WAS CREATED, not what was NAMED. This read every table
-                // the designer mentioned, which was harmless while an existing
-                // one could not be touched and became a lie the moment it could:
-                // "made a bookings table" for a booking table the site has had
-                // since it was built.
-                aTables = folded.added;
-                aSpec = (await loadSiteSchema(adb).catch(() => null)) || merged;
-              } catch (e) {
-                console.error("addon schema apply failed:", ownerSlug, e && (e.detail || e.message));
-                return Response.json({ ok: false, error: "schema", cost: 0, msg: "That change needed the site's database and it couldn't be applied — your site is untouched." }, { status: 502 });
-              }
-              // WHAT THE ENGINE MADE, by the names THIS message designed — the
-              // build response's own reading of `made.functions` (a function
-              // that failed to CREATE is in `functionErrors`, not here), the
-              // connections and the jobs the merge kept, and every `{{SECRET}}`
-              // a new connection needs, so the reply can say what to paste.
+              // ── THE SCHEMA IS APPLIED AFTER THE COMPILE (stage 8) ──────────
+              //
+              // THE PAGE CALL READS THE UNION, not the database: the stored
+              // spec with this addition's tables, functions, connections and
+              // jobs folded in by name — what `loadSiteSchema` would answer
+              // AFTER the apply, without applying. The apply itself, the
+              // report reads, the job registration and the seeding are the
+              // closure below, run by the seam on the page path and directly
+              // on the pageless path. `aNamed` reads the names THIS message
+              // designed, so the reply says what the engine made of THEM — a
+              // function that failed to CREATE is in `functionErrors`, never
+              // in `functions`.
+              aSpec = unionSpec(aSpec, merged);
               const aNamed = (k) => (Array.isArray(aDesigned[k]) ? aDesigned[k] : []).map((x) => x && String(x.name || "").toLowerCase()).filter(Boolean);
-              const aMadeFns = Array.isArray(aMade && aMade.functions) ? aMade.functions : [];
-              aFunctions = aNamed("functions").filter((n) => aMadeFns.includes(n));
-              aFnErrors = Array.isArray(aMade && aMade.functionErrors) ? aMade.functionErrors.slice(0, 6) : [];
-              aApis = (merged.apis || []).map((a) => a.name).filter((n) => aNamed("apis").includes(n));
-              aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => ({ name: j.name, fn: j.fn, everyMinutes: j.everyMinutes, ...(j.at ? { at: j.at, tz: j.tz || null } : {}) }));
-              aSecrets = [...new Set((merged.apis || []).filter((a) => aApis.includes(a.name)).flatMap((a) => secretsNeeded(a)))];
-              // REGISTER THE JOBS — the build route's own call, best-effort
-              // and non-fatal for its reason: the database is live and a job
-              // that did not register is a job the next publish registers.
-              if (aJobs.length) {
-                try { await persistSiteJobs(env, ou.id, ownerSlug, merged.jobs); aMark("jobs", "ok", { n: aJobs.length }); }
-                catch (e) { console.error("addon jobs persist:", ownerSlug, e && e.message); }
-              }
-              // THE REPORT IS KEPT, not discarded — `{seeded, skipped}` is the
-              // only thing that can say why a new table arrived empty, and the
-              // old bare `await` threw it away, so the failure could not name
-              // itself here any more than it could on the build path.
-              try { aSeeded = await seedSiteRows(adb, merged, aSeed); }
-              catch (e) { console.error("addon seeding failed:", ownerSlug, e && e.message); }
+              aApplyBackend = async (version) => {
+                // FILED `pending` BEFORE THE FIRST STATEMENT — a job that dies
+                // between the record and the apply leaves a record a person
+                // can read against the database, never a table with no
+                // author. The version is the publish's, so the record and the
+                // manifest name the same thing; the pageless path has none.
+                aMigration = await recordSiteMigration(env, ownerSlug, newMigration({
+                  job: aMigJob, slug: ownerSlug, version,
+                  added: folded.added, altered: folded.altered.map((a) => a && a.table),
+                  functions: aNamed("functions"), apis: aNamed("apis"), jobs: aNamed("jobs"),
+                  provisioned: aProvisioned,
+                }));
+                aMark("schema", "start", { added: folded.added.length, altered: folded.altered.length, version: version || null });
+                let aMade = null;
+                try {
+                  aMade = await applySiteSchema(adb, merged);
+                  // WHAT WAS CREATED, not what was NAMED. This read every table
+                  // the designer mentioned, which was harmless while an existing
+                  // one could not be touched and became a lie the moment it could:
+                  // "made a bookings table" for a booking table the site has had
+                  // since it was built.
+                  aTables = folded.added;
+                  aSpec = (await loadSiteSchema(adb).catch(() => null)) || merged;
+                } catch (e) {
+                  // `failed`: nothing activated, the refund clean — the seam
+                  // answers a refusal and the route says it is ours; the
+                  // record keeps the error, so the next ask can read why.
+                  const detail = scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300);
+                  aMark("schema", "fail", { error: detail.slice(0, 200) });
+                  console.error("addon schema apply failed:", ownerSlug, detail);
+                  aMigration = (await settleSiteMigration(env, ownerSlug, aMigJob, "failed", { error: detail.slice(0, 200) })) || aMigration;
+                  return { ok: false, detail };
+                }
+                // WHAT THE ENGINE MADE, by the names THIS message designed — the
+                // build response's own reading of `made.functions`, the
+                // connections and the jobs the merge kept, and every `{{SECRET}}`
+                // a new connection needs, so the reply can say what to paste.
+                const aMadeFns = Array.isArray(aMade && aMade.functions) ? aMade.functions : [];
+                aFunctions = aNamed("functions").filter((n) => aMadeFns.includes(n));
+                aFnErrors = Array.isArray(aMade && aMade.functionErrors) ? aMade.functionErrors.slice(0, 6) : [];
+                aApis = (merged.apis || []).map((a) => a.name).filter((n) => aNamed("apis").includes(n));
+                aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => ({ name: j.name, fn: j.fn, everyMinutes: j.everyMinutes, ...(j.at ? { at: j.at, tz: j.tz || null } : {}) }));
+                aSecrets = [...new Set((merged.apis || []).filter((a) => aApis.includes(a.name)).flatMap((a) => secretsNeeded(a)))];
+                // REGISTER THE JOBS — the build route's own call, best-effort
+                // and non-fatal for its reason: the database is live and a job
+                // that did not register is a job the next publish registers.
+                if (aJobs.length) {
+                  try { await persistSiteJobs(env, ou.id, ownerSlug, merged.jobs); aMark("jobs", "ok", { n: aJobs.length }); }
+                  catch (e) { console.error("addon jobs persist:", ownerSlug, e && e.message); }
+                }
+                // THE REPORT IS KEPT, not discarded — `{seeded, skipped}` is the
+                // only thing that can say why a new table arrived empty, and the
+                // old bare `await` threw it away, so the failure could not name
+                // itself here any more than it could on the build path.
+                try { aSeeded = await seedSiteRows(adb, merged, aSeed); }
+                catch (e) { console.error("addon seeding failed:", ownerSlug, e && e.message); }
+                aMark("schema", "ok", { tables: aTables.length, functions: aFunctions.length, jobs: aJobs.length });
+                // THE ENGINE'S OWN REPORT ON THE RECORD, still `pending`: what
+                // stands in the database is known now; whether the page comes
+                // is not, and the mark after the publish says which.
+                aMigration = await recordSiteMigration(env, ownerSlug, withApplied(aMigration, aMade, { seeded: aSeeded }));
+                return { ok: true };
+              };
             }
 
             // ── THE BILL, AND WHEN IT IS TAKEN ────────────────────────────
@@ -23469,6 +23625,16 @@ async function handleRequest(request, env, ctx) {
             // the page path's, with nothing added, changed or moved, so one
             // reader (`addonAnswer`) reads both.
             if (pageless(aAnswers)) {
+              // THE APPLY, DIRECTLY (stage 8): nothing to compile, so nothing
+              // to wait for — the schema is applied here, under its record,
+              // and the record is `applied` the moment it lands: there is no
+              // page for it to wait on. Under a job the reserve (#1) is
+              // already placed and a refusal already answered, above.
+              if (aApplyBackend) {
+                const ap = await aApplyBackend(null);
+                if (!ap.ok) return Response.json({ ok: false, error: "schema", cost: 0, ours: true, msg: ADDON_SCHEMA_FAIL_MSG, detail: ap.detail, migration: migrationSummary(aMigration) }, { status: 502 });
+                aMigration = (await settleSiteMigration(env, ownerSlug, aMigJob, "applied", { publish: { ok: true, pageless: true } })) || aMigration;
+              }
               // Reserved ahead of the schema apply under a job (1a-ii); the
               // synchronous collect happens here, after the work, as before.
               const aCostNow = aFirstPlaced ? aFirst : await aCharge(pageCredits(...aDesignUsage, aSeedUsage));
@@ -23480,6 +23646,7 @@ async function handleRequest(request, env, ctx) {
                 functions: aFunctions, jobs: aJobs,
                 functionErrors: aFnErrors.length ? aFnErrors : undefined,
                 provisioned: aProvisioned || undefined,
+                migration: migrationSummary(aMigration),
                 cost: aCostNow,
               });
             }
@@ -23736,7 +23903,9 @@ async function handleRequest(request, env, ctx) {
             // the floor alone — a call is never refused for a number we do
             // not have.
             const aRepairNeedMs = aPagesWrote > 0 ? Math.round(aPagesMs / aPagesWrote) : 0;
-            const aAfterCompile = async ({ built, pages, langs, recompile, job }) => {
+            // AND THE VERSION THIS PUBLISH WILL ACTIVATE (stage 8), so the
+            // migration record and the manifest name the same thing.
+            const aAfterCompile = async ({ built, pages, langs, recompile, job, version }) => {
               const aClock = job && job.budget && typeof job.budget.canRepair === "function" ? job.budget : null;
               const room = !aClock || aClock.canRepair(aRepairNeedMs);
               aMark("repair", "start", {
@@ -23760,7 +23929,26 @@ async function handleRequest(request, env, ctx) {
                 try { aRepairRound.charged = Number(await aCharge(pageCredits(...aRepairRound.usage), 2)) || 0; }
                 catch (e) { aRepairRound.charged = 0; console.error("addon repair charge failed:", ownerSlug, e && e.message); }
               }
-              return aRepairRound.ran && aRepairRound.built ? { built: aRepairRound.built, pages: aRepairRound.pages } : null;
+              const aSwap = aRepairRound.ran && aRepairRound.built ? { built: aRepairRound.built, pages: aRepairRound.pages } : null;
+              // ── THE SCHEMA, LAST BEFORE THE GATE (stage 8, 2026-09-05) ────
+              //
+              // The compile has passed and the render check has spoken; the
+              // repair round's reserve (#2) is placed. This is the last moment
+              // before the spine's gate, and the FIRST at which a table is
+              // worth making: everything that could refuse for the customer's
+              // own reasons (a page that will not bundle, a ledger that said
+              // no) has answered. A LEDGER THAT REFUSED SKIPS THE APPLY — the
+              // spine's own third ask refuses the publish next, and a schema
+              // applied for a publish that cannot ship is run 33 by another
+              // road. A refused apply is answered as the seam's refusal: the
+              // spine returns it before staging, nothing activated, the
+              // record `failed`, the route says it is ours.
+              if (aApplyBackend) {
+                if (aCharges.refused() > 0) { aMark("schema", "skip", { why: "unbilled" }); return aSwap; }
+                const ap = await aApplyBackend(version);
+                if (!ap.ok) return { refuse: { error: "schema", detail: ap.detail, ours: true } };
+              }
+              return aSwap;
             };
             // ── THE TRANSLATION CALLS' SPEND, THE REPAIR ROUND'S SHAPE (run 39) ──
             // Under a job the spine hands the usage here the moment its
@@ -23810,11 +23998,36 @@ async function handleRequest(request, env, ctx) {
                 const back = await patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss });
                 if (!back.ok) console.error("addon look revert failed:", ownerSlug, back.error);
               }
+              // ── WHAT STANDS IN THE DATABASE IS SAID (stage 8) ──────────────
+              //
+              // Three shapes. The apply itself refused (`schema`): the seam
+              // answered before staging, the record is `failed`, nothing
+              // activated — ours, 502. The apply landed and the publish after
+              // it did not (the gate, the staging, the activation): the record
+              // goes `applied_without_page` and its sentence leads the reply,
+              // because the tables are live and "your site is untouched" would
+              // be a lie about the database — the site's PAGES are what they
+              // were. No apply ran (the compile failed before the seam): no
+              // record, the compile sentence alone, as before.
+              const aSchemaFail = aPub.error === "schema";
+              if (aMigration && !aSchemaFail && aMigration.status === "pending") {
+                aMigration = (await settleSiteMigration(env, ownerSlug, aMigJob, "applied_without_page", { publish: { ok: false, error: String(aPub.error || ""), detail: String(aPub.detail || "").slice(0, 200) } })) || aMigration;
+              }
               return Response.json({
-                ok: false, error: "compile", cost: 0,
-                msg: compileMsg(aPub, "That addition didn't compile, so your site is untouched — try describing it differently."),
+                ok: false, error: aSchemaFail ? "schema" : "compile", cost: 0,
+                ...(aSchemaFail ? { ours: true } : {}),
+                msg: aSchemaFail
+                  ? ADDON_SCHEMA_FAIL_MSG
+                  : [migrationNote(aMigration), compileMsg(aPub, "That addition didn't compile, so your site is untouched — try describing it differently.")].filter(Boolean).join(" "),
                 detail: aPub.detail,
-              }, { status: 422 });
+                migration: migrationSummary(aMigration),
+              }, { status: aSchemaFail ? 502 : 422 });
+            }
+            // THE RECORD IS `applied` ONCE THE PAGE IS LIVE (stage 8), naming
+            // the version that went live — the spine's own answer, the same
+            // id the manifest carries.
+            if (aMigration && aMigration.status === "pending") {
+              aMigration = (await settleSiteMigration(env, ownerSlug, aMigJob, "applied", { version: aPub.version || aMigration.version || null, publish: { ok: true, files: aPub.files } })) || aMigration;
             }
 
             // THE SYNCHRONOUS CHARGE: after the publish, on measured usage,
@@ -23856,6 +24069,10 @@ async function handleRequest(request, env, ctx) {
               functionErrors: aFnErrors.length ? aFnErrors : undefined,
               needsSecrets: aSecrets.length ? aSecrets : undefined,
               provisioned: aProvisioned || undefined,
+              // THE MIGRATION RECORD (stage 8): which job made what, and that
+              // the page it was made for is live. Absent when the addon
+              // declared no backend tier.
+              migration: migrationSummary(aMigration),
               // What the seeding DID, the build response's own three fields:
               // rows per table, why a table was passed over, and whether the
               // net had to buy rows the designer omitted. Absent when the

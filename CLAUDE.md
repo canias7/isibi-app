@@ -3328,6 +3328,169 @@ three doors: the consumer, the moment its refund answers needs-review · the swe
   consumer's refund, then `review reconcile: {…}` on the tick. Free today:
   the `reconcile check` workflow on fretwork-1 answers `rows: []` for 0.
 
+### THE ADD-ON'S SCHEMA IS APPLIED AFTER THE COMPILE, UNDER A MIGRATION RECORD (2026-09-05, stage 8)
+
+Owner: *"keep going"* (the next stage whose dependencies were met; 4b and
+5d wait on the owner's 5a canary). An addition that touched the site's
+database applied its schema BEFORE the page call and the compile, and a
+publish that then failed kept the tables and said "your site is untouched":
+run 33 left `waiting_list` on fretwork-1 with no page showing it, and no
+record anywhere said which job made it, what it made, or that the page
+never came. **Nothing in the page call, the compile or the render check
+needs the schema applied** — the page call reads the SPEC, the render check
+answers every `/api/` request with `[]` and `/auth/` with 401 — so the apply
+is the last thing before the spine's publish gate now, under a record.
+
+```
+pickers · designers · seed net · #1 reserve (unchanged, before any write)
+   │  aSpec = unionSpec(stored, merged)      ← what the page writer is shown
+   ▼
+page call · compile · render check · repair round (#2)
+   │  the seam: aCharges.refused() > 0 → skip the apply (the spine's third ask refuses next)
+   │            record `pending` → applySiteSchema → jobs → seed rows → the report on the record
+   │            a refused apply → { refuse: { error: "schema" } } → the spine returns before staging
+   ▼
+the third ask · staging · the gate · activation · commit
+   │  landed  → record `applied` (the version that went live)
+   │  failed  → record `applied_without_page`, the reply LEADS with its sentence
+pageless (a job, an internal function): the apply runs directly, `applied` at once
+```
+
+- **The seam offers two more things and knows nothing about schemas.**
+  `afterCompile` is handed `version` (minted before the compile, the id the
+  manifest carries), and may answer `{ refuse: { error, detail, ours } }`:
+  the spine returns `{ok:false, error, ours, detail}` after the hook's own
+  catch and before the build is replaced — still after the compile verdict
+  and the dead-css refusal, before the third reservation ask, the staging
+  and the gate. Nothing written, nothing activated, the consumer's refund
+  clean. Only an object naming an error is a refusal; anything else reads
+  as before, and the edit lanes and the rebuild drain hand no hook.
+- **`aApplyBackend` is a closure built inside the backend block** (where
+  `merged` and the seed are in scope, after sequence #1 and its refusal) and
+  called exactly twice: the pageless path with no version, the hook with the
+  publish's. Provisioning (`ensureSiteBackend`) stays where it was, before
+  the page call — a database made for a page that never came is a database
+  the next ask reuses. `aSpec = unionSpec(aSpec, merged)` (site-add.mjs,
+  driven) is what the page writer is shown: the merged tables whole, this
+  addition's functions, connections and jobs first and the stored ones it
+  did not name after — what `loadSiteSchema` would answer after the apply,
+  described before it.
+- **The record**: `builder/site-migrations.mjs`, dependency-free, at
+  `source/<slug>/migrations.json` (the answer store's pattern, admitted by
+  the gateway wall's `source/` prefix — the runner writes it). One per job
+  (`aJob.id`, or `sync:<trace cid>` synchronously), newest first,
+  `MAX_MIGRATIONS` 50: `{job, slug, at, version, status, provisioned,
+  tables: {added, altered, applied, refused}, functions: {designed, made,
+  errors}, apis, jobs, seeded, publish}`. Filed `pending` BEFORE the first
+  statement; `withApplied` folds the engine's own report by the names it
+  writes (`made`, `made.functions`, `made.functionErrors`,
+  `made.refusedRules` — derived from `site-schema.mjs` by the guard, so a
+  new report field is folded or named; `authGrants` is the deliberate
+  omission); `applied` with the version once the page is live;
+  `applied_without_page` when the publish after the apply failed, with the
+  publish's error; `failed` when the apply refused, with the scrubbed
+  detail. **An instrument, never the authority**: every store read and
+  write is best-effort and answers rather than throws — a record that could
+  not be written never fails the addition it records. **No automatic
+  reversal** (owner's rule): a table this job created, with zero rows and
+  nothing referencing it, MAY be dropped by the deferred DELETE step and
+  nothing else; the record is what that step will read. **Stated residue:
+  the engine reports per table only at its end** — a `CREATE TABLE IF NOT
+  EXISTS` it cannot run THROWS out of `applySiteSchema` (line ~1130, no
+  try around it), so a `failed` record carries the error and not the list
+  of tables that landed before it; the CREATE is idempotent, so the next
+  ask re-runs it whole. Listing statements applied and refused per table
+  is the engine's change, not the record's, and was not made here.
+- **What the customer reads.** A refused apply: `error: "schema"`, 502,
+  `ours: true`, "That change needed the site's database and it couldn't be
+  applied — this is on us, and your site is untouched" — TRUE by
+  construction now, since nothing was activated. A publish that failed
+  after the apply: `migrationNote` LEADS the reply ("The database changes
+  for this were made — now storing gear — but the page didn't publish, so
+  the site is showing what it showed before. Ask again and I'll add the
+  page without making the tables twice.") before the compile sentence,
+  because "your site is untouched" would be a lie about the database and
+  the merge is idempotent (an existing table takes new columns only).
+  Every addon reply carries `migration` (`migrationSummary`), absent when no
+  tier was designed. The browser needed no change: `msg` on failure, "now
+  storing" on success, as before.
+- **3b's reconcile settles a pending record** by the verdict, after the
+  money and the stored reply, inside its own try: kept → `applied` with the
+  job's own version, refunded → `applied_without_page`; another job's
+  record and a settled one are left alone (driven). **`GET
+  /api/site/migrations?slug=`** reads the list, owner-gated as the answer
+  route is, read-only.
+- **Guards.** `test/site-migrations.test.mjs` (18): the module driven
+  (the key under the wall, junk reads, the fresh record, the fold off the
+  engine's report shape with the names derived from the engine, the
+  upsert and the cap, the mark and the settled time, the note and the
+  summary), `unionSpec` driven, the seam read by order, the addon route
+  read by order and absence (the closure built once and called twice, the
+  apply inside it and nowhere inline, the record filed before the first
+  statement, the hook's order — reserve #2, the swap, the gate, the ledger
+  skip, the apply, the refusal, the swap returned — the pageless path's
+  direct apply before its charge, the failure branch by its BRACES, the
+  applied mark after the branch closes), the store helpers, the reconcile
+  hop, the route; DRIVEN through the real router: the owner's route six
+  ways, and the reconcile settling a pending record three ways against a
+  staged fake site. **Six older guards went red or went stale for the
+  change and were re-anchored, not appeased**: `spine-repair`'s hook
+  signature (it takes `version`) and its last return (`aSwap`);
+  `site-add`, `addon-queue` and `site-addon` read "the pageless answer
+  after the schema apply" as a TEXT POSITION, which stayed true after the
+  apply moved into a closure above the block and became a claim about
+  nothing — each reads the pageless block's own `await aApplyBackend(null)`
+  before its charge now. `edit-reserve-refused` and `api-auth` still hold:
+  sequence #1 precedes the closure's construction, inside the backend
+  block, so the reserve still precedes the DDL on both paths.
+- **Sweep: 51 mutants, 48 killed, none survived, none unapplied, three
+  comment-only controls survived** (the module, the Worker, the add module
+  each) — in the module: a record with no job kept, a fresh record not
+  pending, a non-string version kept, the applied names not lowercased, the
+  refused rules dropped, a function error unbounded, a new record at the
+  back, the same job's earlier record kept beside the new, any word a state,
+  no settled time, a settled record read as pending, the note speaking for
+  every state, the note without the tables, the summary without the
+  version; in the add module: the page call shown the stored tables only,
+  the stored entries the merge did not name dropped, the stored copy of a
+  re-declared function winning; in the Worker: the seam ignoring a refusal,
+  a refusal read as theirs, the hook not handed the version, the pageless
+  path never applying, the hook applying for a ledger that refused or when
+  nothing was designed, a refused apply publishing anyway, the pending
+  record never filed, a refused apply marking nothing or answering ok, the
+  report never folded, a landed pageless apply left pending, a refused
+  pageless apply as a 422, a failed publish after the apply marking
+  nothing, a refused apply marked applied_without_page or wearing the
+  compile's name, the customer not told what stands, a landed publish left
+  pending, either reply dropping the record, the reconcile marking every
+  record applied or never settling one, a store that cannot be read
+  throwing out of the addition, the route answering a stranger or asking no
+  sign-in, the record's job the trace even under a job, the page call
+  reading the stored spec, the seam's refusal read again after the swap,
+  the store writing a shape the reader cannot read, a settle for a job with
+  no record writing anyway; the image without the module. **One survived
+  the first pass, and it was the sweep's own**: W28 was written to MOVE the
+  seam's refusal read past the build swap and instead ADDED a second, looser
+  read beside the early one (`seamOut.refuse` with no `error`), so every
+  well-formed refusal still returned early and the order checks, which see
+  only the first read, passed. A behavioural change all the same — a
+  malformed hook answer became a refusal — and the seam guard now forbids
+  any refusal read after the replacement and counts the condition once;
+  re-run, killed. Its first draft counted `seamOut.refuse.error` and went
+  red on the clean tree, because the RETURN line names the field too — the
+  count reads the condition's own spelling now. Full suite **5,275**
+  (5,257 + the eighteen), run on the restored tree after the sweep.
+- **Not proven live.** The deploy rolls the container (`worker.js` and the
+  builder modules are image inputs; the 15–20 minute hold applies). The
+  proof is the next backend addon on fretwork-1 (~12–21 credits, owner's
+  call): the reply carries `migration.status: "applied"` with the version,
+  `/api/site/migrations?slug=fretwork-1` lists it, and the trace carries
+  `schema start/ok` AFTER `repair` and before `stage`. The
+  `applied_without_page` shape needs a publish that fails after the seam,
+  which cannot be made on purpose. No database function changed; the
+  container harness was not re-run (no container-side code changed; the
+  image guards read the module).
+
 ---
 
 ## Data, auth, payments, mail
@@ -3809,8 +3972,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,257
-  (2026-09-05, after stage 3b's seventeen in `test/site-reconcile.test.mjs`
+  build and the pre-list payload added sixteen); the unit suite is 5,275
+  (2026-09-05, after stage 8's eighteen in `test/site-migrations.test.mjs`
+  — the record module driven with the engine's own report names, the spec
+  union driven, the seam and the addon route read by order and absence,
+  the owner's route and the reconcile's settle DRIVEN; 5,257 the same day
+  after stage 3b's seventeen in `test/site-reconcile.test.mjs`
   — the verdict rule by rule, the ancestry, the reply shapes, the probe,
   the Worker's reconcile DRIVEN against a staged fake site with a fake
   dispatch namespace, the consumer and the sweep's door and the owner's
@@ -4929,6 +5096,24 @@ itself — WHICH text differed — needed an instrument, because React's
 production error is a number and a link, and the round that repairs on it
 was being handed the number. When a check reports a code, make the check
 say the thing the code stands for.
+
+**A TEXT-ORDER GUARD SURVIVES A MOVE INTO A CLOSURE (2026-09-05, stage 8).**
+Three guards asserted "the pageless answer comes AFTER the schema apply" as
+`indexOf(apply) < indexOf(pageless)`, and every one of them stayed GREEN
+when the apply moved into a closure declared above the pageless block and
+RUN from inside it and from the seam hook two hundred lines below. The
+text order they read had not changed; the run order had inverted for the
+page path entirely. A position in the file is a claim about run order only
+while the code between the two landmarks is straight-line — the moment one
+side becomes a function, the guard is reading the layer below the break
+(the recorded chain-test trap, in its cheapest form). Each now reads the
+CALL inside the block it describes (`await aApplyBackend(null)` before the
+charge), and the new guard counts the closure's call sites and where each
+sits. **Two of the re-anchors then failed to LOAD**: a `const closure` and
+a `const charge` collided with locals the same test already declared,
+`node --test` reported the whole file as one `not ok`, and a glance at the
+counts read as two failing cases. A re-anchor lands in a scope it did not
+write; check the name is free.
 
 ## Backlog
 

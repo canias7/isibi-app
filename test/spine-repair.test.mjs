@@ -119,7 +119,11 @@ test("ONLY the addon route hands the spine a hook; the edit lanes and the rebuil
 test("the addon's hook IS the add step's own round: its module, its scope, the picked model, the job's clock, reserve #2 before the gate", () => {
   assert.match(worker, /import \{[^}]*\baddRepairRound\b[^}]*\baddRepairNote\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "the add step's round is not imported from its own module");
   const route = between(worker, "const aCharge = async (bill", "if (tx) {", "the addon's publish tail");
-  const hook = between(route, "const aAfterCompile = async ({ built, pages, langs, recompile, job }) => {", "aMark(\"publish:1\", \"start\"", "the hook");
+  // THE SPELLING MOVED ON 2026-09-05 (stage 8): the hook takes `version` beside
+  // the five it took — the version this publish will activate, which the
+  // migration record names — so the landmark is the signature WITH it. The
+  // property is unchanged: one hook, these arguments, the round inside it.
+  const hook = between(route, "const aAfterCompile = async ({ built, pages, langs, recompile, job, version }) => {", "aMark(\"publish:1\", \"start\"", "the hook");
   assert.match(route, /const aTouched = \[\.\.\.\(aMerge\.added \|\| \[\]\), \.\.\.\(aMerge\.changed \|\| \[\]\)\];/, "the round is not scoped to the pages this addition wrote");
   // THE SPELLING MOVED ON 2026-09-04 (run 36): the room is the job's own
   // `canRepair` still, and true without a job still, but it is asked with the
@@ -150,7 +154,12 @@ test("the addon's hook IS the add step's own round: its module, its scope, the p
   assert.match(hook, /if \(aJob && aRepairRound\.usage\.length\) \{/, "the round's spend is not reserved, or is reserved when nothing was spent");
   assert.match(hook, /aRepairRound\.charged = Number\(await aCharge\(pageCredits\(\.\.\.aRepairRound\.usage\), 2\)\) \|\| 0;/, "the round's reserve is not sequence #2");
   // The hook answers a build only when the round produced one.
-  assert.match(hook, /return aRepairRound\.ran && aRepairRound\.built \? \{ built: aRepairRound\.built, pages: aRepairRound\.pages \} : null;/);
+  // RE-ANCHORED 2026-09-05 (stage 8): the answer is held in `aSwap` and
+  // returned LAST, because the schema apply now sits between the round and
+  // the return and may answer a refusal instead — the property is that the
+  // build the hook hands back is the round's, and only when the round built.
+  assert.match(hook, /const aSwap = aRepairRound\.ran && aRepairRound\.built \? \{ built: aRepairRound\.built, pages: aRepairRound\.pages \} : null;/);
+  assert.ok(hook.includes("\n              return aSwap;\n            };"), "the hook's last answer is not the round's build");
   // The bill and the reply read the round.
   assert.match(route, /const aCharge = async \(bill, seq = 1\) => \{/, "the charge closure does not take the ledger sequence");
   assert.match(route, /p_seq: seq,/);

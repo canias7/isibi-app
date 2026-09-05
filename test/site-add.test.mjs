@@ -858,12 +858,17 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   assert.match(made, /aFnErrors = Array\.isArray\(aMade && aMade\.functionErrors\)/, "a function the database refused is not carried");
   assert.match(made, /await persistSiteJobs\(env, ou\.id, ownerSlug, merged\.jobs\);/, "the jobs are not registered");
   assert.match(made, /flatMap\(\(a\) => secretsNeeded\(a\)\)/, "the secrets a connection needs are not read");
-  // PAGELESS: after the schema work, before the page call, billed through
-  // the one charge, answered in the page path's shape.
+  // PAGELESS: before the page call, billed through the one charge, answered
+  // in the page path's shape. RE-ANCHORED 2026-09-05 (stage 8): the schema
+  // work above is a CLOSURE the pageless path runs itself before it answers
+  // (`await aApplyBackend(null)`), and the page path runs at the seam — so
+  // "after the schema work" is the call inside the pageless block, not the
+  // block's position below the closure's text.
   const pl0 = at(b, "if (pageless(aAnswers)) {", "pageless");
   const gen = at(b, "aGen = await generateSitePages(", "page call");
-  assert.ok(pl0 > at(b, "aSeeded = await seedSiteRows(", "seeding") && pl0 < gen, "the pageless answer is not between the schema work and the page call");
+  assert.ok(pl0 > at(b, "aApplyBackend = async (version) => {", "the apply closure") && pl0 < gen, "the pageless answer is not between the apply closure and the page call");
   const pl = b.slice(pl0, gen);
+  assert.ok(at(pl, "await aApplyBackend(null)", "the pageless path's own apply") < at(pl, "const aCostNow = ", "the pageless charge"), "the pageless path does not run the schema work before it answers");
   assert.match(pl, /added: \[\], changed: \[\], removed: \[\], moved: \[\],/, "the pageless answer is not in the page path's shape");
   assert.match(pl, /functions: aFunctions, jobs: aJobs,/);
   assert.match(pl, /provisioned: aProvisioned \|\| undefined,/);

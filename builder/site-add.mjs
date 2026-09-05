@@ -218,6 +218,34 @@ export const BACKEND_KEYS = BACKEND_ADDS.map((k) => k + "s");
  * which on a site without one is the moment it gets one (the route provisions
  * before it applies).
  */
+/**
+ * THE SPEC THE PAGE CALL READS, before the schema is applied (stage 8,
+ * 2026-09-05). The apply used to run first and the page call then read the
+ * database back; now the apply follows the compile, so the page writer is
+ * shown the stored spec with this addition's tables, functions, connections
+ * and jobs folded over it — the tables from the merge (already the union of
+ * stored and designed, `mergeAddonSchema`'s answer), the other three tiers
+ * this addition's first and the stored ones it did not name after. What the
+ * database will hold once the apply lands, described before it does.
+ */
+export function unionSpec(stored, merged) {
+  const s = stored && typeof stored === "object" ? stored : {};
+  const m = merged && typeof merged === "object" ? merged : {};
+  const nameOf = (x) => String((x && x.name) || "").toLowerCase();
+  const union = (a, b) => {
+    const first = (Array.isArray(a) ? a : []).filter((x) => x && nameOf(x));
+    const seen = new Set(first.map(nameOf));
+    return [...first, ...(Array.isArray(b) ? b : []).filter((x) => x && nameOf(x) && !seen.has(nameOf(x)))];
+  };
+  return {
+    ...s,
+    tables: Array.isArray(m.tables) ? m.tables : (Array.isArray(s.tables) ? s.tables : []),
+    functions: union(m.functions, s.functions),
+    apis: union(m.apis, s.apis),
+    jobs: union(m.jobs, s.jobs),
+  };
+}
+
 export function backendDesigned(designed) {
   const d = designed && typeof designed === "object" ? designed : {};
   return BACKEND_KEYS.filter((k) => Array.isArray(d[k]) && d[k].length > 0);

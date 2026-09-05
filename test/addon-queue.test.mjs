@@ -266,13 +266,22 @@ test("one bill; reserved before the publish under a job, collected after it sync
   // is a dead zone `node --check` cannot see — the first draft did exactly
   // that. Under a job the pageless answer reports #1; synchronously it still
   // collects here, after the work.
+  // RE-ANCHORED 2026-09-05 (stage 8): the apply is a CLOSURE now
+  // (`aApplyBackend`, built inside the backend block after sequence #1), run
+  // by the pageless path itself — `await aApplyBackend(null)` — and by the
+  // seam hook on the page path. So "after the schema apply" is no longer a
+  // text position: the pageless block calls the closure BEFORE it takes its
+  // money, and sequence #1 still precedes the closure's construction.
   const pageless = at(b, "if (pageless(aAnswers)) {", "pageless");
-  const apply = at(b, "aMade = await applySiteSchema(adb, merged);", "apply");
+  const applyClosure = at(b, "aApplyBackend = async (version) => {", "the apply closure");
   const gen = at(b, "aGen = await generateSitePages(", "page call");
   const first = at(b, "aFirst = await aCharge(pageCredits(...aDesignUsage, aSeedUsage));", "sequence #1");
-  assert.ok(charge < first && first < apply, "the charge closure is not declared before sequence #1, which sits before the schema apply");
-  assert.ok(pageless > apply && pageless < gen, "the pageless answer is not between the schema apply and the page call");
-  assert.match(b.slice(pageless, gen), /const aCostNow = aFirstPlaced \? aFirst : await aCharge\(pageCredits\(\.\.\.aDesignUsage, aSeedUsage\)\);/, "the pageless answer does not report #1 under a job, or does not bill through aCharge synchronously");
+  assert.ok(charge < first && first < applyClosure, "the charge closure is not declared before sequence #1, which sits before the apply closure is built");
+  assert.ok(pageless > applyClosure && pageless < gen, "the pageless answer is not between the apply closure and the page call");
+  const pl = b.slice(pageless, gen);
+  const directApply = at(pl, "await aApplyBackend(null)", "the pageless path's own apply");
+  const costAt = at(pl, "const aCostNow = aFirstPlaced ? aFirst : await aCharge(pageCredits(...aDesignUsage, aSeedUsage));", "the pageless charge");
+  assert.ok(directApply < costAt, "the pageless answer takes its money before it applies the schema, or does not report #1 under a job, or does not bill through aCharge synchronously");
 });
 
 test("the spine is handed the job and the trace, or a queued addon publishes past every gate", () => {

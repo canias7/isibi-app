@@ -295,10 +295,17 @@ test("the addon lane provisions ONLY on first touch of the backend, and charges 
   const pub = b.indexOf("recompileAndPublish(");
   const sync = b.indexOf("if (!aJob) aCost = await aCharge(");
   assert.ok(pub > 0 && sync > pub, "the synchronous charge does not come after the publish");
-  const apply = b.indexOf("aMade = await applySiteSchema(adb, merged);");
+  // RE-ANCHORED 2026-09-05 (stage 8): the apply is a closure the pageless path
+  // runs itself (`await aApplyBackend(null)`) before it bills — "after the
+  // schema apply" is the order INSIDE the pageless block now, not a position
+  // of the apply's text, which lives in the closure above it.
+  const closure = b.indexOf("aApplyBackend = async (version) => {");
   const pageless = b.indexOf("if (pageless(aAnswers)) {");
-  assert.ok(apply > 0 && pageless > apply && pageless < pub, "the pageless answer is not after the schema apply and before the publish");
-  assert.match(b.slice(pageless, b.indexOf("\n            }\n", pageless)), /await aCharge\(pageCredits\(\.\.\.aDesignUsage, aSeedUsage\)\)/, "the pageless answer does not bill the small calls through the one charge");
+  assert.ok(closure > 0 && pageless > closure && pageless < pub, "the pageless answer is not after the apply closure and before the publish");
+  const pl = b.slice(pageless, b.indexOf("\n            }\n", pageless));
+  const directApply = pl.indexOf("await aApplyBackend(null)");
+  const plCharge = pl.search(/await aCharge\(pageCredits\(\.\.\.aDesignUsage, aSeedUsage\)\)/);
+  assert.ok(directApply > 0 && plCharge > directApply, "the pageless answer does not apply the schema before it bills the small calls through the one charge");
 });
 
 test("a failed addon leaves the site untouched, and an unusable one escalates", () => {

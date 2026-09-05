@@ -3405,3 +3405,63 @@ kept` or `refunded` with the reason, and the chat will show the sentence
 instead of "paused edits on this site". The `reconcile check` workflow on
 fretwork-1 runs free today and answers "nothing under review". NOT proven
 live until a real one happens.
+
+## 2026-09-05 — An addition makes its tables only after its page compiles, and keeps a record of what it made (stage 8)
+
+You said *"keep going"*, and this was the next stage whose dependencies were
+met (4b and 5d wait on your job-runner canary — the `JOB_RUNNER_CANARY=fretwork-1`
+secret, a redeploy, one edit).
+
+**What was wrong.** When somebody asked for a table, a function, a connection
+or a scheduled job, the addon made the database changes FIRST and only then
+wrote the page and compiled it. If the compile or the publish then failed,
+the tables stayed and the reply said "your site is untouched" — which was
+true of the pages and false of the database. Run 33 did exactly that: a
+`waiting_list` table sits in fretwork-1's database with no page showing it,
+and nothing anywhere says which job made it.
+
+**What changed.**
+- **The database changes come LAST**, right before the publish gate: after
+  the page is written, compiled and render-checked, after the repair round,
+  and after the check that your credits actually reserved. A page that will
+  not bundle, or a balance that cannot pay, now stops BEFORE a single table
+  is made. A job or an internal function (nothing to compile) applies
+  straight away, as before.
+- **A record of every database change**, per addition: what was designed,
+  what the engine actually made and what it refused, whether the page went
+  live. Four states — `pending` (written before the first statement),
+  `applied` (the page is live), `applied_without_page` (the tables stand,
+  the page never came), `failed` (the database refused; nothing published,
+  nothing charged). Readable at `/api/site/migrations?slug=<site>` while
+  signed in as the site's owner, and carried on every addon reply as
+  `migration`.
+- **The customer is told the truth when the tables stand and the page did
+  not**: the reply now leads with *"The database changes for this were made
+  — now storing gear — but the page didn't publish, so the site is showing
+  what it showed before. Ask again and I'll add the page without making the
+  tables twice."* Asking again is safe: an existing table only takes new
+  columns.
+- **A database that refuses** is said as ours, at 502: *"That change needed
+  the site's database and it couldn't be applied — this is on us, and your
+  site is untouched."* True by construction now.
+- **No automatic reversal**, by your rule. A table an addition created,
+  with zero rows and nothing referencing it, may be dropped by the DELETE
+  step when that is built, and by nothing else; the record is what that
+  step will read.
+- **The mid-publish reconcile (3b) settles the record too**: kept → applied,
+  refunded → applied_without_page.
+
+**What it cost.** Nothing live. No database function changed; the container
+image rolls on the deploy (the Worker is an image input), so the 15–20
+minute hold applies before container work.
+
+**Proven / not proven.** The module, the route and the reconcile hop are
+DRIVEN; the addon route's new order is READ (there is no driven addon
+harness). NOT proven live: the next backend addon on fretwork-1 (~12–21
+credits, your call) is the proof — the reply's `migration.status` should
+read `applied` with the version, and the migrations route should list it.
+The "tables stand, page never came" shape cannot be made on purpose.
+
+**Open, your call.** Whether the DELETE step, when it comes, should offer to
+drop `waiting_list` (run 33's orphan) — it predates the record, so the
+record does not know it.
