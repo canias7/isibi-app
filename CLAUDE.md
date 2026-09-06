@@ -3922,9 +3922,12 @@ whatever the listing said; one delete call for the batch, capped at 100.
   the editing readers (the rebuild's read moved one hop into the route), and
   the image's input list (the new module, caught by the walk the hour it was
   written — the recorded trap, again).
-- **Sweep: 24 mutants, 24 killed, none unapplied, two comment-only controls
-  survived.**
-  Full suite **5,353**.
+- **Sweep: 26 mutants, 26 killed, none unapplied, two comment-only controls
+  survived — one survived the first pass and it was the guard's**: the cron's
+  call to the retention sweep was READ, and `if (false)` leaves a call exactly
+  where a regex looks for it (the recorded trap). Driven through the real cron
+  now, and re-run to a kill.
+  Full suite **5,354**.
 - **Not proven live.** The next platform republish is the proof, and it is
   free: file a `site_rebuild` row and watch one tick file a job
   (`site rebuild: {"pending":1…}`), the consumer publish it, and a later tick
@@ -5333,6 +5336,16 @@ container harness and left the `site build` line at stage 7's 349, so the next
 run to read it (3a's) answered 355 for a change that added four. **A count
 nobody re-measured is a claim ahead of its evidence, the same as a number
 stamped early.**
+**AND A NUMBER STAMPED IN TWO PLACES DRIFTS WHEN ONLY ONE IS CORRECTED
+(2026-09-06, stage 9).** Its sweep and suite numbers were written into the
+commit message, `docs/owner-notes.md`, this file's own stage section AND the
+`site build` / unit-suite line under Live state — four copies — and the
+correction after the real run reached three of them, leaving the stage
+section claiming 24 mutants and a suite of 5,353 beside a Live-state line
+saying 5,354. Nothing failed: no guard reads these, which is exactly why the
+drift is silent. **"Two lists of the same thing" applies to measurements as
+much as to code** — so when a number is corrected, grep for every copy of the
+OLD value before believing the correction landed, and re-read the file after.
 
 **`unit tests` WAS RED ON EVERY PUSH TO MAIN FOR A DAY AND NOBODY READ IT
 (2026-09-02, FIFTEEN runs, 12:25Z to 20:20Z — the fix's own commit message

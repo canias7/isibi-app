@@ -3769,3 +3769,13 @@ run, which is driven now. Full suite 5,354 green. NOT proven live: the next
 republish is the proof and it is free — file one queue row and watch a tick
 file the job, the consumer publish, and a later tick forget the row. Six older
 tests went red for the change and were re-anchored on what they actually mean.
+
+**A small tidy after it (2026-09-06).** Those sweep and suite numbers had been
+written down in four places — the commit message, this log, the stage section
+of `CLAUDE.md`, and the summary line further down it — and when the real run
+came in higher than the first draft, the correction reached three of them. The
+stage section sat there claiming a smaller sweep and an older suite number
+beside a line in the same file saying the right one. Nothing broke and no test
+reads them, which is why it went unnoticed; corrected now, and written into the
+traps so the next time a number is fixed, every copy of the old one is hunted
+down first. Both CI runs for the two pushes were green.
