@@ -10466,9 +10466,33 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // route through `publishStep`, the addon route directly); a caller that
   // passes none — the rebuild drain — gets the default picker's.
   const tModels = models && typeof models.quick === "string" ? models : modelsFor();
-  for (const l of siteLangs) {
-    if (l.primary) continue;
-    const { strings, dropped } = collectStrings(pages || []);
+  // ── ALL THE LANGUAGES AT ONCE (task #88, 2026-09-06, owner: *"SO FIX ?"*) ──
+  //
+  // These ran one after another and the calls are INDEPENDENT: each asks about
+  // the same strings for a different tag and nothing one returns is an input to
+  // another. Run 39 measured 152.6 s for French and 124.3 s for Spanish, 277 s
+  // in series inside a job whose whole clock is 840 s — a third of the budget
+  // spent waiting, before the compile had started, on a site with two extra
+  // languages. `MAX_EXTRA_LANGS` is 3, so this is at most three calls in
+  // flight, which is why no pacing is needed.
+  //
+  // `Promise.all` CANNOT REJECT HERE, and that is a property of
+  // `translateStrings` rather than luck: it catches everything and answers
+  // `{ok: false}`, so "a failed translation is not a failed publish" survives
+  // the change intact. A rejection would have taken the publish down — which
+  // the serial version did too, there being no try around the await.
+  //
+  // THE FOLD IS SEPARATE AND ORDERED. The calls settle in whatever order they
+  // finish, but `langOutcomes`, `langUsage` and `nextStrings` are built below
+  // in `siteLangs` order, so what reaches the wire is the same whichever call
+  // came back first. The trace marks stay INSIDE the call, in completion order:
+  // they are timestamped events and moving them to the fold would report every
+  // language as having taken as long as the slowest.
+  const extras = siteLangs.filter((l) => !l.primary);
+  // ONE READ OF THE PAGES for all of them: `collectStrings` does not depend on
+  // the tag, and the old loop re-ran it per language.
+  const { strings, dropped } = collectStrings(pages || []);
+  const rounds = await Promise.all(extras.map(async (l) => {
     const had = cache[l.tag] && typeof cache[l.tag] === "object" ? cache[l.tag] : {};
     // A CACHE THAT WAS NEVER TRANSLATED IS NO CACHE (run 38, 2026-09-04). A
     // failed call's fallback — every string as itself — had been written in as
@@ -10480,33 +10504,36 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     const healed = untranslated(had);
     const have = healed ? {} : had;
     const missing = missingFrom(have, strings);
-    let fresh = {}, failed = false;
-    if (missing.length) {
-      tm("translate:" + l.tag, "start", { missing: missing.length, strings: strings.length, cached: strings.length - missing.length, ...(healed ? { healed: true } : {}) });
-      const got = await translateStrings(env, l.tag, missing, tModels);
-      if (got.usage) langUsage.push(got.usage);
-      // A FAILED TRANSLATION IS NOT A FAILED PUBLISH. The pages fall back to
-      // whatever is cached and, for anything new, to the primary language — so
-      // the site stays up and the second language is merely behind, which is
-      // strictly better than losing the edit the customer actually asked for.
-      if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
-      else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
-      const outcome = got.ok
-        ? { tag: l.tag, missing: missing.length, ok: true }
-        : { tag: l.tag, missing: missing.length, ok: false, why: String(got.why || "call"), error: String(got.error || "").slice(0, 300) };
-      langOutcomes.push(outcome);
-      tm("translate:" + l.tag, got.ok ? "ok" : "fail", outcome);
-    } else {
-      // Every string already in the cache: nothing asked, nothing to fail.
-      langOutcomes.push({ tag: l.tag, missing: 0, ok: true, cached: true });
-    }
+    // Every string already in the cache: nothing asked, nothing to fail.
+    if (!missing.length) return { l, had, have, fresh: {}, failed: false, usage: null, outcome: { tag: l.tag, missing: 0, ok: true, cached: true } };
+    tm("translate:" + l.tag, "start", { missing: missing.length, strings: strings.length, cached: strings.length - missing.length, ...(healed ? { healed: true } : {}) });
+    const got = await translateStrings(env, l.tag, missing, tModels);
+    const fresh = {};
+    let failed = false;
+    // A FAILED TRANSLATION IS NOT A FAILED PUBLISH. The pages fall back to
+    // whatever is cached and, for anything new, to the primary language — so
+    // the site stays up and the second language is merely behind, which is
+    // strictly better than losing the edit the customer actually asked for.
+    if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
+    else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
+    const outcome = got.ok
+      ? { tag: l.tag, missing: missing.length, ok: true }
+      : { tag: l.tag, missing: missing.length, ok: false, why: String(got.why || "call"), error: String(got.error || "").slice(0, 300) };
+    tm("translate:" + l.tag, got.ok ? "ok" : "fail", outcome);
+    return { l, had, have, fresh, failed, usage: got.usage || null, outcome };
+  }));
+  for (const r of rounds) {
+    if (r.usage) langUsage.push(r.usage);
+    langOutcomes.push(r.outcome);
     // `null` FOR A FAILED ROUND: the cache keeps what it had and the missing
     // strings stay missing, so the next publish asks again instead of
     // treating the primary's words as this language's for ever.
-    const merged = nextCache(have, strings, failed ? null : fresh);
-    nextStrings[l.tag] = merged;
-    langsChanged = langsChanged || JSON.stringify(merged) !== JSON.stringify(had);
-    if (dropped) console.error("translate truncated", slug, l.tag, dropped + " strings over the cap");
+    const merged = nextCache(r.have, strings, r.failed ? null : r.fresh);
+    nextStrings[r.l.tag] = merged;
+    // AGAINST THE CACHE AS READ (`had`, not the healed `have`), so a language
+    // started over is written back rather than read as unchanged.
+    langsChanged = langsChanged || JSON.stringify(merged) !== JSON.stringify(r.had);
+    if (dropped) console.error("translate truncated", slug, r.l.tag, dropped + " strings over the cap");
   }
   // ONE ASSEMBLY, for the first compile and for a repair's second: the primary
   // pages, then each variant translated off the cache the loop above just
@@ -10517,9 +10544,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   const filesFor = (list) => {
     const f = {};
     for (const p of list || []) f[p.path] = p.source;
+    // ONE READ FOR ALL OF THEM (task #88): `collectStrings` does not depend on
+    // the tag, and this ran it once per language — pure CPU over every page's
+    // source, three times over on a site at the language cap.
+    const { strings } = collectStrings(list || []);
     for (const l of siteLangs) {
       if (l.primary) continue;
-      const { strings } = collectStrings(list || []);
       const merged = nextStrings[l.tag] || {};
       const t = translatePages(list || [], l.prefix, strings, strings.map((sTxt) => (merged[sTxt] == null ? sTxt : merged[sTxt])), { routes: primaryRoutes });
       for (const tp of t.pages) f[tp.path] = tp.source;
@@ -11604,29 +11634,38 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       const { langs: siteLangs } = resolveLangs(lang || "en", extraLangs, { routes: primaryRoutes });
       let langsChanged = false;
       const langUsage = [];
-      for (const l of siteLangs) {
-        if (l.primary) continue;
-        const { strings, dropped } = collectStrings(pages);
+      // ALL AT ONCE, AND THE FOLD IN ORDER — the spine's shape, one path over
+      // (task #88). Same argument: the calls are independent, at most
+      // `MAX_EXTRA_LANGS` of them, and `translateStrings` never rejects, so
+      // "a failed translation is not a failed build" is unchanged. The writes
+      // below stay serial and in `siteLangs` order because they build `files`,
+      // which every later step reads.
+      const bExtras = siteLangs.filter((l) => !l.primary);
+      const { strings, dropped } = collectStrings(pages);
+      const bRounds = await Promise.all(bExtras.map(async (l) => {
         const had = langCache[l.tag] && typeof langCache[l.tag] === "object" ? langCache[l.tag] : {};
         // THE SPINE'S TWO RULES, MIRRORED (run 38, 2026-09-04): a cache that
         // was never translated is no cache, and a failed round writes nothing.
         const have = untranslated(had) ? {} : had;
         const missing = missingFrom(have, strings);
-        let fresh = {}, failed = false;
-        if (missing.length) {
-          // ON THE PICKED MODEL, handed in by the build route with its pages
-          // model; the spine's rule, one path over.
-          const got = await translateStrings(env, l.tag, missing, models);
-          if (got.usage) langUsage.push(got.usage);
-          if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
-          else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
-        }
-        const mergedStrings = nextCache(have, strings, failed ? null : fresh);
-        langsChanged = langsChanged || JSON.stringify(mergedStrings) !== JSON.stringify(had);
-        langCache[l.tag] = mergedStrings;
-        const t = translatePages(pages, l.prefix, strings, strings.map((sTxt) => mergedStrings[sTxt]), { routes: primaryRoutes });
+        if (!missing.length) return { l, had, have, fresh: {}, failed: false, usage: null };
+        // ON THE PICKED MODEL, handed in by the build route with its pages
+        // model; the spine's rule, one path over.
+        const got = await translateStrings(env, l.tag, missing, models);
+        const fresh = {};
+        let failed = false;
+        if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
+        else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
+        return { l, had, have, fresh, failed, usage: got.usage || null };
+      }));
+      for (const r of bRounds) {
+        if (r.usage) langUsage.push(r.usage);
+        const mergedStrings = nextCache(r.have, strings, r.failed ? null : r.fresh);
+        langsChanged = langsChanged || JSON.stringify(mergedStrings) !== JSON.stringify(r.had);
+        langCache[r.l.tag] = mergedStrings;
+        const t = translatePages(pages, r.l.prefix, strings, strings.map((sTxt) => mergedStrings[sTxt]), { routes: primaryRoutes });
         for (const tp of t.pages) files[tp.path] = tp.source;
-        if (dropped) console.error("translate truncated", slug, l.tag, dropped + " strings over the cap");
+        if (dropped) console.error("translate truncated", slug, r.l.tag, dropped + " strings over the cap");
       }
       // Written back only when it moved, best-effort — a lost cache means the
       // next publish re-translates, slower and never wrong. The spine's rule.

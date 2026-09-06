@@ -2285,9 +2285,36 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   Both driven and re-run to a kill. Full suite 5,362. **Not proven live**: the
   next slow container is the proof, and the line to read is `/ took longer to
   open than the check waits` where the reply used to say `/ threw an error`.
-  (4) **LANGUAGES TRANSLATE ONE AT A TIME**, 124–153 s each on Grok: a site
-  with three fresh caches spends ~7 minutes of the 840 s job before the
-  compile. The calls are independent; run them together.
+  (4) **LANGUAGES TRANSLATED ONE AT A TIME**, 124–153 s each on Grok: a site
+  with three fresh caches spent ~7 minutes of the 840 s job before the compile
+  had started. **FIXED 2026-09-06 (task #88, owner: *"SO FIX ?"*)** — both
+  loops, the spine's and the build path's, run their languages through ONE
+  `Promise.all` and fold the answers afterwards. The calls never depended on
+  each other: each asks about the same strings for a different tag. Run 39's
+  277 s of French-then-Spanish becomes the slower of the two, ~153 s.
+  **`Promise.all` cannot reject here, and that is a property rather than
+  luck**: `translateStrings` catches everything and answers `{ok: false}`, so
+  "a failed translation is not a failed publish" survives intact — and a
+  rejection would have taken the publish down under the serial version too,
+  there being no try around the await. **THE FOLD IS SEPARATE AND ORDERED**:
+  the calls settle in whatever order they finish, but `langOutcomes`,
+  `langUsage` and `nextStrings` are built in `siteLangs` order, so the wire is
+  the same whichever came back first; the trace marks stay INSIDE the call, in
+  completion order, because they are timestamped events and folding them would
+  report every language as having taken as long as the slowest.
+  `collectStrings` is read ONCE for all of them in three places (both loops and
+  `filesFor`) — it never depended on the tag and was being re-run per language.
+  **Sweep: 17 mutants, 17 killed, none unapplied, the comment-only control
+  survived — one survived the first pass and it was a real guard gap**: the
+  build path's write-back comparing against the healed cache rather than the
+  cache as read, which the spine's half has been guarded on since run 38 and
+  this one never was. It bites on the one shape that is not cosmetic — a
+  language healed and then failing merges to `{}`, equal to the healed value,
+  so it would read as unchanged and leave the poison on disk. Guarded and
+  re-run to a kill. Four older guards went red for the change and were
+  re-anchored, not appeased, each naming the spelling that moved. Full suite
+  5,363. **Not proven live**: the next multilingual publish is the proof, and
+  the tell is two `translate:<tag> start` marks with overlapping timestamps.
 
 **DELETE deferred** (owner's call).
 
@@ -4460,8 +4487,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,362
-  (2026-09-06, after task #87's eight in `test/site-render.test.mjs` — the
+  build and the pre-list payload added sixteen); the unit suite is 5,363
+  (2026-09-06, after task #88's one — both language loops driven for real
+  overlap and read for an ordered fold that never awaits; and before it
+  task #87's eight in `test/site-render.test.mjs` — the
   classification driven both ways with its control, the predicate's two
   halves each driven alone, the escalation at two attempts and its refusal
   at one, a route saved by its sibling, every other kind left alone, the

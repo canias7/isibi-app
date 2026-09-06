@@ -1604,7 +1604,13 @@ test("each language's translation is marked and its outcome carried, so a second
   assert.match(loop, /tm\("translate:" \+ l\.tag, "start", \{ missing: missing\.length/, "a translation call starts without a mark");
   assert.match(loop, /tm\("translate:" \+ l\.tag, got\.ok \? "ok" : "fail", outcome\)/, "a translation's outcome is not marked");
   assert.match(loop, /why: String\(got\.why \|\| "call"\), error: String\(got\.error \|\| ""\)\.slice\(0, 300\)/, "a failed translation's reason is not kept");
-  assert.match(loop, /langOutcomes\.push\(\{ tag: l\.tag, missing: 0, ok: true, cached: true \}\)/, "a fully cached language is not accounted for");
+  // RE-ANCHORED FOR TASK #88: the languages run through `Promise.all` now and
+  // the loop is a call phase plus an ordered fold, so a fully cached language
+  // is an early RETURN carrying its outcome rather than a push. The property is
+  // that it is accounted for at all — a language nothing asked about must still
+  // reach the wire, or "cached" and "never tried" read the same to a customer.
+  assert.match(loop, /outcome: \{ tag: l\.tag, missing: 0, ok: true, cached: true \}/, "a fully cached language is not accounted for");
+  assert.match(loop, /langOutcomes\.push\(r\.outcome\)/, "the fold does not carry each language's outcome");
   // Carried on the result and THROUGH THE MERGE, never only logged. Run 38
   // read "the spine's account: none" off a reply that had carried it from the
   // look branch's deferred stub — the field was on the spine's result and the
@@ -1618,16 +1624,31 @@ test("each language's translation is marked and its outcome carried, so a second
   // poisons the cache: a failed round hands `nextCache` null, and a cache
   // that was never translated is read as none.
   assert.match(loop, /else \{ failed = true; console\.error\("translate failed", slug, l\.tag, got\.why \|\| got\.error\); \}/, "a failed translation no longer falls back, or is not remembered as failed");
-  assert.match(loop, /const merged = nextCache\(have, strings, failed \? null : fresh\);/, "a failed round still writes the primary's words into the cache");
+  // The fold reads its round off `r` since task #88, so `have`/`failed`/`fresh`
+  // are `r.have`/`r.failed`/`r.fresh`; the properties are unchanged and each is
+  // written to accept either spelling rather than to pin this one.
+  assert.match(loop, /nextCache\((?:r\.)?have, strings, (?:r\.)?failed \? null : (?:r\.)?fresh\)/, "a failed round still writes the primary's words into the cache");
   assert.match(loop, /const healed = untranslated\(had\);\n\s*const have = healed \? \{\} : had;/, "a cache that was never translated is not read as none");
-  assert.match(loop, /langsChanged = langsChanged \|\| JSON\.stringify\(merged\) !== JSON\.stringify\(had\);/, "the write-back compares against the healed cache, so a healed language is never written");
+  assert.match(loop, /langsChanged = langsChanged \|\| JSON\.stringify\(merged\) !== JSON\.stringify\((?:r\.)?had\);/, "the write-back compares against the healed cache, so a healed language is never written");
   // THE BUILD PATH'S COPY holds the same two rules and hands the same models.
   const bFrom = w.indexOf("// THE SPINE'S TWO RULES, MIRRORED");
   assert.ok(bFrom > 0, "the build path's loop no longer mirrors the spine's cache rules");
-  const bLoop = w.slice(bFrom, w.indexOf("langCache[l.tag] = mergedStrings;", bFrom));
+  const bClose = w.indexOf("langCache[r.l.tag] = mergedStrings;", bFrom);
+  assert.ok(bClose > bFrom, "the build path's cache write moved — this window would swallow the file");
+  const bLoop = w.slice(bFrom, bClose);
   assert.match(bLoop, /const have = untranslated\(had\) \? \{\} : had;/);
   assert.match(bLoop, /translateStrings\(env, l\.tag, missing, models\)/, "the build path translates on no model of the picker's");
-  assert.match(bLoop, /nextCache\(have, strings, failed \? null : fresh\)/);
+  assert.match(bLoop, /nextCache\((?:r\.)?have, strings, (?:r\.)?failed \? null : (?:r\.)?fresh\)/);
+  // AND THE WRITE-BACK, which the spine's half has asserted since run 38 and
+  // this one had not: against the cache AS READ (`had`), never the healed
+  // `have`. A sweep found it — the build path's twin of a killed mutant
+  // survived for want of this line. It matters on the one shape that is not
+  // cosmetic: a language whose poisoned cache was healed and whose call then
+  // FAILED merges to `{}`, which equals the healed `have` and so would be read
+  // as unchanged and never written — leaving the poison on disk for every
+  // later publish to re-detect.
+  assert.match(bLoop, /langsChanged = langsChanged \|\| JSON\.stringify\(mergedStrings\) !== JSON\.stringify\(r\.had\);/,
+    "the build path's write-back compares against the healed cache, so a healed language is never written back");
 });
 
 test("the translation runs on the picked model like every other small call (owner, 2026-09-04), and the routes hand the picker in", () => {
@@ -1690,6 +1711,56 @@ test("the translation runs on the picked model like every other small call (owne
   }
 });
 
+test("THE LANGUAGES ARE TRANSLATED TOGETHER, AND FOLDED IN ORDER (task #88, 2026-09-06)", async () => {
+  // Run 39 measured French at 152.6s and Spanish at 124.3s, one after the
+  // other: 277s of a job whose whole clock is 840, spent before the compile
+  // started, on a site with two extra languages. The calls never depended on
+  // each other.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  for (const [label, open, close] of [
+    ["the spine", "const rounds = await Promise.all(extras.map(async (l) => {", "for (const r of rounds) {"],
+    ["the build path", "const bRounds = await Promise.all(bExtras.map(async (l) => {", "for (const r of bRounds) {"],
+  ]) {
+    const a = w.indexOf(open);
+    assert.ok(a > 0, label + " no longer starts its languages together");
+    const b = w.indexOf(close, a);
+    assert.ok(b > a, label + " has no ordered fold after its calls — the window would swallow the file");
+    // NOTHING AWAITS INSIDE THE FOLD: an await there would serialise the very
+    // thing this change parallelised, one layer down, and read as correct.
+    //
+    // THE FOLD'S OWN BRACES, not its indentation. The first draft of this
+    // guard sliced to a fixed `\n      }`, which is the build path's depth and
+    // not the spine's, so the spine's window ran hundreds of lines past its
+    // fold and failed on an `await` that had nothing to do with it — a window
+    // that swallows the file, this repo's most repeated own-goal.
+    let depth = 0, end = -1;
+    for (let i = w.indexOf("{", b); i < w.length; i++) {
+      if (w[i] === "{") depth++;
+      else if (w[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
+    }
+    assert.ok(end > b, label + "'s fold has no closing brace");
+    const fold = w.slice(b, end);
+    assert.doesNotMatch(fold, /\bawait\b/, label + "'s fold awaits, which puts the calls back in series");
+  }
+  // ONE READ OF THE PAGES, not one per language: `collectStrings` never
+  // depended on the tag and was being re-run inside the old loop.
+  assert.doesNotMatch(w, /for \(const l of siteLangs\) \{\n\s*if \(l\.primary\) continue;\n\s*const \{ strings/,
+    "a language loop is re-reading the pages per language again");
+
+  // AND IT REALLY IS CONCURRENT, driven rather than read: the shape above with
+  // a fake call that records whether the second started before the first
+  // returned. A text read cannot tell `Promise.all` from a loop that awaits.
+  let started = 0, peak = 0;
+  const call = async () => {
+    started++; peak = Math.max(peak, started);
+    await new Promise((r) => setTimeout(r, 5));
+    started--;
+    return { ok: true };
+  };
+  await Promise.all([{ tag: "fr" }, { tag: "es" }, { tag: "de" }].map(async () => call()));
+  assert.equal(peak, 3, "the shape this change relies on does not overlap");
+});
+
 test("the translation calls are CHARGED — by the spine, before the commit point, through the caller's own funnel (run 39, 2026-09-04)", () => {
   // RUN 39: fretwork-1's Spanish and French were translated for the first
   // time — two Grok calls, 88 strings each — and charged to nobody. The spine
@@ -1740,7 +1811,13 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   assert.match(block, /tm\("translate:charge", "ok", \{ calls: langUsage\.length, credits: langCharged \}\)/, "the charge leaves no mark on the trace");
   assert.match(spine, /langCharged: langUsage\.length \? langCharged : undefined,/, "the result does not say what was charged");
   assert.doesNotMatch(spine, /langCost/, "the dead per-language counter is back");
-  assert.match(spine, /if \(got\.usage\) langUsage\.push\(got\.usage\);/, "the spine no longer keeps each call's usage");
+  // RE-ANCHORED FOR TASK #88: each round now hands its usage back off `r` and
+  // the fold pushes it, because the calls run through `Promise.all`. The
+  // property is that EVERY call's usage still reaches `langUsage` — the list
+  // the funnel above is handed — since a translation whose usage is dropped is
+  // one nobody is charged for, which is the defect run 39 found.
+  assert.match(spine, /if \(r\.usage\) langUsage\.push\(r\.usage\);/, "the spine no longer keeps each call's usage");
+  assert.match(spine, /usage: got\.usage \|\| null/, "a round no longer hands its usage back, so the fold has nothing to push");
   // AND THE USAGE IS IN THE SHAPE `pageCredits` PRICES, tagged with the model
   // sent — the lanes' own reader. The raw API usage went out of
   // `translateStrings` until the driven case in test/edit-path.test.mjs priced
@@ -1793,8 +1870,14 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   // ── THE BUILD PATH: the usage rides the compile result onto the build's ONE bill ──
   const dep = w.slice(pos(w, "compile: async (pages, builtParts) => {", "the build's compile dep"), pos(w, "repair: quickSend(env),", "the repair dep"));
   assert.match(dep, /const langUsage = \[\];/, "the build's compile dep keeps no translation usage");
-  assert.match(dep, /const got = await translateStrings\(env, l\.tag, missing, models\);\n\s*if \(got\.usage\) langUsage\.push\(got\.usage\);/,
-    "the build loop drops what each translation cost");
+  // RE-ANCHORED FOR TASK #88: the call and the push were adjacent lines until
+  // the build loop split into `Promise.all` plus an ordered fold, so the round
+  // hands its usage back and the fold pushes it. The property is that every
+  // call's cost still reaches `langUsage`, which is what `publishPages` prices
+  // this build from — a dropped one is a translation nobody pays for.
+  assert.match(dep, /const got = await translateStrings\(env, l\.tag, missing, models\);/, "the build loop no longer translates on the picked model");
+  assert.match(dep, /usage: got\.usage \|\| null/, "a build round hands its usage back nowhere");
+  assert.match(dep, /if \(r\.usage\) langUsage\.push\(r\.usage\);/, "the build loop drops what each translation cost");
   assert.match(dep, /if \(langUsage\.length && built && typeof built === "object"\) built\.langUsage = langUsage;/, "the usage does not ride the compile result");
   assert.match(pp, /const langUsage = \[\];/, "publishPages keeps no translation usage");
   assert.match(pp, /if \(bd && Array\.isArray\(bd\.langUsage\)\) for \(const u of bd\.langUsage\) if \(u\) langUsage\.push\(u\);/,

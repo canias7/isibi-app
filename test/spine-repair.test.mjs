@@ -100,7 +100,14 @@ test("the files are ONE assembly, used by the first compile and by a recompile a
   const assemble = between(spine, "const filesFor = (list) => {", "files = filesFor(pages);", "filesFor");
   assert.match(assemble, /for \(const p of list \|\| \[\]\) f\[p\.path\] = p\.source;/, "the primary pages are not in the assembly");
   assert.match(assemble, /translatePages\(list \|\| \[\], l\.prefix, strings,/, "the variants are not in the assembly");
-  const loop = between(spine, "for (const l of siteLangs) {", "const filesFor = (list) => {", "the translation loop");
+  // RE-ANCHORED FOR TASK #88: this opened on `for (const l of siteLangs) {`,
+  // which WAS the translation loop's first line and is now the assembly's own
+  // — the translation phase starts at `const extras = …` since the languages
+  // run through `Promise.all`. Anchored the wrong way round, the window ran
+  // backwards and the guard reported the assembly as missing. The property is
+  // unchanged: the translation phase must not write `files` itself, or there
+  // are two assemblies of the same thing and a repair recompiles the stale one.
+  const loop = between(spine, "const extras = siteLangs.filter((l) => !l.primary);", "const filesFor = (list) => {", "the translation phase");
   assert.doesNotMatch(loop, /files\[/, "the loop still writes files — two assemblies of the same thing");
   assert.match(spine, /\n  let files = \{\};/, "`files` must be reassignable for a recompile");
   assert.ok(spine.indexOf("files = filesFor(pages);") < spine.indexOf("let built = await compile();"), "the first compile runs before the files are assembled");

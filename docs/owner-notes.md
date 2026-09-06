@@ -3811,3 +3811,34 @@ kill that had not happened.
 
 NOT proven live: the next slow container is the proof, and the tell is that
 sentence appearing where "threw an error" used to.
+
+## The languages are translated all at once now (2026-09-06)
+
+Owner: "SO FIX ?" — the second of the free list.
+
+When a site is offered in more than one language, every publish asks the model
+to translate the new words, once per language. Those asks were happening one
+after another: run 39 measured French at two and a half minutes and Spanish at
+two, back to back, inside a job whose whole clock is fourteen minutes — a third
+of the budget spent waiting before the site had even started compiling.
+
+They never needed to wait for each other; each is the same question asked about
+a different language. They all go at once now, so a bilingual site pays for the
+slower of the two instead of both, and a site at the three-language limit saves
+around five minutes on every publish that has something new to say.
+
+Nothing about failure changed, and that was checked rather than assumed: a
+translation that fails still leaves the site up in the primary wording, exactly
+as before. The answers are also collected back in a fixed order, so what the
+customer and the logs see does not depend on which call happened to finish
+first.
+
+Sweep: 17 mutants, 17 killed, control survived — one got past the first pass
+and was a genuine hole in the tests rather than in the code: the build path was
+missing a check the edit path has had since run 38. Added, and re-run. Four
+older tests went red for the change and were re-anchored on what they mean.
+Full suite 5,363 green.
+
+NOT proven live: the next publish of a site with a second language is the
+proof, and the tell is the two translations starting at the same moment instead
+of one waiting for the other.

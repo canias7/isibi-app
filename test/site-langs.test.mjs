@@ -499,7 +499,11 @@ test("THE BUILD PATH TRANSLATES, AND ONLY THEN SENDS THE LANGUAGES", () => {
   // spine, into the same `files` map the payload carries.
   assert.match(dep, /resolveLangs\(lang \|\| "en", extraLangs/,
     "the build dep never resolves the site's languages");
-  assert.match(dep, /translatePages\(pages, l\.prefix/,
+  // RE-ANCHORED FOR TASK #88: the build's languages are translated through
+  // `Promise.all` and written in an ordered fold, so the language is `r.l`
+  // where it was `l`. The property is that the translated pages are still
+  // built and still join `files` — either spelling satisfies it.
+  assert.match(dep, /translatePages\(pages, (?:r\.)?l\.prefix/,
     "the build dep sends langs with no translated routes behind them — a switcher pointing at a 404");
   assert.match(dep, /for \(const tp of t\.pages\) files\[tp\.path\] = tp\.source;/,
     "the translated pages never join the files the container builds");
