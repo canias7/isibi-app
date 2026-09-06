@@ -12,6 +12,7 @@ import {
   VIEWPORTS, BLANK_TEXT_CHARS, MIN_CONTRAST, OVERFLOW_SLACK, MAX_FINDINGS,
   OVERLAY_TRIGGERS, MAX_OPENS, MIN_PANEL_ALPHA,
   probe, probeOverlay, readPage, readOverlay, renderReport, renderNote, isSerious, SERIOUS,
+  isNavTimeout, resolveSlow,
   HYDRATION_ERROR, hydrationProbe, hydrationDetail, checkOrder,
 } from "../builder/site-render.mjs";
 
@@ -115,6 +116,134 @@ test("a page that never loaded reports only that — everything else would be me
   const f = readPage({ ...clean, error: "net::ERR_ABORTED", text: 0, images: 0, overflow: 900 });
   assert.deepEqual(kinds(f), ["threw"]);
   assert.match(f[0].detail, /ERR_ABORTED/);
+});
+
+// ── OUR DEADLINE OR THEIR PAGE (task #87, run 39) ────────────────────────────
+//
+// Run 39's report said `/ threw: page.goto: Timeout 6000ms exceeded` at the
+// phone viewport of a run already being cut, and the customer's reply said the
+// home page threw an error. The page was fine; the container was busy. These
+// drive the classification and the one case where it escalates.
+
+test("a navigation timeout is `slow`, not `threw` — and it is not SERIOUS", () => {
+  // Playwright's own wording, verbatim, which is what run 39 recorded.
+  const byFlag = readPage({ ...clean, error: "page.goto: Timeout 6000ms exceeded.", timedOut: true });
+  assert.deepEqual(kinds(byFlag), ["slow"], "the check's own deadline is being reported as the page failing");
+  assert.ok(!isSerious(byFlag), "a page we could not open in time is not a page we know is broken");
+
+  // THE BELT: an observation that travelled as JSON and lost the flag is still
+  // read off the message, so the two ends cannot drift.
+  const byMessage = readPage({ ...clean, error: "page.goto: Timeout 6000ms exceeded." });
+  assert.deepEqual(kinds(byMessage), ["slow"]);
+
+  // AND EACH HALF ALONE HAS TO CARRY IT, or one of them is decoration. The
+  // check keeps only the first 200 characters of the message, so a timeout
+  // whose wording is cut — or reworded by a Playwright upgrade — reaches here
+  // as the flag and nothing else.
+  const flagOnly = readPage({ ...clean, error: "page.goto: Timeout", timedOut: true });
+  assert.deepEqual(kinds(flagOnly), ["slow"], "the flag alone must decide; the message is the belt, not the rule");
+
+  // STRICTLY `true`, NEVER MERELY TRUTHY. An observation is JSON that has been
+  // through a report, and this repo has shipped three separate bugs on
+  // coercion. Excusing a page that really did fail because some stray value sat
+  // in the field is the expensive direction of that mistake.
+  const odd = readPage({ ...clean, error: "net::ERR_ABORTED", timedOut: "no" });
+  assert.deepEqual(kinds(odd), ["threw"], "a non-boolean flag is being coerced into 'this one was ours'");
+
+  // AND THE CONTROL, without which a rule that called EVERYTHING slow passes:
+  // a real navigation failure is still serious.
+  const real = readPage({ ...clean, error: "net::ERR_CONNECTION_REFUSED" });
+  assert.deepEqual(kinds(real), ["threw"]);
+  assert.ok(isSerious(real));
+});
+
+test("isNavTimeout reads Playwright's error object and its message, and nothing else", () => {
+  const e = new Error("page.goto: Timeout 6000ms exceeded.");
+  e.name = "TimeoutError";
+  assert.ok(isNavTimeout(e), "Playwright names it TimeoutError and that is the exact signal");
+
+  // THE NAME ALONE HAS TO CARRY IT, or reading it is decoration. Playwright's
+  // wording has changed between versions and the check keeps only the first 200
+  // characters of it, so the message is the half most likely to stop matching —
+  // which is the whole reason the exact signal is read first.
+  const named = new Error("Navigation failed because another navigation started");
+  named.name = "TimeoutError";
+  assert.ok(isNavTimeout(named), "the error's own name is not read — only its wording, which is the fragile half");
+  assert.ok(isNavTimeout("Timeout 30000 ms exceeded"), "the message alone must be enough");
+  assert.ok(!isNavTimeout("net::ERR_ABORTED"), "a navigation failure is not a timeout");
+  assert.ok(!isNavTimeout("the page did not load (500)"), "a bad status is not a timeout");
+  assert.ok(!isNavTimeout(null) && !isNavTimeout(""), "nothing is not a timeout");
+});
+
+test("a route that timed out at EVERY width it was tried at is `threw` after all", () => {
+  const obs = (viewport) => ({ route: "/menu", viewport, error: "page.goto: Timeout 6000ms exceeded.", timedOut: true });
+  const report = renderReport([obs("phone"), obs("desktop")]);
+  assert.deepEqual(report.findings.map((f) => f.kind), ["threw", "threw"],
+    "two attempts, neither opened — 'the container was busy' has stopped being an explanation");
+  assert.match(report.findings[0].detail, /did not open at any width/);
+  assert.ok(isSerious(report.findings));
+});
+
+test("ONE attempt that timed out stays `slow` — cannot-tell must never read as broken", () => {
+  // Run 39's exact shape: the budget cut the loop, so `/` was opened once.
+  const report = renderReport(
+    [{ route: "/", viewport: "phone", error: "page.goto: Timeout 6000ms exceeded.", timedOut: true }],
+    { cut: true },
+  );
+  assert.deepEqual(report.findings.map((f) => f.kind), ["slow"],
+    "escalating a single timeout puts us back to blaming a page nobody managed to look at twice");
+  assert.ok(!isSerious(report.findings));
+});
+
+test("a route that opened at one width is never escalated by a timeout at the other", () => {
+  const report = renderReport([
+    { route: "/", viewport: "phone", error: "page.goto: Timeout 6000ms exceeded.", timedOut: true },
+    { ...clean, route: "/", viewport: "desktop" },
+  ]);
+  assert.deepEqual(report.findings.map((f) => f.kind), ["slow"],
+    "its sibling proves the page is fine, so the timeout is ours");
+  assert.ok(!isSerious(report.findings));
+});
+
+test("resolveSlow leaves every other kind exactly as it found it", () => {
+  const found = [
+    { route: "/x", viewport: "phone", kind: "threw", detail: "boom" },
+    { route: "/x", viewport: "phone", kind: "logged", detail: "a key warning" },
+    { route: "/x", viewport: "phone", kind: "blank", detail: "nothing rendered" },
+  ];
+  // /x never opened and was tried twice — the escalation's own conditions — so
+  // this proves the filter is on the KIND and not on the route's luck.
+  const out = resolveSlow([{ route: "/x", error: "e" }, { route: "/x", error: "e" }], found);
+  assert.deepEqual(out, found);
+});
+
+test("THE CHECK RECORDS WHOSE DEADLINE IT WAS — the classifier is worth nothing unwired", () => {
+  // The wiring layer, which has shipped twelve features dead here: `slow` can
+  // be perfect and every timeout still reads as `threw` if the one place that
+  // holds the real Error never says so. Read rather than driven because the
+  // catch needs a browser; the predicate itself is driven above.
+  const check = fs.readFileSync(new URL("../builder/render-check.mjs", import.meta.url), "utf8");
+  assert.match(check, /import \{[^}]*\bisNavTimeout\b[^}]*\} from "\.\/site-render\.mjs"/,
+    "the check does not share the module's predicate — two definitions of 'whose failure was this' will drift");
+
+  // The catch, landmark to landmark, never by byte offset.
+  const openAt = check.indexOf("          } catch (e) {\n            obs.error =");
+  assert.ok(openAt > 0, "the navigation catch moved — this window scans nothing");
+  const closeAt = check.indexOf("obs.pageErrors = pageErrors;", openAt);
+  assert.ok(closeAt > openAt, "the catch's closing landmark is gone — the window would swallow the file");
+  const body = check.slice(openAt, closeAt);
+  assert.match(body, /if \(isNavTimeout\(e\)\) obs\.timedOut = true;/,
+    "a navigation timeout is not marked as ours, so readPage will call it the page's failure");
+  assert.match(body, /obs\.error = String/, "the message is no longer kept — the belt and the detail both go with it");
+});
+
+test("the customer is told what we saw, not that their page broke", () => {
+  const note = renderNote(renderReport([
+    { route: "/", viewport: "phone", error: "page.goto: Timeout 6000ms exceeded.", timedOut: true },
+    { ...clean, route: "/", viewport: "desktop" },
+  ]));
+  assert.match(note, /took longer to open/);
+  assert.doesNotMatch(note, /threw an error/, "the sentence that sent run 39's customer looking for a broken page");
 });
 
 // ── blank ────────────────────────────────────────────────────────────────────

@@ -391,7 +391,19 @@ export function readPage(obs) {
 
   // A page that never loaded is the only finding worth making about it —
   // everything below would be measuring an error page.
-  if (o.error) return [at("threw", o.error)];
+  //
+  // A NAVIGATION TIMEOUT IS `slow`, NOT `threw` (task #87, run 39). The check
+  // gives a route NAV_MS to open, and on a busy container that budget is OURS:
+  // run 39 reported `/ threw: page.goto: Timeout 6000ms exceeded` at the phone
+  // viewport of a run that was already being cut (`checked: 4, partial: true`),
+  // and the customer's reply said "/ threw an error" about a page that was
+  // fine. An instrument's own deadline wearing the page's failure is the
+  // recorded "a failure that cannot name itself", so it gets its own name —
+  // and it is deliberately OUTSIDE `SERIOUS`, because a page we could not open
+  // in time is not a page we know is broken: the repair round must not buy a
+  // fix for a page that never failed, and the harness must not stop a run on
+  // it. `resolveSlow` escalates the one case where we CAN tell.
+  if (o.error) return [at(navTimedOut(o) ? "slow" : "threw", o.error)];
 
   // THE ROUTE CRASHED INTO OUR OWN ERROR CARD, and this returns for the same
   // reason `o.error` does: everything below would be measuring the apology
@@ -482,10 +494,67 @@ export function readPage(obs) {
  * the run was complete, so an untruncated report is byte-identical to what it
  * was before this existed.
  */
+// ── OUR DEADLINE OR THEIR PAGE (task #87, run 39) ───────────────────────────
+//
+// ONE DEFINITION, TWO ENDS. `render-check.mjs` holds the real Error object and
+// Playwright names a navigation timeout `TimeoutError`; `readPage` sees only
+// the string it kept. Both ask this, so the two cannot drift into disagreeing
+// about which failures are the instrument's — the recorded "two lists of the
+// same thing", on a classification rather than a list.
+export const NAV_TIMEOUT = /\bTimeout\s+\d+\s*ms\s+exceeded/i;
+export function isNavTimeout(err) {
+  if (!err) return false;
+  if (typeof err === "object" && String(err.name || "") === "TimeoutError") return true;
+  return NAV_TIMEOUT.test(String((err && err.message) || err));
+}
+/** The flag the check set, or the message as a belt for an observation that
+ *  travelled as JSON and lost it. */
+const navTimedOut = (o) => !!(o && (o.timedOut === true || isNavTimeout(o.error)));
+
+/**
+ * A ROUTE THAT NEVER OPENED AT ANY WIDTH IS `threw` AFTER ALL.
+ *
+ * Every route is opened at two viewports, so a timeout usually has a sibling
+ * that says whether the page itself is fine — and when EVERY attempt at a route
+ * timed out, "the container was busy" stops being an explanation and the honest
+ * reading is that the page does not load.
+ *
+ * MORE THAN ONE ATTEMPT IS REQUIRED, and that clause is the whole care in this
+ * function. The loop stops at a time budget, so a route can be opened once and
+ * never again — which is exactly run 39's shape — and escalating a single
+ * timeout would put us back where we started, blaming a page nobody managed to
+ * look at twice. One attempt that timed out stays `slow`: cannot-tell must
+ * never read as broken, the mirror of the rule this codebase already keeps for
+ * cannot-tell reading as nothing-there.
+ *
+ * Pure, and returns new findings rather than editing the ones handed in, so it
+ * can be driven with literals.
+ */
+export function resolveSlow(observations, findings) {
+  const list = Array.isArray(observations) ? observations : [];
+  const out = Array.isArray(findings) ? findings : [];
+  const tries = new Map();
+  for (const o of list) {
+    const route = String((o && o.route) || "/");
+    const t = tries.get(route) || { attempts: 0, opened: 0 };
+    t.attempts++;
+    if (!(o && o.error)) t.opened++;
+    tries.set(route, t);
+  }
+  return out.map((f) => {
+    if (!f || f.kind !== "slow") return f;
+    const t = tries.get(f.route);
+    if (!t || t.opened > 0 || t.attempts < 2) return f;
+    return { ...f, kind: "threw", detail: clip(`did not open at any width — ${f.detail}`) };
+  });
+}
+
 export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0, landmarks = null } = {}) {
   const list = Array.isArray(observations) ? observations : [];
-  const findings = [];
-  for (const o of list) for (const f of readPage(o)) findings.push(f);
+  const raw = [];
+  for (const o of list) for (const f of readPage(o)) raw.push(f);
+  // A ROUTE THAT NEVER OPENED AT ANY WIDTH REALLY IS DOWN (task #87).
+  const findings = resolveSlow(list, raw);
 
   const routes = new Set(list.map((o) => String((o && o.route) || "/")));
   const report = {
@@ -661,6 +730,9 @@ const WORD = {
   threw: "threw an error",
   logged: "logged an error",
   blank: "rendered nothing",
+  // NOT "is slow" and not "threw an error": the check gave up waiting, which is
+  // a fact about the check. The customer is told what we saw, not blamed for it.
+  slow: "took longer to open than the check waits",
   image: "has an image that did not load",
   overflow: "scrolls sideways",
   contrast: "has text that is nearly invisible",

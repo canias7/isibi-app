@@ -19,7 +19,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, HYDRATION_ERROR, hydrationProbe } from "./site-render.mjs";
+import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, HYDRATION_ERROR, hydrationProbe, isNavTimeout } from "./site-render.mjs";
 
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
@@ -463,6 +463,13 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
             }
           } catch (e) {
             obs.error = String((e && e.message) || e).slice(0, 200);
+            // WHOSE FAILURE IT WAS, DECIDED WHERE THE EVIDENCE IS (task #87).
+            // Only here is the real Error in hand — Playwright names a
+            // navigation timeout `TimeoutError` — and `readPage` gets the
+            // string above, which has already lost that. The flag is what makes
+            // an instrument's own six-second deadline distinguishable from a
+            // page that will not load; the shared predicate is the belt.
+            if (isNavTimeout(e)) obs.timedOut = true;
           }
           obs.pageErrors = pageErrors;
           obs.consoleErrors = consoleErrors;

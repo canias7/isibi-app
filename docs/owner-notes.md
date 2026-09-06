@@ -3779,3 +3779,35 @@ beside a line in the same file saying the right one. Nothing broke and no test
 reads them, which is why it went unnoticed; corrected now, and written into the
 traps so the next time a number is fixed, every copy of the old one is hunted
 down first. Both CI runs for the two pushes were green.
+
+## The render check stopped blaming the page for its own clock (2026-09-06)
+
+Owner: "SO FIX ?" — the first of the free list.
+
+When the check opens each page it gives it six seconds. On a busy container
+that budget runs out, and the page then got the blame: run 39's reply told the
+customer that their home page "threw an error" when the page was fine and the
+container was merely slow. Worse than the wrong sentence, it had teeth — the
+add-on's repair round would buy a fix for a page that never broke, and the
+test harness stopped a whole dispatch on it.
+
+A timeout is now its own thing, called "took longer to open than the check
+waits", and it is deliberately not counted as serious. The one case where we
+CAN tell is still caught: every page is opened at two widths, so a page that
+timed out at both really is down and is reported as down. A page that timed
+out once, when the run was cut short before the second look, stays a maybe —
+because guessing "broken" there is exactly the mistake being fixed.
+
+One small tidy came with it. The test harness had its own hand-written copy of
+"what counts as serious"; it asks the check now, so the two cannot drift apart
+and quietly disagree.
+
+Sweep: 21 mutants, 21 killed, both controls survived — two got past the first
+pass and both were my tests' fault rather than the code's, closed and re-run.
+Full suite 5,362 green. The sweep runner itself is now committed at
+`scripts/mutate.mjs`: it only ever lived in a scratch folder that resets, and
+rebuilding it from memory each time is how a subtly wrong one once reported a
+kill that had not happened.
+
+NOT proven live: the next slow container is the proof, and the tell is that
+sentence appearing where "threw an error" used to.

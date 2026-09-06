@@ -2257,8 +2257,34 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   `checked: 4, partial: true`), and the customer's reply says "/ threw an
   error" for a container that was slow, not a page that broke — an
   instrument's timeout wearing the page's failure, the recorded "a failure
-  that cannot name itself". It wants its own kind, outside `SERIOUS`.
-  Container-side.
+  that cannot name itself". **FIXED 2026-09-06 (task #87, owner: *"SO FIX
+  ?"*), as its own kind outside `SERIOUS`.** `isNavTimeout` is ONE predicate
+  with two readers — `render-check.mjs` holds the real Error and Playwright
+  names a navigation timeout `TimeoutError`, `readPage` sees only the string
+  it kept — so the catch sets `obs.timedOut` and the message is the belt for
+  an observation that travelled as JSON and lost it; each half is driven
+  alone, because a flag with an unmatched message and a message with no flag
+  are both real (the check clips to 200 characters and Playwright's wording
+  moves between versions). `slow` is NOT serious, deliberately: the repair
+  round must not buy a fix for a page that never failed and the harness must
+  not stop a run on it — which is what run 39 cost. **`resolveSlow` escalates
+  the one case where we CAN tell**: every route is opened at two widths, so a
+  route whose EVERY attempt timed out is `threw` after all ("did not open at
+  any width"), while **one** attempt that timed out stays `slow` — the loop
+  stops at a budget, so a route can be opened once and never again, which is
+  run 39's own shape, and escalating that would put us back to blaming a page
+  nobody managed to look at twice. Cannot-tell must never read as broken, the
+  mirror of the rule this codebase already keeps. `crashedRoutes` in the addon
+  harness DERIVES from `SERIOUS` now instead of listing `threw` and `blank` by
+  hand — the same set said twice, which would have disagreed the moment `slow`
+  arrived. **Sweep: 21 mutants, 21 killed, none unapplied, two comment-only
+  controls survived — two survived the first pass and both were the guards'**:
+  a truthy-rather-than-strict flag (every fixture set it to `true`, so the
+  coercion was invisible) and Playwright's error NAME going unread (the
+  fixture's message also matched the regex, so the belt answered for it).
+  Both driven and re-run to a kill. Full suite 5,362. **Not proven live**: the
+  next slow container is the proof, and the line to read is `/ took longer to
+  open than the check waits` where the reply used to say `/ threw an error`.
   (4) **LANGUAGES TRANSLATE ONE AT A TIME**, 124–153 s each on Grok: a site
   with three fresh caches spends ~7 minutes of the 840 s job before the
   compile. The calls are independent; run them together.
@@ -4434,8 +4460,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,354
-  (2026-09-06, after stage 9's sixteen — `test/job-retention.test.mjs`'s
+  build and the pre-list payload added sixteen); the unit suite is 5,362
+  (2026-09-06, after task #87's eight in `test/site-render.test.mjs` — the
+  classification driven both ways with its control, the predicate's two
+  halves each driven alone, the escalation at two attempts and its refusal
+  at one, a route saved by its sibling, every other kind left alone, the
+  check's own wiring read, and the customer's sentence; plus the addon
+  harness's slow case; 5,354 after stage 9's sixteen — `test/job-retention.test.mjs`'s
   five, the window against the bounds it rests on, the rotation, what is
   old enough and what is never touched, a tick driven and the cron's hop;
   and `test/rebuild-job.test.mjs`'s eleven, the key, the pending verdict, the

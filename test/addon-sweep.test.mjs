@@ -385,6 +385,12 @@ test("a publish the site's render check calls broken is BROKEN, red, and stops t
   // `blank` is the other serious kind; a mild finding is not.
   assert.equal(crashedRoutes({ render: { findings: [{ route: "/", kind: "blank", detail: "rendered nothing" }] } }).length, 1);
   assert.equal(crashedRoutes({ render: { findings: [{ route: "/", kind: "overflow" }, { route: "/", kind: "missing-alt" }] } }).length, 0);
+  // A CONTAINER THAT WAS BUSY DOES NOT END A RUN (task #87). `slow` is the
+  // check's own deadline, not a page that broke, and a run stopped on it is a
+  // dispatch spent on nothing — which is what run 39 cost. The severity rule
+  // lives in the check and this asks it, so the two cannot drift.
+  assert.equal(crashedRoutes({ render: { findings: [{ route: "/", kind: "slow", detail: "Timeout 6000ms exceeded" }] } }).length, 0,
+    "a navigation timeout is being read as a site that is down");
   // A reply with no render report answers NOTHING: cannot-tell is not broken.
   assert.deepEqual(crashedRoutes({ ok: true }), []);
   assert.deepEqual(crashedRoutes(null), []);

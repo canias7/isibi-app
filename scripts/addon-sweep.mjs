@@ -40,6 +40,7 @@ import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
 import { confirmed } from "./lane-sweep.mjs";
+import { SERIOUS } from "../builder/site-render.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -224,7 +225,12 @@ export function blindBackend(b, a, r, field, pageChange) {
  */
 export function crashedRoutes(body) {
   const findings = body && body.render && Array.isArray(body.render.findings) ? body.render.findings : [];
-  return findings.filter((f) => f && (f.kind === "threw" || f.kind === "blank") && !/^\/-parts\//.test(String(f.route || "")));
+  // DERIVED FROM `SERIOUS`, NOT A SECOND COPY OF IT (task #87). This listed
+  // "threw" and "blank" by hand, which was the same set said twice — and the
+  // moment `slow` arrived beside them the two copies would have disagreed about
+  // whether a container that was merely busy ends a run. The check owns the
+  // severity rule; this asks it.
+  return findings.filter((f) => f && SERIOUS.has(f.kind) && !/^\/-parts\//.test(String(f.route || "")));
 }
 
 /** A case that ends the run: a lie, a lost answer, or a site that says one of its own pages is down. */
