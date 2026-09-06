@@ -2933,6 +2933,19 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   job with a sweep of the litter under `jobs/` as stage 9 (its own section).
   What is left of the plan: nothing.
 
+  **MERGED AND DEPLOYED (owner, 2026-09-06: *"MERGE"*).** Main was
+  fast-forwarded from `924e007f` to `69118b6f` at 04:33Z — twelve commits:
+  stages 4b, 5d (two), 5b/5c, 5e and 9, plus the stamp correction, the
+  `site build` cap, tasks #87, #88 and #47, and the two assessments. Main had
+  nothing of its own. **Deploy run 2032, green in 3m05s**: the gate set in 1 s;
+  the image step 2m20s, so the site image was BUILT and the container app
+  `EDIT`ed off stage 8's `e86…54e47` onto a new tag, applied 04:37:23Z;
+  `deploy gate (drain)` found no live leases and returned at once; Wrangler
+  23 s; the clear step on success left the gate to expire. All four triggers
+  and both queue ends redeployed. **The 15–20 minute hold ends ~04:57Z** — every
+  stage from 4b onward is live from then, and the plan's remaining work is the
+  owner's: the `JOB_RUNNER_EVERYONE` flip and the canary proofs.
+
   **#52's interrupted-job answer is MOSTLY MITIGATED RATHER THAN OPEN, and
   what is left of it needs the owner (assessed 2026-09-06).** Run 17's shape
   was a queue invocation evicted nine minutes after a deploy, running no catch

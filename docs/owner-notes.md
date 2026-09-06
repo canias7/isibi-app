@@ -3900,3 +3900,26 @@ shorten that the database would have to start telling us when a job's hold
 expired, which is a change to a database function — your call, not mine. The
 other half of that task was always yours anyway: whether a job that died before
 spending anything may quietly be run again.
+
+## Merged (2026-09-06)
+
+Owner: "MERGE". Everything on the branch is on main and deployed — twelve
+commits, covering the last five plan stages plus tonight's three fixes and the
+housekeeping. Main had nothing of its own, so it was a clean fast-forward with
+nothing to reconcile.
+
+The deploy took three minutes and rebuilt the container image, so the site
+container rolled at 04:37. Nothing was running when it did: the new gate checked
+for live jobs first and found none, which is the drain doing exactly what it was
+built for a day ago. Wait until about five to five before firing anything that
+needs the container, so it is on the new image.
+
+What is now live that was not: jobs no longer carry the platform's Supabase key,
+a wedged job child gets stopped, builds run inside the site's own container, the
+platform rebuild is a job like any other, stranded job files get swept after a
+week, the render check stops blaming pages for its own clock, languages
+translate together, and the logo lane can no longer draw for longer than any
+logo we would keep.
+
+Still yours, and unchanged by the merge: switching the runner on for everyone,
+and the canary runs on fretwork-1.
