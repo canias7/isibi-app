@@ -323,6 +323,86 @@ export const PAGE_VERBS = ["add", "remove", "move"];
 export const PAGE_VERB_LAYER = { add: "addon", remove: "page", move: "page" };
 
 /**
+ * ── TAKING SOMETHING OFF IS THE SAME VERB EVERYWHERE ────────────────────────
+ *
+ * Owner, 2026-09-06: *"delete should be in the edit path , they can delete
+ * literally anything"*, and then the scope: *"i mean things in the site , like a
+ * component etc etc etc , not database or or whatver , code in the site yes"*.
+ *
+ * So this is NOT a fourth path beside build / edit / addon. It is a second word
+ * on the lane the picker already chose, which is exactly the shape `pages` has
+ * carried since it shipped — and the reason is the same one written above it: a
+ * lane cannot tell "make the QR code point somewhere else" from "take the QR
+ * code off" from the field name alone, and the two are opposite acts.
+ *
+ * WHY A SUBSET OF THE PICKED LANES RATHER THAN A VERB PER LANE. The picker
+ * answers `fields` and then `removes`, a subset of it. That is the wall rather
+ * than the rule: the property can hold lane names and nothing else, so there is
+ * nowhere to put "and also restyle the header" — the same argument that gives
+ * every lane's own tool one property. A name in `removes` that is not in
+ * `fields` is not a removal of anything, and a name that is not removable at all
+ * is refused BY NAME rather than dropped, because a silent drop is how "delete
+ * the bookings table" comes back as "✅ Done" having done nothing.
+ *
+ * `pages` KEEPS ITS OWN VERB and is deliberately not removable here. It is the
+ * one lane with THREE capabilities rather than two, so `pageVerb` has to exist
+ * whatever this does, and a lane answerable through both would be two lists of
+ * the same thing — the recorded trap. The guard asserts they never overlap.
+ *
+ * WHAT IS NOT REMOVABLE, AND WHY EACH ONE IS NOT:
+ *   `backend` — the owner's line above. Tables, functions, connections and jobs
+ *               are not the edit path's to drop, and it is the ONE thing here a
+ *               version restore could not undo anyway: the page comes back, the
+ *               rows do not.
+ *   `lang`    — a site is written in something. Removing the primary language
+ *               is not a removal, it is a site with no words.
+ *   `slug`    — an address is renamed or FORGOTTEN, and forgetting already has
+ *               its own answer on that lane with its own irreversibility.
+ *   `kind`    — a rebuild, not a removal.
+ *   `purpose`  — not a thing on the page. What the page is organised around is
+ *               replaced rather than emptied.
+ *
+ * `shape` IS removable even though it reads like a sibling of `purpose`, and the
+ * reason is worth stating: its own hint already ends "taking one out". Leaving
+ * it off would mean "take the testimonials band off" is refused whenever the
+ * picker reaches for `shape` instead of `components` — a legitimate removal
+ * losing a coin toss between two lanes that dispatch to the SAME rung. Both are
+ * removable so the act lands whichever name the picker chooses.
+ *
+ * EVERYTHING THIS DOES REMOVE IS RECOVERABLE, which is what makes the bias
+ * inversion below affordable rather than frightening: since stage 7 every
+ * publish is staged whole under its own version and `restoreVersion` brings one
+ * back, so a section deleted by mistake is a restore away for as long as the
+ * cap keeps it. That is true of every lane on this list and of none of the ones
+ * above it — which is most of why the list is drawn where it is.
+ */
+export const NOT_REMOVABLE = Object.freeze({
+  backend: "the site's database — its tables, saved functions, outside connections and scheduled jobs — isn't something I take away from here",
+  lang: "the language the site is written in isn't something it can be without — ask me to write it in a different language instead",
+  slug: "a web address is changed by renaming the site, or dropped by asking me to forget an old one",
+  kind: "what kind of site this is gets changed by rebuilding it, not by taking it off",
+  purpose: "what the page is for is changed rather than emptied — tell me what it should do instead",
+});
+
+/**
+ * What removal MEANS on this lane, in the lane's own words, or `null`.
+ *
+ * One string, read by the picker's description AND by the lane's own tool, so a
+ * lane cannot be removable in the list and silent in the prompt — the wiring
+ * trap, which on this module has already cost `three` a whole day.
+ */
+export function laneRemoval(field) {
+  if (typeof field !== "string" || !Object.hasOwn(LANES, field)) return null;
+  return LANES[field].remove || null;
+}
+
+/** Why this lane refuses to be taken off, or `null` when it does not refuse. */
+export function removalRefusal(field) {
+  if (typeof field !== "string" || !Object.hasOwn(NOT_REMOVABLE, field)) return null;
+  return NOT_REMOVABLE[field];
+}
+
+/**
  * ── A RULE PER LANE, AND THE RULE HAS FOUR NAMED PARTS ──────────────────────
  *
  * Owner, 2026-08-29: *"i want a rule per everysingle one of them, just like we
@@ -361,6 +441,7 @@ export const PAGE_VERB_LAYER = { add: "addon", remove: "page", move: "page" };
 const LANES = {
   /* ---- the eleven this module answers itself ---- */
   css: {
+    remove: "take the site's own stylesheet off, leaving it looking the way its theme alone makes it look",
     hint: "THE STYLESHEET — any change to how something LOOKS that is not a change of theme: a colour, a size, spacing, corners, a typeface, one control, one section, dark or light. The ordinary answer for a look change.",
     shape: { type: "string" },
     edit: {
@@ -382,6 +463,7 @@ const LANES = {
     },
   },
   theme: {
+    remove: "put the site back on the platform's default look, dropping the theme it was given",
     hint: "The site's whole visual world, picked by name — broadsheet, bakery, apothecary, noir. Asking for a DIFFERENT LOOK ENTIRELY is this; asking for one colour or one control to change is `css`.",
     shape: { type: "string", enum: THEME_SHORTLIST },
     edit: {
@@ -403,6 +485,7 @@ const LANES = {
     },
   },
   brand: {
+    remove: "drop the name the site was given, leaving it called after its own web address",
     hint: "The site's NAME — what the business is called, as it appears in the header, the browser tab and a shared link.",
     shape: { type: "string" },
     edit: {
@@ -422,6 +505,7 @@ const LANES = {
     },
   },
   description: {
+    remove: "take the one-line summary off, so a search result and a shared link show the name alone",
     hint: "The one-line summary under the name in a Google result or a shared-link preview.",
     shape: { type: "string" },
     edit: {
@@ -440,6 +524,7 @@ const LANES = {
     },
   },
   wordmark: {
+    remove: "take the drawn logo off the header, leaving the name set in type where it was",
     hint: "The logo in the header — the business name set in type, or a drawn mark.",
     shape: { type: "string" },
     edit: {
@@ -459,6 +544,7 @@ const LANES = {
     },
   },
   favicon: {
+    remove: "take the drawn tab icon off, putting the default one back",
     hint: "The TAB ICON — the small mark in the browser tab and on a bookmark.",
     shape: { type: "string" },
     edit: {
@@ -495,6 +581,7 @@ const LANES = {
     },
   },
   langs: {
+    remove: "stop offering the site in a language — the one they name, or every extra one",
     hint: "The other languages the site is also offered in.",
     shape: { type: "array", items: { type: "string" }, maxItems: 12 },
     edit: {
@@ -535,6 +622,7 @@ const LANES = {
   // becomes wrong the day behaviour is generated — on that day this lane needs
   // to reach the `page` rung as well. Named in CLAUDE.md's backlog.
   behavior: {
+    remove: "stop a control on the page doing what it does, leaving the control itself where it is",
     hint: "What something on the page DOES when someone uses it — a button, a link, a form, a tab, a filter, a menu, a carousel. What it opens, what it changes, what you see happen. This is the lane for any 'when someone presses / clicks / submits X, then Y' — even about the header button; only that button's WORDS and LINK are `action`.",
     shape: { type: "array", items: BEHAVIOR_ITEM },
     edit: {
@@ -587,6 +675,7 @@ const LANES = {
   // code is a printed card that stops working. `patchQr` folds the patch over
   // the stored list where the lane's answer is read.
   qr: {
+    remove: "take a QR code off the site — the one they name, or the only one when it has just one",
     hint: "A QR CODE the site has — where scanning it takes you, or what the words beside it say. Which one, when the site has several.",
     shape: {
       type: "object",
@@ -617,19 +706,36 @@ const LANES = {
 
   /* ---- the six that act on another layer ---- */
   purpose: { hint: "What the page is organised around — what it leads with and what everything else supports.", elsewhere: "plan" },
-  components: { hint: "Which building blocks the page is made of — the manifest it is written from.", elsewhere: "plan" },
-  shape: { hint: "Where the sections go on the page and in what order — moving a band up or down, taking one out.", elsewhere: "plan" },
-  images: { hint: "A PHOTOGRAPH on the site: swapping one for another, adding one, taking one off, or changing which part of it you see.", elsewhere: "images" },
+  components: {
+    hint: "Which building blocks the page is made of — the manifest it is written from.",
+    elsewhere: "plan",
+    remove: "take one of the page's sections off it — the band and everything in it, with the rest of the page left as it is",
+  },
+  shape: {
+    hint: "Where the sections go on the page and in what order — moving a band up or down, taking one out.",
+    elsewhere: "plan",
+    remove: "take one of the page's bands off it, closing the gap where it was",
+  },
+  images: {
+    hint: "A PHOTOGRAPH on the site: swapping one for another, adding one, taking one off, or changing which part of it you see.",
+    elsewhere: "images",
+    remove: "take a photograph off the page — the slot that held it goes with it, rather than being left empty",
+  },
   // THE WORDS ON THE BUTTON AND ITS TARGET, AND NOTHING ELSE. The lane sweep
   // (2026-09-01) sent "when someone presses the button, open the phone
   // dialler" here — the picker read "open the dialler" as where the button
   // points — and the nav rung, which changes a label and an href, answered
   // no-menu. What a control DOES when used is `behavior`; this lane is the
   // header button's label and destination as a link.
-  action: { hint: "The site's primary button in the header — the words on it, and the page, number or address it links to. Only that button, and only its label and link; what any control DOES when used is `behavior`.", elsewhere: "action" },
+  action: {
+    hint: "The site's primary button in the header — the words on it, and the page, number or address it links to. Only that button, and only its label and link; what any control DOES when used is `behavior`.",
+    elsewhere: "action",
+    remove: "take the header's button off altogether, leaving the header without one",
+  },
   backend: { hint: "What the site STORES — its tables, the rows in them, who may read or add one, and what it refuses.", elsewhere: "backend" },
 
   three: {
+    remove: "take the 3D scene off the page altogether",
     hint: "The 3D or WebGL element on the page — what the scene shows, how it moves, whether there is one at all.",
     elsewhere: "three",
   },
@@ -645,6 +751,7 @@ const LANES = {
   // is that a revise about a phone number cannot make the site forget it had a
   // hand-written seat map.
   tsx: {
+    remove: "take one of the site's own built parts off the page, and its file with it",
     hint: "A part of the page that was BUILT for this site rather than picked from the kit — changing what it does, what it shows, or taking it out.",
     elsewhere: "tsx",
   },
@@ -674,6 +781,20 @@ export const OWN_LANES = LANE_FIELDS.filter(
  * one of them and be wrong for the other two.
  */
 export const VERB_LANES = LANE_FIELDS.filter((f) => LANES[f].verbs);
+
+/**
+ * The lanes a message may ask to take OFF the site.
+ *
+ * DERIVED FROM THE LANE'S OWN `remove` RULE, never listed beside it, so a lane
+ * that gains the rule gains the capability and a lane that loses it loses both —
+ * the same reason `OWN_LANES` three lines up is a filter and not a list.
+ *
+ * It sits HERE, below the table, and not beside `NOT_REMOVABLE` where it reads
+ * more naturally, because up there `LANES` has not been evaluated yet: a `const`
+ * that reads a later `const` throws at module load and no text guard sees it.
+ * That is this repository's own recorded trap, met while writing this line.
+ */
+export const REMOVABLE_LANES = LANE_FIELDS.filter((f) => !!LANES[f].remove);
 
 /**
  * The lanes whose work is real, exists, and lives ABOVE this route.
@@ -802,6 +923,38 @@ export function pickTool(fields = LANE_FIELDS) {
             "NEVER NAME EVERYTHING. If you cannot tell which part they mean, name the single closest one.\n\n" +
             "The parts:\n" + lines.join("\n"),
         },
+        // ── AND WHICH OF THOSE ARE BEING TAKEN OFF RATHER THAN CHANGED ────
+        //
+        // A SUBSET OF `fields`, and it can hold nothing else — the wall rather
+        // than the rule, the same argument that gives every lane's own tool one
+        // property. There is nowhere here to put "and restyle the header while
+        // you are there".
+        //
+        // NAMED IN BOTH PLACES, DELIBERATELY. A removal answers `fields` AND
+        // `removes`, rather than `removes` alone, so the lane that runs is
+        // always one the picker chose on the merits — and a model that fills in
+        // only one of the two has said something we can still act on.
+        removes: {
+          type: "array",
+          // THE ENUM IS EVERY LANE, NOT THE REMOVABLE ONES, AND THAT IS THE
+          // POINT. Narrowing it to `REMOVABLE_LANES` reads like tightening a
+          // wall and would quietly take the honest refusal away: a customer who
+          // says "delete the bookings table" could no longer be UNDERSTOOD, so
+          // the ask would come back as an ordinary change to `backend` and the
+          // reply would describe a removal that never happened. Wide here,
+          // refused by name in `readRemoves`, said in the reply.
+          items: { type: "string", enum: LANE_FIELDS },
+          description:
+            "The parts named in `fields` that they are asking to TAKE OFF the site rather than change. Leave it " +
+            "out entirely for an ordinary change, which is nearly every message.\n" +
+            "ONLY WHEN THEY REALLY MEAN GONE — \"take the QR code off\", \"delete the testimonials section\", " +
+            "\"we don't want the 3D thing any more\", \"drop the Spanish version\". A request to make something " +
+            "different, smaller, plainer or hidden is a CHANGE, not this: \"make the hero less busy\" edits it.\n" +
+            "IF YOU CANNOT TELL, LEAVE IT OUT. A change they meant as a removal is one more sentence from them; " +
+            "a removal they meant as a change has taken part of their site away.\n\n" +
+            "What taking each one off means:\n" +
+            REMOVABLE_LANES.map((f) => "  " + f + " — " + LANES[f].remove).join("\n"),
+        },
         // ── AND, FOR `pages` ALONE, WHICH OF THE THREE ────────────────────
         //
         // "Which pages the site has" is one field and three capabilities, each
@@ -898,6 +1051,53 @@ export function readLanes(reply, fields = LANE_FIELDS) {
   // cap above, and a cap that keeps a different four depending on how the model
   // happened to list them is one nobody can reproduce.
   return offered.filter((f) => seen.has(f));
+}
+
+/**
+ * WHICH OF THE PICKED LANES ARE REMOVALS, split into what we can do and what we
+ * have to say we cannot.
+ *
+ * A SUBSET OF WHAT WAS PICKED, ALWAYS. A removal names a lane, and a lane the
+ * picker did not choose is not part of this message — reading `removes` on its
+ * own would let a name nobody asked for take something off the site. Anything
+ * outside `picked` is dropped before either bucket.
+ *
+ * THE THREE ANSWERS, and the middle one is why this returns an object:
+ *   `remove`  — lanes to take off, in the CALLER's order, for the same reason
+ *               `readLanes` re-orders: reproducibility, not dependency.
+ *   `refused` — `[{field, why}]` for a lane that names a real part of the site
+ *               this route will not remove. SAID, NEVER DROPPED: a silent drop
+ *               is how "delete the bookings table" comes back "✅ Done" having
+ *               done nothing, which is the failure this whole path exists to
+ *               avoid. The sentence is the lane's own, from `NOT_REMOVABLE`.
+ *   `pages`   — `true` when the picker put "pages" here instead of answering
+ *               `pageVerb: "remove"`. DERIVED rather than refused, because both
+ *               spellings mean one act and refusing the second-most-natural one
+ *               is a wall in front of a customer who was perfectly clear. The
+ *               caller folds it into the verb it already reads; `pages` stays
+ *               out of `REMOVABLE_LANES` so the two can never both fire.
+ *
+ * `String(["css"])` IS `"css"` — the coercion shipped here as a real bug three
+ * times. A non-string is refused rather than coerced, exactly as `readLanes`
+ * refuses it one function up, and it matters more here: the coerced value would
+ * name a lane and take it off.
+ */
+export function readRemoves(reply, picked = []) {
+  const chosen = (Array.isArray(picked) ? picked : []).filter((f) => typeof f === "string" && f);
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const raw = use && use.input && Array.isArray(use.input.removes) ? use.input.removes : [];
+  const seen = new Set();
+  let pages = false;
+  const refused = [];
+  for (const f of raw) {
+    if (typeof f !== "string" || !chosen.includes(f)) continue;
+    if (f === "pages") { pages = true; continue; }
+    if (REMOVABLE_LANES.includes(f)) { seen.add(f); continue; }
+    const why = removalRefusal(f);
+    if (why && !refused.some((r) => r.field === f)) refused.push({ field: f, why });
+  }
+  return { remove: chosen.filter((f) => seen.has(f)), refused, pages };
 }
 
 /**
