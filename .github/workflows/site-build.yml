@@ -46,7 +46,24 @@ jobs:
     # grew. This one really does ~20 real container builds plus six browser
     # harnesses; 25 leaves headroom for another feature's worth of checks while
     # still killing a genuine hang inside half an hour.
-    timeout-minutes: 25
+    #
+    # 25 UNTIL 2026-09-06, AND IT HAPPENED AGAIN, IN THE SAME STEP, AND WENT
+    # UNREAD FOR AN HOUR. The suite grew from 326 real cases to 373 in three
+    # days (stage 7 added eleven, 3a four, 4b four, 5d eight, 5b/5c six), and
+    # the whole job walked into the wall: measured across the five runs of that
+    # stretch, 22m50s (4b), 23m17s (stage 8), 23m47s (5d), 24m26s (5e), and
+    # 25m12s (5b/5c) — the last one KILLED, 28 seconds into `site-runtime.mjs`,
+    # the same last-step-standing the 15-minute wall picked in August. It wears
+    # `cancelled`, so the run showed no failing assertion and no red step, and
+    # it read as a superseded run rather than as a budget. `site build` was
+    # stamped 373/373 for that stage off a LOCAL run; CI never finished it.
+    #
+    # Nothing is hanging: `site-build.mjs` alone is ~18m of the ~24 and does
+    # the container builds, and the eleven steps around it total ~6m. So the
+    # cap moves rather than the suite, on the same reasoning as the 15 → 25
+    # bump. 35 is ten more minutes — roughly ten more stages at the rate this
+    # week ran — and still kills a genuine hang well inside the hour.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
