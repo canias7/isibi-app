@@ -806,6 +806,37 @@ variadic and rounds once with a floor of 1, and the routing call is billed once
 per MESSAGE rather than once per rung (a sweep caught that double-count; it is
 now watched against the ledger, not against our own arithmetic).
 
+**A LANE'S OUTPUT CEILING IS WHAT ITS FIELD CAN STORE (task #47, 2026-09-06,
+owner: *"SO FIX ?"*).** Every lane was given `LANE_EDIT_MAX_TOKENS` — 16,000,
+sized for the stylesheet. The `wordmark` lane DRAWS, and a drawn answer is a
+long generation: on Grok, the default picker and ~3x slower at code, it ran the
+whole `QUICK_CALL_MS` and was cut off on runs 11 and 12, charging nothing and
+changing nothing, twice. **That call ceiling cannot be raised** — 240 s against
+an egress that hangs up an idle connection at ~270 s, so the wire is the real
+bound. So the ANSWER is bounded instead, which is the wall rather than the
+rule: a wordmark over `MAX_WORDMARK` is refused by `cleanWordmark` whatever it
+cost, so 16,000 tokens buys eight times more generation time than any answer we
+would keep. `laneMaxTokens(field)` derives from `FIELD_STORE_CAP` — `MAX_CSS`,
+`MAX_WORDMARK`, `MAX_FAVICON`, **the refusals themselves and never a second
+list beside them** — at three characters per token (SVG and CSS tokenise worse
+than prose) with a quarter of slack for the tool envelope. **It can only ever
+REDUCE**: `Math.min` with the shared ceiling leaves `css` byte-for-byte what it
+was and a field with no cap unchanged, so no working lane got slower or
+tighter. Measured: wordmark **16,000 → 3,334**, favicon **→ 1,667**, everything
+else untouched. `tokensForChars` is split out so the floor (`LANE_MIN_TOKENS`,
+1,000) can be DRIVEN — a sweep found it inert against today's caps, the
+smallest of which lands well above it. **A pre-existing gap is named rather
+than closed here**: `MAX_CSS` is 60,000 characters and the shared ceiling
+expresses about 48,000, which was true before this and is left alone, because
+raising it would buy the css lane exactly the generation time the wordmark was
+cut for; an overrun is a NAMED failure (`runLane` reports a `max_tokens` stop),
+never half a stylesheet stored. **Sweep: 8 mutants, 8 killed, none unapplied,
+the comment-only control survived — two survived the first pass**, the floor
+(inert against every cap in use, so split out and driven) and the caps being
+plausible invented numbers rather than the imported refusals (asserted by
+identity now). **Not proven live**: the next `wordmark` ask on Grok is the
+proof, and it is ~1 credit.
+
 **EVERY SMALL CALL FOLLOWS THE PICKER, NOT A HARDCODED MODEL** (owner,
 2026-08-31: *"we are gonna get rid of haiku routing, we are gonna use for routing
 the same model is picked, if grok is picked then that will be it"*).
@@ -4283,7 +4314,8 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   **RUN 12 (2026-09-02 14:38–14:56, lanes `all`, 247 → 238):** `qr`
   **PROVEN AS AN EDIT** (caption changed, code untouched,
   `docs/edits/16-*`); seven look lanes already-so, honestly; `wordmark`
-  timed out at the cap again (task 47); `action` no-change because run 11
+  timed out at the cap again (task 47 — **FIXED 2026-09-06**: the ceiling
+  below); `action` no-change because run 11
   had already set the words (the link is still `/` — the next ask must
   NAME the link); `images` finds the hero slot now and fal has no balance
   to buy a photo; **`tsx` escalated no-change on a PART-ONLY change** (the
@@ -4487,8 +4519,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,363
-  (2026-09-06, after task #88's one — both language loops driven for real
+  build and the pre-list payload added sixteen); the unit suite is 5,368
+  (2026-09-06, after task #47's five in `test/edit-lanes.test.mjs` — the
+  derivation and its clamp, the stylesheet untouched beside the drawn marks
+  really bounded, the request carrying its own ceiling, the caps asserted to BE
+  the refusals, and the floor driven; before it task #88's one — both language loops driven for real
   overlap and read for an ordered fold that never awaits; and before it
   task #87's eight in `test/site-render.test.mjs` — the
   classification driven both ways with its control, the predicate's two

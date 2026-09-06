@@ -29,10 +29,15 @@ import { PLAN_KEYS } from "../builder/site-plan.mjs";
 import { EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
+// The storage caps themselves, so the per-field token ceiling can be asserted
+// to BE the refusals rather than a plausible second set of numbers.
+import { MAX_WORDMARK, MAX_FAVICON } from "../builder/site-favicon.mjs";
+import { MAX_CSS } from "../builder/site-freecss.mjs";
 import {
   LANE_FIELDS, OWN_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES, MAX_LANES,
   laneEscalate, laneVerbs, verbLayer, readPageVerb, PAGE_VERBS,
   laneLayer, laneUnbuilt, laneRule, composeRule, RULE_PARTS, editTool, pickTool, readLanes, readLaneAnswer, editRequest, pickRequest,
+  laneMaxTokens, tokensForChars, LANE_EDIT_MAX_TOKENS, LANE_MIN_TOKENS, FIELD_STORE_CAP,
 } from "../builder/site-lanes.mjs";
 
 const LANES_SRC = fs.readFileSync(new URL("../builder/site-lanes.mjs", import.meta.url), "utf8");
@@ -573,4 +578,94 @@ test("the landmark note offers only rows that can actually be selected", async (
     ({ name: "n" + i, selector: "#n" + i, tag: "div", section: "body", role: "block", text: "t" + i }));
   const rows = landmarkNote(many).split("\n").filter((l) => l.includes(" | ") && !l.startsWith("name |"));
   assert.equal(rows.length, MAX_LANDMARK_ROWS, "the row cap is not holding: " + rows.length);
+});
+
+// ── A LANE'S OUTPUT CEILING IS WHAT ITS FIELD CAN STORE (task #47, 2026-09-06) ──
+//
+// Every lane was given the one ceiling sized for the stylesheet. The `wordmark`
+// lane DRAWS, and on Grok a drawn answer ran the whole 240s call ceiling and was
+// cut off on runs 11 and 12 — nothing charged, nothing changed, twice. That call
+// ceiling cannot be raised: it sits against an egress that hangs up at ~270s.
+// So the answer is bounded instead, at what we would actually keep.
+
+test("the token ceiling is derived from each field's own storage cap, and can only ever reduce", () => {
+  // DERIVED, not a second list: every number below comes from the cap itself,
+  // so a cap that moves moves the ceiling with it and the two cannot drift.
+  let reduced = 0;
+  for (const [field, cap] of Object.entries(FIELD_STORE_CAP)) {
+    const got = laneMaxTokens(field);
+    assert.ok(got <= LANE_EDIT_MAX_TOKENS, `${field} is allowed more than the shared ceiling`);
+    assert.ok(got >= LANE_MIN_TOKENS, `${field} is under the floor every field keeps`);
+    if (got === LANE_EDIT_MAX_TOKENS) {
+      // CLAMPED, so this change did not touch it. The stylesheet is the case:
+      // `MAX_CSS` is 60,000 characters and the shared ceiling expresses about
+      // 48,000, which was true before this existed and is deliberately left
+      // alone — raising it would buy the css lane the very generation time the
+      // wordmark was cut for. A stylesheet that does overrun is a NAMED failure
+      // (`runLane` reports a `max_tokens` stop), never half a stylesheet stored.
+      continue;
+    }
+    reduced++;
+    // THE FALSE-ALARM GUARD, and the one that matters for a field this change
+    // actually reduces: the ceiling must still admit any answer we would STORE,
+    // or a timeout has been traded for a truncated mark, which is worse.
+    assert.ok(got * 3 >= cap, `${field}'s ceiling cannot express an answer at its own cap (${got} tokens for ${cap} characters)`);
+  }
+  assert.ok(reduced >= 2, "no field's ceiling was actually reduced — the change is inert and the loop above proves nothing");
+  // A field with no cap of its own is exactly what it was.
+  for (const field of ["brand", "description", "theme", "behavior", "lang", "langs"]) {
+    assert.equal(laneMaxTokens(field), LANE_EDIT_MAX_TOKENS, `${field} is no longer the shared ceiling`);
+  }
+  assert.equal(laneMaxTokens("nonesuch"), LANE_EDIT_MAX_TOKENS, "an unknown field is not given the shared ceiling");
+});
+
+test("the stylesheet is untouched and the drawn marks are really bounded — the point of the change", () => {
+  // The stylesheet is what the shared ceiling was sized for, so it must not move
+  // a byte: this change may never make a working lane slower or tighter.
+  assert.equal(laneMaxTokens("css"), LANE_EDIT_MAX_TOKENS, "the stylesheet lane's ceiling moved");
+  // And the drawn ones must be MEANINGFULLY smaller, or nothing was bounded and
+  // the wordmark can still draw for four minutes.
+  for (const field of ["wordmark", "favicon"]) {
+    assert.ok(laneMaxTokens(field) < LANE_EDIT_MAX_TOKENS / 2,
+      `${field} is still allowed most of the stylesheet's ceiling, so its generation is not bounded`);
+  }
+});
+
+test("THE REQUEST USES IT — the ceiling is worth nothing unwired", () => {
+  // The wiring layer: a per-field ceiling that never reaches the request is the
+  // shape twelve features have shipped dead in.
+  const wordmark = editRequest({ field: "wordmark", message: "make the mark thinner", value: "text", model: "m" });
+  const css = editRequest({ field: "css", message: "make it dark", value: "", model: "m" });
+  assert.equal(wordmark.max_tokens, laneMaxTokens("wordmark"), "the wordmark request does not carry its own ceiling");
+  assert.equal(css.max_tokens, laneMaxTokens("css"), "the stylesheet request does not carry its own ceiling");
+  assert.ok(wordmark.max_tokens < css.max_tokens, "both requests still carry the one shared number");
+});
+
+test("the caps ARE the refusals, not a second copy of them", () => {
+  // The whole reason to derive: a hand-written 500 beside `MAX_WORDMARK`'s
+  // 8,000 would bound the lane to something the field can hold eight times
+  // over, and nothing would ever say the two had drifted. A sweep found this
+  // hole — the arithmetic guards below pass just as happily on invented
+  // numbers, because they only ever check relationships.
+  assert.equal(FIELD_STORE_CAP.wordmark, MAX_WORDMARK, "the wordmark's ceiling is derived from a number that is not its refusal");
+  assert.equal(FIELD_STORE_CAP.favicon, MAX_FAVICON, "the favicon's ceiling is derived from a number that is not its refusal");
+  assert.equal(FIELD_STORE_CAP.css, MAX_CSS, "the stylesheet's ceiling is derived from a number that is not its refusal");
+});
+
+test("the floor holds for a cap small enough to need it", () => {
+  // DRIVEN RATHER THAN DESCRIBED. No cap in use today is small enough for the
+  // floor to bind — the smallest is the favicon's, which lands well above it —
+  // so a sweep could delete the floor and nothing noticed. The arithmetic is
+  // its own function for exactly this.
+  assert.equal(tokensForChars(300), LANE_MIN_TOKENS, "a tiny cap starves its own lane below what a tool envelope needs");
+  assert.equal(tokensForChars(1), LANE_MIN_TOKENS);
+  // …and the clamp at the other end, on a cap far past the shared ceiling.
+  assert.equal(tokensForChars(10_000_000), LANE_EDIT_MAX_TOKENS, "a huge cap is allowed past the shared ceiling");
+  // Between the two it really is the arithmetic and not a constant.
+  assert.ok(tokensForChars(9000) > tokensForChars(6000), "the ceiling does not follow the cap at all");
+  // Nothing readable as a size is the shared ceiling, never the floor: a field
+  // we cannot size is one we must not starve.
+  for (const junk of [0, -5, NaN, undefined, null, "8000"]) {
+    assert.equal(tokensForChars(junk), LANE_EDIT_MAX_TOKENS, `${String(junk)} was read as a size`);
+  }
 });

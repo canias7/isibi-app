@@ -94,6 +94,10 @@
 import { PLAN_KEYS, BEHAVIOR_ITEM, MAX_BEHAVIOR } from "./site-plan.mjs";
 import { THEME_SHORTLIST } from "./site-theme-registry.mjs";
 import { modelsFor } from "./build-models.mjs";
+// THE STORAGE CAPS THEMSELVES, so the per-field token ceiling below is derived
+// from the refusals rather than written down a second time beside them.
+import { MAX_WORDMARK, MAX_FAVICON } from "./site-favicon.mjs";
+import { MAX_CSS } from "./site-freecss.mjs";
 
 /** A small call: naming which part of a site a sentence is about is routing, not work. */
 /**
@@ -124,6 +128,64 @@ export const LANE_PICK_MAX_TOKENS = 200;
  * eight numbers that drift.
  */
 export const LANE_EDIT_MAX_TOKENS = 16000;
+
+// ── AND A CEILING PER FIELD, DERIVED (task #47, 2026-09-06) ─────────────────
+//
+// THE ONE NUMBER ABOVE IS SIZED FOR THE STYLESHEET AND EVERY LANE GOT IT. The
+// `wordmark` lane draws an SVG, and a drawn answer is a long generation: on
+// Grok — the default picker, ~3× slower writing code — it ran the whole
+// `QUICK_CALL_MS` ceiling and was cut off, TWICE, on runs 11 and 12, charging
+// nothing and changing nothing. That ceiling cannot simply be raised: it is
+// 240s against an egress that hangs up an idle connection at ~270s, so the
+// wire is the real bound and there is nowhere to go.
+//
+// So bound the ANSWER instead, which is the wall rather than the rule. A
+// wordmark over `MAX_WORDMARK` characters is refused by `cleanWordmark`
+// whatever it cost to produce, so allowing 16,000 tokens — roughly 64,000
+// characters — buys eight times more generation time than any answer we would
+// keep. The ceiling for a field is what that field can STORE.
+//
+// DERIVED FROM THE STORAGE CAPS, never a second list beside them: `MAX_CSS`,
+// `MAX_WORDMARK` and `MAX_FAVICON` are the refusals themselves, so a cap that
+// moves moves this with it.
+//
+// IT CAN ONLY EVER REDUCE. `Math.min` with the shared ceiling means a field
+// whose cap is large — the stylesheet — is byte-for-byte what it was, and a
+// field with no declared cap gets the shared number as before. So this cannot
+// make any lane slower or newly truncate one that works today.
+//
+// THREE CHARACTERS PER TOKEN, not the usual four: these answers are SVG and
+// CSS, which are dense in punctuation and tokenise worse than prose. The
+// quarter of slack on top is the tool envelope and the model's own framing.
+// Both are deliberately generous — the failure to avoid is truncating a real
+// answer, and `runLane` already reports `max_tokens` as its own error.
+const CHARS_PER_TOKEN = 3;
+const TOKEN_SLACK = 1.25;
+/** The floor no field goes under, whatever its cap says. */
+export const LANE_MIN_TOKENS = 1000;
+/** What each field can be STORED at. A field absent here has no cap of its own. */
+export const FIELD_STORE_CAP = { css: MAX_CSS, wordmark: MAX_WORDMARK, favicon: MAX_FAVICON };
+
+/**
+ * The arithmetic on its own, so the floor and the clamp can be DRIVEN.
+ *
+ * Split out because a sweep found the floor inert against today's caps — the
+ * smallest is the favicon's, which lands well above it — so nothing could tell
+ * a floor that works from a floor that is not there. It is kept rather than
+ * deleted: it is the belt for a cap small enough that its own tool envelope
+ * would not fit, and now it is a belt something can prove.
+ */
+export function tokensForChars(chars) {
+  if (!Number.isFinite(chars) || chars <= 0) return LANE_EDIT_MAX_TOKENS;
+  const need = Math.ceil((chars / CHARS_PER_TOKEN) * TOKEN_SLACK);
+  return Math.min(LANE_EDIT_MAX_TOKENS, Math.max(LANE_MIN_TOKENS, need));
+}
+
+export function laneMaxTokens(field) {
+  const cap = FIELD_STORE_CAP[field];
+  if (!Number.isFinite(cap) || cap <= 0) return LANE_EDIT_MAX_TOKENS;
+  return tokensForChars(cap);
+}
 
 /** How much of the message we will even consider. Matches `site-ask.mjs`. */
 export const MAX_MESSAGE = 2000;
@@ -1124,7 +1186,7 @@ export function editRequest({ field, message, value, model, note = "" }) {
   const tool = editTool(field);
   return {
     model,
-    max_tokens: LANE_EDIT_MAX_TOKENS,
+    max_tokens: laneMaxTokens(field),
     // CACHED: the tool and the system text are byte-identical for every edit of
     // this field by any customer. The value and the message are the per-call
     // bytes and ride in the user message, never in a cached block — a per-site

@@ -3842,3 +3842,34 @@ Full suite 5,363 green.
 NOT proven live: the next publish of a site with a second language is the
 proof, and the tell is the two translations starting at the same moment instead
 of one waiting for the other.
+
+## The logo lane stopped running out of clock (2026-09-06)
+
+Owner: "SO FIX ?" — the third of the free list.
+
+Asking for a change to the header logo failed twice in a row, on runs 11 and 12,
+and both times it failed the same way: the model was still drawing when our own
+four-minute ceiling cut it off. Nothing was charged and nothing changed, but the
+customer asked twice and got nothing twice.
+
+The four minutes cannot be extended. The connection itself is hung up at about
+four and a half, so there is nowhere to go.
+
+What could move was the size of the answer. Every lane was allowed the same
+generous room, and that room was sized for a stylesheet — the biggest thing any
+of them returns. A drawn logo is refused above eight thousand characters
+whatever it cost to make, so the lane was being given about eight times more
+drawing time than any logo we would actually keep. Each lane is now allowed
+exactly what its own field can hold: the logo drops to about a fifth of the old
+room, the tab icon to about a tenth, and the stylesheet is untouched. Nothing
+got tighter — the limit can only ever come down, never up.
+
+Honest about what this is: it bounds the worst case rather than being proven to
+cure it. If the model is simply slow to start rather than slow to finish, a
+smaller answer will not save it. The next logo change is the test, and it costs
+about a credit.
+
+Sweep: 8 mutants, 8 killed, control survived — two got past the first pass, one
+a safety net that no current setting was small enough to exercise (split out so
+it can be tested directly) and one a hole where invented numbers would have
+passed for the real limits. Full suite 5,368 green.
