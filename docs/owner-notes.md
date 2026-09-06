@@ -3873,3 +3873,30 @@ Sweep: 8 mutants, 8 killed, control survived — two got past the first pass, on
 a safety net that no current setting was small enough to exercise (split out so
 it can be tested directly) and one a hole where invented numbers would have
 passed for the real limits. Full suite 5,368 green.
+
+## The last two on the list, assessed rather than built (2026-09-06)
+
+Two of the five I listed turned out not to be fixes, and I would rather say so
+than half-build them.
+
+**Text that stays English on a translated page** is three separate jobs wearing
+one sentence. The site's own custom components can be translated, but only by
+giving each language its own copy and rewriting the imports — a real piece of
+work for a word or two per site. The QR caption is baked once per site and needs
+a per-language version. And the biggest one by far, the one a visitor actually
+notices, is the component library itself: a contact form says "Your name",
+"Email" and "Send" in English whatever language the page is in, and there are
+over two thousand components with English written into them. Fixing either of
+the small two on its own still leaves the page half English, which is the same
+complaint you had. So it is the library first or none of them, and that is a
+decision rather than a task.
+
+**The interrupted-job answer** has mostly stopped being a problem on its own.
+Run 17's failure was a job dying with a deploy; jobs now run inside the site's
+own container where a deploy cannot reach them, and a deploy waits for running
+work before it rolls. What is left is a couple of minutes where the page still
+says "Thinking" after a job has died, before the sweep notices and refunds. To
+shorten that the database would have to start telling us when a job's hold
+expired, which is a change to a database function — your call, not mine. The
+other half of that task was always yours anyway: whether a job that died before
+spending anything may quietly be run again.

@@ -2283,6 +2283,24 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   the QR caption (baked from the stored list's `label`) and the text inside
   the site's own `-parts/` are never asked about. A variant is translated
   exactly as far as the page source goes.
+  **SIZED 2026-09-06 (task #89) AND IT IS THREE FEATURES, NOT A FIX — owner's
+  call which, if any.** They share a sentence and nothing else. (a) **The
+  site's own `-parts/`**: `translatePages` gives each language its own PAGE
+  file through `pageForLang`, but the parts are written once and shared by
+  every language, so translating them needs per-language part copies AND the
+  variant pages' imports rewritten to their own — a naming rule, the
+  container's write loop, the cap, and a guard that a variant never imports
+  the primary's part. Medium, self-contained, and the smallest visible win (a
+  word or two per site). (b) **The QR caption**: baked into `site-brand.ts`
+  from the stored list's `label`, one string per code, so it needs a
+  per-language value baked or looked up. Small, but it touches what every
+  publish bakes. (c) **The kit's own labels**: 2,112 components with English
+  written into them, and the most VISIBLE of the three — a contact form says
+  Your name / Email / Send under any `<html lang>`. That is a kit-wide
+  internationalisation project, not a translation fix, and it is where the
+  customer's complaint actually comes from. **Doing (a) or (b) alone leaves
+  the page mixed**, which is the same complaint, so the order that pays is
+  (c) first or none.
   (3) **THE RENDER CHECK REPORTED A 6 s NAVIGATION TIMEOUT AS `threw`** on
   `/` at the phone viewport (`page.goto: Timeout 6000ms exceeded`,
   `checked: 4, partial: true`), and the customer's reply says "/ threw an
@@ -2913,8 +2931,25 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   longer clock, no fire and no resume — as stage 5b/5c, and the broad flip's
   readiness as stage 5e (the bullets above), and the platform rebuild as a
   job with a sweep of the litter under `jobs/` as stage 9 (its own section).
-  What is left of the plan: nothing. What is left beside it: #52's
-  interrupted-job answer for the builds the Worker still runs itself.
+  What is left of the plan: nothing.
+
+  **#52's interrupted-job answer is MOSTLY MITIGATED RATHER THAN OPEN, and
+  what is left of it needs the owner (assessed 2026-09-06).** Run 17's shape
+  was a queue invocation evicted nine minutes after a deploy, running no catch
+  and no finally. Since then: the job runner (#93) moved edits, add-ons and
+  builds INTO the site's container, where a Worker isolate's eviction cannot
+  reach them; stage 3a gates the old code and drains running leases before a
+  deploy, which is that cause addressed at its root; and 2a, 2c and 3b recover
+  the row afterwards. **The residue is a couple of minutes of "Thinking"**: a
+  holder that dies leaves the row claimed with a lapsed lease, and the sweep
+  settles it on its next two-minute tick while the browser polls. Closing that
+  needs `edit_get` to hand back `lease_expires_at`, which it does not — a
+  DATABASE FUNCTION CHANGE, so the owner's go. **And the other half was always
+  the owner's**: whether a job cancelled before it made a model call may be
+  re-run. Worth stating either way: a lapsed lease is evidence and not proof
+  (beats are late before they are absent), so whatever is built must not
+  answer "interrupted" as a terminal verdict — cannot-tell must never read as
+  broken, the rule task #87 records one path over.
 
 ### A BUILD HAS A ROW, AND ONE LEASE MOVES ALONG ITS CHAIN (2026-09-05, stage 2c)
 
