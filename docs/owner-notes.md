@@ -184,6 +184,35 @@ than the guard, and then tightened the guard, because it had never listed
 and it needs the deploy first. Balance is unchanged at **505**; run 40 cost
 nothing.
 
+**MERGED AND DEPLOYED (you: "Ok merge").** Main was fast-forwarded from
+`b2428351` to `72c639ff` at 21:48Z — one commit, clean, nothing of its own on
+main. **Deploy run 2035, green in 3m07s**: the gate set in 1 s; the image step
+**2m17s**, so the site image was BUILT and the container app `EDIT`ed off
+`d76a…70c277` onto `isibi-app-sitebuildcontainer:f93d8236b725db6e`, applied
+**21:51:41Z** (`worker.js` is an image input, so every Worker code push rolls
+it); `deploy gate (drain)` returned instantly with no live leases; Wrangler
+22 s, all four triggers and both queue ends redeployed; the clear step on
+success left the gate to expire. **The 15–20 minute hold ends ~22:07–22:12Z** —
+nothing that needs the new code should be fired at a container before then,
+because an instance started seconds after "deploy completed" is still on the
+previous image.
+
+**Then fire it, and it is your click** (this session's dispatch is refused by
+GitHub, 403, as it has been all day): `lane-sweep.yml` → harness `lane`, lanes
+`wordmark`, ref `main`. About 1 credit against 505.
+
+**What that one run proves, and it is more than the streaming.** fretwork-1 is
+still on the LEGACY publish layout — I read it live and it serves no
+`x-site-version` header — so if the wordmark publishes, that publish is also
+the first activation under the immutable layout. One ~1-credit run would then
+settle three things at once: the streamed call, the first `current/<slug>.json`
+pointer, and the publication-integrity work that merged earlier today.
+
+**And if it times out again, the reading is different from run 40's.** The
+ceiling is 480 s now, so a timeout there is a genuinely slow generation rather
+than our own 240 s wall, and the next move would be the job's clock rather than
+the call's.
+
 **Still unproven, and unrelated to this:** the container runner did not take
 run 40 (the lease stayed with the Worker consumer the whole time), so task
 #93's live proof is still outstanding, and `/api/site/runtime?slug=fretwork-1`

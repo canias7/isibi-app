@@ -968,9 +968,19 @@ none unapplied, the comment-only control survived** — the wrapper dropping
 `opts` or taking them and not passing them, `quickSend` handing none, the flag
 off, the queued clamp back to 240 s, the streamed ceiling as a build's clock
 (the first cut), the synchronous path given the streamed ceiling, and the job
-able to make a call only BIGGER. Full suite 5,398. **Not proven live**: the next
-`wordmark` ask on Grok is the proof, ~1 credit — and this entry is the record of
-what it costs to mark one proven early.
+able to make a call only BIGGER. Full suite 5,398. **MERGED AND DEPLOYED**
+(owner: *"Ok merge"*): main fast-forwarded `b2428351` → `72c639ff` at 21:48Z,
+**deploy run 2035 green in 3m07s** — the gate set in 1 s, the image step 2m17s
+so the site image was BUILT and the container app `EDIT`ed onto
+`isibi-app-sitebuildcontainer:f93d8236b725db6e` at 21:51:41Z, the drain finding
+no live leases, Wrangler 22 s, the gate left to expire on success. **Not proven
+live**: the next `wordmark` ask on Grok is the proof, ~1 credit — and this entry
+is the record of what it costs to mark one proven early. **That one run settles
+three things at once**, because fretwork-1 is still on the LEGACY publish layout
+(read live: it serves no `x-site-version`): the streamed call, the first
+`current/<slug>.json` activation under stage 7, and the publication-integrity
+work. And a timeout there would read differently from run 40's — the ceiling is
+480 s now, so it would be a genuinely slow generation rather than our own wall.
 
 **EVERY SMALL CALL FOLLOWS THE PICKER, NOT A HARDCODED MODEL** (owner,
 2026-08-31: *"we are gonna get rid of haiku routing, we are gonna use for routing
@@ -4709,8 +4719,19 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,368
-  (2026-09-06, after task #47's five in `test/edit-lanes.test.mjs` — the
+  build and the pre-list payload added sixteen); the unit suite is 5,398
+  (2026-09-06, after the streamed lane call's five in
+  `test/lane-stream.test.mjs` — the real `quickSend` EVALUATED out of
+  worker.js with `callBuilderModel` recorded: the flag reaching the module on
+  both caller shapes, the queued ceiling above 240 s and below a build's, the
+  job still only making it smaller, the synchronous path still at 240 s, and
+  the wrapper's own forwarding read; before it publication integrity's
+  twenty-five in `test/publish-integrity.test.mjs` — five upload answers,
+  both undo legs and their races, the sidecar branch by branch, the three
+  lease shapes each with its control, first-activation racing, the
+  end-to-end failed upload, recovery refused over a newer publication, and
+  `compileMsg` driven; 5,368 before them, after task #47's five in
+  `test/edit-lanes.test.mjs` — the
   derivation and its clamp, the stylesheet untouched beside the drawn marks
   really bounded, the request carrying its own ceiling, the caps asserted to BE
   the refusals, and the floor driven; before it task #88's one — both language loops driven for real
