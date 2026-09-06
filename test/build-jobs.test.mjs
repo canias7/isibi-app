@@ -452,7 +452,14 @@ test("the job id rides to the fire: buildArgs → buildAndPublishPages → conta
   const decl = W.indexOf("buildArgs = {");
   const args = W.slice(decl, close(W, W.indexOf("{", decl)));
   assert.match(args, /\n\s+jobId,\n/, "buildArgs does not carry the job id");
-  assert.match(W, /async function buildAndPublishPages\(env, \{[^}]*billRef = null, jobId = null \}\)/, "buildAndPublishPages does not take the job id");
+  // RE-ANCHORED 2026-09-06: this pinned `billRef = null, jobId = null }` as the
+  // END of the signature, and an honest new parameter (`assertLease`, the
+  // collector's lease hook) moved the spelling. The property is that the id is
+  // TAKEN and DEFAULTED — where it sits among its siblings is not.
+  const bi = W.indexOf("async function buildAndPublishPages(env, {");
+  assert.ok(bi > 0, "the builder moved — rescope this");
+  const sig = W.slice(bi, W.indexOf("\n", bi));
+  assert.match(sig, /\bjobId = null\b/, "buildAndPublishPages does not take the job id, defaulted");
   assert.match(W, /containerPagesFire\(env, slug, genPath, jobId\)/, "the fire is not handed the job id");
   assert.match(W, /function containerPagesFire\(env, slug, out, jobId = null\)/);
   const fire = fnW("containerPagesFire");

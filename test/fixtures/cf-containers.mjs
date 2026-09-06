@@ -55,7 +55,48 @@ let COMPILER = null;
 // branch could never be taken, so the whole zero-match gate was untestable and a
 // sweep deleting it survived. Passed per case rather than defaulted, so every
 // existing caller keeps the response it already had.
-export function installCompiler({ ok = true, error = "", render = null } = {}) {
+// ── THE SCRIPT IS A REAL FIELD OF A REAL BUILD RESPONSE TOO (2026-09-06) ─────
+//
+// The stub never returned a `worker`, and until this week that cost nothing:
+// `activateBuild` read every answer but an explicit refusal as uploaded, so a
+// publish with no script "succeeded" and every driven test agreed. It does not
+// any more — an upload that did not land is a failed activation — and the
+// fixture's silence is now the recorded "fake less capable than the thing it
+// stands for": in production BOTH payloads carry `worker: true` and the
+// container answers with the packaged script, so a build response without one
+// is a shape the pipeline does not produce.
+//
+// DERIVED FROM ITS REAL PRODUCER: `readSiteWorker` answers `{ok, why, code,
+// bytes}`, and `build-server.mjs` stamps `build` and `version` from the brand
+// it just wrote — which are the payload's own, so they are read off the payload
+// here rather than invented. Opt-in per case, because a test that has not also
+// stubbed the dispatch upload would meet its own catch-all and be newly red for
+// a reason that is not its subject.
+export const STUB_WORKER_CODE = "export default { fetch() { return new Response('stub'); } };";
+
+/** The env a publish needs to reach the dispatch API at all — `dispatchCreds`
+ *  answers null without both, and `putSiteWorker` then answers `null`, which is
+ *  an activation that cannot serve. */
+export function dispatchEnv() {
+  return { CLOUDFLARE_ACCOUNT_ID: "acct-test", CLOUDFLARE_API_TOKEN: "cf-token-test", SITE_WORKERS_NAMESPACE: "gofarther-sites-test" };
+}
+
+/** Is this the dispatch upload? For a fetch stub's chain, so each test file
+ *  keeps its own catch-all for everything it has not stubbed. */
+export function isDispatchUpload(url) {
+  return /\/workers\/dispatch\/namespaces\/[^/]+\/scripts\//.test(String(url || ""));
+}
+
+/** Cloudflare's own success shape for that PUT. */
+export function dispatchOk() {
+  return new Response(JSON.stringify({ success: true, errors: [], messages: [], result: {} }), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+// DEFAULTED ON, because that is what the thing this stands for does: both real
+// payloads carry `worker: true` and the container packages a script for every
+// one of them. A case that wants a build with no script says `worker: false`
+// and is then testing the shape the pipeline produces when packaging fails.
+export function installCompiler({ ok = true, error = "", render = null, worker = true } = {}) {
   const calls = [];
   COMPILER = {
     calls,
@@ -85,7 +126,21 @@ export function installCompiler({ ok = true, error = "", render = null } = {}) {
       // answer differently on the second call — which is exactly what the
       // correction round needs: dead the first time, clean after the fix.
       const rep = typeof render === "function" ? render(calls.length) : render;
-      return new Response(JSON.stringify({ ok: true, files, ...(rep ? { render: rep } : {}) }),
+      // THE PACKAGED SCRIPT, stamped from the payload the way the container
+      // stamps it from the brand it just wrote — so `build` and `version` are
+      // the caller's own and cannot drift from what it staged.
+      // The BUILD id is minted in the container (`buildValue`, time plus
+      // randomness — there is no output to hash when the brand file is
+      // written), so it is minted here the same way; the VERSION is the
+      // caller's and rides in on the payload, so it is read off it.
+      const wk = worker && body.worker && body.slug
+        ? {
+            ok: true, why: "", code: STUB_WORKER_CODE, bytes: STUB_WORKER_CODE.length,
+            build: Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8),
+            version: body.version || "",
+          }
+        : null;
+      return new Response(JSON.stringify({ ok: true, files, ...(rep ? { render: rep } : {}), ...(wk ? { worker: wk } : {}) }),
         { status: 200, headers: { "content-type": "application/json" } });
     },
   };

@@ -566,8 +566,16 @@ test("the build consumer waits or gives the deposit back; the collector goes on 
     "the give-up's answer is not the busy sentence for the waiting request");
   assert.match(build, /if \(kept\) \{\s+try \{\s+await env\.BUILD_QUEUE\.send/, "a message is re-sent for an object that was not put back");
   const resume = fnW("runResumedSiteBuild");
-  assert.match(resume, /if \(row\.busy\) console\.log\("build resume:", id, "the row says the site is busy with", row\.other, "— publishing anyway; the pointer decides"\);/,
+  // RE-ANCHORED 2026-09-06, and the BEHAVIOUR moved, not only the spelling.
+  // Stage 6 left "publishing anyway; the pointer decides" as a stated residue:
+  // a busy collector went on and let the etag be the only wall, which cannot
+  // see a lease that lapsed while nobody published. It still goes on — the work
+  // is done and the answer kept — but its ACTIVATION is now gated on the lease
+  // it actually holds, so the sentence had to stop promising a publish.
+  assert.match(resume, /if \(row\.busy\) console\.log\("build resume:", id, "the row says the site is busy with", row\.other, "— it will not activate without the lease"\);/,
     "the collector does not go on, said, when the site's lock refuses it");
+  assert.match(resume, /const lease = row\.held \? rowOwner : null;/, "the collector does not name the lease it holds");
+  assert.match(resume, /assertLease,/, "the collector's publish is not gated on that lease");
   assert.match(fnW("buildRowStatus"), /rowVerdict\(\{ state: g\.state, slug: g\.slug, job: id, error: g\.error \}\)/, "the row's reason does not reach the verdict");
 });
 

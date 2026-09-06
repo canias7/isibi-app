@@ -77,7 +77,15 @@ test("the spine's stage and activation catches carry the typed refusal's code an
   assert.ok(tryAt > 0, "the activation is not inside a try");
   assert.match(spine, /\} catch \(e\) \{ act = \{ ok: false, error: String\(\(e && e\.message\) \|\| e\), code: \(e && e\.code\) \|\| undefined, key: \(e && e\.key\) \|\| undefined \}; \}/,
     "an activation that threw loses the refusal's code and key");
-  assert.match(spine, /error: act && act\.error === "superseded" \? "superseded" : "activate", ours: true, detail: [^\n]*, code: \(act && act\.code\) \|\| undefined, key: \(act && act\.key\) \|\| undefined \};/,
+  // RE-ANCHORED 2026-09-06: this quoted the activation refusal's WHOLE line,
+  // including the one-reason ternary (`superseded`) it passed through. Two more
+  // reasons arrived (`not-served`, `lease-lost`) and the spelling moved. What
+  // this case is about is the typed refusal's `code` and `key` reaching the
+  // wire, so that is what is asserted, on the same line.
+  const actRet = spine.indexOf('return { ok: false, error: act &&', spine.indexOf("if (!act || act.ok !== true) {"));
+  assert.ok(actRet > 0, "the activation refusal moved — rescope this");
+  const actLine = spine.slice(actRet, spine.indexOf("\n", actRet));
+  assert.match(actLine, /code: \(act && act\.code\) \|\| undefined, key: \(act && act\.key\) \|\| undefined \};/,
     "the activation refusal does not carry the code and the key");
   // Both marks carry them too, so the trace says which key without the log.
   assert.match(spine, /tm\("stage", "fail", \{ why: [^\n]*, code: \(staged && staged\.code\) \|\| undefined, key: \(staged && staged\.key\) \|\| undefined \}\);/);

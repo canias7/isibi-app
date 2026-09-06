@@ -44,6 +44,10 @@ import {
   replayEditRequest, phaseDurations, readEditMessage, isTerminalEdit,
   newReplaySecret, packReplayMarker, readReplayMarker, packEditJob, readEditJob,
   editAsyncFor,
+  // The runtime diagnostic (2026-09-06) reads the master switches as BOOLEANS
+  // beside the per-site answers. `readCanaryList` is deliberately NOT imported
+  // here: the route may never hand back a list of other customers' slugs.
+  editAsyncOn, editAsyncEveryone, jobRunnerEveryone,
   repairClock,
   // What is left of THIS invocation for a job the consumer runs itself (stage
   // 5e, 2026-09-06): the fire's wait for container room comes out of the sixty
@@ -9383,6 +9387,7 @@ async function restoreVersion(env, slug, id) {
     const act = await activateBuild(deps, {
       slug, version: id, build: b.manifest.build || "", parent: b.manifest.parent || "", job: null,
       expectEtag: before ? before.etag : null,
+      previous: before || null,
       sidecar: typeof b.sidecar === "string" ? b.sidecar : undefined, sidecarKey: siteMetaKey(slug),
       liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
       putWorker: async () => {
@@ -10057,6 +10062,23 @@ function compileMsg(pub, theirs) {
   // failure's sentence, the recorded trap. The gate's own reason rides along.
   if (pub.error === "not-granted") {
     return "That didn't go through — your change was built but couldn't be published (" + String(pub.detail || "the queue refused") + "), so nothing was changed. Nothing was charged.";
+  }
+  // ── THE PUBLISH WAS UNDONE BECAUSE THE SCRIPT NEVER WENT UP (2026-09-06) ──
+  //
+  // The pointer moved, the site's own script did not, and the activation put
+  // the pointer back — so the site is serving exactly what it served before and
+  // its editable source still matches. Ours, and honest about which half
+  // failed: "didn't compile" would blame the customer's words for a
+  // dispatch-upload failure, and "nothing was changed" is the sentence for a
+  // publish that never began.
+  if (pub.error === "not-served") {
+    return "That didn't go through — the new version was built but couldn't be put live, so your site is still serving what it was. Nothing was charged. This is on us; try again in a moment.";
+  }
+  // A holder that lost the site's lease between its compile and its publish:
+  // something else has the site, so refusing is the CORRECT outcome and the
+  // sentence says to send it again rather than apologising for a fault.
+  if (pub.error === "lease-lost") {
+    return "That didn't go through — something else was changing your site at the same time, so nothing was published and nothing was charged. Send it again.";
   }
   // ── OUR FAULT IS TWO DIFFERENT FAULTS (2026-08-29) ──────────────────────
   //
@@ -11082,6 +11104,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   act = await activateBuild(buildDeps(env), {
     slug, version, build: (built.worker && built.worker.build) || "", parent: parentVersion, job: job ? String(job.id) : null,
     expectEtag: pointerBefore ? pointerBefore.etag : null,
+    // THE POINTER AS IT WAS, so an activation whose script never landed can
+    // put it back instead of leaving the site pointing at a version nothing
+    // serves. Null on a first activation, where the undo is a delete.
+    previous: pointerBefore || null,
     sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
     putWorker: async () => {
       // ── DEPLOYMENT IDENTITY, RECORDED BEFORE THE COMMIT POINT ────────────
@@ -11161,7 +11187,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     tm("activate", "fail", { why: String((act && act.error) || "activate"), code: (act && act.code) || undefined, key: (act && act.key) || undefined });
     // OURS, and the live site is untouched: a superseded pointer is another
     // job's publish having landed first, never the customer's change.
-    return { ok: false, error: act && act.error === "superseded" ? "superseded" : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
+    return { ok: false, error: act && (act.error === "superseded" || act.error === "not-served" || act.error === "lease-lost") ? act.error : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
   }
   tm("activate", "ok", { uploaded: act.uploaded });
   const wrote = staged.files;
@@ -11334,7 +11360,7 @@ async function siteOgImage(env, slug, dist) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, picker = null, models = null, billRef = null, jobId = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, picker = null, models = null, billRef = null, jobId = null, assertLease = null }) {
   // THE PICKER'S MODELS FOR THE TRANSLATION LOOP BELOW (run 38, 2026-09-04):
   // `models` when the caller resolved them, else resolved here from the
   // `picker` the build route stores beside `model` in the design — a job
@@ -11913,8 +11939,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       try { before = await readPointer(buildDeps(env), slug); }
       catch (e) { console.error("pointer unreadable, activating over it:", slug, e && e.message); before = null; }
       const act = await activateBuild(buildDeps(env), {
+        // RE-ASKED AT THE POINTER (audit fix): a caller that can lose its lease
+        // mid-build — the resumed-build collector — hands one in, and it is
+        // asked with no await between it and the conditional write.
+        assertLease,
         slug, version: bVersion, build: (worker && worker.build) || "", parent: bParent, job: null,
         expectEtag: before ? before.etag : null,
+      previous: before || null,
         sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
         putWorker: async () => { workerUpload = await putSiteWorker(env, slug, worker); return workerUpload; },
         afterActivate: async () => {
@@ -13862,8 +13893,31 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   // site in a first build's placeholder window or after a lost generation's
   // lease lapsed, and the pointer's conditional write decides between them.
   // Said in the log, and the stated residue of the stage.
-  if (row.busy) console.log("build resume:", id, "the row says the site is busy with", row.other, "— publishing anyway; the pointer decides");
+  if (row.busy) console.log("build resume:", id, "the row says the site is busy with", row.other, "— it will not activate without the lease");
   const lease = row.held ? rowOwner : null;
+
+  // ── THE COLLECTOR MAY NOT ACTIVATE WITHOUT THE SITE'S LEASE (audit fix) ────
+  //
+  // It still GENERATES and COMPILES on a busy claim — that work is its own
+  // record's and wasting it helps nobody — but the pointer is a decision about
+  // what the site IS, and this is the one caller that can reach it minutes
+  // after its claim was refused. Stage 7's etag condition is the wrong wall
+  // here: it stops us overwriting a LATER publish, and is silent when we lost
+  // the lease and nobody has published since, which is precisely this case.
+  //
+  // Re-asked at the pointer rather than trusted from the claim above, because
+  // the compile sits between them: `edit_beat` renews and answers whether we
+  // still hold it. Absent lease → never held it → refuse outright. A beat that
+  // THROWS is a beat we could not make, and cannot-tell must not read as
+  // not-ours, so it proceeds — the same direction every other unreadable
+  // signal on this path takes.
+  const assertLease = async () => {
+    if (!lease) return false;
+    try {
+      const b = await editRpc(env, "edit_beat", { p_id: id, p_owner: lease, p_ttl: LEASE_TTL_S, p_phase: null });
+      return !(b && b.ok === false);
+    } catch { return true; }
+  };
   const rowBeat = lease ? buildRowBeat(env, id, lease) : null;
 
   // TERMINAL. One of: the answer is here, the container lost it and the Worker
@@ -13983,6 +14037,10 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
       // the container which row's lease it holds, and the stored design
       // deliberately does not carry a copy.
       jobId: id,
+      // THE LEASE, RE-ASKED AT THE POINTER (audit fix): this collector can reach
+      // an activation minutes after its claim was refused, and the etag alone
+      // does not see that.
+      assertLease,
       mark: (n) => { try { tr.at(n); } catch { /* a trace must never break a build */ } },
       budget,
       // THE PICKER'S MODELS, for the build's own translation loop (run 38,
@@ -19138,6 +19196,64 @@ async function handleRequest(request, env, ctx) {
       const mown = await siteOwnerBySlug(mslug, env);
       if (!mown || mown !== mu.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
       return Response.json({ ok: true, slug: mslug, migrations: await readSiteMigrations(env, mslug) });
+    }
+
+    // GET /api/site/runtime?slug= — WHICH PATH WOULD THIS SITE'S NEXT EDIT
+    // TAKE, AND WHICH CODE WOULD RUN IT (2026-09-06).
+    //
+    // ── THE FLAGS COULD NOT BE READ FROM OUTSIDE, AND THAT COST A SESSION ────
+    //
+    // `EDIT_ASYNC`, `EDIT_ASYNC_EVERYONE`, `JOB_RUNNER_CANARY` and
+    // `JOB_RUNNER_EVERYONE` are GitHub secrets uploaded to the Worker at every
+    // deploy, and `deploy.yml` supplies a fallback for each when the secret is
+    // unset — so the workflow's `|| 'off'` is what the Worker runs ONLY while
+    // nobody has ever set that secret, which is a fact the repository cannot
+    // know. An audit that reads the workflow is reading a default, not the
+    // deployment; nothing else in the Worker leaves a trace of them (a job
+    // fired at a container logs, a job NOT fired logs nothing), so "is the
+    // runner on for this site" had no authorized answer at all.
+    //
+    // BOOLEANS AND A DEPLOY ID, NEVER A VALUE AND NEVER THE LIST. Every field
+    // here is a yes/no about the identity that asked, plus `deploy` — the sha
+    // `deploy.yml` binds as a var, which is a value the deploy's own log
+    // prints. The canary LISTS are deliberately absent: `runner` and `async`
+    // already say whether THIS site is named, which is the whole question, and
+    // an owner who could read the list could read every other customer's slug
+    // out of it. `readCanaryList` is never called here.
+    //
+    // OWNER-GATED like the answer and migrations routes above: a signed-in
+    // stranger gets the 404 a site that is not theirs gets, so the route
+    // cannot be used to discover which slugs exist.
+    if (url.pathname === "/api/site/runtime" && request.method === "GET") {
+      const tu = await authUser(request);
+      if (!tu) return UNAUTHED();
+      const tslug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
+      if (!tslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      const town = await siteOwnerBySlug(tslug, env);
+      if (!town || town !== tu.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      const who = { uid: tu.id, slug: tslug };
+      // THE RUNNER'S OWN CHAIN, in the order `fireContainerJob` asks it, so a
+      // `runner: false` beside `runnerOn: true` names which link is missing
+      // rather than leaving the owner to guess between four of them.
+      const bindings = !!(env && env.SITES_BUCKET && env.SITE_BUILD_CONTAINER);
+      const keyed = !!String((env && env.SITE_SECRETS_KEY) || "");
+      return Response.json({
+        ok: true,
+        slug: tslug,
+        deploy: deployIdOf(env) || null,
+        // Would this site's next edit be queued, and would the queue's job run
+        // in this site's container? The two answers a canary needs.
+        async: editAsyncFor(env, who),
+        runner: jobRunnerFor(env, who) && bindings && keyed,
+        // The switches behind those two, each a boolean about the platform.
+        asyncOn: editAsyncOn(env),
+        asyncEveryone: editAsyncEveryone(env),
+        runnerOn: jobRunnerOn(env),
+        runnerEveryone: jobRunnerEveryone(env),
+        // The two bindings and the key a fire needs after the flags say yes.
+        runnerBindings: bindings,
+        runnerKeyed: keyed,
+      });
     }
 
     // GET /api/site/reach — CAN THE BUILD CONTAINER REACH A MODEL PROVIDER.

@@ -29,7 +29,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { installCompiler } from "./fixtures/cf-containers.mjs";
+import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { LANE_FIELDS, OWN_LANES, UNBUILT_LANES, laneLayer, laneUnbuilt, laneEscalate } from "../builder/site-lanes.mjs";
 // THE PAGE LAYER'S TOOL NAME, TAKEN FROM THE MODULE THAT DEFINES IT. Typed by
@@ -137,6 +137,11 @@ function withWire(answers, run, { owned = true, usage = null, billed = null } = 
         usage: (usage && usage[tool]) || { input_tokens: 10, output_tokens: 5 },
       }), { status: 200, headers: { "content-type": "application/json" } });
     }
+    // THE SCRIPT UPLOAD (2026-09-06). A publish whose script does not land
+    // is a FAILED activation now, so a driven publish has to reach the
+    // dispatch API — and answering it here is what makes these cases
+    // exercise the leg they never did.
+    if (isDispatchUpload(url)) return dispatchOk();
     return new Response("unavailable", { status: 503 });
   };
   return (async () => {
@@ -151,7 +156,7 @@ async function edit(slug, instruction, { store = null, layer = "look" } = {}) {
     headers: { "content-type": "application/json", Authorization: TOKEN },
     body: JSON.stringify({ layer, page: "", remove: false, rename: "", tab: false, instruction, picker: "sonnet" }),
   });
-  const res = await worker.fetch(req, { SITES_BUCKET: store || bucket(slug), ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key" }, makeCtx());
+  const res = await worker.fetch(req, { SITES_BUCKET: store || bucket(slug), ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", ...dispatchEnv() }, makeCtx());
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 

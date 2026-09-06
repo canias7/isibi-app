@@ -25,7 +25,7 @@ import {
 } from "../site-rebuild.mjs";
 import { cleanIdemKey, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
 import { loadWorker, makeCtx, hit } from "./fixtures/worker-harness.mjs";
-import { installCompiler } from "./fixtures/cf-containers.mjs";
+import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { packEditJob, EDIT_JOB_PREFIX } from "../builder/edit-job.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { randomBytes } from "node:crypto";
@@ -363,6 +363,9 @@ test("a filed rebuild job replays into the route, compiles once, spends nothing,
     }
     if (u.includes("/rest/v1/site_backends")) return json([{ uid: UID, brief: "" }]);
     if (u.includes("/v1/messages") || u.includes("api.x.ai")) { models++; return new Response("a rebuild must not call a model", { status: 503 }); }
+    // THE SCRIPT UPLOAD (2026-09-06): a publish whose script does not land is a
+    // failed activation now, so a rebuild that really publishes has to reach it.
+    if (isDispatchUpload(u)) return dispatchOk();
     return new Response("unavailable", { status: 503 });
   };
   const c = installCompiler();
@@ -370,7 +373,7 @@ test("a filed rebuild job replays into the route, compiles once, spends nothing,
     const worker = await loadWorker();
     const ctx = makeCtx();
     await worker.queue({ messages: [{ body: { kind: EDIT_JOB_KIND, id }, ack() {}, retry() {} }] },
-      { SITES_BUCKET: bucket, SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "mint" }, ctx);
+      { SITES_BUCKET: bucket, SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "mint", ...dispatchEnv() }, ctx);
     await Promise.allSettled(ctx.pending);
   } finally { c.uninstall(); globalThis.fetch = real; }
 

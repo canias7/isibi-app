@@ -207,32 +207,157 @@ export async function readPointer(deps, slug) {
  *      write after the commit point.
  */
 export async function activateBuild(deps, {
-  slug, version, build = "", parent = "", job = null, expectEtag, sidecar, sidecarKey, liveKey,
-  putWorker, commit, afterActivate, now,
+  slug, version, build = "", parent = "", job = null, expectEtag, previous = null,
+  sidecar, sidecarKey, liveKey, putWorker, commit, afterActivate, assertLease, now,
 } = {}) {
   if (!isVersionId(version)) return { ok: false, error: "bad version id" };
+
+  // ── THE LEASE IS RE-ASKED IMMEDIATELY BEFORE THE POINTER MOVES ─────────────
+  //
+  // The etag condition below stops a stale holder writing over somebody's
+  // LATER publish, and it is the wrong wall for a holder that lost its lease
+  // and nobody has published since: the etag still matches, so the write
+  // lands. `assertLease` closes that — a caller that can lose its lease
+  // (the resumed-build collector) hands one in and it is re-asked HERE, after
+  // the compile and with no await between it and the write, rather than
+  // trusting a claim read minutes earlier.
+  //
+  // OPTIONAL, AND ABSENT MEANS THE CALLER CANNOT LOSE IT. A veto is only ever
+  // an explicit `false`: a hook that throws is a hook we could not ask, and
+  // cannot-tell must not read as not-ours — that would refuse a publish the
+  // caller was entitled to make.
+  if (typeof assertLease === "function") {
+    let held = true;
+    try { held = await assertLease(); }
+    catch (e) { if (deps.log) deps.log("lease check threw, proceeding", slug, e && e.message); held = true; }
+    if (held === false) return { ok: false, error: "lease-lost" };
+  }
+
   const at = typeof now === "string" ? now : new Date().toISOString();
   const pointer = { version, build: String(build || ""), parent: isVersionId(parent) ? parent : "", job: job || null, activatedAt: at };
-  const onlyIf = typeof expectEtag === "string" && expectEtag ? { etagMatches: expectEtag } : undefined;
+
+  // ── A FIRST ACTIVATION IS CONDITIONAL ON THERE BEING NO POINTER ────────────
+  //
+  // This was `undefined` — an UNCONDITIONAL write — whenever the caller read no
+  // pointer, and the only thing preventing two first publishes of one site from
+  // racing was stage 6's per-site lock one layer up. A wall that borrows its
+  // safety from another layer stops being a wall the moment that layer moves,
+  // which is this repository's own recorded trap. `etagDoesNotMatch: "*"` is
+  // R2's create-if-absent, so the race is refused by the store itself and both
+  // orderings answer `superseded` for whichever loses.
+  const onlyIf = typeof expectEtag === "string" && expectEtag
+    ? { etagMatches: expectEtag }
+    : { etagDoesNotMatch: "*" };
   const moved = await deps.put(POINTER_KEY(slug), JSON.stringify(pointer), "application/json", onlyIf);
   if (moved === null) return { ok: false, error: "superseded" };
-  if (typeof sidecar === "string" && sidecarKey) {
-    try { await deps.put(sidecarKey, sidecar, "application/json"); }
-    catch (e) { if (deps.log) deps.log("sidecar write failed", slug, e && e.message); }
-  }
-  if (liveKey) {
-    try { await deps.put(liveKey, "1", "text/plain"); }
-    catch (e) { if (deps.log) deps.log("live marker write failed", slug, e && e.message); }
-  }
+
+  // ── THE TWO WRITES BETWEEN THE POINTER AND THE SCRIPT ARE REVERSIBLE ───────
+  //
+  // The sidecar is what a visitor actually reads: the site's own script fetches
+  // it per request for its title, description, canonical, og tags and redirect
+  // map. It is written BEFORE the script deliberately (stage 7's ordering: a
+  // new isolate of the NEW script must never serve the new page with the old
+  // head), and that ordering is exactly why an undo has to put it back — a
+  // publish whose script never landed would otherwise leave the OLD page
+  // wearing the NEW head, which is the same half-applied publish the pointer
+  // undo exists to prevent, one key over.
+  //
+  // Each write remembers what it replaced and hands back a thunk. A read we
+  // could not make records NOTHING rather than a guess, so the undo leaves that
+  // key alone: cannot-tell must never read as there-was-nothing, which would
+  // turn an undo into a delete of somebody's live sidecar.
+  const undos = [];
+  const reversible = async (key, body, contentType, what) => {
+    let had;
+    try { const cur = await deps.get(key); had = cur ? await cur.text() : null; }
+    catch (e) { if (deps.log) deps.log(what + " read failed, its write will not be undone", slug, e && e.message); had = undefined; }
+    try { await deps.put(key, body, contentType); }
+    catch (e) { if (deps.log) deps.log(what + " write failed", slug, e && e.message); return; }
+    if (had === undefined) return;
+    undos.push(async () => {
+      // CONDITIONAL ON OUR OWN BYTES, the pointer undo's argument: a value
+      // somebody else has written since is theirs and is left where it is.
+      const cur = await deps.get(key);
+      if (!cur || (await cur.text()) !== body) return false;
+      if (had === null) await deps.remove(key);
+      else await deps.put(key, had, contentType);
+      return true;
+    });
+  };
+  if (typeof sidecar === "string" && sidecarKey) await reversible(sidecarKey, sidecar, "application/json", "sidecar");
+  if (liveKey) await reversible(liveKey, "1", "text/plain", "live marker");
+
   let worker = null;
   if (typeof putWorker === "function") worker = await putWorker();
-  const uploaded = !(worker && worker.ok === false);
-  if (uploaded && typeof commit === "function") await commit();
+
+  // ── SERVED, NOT MERELY "NOT REFUSED" ──────────────────────────────────────
+  //
+  // This read `!(worker && worker.ok === false)`, so EVERY answer but an
+  // explicit refusal counted as uploaded — and `putSiteWorker` answers `null`
+  // when there is no script to send or no credentials to send it with. A site
+  // published with no dispatch credentials therefore moved its pointer,
+  // recorded a commit and advanced its editable state with no script uploaded
+  // at all. Only an explicit success is a success.
+  const uploaded = !!(worker && worker.ok === true);
+
+  // ── AND IF IT DID NOT LAND, THE POINTER GOES BACK ─────────────────────────
+  //
+  // The defect this closes: the pointer moved, the script did not, and
+  // `afterActivate` ran anyway — so the editable source, parts and head marker
+  // advanced to a version no visitor was being served. The next edit then read
+  // pages that had never been live, and stage 6's repair, seeing head and
+  // pointer agree, saw nothing to fix. "A later edit carries it forward" is not
+  // a recovery guarantee: it is a divergence that heals only if another edit
+  // happens to arrive.
+  //
+  // So an activation that cannot serve UNDOES ITSELF. Conditional on OUR OWN
+  // etag, so a newer publish that arrived while the upload was failing is never
+  // clobbered by our undo — the same argument as the forward write, inverted.
+  // With no previous pointer the revert is a delete, putting the site back to
+  // having none.
+  //
+  // A revert that fails leaves the pointer ahead, which is exactly the state
+  // 3b's reconcile is built to read (`lost-upload`): narrower window, same
+  // recovery, and now it is the only way in rather than the ordinary outcome.
+  let reverted = false;
+  if (!uploaded) {
+    // IN REVERSE ORDER — the marker, then the sidecar, then the pointer. The
+    // sidecar is the visitor-facing one, so it goes back before the pointer
+    // rather than after it; a failure here is logged and never rethrown,
+    // because the pointer's own undo below is the one that matters most.
+    for (const undo of undos.reverse()) {
+      try { await undo(); }
+      catch (e) { if (deps.log) deps.log("undo failed", slug, e && e.message); }
+    }
+    try {
+      const back = previous && isVersionId(previous.version) ? previous : null;
+      if (back) {
+        // The ordinary case, and it is properly conditional.
+        const r = await deps.put(POINTER_KEY(slug), JSON.stringify(back), "application/json", { etagMatches: moved.etag });
+        reverted = r !== null;
+      } else {
+        // NO PREVIOUS POINTER — a first activation, so the undo is a delete,
+        // and R2 HAS NO CONDITIONAL DELETE. Read back and remove only what is
+        // still byte-for-byte ours; a pointer somebody else has written in the
+        // meantime is left exactly where it is. The race is a read-then-delete
+        // one and is named rather than papered over: it is narrower than the
+        // window it replaces, and the alternative — leaving a pointer at a
+        // version nothing serves — is the defect being fixed.
+        const cur = await deps.get(POINTER_KEY(slug));
+        const same = cur && (await cur.text()) === JSON.stringify(pointer);
+        if (same) { await deps.remove(POINTER_KEY(slug)); reverted = true; }
+      }
+    } catch (e) { if (deps.log) deps.log("pointer revert failed", slug, e && e.message); }
+    if (!reverted && deps.log) deps.log("pointer left ahead of the live script", slug, version);
+    return { ok: false, error: "not-served", version, pointer, worker, uploaded: false, reverted };
+  }
+
+  if (typeof commit === "function") await commit();
   if (typeof afterActivate === "function") {
     try { await afterActivate(); }
     catch (e) { if (deps.log) deps.log("state copy failed", slug, e && e.message); }
   }
-  return { ok: true, version, pointer, worker, uploaded };
+  return { ok: true, version, pointer, worker, uploaded: true };
 }
 
 /** Every complete build of a site, newest first. Reads manifests only. */

@@ -984,7 +984,13 @@ test("THE PUBLISH-TIME HEAD IS A SIDECAR, and no document is patched", async () 
   assert.equal((src.match(/sidecarKey: siteMetaKey\(slug\)/g) || []).length, 3,
     "the meta sidecar's key is not handed to activation on the spine, the build path and the restore");
   const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
-  assert.match(builds, /await deps\.put\(sidecarKey, sidecar, "application\/json"\)/, "activation no longer writes the meta sidecar");
+  // RE-ANCHORED 2026-09-06: the direct `deps.put(sidecarKey, …)` became a call
+  // through `reversible`, so an activation whose script never lands can put the
+  // previous head back — otherwise a failed publish leaves the OLD page wearing
+  // the NEW head. The property is that the sidecar is written from the key the
+  // caller handed in; how it is written is the module's business.
+  assert.match(builds, /reversible\(sidecarKey, sidecar, "application\/json", "sidecar"\)/, "activation no longer writes the meta sidecar");
+  assert.match(builds, /const reversible = async \(key, body, contentType, what\) => \{/, "the sidecar's write is not reversible, so a failed publish leaves the new head over the old page");
   const brand = fs.readFileSync(new URL("../builder/lovable/template/src/site-brand.ts", import.meta.url), "utf8");
   assert.match(brand, /export const SITE_SLUG/, "the bundle no longer carries its own slug");
 });

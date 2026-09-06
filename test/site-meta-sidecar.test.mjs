@@ -55,7 +55,11 @@ test("the publish WRITES it and reads the previous one from the same place", () 
   assert.ok((WORKER.match(/sidecarKey: siteMetaKey\(slug\)/g) || []).length >= 2,
     "the publish paths no longer hand the sidecar's key to activation — every site would lose its share tags");
   const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
-  assert.match(builds, /await deps\.put\(sidecarKey, sidecar, "application\/json"\)/, "activation does not write the sidecar");
+  // RE-ANCHORED 2026-09-06: the write became a call through `reversible`, so
+  // an activation whose script never lands puts the PREVIOUS head back — a
+  // failed publish must not leave the old page wearing the new head. The
+  // property is unchanged: the key handed in is the key written.
+  assert.match(builds, /reversible\(sidecarKey, sidecar, "application\/json", "sidecar"\)/, "activation does not write the sidecar");
 });
 
 test("A FAILURE COSTS THE SHARE TAGS, NEVER THE PUBLISH", () => {
@@ -67,12 +71,19 @@ test("A FAILURE COSTS THE SHARE TAGS, NEVER THE PUBLISH", () => {
   // there: a failed sidecar put is logged and the activation goes on to the
   // script, exactly the rule this held when the write was inline.
   const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
-  const at = builds.indexOf("await deps.put(sidecarKey, sidecar,");
+  // RE-ANCHORED 2026-09-06: the inline try/catch became `reversible`, which
+  // fences BOTH halves — the read of what it is replacing and the write itself
+  // — and the rule is the one this case has always asserted: a share tag may
+  // never fail a customer's publish. Read off the helper, whose two catches
+  // name the write they belong to through its `what` argument.
+  const at = builds.indexOf("const reversible = async (key, body, contentType, what) => {");
   assert.ok(at > 0, "the sidecar write moved — rescope this");
-  const open = builds.lastIndexOf("try {", at);
-  const win = builds.slice(open, builds.indexOf("\n", builds.indexOf("catch", at)));
-  assert.match(win, /catch \(e\) \{ if \(deps\.log\) deps\.log\("sidecar write failed"/,
+  const win = builds.slice(at, builds.indexOf("\n  };", at));
+  assert.match(win, /catch \(e\) \{ if \(deps\.log\) deps\.log\(what \+ " write failed", slug, e && e\.message\); return; \}/,
     "the sidecar write is not fenced — a share tag can fail a customer's publish");
+  assert.match(win, /catch \(e\) \{ if \(deps\.log\) deps\.log\(what \+ " read failed, its write will not be undone"/,
+    "a read of the previous value that fails is not fenced, or guesses");
+  assert.ok(builds.includes('reversible(sidecarKey, sidecar, "application/json", "sidecar")'), "the sidecar is not written through the fenced helper");
 });
 
 test("DELETING A SITE TAKES IT WITH THEM", () => {
@@ -108,7 +119,9 @@ test("THE LIVENESS MARKER IS THE TAKE-DOWN, and both sides spell it the same", (
   assert.equal((WORKER.match(/liveKey: "sites\/" \+ slug \+ "\/" \+ SITE_LIVE_FILE/g) || []).length, 3,
     "the marker is not handed to activation on every path that makes a site live");
   const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
-  assert.match(builds, /await deps\.put\(liveKey, "1", "text\/plain"\)/, "activation does not write the marker");
+  // RE-ANCHORED 2026-09-06, same change: written through `reversible`, so a
+  // first activation that never served does not leave a site marked live.
+  assert.match(builds, /reversible\(liveKey, "1", "text\/plain", "live marker"\)/, "activation does not write the marker");
 });
 
 test("A MISS IS PERMANENT AND A THROW IS TRANSIENT", () => {

@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { randomBytes } from "node:crypto";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { installCompiler } from "./fixtures/cf-containers.mjs";
+import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
 import { collectStrings, TRANSLATE_TOOL } from "../builder/site-translate.mjs";
@@ -108,12 +108,13 @@ async function drive({ slug, pages = [HOME], langs = null, body: bodyExtra = {},
         usage: (usage && usage[tool]) || { input_tokens: 10, output_tokens: 5 },
       });
     }
+    if (isDispatchUpload(u)) return dispatchOk();   // the publish's script upload
     return new Response("unavailable", { status: 503 });
   };
   const c = installCompiler();
   try {
     const worker = await loadWorker();
-    const env = { SITES_BUCKET: b, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test" };
+    const env = { SITES_BUCKET: b, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test", ...dispatchEnv() };
     const ctx = makeCtx();
     await worker.queue({ messages: [{ body: { kind: EDIT_JOB_KIND, id }, ack() {}, retry() {} }] }, env, ctx);
     await Promise.allSettled(ctx.pending);
@@ -312,6 +313,7 @@ async function syncEdit({ slug, ledger, answers = CSS }) {
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
       return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage: { input_tokens: 10, output_tokens: 5 } });
     }
+    if (isDispatchUpload(u)) return dispatchOk();   // the publish's script upload
     return new Response("unavailable", { status: 503 });
   };
   const c = installCompiler();
@@ -322,7 +324,7 @@ async function syncEdit({ slug, ledger, answers = CSS }) {
       headers: { "content-type": "application/json", Authorization: TOKEN },
       body: JSON.stringify({ layer: "look", page: "", remove: false, rename: "", tab: false, instruction: "make the footer white", picker: "sonnet" }),
     });
-    const res = await worker.fetch(req, { SITES_BUCKET: b, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key" }, makeCtx());
+    const res = await worker.fetch(req, { SITES_BUCKET: b, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", ...dispatchEnv() }, makeCtx());
     const body = await res.json().catch(() => null);
     return { status: res.status, body, compiles: c.calls.length, seen, distWrites: b.writes.filter(([k]) => k.startsWith("sites/")).length };
   } finally { c.uninstall(); globalThis.fetch = real; }

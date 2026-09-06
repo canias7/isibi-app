@@ -17,7 +17,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { installCompiler } from "./fixtures/cf-containers.mjs";
+import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { siteMetaKey } from "../site-meta.mjs";
 import { siteUrlFor, APP_ZONE } from "../site-domains.mjs";
@@ -104,6 +104,7 @@ function withWire({ answers = {}, current = [], fail = false, former = [] } = {}
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
       return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage: { input_tokens: 10, output_tokens: 5 } });
     }
+    if (isDispatchUpload(url)) return dispatchOk();   // the publish's script upload
     return new Response("unavailable", { status: 503 });
   };
   return (async () => {
@@ -123,7 +124,7 @@ async function edit(slug, instruction, { store, layer }) {
   // which the rename lane rightly reads as "not a free name". Without it these
   // tests drive the platform-without-aliases path and prove nothing about the
   // hop they exist for. The stub answers the wire either way.
-  const res = await worker.fetch(req, { SITES_BUCKET: store, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "test-service-key" }, makeCtx());
+  const res = await worker.fetch(req, { SITES_BUCKET: store, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "test-service-key", ...dispatchEnv() }, makeCtx());
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 

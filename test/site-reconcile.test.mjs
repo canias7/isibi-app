@@ -73,6 +73,30 @@ function fnW(name) {
   return body;
 }
 
+/**
+ * The index just past the `}` that closes the `{` at `open`.
+ *
+ * Comments are already blanked and strings are the one thing left that can
+ * carry an unbalanced brace, so they are skipped the same way — a template
+ * literal in a route body would otherwise close the window early.
+ */
+function closeBrace(src, open) {
+  assert.equal(src[open], "{", "closeBrace was not handed an opening brace");
+  let depth = 0; let quote = "";
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (quote) {
+      if (c === "\\") { i++; continue; }
+      if (c === quote) quote = "";
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if (c === "{") depth++;
+    else if (c === "}") { depth--; if (depth === 0) return i + 1; }
+  }
+  assert.fail("no closing brace");
+}
+
 const ID = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
 const ID0 = "00b2c3d4e5f60718293a4b5c6d7e8f90";
 const ID3 = "c3b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -522,8 +546,16 @@ test("the hops: every refund site in the consumer is followed by the reconcile, 
   const stale = lost.indexOf("await runStaleEditJobs(env);");
   const review = lost.indexOf("await runReviewReconcile(env);");
   assert.ok(stale > 0 && review > stale, "the sweep tick does not reconcile the review rows after the stale sweep");
-  const route = W.slice(W.indexOf('url.pathname === "/api/site/reconcile"'), W.indexOf('url.pathname === "/api/site/reach"'));
+  // RE-ANCHORED 2026-09-06: this ran to a NAMED NEIGHBOUR (`/api/site/reach`)
+  // and so swallowed every route inserted between the two — the recorded
+  // overlapping-window trap, sprung by `/api/site/runtime`. It is a router
+  // `if (…) { … }` block, so its own closing brace is the honest end, and the
+  // size check then measures this route rather than a stretch of the file.
+  const routeAt = W.indexOf('url.pathname === "/api/site/reconcile"');
+  assert.ok(routeAt > 0, "the reconcile route is gone");
+  const route = W.slice(routeAt, closeBrace(W, W.indexOf("{", routeAt)));
   assert.ok(route.length > 500 && route.length < 6000, "the route's window is off: " + route.length);
+  assert.ok(!route.includes("/api/site/runtime") && !route.includes("/api/site/reach"), "the window still swallows a neighbouring route");
   const own = route.indexOf("siteOwnerBySlug(rslug, env)");
   const read = route.indexOf("readEditRows(env,");
   assert.ok(own > 0 && read > own, "the route reads the rows before it has checked the site is the caller's");

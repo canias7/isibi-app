@@ -31,8 +31,12 @@ const BUILD_SERVER = fs.readFileSync(new URL("../builder/build-server.mjs", impo
 const DOCKERFILE = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
 const blank = (s) => s.replace(/^([ \t]*)\/\/.*$/gm, (m) => " ".repeat(m.length));
 
-/** A fake R2 with the two semantics activation rests on: etags, and a put whose
- *  `onlyIf` did not hold answering NULL, the way R2's binding does. */
+/** A fake R2 with the three semantics activation rests on: etags, a put whose
+ *  `onlyIf` did not hold answering NULL the way R2's binding does, and
+ *  `etagDoesNotMatch: "*"` as create-if-absent — which a first activation is
+ *  conditional on since 2026-09-06. A fake that ignored that condition would
+ *  be MORE permissive than R2, which is the recorded fixture trap: it would
+ *  certify a first activation that R2 itself refuses. */
 function fakeR2() {
   const store = new Map();
   const etagOf = (s) => createHash("md5").update(typeof s === "string" ? s : Buffer.from(s)).digest("hex");
@@ -47,6 +51,9 @@ function fakeR2() {
     put: async (key, body, contentType, onlyIf) => {
       const cur = store.get(key);
       if (onlyIf && onlyIf.etagMatches != null && (!cur || cur.etag !== String(onlyIf.etagMatches))) return null;
+      // `*` is R2's "any object at all", so the condition holds only when the
+      // key is absent; a literal etag holds unless it is the one there.
+      if (onlyIf && onlyIf.etagDoesNotMatch != null && cur && (String(onlyIf.etagDoesNotMatch) === "*" || cur.etag === String(onlyIf.etagDoesNotMatch))) return null;
       store.set(key, { body, etag: etagOf(body), httpMetadata: { contentType } });
       puts.push(key);
       return objOf(key);
@@ -171,19 +178,35 @@ test("a stale holder cannot move the pointer: the conditional write answers supe
   assert.ok(!deps.store.has("sitemeta/cafe.json") || (await (await deps.get("sitemeta/cafe.json")).text()) !== "STALE", "the stale sidecar was written");
 });
 
-test("a failed script upload leaves the pointer ahead of the live script and does NOT commit", async () => {
+// RE-ANCHORED 2026-09-06 (owner: "the failed-upload behavior is a blocking
+// publishing defect"). This case pinned the OPPOSITE contract — a failed
+// upload answering `ok: true` with the pointer left ahead and the state copy
+// run anyway — and the property, not the spelling, is what the owner changed:
+// advancing the editable state to a version no visitor is served is a
+// divergence that heals only if another edit happens to arrive. The pointer
+// now goes back and nothing downstream of it runs. `test/publish-integrity.
+// test.mjs` drives the whole contract; this keeps the neighbouring case in
+// this file honest about which activation is the authoritative one.
+test("a failed script upload is a FAILED activation: the pointer goes back, nothing commits, nothing advances", async () => {
   const deps = fakeR2();
   await staged(deps, V1);
+  await staged(deps, V2);
+  // A site already serving V1, so the undo has somewhere to go back to.
+  await activateBuild(deps, { slug: "cafe", version: V1, expectEtag: null, putWorker: async () => ({ ok: true }) });
+  const before = await readPointer(deps, "cafe");
   let committed = false, copied = false;
   const r = await activateBuild(deps, {
-    slug: "cafe", version: V1, expectEtag: null, putWorker: async () => ({ ok: false, status: 500, error: "upload refused" }),
+    slug: "cafe", version: V2, expectEtag: before.etag, previous: before,
+    putWorker: async () => ({ ok: false, status: 500, error: "upload refused" }),
     commit: async () => { committed = true; }, afterActivate: async () => { copied = true; },
   });
-  assert.equal(r.ok, true, "a failed upload is not a failed activation — the pointer moved and the reconcile reads it");
+  assert.equal(r.ok, false, "a failed upload must not answer as a publish");
+  assert.equal(r.error, "not-served");
   assert.equal(r.uploaded, false);
+  assert.equal(r.reverted, true);
   assert.equal(committed, false, "a job was committed over a script that is not up");
-  assert.equal(copied, true, "the state copy is skipped on a failed upload — the pointer names this version, so the editable state must match it");
-  assert.equal((await readPointer(deps, "cafe")).version, V1);
+  assert.equal(copied, false, "the editable state advanced to a version nothing serves");
+  assert.equal((await readPointer(deps, "cafe")).version, V1, "the site is not still on the version its live script serves");
 });
 
 test("a state copy that throws never fails an activation that has already happened", async () => {
@@ -267,7 +290,11 @@ test("deleting a site takes every build and the pointer", async () => {
   const deps = fakeR2();
   await staged(deps, V1);
   await staged(deps, V2);
-  await activateBuild(deps, { slug: "cafe", version: V2, expectEtag: null });
+  // WITH A SCRIPT THAT LANDS: an activation whose upload does not land now
+  // undoes its own pointer, and this case is about the DELETE taking a
+  // pointer that is really there.
+  await activateBuild(deps, { slug: "cafe", version: V2, expectEtag: null, putWorker: async () => ({ ok: true }) });
+  assert.ok(await readPointer(deps, "cafe"), "the pointer under test was never written");
   await staged(fakeR2(), V1); // another store, untouched
   const n = await deleteAllBuilds(deps, "cafe");
   assert.ok(n >= 20, "expected every object of two builds gone, removed " + n);
@@ -366,9 +393,22 @@ test("both publish paths mint the version before the compile, send it in the pay
   const stageIf = spine.indexOf("if (!staged || staged.ok !== true) {");
   const stageRet = spine.indexOf('return { ok: false, error: "stage", ours: true,', stageIf);
   assert.ok(stageIf > 0 && stageRet > stageIf && !spine.slice(stageIf, stageRet).includes("\n  }\n"), "a failed stage does not refuse the publish");
+  // RE-ANCHORED 2026-09-06: this named the ONE reason the spine passed through
+  // (`superseded`) by its exact ternary; two more arrived (`not-served`,
+  // `lease-lost`) and the spelling moved. The property is that a failed
+  // activation refuses the publish and that a reason the customer's sentence
+  // has words for reaches the reply instead of being collapsed into
+  // `activate` — asserted per reason, so a fourth one added without a
+  // sentence still shows here.
   const actIf = spine.indexOf("if (!act || act.ok !== true) {");
-  const actRet = spine.indexOf('error: act && act.error === "superseded" ? "superseded" : "activate", ours: true,', actIf);
-  assert.ok(actIf > 0 && actRet > actIf && !spine.slice(actIf, actRet).includes("\n  }\n"), "a failed activation does not refuse the publish, or a superseded pointer is not named");
+  const actRet = spine.indexOf('ours: true,', actIf);
+  assert.ok(actIf > 0 && actRet > actIf && !spine.slice(actIf, actRet).includes("\n  }\n"), "a failed activation does not refuse the publish");
+  const actLine = spine.slice(actIf, spine.indexOf("\n", actRet));
+  assert.match(actLine, /error: act && \(/, "the activation's reason is not read off the answer");
+  for (const why of ["superseded", "not-served", "lease-lost"]) {
+    assert.ok(actLine.includes('act.error === "' + why + '"'), why + " is collapsed into `activate`, so its own sentence is unreachable");
+  }
+  assert.match(actLine, /: "activate"/, "an unknown activation failure has no fallback name");
   // The platform's own readers must not serve a stale pointer from this
   // isolate: the cache is cleared right after activation, on both paths —
   // INSIDE the spine, between the activation and the prune. A first draft
