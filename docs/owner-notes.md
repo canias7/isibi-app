@@ -148,6 +148,87 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ## Open — waiting on you
 
+**0a. THE CANARY PLAN, REVISED (2026-09-06, your call to run it or not).**
+Nothing below has been run. Everything below is on branch
+`claude/publish-integrity`, which is NOT merged and NOT deployed.
+
+**What it would prove.** Three things that have never happened live:
+1. the job runner — the container has never executed a single job, on any site;
+2. stage 7's immutable publishing — fretwork-1 answers `x-site-build:
+   mtnfl34h-8uuf06` and **no `x-site-version`**, so it is still on the legacy
+   layout and stage 7 has never served a request;
+3. that this week's activation corrections still publish normally.
+
+**What it CANNOT prove, and I am not going to pretend otherwise.** The
+failed-upload path needs a real dispatch failure. It cannot be provoked on
+purpose without breaking a publish, which is the same position 3b's reconcile
+is in. Its proof is the next real failure, and the line to read then is *"the
+new version was built but couldn't be put live"* where the reply used to say
+*"that didn't compile"*.
+
+**COST — measured, estimated, and what is actually enforced.**
+
+| what | credits | where the number comes from |
+|---|---|---|
+| intent router (`/api/site/route`) | **2** | measured on Grok, 2026-09-01. **Only if you send it as a chat message.** The `lane-sweep` workflow posts the layer straight to the edit route and never calls the router — which is why runs 38 and 39 cost 1 each, not 3. |
+| `pick_lanes` + the acting lane | **1** | measured, runs 38 and 39 (one `pageCredits`, floor 1) |
+| translations | **+1** | one call per extra language with something new to say, on their own reserve with their own floor. fretwork-1 is `cy` + `fr` + `es`. **Never charged before run 39** — the fix landed after it, so this is an estimate, not a measurement. A css or colour edit adds no new strings and pays nothing here. |
+| a correction round (`lane:correct`) | **+0** | rides the same message's bill |
+| **total, via the workflow** | **1–2** | 1 for a css edit, 2 for one that changes words |
+| **total, as a chat message** | **3–4** | the router on top |
+
+**ESTIMATED IS NOT A CEILING, and there is no ceiling.** `buildFloor` gates a
+BUILD before it starts; **nothing gates an edit or an addon**. An edit's price
+is metered on real token usage with a floor of 1 per charge and no cap. The
+only enforcement is `edit_reserve` REFUSING when the balance cannot cover a
+bill — and that happens *after* the model calls have been made, so at a low
+balance the work is done and thrown away. Since stage 1a-i that refusal stops
+the publish and says so ("there aren't enough credits for it, so it wasn't
+published and nothing was charged") instead of shipping free.
+
+**BALANCE: 5 credits** — read off the ledger 2026-09-06, unchanged since
+2026-09-04 20:48Z, so nothing has been spent since run 39.
+
+**THE INITIAL-BUILD CANARY IS PENDING AND STAYS PENDING.** A first build is
+11–45 credits (measured range, two builds on one model), and `buildFloor`
+refuses before spending. 5 credits cannot cover it, and a refusal reads to a
+customer like a broken builder. **Not runnable until you top up.**
+
+**THE ASK — deterministic, no invention.** Not "the nearest car parks", which
+asks a model for a fact nobody here can check. Instead, on the `text` lane:
+
+> Change the heading above the opening hours to read exactly: Lesson times
+
+The check is an exact string match on the served page — `Lesson times` is
+there or it is not — and reverting it is the same ask with the old wording. It
+changes words, so it also exercises the translation charge.
+
+**REVERSIBILITY — NOT VERIFIED, and this is the honest state of it.** You asked
+me to check that the existing legacy version is really restorable before
+calling the canary reversible. **I could not.** The version list lives in R2
+and is reachable only through `GET /api/site/fretwork-1/versions`, which is
+owner-gated; I have no owner token and will not mint one. `site_builds` has no
+version column — it records build RUNS, not versions. So:
+- **The free check is yours**: signed in as the building account, open
+  `/api/site/fretwork-1/versions`. It costs nothing and changes nothing.
+- **What the code says**: `restoreVersion` refuses a build-layout version
+  whose script was never saved (`that version's script was never saved`), and
+  falls through to `rollbackVersion` — the copy path, with the pointer dropped
+  — for a legacy one. So a listed legacy version should be restorable.
+- **A fact worth knowing before you decide**: the canary edit is ITSELF the
+  migration. fretwork-1 is on the legacy layout today; its next publish moves
+  it to `builds/<slug>/<version>/` with a pointer. Going back to a legacy
+  version after that is the pointer-dropping branch, **which has never run
+  live either**. The cheapest reversal is therefore not a restore at all — it
+  is the same edit again with the old wording, one more credit.
+
+**THE ORDER, if you say go.** Merge → wait for the deploy → **hold 15–20
+minutes** (the container rolls; `worker.js` and the builder modules are image
+inputs) → then, before spending anything, open
+`/api/site/runtime?slug=fretwork-1` — free, read-only, and it answers whether
+the runner is actually on for that site instead of leaving us to read a
+workflow default. Only then the edit.
+
 **0b. DONE 2026-08-29: a TSX step that generates a component the kit has not got** (owner,
 2026-08-29: *"what if customer wants something that we dont have in our library,
 make a step for that, a tsx step that generates stuff, put it as optional, and

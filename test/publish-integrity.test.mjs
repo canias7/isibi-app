@@ -284,21 +284,53 @@ test("the undo puts the sidecar and the live marker back too — a failed publis
   // (d) CANNOT-TELL IS NOT THERE-WAS-NOTHING. A previous value we could not
   // read records nothing, so the undo leaves the key alone rather than
   // deleting a live sidecar on the strength of a failed read.
+  // A TRANSIENT BLIP: the read fails, the write lands, and by the time the undo
+  // would run the store is answering again. That is the shape that separates
+  // "recorded nothing" from "recorded null" — a fixture whose read fails
+  // FOREVER cannot, because the undo's own read throws too and the key is left
+  // alone either way. A sweep setting `had = null` survived until this said so.
   const blind = await liveOnV1();
   await blind.put(KEY, "OLD", "application/json");
   await stage(blind, V2);
   const b4 = await readPointer(blind, SLUG);
   const realGet = blind.get;
-  blind.get = async (k) => { if (k === KEY) throw new Error("R2 blip"); return realGet(k); };
+  let blips = 1;
+  blind.get = async (k) => { if (k === KEY && blips-- > 0) throw new Error("R2 blip"); return realGet(k); };
   await activateBuild(blind, {
     slug: SLUG, version: V2, expectEtag: b4.etag, previous: b4, sidecar: "MINE", sidecarKey: KEY,
     putWorker: async () => null,
   });
   blind.get = realGet;
   assert.equal(await (await blind.get(KEY)).text(), "MINE", "an unreadable previous value was guessed at rather than left alone");
+  assert.ok(!blind.removes.includes(KEY), "a sidecar whose previous value could not be read was deleted");
   assert.ok(blind.logs.some((l) => l.includes("will not be undone")), "the un-undoable write was silent");
 
-  // (e) THE CONTROL: a publish that lands keeps its new sidecar and its marker.
+  // (e) AN UNDO THAT THROWS STOPS NOTHING. Each is fenced, so a store that
+  // fails on one key still lets the others — and the pointer's own undo, which
+  // matters most — run. Unfenced, the throw leaves the site on a version
+  // nothing serves, which is the whole defect.
+  const throwy = await liveOnV1();
+  await throwy.put(KEY, "OLD", "application/json");
+  await stage(throwy, V2);
+  const bt = await readPointer(throwy, SLUG);
+  const realPut = throwy.put;
+  let armed = false;
+  throwy.put = async (k, ...rest) => {
+    if (armed && k === KEY) throw new Error("R2 refused the undo");
+    return realPut(k, ...rest);
+  };
+  const rt = await activateBuild(throwy, {
+    slug: SLUG, version: V2, expectEtag: bt.etag, previous: bt, sidecar: "MINE", sidecarKey: KEY, liveKey: LIVE,
+    putWorker: async () => { armed = true; return { ok: false, status: 500 }; },
+  });
+  throwy.put = realPut;
+  assert.equal(rt.ok, false, "a throwing undo escaped the activation: " + JSON.stringify(rt));
+  assert.equal(rt.error, "not-served");
+  assert.equal(rt.reverted, true, "an undo that threw stopped the pointer's own undo — the site is left on a version nothing serves");
+  assert.equal((await readPointer(throwy, SLUG)).version, V1);
+  assert.ok(throwy.logs.some((l) => l.includes("undo failed")), "the failed undo was silent");
+
+  // (f) THE CONTROL: a publish that lands keeps its new sidecar and its marker.
   const good = await liveOnV1();
   await good.put(KEY, "OLD", "application/json");
   await stage(good, V2);
@@ -440,13 +472,30 @@ test("cannot-tell is not not-ours: a lease check that throws proceeds, and no ho
   const b2 = await readPointer(none, SLUG);
   const r2 = await activateBuild(none, { slug: SLUG, version: V2, expectEtag: b2.etag, previous: b2, putWorker: async () => ({ ok: true }) });
   assert.equal(r2.ok, true);
-  // And a truthy non-boolean is a yes, never a veto: only an explicit `false`
-  // refuses, because that is the one answer that cannot be a mistake.
-  const truthy = await liveOnV1();
-  await stage(truthy, V2);
-  const b3 = await readPointer(truthy, SLUG);
-  const r3 = await activateBuild(truthy, { slug: SLUG, version: V2, expectEtag: b3.etag, previous: b3, assertLease: async () => ({ ok: true }), putWorker: async () => ({ ok: true }) });
-  assert.equal(r3.ok, true);
+  // ONLY AN EXPLICIT `false` REFUSES, and both directions of that are driven.
+  // A truthy non-boolean is a yes; so is every FALSY answer that is not
+  // `false` — `undefined` from a hook that fell off the end, `0`, `""`. A
+  // sweep cutting the test to `if (!held)` survived until this was here: an
+  // answer nobody meant would have refused a publish the caller was entitled
+  // to make, which is cannot-tell read as not-ours.
+  for (const [what, answer] of [
+    ["a truthy object", { ok: true }],
+    ["undefined — a hook that fell off the end", undefined],
+    ["0", 0],
+    ["an empty string", ""],
+    ["null", null],
+  ]) {
+    const d = await liveOnV1();
+    await stage(d, V2);
+    const b = await readPointer(d, SLUG);
+    const r = await activateBuild(d, { slug: SLUG, version: V2, expectEtag: b.etag, previous: b, assertLease: async () => answer, putWorker: async () => ({ ok: true }) });
+    assert.equal(r.ok, true, what + " vetoed a publish, but only an explicit false may: " + JSON.stringify(r));
+  }
+  // The control: `false` itself still refuses.
+  const no = await liveOnV1();
+  await stage(no, V2);
+  const bn = await readPointer(no, SLUG);
+  assert.equal((await activateBuild(no, { slug: SLUG, version: V2, expectEtag: bn.etag, previous: bn, assertLease: async () => false, putWorker: async () => ({ ok: true }) })).error, "lease-lost");
 });
 
 test("the collector hands a lease hook in, built from the lease it actually holds, and the spine forwards it", () => {
@@ -462,6 +511,11 @@ test("the collector hands a lease hook in, built from the lease it actually hold
   assert.match(body, /"edit_beat"/, "the hook does not re-ask the row");
   assert.match(body, /p_owner: lease/, "the beat is not sent under the lease the collector holds");
   assert.match(body, /catch \{ return true; \}/, "a beat that throws vetoes the publish, so a database blip loses a build");
+  // AND THE ANSWER IS READ. A hook that always says yes passes every check
+  // above it — the beat is sent, under the right name, fenced — and refuses
+  // nothing; a sweep replacing this line with `return true` survived until it
+  // was here.
+  assert.match(body, /return !\(b && b\.ok === false\);/, "the beat's answer is thrown away, so a lost lease reads as a held one");
   const hands = body.indexOf("assertLease,");
   assert.ok(hands > body.indexOf("const assertLease"), "the collector builds a hook it never hands in");
   // The spine's builder takes it and forwards it to the activation.
@@ -476,7 +530,12 @@ test("the collector hands a lease hook in, built from the lease it actually hold
   const act = pub.indexOf("await activateBuild(buildDeps(env), {");
   assert.ok(act > 0, "the build path's activation moved");
   const call = pub.slice(act, pub.indexOf("});", act));
-  assert.match(call, /assertLease,/, "the hook is taken and never forwarded — the wiring trap, exactly");
+  // EXACTLY ONCE, AND AS THE SHORTHAND. A sweep that left the shorthand in
+  // place and added `assertLease: undefined,` below it survived a plain
+  // `/assertLease,/` match: the last key wins in an object literal, so the
+  // hook was taken, forwarded, and then overwritten with nothing.
+  assert.equal((call.match(/\bassertLease\b/g) || []).length, 1, "the lease hook is named twice in one call — the later key wins: " + call);
+  assert.match(call, /^\s*assertLease,$/m, "the hook is taken and never forwarded — the wiring trap, exactly");
   // AND THE SPINE'S OWN ACTIVATION passes `previous`, so its undo has
   // somewhere to go back to. All three call sites, by count.
   // EVERY call site, matched on the FUNCTION rather than on the deps it is
@@ -487,7 +546,14 @@ test("the collector hands a lease hook in, built from the lease it actually hold
   assert.equal(sites.length, 3, "the activation call sites moved — rescope this");
   for (const m of sites) {
     const s = W.slice(m.index, W.indexOf("});", m.index));
-    assert.match(s, /previous:/, "an activation with no `previous` cannot undo itself: " + s.slice(0, 160));
+    // NOT MERELY PRESENT: `previous: null` is the field with the undo removed,
+    // and a sweep that wrote exactly that survived a `/previous:/` match. Each
+    // call site must hand the POINTER IT READ, and the etag it made its write
+    // conditional on must come from that same read — one fact, two uses.
+    const prev = s.match(/previous: ([A-Za-z][A-Za-z0-9_.]*) \|\| null,/);
+    assert.ok(prev, "an activation hands no previous pointer, so its undo cannot run: " + s.slice(0, 200));
+    assert.match(s, new RegExp("expectEtag: " + prev[1] + "\\b"),
+      "the undo's `previous` is not the pointer the conditional write was made against: " + s.slice(0, 200));
   }
 });
 
@@ -624,29 +690,49 @@ test("recovery cannot overwrite a newer publication: a retry of the failed versi
   assert.equal((await readPointer(deps, SLUG)).version, V3, "recovery took the site back to a version nobody asked for");
 });
 
+/**
+ * `compileMsg` EVALUATED, not read.
+ *
+ * The first draft of this case asserted the two branches by finding their
+ * strings in the source — and a sweep gating one off with `if (false && …)`
+ * left the string exactly where the read looked for it and survived. The
+ * function has one free name (`roomSentence`), so it is built and called.
+ */
+function compileMsgFn() {
+  const at = WORKER.indexOf("function compileMsg(pub, theirs) {");
+  const end = WORKER.indexOf("\n}\n", at);
+  assert.ok(at > 0 && end > at, "compileMsg moved — rescope this");
+  // eslint-disable-next-line no-new-func
+  return new Function("roomSentence", WORKER.slice(at, end + 2) + "\nreturn compileMsg;")((k) => "room:" + k);
+}
+
 test("the spine names a not-served and a lease-lost activation to the customer in its own words", () => {
-  const start = at(W, "function compileMsg(", "compileMsg");
-  const body = W.slice(start, W.indexOf("\n}\n", start));
-  for (const [why, must] of [["not-served", /couldn't be put live/i], ["lease-lost", /something else was changing/i]]) {
-    const i = body.indexOf('pub.error === "' + why + '"');
-    assert.ok(i > 0, why + " has no sentence, so it wears the compile's");
-    const line = body.slice(i, body.indexOf("\n", body.indexOf("return", i)));
-    assert.match(line, must, why + "'s sentence does not say what happened: " + line);
-    assert.doesNotMatch(line, /didn't compile/, why + " is told as a compile failure");
-  }
-  // BOTH SIT AFTER THE `ours` TEST, and that is the right side of it: the
-  // spine marks both `ours: true`, so they reach their branches, and putting
-  // them above it would answer for a caller that never set `ours` at all.
-  // `unbilled` is above it for the opposite reason — a short balance is the
-  // customer's, not ours. And both must precede the generic ours fallback, or
-  // they wear "our build service was restarting".
-  const ours = at(body, "if (!pub || !pub.ours) return theirs;", "the ours test");
-  const fallback = at(body, "build service", "the generic ours sentence");
-  for (const why of ["not-served", "lease-lost"]) {
-    const i = body.indexOf('pub.error === "' + why + '"');
-    assert.ok(i > ours, why + " is answered before the ours test, so a refusal that is not ours would wear it");
-    assert.ok(i < fallback, why + " falls through to the generic restarting sentence");
-  }
+  const compileMsg = compileMsgFn();
+  const theirs = "That didn't compile — try describing it differently.";
+
+  const notServed = compileMsg({ ok: false, error: "not-served", ours: true, detail: "not-served" }, theirs);
+  assert.match(notServed, /couldn't be put live/, notServed);
+  assert.match(notServed, /still serving what it was/, "the sentence does not say the old site is still up");
+  assert.match(notServed, /Nothing was charged/);
+  assert.doesNotMatch(notServed, /didn't compile|restarting/, "a failed upload wears another failure's sentence");
+
+  const leaseLost = compileMsg({ ok: false, error: "lease-lost", ours: true, detail: "lease-lost" }, theirs);
+  assert.match(leaseLost, /something else was changing your site/, leaseLost);
+  assert.match(leaseLost, /nothing was published and nothing was charged/);
+  assert.match(leaseLost, /Send it again/, "a correct refusal reads as a fault instead of a retry");
+  assert.doesNotMatch(leaseLost, /didn't compile|restarting/);
+  assert.notEqual(leaseLost, notServed, "the two refusals share one sentence");
+
+  // NEITHER IS ANSWERED FOR A REFUSAL THAT IS NOT OURS. The spine marks both
+  // `ours: true`; a caller that did not is answered with the rung's own words,
+  // which is what the `ours` test above them is for.
+  assert.equal(compileMsg({ ok: false, error: "not-served", ours: false }, theirs), theirs);
+  assert.equal(compileMsg({ ok: false, error: "lease-lost", ours: false }, theirs), theirs);
+
+  // And the sentences either side of them are untouched.
+  assert.match(compileMsg({ ok: false, error: "unbilled", detail: "insufficient" }, theirs), /aren't enough credits/);
+  assert.match(compileMsg({ ok: false, error: "not-granted", ours: true, detail: "lease" }, theirs), /couldn't be published \(lease\)/);
+  assert.match(compileMsg({ ok: false, error: "compile", ours: true }, theirs), /build service was restarting/);
 });
 
 /* ══════════════ 4. THE RUNTIME DIAGNOSTIC ════════════════════════════ */
@@ -757,6 +843,17 @@ test("the runner's own chain is reported link by link, so a false has a reason",
   assert.equal(off.body.runnerOn, false);
   assert.equal(off.body.runnerEveryone, false);
   assert.equal(off.body.deploy, null, "a Worker with no deploy id must say so rather than inventing one");
+
+  // AND A VALUE THAT IS NOT A DEPLOY ID IS NOT ONE. `deployIdOf` is the same
+  // reader the claim uses, so what this reports and what the gate compares are
+  // one fact; handing back `env.DEPLOY_ID` raw would report a junk value the
+  // gate is ignoring. A sweep doing exactly that survived until this was here.
+  for (const junk of ["not a sha", "ab", "x".repeat(65), "", "   "]) {
+    const r = await runtime("diag-id-" + junk.length + junk.replace(/[^a-z0-9]/g, ""), { env: { DEPLOY_ID: junk, EDIT_ASYNC: "on" } });
+    assert.equal(r.body.deploy, null, JSON.stringify(junk) + " was reported as this Worker's deploy id");
+  }
+  const good = await runtime("diag-id-good", { env: { DEPLOY_ID: "a1b2c3d4", EDIT_ASYNC: "on" } });
+  assert.equal(good.body.deploy, "a1b2c3d4", "a real deploy id is not reported");
 });
 
 test("the diagnostic is owner-gated: signed out is 401, a stranger's site is the 404 a missing site gets, no slug is 400", async () => {

@@ -577,6 +577,99 @@ the next platform-wide republish is the measurement).
   changes nothing a visitor sees until a site republishes. The deploy rolls
   the container (the template's `server.ts` and `site-brand.ts` are image
   inputs), so the 15–20 minute hold applies.
+- **AN ACTIVATION THAT CANNOT SERVE UNDOES ITSELF (2026-09-06, owner: *"the
+  failed-upload behavior is a blocking publishing defect: afterActivate
+  advances editable state even when the new script is not serving. A later
+  edit carrying that state forward is not a successful recovery
+  guarantee"*).** Stage 7 answered a failed script upload with `ok: true`: the
+  pointer had moved, `commit` was skipped and `afterActivate` ran anyway — so
+  the editable source, the parts and the head marker advanced to a version no
+  visitor had ever been served, and stage 6's repair, seeing head and pointer
+  agree, found nothing to fix. Three corrections and a wall.
+  **WHICH VERSION IS AUTHORITATIVE, stated once**: `current/<slug>.json`, and
+  everything else is derived from it — visitors are served the prefix the LIVE
+  SCRIPT bakes (so the pointer is authoritative only while the script naming
+  it is up), the next edit reads `source/<slug>/` which the repair reconciles
+  with the pointer on every claim, and 3b's reconcile compares pointer, live
+  stamps and staged version. `lost-upload` is now a narrow residue instead of
+  the ordinary outcome.
+  (1) **SERVED, NOT MERELY NOT-REFUSED.** `uploaded` counted every answer but
+  an explicit refusal, and `putSiteWorker` answers `null` when there is no
+  script to send OR no credentials to send it with — so a Worker with no
+  dispatch credentials moved every pointer it touched. Only `ok === true`
+  counts.
+  (2) **THE UNDO.** The pointer goes back to `previous`, CONDITIONAL on our
+  own etag, so a newer publish that landed while ours was failing is never
+  clobbered; with no previous it is a read-then-delete, named rather than
+  papered over (R2 has no conditional delete). `commit` and `afterActivate`
+  do not run, and the answer is `not-served` with its own sentence. **The
+  sidecar and the live marker are reversible too** — both are written BEFORE
+  the script by the ordering argument above, so without the undo a failed
+  publish leaves the OLD page wearing the NEW head, which is the same
+  half-applied publish one key over. A previous value we could not READ
+  records nothing and its key is left alone: cannot-tell must never read as
+  there-was-nothing, which would turn an undo into a delete of a live sidecar.
+  (3) **THE COLLECTOR'S LEASE.** `activateBuild` takes `assertLease`, re-asked
+  with no await between it and the pointer write. The etag stops a holder
+  whose pointer moved; it cannot stop one that lost its LEASE while nobody
+  published, because the etag still matches — which is exactly the resumed
+  collector's shape. `runResumedSiteBuild` builds the hook from the lease it
+  holds (`edit_beat` under its own name) and hands it through
+  `buildAndPublishPages`; only an explicit `false` vetoes, a hook that throws
+  proceeds and says so. Its log line stopped promising a publish.
+  (4) **FIRST ACTIVATION IS CREATE-IF-ABSENT.** It was an unconditional write
+  whenever the caller read no pointer, with stage 6's per-site lock the only
+  thing between two first publishes — a wall borrowing its safety from another
+  layer, this repository's own recorded trap. `etagDoesNotMatch: "*"` puts the
+  race in the store; the loser answers `superseded`.
+  **Guards**: `test/publish-integrity.test.mjs` (25) drives the whole contract
+  against a fake R2 with R2's own conditional-write semantics — five upload
+  answers, both undo legs and their races, the sidecar branch by branch, the
+  three lease shapes each with its control, first-activation racing, the
+  end-to-end failed upload (old site still served, next edit reading the right
+  source, nothing committed), recovery refused over a newer publication, and
+  `compileMsg` DRIVEN rather than read.
+  **THE TEST FIXTURE WAS THE LESS-CAPABLE FAKE**: `installCompiler` never
+  returned a `worker`, which cost nothing while every answer counted as
+  uploaded; both real payloads carry `worker: true` and the container packages
+  a script for each. It answers with one now, stamped the way the container
+  stamps it, and ten driven publishes reach the dispatch API — a leg they had
+  never exercised. **Sweep: 35 mutants, 35 killed, none unapplied, the
+  comment-only control survived — seven survived the first pass and every one
+  was a guard gap, not the product's**: a falsy-but-not-`false` lease answer
+  (only an explicit `false` may veto, and nothing drove `undefined`), an
+  unreadable previous value (a fixture whose read failed FOREVER could not
+  tell "recorded nothing" from "recorded null", because the undo's own read
+  threw too — it takes a read that fails ONCE), the spine's `previous: null`
+  (a `/previous:/` match is satisfied by the field with the undo removed), the
+  beat's answer thrown away, the lease-lost sentence gated off with the string
+  still in the source (so `compileMsg` is evaluated now, not read), an
+  unvalidated deploy id, and an unfenced undo. One mutant was INERT and was
+  replaced rather than tested: the two reversible writes are independent keys,
+  so their undo ORDER cannot be observed. Nine older guards went red and were
+  re-anchored, not appeased. Suite 5393.
+  **Not proven live, and the failed-upload path cannot be provoked on
+  purpose** — it needs a real dispatch failure, the same shape as 3b's
+  reconcile. What the next publish DOES prove is that the corrected activation
+  still ships: see the canary plan in `docs/owner-notes.md`.
+- **AN AUTHENTICATED READ-ONLY RUNTIME DIAGNOSTIC (2026-09-06).** `GET
+  /api/site/runtime?slug=` answers, for the caller's OWN site: `async` and
+  `runner` (the two effective eligibilities), `asyncOn` / `asyncEveryone` /
+  `runnerOn` / `runnerEveryone` (the switches behind them), `runnerBindings`
+  and `runnerKeyed` (the rest of the fire's chain, so a `runner: false` names
+  which link is missing), and `deploy` — the sha, through `deployIdOf`, the
+  same reader the claim uses. **Booleans and the sha only**: never a value,
+  never a canary LIST, and `readCanaryList` is not imported into `worker.js`
+  at all, so no later edit of the route is one line from handing back other
+  customers' slugs. Owner-gated like the answer and migrations routes: a
+  signed-in stranger gets the 404 a missing site gets. **Why it exists**:
+  those four flags are GitHub secrets uploaded at every deploy, and
+  `deploy.yml` supplies a fallback for each — so the workflow's `|| 'off'` is
+  what the Worker runs only while nobody has ever set that secret, a fact the
+  repository cannot know. An audit that reads the workflow is reading a
+  default, not the deployment; nothing else leaves a trace (a job fired at a
+  container logs, a job NOT fired logs nothing), so "is the runner on for this
+  site" had no authorized answer at all.
 - **One public address**: `<slug>.gofarther.app`. `/s/<slug>/` 301s to it and is
   the internal addressing scheme. A custom domain returns to ITSELF.
 - **The document is rendered per request** from `__root.tsx` — there is no

@@ -11945,7 +11945,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         assertLease,
         slug, version: bVersion, build: (worker && worker.build) || "", parent: bParent, job: null,
         expectEtag: before ? before.etag : null,
-      previous: before || null,
+        // THE POINTER AS IT WAS, so an activation whose script never landed can
+        // put it back rather than leaving the site pointing at a version
+        // nothing serves. Null on a first build, where the undo is a delete.
+        previous: before || null,
         sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
         putWorker: async () => { workerUpload = await putSiteWorker(env, slug, worker); return workerUpload; },
         afterActivate: async () => {
