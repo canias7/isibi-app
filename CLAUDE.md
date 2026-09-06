@@ -2459,9 +2459,16 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   ONLY on 200 `{ ok: true }`. Anything else — 404 (an older image without the
   endpoint), 429, 503, a throw — is the consumer running the job itself
   exactly as before, said so in the log (`job runner: inline <id> — <why>`).
-- **Flags, BOTH OFF in the deploy**: `JOB_RUNNER_CANARY` (identities; the
-  deploy's `-` is nobody; no wildcard) and `JOB_RUNNER_EVERYONE` (affirmative
-  words only) — `EDIT_ASYNC`'s two-door pattern.
+- **Flags — THE CANARY NAMES `fretwork-1` BY THE DEPLOY'S OWN DEFAULT SINCE
+  2026-09-06 (stage 5a, owner: *"finish the missing steps"*); THE BROAD FLAG
+  IS OFF.** `JOB_RUNNER_CANARY` (identities; `-` is nobody; no wildcard) and
+  `JOB_RUNNER_EVERYONE` (affirmative words only) — `EDIT_ASYNC`'s two-door
+  pattern. Both were off from 2026-09-04 to 2026-09-06. This session cannot
+  set a GitHub secret, so the canary went on through `deploy.yml`'s fallback
+  (`|| 'fretwork-1'`); a secret still overrides it — `-` turns it off, another
+  slug moves it. `test/container-job.test.mjs` holds the shipped defaults to
+  ONE site — a slug, never an account — and the broad flag off (it held both
+  to "off" before; re-anchored, the comment says which property moved).
 - **The image — `Dockerfile` IS AT THE REPOSITORY ROOT NOW.** `builder/Dockerfile`
   is gone, `wrangler.jsonc` says `./Dockerfile`, the root `.dockerignore` keeps
   the context small, and every COPY source is root-relative
@@ -2514,11 +2521,17 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   **The end-to-end runner test killed a dispatch mutant the text read had
   covered** (`runContainerJob` sending an edit to the build consumer) — the
   reason it exists.
-- **NOT PROVEN LIVE.** The proof is the owner's: `JOB_RUNNER_CANARY=fretwork-1`
-  as a GitHub secret, redeploy, wait the roll, one edit on fretwork-1 (~1
-  credit); the Worker log says `job runner: fired <id>`, the build service's
-  log carries `job <id> out: {"job":…,"started":true}` … `"done":true`, and the
-  reply arrives through the poll route as always. Then `JOB_RUNNER_EVERYONE=on`.
+- **NOT PROVEN LIVE — AND THE CANARY IS ON FOR `fretwork-1` SINCE 2026-09-06
+  (the flags bullet above).** The proof is the owner's dispatch: one edit on
+  fretwork-1 (~1 credit, `lane-sweep.yml`, any acting lane); the Worker log
+  says `job runner: fired <id>`, the build service's log carries `job <id>
+  out: {"job":…,"started":true}` … `"done":true`, and the reply arrives
+  through the poll route as always. The plan's other two canary cases are
+  free at today's balance (5 credits, read live 2026-09-06): an add-on ask is
+  the refused-reservation stop (stage 1a: the credits sentence, the build
+  unmoved, nothing charged), and the second edit's job through the runtime is
+  the repeat. Then `JOB_RUNNER_EVERYONE=on` is stage 5e, the owner's, after
+  4b and 5d and the proof.
 - **Later phases**: builds through the same runner (`kind: "build"` and
   `"resume"` are dispatched by `runContainerJob` already; the fork is not),
   a longer clock inside the container (nothing there is bounded by the queue's
@@ -3939,8 +3952,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 5 credits** (read by the harness 2026-09-04 20:59Z, after run
-  39's langs case: 6 → 5; run 37 took 24 → 7, run 38 7 → 6). It was **0**
+- **Balance: 5 credits** (read off the ledger 2026-09-06, `credits.balance`
+  for the building account, no open job; the harness read the same 5 on
+  2026-09-04 20:59Z after run 39's langs case: 6 → 5; run 37 took 24 → 7,
+  run 38 7 → 6). It was **0**
   on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not

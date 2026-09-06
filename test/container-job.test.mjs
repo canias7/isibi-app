@@ -20,7 +20,7 @@ import { readLaunch, runJob } from "../builder/container-job.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, packEditJob,
-  JOB_ENV_NAMES, jobSecrets, jobRunnerOn, jobRunnerFor, jobRunnerEveryone, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
+  JOB_ENV_NAMES, jobSecrets, jobRunnerOn, jobRunnerFor, jobRunnerEveryone, readCanaryList, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
 } from "../builder/edit-job.mjs";
 import { gatewayKey, verifyJobToken, signJobToken } from "../builder/job-gateway.mjs";
 import { APP_ZONE } from "../site-domains.mjs";
@@ -252,11 +252,26 @@ test("the runner flags: nothing means nobody, a canary names identities, the sec
   assert.equal(jobRunnerFor({ JOB_RUNNER_EVERYONE: "on" }, {}), false, "everyone still needs somebody");
   assert.equal(jobRunnerFor({ JOB_RUNNER_EVERYONE: "on" }, { uid: ["x"], slug: ["y"] }), false, "a shape mistake routes nothing");
   assert.equal(jobRunnerFor({}, { uid: "x", slug: SLUG }), false);
-  // The deploy ships both OFF and uploads both.
+  // THE DEPLOY'S DEFAULTS (stage 5a, 2026-09-06): the canary names ONE SITE —
+  // a slug, never an account and never a wildcard — and the broad flag is
+  // off, and both are uploaded. RE-ANCHORED: from 2026-09-04 to 2026-09-06
+  // the canary's default was `-` (nobody) and this guard held both defaults
+  // to "the runner is off for everybody"; the owner's "finish the missing
+  // steps" turned the canary on for the test site through the deploy's own
+  // fallback (this session cannot set a GitHub secret), so the property now
+  // is "one site, through the canary alone" — a default that named two
+  // sites, an account, or the broad word would widen a canary, which is the
+  // one thing a default may never do.
   const canary = /JOB_RUNNER_CANARY: \$\{\{ secrets\.JOB_RUNNER_CANARY \|\| '([^']*)' \}\}/.exec(YML);
   const everyone = /JOB_RUNNER_EVERYONE: \$\{\{ secrets\.JOB_RUNNER_EVERYONE \|\| '([^']*)' \}\}/.exec(YML);
   assert.ok(canary && everyone, "the deploy does not carry both runner secrets");
-  assert.equal(jobRunnerOn({ JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: everyone[1] }), false, "the shipped defaults turn the runner on");
+  assert.equal(jobRunnerEveryone({ JOB_RUNNER_EVERYONE: everyone[1] }), false, "the shipped default turns the runner on for everyone");
+  const named = readCanaryList(canary[1]);
+  assert.equal(named.length, 1, "the shipped canary names one site, not " + JSON.stringify(canary[1]));
+  assert.ok(!/^[0-9a-f]{8}-[0-9a-f]{4}-/.test(named[0]), "the shipped canary names an account, not a site: " + named[0]);
+  assert.equal(jobRunnerFor({ JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: everyone[1] }, { uid: "x", slug: named[0] }), true, "the shipped canary does not reach its own site");
+  assert.equal(jobRunnerFor({ JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: everyone[1] }, { uid: "x", slug: "other-1" }), false, "the shipped defaults route another site through the runner");
+  assert.equal(jobRunnerFor({ JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: everyone[1] }, { uid: "11111111-2222-3333-4444-555555555555", slug: "" }), false, "the shipped defaults route an account through the runner");
   const block = YML.slice(YML.indexOf("secrets: |"), YML.indexOf("\n        env:", YML.indexOf("secrets: |")));
   assert.match(block, /\n\s+JOB_RUNNER_CANARY(?:\n|$)/);
   assert.match(block, /\n\s+JOB_RUNNER_EVERYONE(?:\n|$)/);

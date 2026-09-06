@@ -361,11 +361,20 @@ jobs:
           # at the site's own container — which runs the Worker's module under
           # Node — and returns, instead of holding a queue slot for the whole
           # edit. Same two doors as the async fork above, same reading of each
-          # value. OFF BY DEFAULT, both: the runtime is new and is proved on
-          # one site first. `-` is the canary's "nobody" (readCanaryList drops
-          # it); `off` is not an affirmative word. The consumer falls back to
-          # running the job itself whenever the container cannot take it.
-          JOB_RUNNER_CANARY: ${{ secrets.JOB_RUNNER_CANARY || '-' }}
+          # value. The consumer falls back to running the job itself whenever
+          # the container cannot take it.
+          #
+          # THE CANARY NAMES ONE SITE BY DEFAULT (stage 5a, 2026-09-06): the
+          # owner's test site and nothing else — a slug, never an account and
+          # never the broad flag — so a fresh deploy with no secrets routes
+          # exactly one site's jobs through the runtime and every other site's
+          # stay where they were. The secret still overrides: set it to `-` in
+          # GitHub (readCanaryList drops it — "nobody") and redeploy to turn
+          # the canary off, or to another slug to move it. Both flags were OFF
+          # from 2026-09-04 to 2026-09-06, the runtime being new; the broad
+          # flag still is — `off` is not an affirmative word — and the rollout
+          # (stage 5e) is the owner's, after the canary's live proof.
+          JOB_RUNNER_CANARY: ${{ secrets.JOB_RUNNER_CANARY || 'fretwork-1' }}
           JOB_RUNNER_EVERYONE: ${{ secrets.JOB_RUNNER_EVERYONE || 'off' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,

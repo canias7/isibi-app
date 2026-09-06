@@ -3484,3 +3484,37 @@ What to expect from here, all free unless you choose otherwise:
   (`JOB_RUNNER_CANARY=fretwork-1`), which nothing here turned on.
 - The stage 8 proof is a backend addon on fretwork-1 (~12–21 credits) — the
   reply's `migration.status` should read `applied`.
+
+## 2026-09-06 — Stage 5a: the job runner's canary is on for fretwork-1
+
+You said *"finish the missing steps"*. Six plan rows were left and every one
+waits on the runner canary (5a), which waited on a GitHub secret nothing in
+this session can set. So the canary went on the other way round: the deploy
+file's own fallback names `fretwork-1` now (`JOB_RUNNER_CANARY`), the broad
+flag stays `off`, and a secret still wins — set `JOB_RUNNER_CANARY` to `-` in
+GitHub and redeploy to turn it off, or to another slug to move it. Every
+other site's jobs run exactly where they did; only fretwork-1's queued edits
+and add-ons are fired at its own container, and if that container cannot
+take one (no room, an older image, too many running, a runtime that fails
+to import) the Worker runs it itself and the log says why.
+
+**What this deploy is.** A workflow-file change only: the Worker's code is
+unchanged, so the container image is reused and nothing rolls — no 15–20
+minute hold. The deploy gate runs as it did on 2030.
+
+**What it needs from you — the live proof, in this order, all on fretwork-1:**
+1. **One edit** (~1 credit; `lane-sweep.yml`, any acting lane — a caption
+   or a colour). The Worker log should say `job runner: fired <id>` and the
+   build service's log `job <id> out: {"job":…,"started":true}` then
+   `"done":true`; the reply arrives through the chat as always. If the log
+   says `job runner: inline <id> — <why>` instead, the container refused the
+   launch and the edit ran the old way — the `<why>` is the finding.
+2. **One add-on ask** (free at today's balance of 5 credits): the reservation
+   is refused, the reply is the credits sentence, the build stays put and
+   nothing is charged — the refused-reservation stop, through the runtime.
+3. **A second edit**, the repeat.
+
+**Not proven live** until you run those; the sandbox proofs are the runner
+running the real Worker's consumer end to end and the container harness
+driving `/job/run`. Stages 4b and 5d follow in this session, each pushed to
+the branch; they change the Worker and roll the container when merged.
