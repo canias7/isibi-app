@@ -3923,3 +3923,11 @@ logo we would keep.
 
 Still yours, and unchanged by the merge: switching the runner on for everyone,
 and the canary runs on fretwork-1.
+
+One loose end closed after the merge. The big container test suite had been
+walking into its own time limit and getting killed part-way through, which looks
+exactly like a flaky run rather than a budget, so its "373 of 373 checks pass"
+was a number from my machine and not from CI. The limit went up earlier tonight
+and CI has now finished it twice, both green, both reading 373 — so that count
+is a real reading again. Its own comment says so, in case it happens a fourth
+time.

@@ -4532,7 +4532,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 373/373** against the real container (2026-09-06, stage
+- **`site build` is 373/373** against the real container — **and CI has read
+  that number since the cap moved to 35 minutes**: runs 1065 and 1066 both
+  printed `373 passed, 0 failed`, where stage 5b/5c's own run had been killed
+  at the 25-minute wall and the count stood on a local run alone (2026-09-06, stage
   5b's six: a build launch taken by `POST /job/run`, the real runner's
   build consumer run to its end, started as a build naming the launch's
   site and holder, the job's own object read through the gateway with

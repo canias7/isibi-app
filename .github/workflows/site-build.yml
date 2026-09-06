@@ -63,6 +63,11 @@ jobs:
     # cap moves rather than the suite, on the same reasoning as the 15 → 25
     # bump. 35 is ten more minutes — roughly ten more stages at the rate this
     # week ran — and still kills a genuine hang well inside the hour.
+    #
+    # CONFIRMED under the new cap: runs 1065 (21m18s) and 1066 (24m12s) both
+    # finished green and both printed `373 passed, 0 failed`, so the count that
+    # had only ever been stamped off a local run is a CI reading now. 1066 used
+    # 24m11s of the 35, `site-build.mjs` 17m35s of that.
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
