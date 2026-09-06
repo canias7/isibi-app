@@ -602,12 +602,38 @@ export function keepStoredAccess(spec, known) {
  * an edit that does not take effect, which the customer can see and say again.
  * Being wrong toward "designed" silently re-themes a live site.
  */
-export function mergeLook(prior, designed, body, { instructed = false } = {}) {
+export function mergeLook(prior, designed, body, { instructed = false, clear = [] } = {}) {
   const p = prior && typeof prior === "object" ? prior : {};
   const d = designed && typeof designed === "object" ? designed : {};
   const b = body && typeof body === "object" ? body : {};
+  // TAKING A FIELD OFF, DECIDED BY THE CALLER RATHER THAN INFERRED (2026-09-06).
+  //
+  // `clearsField` below reads an empty list on the DESIGNER's answer as "take
+  // them all off", which is the only removal this merge could express while the
+  // only way in was a model's answer. The removal verb changed that: the picker
+  // says outright which of the lanes it chose are removals, so the route KNOWS,
+  // and a known fact should not be re-derived from the shape of an answer that
+  // may never have been asked for. A cleared field makes no model call at all.
+  //
+  // NAMES ONLY, AND ONLY `EDIT_FIELDS` — `String(["qr"])` is `"qr"`, so a
+  // non-string is refused rather than coerced into naming a field to strip.
+  //
+  // AND IT IS NOT GATED ON `instructed`, which every other rule in this
+  // function is. That gate exists because the answers below are a MODEL's and
+  // an empty one is far more likely to be silence than a decision — it is a
+  // hedge against inference. This is not an inference: the route was told
+  // outright which lanes are removals and no call was made at all, so there is
+  // nothing to hedge. Gating it would mean a removal quietly doing nothing on
+  // the one path that cannot show the model the current state.
+  const wipe = new Set((Array.isArray(clear) ? clear : [])
+    .filter((k) => typeof k === "string" && EDIT_FIELDS.includes(k)));
   const out = {};
   for (const k of EDIT_FIELDS) {
+    // THE SHAPE THE FIELD HAD IS THE SHAPE IT KEEPS. A list that is emptied
+    // stays a list and a scalar becomes null — the same two answers everything
+    // downstream already handles, since an absent field has always merged to
+    // `null` and `langs` has always cleared to `[]`.
+    if (wipe.has(k)) { out[k] = Array.isArray(p[k]) ? [] : null; continue; }
     // THE REMOVAL VERB, AND IT CAN ONLY EVER COME FROM THE DESIGNER.
     //
     // It is applied here rather than by making `[]` count as a value in the

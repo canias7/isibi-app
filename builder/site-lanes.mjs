@@ -1165,7 +1165,22 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
   // on Sonnet had their routing call PRICED as the default picker's — the rate
   // column disagreeing with the call it prices. Caught by the per-message
   // billing test, which noticed the bill spanning two models.
-  return { fields: readLanes(reply, fields), page: readPageVerb(reply), usage: laneUsage(reply, model), failed: false };
+  // READ ONCE, IN ORDER: the lanes first, then which of THOSE are removals.
+  // `readRemoves` is given the picked set rather than the offered one, so a
+  // removal can only ever name a lane this message really chose.
+  const picked = readLanes(reply, fields);
+  const removes = readRemoves(reply, picked);
+  return {
+    fields: picked,
+    page: readPageVerb(reply),
+    // THE REMOVAL RIDES THE SAME ANSWER AS THE LANES, rather than being read
+    // again by the caller off a reply it would have to keep. One read, one
+    // shape: a caller that forgets to look at `removes` runs the lanes as
+    // ordinary changes, which is the old behaviour and not a new failure.
+    removes,
+    usage: laneUsage(reply, model),
+    failed: false,
+  };
 }
 
 /* ---------------------------------------------------------------- the action */
