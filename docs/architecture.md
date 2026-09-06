@@ -217,6 +217,158 @@ later edit of that route is one line from handing back other customers' slugs.
 
 ---
 
+## The steps inside each door
+
+> Read off the handlers, in the order they run — `runSiteBuild`, the `ed` block,
+> the `ad` block and `recompileAndPublish` in `worker.js`. **`◆` is a gate: it
+> can end the request.** **`£` is where money actually moves.** Everything above
+> a gate has happened; everything below it has not.
+
+### `POST /api/site/react-build` — the BUILD step
+
+```
+  1  read the body                       24 MB, attachments and all
+  2  hand it to the queue        ◆       202 { job } and the Worker walks away
+     ──────── from here it is a consumer, or the site's own container ────────
+  3  who owns this slug?         ◆       before any money moves
+  4  first build, or a revise?           a stored design ⇒ revise, anchored
+  5  the floor                   ◆ £     buildFloor(model) — THE one enforced
+                                         ceiling on the platform; refuses BEFORE
+                                         spending, and refunds if it refuses
+  6  the deposit                   £     credit_debit  build:<job>:deposit
+  7  DESIGN                              design_schema — ONE tool call, 23 props
+                                         (22 on a first build: `backend` is out)
+  8  the job re-scopes itself            the moment the designer names the site,
+                                         its gateway token is re-minted for it
+  9  the row learns the name             edit_handoff, holder → itself
+ 10  claim the slug              ◆       409 if somebody else built it first
+ 11  ══ THE PLACEHOLDER GOES UP ══       one head + one put. From here on NO
+                                         failure leaves the customer with nothing
+ 12  does it need a database?            ONLY if the spec declares tables —
+                                         a first build is frontend-only by default
+ 13  make it, if so              ◆       ensureSiteBackend; a failure here is
+                                         ours: nothing charged, nothing changed
+ 14  apply the schema  →  register the jobs  →  seed the rows
+ 15  store the look, then the stylesheet
+ 16  GENERATE                            write_pages — ONE call, no repair pass.
+                                         Runs IN THE CONTAINER and STREAMS: an
+                                         idle wire is hung up at ~270 s
+ 17  keep the answer                     source/<slug>/answer.json, before
+                                         anything can refuse it. Run 90 is why
+ 18  ─────────────────────────► buildAndPublishPages → THE SPINE (below)
+```
+
+**The whole-build budget is 13 minutes with a 4-minute publish reserve**; the
+generation itself has no clock, reports to `/api/site/genresult`, and a later
+short invocation collects it — so a recycled container cannot lose it.
+
+### `POST /api/site/<slug>/edit` — the EDIT step
+
+```
+  1  read the body as text first         then parse; a marker that did not
+                                         validate is REFUSED, not ignored
+  2  one fork                    ◆       queue it (202) or run it here —
+                                         and nothing below can tell which
+     ─────────────────────────────────────────────────────────────────────────
+  3  pick_lanes                          the picked model's `quick` slot.
+                                         THE FRONT DOOR for all 21 lanes, and
+                                         it runs ABOVE the layer dispatch
+  4  the add-only wall           ◆       a picked field the stored look LACKS
+                                         (`qr`, `three`) escalates → ADDON
+  5  every lane they named runs          in turn, each shown ONLY its own
+                                         field's stored value. None dropped
+     ┌─ 10 act here     css theme brand description wordmark favicon
+     │                  lang langs behavior qr
+     ├─ 9 dispatch      images→picture · action→nav · backend→rules ·
+     │                  slug→rename · purpose components shape three tsx→page
+     ├─ 1 verb lane     pages — remove/move→page, add→ADDON
+     └─ 1 escalate      kind→build (a rebuild is what it IS)
+  6  each rung's own gates       ◆       no-page · no-menu · no-slots · no-look
+                                         — a named refusal, never a silent drop
+  7  the QR place step                   if a code exists that no page shows
+  8  £ the bill                          ONE pageCredits over every call of the
+                                         message — the router billed ONCE per
+                                         MESSAGE, not once per rung. Floor 1
+  9  ══ ONE PUBLISH PER MESSAGE ══       publishStep COLLECTS; the spine runs
+                                         ONCE below the loop. `eSrc` carries
+                                         between rungs so nothing is lost
+ 10  ─────────────────────────► THE SPINE (below)
+```
+
+Two rungs get out without a compile at all: **`rename`** patches one sidecar key
+(the R2 write IS the deployment) and **`page remove`/`move`** make no model call.
+
+### `POST /api/site/<slug>/addon` — the ADDON step
+
+```
+  1  read the body as text first
+  2  the same fork the edit route has   ◆   202 { job }, its own `op`
+     ─────────────────────────────────────────────────────────────────────────
+  3  pick_adds                          which KIND of thing is missing
+  4  the already-wall             ◆     a thing the site HAS is a sentence,
+                                        never a climb — read off the stored
+                                        look AND the page source
+  5  run each kind, IN ORDER             a table before the function that reads
+     table · function · api · job ·      it, both before the job that runs it,
+     page · component · qr · three       all before the page that shows them
+                              photo ──►  hops sideways to the picture rung
+  6  fold                               the page call's directive + the union
+                                        of kit parts, so it sees exact props
+  7  £ RESERVE #1                ◆      the pickers, the designers, the seed —
+                                        BEFORE the first write. A refused
+                                        ledger stops here having applied nothing
+  8  provision the database, if needed ◆
+  9  ── a job or an internal function alone changes NO page: it applies, bills
+     and answers here. No page call, no compile ──
+ 10  keep the designed look              stored just BEFORE the publish,
+                                         reverted on a failed one
+ 11  THE PAGE CALL                       addon mode: only what is new or changed
+ 12  what was there is still there ◆     keptProse — a page that LOST words is
+                                         refused 422, cost 0, the words named
+ 13  £ the bill                          reserved before the publish
+ 14  ─────────────────────────► THE SPINE — with the ADD step's OWN repair
+                                 round hung on the seam (#2 reserve)
+```
+
+### The spine — `recompileAndPublish`, and everything ends here
+
+```
+  1  has the ledger refused anything?  ◆  asked THREE times; a refused reserve
+                                          is never read as a free rung
+  2  is this a site at all?            ◆  asks the OWNER, not the connection —
+                                          a databaseless site is ordinary
+  3  the fonts the stylesheet names · the parts the kit does not have
+  4  ALL THE LANGUAGES AT ONCE           one Promise.all, folded in tag order.
+                                          A failed translation is NOT a failed
+                                          publish — it falls back to the primary
+  5  £ what the translations cost         charged here, BEFORE the commit point
+  6  mint the version                     the id this publish will activate as
+  7  COMPILE                     ◆        tsc REPORTS · vite REFUSES · a
+                                          container with no room is WAITED for
+  8  the render check                     real Chromium, every route, two widths
+  9  a rule that selects nothing ◆        dead-css refuses
+ 10  ══ THE SEAM ══                       afterCompile — nothing in R2 yet.
+                                          The addon hangs its repair round and
+                                          its schema apply here, and may REFUSE
+ 11  edit_may_publish             ◆       the last check before ANY write
+     ────────────────── every operation below runs outside any try ────────────
+ 12  STAGE      builds/<slug>/<version>/  additive; manifest.json LAST
+ 13  ACTIVATE   the pointer, CONDITIONAL  on our own etag — or on the pointer
+                                          being ABSENT, for a first activation
+ 14  the sidecar · the live marker · THE SCRIPT
+     └─ if the script is not SERVED: undo 13 and 14, do not commit,
+        do not advance the source. `not-served`, nothing charged
+ 15  edit_committed               ◆       needs a LIVE lease
+ 16  copy the state back                  best-effort; the site is already live
+```
+
+**Which version is authoritative: `current/<slug>.json`.** Everything else is
+derived from it — visitors get the prefix the LIVE SCRIPT bakes, so the pointer
+is authoritative only while the script naming it is up; the next edit reads
+`source/<slug>/`, which the per-site claim reconciles against the pointer.
+
+---
+
 ## Why the steps must not share the designer
 
 The `look` lane called `designSiteSchema` — the BUILD's function, with the
