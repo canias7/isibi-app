@@ -146,6 +146,51 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-06 — Run 40: the wordmark timed out a third time, and the fix for it was aimed at the wrong bound
+
+You fired the `wordmark` lane on fretwork-1. It failed the same way it failed
+on runs 11 and 12: **`waitedMs: 240000`, `TimeoutError`, cost 0**, the site
+untouched, nothing charged. Job `73e8a7d1…`.
+
+**What that run bought.** Task #47 (this session, earlier) had answered the
+first two timeouts by capping the ANSWER — `max_tokens` 16,000 → 3,334 for a
+drawn wordmark — and I marked it "not proven live, the next wordmark ask is the
+proof". The proof came back negative, which is the system working exactly as
+it should: a claim was marked unproven, and the proof disproved it.
+
+**Why it was wrong, and it is worth knowing because it is a whole class.** I
+drove it rather than guessing: the ceiling really is on the wire. But
+generation time follows the tokens a model actually EMITS, not the ceiling it
+is allowed to reach — so a smaller budget truncates a long answer and cannot
+make a slow one finish sooner. The giveaway is *which* failure came back: a
+bound ceiling stops with a `max_tokens` stop, and this stopped with a timeout,
+so the model had not even reached 3,334 tokens when our own clock cut it.
+
+**The real bound is the wire, and the fix is one your codebase already had.**
+The 240 s ceiling exists only because the egress hangs up an *idle* connection
+at ~270 s. Streaming stops it being idle — and the call layer has been able to
+stream, on both providers, folding the result back so nothing downstream can
+tell, since the container needed it. The Worker's wrapper was dropping the
+argument that asks for it. So: the small calls stream now, and a queued call is
+bounded by the job's own clock instead of a flat number.
+
+**One thing I got wrong and your tests caught.** My first cut gave the streamed
+call `BUILDER_CALL_MS` — ten minutes, a build's clock. `build-budget.test.mjs`
+went red with the exact message it was written for. I fixed the change rather
+than the guard, and then tightened the guard, because it had never listed
+`BUILDER_CALL_MS` and so caught me by luck rather than by cover.
+
+**Not proven live.** The next `wordmark` ask on Grok is the proof, ~1 credit —
+and it needs the deploy first. Balance is unchanged at **505**; run 40 cost
+nothing.
+
+**Still unproven, and unrelated to this:** the container runner did not take
+run 40 (the lease stayed with the Worker consumer the whole time), so task
+#93's live proof is still outstanding, and `/api/site/runtime?slug=fretwork-1`
+is the free way to see whether the canary flag actually names that site.
+
+---
+
 ## Open — waiting on you
 
 **0a. THE CANARY PLAN, REVISED (2026-09-06, your call to run it or not).**

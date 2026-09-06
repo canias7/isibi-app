@@ -927,8 +927,50 @@ never half a stylesheet stored. **Sweep: 8 mutants, 8 killed, none unapplied,
 the comment-only control survived — two survived the first pass**, the floor
 (inert against every cap in use, so split out and driven) and the caps being
 plausible invented numbers rather than the imported refusals (asserted by
-identity now). **Not proven live**: the next `wordmark` ask on Grok is the
-proof, and it is ~1 credit.
+identity now).
+
+**AND RUN 40 DISPROVED IT (2026-09-06, owner: *"stream the lane call"*).** The
+proof this entry asked for — the next `wordmark` ask on Grok, ~1 credit — was
+dispatched and came back a THIRD timeout: job `73e8a7d1…`, `state: failed`,
+`billing: none`, **cost 0**, the site unmoved, `waitedMs: 240000`, `call:
+"lane"`, `kind: "TimeoutError"`. **The plumbing was right and the reasoning was
+wrong.** Driven rather than read: `editRequest` for `wordmark` really does carry
+`max_tokens: 3334`, so the ceiling IS on the wire — but generation time follows
+the tokens actually EMITTED, not the ceiling they are allowed to reach, and
+**the tell is which failure came back**: a bound ceiling stops with a
+`max_tokens` stop, and this stopped with a timeout, so the model had not reached
+3,334 when our own `AbortSignal` cut it. Lowering a budget truncates a long
+answer; it cannot make a slow one finish sooner. The cap stays — it is still the
+right wall on what may be STORED — but it was never the binding constraint.
+**THE BINDING CONSTRAINT IS THE WIRE, AND THE SMALL CALLS STREAM NOW.**
+`QUICK_CALL_MS` is 240 s only because the egress hangs up an IDLE connection at
+~270 s; streaming is what stops it being idle, and `build-call.mjs` has folded a
+streamed transcript back into the non-streaming shape — usage and all, both
+providers — since the container needed one. Two hops: `callBuilderModel`'s
+Worker wrapper FORWARDS `opts` (it had dropped a fourth argument the module has
+taken for months — the recorded wiring trap, found by a live timeout because
+every guard drove the MODULE), and `quickSend` passes `{ stream: true }` and
+clamps a queued call to `QUICK_STREAM_MS` (480,000) instead of the flat 240 s.
+**The synchronous path keeps 240 s deliberately**: off the queue the bound is
+the CUSTOMER'S connection (~273 s, run 21), which streaming to a provider does
+nothing for. **480,000 is a chosen bound, not a measured one**, and the comment
+says so; the job's own clock is the real bound whenever there is a job.
+**THE FIRST CUT SET IT TO `BUILDER_CALL_MS` AND `build-budget`'s GUARD CAUGHT
+IT** — a build's ten minutes handed to a classifier, exactly the regression that
+assertion exists for. The change was fixed, not the guard; and the guard was
+TIGHTENED, because its `doesNotMatch` listed `BUILD_BUDGET_MS|CONTAINER_CALL_MS`
+and never `BUILDER_CALL_MS`, so it caught the mistake by luck through a
+different assertion going red. It names all three now.
+`test/lane-stream.test.mjs` (5) EVALUATES the real `quickSend` out of worker.js
+with `callBuilderModel` recorded, because a missing hop is invisible to a text
+read — `picked-model`'s own lesson. **Sweep: 8 mutants, 8 killed, none survived,
+none unapplied, the comment-only control survived** — the wrapper dropping
+`opts` or taking them and not passing them, `quickSend` handing none, the flag
+off, the queued clamp back to 240 s, the streamed ceiling as a build's clock
+(the first cut), the synchronous path given the streamed ceiling, and the job
+able to make a call only BIGGER. Full suite 5,398. **Not proven live**: the next
+`wordmark` ask on Grok is the proof, ~1 credit — and this entry is the record of
+what it costs to mark one proven early.
 
 **EVERY SMALL CALL FOLLOWS THE PICKER, NOT A HARDCODED MODEL** (owner,
 2026-08-31: *"we are gonna get rid of haiku routing, we are gonna use for routing

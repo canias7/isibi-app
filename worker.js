@@ -5240,7 +5240,13 @@ const SITE_SCHEMA_MAX_TOKENS = 16000;
  * this is the one line that turns one into the other. Every caller below is
  * unchanged, which is what makes the move provable rather than merely plausible.
  */
-const callBuilderModel = (env, req, budget = null) => callModel(keysFrom(env), req, budget);
+// `opts` IS FORWARDED, and until run 40 it was not. The module has taken an
+// `opts.stream` since the container's generation needed one; this wrapper
+// dropped it on the floor, so nothing running in the Worker could ask to
+// stream however much it needed to. The recorded wiring trap — a capability
+// that exists, and a hop that does not carry it — found by a live timeout
+// rather than by a guard, because every guard drove the MODULE.
+const callBuilderModel = (env, req, budget = null, opts = null) => callModel(keysFrom(env), req, budget, null, opts);
 
 // ── THE SMALL CALLS GO TO WHICHEVER PROVIDER THE MODEL BELONGS TO ───────────
 //
@@ -5297,18 +5303,61 @@ const callBuilderModel = (env, req, budget = null) => callModel(keysFrom(env), r
 // instead of a third number.
 const QUICK_CALL_MS = 240000;
 const quickBudget = { capMs: () => QUICK_CALL_MS };
+// ── AND THE SMALL CALLS STREAM NOW, WHICH IS WHAT EARNS THE LONGER CEILING ──
+//
+// RUN 40 IS WHY, and it is the third wordmark timeout: `waitedMs: 240000`,
+// `call: "lane"`, `kind: "TimeoutError"` — OUR OWN `AbortSignal`, not the
+// egress. Task #47 had capped the ANSWER instead (`max_tokens` 16,000 →
+// 3,334 for a drawn wordmark) on the reasoning that a smaller budget buys a
+// shorter generation. It does not: generation time follows the tokens
+// actually EMITTED, not the ceiling they are allowed to reach, so a slow
+// model is cut at the same second whatever the budget says. The tell is
+// which failure came back — a bound ceiling stops with `max_tokens`, and
+// this stopped with a timeout, so the model had not even reached 3,334.
+//
+// THE 240 WAS NEVER ABOUT THE MODEL. It is set against an egress that hangs
+// up an IDLE connection at ~270s, and streaming is precisely what stops the
+// connection being idle: bytes every few seconds, the wall never armed. The
+// module has folded a streamed transcript back into the non-streaming shape
+// since the container needed it, usage and all, so nothing downstream can
+// tell — which is why this is a flag and not a rewrite.
+//
+// SO THE JOB'S CLOCK BECOMES THE BOUND, which is what the paragraph above
+// asked for in as many words: "a shared budget for the whole edit … is the
+// fix that removes the guessing rather than moving it". A queued call is
+// clamped to what the job has left less its reserves, and no flat number.
+// AND IT IS STILL NOT A BUILD'S CLOCK. The first cut of this set the streamed
+// ceiling to `BUILDER_CALL_MS` and `build-budget`'s guard caught it — that is
+// ten minutes, the bound written for a whole page generation, and handing it
+// to a classifier is how a lane call comes to own a build's clock. Doubling
+// the un-streamed ceiling is what run 40 actually asks for: it clears the
+// 240s the wordmark died at with room to spare, sits well inside the 840s an
+// edit job gets, and stays strictly under a build's — so the property that
+// guard defends ("never a build's ceiling") holds literally, not narrowly.
+//
+// A NUMBER, AND SAID SO. `QUICK_CALL_MS`'s comment warns against "a third
+// number", and this is one; what makes it honest is that the JOB's clock is
+// the real bound whenever there is a job, and this only stops a small call
+// from running away when there is not much left to stop it. When a wordmark
+// has been measured end to end, that measurement replaces this.
+const QUICK_STREAM_MS = 480000;
+const QUICK_STREAM = { stream: true };
 // `budget` IS OPTIONAL AND THE DEFAULT IS THE FLAT CEILING, so every existing
 // caller is unchanged. A queued edit passes its own clock, which composes the
 // two: a lane call started at minute eleven of a thirteen-minute job gets what
 // is left less the publish reserve, not another four minutes.
 const quickSend = (env, what = "", budget = null) => (req) => callBuilderModel(env, req,
-  // WHICHEVER IS SOONER, AND THE 240s CEILING SURVIVES THE COMPOSITION. A bare
-  // job budget here would be asked `capMs(BUILDER_CALL_MS)` — ten minutes, the
-  // default `callBuilderModel` passes — and a lane call would quietly be allowed
-  // four times what the synchronous path gives it. Clamping to QUICK_CALL_MS
-  // first keeps the per-call ceiling exactly what it was and lets the job's
-  // remaining time only ever make it SMALLER.
-  budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_CALL_MS, QUICK_CALL_MS)) } : quickBudget
+  // WHICHEVER IS SOONER. The clamp is `QUICK_STREAM_MS` rather than the flat
+  // 240s: with the wire kept alive there is no reason left to refuse a call
+  // the job can still afford, and the job's own `capMs` is what makes it
+  // SMALLER — a lane starting at minute eleven of thirteen still gets only
+  // what is left less the publish reserve, exactly as before.
+  //
+  // THE SYNCHRONOUS PATH KEEPS 240s, and that is not an oversight: off the
+  // queue the bound is the CUSTOMER'S own connection, which streaming to the
+  // provider does nothing for — a different wire, reset at ~273s (run 21).
+  budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget,
+  QUICK_STREAM
 ).catch((e) => {
   // WHICH CALL RAN OUT, named on the error itself. Run 99's log said a call had
   // exceeded our ceiling and could not say whether it was the lane picker or the

@@ -288,10 +288,23 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   assert.ok(sender.length > 100, "the small-call sender is gone, or its window closed early");
   assert.match(sender, /callBuilderModel\(env, req,/, "the small-call sender no longer makes the call");
   assert.match(sender, /quickBudget/, "the small-call sender lost its default ceiling");
-  assert.match(sender, /QUICK_CALL_MS/, "nothing in the small-call sender bounds it to the small-call ceiling");
+  // EITHER SMALL-CALL CEILING (2026-09-06, run 40). The sender grew a second
+  // one: a STREAMED call is not bounded by the idle-wire hangup that set
+  // `QUICK_CALL_MS`, so a queued call is clamped to `QUICK_STREAM_MS` instead
+  // and the un-queued one still gets the flat 240s through `quickBudget`.
+  // The property is unchanged — a small call names a small-call ceiling — and
+  // only which of the two it names has moved.
+  assert.match(sender, /QUICK_CALL_MS|QUICK_STREAM_MS/,
+    "nothing in the small-call sender bounds it to a small-call ceiling");
   // AND NEVER A BUILD'S. This is the regression the assertion exists for, and it
   // is the one thing an added parameter cannot introduce by accident.
-  assert.doesNotMatch(sender, /BUILD_BUDGET_MS|CONTAINER_CALL_MS/,
+  // `BUILDER_CALL_MS` JOINED THE LIST, and it earned its place the same hour:
+  // the first cut of the streamed ceiling was `= BUILDER_CALL_MS`, which is a
+  // build's ten minutes handed to a classifier, and this assertion did not
+  // name it. It was caught by the line above going red for its own reason —
+  // luck, not cover. The list is the property now, so the next attempt fails
+  // for the right reason.
+  assert.doesNotMatch(sender, /BUILD_BUDGET_MS|CONTAINER_CALL_MS|BUILDER_CALL_MS/,
     "the small-call sender reaches for a build's ceiling — a lane call would get ten minutes");
   const cap = CODE.match(/const QUICK_CALL_MS = (\d+);/);
   assert.ok(cap, "the small-call ceiling is gone");
