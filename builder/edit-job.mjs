@@ -86,6 +86,54 @@ export const PUBLISH_RESERVE_MS = 60000;
 export const TERMINAL_RESERVE_MS = 15000;
 
 /**
+ * WHAT IS LEFT OF THE INVOCATION FOR A JOB THE CONSUMER RUNS ITSELF (stage 5e,
+ * 2026-09-06).
+ *
+ * ── THE ROOM ABOVE `EDIT_JOB_MS` IS NOT FREE, AND THE FIRE SPENDS IT ──────
+ *
+ * The ceiling is 900s, the job's budget 840s, and the sixty seconds between
+ * them are the isolate's teardown — measured at 4.3s on run 33 and left at
+ * sixty. That arithmetic assumed the budget's clock starts when the message
+ * is delivered. Since the runner (task #93) it does not: the consumer claims,
+ * FIRES at the site's container, and only builds the budget if the fire came
+ * back empty — and a fire that meets an account with no room WAITS
+ * (`withRoom`, `JOB_FIRE_MS` 90s) before answering. Ninety seconds of waiting
+ * plus 840 of budget is 930 against a ceiling of 900: the job would be
+ * evicted with half a minute of its budget still on the clock, which runs no
+ * catch and no finally — run 17's shape, reached by capacity rather than by a
+ * deploy.
+ *
+ * WHY IT IS THIS STAGE'S. With one canary site the account is never full
+ * because of us; with the broad flag on, every queued job is a fire and they
+ * share the account's container ceiling. The flip is what makes it reachable.
+ *
+ * SO THE INLINE JOB'S BUDGET IS THE SMALLER of what it wants and what is left
+ * of the invocation, less the terminal writes. A fire that returned at once —
+ * the flags off, no binding, a refusal — leaves ~884s against a want of 840,
+ * so this is a no-op on every path that does not wait, which is every path
+ * today. It bites only when something before the job took real time, and then
+ * it hands the job a shorter clock rather than an eviction: the budget's own
+ * gates refuse the next phase, the customer is told, and the money goes back.
+ *
+ * `startedAt` is the CONSUMER'S clock — when this delivery began — and never
+ * the job's row: a job re-sent after a deferral gets a whole fresh invocation.
+ * Absent (the container's runtime, a test driving a consumer directly) means
+ * no ceiling applies, because there is no fifteen-minute invocation there.
+ */
+export function inlineBudgetMs(startedAt, want, now = Date.now()) {
+  const wanted = Number.isFinite(want) && want > 0 ? want : EDIT_JOB_MS;
+  if (!Number.isFinite(startedAt) || startedAt <= 0) return wanted;
+  const spent = Math.max(0, now - startedAt);
+  const left = CONSUMER_CEILING_MS - TERMINAL_RESERVE_MS - spent;
+  // NEVER ZERO OR NEGATIVE. A budget that cannot be arithmetic on is worse
+  // than a tiny one: `makeEditBudget` reads a non-positive total as "use the
+  // default", which is exactly the 840s this exists to refuse. One second is
+  // already expired at every gate, which is the honest answer for an
+  // invocation with nothing left.
+  return Math.max(1000, Math.min(wanted, left));
+}
+
+/**
  * The floor under a correction round, and its parts are named rather than summed
  * into one number so a later measurement can move one of them.
  *

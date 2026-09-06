@@ -45,6 +45,11 @@ import {
   newReplaySecret, packReplayMarker, readReplayMarker, packEditJob, readEditJob,
   editAsyncFor,
   repairClock,
+  // What is left of THIS invocation for a job the consumer runs itself (stage
+  // 5e, 2026-09-06): the fire's wait for container room comes out of the sixty
+  // seconds between the budget and the platform's ceiling, so the inline
+  // fallback's clock is bounded by what the delivery has already spent.
+  inlineBudgetMs,
   // The compile's floor, which a wait for container room must never eat
   // (2026-09-04) — the same number the publish gate and the repair round
   // hold back for a compile, read from where it lives.
@@ -2608,6 +2613,18 @@ export default {
   // produce one is a producer somebody added without the consumer to match.
   async queue(batch, env, ctx) {
     for (const message of batch.messages) {
+      // ── THIS DELIVERY'S OWN CLOCK (stage 5e, 2026-09-06) ──────────────────
+      //
+      // The platform stops this invocation fifteen minutes from here, and a
+      // job's budget is fourteen — sixty seconds of room for the teardown.
+      // Since the runner (task #93) the consumer FIRES before it builds that
+      // budget, and a fire that meets an account with no room waits up to
+      // ninety seconds first: a fresh 840s budget after that outlives the
+      // isolate. So the inline paths below are handed when this message
+      // began, and `inlineBudgetMs` gives them what is actually left. Taken
+      // per message rather than per batch: a batch of two edits runs them one
+      // after the other, and the second's clock is its own.
+      const deliveredAt = Date.now();
       try {
         // TWO KINDS, DISPATCHED EXPLICITLY. `readMessage` answers only
         // `site-build` and refuses everything else rather than guessing — right,
@@ -2674,11 +2691,11 @@ export default {
               console.log("job runner: fired", edit.id, "into the site's container");
             } else {
               if (fire.why !== "off") console.log("job runner: inline", edit.id, "—", fire.why);
-              await runQueuedSiteEdit(env, ctx, edit.id, { lease: owner, claim });
+              await runQueuedSiteEdit(env, ctx, edit.id, { lease: owner, claim, startedAt: deliveredAt });
             }
           }
         } else if (msg) {
-          await runQueuedSiteBuild(env, ctx, msg.id, { tries: msg.tries });
+          await runQueuedSiteBuild(env, ctx, msg.id, { tries: msg.tries, startedAt: deliveredAt });
         } else if (resume) {
           await runResumedSiteBuild(env, ctx, resume.id, { tries: resume.tries });
         } else {
@@ -12403,7 +12420,7 @@ async function awaitJobResult(env, id, uid) {
  * two come to disagree. What this side owns is the WORK, which outlives the
  * request by design.
  */
-async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, slug: launchSlug = "", budgetMs = null } = {}) {
+async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, slug: launchSlug = "", budgetMs = null, startedAt = 0 } = {}) {
   let job = null;
   // THE RAW OBJECT IS KEPT for one reason: a claim the site's own lock refuses
   // (stage 6) puts it back, so the message re-sent with a delay finds it.
@@ -12561,7 +12578,13 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   // stop signal, so a stopped build refuses its next stage and publishes the
   // stand-in instead of dying mid-flight. The Worker's own consumer hands no
   // budget (the default) and has no stop signal.
-  const budget = makeBudget(budgetMs || undefined, undefined, env && env.JOB_STOP && env.JOB_STOP.signal ? env.JOB_STOP.signal : null);
+  //
+  // AND WHAT THIS INVOCATION HAS LEFT BOUNDS IT (stage 5e): the fire above
+  // waits for container room, and on the Worker that wait comes out of the
+  // same fifteen minutes the build has to finish inside. `startedAt` is this
+  // delivery's own clock and is absent in the container, where the ceiling is
+  // the launch's deadline rather than an invocation.
+  const budget = makeBudget(inlineBudgetMs(startedAt, budgetMs || BUILD_BUDGET_MS), undefined, env && env.JOB_STOP && env.JOB_STOP.signal ? env.JOB_STOP.signal : null);
   let out;
   try {
     // THE JOB ID TRAVELS, because it is what the resume record is keyed by. A
@@ -13096,7 +13119,7 @@ function enqueueReply(q) {
  * charged. `max_retries` is 0 and this acks everything, but the handler is the
  * belt as well as the braces.
  */
-async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = null, takeOver = null } = {}) {
+async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = null, takeOver = null, startedAt = 0 } = {}) {
   const owner = lease || newLeaseOwner();
   let beat = null;
   try {
@@ -13175,7 +13198,16 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // IT RENEWS THE LEASE AND NOT THE CLOCK. Cloudflare stops this isolate at
     // fifteen minutes whatever the lease says; the budget below is what keeps
     // the work inside that, and nothing here can move it.
-    const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(EDIT_JOB_MS), uid: job.uid, slug: job.slug });
+    // ── THE BUDGET IS WHAT THIS INVOCATION HAS LEFT (stage 5e) ────────────
+    //
+    // `EDIT_JOB_MS` on the container's runtime and on every Worker delivery
+    // that reached here promptly; less when the fire waited for container
+    // room, because the ceiling that stops this isolate does not wait with
+    // it. A shorter clock ends the job at its own gates with a sentence and
+    // a refund; the eviction it replaces ends it with neither.
+    const budgetMs = inlineBudgetMs(startedAt, EDIT_JOB_MS);
+    if (budgetMs < EDIT_JOB_MS) console.log("edit queue:", id, "inline budget cut to", Math.round(budgetMs / 1000) + "s — this delivery has already spent", Math.round((Date.now() - startedAt) / 1000) + "s");
+    const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(budgetMs), uid: job.uid, slug: job.slug });
     beat = setInterval(() => { jctx.beat(null).catch(() => {}); }, HEARTBEAT_S * 1000);
 
     const req = replayEditRequest({ url: job.url, body: job.body, marker: packReplayMarker(id, job.secret) });

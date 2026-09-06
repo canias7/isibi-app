@@ -491,7 +491,11 @@ test("the queue handler claims before it asks a container, defers a busy claim, 
   const beat = br.indexOf("const beat = buildRowBeat(env, edit.id, owner);");
   const fire = br.indexOf("fire = await fireContainerJob(env, edit.id, { holder: owner });");
   const clear = br.indexOf("} finally { clearInterval(beat); }");
-  const inline = br.indexOf("await runQueuedSiteEdit(env, ctx, edit.id, { lease: owner, claim });");
+  // RE-ANCHORED 2026-09-06 (stage 5e): the inline call gained `startedAt`, this
+  // delivery's own clock — the fire above may have waited for container room,
+  // and that wait comes out of the invocation the job has to finish inside.
+  // The property here is the ORDER and the lease it runs under, both unchanged.
+  const inline = br.search(/await runQueuedSiteEdit\(env, ctx, edit\.id, \{ lease: owner, claim[,)} ]/);
   assert.ok(claim > 0 && defer > claim && beat > defer && fire > beat && clear > fire && inline > clear,
     "the edit branch's order is not: claim, defer on busy, beat, fire with the holder, clear, run under the lease");
   assert.match(br, /if \(deferredClaim\(claim\) \|\| unreadClaim\(claim\)\) \{/, "a busy or gated claim, or one that could not be read, is not the deferral's own case");
@@ -501,7 +505,12 @@ test("the queue handler claims before it asks a container, defers a busy claim, 
 
 test("the consumer runs under a handed lease, takes over on `leased` only when told a holder, and never re-sends from inside", () => {
   const fn = fnW("runQueuedSiteEdit");
-  assert.match(fn, /async function runQueuedSiteEdit\(env, ctx, id, \{ lease = null, claim: held = null, takeOver = null \} = \{\}\)/);
+  // RE-ANCHORED 2026-09-06 (stage 5e): the signature gained `startedAt = 0`,
+  // the delivery's own clock, which bounds the inline budget. The property
+  // pinned here is the THREE WAYS IN — a handed lease, a handed claim, a
+  // takeover by name — each defaulting to absent, so the signature is read for
+  // those and left open at the end.
+  assert.match(fn, /async function runQueuedSiteEdit\(env, ctx, id, \{ lease = null, claim: held = null, takeOver = null[,}]/);
   assert.match(fn, /const owner = lease \|\| newLeaseOwner\(\);/, "a handed lease is not the owner");
   assert.match(fn, /let claim = held && held\.claimed === true \? held : null;\s+if \(!claim\) \{/, "a handed claim is claimed again");
   assert.match(fn, /if \(claim && claim\.claimed !== true && claim\.error === "leased" && takeOver\) \{\s+const h = await editRpc\(env, "edit_handoff", \{ p_id: id, p_owner: takeOver, p_next: owner, p_ttl: LEASE_TTL_S, p_state: null, p_slug: null \}\);/,

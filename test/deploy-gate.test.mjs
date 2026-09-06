@@ -673,7 +673,12 @@ test("the hops: every claim goes through claimArgs, the collector's gate precede
   assert.ok(busy > 0 && unread > busy && lease > unread, "the build's unread retry is not between the busy wait and the lease");
   assert.match(build, /await resendMessage\(env, \{ kind: JOB_KIND, id, tries: tries \+ 1 \},/);
   const handler = W.slice(W.indexOf("async queue(batch, env, ctx)"), W.indexOf("async function runQueuedSiteBuild("));
-  assert.match(handler, /await runQueuedSiteBuild\(env, ctx, msg\.id, \{ tries: msg\.tries \}\);/, "the build's message does not carry its tries into the consumer");
+  // RE-ANCHORED 2026-09-06 (stage 5e): the object gained `startedAt`, this
+  // delivery's own clock, so the inline fallback's budget is what the
+  // invocation has left. The property is the message's `tries` reaching the
+  // consumer, which is unchanged; the object is read as a whole rather than
+  // as its 3a spelling.
+  assert.match(handler, /await runQueuedSiteBuild\(env, ctx, msg\.id, \{[^}]*\btries: msg\.tries\b[^}]*\}\);/, "the build's message does not carry its tries into the consumer");
   assert.match(handler, /await runResumedSiteBuild\(env, ctx, resume\.id, \{ tries: resume\.tries \}\);/, "the resume's message does not carry its tries into the look");
   const lost = fnW("runLostEditJobs");
   const sweep = lost.indexOf('editRpc(env, "edit_sweep_lost"');

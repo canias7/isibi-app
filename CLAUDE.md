@@ -2567,6 +2567,8 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   slug moves it. `test/container-job.test.mjs` holds the shipped defaults to
   ONE site — a slug, never an account — and the broad flag off (it held both
   to "off" before; re-anchored, the comment says which property moved).
+  **Turning the second word on is stage 5e and is the owner's** — the bullet
+  below says what the flip is and what it changes.
 - **The image — `Dockerfile` IS AT THE REPOSITORY ROOT NOW.** `builder/Dockerfile`
   is gone, `wrangler.jsonc` says `./Dockerfile`, the root `.dockerignore` keeps
   the context small, and every COPY source is root-relative
@@ -2755,13 +2757,74 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   sweep's `external` refund moves nothing), as an evicted consumer's
   always did; a first build's pre-scoped lane is a container of its own for
   that build's length.
+- **THE BROAD ROLLOUT IS CODE-READY, AND THE FLIP IS ONE VALUE (2026-09-06,
+  stage 5e, owner: *"finish the missing steps"*).** Every dependency the plan
+  named is shipped — recovery in 2a and 2c, the deploy gate in 3a, the
+  reconcile in 3b, credential narrowing in 4b, deadlines in 5d, serialization
+  in 6, and builds in 5b/5c — and the flag itself was built with the runner
+  (task #93) and is driven: `jobRunnerFor` under the broad word reaches a site
+  and an account the canary never names, and the consumer is DRIVEN through
+  `worker.queue` firing for exactly such a site with no inline run
+  (`test/container-job.test.mjs`). **So there is no code to write for the flip,
+  and the flip is the owner's**: set the GitHub secret `JOB_RUNNER_EVERYONE` to
+  an affirmative word (`on`, `1`, `true`, `yes` — anything else, including
+  `off` and the deploy's own default, is off) and redeploy. Every signed-in
+  owner's queued edit, add-on and build then runs in that site's own container;
+  the canary keeps whatever it names either way, and turning the secret back to
+  `off` and redeploying is the whole rollback — never a revert. What does NOT
+  change: a container that cannot take a job (no room, an older image, a
+  refusal, a row this consumer does not hold) is the Worker's consumer running
+  it exactly as before, said in the log.
+- **WHAT THE FLIP MAKES REACHABLE, AND THE FIX THAT IS THIS STAGE'S ONLY CODE.**
+  With one canary site the account is never full because of us. With every
+  site's jobs going through the fire they share the account's container ceiling
+  (~1,536 live `standard-1`), and a fire that meets no room WAITS —
+  `withRoom`, `JOB_FIRE_MS` 90 s — before the consumer falls back to running
+  the job itself. **Ninety seconds of waiting plus a fresh 840 s budget is 930
+  against a platform ceiling of 900**: the job would be evicted with half a
+  minute still on its clock, running no catch and no finally — run 17's shape,
+  reached by capacity rather than by a deploy, and the sixty seconds
+  `EDIT_JOB_MS`'s own comment reserves for the teardown are exactly what the
+  wait spends. Now **the inline fallback's budget is what the invocation has
+  left**: the queue handler takes `deliveredAt` per message, both fire paths
+  hand it down, and `inlineBudgetMs(startedAt, want)` (edit-job.mjs, driven)
+  answers the smaller of what the job wants and `CONSUMER_CEILING_MS −
+  TERMINAL_RESERVE_MS − spent`, floored at 1 s because `makeEditBudget` reads a
+  non-positive total as its default — which is the 840 s this refuses. A fire
+  that returned at once leaves ~884 s against a want of 840, so it is a no-op
+  on every path that does not wait, which is every path today; it bites only
+  when something before the job took real time, and then the job ends at its
+  own gates with a sentence and a refund instead of an eviction. **The
+  container's dispatch does NOT carry it** — inside the site's container the
+  ceiling is the launch's deadline (5d), not a fifteen-minute invocation, and a
+  `startedAt` there would cut every container build from twenty-seven minutes
+  to whatever is left of a Worker clock that does not exist; the guard asserts
+  its absence. Guards: `test/broad-rollout.test.mjs` (5) — the arithmetic that
+  makes the cap necessary, the decision driven (nothing spent, the headroom, a
+  whole fire window, nothing left, a clock that is not one, a want that is not
+  one, a clock ahead of us), the handler's per-message clock and both
+  hand-downs, each consumer's capped budget and the container's uncapped one,
+  and the flip's own properties. The elapsed cannot be driven end to end
+  without a real 45-second wait — that is where the cap begins to bite — so the
+  decision is a function and the call sites are read by landmark, which the
+  sweep covers by cutting each hop. **Five older guards went red for the change
+  and were re-anchored, not appeased**, each naming the spelling that moved:
+  the build's budget line (the stop signal is the property), the handler's two
+  inline calls (the order and the lease are), the edit consumer's signature
+  (the three ways in are), and the build message's `tries`. **Sweep: 13
+  mutants, 13 killed, none unapplied, the comment-only control survived — one
+  survived the first pass and it was the guard's**: a clock ahead of ours
+  buying time was asserted against a want the ceiling never binds, so the
+  clamp was invisible; driven against the container's longer want now, re-run
+  to a kill. **Not proven live**: the cap needs a full account, which is a
+  launch rather than a harness — the line to read is `edit queue: <id> inline
+  budget cut to <n>s`, beside `job runner: waiting for room`.
 - **Later phases**: Supabase through the gateway shipped as stage 4b, the
-  child's clock as stage 5d, and builds through the runner — whole, under a
-  longer clock, no fire and no resume — as stage 5b/5c (the bullets above).
-  What is left: the broad flip (`JOB_RUNNER_EVERYONE`, stage 5e — the
-  owner's, after the canary's live proof), the platform rebuild as a job
-  and a retention sweep of staged builds (stage 9), and #52's
-  interrupted-job answer for the builds the Worker still runs itself.
+  child's clock as stage 5d, builds through the runner — whole, under a
+  longer clock, no fire and no resume — as stage 5b/5c, and the broad flip's
+  readiness as stage 5e (the bullets above). What is left: the platform
+  rebuild as a job and a retention sweep of staged builds (stage 9), and
+  #52's interrupted-job answer for the builds the Worker still runs itself.
 
 ### A BUILD HAS A ROW, AND ONE LEASE MOVES ALONG ITS CHAIN (2026-09-05, stage 2c)
 
@@ -4248,8 +4311,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,333
-  (2026-09-06, after stage 5b/5c's twenty-two in `test/build-runner.test.mjs`
+  build and the pre-list payload added sixteen); the unit suite is 5,338
+  (2026-09-06, after stage 5e's five in `test/broad-rollout.test.mjs` — the
+  arithmetic that makes the inline budget's cap necessary, the decision
+  driven, the handler's per-message clock and both hand-downs, each
+  consumer's capped budget beside the container's uncapped one, and the
+  broad flag's own properties; 5,333 the same day,
+  after stage 5b/5c's twenty-two in `test/build-runner.test.mjs`
   — the numbers, the budget's stop, the pre-scope token and both walls, the
   scope op, the launch, the env and the shim, the fork DRIVEN six ways, the
   runner's takeover DRIVEN, `canFire` evaluated, the build route's scope

@@ -3687,3 +3687,41 @@ owner's uid in the canary list; the Worker log says `job runner: fired
 build <id> into fretwork-1's lane`, the build service's log carries the
 child's lines, and the site publishes with no `resume:` mark on its
 trace. Pushed to the branch, NOT merged (a merge rolls the container).
+
+## 2026-09-06 — Stage 5e: the broad rollout is ready, and the last thing it would have broken
+
+The plan's last rollout step: turn the job runner on for **every** site, not
+just fretwork-1. There was nothing to build for the flip itself — the flag,
+its two doors and the consumer firing under it shipped with the runner and are
+driven by the tests — so this stage is (a) the statement of how to flip it and
+(b) the one defect the flip would have made reachable, fixed.
+
+**How to flip it, when you want to.** Set a GitHub secret
+`JOB_RUNNER_EVERYONE` to `on` and redeploy. Every signed-in owner's edit,
+add-on and build then runs inside that site's own container instead of holding
+a Worker queue slot. To undo it: set the same secret to `off` and redeploy —
+that is the whole rollback, no code change either way. The canary
+(`JOB_RUNNER_CANARY`, which names fretwork-1 by default) keeps working
+regardless, and anything the container cannot take still runs the old way, as
+it does today.
+
+**The defect it would have hit.** When the consumer hands a job to a container
+it first waits, up to 90 seconds, for the account to have room — and that wait
+comes out of the same fifteen minutes the job has to finish inside. The job's
+own clock is fourteen minutes, so after a full 90-second wait the job would be
+killed by the platform with half a minute of work still to do, with no chance
+to refund or explain. With one canary site the account is never full because
+of us; with every site going through it, they share one ceiling. Fixed: a job
+the Worker runs itself now gets what the delivery has actually left rather
+than a fresh fourteen minutes, so it ends with a sentence and a refund instead
+of vanishing. A job that started promptly — which is every job today — is
+completely unaffected.
+
+**Proven / not proven.** Driven: the decision itself (seven cases), the
+handler's clock and both hand-downs, each consumer's budget and the
+container's own longer one being left alone. Sweep: 13 mutants, 13 killed,
+control survived — one got past the first pass and it was the test's fault,
+fixed and re-run. Full suite green. NOT proven live: it needs a full account
+to bite, which is a launch and not a test; the log line to look for is
+"inline budget cut to …". Five older tests went red for the change and were
+re-anchored on what they actually mean.

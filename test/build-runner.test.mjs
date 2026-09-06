@@ -581,7 +581,12 @@ test("the build consumer and the runner's dispatch, read off the Worker: the fir
   assert.match(afterFire, /if \(fire\.fired\)[\s\S]*?return;/, "a fired build does not end the consumer's work");
   assert.match(afterFire, /SITES_BUCKET\.delete\(jobKey\(id\)\)/, "the object is not taken back when the fire fails");
   // The budget reads the stop signal; the container hands its longer one in.
-  assert.match(q, /makeBudget\(budgetMs[^\n]*JOB_STOP/, "the build's budget does not read the stop signal");
+  // RE-ANCHORED 2026-09-06 (stage 5e): the first argument was `budgetMs` and is
+  // now `inlineBudgetMs(startedAt, budgetMs || BUILD_BUDGET_MS)` — what the
+  // invocation has left, since the fire above may have waited for room. The
+  // property here is the STOP signal reaching the budget, which is unchanged;
+  // the cap itself is test/broad-rollout.test.mjs's.
+  assert.match(q, /const budget = makeBudget\([^\n]*JOB_STOP/, "the build's budget does not read the stop signal");
   const dispatch = fn(src, "export async function runContainerJob(");
   assert.match(dispatch, /kind === "build"\) return runQueuedSiteBuild\(env, ctx, id, \{ takeOver:[^\n]*slug[^\n]*budgetMs: CONTAINER_BUILD_BUDGET_MS/, "the runner's build does not take the lease over with the slug under the container's budget");
   // The unread deferral is the Worker's, never the runner's.

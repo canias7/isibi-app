@@ -528,7 +528,11 @@ test("the fire waits for room and shares one clock across its attempts, read off
   // RE-ANCHORED 2026-09-05 (stage 6): the consumer claims before it fires,
   // the launch carries its lease name, and the inline run is under that lease.
   assert.match(q, /fire = await fireContainerJob\(env, edit\.id, \{ holder: owner \}\);/);
-  assert.match(q, /if \(fire\.fired\)[\s\S]*?else \{[\s\S]*?await runQueuedSiteEdit\(env, ctx, edit\.id, \{ lease: owner, claim \}\);/);
+  // RE-ANCHORED 2026-09-06 (stage 5e): the inline call gained `startedAt` —
+  // this delivery's clock, since the wait above comes out of the invocation
+  // the job must finish inside. The property is the FALLBACK: a fire that did
+  // not fire runs the job here, under the claim's own lease.
+  assert.match(q, /if \(fire\.fired\)[\s\S]*?else \{[\s\S]*?await runQueuedSiteEdit\(env, ctx, edit\.id, \{ lease: owner, claim[,)} ]/);
   // And the export the runner calls dispatches to the three consumers, the
   // edit under a takeover from the launch's holder.
   const ex = src.slice(src.indexOf("export async function runContainerJob("), src.indexOf("\n}\n", src.indexOf("export async function runContainerJob(")));
