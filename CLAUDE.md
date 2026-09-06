@@ -2630,11 +2630,69 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   unmoved, nothing charged), and the second edit's job through the runtime is
   the repeat. Then `JOB_RUNNER_EVERYONE=on` is stage 5e, the owner's, after
   4b and 5d and the proof.
+- **A CHILD IS STOPPED WHEN IT SHOULD BE (2026-09-06, stage 5d, owner:
+  *"finish the missing steps"*).** Nothing stopped the job PROCESS before
+  this: the job's budget refuses the next phase and the sweep closes a
+  lapsed lease, but a child wedged in an await that never settles held the
+  container busy for ever (`_busy` stays raised for its life, so the idle
+  clock never stopped the instance and the SIGTERM drain waited its
+  thirteen minutes on it). Now `builder/job-clock.mjs` (dependency-free;
+  the budget spelled as `DEFAULT_JOB_MS` and held equal to `EDIT_JOB_MS` by
+  its guard): **the launch carries `deadlineAt`** (the consumer's clock plus
+  `EDIT_JOB_MS`; `readDeadline` reads it strictly, now plus the budget for a
+  launch naming none), **the build service arms a terminator per child**
+  (`makeTerminator`, in `TERMS` beside `JOBS`): SIGTERM `JOB_KILL_GRACE_MS`
+  (60 s) past the deadline, SIGKILL `JOB_TERM_GRACE_MS` (30 s) later,
+  cleared when the child ends; `stopJob(id, why)` behind **`DELETE
+  /job/<id>`** (200 `{stopping, why: cancel}`, 404 unknown, 409 ended); the
+  drain giving up stops every running child (`stopJobChildren("drain")`)
+  and leaves `JOB_STOP_GRACE_MS` later. The record carries `deadlineAt`,
+  `stopping: <why>` while it is being stopped, `stopped: <why>` once ended.
+  **SIGTERM is a stop, not a death**: the runner aborts `env.JOB_STOP` (an
+  `AbortController` `makeContainerEnv` sets), `makeJobCtx.gate` answers
+  `{ go: false, why: "stopped" }` FIRST — ahead of `cancelled` and `budget`,
+  the one reason about to become true whatever the others say — and
+  `editStopped` refunds as `failed` with its own sentence; a job that cannot
+  reach a gate is ended by the runner's belt after `JOB_STOP_GRACE_MS`
+  (20 s, `unref`'d, exit `STOPPED_EXIT_CODE` 4), under the service's kill. A
+  customer's cancel still travels through the beat (`edit_cancel` → the
+  row's flag → the next beat → the gate), unchanged. Guards:
+  `test/job-clock.test.mjs` (8, the policy with fake timers),
+  `test/job-stop.test.mjs` (9: the launch, the runner's stop driven
+  in-process with a fake process, `startJob`/`stopJob`/`stopJobChildren`
+  driven with fake terminators and a fake spawn, A REAL CHILD stopped
+  through SIGTERM past its deadline, the routes and the drain read, the
+  gate driven out of the source, the sentence and the fire read); the
+  container harness's `DELETE /job/<id>` case through the real service.
+  **Sweep: 40 mutants, 37 killed, none surviving, none unapplied, three
+  comment-only controls survived — four survived the first pass, and only
+  one was the product's.** C9, a SIGKILL that throws escaping the service's
+  timer callback (the guard drove a throwing kill through `stop` and
+  `clear` and never FIRED the kill timer — a case added, killed). S5 and
+  S6 were INERT: the record's `state` read beside the terminator lookup in
+  `stopJob` and `stopJobChildren` — an entry is made at spawn and removed
+  in the same synchronous block that records the end, so "has a terminator"
+  and "the record says running" are one fact; the redundant read is
+  deleted rather than tested and the two mutants re-aimed at what is left,
+  both killed. S11, the terminator's kill sending nothing, was the guard's:
+  the real-child case accepted a natural end (exit 0) and its gateway stub
+  answered at 25 s, inside the window, so a child nobody signalled passed;
+  the stub holds a minute now and only the runner's exit code or the
+  signal counts — killed. (And this sweep's `S2`, the timers outliving the
+  child, took fifteen minutes to be caught: the spawned test process could
+  not exit under a pending fourteen-minute timer, which is the finding
+  itself, seen from the sweep.)
+  **What it does not do, stated**: a stop does not interrupt a model call
+  in flight — the job ends at the next gate or by the belt, and the
+  reserve is returned by the job's own refund or, if the belt ended it, by
+  the lease sweep; the Worker's cancel route does not reach the service's
+  DELETE (the beat is the cancel's path; the DELETE is an operator's).
 - **Later phases**: builds through the same runner (`kind: "build"` and
   `"resume"` are dispatched by `runContainerJob` already; the fork is not),
   a longer clock inside the container (nothing there is bounded by the queue's
   fifteen minutes; `EDIT_JOB_MS` still is), #52's interrupted-job answer.
-  Supabase through the gateway shipped as stage 4b (the bullet above).
+  Supabase through the gateway shipped as stage 4b, the child's clock as
+  stage 5d (the bullets above).
 
 ### A BUILD HAS A ROW, AND ONE LEASE MOVES ALONG ITS CHAIN (2026-09-05, stage 2c)
 
@@ -4086,7 +4144,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 359/359** against the real container (2026-09-06, stage
+- **`site build` is 367/367** against the real container (2026-09-06, stage
+  5d's eight: a launch with a deadline taken and its record carrying it,
+  the child running, `DELETE /job/<id>` answering 200 `{stopping, why:
+  cancel}`, the real child ended under the stop grace with `stopped:
+  cancel` on its record, by the runner's own exit code or the signal and
+  never the kill, a second DELETE 409, an unknown job 404, the container
+  not busy after; 359 earlier the same day, stage
   4b's four: a v1 launch refused 400 by name, a v2 launch carrying a
   credential refused 400 naming it, the real runner's claim read off a
   gateway stub's socket with the job token as its bearer, the marker as
@@ -4110,8 +4174,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,294
-  (2026-09-06, after stage 4b's eighteen in `test/sb-gateway.test.mjs` —
+  build and the pre-list payload added sixteen); the unit suite is 5,311
+  (2026-09-06, after stage 5d's seventeen — `test/job-clock.test.mjs`'s
+  eight, the policy with fake timers, and `test/job-stop.test.mjs`'s nine,
+  the launch, the runner's stop, the service driven with fakes, a real
+  child stopped, the routes, the drain, the gate, the sentence and the
+  fire; 5,294 the same day, after stage 4b's eighteen in `test/sb-gateway.test.mjs` —
   the wall rule by rule, the handler against a fake Supabase, the shim, the
   real consumer end to end inside a container env, the launch, the runner,
   the env, the list, the vault, the lists held to the code — and the

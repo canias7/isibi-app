@@ -59,6 +59,7 @@ import { runStep } from "./run-step.mjs";
 import { startSiteServer } from "./site-ssr.mjs";
 import { spawn } from "node:child_process";
 import { readLaunch } from "./container-job.mjs";
+import { readDeadline, makeTerminator, JOB_STOP_GRACE_MS } from "./job-clock.mjs";
 import { checkRender, screenshotHtml } from "./render-check.mjs";
 import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
@@ -1424,6 +1425,15 @@ function cleanChildEnv(extra) {
   return { PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin", HOME: process.env.HOME || "/tmp", LANG: process.env.LANG || "C.UTF-8", NODE_ENV: "production", ...(extra || {}) };
 }
 
+/**
+ * Each running child's terminator, by job id (stage 5d, 2026-09-06): the
+ * two-signal stop the service arms at the child's deadline and fires on a
+ * cancel or its own drain. Beside `JOBS` rather than inside it, because a
+ * job's record is what `GET /job/<id>` serialises and a controller is not a
+ * record. An entry lives exactly as long as its child.
+ */
+const TERMS = new Map();
+
 /** Start the runner for one launch. The payload goes down stdin, verbatim. */
 function startJob(launch, raw) {
   const runner = path.join(WORKER_DIR, "builder", "container-job.mjs");
@@ -1439,7 +1449,28 @@ function startJob(launch, raw) {
     });
   } catch (e) { release(); return { ok: false, error: String((e && e.message) || e) }; }
   const at = Date.now();
-  JOBS.set(launch.id, { state: "running", kind: launch.kind, startedAt: at, pid: child.pid, touchedAt: at });
+  // THE CHILD'S CLOCK (stage 5d): the launch names the job's deadline, the
+  // consumer's own; a child that outlives it by a grace is asked to stop
+  // (SIGTERM — the runner ends the job as a job) and one that ignores that
+  // is killed a grace later. Before this a wedged child held the container
+  // busy for ever: `_busy` stays raised for its life, so the idle clock
+  // never stopped the instance and the drain waited its thirteen minutes on
+  // it, long after the sweep had refunded the job. The record says what was
+  // done and why (`stopping` while it is being stopped, `stopped` once it
+  // ended), so `GET /job/<id>` tells a child that ended from one that was
+  // ended.
+  const deadlineAt = readDeadline(launch.deadlineAt, at);
+  JOBS.set(launch.id, { state: "running", kind: launch.kind, startedAt: at, pid: child.pid, touchedAt: at, deadlineAt });
+  const term = makeTerminator({
+    kill: (signal) => child.kill(signal),
+    onState: (state, why) => {
+      const j = JOBS.get(launch.id);
+      if (j && j.state === "running") JOBS.set(launch.id, { ...j, stopping: why, touchedAt: Date.now() });
+      console.log("job " + launch.id + ": " + state + " (" + why + ")");
+    },
+  });
+  TERMS.set(launch.id, term);
+  term.arm(deadlineAt);
   child.stdin.on("error", () => {});
   child.stdin.end(raw);
   const tail = [];
@@ -1460,11 +1491,42 @@ function startJob(launch, raw) {
   onLine(child.stderr, "err");
   child.on("error", (e) => { console.error("job " + launch.id + ": could not start —", String((e && e.message) || e)); });
   child.on("close", (code, signal) => {
-    JOBS.set(launch.id, { state: code === 0 ? "done" : "failed", kind: launch.kind, startedAt: at, ms: Date.now() - at, code, signal: signal || null, touchedAt: Date.now(), tail: tail.slice(-5) });
-    console.log("job " + launch.id + ": " + (code === 0 ? "done" : "failed (" + (signal || code) + ")") + " after " + (Date.now() - at) + " ms");
+    // THE TIMERS GO WITH THE CHILD: a term or a kill that fired after the
+    // child ended on its own would signal a pid that may be somebody else's.
+    term.clear();
+    TERMS.delete(launch.id);
+    JOBS.set(launch.id, { state: code === 0 ? "done" : "failed", kind: launch.kind, startedAt: at, ms: Date.now() - at, code, signal: signal || null, stopped: term.why() || null, deadlineAt, touchedAt: Date.now(), tail: tail.slice(-5) });
+    console.log("job " + launch.id + ": " + (code === 0 ? "done" : "failed (" + (signal || code) + ")") + (term.why() ? " — stopped: " + term.why() : "") + " after " + (Date.now() - at) + " ms");
     release();
   });
   return { ok: true, pid: child.pid };
+}
+
+/**
+ * Stop one running child (stage 5d): SIGTERM now, SIGKILL a grace later if it
+ * is still there. `why` is what the record and the log say. A job this
+ * service never ran, or one that has ended, is refused by name.
+ *
+ * THE TERMINATOR MAP IS THE TRUTH ABOUT WHAT CAN BE STOPPED. An entry is made
+ * when the child is spawned and removed in the same synchronous block that
+ * records its end, so "has a terminator" and "the record says running" are
+ * one fact; the first cut read both, and the sweep found the second read
+ * inert. The record is the reader's; the map is the mechanism.
+ */
+function stopJob(id, why) {
+  const j = JOBS.get(id);
+  if (!j) return { ok: false, error: "no such job" };
+  const term = TERMS.get(id);
+  if (!term) return { ok: false, error: "not running", state: j.state };
+  term.stop(why);
+  return { ok: true, id, stopping: true, why };
+}
+
+/** Stop every running child with one reason (the drain giving up). Answers how many. */
+function stopJobChildren(why) {
+  let n = 0;
+  for (const term of TERMS.values()) { term.stop(why); n++; }
+  return n;
 }
 
 /** What `/busy` answers. Exported shape, so the Worker's hold rule can read it. */
@@ -1511,7 +1573,21 @@ process.on("SIGTERM", () => {
   if (_busy === 0) return leave();
   // The interval itself keeps the event loop alive even if nothing else does,
   // which is what makes "refuse to die" more than a wish.
-  const tick = setInterval(() => { if (_busy === 0 || Date.now() - at > TERM_DRAIN_MS) { clearInterval(tick); leave(); } }, 1000);
+  const tick = setInterval(() => {
+    if (_busy === 0) { clearInterval(tick); leave(); return; }
+    if (Date.now() - at > TERM_DRAIN_MS) {
+      clearInterval(tick);
+      // THE CHILDREN GET THEIR CHANCE (stage 5d): a job child still running
+      // when the drain gives up is stopped — SIGTERM, which its runner turns
+      // into a `stopped` answer at the next gate, the refund through the
+      // row's own door — and the exit waits the child's own grace for that,
+      // instead of leaving orphans for the container's death to reap with
+      // nothing refunded. Under the platform's fifteen minutes still.
+      const stopped = stopJobChildren("drain");
+      if (stopped) { console.log("build-server: drain gave up with " + stopped + " job child(ren) running — stopping them first"); setTimeout(leave, JOB_STOP_GRACE_MS); }
+      else leave();
+    }
+  }, 1000);
 });
 
 // A CRASH MUST NAME ITSELF BEFORE IT COSTS A GENERATION. Node kills the process
@@ -1653,6 +1729,15 @@ const server = http.createServer((req, res) => {
       return send(res, 200, { ok: true, id: launch.id, pid: started.pid });
     });
     return;
+  }
+  // STOP A CHILD FROM OUTSIDE (stage 5d): SIGTERM now — the runner ends the
+  // job as a job at its next gate, refunding through the row's own door —
+  // and SIGKILL a grace later if it is still there. Reachable only from
+  // inside the container's own network, like every route here.
+  if (req.method === "DELETE" && req.url.startsWith("/job/")) {
+    const id = decodeURIComponent(req.url.slice("/job/".length));
+    const r = stopJob(id, "cancel");
+    return send(res, r.ok ? 200 : (r.error === "no such job" ? 404 : 409), r);
   }
   if (req.method === "GET" && req.url.startsWith("/job/")) {
     const id = decodeURIComponent(req.url.slice("/job/".length));

@@ -209,6 +209,13 @@ export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f } 
   env.SITES_BUCKET = new GatewayBucket({ url: gateway.url, token: gateway.token, fetch: f });
   env.BUILD_QUEUE = refusingQueue;
   env.SITE_BUILD_CONTAINER = { local: true };
+  // THE STOP SIGNAL (stage 5d, 2026-09-06): aborted by the runner when the
+  // process is told to stop (SIGTERM — the build service past the job's
+  // deadline, a cancel from outside, the service's own drain giving up), read
+  // by the job's gate as `stopped`, which ends the job through the row's own
+  // door instead of a death the sweep has to notice. A binding the Worker's
+  // own consumer never has, and every read of it is optional-chained.
+  env.JOB_STOP = new AbortController();
   return env;
 }
 

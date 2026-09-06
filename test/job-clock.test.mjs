@@ -128,3 +128,23 @@ test("the terminator, cleared: a child that ended on its own leaves no timer beh
   assert.equal(real.state(), "running");
   real.clear();
 });
+
+test("the terminator, killing a child that is already gone: a SIGKILL that throws is swallowed and the sequence still reaches `killed`", () => {
+  // The child ended between the SIGTERM and the SIGKILL, so both sends throw
+  // (ESRCH). The sweep's C9 mutant — the try around the SIGKILL removed —
+  // survived the case above, which drives a throwing kill through `stop` and
+  // `clear` and never FIRES the kill timer: a throw there escapes the build
+  // service's timer callback as an uncaught exception, over a child that no
+  // longer exists. This case fires it.
+  const t = fakeTimers();
+  const states = [];
+  const term = makeTerminator({ kill: () => { throw new Error("ESRCH"); }, setTimeout: t.setTimeout, clearTimeout: t.clearTimeout, now: () => 0, onState: (s) => states.push(s) });
+  term.stop("cancel");
+  assert.equal(term.state(), "stopping");
+  assert.equal(t.pending().length, 1, "the kill was not scheduled after a SIGTERM that threw");
+  assert.equal(t.pending()[0].ms, JOB_TERM_GRACE_MS);
+  assert.doesNotThrow(() => t.fire(t.pending()[0]), "a kill that throws escaped the terminator");
+  assert.equal(term.state(), "killed");
+  assert.deepEqual(states, ["stopping", "killed"]);
+  assert.equal(t.pending().length, 0);
+});

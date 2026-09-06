@@ -416,9 +416,9 @@ test("THE REAL CONSUMER INSIDE A CONTAINER ENV: its claim, its takeover and its 
 // ── 5. the launch, the runner, the env, the list, the vault ─────────────────
 
 test("a v2 launch names the Supabase origin and carries no Supabase credential; v1, no origin, or a credential is refused by name", () => {
-  const good = { v: 2, kind: "edit", id: JOB.id, gateway: { url: "https://gofarther.dev/api/job/" + JOB.id, token: "t" }, sb: { url: SB_URL + "/rest/v1/" }, secrets: { XAI_API_KEY: "x", N: 1 }, buildPort: 9090 };
+  const good = { v: 2, kind: "edit", id: JOB.id, gateway: { url: "https://gofarther.dev/api/job/" + JOB.id, token: "t" }, sb: { url: SB_URL + "/rest/v1/" }, secrets: { XAI_API_KEY: "x", N: 1 }, buildPort: 9090, deadlineAt: 1_900_000_000_000 };
   const l = readLaunch(JSON.stringify(good));
-  assert.deepEqual(l, { kind: "edit", id: JOB.id, gateway: good.gateway, sb: { url: SB_URL }, secrets: { XAI_API_KEY: "x" }, buildPort: 9090 });
+  assert.deepEqual(l, { kind: "edit", id: JOB.id, gateway: good.gateway, sb: { url: SB_URL }, secrets: { XAI_API_KEY: "x" }, buildPort: 9090, deadlineAt: 1_900_000_000_000 });
   assert.throws(() => readLaunch(JSON.stringify({ ...good, v: 1 })), /v2/);
   assert.throws(() => readLaunch(JSON.stringify({ ...good, sb: undefined })), /supabase origin/);
   assert.throws(() => readLaunch(JSON.stringify({ ...good, sb: { url: "ftp://x" } })), /supabase origin/);

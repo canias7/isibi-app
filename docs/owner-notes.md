@@ -3575,3 +3575,58 @@ through the real service). Pushed to the branch, NOT merged: the merge is
 yours — it rolls the container, and the canary edit above then proves 4b
 with 5a. If you would rather prove 5a on its own first, run the edit
 before merging this.
+
+## 2026-09-06 — Stage 5d: a job running in the container is stopped when it should be
+
+The next missing step. A queued edit or add-on that runs inside the site's
+container is a child process the build service started, and until now
+nothing could STOP that process. The job's own clock refuses the next step
+once its fourteen minutes are spent, and the sweep refunds a job whose
+lease lapses — but a child stuck in a call that never answers (a provider
+socket that neither replies nor closes, a compile service that hung) just
+sat there, holding the container "busy" for ever: the idle clock never
+switched the container off, and a shutdown waited its thirteen minutes on
+it, long after the customer had been refunded.
+
+**What changed.**
+- **Every launch carries the job's deadline**, and the build service stops
+  a child a minute past it: first politely (SIGTERM), then, half a minute
+  later, by force (SIGKILL) if the child ignored the first.
+- **The polite stop ends the job as a job.** The runner turns the signal
+  into a "stop" the job reads at its next checkpoint: it refunds through
+  the same door every failed job uses, stores the sentence, and exits. If
+  the job cannot reach a checkpoint (mid-call), the runner ends the process
+  itself after twenty seconds — still before the service's kill. The
+  customer reads: *"That change was stopped before it could publish — the
+  service running it was shut down or ran past its time limit — so your
+  site is untouched and nothing was charged. Send it again in a few
+  minutes."*
+- **A child can be stopped from outside** (`DELETE /job/<id>` on the
+  service, inside the container's network) with the same two-step stop —
+  an operator's door and the harness's; a customer's cancel still travels
+  the way it did (the job's heartbeat picks it up within about thirty
+  seconds).
+- **A shutdown that gives up waiting stops its children first** and gives
+  them their twenty seconds, instead of leaving orphans for the container's
+  death to reap with nothing refunded.
+- The service's record of each child says its deadline, whether it is
+  being stopped, and — once it ended — whether it was stopped and why.
+
+**What it means for you.** Nothing visible on a healthy job. A stuck one
+now ends within about a minute and a half of its deadline instead of never,
+the container is freed, and the customer gets a sentence and their credits.
+
+**Proven / not proven.** Driven: the policy with fake timers; the runner's
+stop in-process; the service's arming, clearing and record with fakes; a
+REAL child stopped through SIGTERM past its deadline; the container harness
+stopping a real child through `DELETE /job/<id>` (the record says
+`stopped: cancel`, the container not busy afterwards). Sweep: 40 mutants,
+37 killed, none surviving, three comment-only controls survived — four
+got past the first pass: one real gap (a kill that throws on a child
+already gone escaped the service's timer — a case added), two mutants that
+changed nothing (a redundant check, now deleted), and one guard that had
+accepted a child ending on its own as "stopped" (tightened). NOT proven live —
+it needs a stuck job, which nobody can make on purpose; the log line to
+look for is `job <id>: stopping (deadline)` followed by `stopped:
+deadline` on the record. The Worker and the container's code change, so
+the merge rolls the container.

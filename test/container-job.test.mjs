@@ -25,6 +25,7 @@ import {
   JOB_ENV_NAMES, jobSecrets, jobRunnerOn, jobRunnerFor, jobRunnerEveryone, readCanaryList, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
 } from "../builder/edit-job.mjs";
 import { gatewayKey, verifyJobToken, signJobToken, SB_MARKER } from "../builder/job-gateway.mjs";
+import { makeTerminator, readDeadline } from "../builder/job-clock.mjs";
 import { APP_ZONE } from "../site-domains.mjs";
 import { laneName } from "../builder/build-lane.mjs";
 
@@ -50,9 +51,9 @@ test("readLaunch admits a v2 launch and refuses every shape this runner cannot r
   // which sent the service key — is refused, which is that Worker's inline
   // path. RE-ANCHORED from the v1 shape; the property that moved is the
   // credential, and test/sb-gateway.test.mjs drives the rest of the shape.
-  const good = { v: 2, kind: "edit", id: ID, gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "t" }, sb: { url: SB }, secrets: { A: "a", B: 2, C: null }, buildPort: 9090 };
+  const good = { v: 2, kind: "edit", id: ID, gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "t" }, sb: { url: SB }, secrets: { A: "a", B: 2, C: null }, buildPort: 9090, deadlineAt: 1_900_000_000_000 };
   const l = readLaunch(JSON.stringify(good));
-  assert.deepEqual(l, { kind: "edit", id: ID, gateway: good.gateway, sb: { url: SB }, secrets: { A: "a" }, buildPort: 9090 });
+  assert.deepEqual(l, { kind: "edit", id: ID, gateway: good.gateway, sb: { url: SB }, secrets: { A: "a" }, buildPort: 9090, deadlineAt: 1_900_000_000_000 });
   assert.equal(readLaunch(JSON.stringify({ ...good, buildPort: undefined })).buildPort, 8080, "the build service's port defaults");
   assert.throws(() => readLaunch("nope"), /not JSON/);
   assert.throws(() => readLaunch(JSON.stringify({ ...good, v: 1 })), /v2/);
@@ -221,8 +222,10 @@ function buildServerFns({ WORKER_DIR, PORT = 8080, JOBS = new Map(), holdBusy = 
   const to = src.indexOf("function busyState()");
   assert.ok(from > 0 && to > from, "checkWorkerTree/startJob moved");
   const text = src.slice(from, to).replace(/^const WORKER_TREE_CHECK = [^\n]*$/m, "");
-  return new Function("fs", "path", "spawn", "process", "WORKER_DIR", "PORT", "JOBS", "holdBusy", "console",
-    text + "\nreturn { checkWorkerTree, cleanChildEnv, startJob };")(fs, path, spawn, process, WORKER_DIR, PORT, JOBS, holdBusy, c);
+  // The clock (stage 5d) is the real one here; test/job-stop.test.mjs drives
+  // it with fakes.
+  return new Function("fs", "path", "spawn", "process", "WORKER_DIR", "PORT", "JOBS", "holdBusy", "console", "makeTerminator", "readDeadline",
+    text + "\nreturn { checkWorkerTree, cleanChildEnv, startJob };")(fs, path, spawn, process, WORKER_DIR, PORT, JOBS, holdBusy, c, makeTerminator, readDeadline);
 }
 
 test("checkWorkerTree, driven: the repository's own tree imports; no tree, or one whose worker.js lacks the export, refuses by name", async () => {
@@ -235,7 +238,7 @@ test("checkWorkerTree, driven: the repository's own tree imports; no tree, or on
   // place, worker.js without the export the runner calls.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "old-tree-"));
   fs.mkdirSync(path.join(dir, "builder"));
-  for (const f of ["worker-register.mjs", "worker-loader.mjs", "cloudflare-shim.mjs", "containers-shim.mjs", "container-job.mjs", "container-env.mjs", "job-gateway.mjs"]) {
+  for (const f of ["worker-register.mjs", "worker-loader.mjs", "cloudflare-shim.mjs", "containers-shim.mjs", "container-job.mjs", "container-env.mjs", "job-gateway.mjs", "job-clock.mjs"]) {
     fs.copyFileSync(new URL("builder/" + f, ROOT).pathname, path.join(dir, "builder", f));
   }
   fs.writeFileSync(path.join(dir, "worker.js"), "export const nothing = 1;\n");
@@ -422,6 +425,8 @@ test("with the canary naming the site, the consumer FIRES the job at the site's 
   assert.equal(launch.gateway.url, "https://" + APP_ZONE + "/api/job/" + ID);
   assert.match(String(launch.sb && launch.sb.url), /^https:\/\/[a-z0-9]+\.supabase\.co$/, "the launch does not name the Supabase origin the shim intercepts");
   assert.equal(launch.buildPort, 8080);
+  // THE DEADLINE (stage 5d): this consumer's clock plus the job's whole budget.
+  assert.ok(launch.deadlineAt >= Date.now() + EDIT_JOB_MS - 60_000 && launch.deadlineAt <= Date.now() + EDIT_JOB_MS, "the launch does not name the job's deadline: " + launch.deadlineAt);
   // THE TOKEN VERIFIES under the key derived from the platform secret, names
   // this job, its site and its owner, and outlives the job's clock.
   const who = await verifyJobToken(launch.gateway.token, await gatewayKey("platform-secret"), Date.now());

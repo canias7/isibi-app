@@ -35,6 +35,7 @@
 
 import { readFileSync } from "node:fs";
 import { makeContainerEnv, makeContainerCtx, gatewayFetch } from "./container-env.mjs";
+import { readDeadline, JOB_STOP_GRACE_MS, STOPPED_EXIT_CODE } from "./job-clock.mjs";
 
 /**
  * THE TWO NAMES A LAUNCH MAY NOT CARRY (stage 4b, 2026-09-06). The service
@@ -76,7 +77,11 @@ export function readLaunch(raw) {
   // without one is the runner claiming fresh, as it did before — and held to
   // the shape a minted owner has, because it reaches an RPC's WHERE.
   const holder = typeof p.holder === "string" && /^[A-Za-z0-9_:-]{4,80}$/.test(p.holder) ? p.holder : "";
-  return { kind, id, gateway: { url: g.url, token: g.token }, sb: { url: new URL(sb.url).origin }, secrets, buildPort, ...(holder ? { holder } : {}) };
+  // THE JOB'S DEADLINE (stage 5d): the consumer's clock — when it fired plus
+  // the job's whole budget — read strictly; a launch naming none gets now
+  // plus that budget. The build service stops a child that outlives it.
+  const deadlineAt = readDeadline(p.deadlineAt, Date.now());
+  return { kind, id, gateway: { url: g.url, token: g.token }, sb: { url: new URL(sb.url).origin }, secrets, buildPort, deadlineAt, ...(holder ? { holder } : {}) };
 }
 
 /**
@@ -95,17 +100,44 @@ export function installGatewayFetch(launch, g = globalThis) {
 
 /**
  * Run one job. `importWorker` answers the Worker module (the real one under
- * the loader; a fake in tests); `env`/`ctx` may be handed in for a test.
- * Answers `{ ok, kind, id, ms, error? }` and never throws.
+ * the loader; a fake in tests); `env`/`ctx` may be handed in for a test;
+ * `signals`, `setTimeout` and `exit` are the process's, handed in so the
+ * stop is driven without one. Answers `{ ok, kind, id, ms, error? }` and
+ * never throws.
+ *
+ * ── SIGTERM IS A STOP, NOT A DEATH (stage 5d, 2026-09-06) ─────────────────
+ *
+ * Node's default answer to SIGTERM is to exit at once — the job's catch and
+ * finally never run, nothing is refunded or finalized, and the lease sweep is
+ * what closes the row minutes later. The build service sends SIGTERM to a
+ * child past its deadline's grace, on a cancel from outside, and when its
+ * own drain gives up; each of those wants the job to END AS A JOB. So the
+ * signal aborts `env.JOB_STOP`, which the job's gate reads as `stopped` (the
+ * refund through the row's own door, the customer's sentence), and a BELT
+ * ends the process after a grace if the job cannot reach a gate — a call
+ * mid-flight, an await that never settles. The belt is `unref`'d: it must
+ * never keep alive a process that would otherwise exit. A second SIGTERM
+ * changes nothing; the service's SIGKILL is for a process that ignores both.
  */
-export async function runJob(launch, { importWorker, env, ctx, log = () => {} } = {}) {
+export async function runJob(launch, { importWorker, env, ctx, log = () => {}, signals = process, setTimeout: st = setTimeout, exit = (code) => process.exit(code) } = {}) {
   const at = Date.now();
   const { kind, id } = launch;
   let restore = () => {};
+  let onTerm = null;
   try {
     restore = installGatewayFetch(launch);
     const jobEnv = env || makeContainerEnv({ secrets: launch.secrets, gateway: launch.gateway, sb: launch.sb });
     const jobCtx = ctx || makeContainerCtx();
+    let stopping = false;
+    onTerm = () => {
+      if (stopping) return;
+      stopping = true;
+      try { if (jobEnv.JOB_STOP && typeof jobEnv.JOB_STOP.abort === "function") jobEnv.JOB_STOP.abort(); } catch { /* never */ }
+      log({ job: id, kind, stopping: true });
+      const belt = st(() => exit(STOPPED_EXIT_CODE), JOB_STOP_GRACE_MS);
+      if (belt && typeof belt.unref === "function") belt.unref();
+    };
+    signals.on("SIGTERM", onTerm);
     const worker = await importWorker();
     if (!worker || typeof worker.runContainerJob !== "function") throw new Error("the Worker module has no runContainerJob export — the image's Worker tree is older than this runner");
     log({ job: id, kind, started: true, ...(launch.holder ? { holder: launch.holder } : {}) });
@@ -115,6 +147,7 @@ export async function runJob(launch, { importWorker, env, ctx, log = () => {} } 
   } catch (e) {
     return { ok: false, kind, id, ms: Date.now() - at, error: String((e && e.stack) || (e && e.message) || e).slice(0, 2000) };
   } finally {
+    if (onTerm) signals.off("SIGTERM", onTerm);
     restore();
   }
 }

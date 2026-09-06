@@ -754,6 +754,56 @@ try {
     ok("GET /job/<id> answers 404 for a job this service never ran", gone.status === 404, `status ${gone.status}`);
   }
 
+  // ── A CHILD IS STOPPED FROM OUTSIDE (stage 5d, 2026-09-06) ────────────────
+  //
+  // `DELETE /job/<id>` sends the child SIGTERM; the runner turns it into an
+  // aborted stop signal the job's gate answers `stopped`, and ends itself
+  // after a grace if the job never reaches a gate. Driven for real: a gateway
+  // stub that HOLDS the claim open keeps the real runner mid-await, the stop
+  // lands, and the record says how the child ended and why.
+  {
+    const id = "harness_stop_" + Date.now().toString(36);
+    const gw = http.createServer((req, res) => { setTimeout(() => { res.writeHead(401, { "content-type": "application/json" }); res.end("{}"); }, 25_000).unref(); });
+    await new Promise((res) => gw.listen(0, "127.0.0.1", res));
+    const gwUrl = "http://127.0.0.1:" + gw.address().port + "/api/job/" + id;
+    const launch = { v: 2, kind: "edit", id, gateway: { url: gwUrl, token: "harness" }, sb: { url: "https://ujrqdmmtcptvimazlhom.supabase.co" }, secrets: {}, buildPort: PORT, deadlineAt: Date.now() + 840_000 };
+    const r = await fetch(`http://127.0.0.1:${PORT}/job/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(launch) });
+    const j0 = await r.json().catch(() => ({}));
+    ok("a launch with a deadline is taken, and its record carries the deadline",
+      r.status === 200 && j0.ok === true, `status ${r.status} ${JSON.stringify(j0).slice(0, 120)}`);
+    let rec = null;
+    for (let i = 0; i < 50; i++) {
+      rec = await (await fetch(`http://127.0.0.1:${PORT}/job/${id}`)).json().catch(() => null);
+      if (rec && rec.state === "running") break;
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    ok("…running, with the deadline on the record", !!(rec && rec.state === "running" && rec.deadlineAt === launch.deadlineAt), JSON.stringify(rec).slice(0, 200));
+    // Let the runner get its SIGTERM handler up (the Worker's import takes about a second).
+    await new Promise((res) => setTimeout(res, 2500));
+    const at0 = Date.now();
+    const d = await fetch(`http://127.0.0.1:${PORT}/job/${id}`, { method: "DELETE" });
+    const dj = await d.json().catch(() => ({}));
+    ok("DELETE /job/<id> stops a running child: 200 {stopping, why: cancel}",
+      d.status === 200 && dj.ok === true && dj.stopping === true && dj.why === "cancel", `status ${d.status} ${JSON.stringify(dj).slice(0, 120)}`);
+    let ended = null;
+    for (let i = 0; i < 350; i++) {
+      ended = await (await fetch(`http://127.0.0.1:${PORT}/job/${id}`)).json().catch(() => null);
+      if (ended && ended.state !== "running") break;
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    await new Promise((res) => gw.close(res));
+    ok("…and the child ended under the stop grace, the record saying it was stopped and why",
+      !!(ended && ended.state !== "running" && ended.stopped === "cancel") && Date.now() - at0 < 30_000, JSON.stringify(ended).slice(0, 300) + " after " + (Date.now() - at0) + " ms");
+    ok("…ended by the runner itself — its exit code, or the signal — never by the service's kill",
+      !!(ended && (ended.code === 4 || ended.signal === "SIGTERM" || ended.code === 0)), JSON.stringify(ended && { code: ended.code, signal: ended.signal }));
+    const again = await fetch(`http://127.0.0.1:${PORT}/job/${id}`, { method: "DELETE" });
+    ok("a stop on a child that has ended is refused 409 by name", again.status === 409, `status ${again.status}`);
+    const none = await fetch(`http://127.0.0.1:${PORT}/job/no_such_job_2`, { method: "DELETE" });
+    ok("a stop on a job this service never ran is 404", none.status === 404, `status ${none.status}`);
+    const busy2 = await (await fetch(`http://127.0.0.1:${PORT}/busy`)).json().catch(() => ({}));
+    ok("…and the container is not held busy after a stopped child", busy2 && !busy2.busy, JSON.stringify(busy2).slice(0, 120));
+  }
+
   // ── THE CONTAINER CAN MAKE THE MODEL CALL, DRIVEN ──────────────────────────
   //
   // Page generation is moving here because a queue consumer is capped at

@@ -6454,6 +6454,14 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "" }) {
      * customer is about to be given.
      */
     gate(phase) {
+      // THE PROCESS IS ENDING (stage 5d, 2026-09-06): the runner inside the
+      // container aborted the env's stop signal on SIGTERM — the build
+      // service past the deadline, a cancel from outside, the drain giving
+      // up. Answered FIRST, ahead of a cancel or a spent budget, because it
+      // is the one reason that is about to become true whatever the others
+      // say: the job ends now, as a job, or the belt ends it as a process.
+      // The Worker's own consumer has no such binding and never reads this.
+      if (env && env.JOB_STOP && env.JOB_STOP.signal && env.JOB_STOP.signal.aborted) return { go: false, why: "stopped" };
       if (cancelled) return { go: false, why: "cancelled" };
       if (budget && budget.expired()) return { go: false, why: "budget" };
       // A PUBLISH NEEDS ROOM, NOT JUST TIME (run 33, 2026-09-03). With 235s
@@ -12603,6 +12611,11 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg }) {
     review: review || undefined,
     msg: msg || (why === "cancelled"
       ? "I stopped that edit before anything was published — your site is untouched and you haven't been charged."
+      // THE PROCESS WAS STOPPED (stage 5d): the container's build service
+      // ended the job — past its deadline, or shut down under it — and the
+      // job answered at its next gate. Nothing published, the reserve back.
+      : why === "stopped"
+        ? "That change was stopped before it could publish — the service running it was shut down or ran past its time limit — so your site is untouched and nothing was charged. Send it again in a few minutes."
       // THE PUBLISH FLOOR (run 33, 2026-09-03): refused before the reserve
       // and before the container, so nothing was charged and nothing ran.
       : why === "time"
@@ -13258,6 +13271,10 @@ async function fireContainerJob(env, id, { holder = "" } = {}) {
     sb: { url: SUPABASE_URL },
     secrets: jobSecrets(env),
     buildPort: 8080,
+    // THE JOB'S DEADLINE (stage 5d): this consumer's clock plus the job's
+    // whole budget, the same clock the token's expiry is minted from. The
+    // build service stops a child that outlives it by a grace.
+    deadlineAt: Date.now() + EDIT_JOB_MS,
     // WHO HOLDS THE ROW'S LEASE (stage 6): the consumer's own name, for the
     // runner to take it over from. Not a secret — a lease name reaches
     // nothing but the row's own WHERE.
