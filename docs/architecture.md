@@ -10,7 +10,7 @@
                           GOFARTHER
                               │
                           ┌───────────┐
-              STEP 1 ───► │ BUILD     │  design_schema — 19 fields, 84.8k
+              STEP 1 ───► │ BUILD     │  design_schema — 23 props, 93.6k
                           │  design   │  ✅ its own tool, its own wording
                           │  generate │
                           │  compile  │
@@ -36,13 +36,23 @@
         │  FRONT    │    │  KIND of   │    │ (remove:    │
         │  DOOR for │    │  thing     │    │  true) on   │
         │  all 21   │    │     ↓      │    │ page + logo │
-        │     ↓     │    │ 5 act here │    │             │
+        │     ↓     │    │ 8 act here │    │             │
         │10 act here│    │ 1 dispatch │    │             │
         │ 9 dispatch│    │  (photo)   │    │             │
         │ 1 verb    │    │ then the   │    │             │
         │ 1 escalate│    │ page call  │    │             │
         └───────────┘    └────────────┘    └─────────────┘
 ```
+
+**The one number in the drawing, measured rather than remembered
+(2026-09-06).** `design_schema` is **23 properties, 15 required, 93,598
+characters** of tool on the wire — evaluated out of `worker.js` through
+`test/integration/schema-tool.mjs`, not read off a comment. A FIRST BUILD sends
+22 of them (14 required, 64,076 chars): `FRONTEND_SCHEMA_TOOL` destructures
+`backend` out and filters it from `required`, so the two can never disagree, and
+**`backend` alone is 29,501 characters — 31.5% of the tool** that never goes out
+on a build. The drawing said 19 fields and 84.8k, which is what it was on
+2026-08-29; re-derive before quoting either.
 
 **Status of the split (2026-09-02).** `EDIT` is done — twenty-one lanes, all
 acting. `ADDON` is split too, the same way (`builder/site-add.mjs`, below):
@@ -75,6 +85,138 @@ build's designer until later that day; it has its own step now (below).
 
 ---
 
+## The doors — every route that reaches a step
+
+> Added 2026-09-06, the same drawing one level down. **The site is still the
+> centre**: these are the doors, and every one of them ends at the same spine.
+> Derived from `worker.js`, not from memory — the matchers are all in one
+> block and `test/api-auth.test.mjs` holds the list against them.
+
+```
+                      the customer types one message
+                                    │
+                     POST /api/site/route          ← THE FRONT DOOR
+                     the picked model's `quick` slot
+                     billed ONCE per message, never per rung
+                                    │
+             ┌────────────┬─────────┴─────────┬────────────┐
+             │            │                   │            │
+         "build"   "edit" + one of 9      "addon"      "ask" /
+             │       layers + a verb          │       "clarify"
+             │            │                   │            │
+             ▼            ▼                   ▼            ▼
+   POST /api/site/  POST /api/site/   POST /api/site/   prose back,
+    react-build      <slug>/edit       <slug>/addon     nothing
+    (= /build                                           published
+    = /react-revise)  ── the ladder ──  ── 9 kinds ──
+             │            │                   │
+             │            └─────────┬─────────┘
+             │                      │
+             │            202 { job } ──► GET    /api/site/edit/<job>   poll
+             │                            DELETE /api/site/edit/<job>   cancel
+             │
+             └──── 202 { job } ─────────► GET    /api/site/build/<job>  poll
+
+  ══════════════════════════ AND ALL OF THEM END HERE ══════════════════════
+        recompileAndPublish  →  compile  →  afterCompile seam  →  stage
+        →  edit_may_publish  →  activate the pointer  →  the script  →  commit
+```
+
+**One activation, three callers.** `recompileAndPublish` is the spine for EDIT,
+ADDON, the platform rebuild and the free text rung; `buildAndPublishPages` is
+the build's own; `restoreVersion` is a rollback. All three end at the same
+`activateBuild` in `site-builds.mjs`, which is the single place a site changes
+what it serves — so anything a build bakes, every other door bakes too, and a
+typo fix that skipped one would silently strip it.
+
+**The order of those last arrows is the safety argument, not an implementation
+detail.** Compose (nothing written live) → stage under `builds/<slug>/<version>/`
+(additive; a refusal or a dead job leaves the live site exactly as it was) → the
+gate → activate: **the pointer, conditionally** — on our own etag, so a newer
+publish that landed while ours was working is never clobbered, and on the pointer
+being ABSENT for a first activation, so two first publishes race in the store
+rather than in an assumed lock — then the sidecar, the live marker, the script,
+and only then the commit. **And an activation that cannot serve undoes itself**
+(2026-09-06): a script upload that is not an explicit success rolls the pointer
+back to the previous version under our own etag, puts the sidecar and the live
+marker back, does not commit, and does not advance the editable source — because
+the alternative is a site whose next edit builds on a version no visitor was ever
+served. Which version is authoritative, stated once: **`current/<slug>.json`**,
+and everything else is derived from it.
+
+**Four doors that no customer can open**, and each is a different kind of
+not-a-customer:
+
+```
+  the container reporting on its own generation — a token, never a person:
+    POST /api/site/genresult    the answer, straight into R2
+    POST /api/site/genbeat      its heartbeat, bound to the resume record
+    GET  /api/site/genprobe     what that generation is doing
+
+  the cron's platform republish — a job's replay marker is the ONLY credential:
+    POST /api/site/<slug>/rebuild
+    (it sits inside the owner block and refuses anything that is not a replay:
+     a signed-in owner reaching it would be unbounded free container time)
+
+  the job runner's gateway, mounted at the top of the app zone's router:
+    ANY  /api/job/<id>/r2      R2, confined to this site's own prefixes
+    ANY  /api/job/<id>/sb      Supabase, confined to this job's own rows
+    POST /api/job/<id>/scope   a first build naming itself, re-minting its token
+
+  the site's own visitors, through the platform rather than the step:
+    /api/db/<slug>/{data,api,hook,auth,checkout,uploads,error,turnstile}
+```
+
+**What each door costs, and whether it queues.**
+
+| door | what it is | model calls | queues | publishes |
+|---|---|---|---|---|
+| `POST /api/site/route` | which step this message is | 1 | no | — |
+| `POST /api/site/react-build` | BUILD — design, generate, compile | 2 (+ web, + translate) | always | yes |
+| `POST /api/site/<slug>/edit` | EDIT — the ladder, 21 lanes over 9 layers | 1–3 per rung | yes | yes, once |
+| `POST /api/site/<slug>/addon` | ADDON — 9 kinds, then the page call | 1 picker + 1/kind + 1 page | yes | yes, once |
+| `POST /api/site/<slug>/rebuild` | the platform republish | **none** | yes | yes |
+| `POST /api/site/<slug>/text` | the owner's own typo fix | **none** | no | yes |
+| `POST /api/site/<slug>/versions/restore` | put an old version back | **none** | no | activates |
+
+The last three are the ones worth remembering: **a site can be republished,
+reworded and rolled back with no model asked anything**, and all three still go
+out through the one spine, so anything a build bakes they bake too.
+
+### The owner's shelf — one matcher each, one gate for all of them
+
+Every route below is `/api/site/<slug>/…`, every one is `assertOwner`-gated, and
+a slug that is not yours answers the **404 a missing site answers** — the two
+are deliberately indistinguishable from outside.
+
+| | route | |
+|---|---|---|
+| the site | `edit` · `addon` · `rebuild` · `text` · `versions[/restore]` · `offline` | the steps, above |
+| its data | `rows[/<table>[/<id>]]` · `rows/<table>/import` · `export` · `backups[/<day>]` | CSV in, JSON out |
+| its people | `members[/<uuid>]` · `notify` | |
+| its plumbing | `secrets[/<NAME>]` · `domains[/<host>]` · `jobs` · `errors` | |
+| its face | `uploads[/<file>]` · `share` · `verify` · `analytics` | |
+
+And four read-only diagnostics that take a `?slug=` instead of a path segment,
+each gated the same way — a stranger gets the 404 a missing site gets:
+
+| route | answers |
+|---|---|
+| `GET /api/site/answer` | the model's raw reply, kept whether or not it built (`&kind=addon` for the add step's) |
+| `GET /api/site/migrations` | what an add-on's schema change actually made |
+| `GET /api/site/reconcile` | a row under review, its facts and its verdict — DRY unless `apply=1` |
+| `GET /api/site/runtime` | is this site queued? is it on the container runner? which deploy is live? |
+
+`GET /api/site/reach` is the odd one and takes no slug at all: it is a
+signed-in probe that asks a fixed container lane whether it can reach the
+network, so it is about the platform rather than about a site.
+
+`runtime` returns **booleans and a deploy sha only** — never a value, never the
+canary list, and `readCanaryList` is not imported into `worker.js` at all, so no
+later edit of that route is one line from handing back other customers' slugs.
+
+---
+
 ## Why the steps must not share the designer
 
 The `look` lane called `designSiteSchema` — the BUILD's function, with the
@@ -101,17 +243,16 @@ Its own module. **It imports nothing from `worker.js`**, which is what makes the
 separation a fact about the code rather than a claim about it.
 
 ```
-  customer ──► pick_lanes ──┬──► edit_site ──┐        8 lanes, here
-               haiku        │   one per lane │
-               ~3.5k        │   1 property   │
-               17 names     │   0 required   │
-               + a verb     │                │
-                            ├──► picture / nav / rules / page       6 lanes
+  customer ──► pick_lanes ──┬──► edit_site ──┐       10 lanes, here
+             the picked     │   one per lane │
+             model's `quick`│   1 property   │
+             21 names       │   0 required   │
+             + a verb       │                │
+                            ├──► picture / nav / rules / page / rename   9 lanes
                             │                │
-                            ├──► page (remove | move) · addon (add) 1 verb lane
+                            ├──► page (remove | move) · addon (add)      1 verb lane
                             │                │
-                            ├──► escalate to `build`                1 lane (kind)
-                            └──► escalate, unbuilt                  1 lane (slug)
+                            └──► escalate to `build`                     1 lane (kind)
                                              ▼
                                         ONE PUBLISH
                                      per message, always
@@ -130,33 +271,45 @@ pages and answers success; the real spine runs once below the loop, with the
 source every step contributed to. `eSrc` carries forward between rungs, or the
 single publish would ship whichever step ran last.
 
-### The seventeen lanes — ALL of them act (owner, 2026-08-29)
+### The twenty-one lanes — ALL of them act (owner, 2026-08-29)
 
-> *"i need all the 17 lanes acting"*
+> *"i need all the 17 lanes acting"* — seventeen then. Twenty-two once `three`,
+> `behavior`, `tsx`, `gif` and `qr` arrived, and twenty-one since `gif` was
+> retired on 2026-08-31. **Derive the groups, don't trust this table** — it has
+> gone stale twice: `node -e` over `builder/site-lanes.mjs` and print
+> `LANE_FIELDS`, `OWN_LANES`, `DISPATCHED_LANES`, `VERB_LANES`,
+> `ESCALATE_LANES`, `UNBUILT_LANES`, `LANE_LAYER`.
 
 Nine were refused at the door: named, priced at zero, sent up the ladder. Honest
 about what this module edits, **wrong about the customer**, who asked for a
 change and got a fall-through — and unnecessary, because six of the nine already
 had cheap, shipping implementations one lane over. Nothing was missing but the
 wire. So **`pick_lanes` moved above the layer dispatch** and is the front door
-for all seventeen; what it names decides which layer runs.
+for all twenty-one; what it names decides which layer runs.
 
 | | lanes | where the work happens |
 |---|---|---|
-| **8 act here** | `css` `theme` `brand` `description` `wordmark` `favicon` `lang` `langs` | one tool, one property, 1 credit |
-| **6 dispatch** | `images`→`picture` · `action`→`nav` · `backend`→`rules` · `shape` `components` `purpose`→`page` | that rung's own price, 0.3–3 |
+| **10 act here** | `css` `theme` `brand` `description` `wordmark` `favicon` `lang` `langs` `behavior` `qr` | one tool, one property, 1 credit |
+| **9 dispatch** | `images`→`picture` · `action`→`nav` · `backend`→`rules` · `slug`→`rename` · `purpose` `components` `shape` `three` `tsx`→`page` | that rung's own price, 0.3–3 |
 | **1 verb lane** | `pages` — `remove`/`move`→`page`, `add`→`addon` | the router answers WHICH of the three |
 | **1 escalates** | `kind`→`build` | a rebuild is what it is; the rung above does it |
-| **1 unbuilt** | `slug` | a real address change — redirects, custom domains |
+| **0 unbuilt** | — | `slug` was the last, and it shipped as an alias |
 
-The eight are plain strings, enums or lists of short strings — which is why this
-module owns its own shapes and shares none. The six **dispatch** because a stored
-plan is read by nothing: the container gets the pages, the theme and the
-stylesheet, never the plan. `shape` is not a value to save, it is a job for the
-rung that rewrites pages. The three groups are a **total, disjoint partition**,
-asserted in `test/edit-lanes.test.mjs` — a lane in no group is a request that
-falls out of the door; a lane in two behaves differently depending on which check
-runs first.
+**`OWN_LANES` is a group name, not a verdict** — renamed from `ACTING_LANES`
+after the owner asked *"i thought all of them were act?"* twice. It means *the
+ones this module edits itself*; the dispatched, verb and escalate lanes all do
+real work too, just on another rung.
+
+Nine of the ten are a plain string, enum or short list, which is why this module
+owns its own shapes; `behavior` is the exception and shares `BEHAVIOR_ITEM` from
+`site-plan.mjs`, the one module both paths may read. The nine **dispatch**
+because a stored plan is read by nothing: the container gets the pages, the theme
+and the stylesheet, never the plan. `shape` is not a value to save, it is a job
+for the rung that rewrites pages. The five groups are a **total, disjoint
+partition**, asserted in `test/edit-lanes.test.mjs` — a lane in no group is a
+request that falls out of the door; a lane in two behaves differently depending
+on which check runs first. And each group is a different sentence to a customer,
+so collapsing any two loses a real distinction.
 
 **Every field the design tool can produce has a lane**, so no part of a site
 becomes unreachable — asserted in BOTH directions, because a field added to the
@@ -196,8 +349,18 @@ an edit layer — the guard asserting every dispatch target appears in
 `EDIT_LAYERS` caught the first attempt to make it one, and a lane pointing at a
 rung no dispatch matches is a request that vanishes.
 
-**`slug` alone is genuinely unbuilt**: claim the new name, republish the Worker
-under it, redirect the old address, keep every custom domain pointing at it.
+**`slug` was the last unbuilt lane, and it shipped as an ALIAS rather than a
+move** (2026-08-29). A slug keys five Supabase tables, seven R2 prefixes and one
+dispatch script, and R2 has no rename — so a "real" move is a loop of PUTs with
+no transaction, and a copy that dies halfway leaves the site half at each address
+with nothing to roll back to. **And the move needs everything the alias needs
+anyway**: the old address has to keep working (customers print it, and we
+generate QR codes pointing at it) and the old name has to stay CLAIMED, or the
+next build of `shoeroom-1` takes over an address a live site still redirects
+from. So the alias record IS the feature and the copy is pure added risk. The
+lane dispatches to `rename`, and `UNBUILT_LANES` is empty — the group is kept
+because it is a real state a future lane can be in, and the guard asserts it is
+empty and names anything that lands back in it.
 
 ### The wall, not the rule
 
