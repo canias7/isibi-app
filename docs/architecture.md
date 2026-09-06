@@ -85,6 +85,103 @@ build's designer until later that day; it has its own step now (below).
 
 ---
 
+## What is INSIDE each step
+
+> The same three boxes, opened. **BUILD decides all 23 · EDIT changes all 21 ·
+> ADDON makes the 9 the site does not have.** Derived, not remembered — the
+> build's list is `design_schema` evaluated, the lanes are `LANE_FIELDS`, the
+> kinds are `ADD_KINDS`.
+
+```
+┌───────────────────────┐  ┌───────────────────────┐  ┌───────────────────────┐
+│  BUILD                │  │  EDIT                 │  │  ADDON                │
+│  design_schema        │  │  pick_lanes           │  │  pick_adds            │
+│  ONE call · 23 props  │  │  21 lanes · 1 prop ea │  │  9 kinds · 1 prop ea  │
+│  15 required          │  │  0 required           │  │  0 required           │
+│                       │  │                       │  │                       │
+│  DECIDES all of it    │  │  CHANGES what exists  │  │  MAKES what doesn't   │
+├───────────────────────┤  ├───────────────────────┤  ├───────────────────────┤
+│ brand                 │  │ ── 10 ACT HERE ────── │  │ ── THE BACKEND ────── │
+│ slug                  │  │ css                   │  │ table                 │
+│ description           │  │ theme                 │  │ function              │
+│ kind    shopfront|tool│  │ brand                 │  │ api                   │
+│ purpose               │  │ description           │  │ job                   │
+│ pages          MAX 1  │  │ wordmark              │  │                       │
+│ components    MAX 15  │  │ favicon               │  │ ── THE PAGE ───────── │
+│ tsx                 ° │  │ lang                  │  │ page          MAX 6   │
+│ theme     1 of 100    │  │ langs                 │  │ component     MAX 12  │
+│ wordmark  text|svg    │  │ behavior              │  │                       │
+│ favicon      an SVG   │  │ qr                    │  │ ── THE EXTRAS ─────── │
+│ shape     13 shapes   │  │                       │  │ qr           appends  │
+│ images                │  │ ── 9 DISPATCH ─────── │  │ three                 │
+│ qr                  ° │  │ images   → picture    │  │ photo    → picture    │
+│ css                 ° │  │ action   → nav        │  │                       │
+│ backend  ✗ first build│  │ backend  → rules      │  │                       │
+│ action                │  │ slug     → rename     │  │ ORDER IS RUN ORDER:   │
+│ lang                ° │  │ purpose    ┐          │  │ a table before the    │
+│ langs               ° │  │ components │          │  │ function that reads   │
+│ three               ° │  │ shape      ├→ page    │  │ it, both before the   │
+│ behavior              │  │ three      │          │  │ job that runs it, all │
+│ needsWeb            ° │  │ tsx        ┘          │  │ before the page that  │
+│ webQueries          ° │  │                       │  │ shows them            │
+│                       │  │ ── 1 VERB ─────────── │  │                       │
+│ ° = optional (8)      │  │ pages remove|move     │  │ A JOB OR AN INTERNAL  │
+│                       │  │             → page    │  │ FUNCTION ALONE        │
+│ PROPERTY ORDER IS     │  │ pages add  → ADDON    │  │ CHANGES NO PAGE:      │
+│ GENERATION ORDER —    │  │                       │  │ no page call, no      │
+│ the name is answered  │  │ ── 1 ESCALATE ─────── │  │ compile               │
+│ FIRST, behaviour LAST │  │ kind      → BUILD     │  │                       │
+└───────────────────────┘  └───────────────────────┘  └───────────────────────┘
+       ONE model call            ONE call PER LANE          picker + 1 per kind
+       ~45 credits fresh          1 credit typical           + the page call
+       ~17 a revise               0.3–3 dispatched           ~12–21 credits
+```
+
+**Every field the build decides has a lane that can change it — and the two
+that do not are not about the site.** Checked both ways, in code: 23 build
+properties, 21 lanes, and the only two with no lane are `needsWeb` and
+`webQueries`, the pair that decides whether writing this site's copy needs a
+web search. Nothing else on a site is unreachable, and no lane edits a field the
+build stopped producing. `test/edit-lanes.test.mjs` asserts both directions,
+because **a field with no lane is a part of a site the customer can never change
+again, and a lane with no field edits nothing — and neither announces itself.**
+
+### The same thing as one line per field
+
+| the build decides | the edit changes it at | the addon makes one |
+|---|---|---|
+| `brand` | `brand` — acts | — |
+| `slug` | `slug` → **rename** (an alias; nothing moves) | — |
+| `description` | `description` — acts | — |
+| `kind` | `kind` → **escalates to BUILD** | — |
+| `purpose` | `purpose` → page | — |
+| `pages` | `pages` + a VERB — remove/move → page | `page` |
+| `components` | `components` → page | `component` |
+| `tsx` | `tsx` → page | `component` (written for this site) |
+| `theme` | `theme` — acts | — |
+| `wordmark` | `wordmark` — acts | — |
+| `favicon` | `favicon` — acts | — |
+| `shape` | `shape` → page | — |
+| `images` | `images` → picture | `photo` → picture |
+| `qr` | `qr` — acts, a PATCH to ONE code by name | `qr` — appends a new one |
+| `css` | `css` — acts | — |
+| `backend` **never sent on a first build** | `backend` → rules | `table` `function` `api` `job` |
+| `action` | `action` → nav | — |
+| `lang` | `lang` — acts | — |
+| `langs` | `langs` — acts | — |
+| `three` | `three` → page | `three` |
+| `behavior` | `behavior` — acts | — |
+| `needsWeb` · `webQueries` | — (not part of the site) | — |
+
+**The line between the middle column and the right one is the THING, not the
+page** (owner, 2026-09-02). Does what the customer names exist on the site now?
+It does — EDIT. It does not — ADDON. Which is why `qr` and `three` appear in
+both: changing where a code points is an edit, adding a second code is an
+addon, and the wall at the edit route's picker is what sends the second one
+across.
+
+---
+
 ## The doors — every route that reaches a step
 
 > Added 2026-09-06, the same drawing one level down. **The site is still the
