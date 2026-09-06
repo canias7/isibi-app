@@ -735,19 +735,28 @@ export function jobRunnerFor(env, { uid = "", slug = "" } = {}) {
  * env also holds the Stripe keys, the Composio and Domain Connect keys — none
  * of which an edit or an addon ever reads, and none of which belong in a
  * container's memory. What IS here is what the edit route, the addon route
- * and the publish spine read: the provider keys, the service key for the site
- * rows AND the credit mint secret, because every `edit_*` RPC carries it as
- * `p_mint` (`editRpc` refuses without both — found by reading it, not by a
- * live job), the Neon key for the addon's first-touch database, fal for the
- * picture rung, the API token and account for the site's script upload, the
- * secrets key for a site's own vault, and the flags the replay reads. A name
- * a job needs that is missing here fails inside the container as the code's
- * own named refusal, never silently — and the answer is a line here.
- * `test/container-job.test.mjs` derives the RPC helper's reads and holds
- * this list to them.
+ * and the publish spine read: the provider keys, the Neon key for the addon's
+ * first-touch database, fal for the picture rung, the API token and account
+ * for the site's script upload, the secrets key for a site's own vault, and
+ * the flags the replay reads. A name a job needs that is missing here fails
+ * inside the container as the code's own named refusal, never silently — and
+ * the answer is a line here.
+ *
+ * THE SERVICE KEY AND THE MINT SECRET ARE NOT HERE (stage 4b, 2026-09-06).
+ * They were, because every `edit_*` RPC carries the mint as `p_mint` and
+ * `editRpc` refuses without both — and so the one process that executes a
+ * customer's page code (in a child, with a clean env, but the same box) held
+ * the credentials that open every site's rows and every ledger. Now the job
+ * reaches Supabase through the gateway with its own token: `makeContainerEnv`
+ * puts the gateway MARKER under both names, so the helpers' presence checks
+ * pass and the fetch shim recognises the request, and the Worker's end
+ * injects the real key and mint for the RPCs and tables a job has business
+ * with (`SB_RPCS`, `SB_TABLES` in job-gateway.mjs). A launch that still
+ * carries either name is refused by the runner. `test/container-job.test.mjs`
+ * derives the RPC helper's reads and holds them to the markers.
  */
 export const JOB_ENV_NAMES = [
-  "SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GEMINI_API_KEY", "FAL_KEY",
+  "ANTHROPIC_API_KEY", "XAI_API_KEY", "GEMINI_API_KEY", "FAL_KEY",
   "NEON_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "SITE_SECRETS_KEY",
   "SITE_WORKERS_NAMESPACE", "SITE_WORKERS_API_ACCOUNT", "SITES_BUCKET_NAME", "SAAS_FALLBACK_ORIGIN", "EMAIL_FROM",
   "EDIT_ASYNC", "EDIT_ASYNC_CANARY", "EDIT_ASYNC_EVERYONE",

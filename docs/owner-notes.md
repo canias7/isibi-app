@@ -3518,3 +3518,60 @@ minute hold. The deploy gate runs as it did on 2030.
 running the real Worker's consumer end to end and the container harness
 driving `/job/run`. Stages 4b and 5d follow in this session, each pushed to
 the branch; they change the Worker and roll the container when merged.
+
+## 2026-09-06 — Stage 4b: the service key and the mint secret no longer travel into the container
+
+The next missing step after the canary (your *"finish the missing steps"*).
+
+**What was wrong.** When a queued edit or add-on runs inside the site's
+container, it is our Worker's own code running there, and that code talks
+to the platform database directly — so the job process was handed the two
+credentials that open everything: the Supabase service key (every site's
+rows, every customer's ledger) and the credit mint secret (every money
+RPC). They travelled on a pipe, never in the environment, and the customer's
+page code runs in a separate child — but they sat in that process's memory
+for the job's length, in a box that also runs code a model wrote for a
+customer. Stage 4a said this would be fixed once the canary existed.
+
+**What changed.** The job no longer gets either. The launch it starts from
+carries no Supabase credential (a launch that does is refused by name, and
+the old launch shape is refused outright, which falls back to the Worker
+running the job itself, as before). Inside the container the job's calls to
+the database are picked up by a shim and sent to the same signed, per-job
+door on gofarther.dev that its R2 reads already use, with the job's own
+token; the Worker's side checks each call against a short list — the
+`edit_*` bookkeeping calls for THIS job's row, the site's own rows
+(`site_backends`, `site_aliases`, `site_functions`, its traces, its build
+record, the owner's balance) — adds the real key and mint, and forwards it
+to Postgres. A call outside the list is refused and logged with what was
+asked, so if a live job ever needs one more, the log says which and the fix
+is one line in the list. A database error on a money call comes back as a
+status only (Postgres quotes the request in its error, and the request
+carries the mint). The customer's own calls (their sign-in token) were never
+platform secrets and are untouched.
+
+**What it means for you.** Nothing visible. The same edits and add-ons run
+the same way; a compromised container now holds a token good for one job's
+own rows for the job's length, instead of the platform's master key.
+
+**Proven / not proven.** Driven end to end in the sandbox: the real consumer
+inside a container env, through the real shim and the real gateway, its
+claim, takeover and refund reaching a fake Postgres with the real
+credentials while nothing that left the container carried them; the real
+runner spawned as the build service spawns it, its claim read off a real
+socket. NOT proven live: fretwork-1's first edit through the runner (the
+5a canary, yours to dispatch, ~1 credit) now proves both stages at once —
+the log should show `job runner: fired <id>` and NO `job gateway refused:
+sb-out-of-scope` line; if one appears, its `op` names the call the list
+lacks. This changes the Worker and the container's code, so the merge
+rolls the container and the 15–20 minute hold applies before that edit.
+
+Sweep for this: 42 mutants, 39 killed, none survived, none unapplied, three
+comment-only controls survived — one survived the first pass and it was the
+guard's fault (the check that the runner puts the process's fetch back sat
+after the test had put it back itself; moved, re-run, killed). Full suite
+5,294 green on this tree; the container harness 359/359 (four new checks
+through the real service). Pushed to the branch, NOT merged: the merge is
+yours — it rolls the container, and the canary edit above then proves 4b
+with 5a. If you would rather prove 5a on its own first, run the edit
+before merging this.

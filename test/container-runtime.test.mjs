@@ -21,7 +21,7 @@ import { shimFor, extensionCandidates } from "../builder/worker-loader.mjs";
 import { rewriteBuildUrl, localBuildOrigin } from "../builder/containers-shim.mjs";
 import {
   gatewayKey, signJobToken, verifyJobToken, allowedJobKey, allowedJobPrefix, jobPrefixes,
-  metaHeaders, readMetaHeaders, onlyIfHeaders, readOnlyIf, gatewayHandler, gatewayJobId,
+  metaHeaders, readMetaHeaders, onlyIfHeaders, readOnlyIf, gatewayHandler, gatewayJobId, SB_MARKER,
 } from "../builder/job-gateway.mjs";
 import { GatewayBucket, GatewayObject, GatewayError, makeContainerEnv, makeContainerCtx, refusingQueue } from "../builder/container-env.mjs";
 import { siteMetaKey } from "../site-meta.mjs";
@@ -439,13 +439,18 @@ test("gatewayJobId reads the job out of the path and nothing else", () => {
 
 // ── the env ─────────────────────────────────────────────────────────────────
 
-test("the job env carries the strings, the bucket shim, a refusing queue, and no other binding", () => {
+test("the job env carries the strings, the bucket shim, a refusing queue, and no other binding — and the gateway's marker under the two Supabase names", () => {
   const env = makeContainerEnv({
     secrets: { SUPABASE_SERVICE_KEY: "svc", XAI_API_KEY: "x", EDIT_ASYNC: "on", NOT_A_STRING: 42, ALSO: null },
     gateway: { url: "https://gofarther.dev/api/job/j_1", token: "t" },
+    sb: { url: "https://ujrqdmmtcptvimazlhom.supabase.co" },
     fetch: async () => new Response(null, { status: 404 }),
   });
-  assert.equal(env.SUPABASE_SERVICE_KEY, "svc");
+  // Stage 4b (2026-09-06): a service key handed in is OVERRIDDEN by the marker
+  // — the env never carries the real one — and the mint is marked beside it.
+  assert.equal(env.SUPABASE_SERVICE_KEY, SB_MARKER, "the service key survived into the job env");
+  assert.equal(env.CREDITS_MINT_SECRET, SB_MARKER);
+  assert.equal(env.XAI_API_KEY, "x");
   assert.equal(env.EDIT_ASYNC, "on");
   assert.equal("NOT_A_STRING" in env, false, "a non-string binding is not a secret");
   assert.ok(env.SITES_BUCKET instanceof GatewayBucket);

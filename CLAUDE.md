@@ -2428,18 +2428,116 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   `SITES_BUCKET` = `GatewayBucket`, `BUILD_QUEUE` = a loud refusal (nothing on
   the edit path sends), `SITE_BUILD_CONTAINER` = a marker the shim ignores,
   `SITE_ROUTES` absent (an optional cache whose miss falls back to Supabase),
-  nothing else. `ctx.waitUntil` collects and the runner drains it before it
-  exits.
+  `SUPABASE_SERVICE_KEY` and `CREDITS_MINT_SECRET` = **`SB_MARKER`, a tell and
+  never a credential** (stage 4b, below), nothing else. `ctx.waitUntil`
+  collects and the runner drains it before it exits.
 - **THE SECRETS TRAVEL ON STDIN, NEVER IN THE ENVIRONMENT** — `build-keys.mjs`'s
   rule (the container executes model-written page code in a child that
-  inherits env). `JOB_ENV_NAMES` is an explicit list, held by a guard to what
-  `editRpc` and `svcHeaders` read: the service key AND `CREDITS_MINT_SECRET`
-  (every `edit_*` RPC sends it as `p_mint` — found by reading `editRpc`, not
-  live), the provider keys, Neon, fal, the CF token and account, the secrets
-  key, the flags; never Stripe, Composio or Domain Connect. **The cost, stated:
-  the job process holds those in memory for the job's length.** The model's
-  page code never runs in that process — the render child gets its clean env
-  from the build server, as before.
+  inherits env). `JOB_ENV_NAMES` is an explicit list: the provider keys, Neon,
+  fal, the CF token and account, the secrets key, the flags; never Stripe,
+  Composio or Domain Connect — **and since stage 4b never the service key or
+  the mint.** The model's page code never runs in that process — the render
+  child gets its clean env from the build server, as before.
+- **SUPABASE THROUGH THE GATEWAY — THE SERVICE KEY AND THE MINT SECRET LEFT THE
+  JOB PROCESS (2026-09-06, stage 4b, owner: *"finish the missing steps"*).**
+  Until this the job process held both for the job's length, because the
+  Worker's code reaches Postgres directly — `editRpc` (41 call sites, every
+  `edit_*` RPC with the mint as `p_mint`), `svcHeaders` (41 more) and eighteen
+  inline header builders, all of it `worker.js` against the module constant
+  `SUPABASE_URL` (never an env value; inventoried before the design, not
+  guessed). Now: **the launch is v2** (`sb: { url: SUPABASE_URL }`, no
+  Supabase credential — `readLaunch` refuses a launch carrying either name
+  (`LAUNCH_NEVER`), and refuses v1, which is the pre-4b Worker's inline path
+  through the 400; the new Worker's v2 on an old image is the same 400, the
+  same path); **`makeContainerEnv` puts `SB_MARKER` (`gf-gateway`) under both
+  names**, so every helper's own presence check (`if (!env.SUPABASE_SERVICE_KEY)`)
+  passes untouched — zero call-site changes; **the runner installs
+  `gatewayFetch` in front of the process** (`installGatewayFetch`, before the
+  import and the env, restored after), which sends a request to the Supabase
+  ORIGIN that presents the marker as `apikey` or bearer to the gateway's
+  `/sb/<path>` with the job token, the path, query, body and the caller's own
+  `signal` kept, and lets everything else out untouched — the customer's own
+  calls (the anon key with their JWT, `authUser`, `credit_debit`), the
+  providers, Neon, the CF API, the build service, the R2 gateway itself; **the
+  Worker's handler injects the real key and mint** and forwards, for what
+  `sbDecision` admits: `SB_RPCS` (the twelve `edit_*` RPCs a job makes, each
+  bound `p_id` = the token's job; `edit_handoff`'s `p_slug` bound when named;
+  `deploy_gate_read` unbound; `credit_reverse` bound to the owner and to a
+  `build:<id>…` ref — the build path's, for 5b) and `SB_TABLES` (a read's
+  bound filter present as `eq.<the token's value>` — PostgREST ANDs top-level
+  filters, so one confines the rest; a write's every row carrying the bound
+  fields; `site_aliases` readable by any label because an address is public;
+  no `PATCH` anywhere; a `select` with `(` or `!` refused as an embed; the
+  body RE-SERIALISED from what was checked so a duplicate key cannot pass one
+  value to the wall and another to Postgres). Anything else — the sweeps,
+  `edit_create`, `rebuild_claim`, `add_credits`, the auth admin API, storage,
+  functions, the Worker's tables — is **403 and LOGGED with the op and the
+  reason** (`job gateway refused: sb-out-of-scope`), the R2 wall's rule: the
+  first live job says which call it needed that the list lacks, and the answer
+  is a line in `SB_RPCS`/`SB_TABLES`, never the key back in the container. **An
+  RPC Supabase refused comes back as its STATUS with a scrubbed body** —
+  PostgREST quotes the request it refused, and that request carries the mint
+  (the reason `editRpc` never read a body); a table error keeps its body (no
+  platform secret in a table request; the customer's `detail` names the
+  constraint). `site-secrets.mjs` refuses the marker as v1 key material and
+  writes nothing under it (v1 derived the vault key from the service key's
+  name, with a fallback chain that would have quietly derived a key from a
+  constant in this repository). The token check, the id match, the 1 MB cap
+  and a 20 s forward clock are the branch's; a Supabase that cannot be reached
+  is 502. Guards: `test/sb-gateway.test.mjs` — the wall rule by rule with
+  literals, the handler against a fake Supabase (the forward, the injection,
+  the scrubbed RPC error, the passed table error, 401/403/503/502/413), the
+  shim (what is rewritten, what goes out by identity), **THE REAL CONSUMER
+  END TO END** (`runJob` → the real `runContainerJob` inside a container env
+  whose fetch is the shim, wired to the real handler, wired to a fake
+  Postgres: its claim, takeover and refund arrive with the real key and mint,
+  and nothing that left the container carried either — every request on the
+  wire the gateway's, the job token its bearer, the marker its mint), the
+  launch, the runner's install and restore, the env's markers, the list, the
+  vault, and the lists held to the code (every admitted RPC is one the Worker
+  calls; every `editRpc` call is admitted or named Worker-only; every job-path
+  helper's table is admitted with its method, read off the helper);
+  `test/container-job.test.mjs` re-anchored (v2 launches; the spawned real
+  runner's claim read off a real socket at a gateway STUB — the `/sb/` path,
+  the bearer, the marker; the secrets guard holding the helpers' reads to the
+  markers; the fire driven: v2, the origin, no credential in the launch; the
+  Worker's mount driven: its own key and mint on the forward, a Worker-only
+  RPC refused); the container harness's `/job/run` case drives the same
+  through the real service (a v1 launch 400, a leaking v2 launch 400 naming
+  the name, the claim on the stub's socket) — **`site build` 359/359**
+  (355 before). **Sweep: 42 mutants, 39 killed, none survived, none
+  unapplied, three comment-only controls survived** — the RPC binding
+  ignored, the optional binding never bound, a job's own mint admitted, the
+  marker forwarded as the mint, an RPC or a table outside the list admitted,
+  the bound filter not required, a written row not bound, an embedded
+  select admitted, a method the rule lacks admitted, the write forwarded as
+  sent, the job's bearer forwarded to Postgres, an RPC's error body passed
+  back, a refusal not logged, no Supabase read as configured, the body cap
+  dropped, another job's ref reversed, every response header handed back, a
+  request header outside the list forwarded; the customer's own call routed
+  through the gateway, the origin not the belt, the marker travelling as an
+  apikey, the token not sent, the caller's clock dropped, the env without
+  the markers, a handed key surviving into the env; a v1 launch admitted, a
+  launch with the credential admitted, the origin not required, the shim
+  never installed, the process's fetch not put back, the env built without
+  the origin; the two names back on the list; the fire sending v1, naming
+  no origin, still sending the credential; the mount handing no Supabase;
+  the marker deriving a v1 key, a secret written under it. **One survived
+  the first pass and it was the guard's fault**: the restore of the
+  process's fetch was asserted AFTER the test's own `finally` had restored
+  it — vacuous by construction, the recorded "a guard proves the branch it
+  drives" shape; read before the test's restore now, re-run to a kill. Full
+  suite 5,294 on the 4b tree (5,275 + the eighteen and the mount case).
+  **What the wall does NOT cover,
+  stated**: a job's vault reads (none on the job path today; a v1 row is
+  "cannot decrypt" in the container); the Worker-side reconcile's dispatch
+  probe (`env.SITE_WORKERS`, a binding the container never had — `live` is
+  null there, the verdict `unknown`, said once); the build path's
+  `credit_debit` (the customer's own JWT, not a platform secret — direct).
+  **Not proven live**: fretwork-1's first edit through the runner (the 5a
+  canary) proves both — `job runner: fired <id>` and no `sb-out-of-scope`
+  line; a refused op names the call the list lacks. The merge rolls the
+  container (`worker.js` and the builder modules are image inputs).
 - **The build service** (`POST /job/run`, answers in this order): 413 (over
   1 MB), 400 (a launch it cannot read), **503 while the Worker tree does not
   import** — `checkWorkerTree`, asked ONCE at startup by spawning
@@ -2535,9 +2633,8 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
 - **Later phases**: builds through the same runner (`kind: "build"` and
   `"resume"` are dispatched by `runContainerJob` already; the fork is not),
   a longer clock inside the container (nothing there is bounded by the queue's
-  fifteen minutes; `EDIT_JOB_MS` still is), Supabase through the gateway with
-  an RPC allowlist so the service key stays out of the container, #52's
-  interrupted-job answer.
+  fifteen minutes; `EDIT_JOB_MS` still is), #52's interrupted-job answer.
+  Supabase through the gateway shipped as stage 4b (the bullet above).
 
 ### A BUILD HAS A ROW, AND ONE LEASE MOVES ALONG ITS CHAIN (2026-09-05, stage 2c)
 
@@ -3989,7 +4086,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 355/355** against the real container (2026-09-05, stage
+- **`site build` is 359/359** against the real container (2026-09-06, stage
+  4b's four: a v1 launch refused 400 by name, a v2 launch carrying a
+  credential refused 400 naming it, the real runner's claim read off a
+  gateway stub's socket with the job token as its bearer, the marker as
+  its mint; 355 on 2026-09-05, stage
   3a's stopping case added four — a hold, SIGTERM under it with the service
   reporting `stopping` and staying up, `POST /job/run` answering 503
   `{error: stopping}`, no job record left — and stage 2c's two, the report
@@ -4009,8 +4110,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,275
-  (2026-09-05, after stage 8's eighteen in `test/site-migrations.test.mjs`
+  build and the pre-list payload added sixteen); the unit suite is 5,294
+  (2026-09-06, after stage 4b's eighteen in `test/sb-gateway.test.mjs` —
+  the wall rule by rule, the handler against a fake Supabase, the shim, the
+  real consumer end to end inside a container env, the launch, the runner,
+  the env, the list, the vault, the lists held to the code — and the
+  Worker's mount driven in `container-job`; 5,275
+  on 2026-09-05, after stage 8's eighteen in `test/site-migrations.test.mjs`
   — the record module driven with the engine's own report names, the spec
   union driven, the seam and the addon route read by order and absence,
   the owner's route and the reconcile's settle DRIVEN; 5,257 the same day

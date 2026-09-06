@@ -16,6 +16,10 @@
 // encryption, the key versioning and every refusal can be driven directly —
 // the same reason stripe-webhook.mjs was lifted out of worker.js.
 
+// The one import: the gateway's marker, a constant from a dependency-free
+// module, so this file can refuse to treat it as key material (below).
+import { SB_MARKER } from "./builder/job-gateway.mjs";
+
 // ── Key versioning ───────────────────────────────────────────────────────────
 //
 // v1 derived the AES key from SUPABASE_SERVICE_KEY. That is a real hazard for
@@ -32,6 +36,17 @@ export const KEY_VERSIONS = { 1: "SUPABASE_SERVICE_KEY", 2: "SITE_SECRETS_KEY" }
 const CURRENT_VERSION = 2;
 
 /**
+ * THE GATEWAY MARKER IS NOT KEY MATERIAL (stage 4b, 2026-09-06). Inside the
+ * site's container the job's env carries `SUPABASE_SERVICE_KEY` as a marker
+ * the fetch shim recognises, never the key — so v1's derivation, which reads
+ * that name, would quietly derive a key from a constant that is in this
+ * repository. A v1 row cannot be opened there, and "cannot decrypt" is the
+ * honest answer; the fallbacks below are for a Worker with the real name
+ * unset, not for a process that was deliberately handed a stand-in.
+ */
+const gatewayStandIn = (e) => e.SUPABASE_SERVICE_KEY === SB_MARKER;
+
+/**
  * Material for a version's key. Returns null when that version's source is
  * absent, which the callers treat as "cannot encrypt" / "cannot decrypt" rather
  * than falling back to a weaker key — a fallback here would mean a secret
@@ -40,6 +55,7 @@ const CURRENT_VERSION = 2;
 export function keyMaterial(env, version) {
   const e = env || {};
   if (version === 2) return e.SITE_SECRETS_KEY ? String(e.SITE_SECRETS_KEY) + "|site-secrets-v2" : null;
+  if (version === 1 && gatewayStandIn(e)) return null;
   // v1 keeps the derivation the D1-era vault used, INCLUDING its "isibi"
   // fallback, or previously stored secrets stop opening. See writeMaterial for
   // why that fallback is readable and not writable.
@@ -75,6 +91,7 @@ export function keyMaterial(env, version) {
 export function writeMaterial(env) {
   const e = env || {};
   if (e.SITE_SECRETS_KEY) return { version: 2, material: keyMaterial(e, 2) };
+  if (gatewayStandIn(e)) return null;
   if (e.SUPABASE_SERVICE_KEY || e.FAL_KEY) return { version: 1, material: keyMaterial(e, 1) };
   return null;
 }

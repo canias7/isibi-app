@@ -16,15 +16,20 @@ import fs, { readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
+import http from "node:http";
 import { readLaunch, runJob } from "../builder/container-job.mjs";
+import { makeContainerEnv } from "../builder/container-env.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, packEditJob,
   JOB_ENV_NAMES, jobSecrets, jobRunnerOn, jobRunnerFor, jobRunnerEveryone, readCanaryList, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
 } from "../builder/edit-job.mjs";
-import { gatewayKey, verifyJobToken, signJobToken } from "../builder/job-gateway.mjs";
+import { gatewayKey, verifyJobToken, signJobToken, SB_MARKER } from "../builder/job-gateway.mjs";
 import { APP_ZONE } from "../site-domains.mjs";
 import { laneName } from "../builder/build-lane.mjs";
+
+/** The Supabase origin a launch names (stage 4b): the shim's belt, never reached in a test. */
+const SB = "https://ujrqdmmtcptvimazlhom.supabase.co";
 
 const ROOT = new URL("..", import.meta.url);
 const WORKER = readFileSync(new URL("worker.js", ROOT), "utf8");
@@ -39,13 +44,21 @@ const SLUG = "fretwork-1";
 
 // ── the launch ──────────────────────────────────────────────────────────────
 
-test("readLaunch admits a v1 launch and refuses every shape this runner cannot run", () => {
-  const good = { v: 1, kind: "edit", id: ID, gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "t" }, secrets: { A: "a", B: 2, C: null }, buildPort: 9090 };
+test("readLaunch admits a v2 launch and refuses every shape this runner cannot run", () => {
+  // v2 SINCE STAGE 4b (2026-09-06): the launch names the Supabase origin and
+  // carries no Supabase credential; a v1 launch — the one Worker before this,
+  // which sent the service key — is refused, which is that Worker's inline
+  // path. RE-ANCHORED from the v1 shape; the property that moved is the
+  // credential, and test/sb-gateway.test.mjs drives the rest of the shape.
+  const good = { v: 2, kind: "edit", id: ID, gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "t" }, sb: { url: SB }, secrets: { A: "a", B: 2, C: null }, buildPort: 9090 };
   const l = readLaunch(JSON.stringify(good));
-  assert.deepEqual(l, { kind: "edit", id: ID, gateway: good.gateway, secrets: { A: "a" }, buildPort: 9090 });
+  assert.deepEqual(l, { kind: "edit", id: ID, gateway: good.gateway, sb: { url: SB }, secrets: { A: "a" }, buildPort: 9090 });
   assert.equal(readLaunch(JSON.stringify({ ...good, buildPort: undefined })).buildPort, 8080, "the build service's port defaults");
   assert.throws(() => readLaunch("nope"), /not JSON/);
-  assert.throws(() => readLaunch(JSON.stringify({ ...good, v: 2 })), /v1/);
+  assert.throws(() => readLaunch(JSON.stringify({ ...good, v: 1 })), /v2/);
+  assert.throws(() => readLaunch(JSON.stringify({ ...good, v: 3 })), /v2/);
+  assert.throws(() => readLaunch(JSON.stringify({ ...good, sb: undefined })), /supabase origin/);
+  assert.throws(() => readLaunch(JSON.stringify({ ...good, secrets: { SUPABASE_SERVICE_KEY: "svc" } })), /no Supabase credential/);
   assert.throws(() => readLaunch(JSON.stringify({ ...good, kind: "delete" })), /kind/);
   assert.throws(() => readLaunch(JSON.stringify({ ...good, id: "" })), /job id/);
   assert.throws(() => readLaunch(JSON.stringify({ ...good, id: "../x" })), /job id/);
@@ -56,7 +69,7 @@ test("readLaunch admits a v1 launch and refuses every shape this runner cannot r
 });
 
 test("runJob builds the job env, runs the Worker's export, drains the ctx, and never throws", async () => {
-  const launch = readLaunch(JSON.stringify({ v: 1, kind: "edit", id: ID, gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "tok" }, secrets: { SUPABASE_SERVICE_KEY: "svc" } }));
+  const launch = readLaunch(JSON.stringify({ v: 2, kind: "edit", id: ID, gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "tok" }, sb: { url: SB }, secrets: { XAI_API_KEY: "svc" } }));
   const seen = [];
   const lines = [];
   const out = await runJob(launch, {
@@ -69,7 +82,8 @@ test("runJob builds the job env, runs the Worker's export, drains the ctx, and n
   assert.ok(typeof out.ms === "number");
   assert.equal(seen.length, 1);
   assert.deepEqual(seen[0].job, { kind: "edit", id: ID });
-  assert.equal(seen[0].env.SUPABASE_SERVICE_KEY, "svc", "the secrets did not reach the job env");
+  assert.equal(seen[0].env.XAI_API_KEY, "svc", "the secrets did not reach the job env");
+  assert.equal(seen[0].env.SUPABASE_SERVICE_KEY, SB_MARKER, "the job env does not carry the gateway marker under the service key's name (stage 4b)");
   assert.equal(seen[0].env.SITES_BUCKET.url, "https://gofarther.dev/api/job/" + ID);
   assert.equal(seen[0].env.SITES_BUCKET.token, "tok");
   assert.equal(typeof seen[0].ctx.waitUntil, "function");
@@ -142,8 +156,30 @@ test("the build service starts a job child from a clean environment, secrets on 
 // dispatched, the consumer run to its refusal, the ctx drained, one line out,
 // exit 0 — for the price of the Worker's import.
 
-const GOOD_LAUNCH = () => JSON.stringify({ v: 1, kind: "edit", id: ID, gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "t" }, secrets: {}, buildPort: 8080 });
+// THE GATEWAY A TEST LAUNCH NAMES: a port nothing listens on (stage 4b). The
+// consumer's claim goes THROUGH the shim to the gateway now — there is no
+// service key in the process to refuse on — so its refusal is the transport's
+// (`rpc`, a connection refused in a few milliseconds), never a network call.
+// A launch that named the real gateway would put a live request in a unit
+// test; `gatewayStub` below is the version that records what the shim sent.
+const NOWHERE = "http://127.0.0.1:1/api/job/" + ID;
+const GOOD_LAUNCH = (gateway = NOWHERE) => JSON.stringify({ v: 2, kind: "edit", id: ID, gateway: { url: gateway, token: "t" }, sb: { url: SB }, secrets: {}, buildPort: 8080 });
 const jsonLines = (text) => String(text || "").split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+
+/** A gateway that answers 401 to everything and remembers what it was asked. */
+function gatewayStub() {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization || "", apikey: req.headers.apikey || "", body });
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unauthorized" }));
+    });
+  });
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ seen, url: "http://127.0.0.1:" + server.address().port + "/api/job/" + ID, close: () => new Promise((r) => server.close(r)) })));
+}
 
 test("THE REAL RUNNER RUNS THE WORKER'S CONSUMER: a secretless launch on stdin goes in, its refusal and one done line come out, exit 0", () => {
   const r = spawnSync(process.execPath, [
@@ -158,8 +194,10 @@ test("THE REAL RUNNER RUNS THE WORKER'S CONSUMER: a secretless launch on stdin g
   assert.equal(last.kind, "edit");
   assert.equal(last.done, true, JSON.stringify(last));
   assert.ok(typeof last.ms === "number");
-  // The consumer ran — its own words, off the real `runQueuedSiteEdit`.
-  assert.match(r.stdout, /edit queue: not claimed .*no-service-key/, "the Worker's consumer did not run to its refusal:\n" + r.stdout.slice(-800));
+  // The consumer ran — its own words, off the real `runQueuedSiteEdit`: the
+  // claim went to the gateway nothing listens on and came back `rpc`.
+  assert.match(r.stdout, /edit queue: not claimed .*rpc/, "the Worker's consumer did not run to its refusal:\n" + r.stdout.slice(-800));
+  assert.equal(/no-service-key/.test(r.stdout), false, "the consumer refused for want of a service key — the marker did not reach its env");
 });
 
 test("a runner whose Worker cannot be imported says so on its one line and exits 1 — the failure code the build service records", () => {
@@ -211,20 +249,33 @@ test("startJob, driven: the child runs the real runner out of WORKER_DIR with th
   const logs = [];
   let held = 0, released = 0;
   const fns = buildServerFns({ WORKER_DIR: ROOT.pathname, PORT: 8080, JOBS, holdBusy: () => { held++; return () => { released++; }; }, console: { log: (...a) => logs.push(a.join(" ")), error: (...a) => logs.push(a.join(" ")) } });
-  const launch = readLaunch(GOOD_LAUNCH());
-  const started = fns.startJob(launch, GOOD_LAUNCH());
+  // THE GATEWAY IS A STUB THAT LISTENS (stage 4b): the child is a real
+  // process, so what its shim sends is read off a real socket — the claim on
+  // the gateway's `/sb/` path, the job token as its bearer, the marker as its
+  // mint, and no service key anywhere.
+  const gw = await gatewayStub();
+  const launch = readLaunch(GOOD_LAUNCH(gw.url));
+  const started = fns.startJob(launch, GOOD_LAUNCH(gw.url));
   assert.equal(started.ok, true, JSON.stringify(started));
   assert.ok(started.pid > 0);
   assert.equal(JOBS.get(ID).state, "running");
   assert.equal(held, 1, "the container is not held busy under a running job");
   const until = Date.now() + 90000;
   while (JOBS.get(ID).state === "running" && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+  await gw.close();
   const j = JOBS.get(ID);
   assert.equal(j.state, "done", JSON.stringify(j) + "\n" + logs.slice(-10).join("\n"));
   assert.equal(j.code, 0);
   assert.equal(released, 1, "busy is not released when the child ends");
   assert.ok(logs.some((l) => l.startsWith("job " + ID + " out: ") && /"started":true/.test(l)), "the child's lines are not logged under the job: " + logs.slice(0, 5).join("\n"));
-  assert.ok(logs.some((l) => /not claimed .*no-service-key/.test(l)), "the consumer's own words never reached the log");
+  assert.ok(logs.some((l) => /not claimed .*rpc/.test(l)), "the consumer's own words never reached the log: " + logs.slice(-6).join("\n"));
+  assert.equal(gw.seen.length, 1, "the child's claim did not reach the gateway once: " + JSON.stringify(gw.seen));
+  assert.equal(gw.seen[0].method, "POST");
+  assert.equal(gw.seen[0].url, "/api/job/" + ID + "/sb/rest/v1/rpc/edit_claim");
+  assert.equal(gw.seen[0].authorization, "Bearer t", "the claim left the child without the job token");
+  assert.equal(gw.seen[0].apikey, "", "the marker travelled as an apikey");
+  assert.equal(JSON.parse(gw.seen[0].body).p_mint, SB_MARKER, "the claim left the child with something other than the marker as its mint");
+  assert.equal(JSON.parse(gw.seen[0].body).p_id, ID);
   // A launch the runner refuses ends the job as failed (exit 2), busy released.
   const bad = fns.startJob({ id: "bad_launch_1", kind: "edit" }, "not a launch");
   assert.equal(bad.ok, true);
@@ -279,24 +330,29 @@ test("the runner flags: nothing means nobody, a canary names identities, the sec
   assert.ok(JOB_TOKEN_GRACE_S >= 300, "a token must outlive the job's clock for the finalize");
 });
 
-test("the secrets a job carries are the ones the edit path reads — the RPC helper's own reads included — and nothing else", () => {
-  // DERIVED: every `env.X` the RPC helper reads must be on the list, or the
-  // container's first claim fails as "no-service-key". Found by reading the
-  // helper, which refuses without the credit mint secret too.
+test("the secrets a job carries are the ones the edit path reads — the RPC helper's own reads met by the gateway's markers — and nothing else", () => {
+  // DERIVED: every `env.X` the RPC helper reads must be on the list OR a name
+  // the job env fills with the gateway marker, or the container's first claim
+  // fails as "no-service-key". RE-ANCHORED for stage 4b (2026-09-06): the
+  // helper's two reads — the service key and the mint — were on the list and
+  // are the two names that LEFT it; the env carries the marker under both, the
+  // helper's presence check passes, and the shim routes the call. The property
+  // that stayed: a read the job env cannot satisfy is a refusal by name.
   const rpc = noComments(WORKER).slice(WORKER.indexOf("async function editRpc("), WORKER.indexOf("\n}\n", WORKER.indexOf("async function editRpc(")));
   const reads = [...rpc.matchAll(/env\.([A-Z][A-Z0-9_]+)/g)].map((m) => m[1]);
   assert.ok(reads.length >= 2, "the RPC helper's reads were not found");
-  for (const name of reads) assert.ok(JOB_ENV_NAMES.includes(name), "the edit RPCs read env." + name + " and the job is not handed it");
   const svc = noComments(WORKER).slice(WORKER.indexOf("function svcHeaders("), WORKER.indexOf("\n}\n", WORKER.indexOf("function svcHeaders(")));
-  for (const m of svc.matchAll(/env\.([A-Z][A-Z0-9_]+)/g)) assert.ok(JOB_ENV_NAMES.includes(m[1]), "svcHeaders reads env." + m[1] + " and the job is not handed it");
-  for (const must of ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET", "XAI_API_KEY", "ANTHROPIC_API_KEY", "FAL_KEY", "NEON_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "SITE_SECRETS_KEY"]) {
+  for (const m of svc.matchAll(/env\.([A-Z][A-Z0-9_]+)/g)) reads.push(m[1]);
+  const jobEnv = makeContainerEnv({ secrets: jobSecrets({ XAI_API_KEY: "x" }), gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "t" }, sb: { url: SB }, fetch: async () => new Response(null, { status: 404 }) });
+  for (const name of reads) assert.ok(JOB_ENV_NAMES.includes(name) || jobEnv[name] === SB_MARKER, "the edit RPCs read env." + name + " and the job env neither carries it nor marks it");
+  for (const must of ["XAI_API_KEY", "ANTHROPIC_API_KEY", "FAL_KEY", "NEON_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "SITE_SECRETS_KEY"]) {
     assert.ok(JOB_ENV_NAMES.includes(must), must + " is not handed to the job");
   }
-  for (const never of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "COMPOSIO_API_KEY", "DOMAIN_CONNECT_KEY", "SITES_BUCKET", "BUILD_QUEUE", "EMAIL"]) {
+  for (const never of ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "COMPOSIO_API_KEY", "DOMAIN_CONNECT_KEY", "SITES_BUCKET", "BUILD_QUEUE", "EMAIL"]) {
     assert.ok(!JOB_ENV_NAMES.includes(never), never + " has no business inside the container");
   }
-  const env = { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", STRIPE_SECRET_KEY: "sk", XAI_API_KEY: "", FAL_KEY: 42, SITES_BUCKET: {} };
-  assert.deepEqual(jobSecrets(env), { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m" }, "an empty, non-string or unlisted value travelled");
+  const env = { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", STRIPE_SECRET_KEY: "sk", XAI_API_KEY: "", FAL_KEY: 42, SITES_BUCKET: {}, NEON_API_KEY: "neon" };
+  assert.deepEqual(jobSecrets(env), { NEON_API_KEY: "neon" }, "an empty, non-string, unlisted or platform-credential value travelled");
 });
 
 // ── the fork, driven through the real queue handler ─────────────────────────
@@ -360,10 +416,11 @@ test("with the canary naming the site, the consumer FIRES the job at the site's 
   assert.equal(call.url, "http://build/job/run");
   assert.equal(call.method, "POST");
   const launch = JSON.parse(call.body);
-  assert.equal(launch.v, 1);
+  assert.equal(launch.v, 2, "the launch is not the v2 shape (stage 4b: no Supabase credential, the origin named)");
   assert.equal(launch.kind, "edit");
   assert.equal(launch.id, ID);
   assert.equal(launch.gateway.url, "https://" + APP_ZONE + "/api/job/" + ID);
+  assert.match(String(launch.sb && launch.sb.url), /^https:\/\/[a-z0-9]+\.supabase\.co$/, "the launch does not name the Supabase origin the shim intercepts");
   assert.equal(launch.buildPort, 8080);
   // THE TOKEN VERIFIES under the key derived from the platform secret, names
   // this job, its site and its owner, and outlives the job's clock.
@@ -374,11 +431,14 @@ test("with the canary naming the site, the consumer FIRES the job at the site's 
   assert.equal(who.uid, UID);
   assert.ok(who.exp * 1000 > Date.now() + EDIT_JOB_MS, "the token expires before the job's clock does");
   assert.ok(who.exp * 1000 <= Date.now() + EDIT_JOB_MS + JOB_TOKEN_GRACE_S * 1000 + 5000, "the token outlives the job by more than its grace");
-  // THE SECRETS: the listed ones that are set, and never the rest.
-  assert.equal(launch.secrets.SUPABASE_SERVICE_KEY, "svc");
-  assert.equal(launch.secrets.CREDITS_MINT_SECRET, "mint");
+  // THE SECRETS: the listed ones that are set, and never the rest — and since
+  // stage 4b never the service key or the mint, which the Worker's env holds.
+  assert.equal("SUPABASE_SERVICE_KEY" in launch.secrets, false, "the service key travelled into the container");
+  assert.equal("CREDITS_MINT_SECRET" in launch.secrets, false, "the mint secret travelled into the container");
   assert.equal(launch.secrets.SITE_SECRETS_KEY, "platform-secret");
   assert.equal("STRIPE_SECRET_KEY" in launch.secrets, false, "a Stripe key travelled into the container");
+  assert.equal(call.body.includes("svc"), false, "the service key is somewhere in the launch");
+  assert.equal(call.body.includes("mint"), false, "the mint is somewhere in the launch");
   // THE CONSUMER CLAIMED THE ROW FIRST AND HANDED THE LEASE ON (stage 6):
   // ONE claim, before the container was asked, its owner's name in the
   // launch for the runner to take the lease over from — and it did NOT run
@@ -496,4 +556,34 @@ test("the gateway answers on the app zone for a job's own key, refuses without a
   // With no secrets key on the Worker there is no gateway at all, whatever the token.
   const bare = await worker.fetch(new Request("https://" + APP_ZONE + "/api/job/" + ID + "/r2?key=x", { headers: { authorization: "Bearer " + token } }), { SITES_BUCKET: bucket }, makeCtx());
   assert.equal(bare.status, 401);
+});
+
+test("the Worker's gateway forwards a job's Supabase call with ITS OWN service key and mint (stage 4b), driven through worker.fetch", async () => {
+  const worker = await loadWorker();
+  const env = { SITES_BUCKET: fakeBucket({}), SITE_SECRETS_KEY: "platform-secret", SUPABASE_SERVICE_KEY: "svc-real", CREDITS_MINT_SECRET: "mint-real" };
+  const token = await signJobToken({ id: ID, slug: SLUG, uid: UID, exp: Math.floor(Date.now() / 1000) + 600 }, await gatewayKey("platform-secret"));
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: Object.fromEntries([...new Headers(init && init.headers).entries()]), body: init && init.body });
+    return new Response(JSON.stringify({ ok: true, beat: true }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  let r, refused;
+  try {
+    r = await worker.fetch(new Request("https://" + APP_ZONE + "/api/job/" + ID + "/sb/rest/v1/rpc/edit_beat", {
+      method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ p_id: ID, p_owner: "c_x", p_ttl: 90, p_mint: SB_MARKER }),
+    }), env, makeCtx());
+    refused = await worker.fetch(new Request("https://" + APP_ZONE + "/api/job/" + ID + "/sb/rest/v1/rpc/edit_create", {
+      method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ p_id: ID, p_mint: SB_MARKER }),
+    }), env, makeCtx());
+  } finally { globalThis.fetch = realFetch; }
+  const answer = await r.text();
+  assert.equal(r.status, 200, answer);
+  assert.deepEqual(JSON.parse(answer), { ok: true, beat: true });
+  assert.equal(seen.length, 1, "the Worker did not forward exactly the admitted call");
+  assert.match(seen[0].url, /^https:\/\/[a-z0-9]+\.supabase\.co\/rest\/v1\/rpc\/edit_beat$/, "the forward did not go to the Worker's own Supabase origin: " + seen[0].url);
+  assert.equal(seen[0].headers.apikey, "svc-real", "the Worker forwarded without its own service key");
+  assert.equal(seen[0].headers.authorization, "Bearer svc-real");
+  assert.equal(JSON.parse(seen[0].body).p_mint, "mint-real", "the Worker forwarded without its own mint");
+  assert.equal(refused.status, 403, "a Worker-only RPC was forwarded for a job");
 });

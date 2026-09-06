@@ -55,7 +55,171 @@
 // newline), `x-gf-http-<field>` an http-metadata field other than the content
 // type, which is the `content-type` header itself.
 //
+// ── SUPABASE THROUGH THE SAME DOOR (stage 4b, 2026-09-06) ────────────────────
+//
+// The job process used to hold the platform's SERVICE KEY and the CREDIT MINT
+// SECRET — the two credentials that open every site's rows and every
+// customer's ledger — for the length of the job, because the Worker's code
+// reaches Postgres directly (`editRpc`, `svcHeaders`, and the PostgREST reads
+// and writes the edit and addon routes make). Now the job holds neither: the
+// container's env carries `SB_MARKER` under both names, the fetch shim
+// (container-env.mjs) sends any Supabase request that presents the marker to
+// `/sb/<path>` here with the job token, and THIS handler injects the real key
+// and the real mint before forwarding — for the RPCs and the tables a job
+// has business with, each bound to the job's own row, its site or its owner
+// (`SB_RPCS`, `SB_TABLES`, `sbDecision`). A request outside that is 403 and
+// LOGGED with the op, so the first live job says which call it needed that the
+// list lacks, and the answer is a line here, never the key back in the
+// container. The customer's own calls (the anon key with the customer's JWT)
+// never carried a platform secret and are not routed here.
+//
+//   POST   /sb/rest/v1/rpc/<fn>     the body's `p_mint` (the marker) becomes the
+//                                   real mint; the binding argument must name
+//                                   the job, its site or its owner
+//   GET    /sb/rest/v1/<table>?…    the bound filter must be present as `eq.`
+//   POST   /sb/rest/v1/<table>?…    every row carries the bound fields
+//   DELETE /sb/rest/v1/<table>?…    the bound filter must be present
+//
+// A non-2xx answer to an RPC is passed back as its STATUS with a scrubbed
+// body — PostgREST quotes the request that produced an error, and that request
+// carries the mint, which is the one thing this branch exists to keep out of
+// the container. A table error keeps its body: nothing in a table request is
+// a platform secret, and the sentence the customer reads names the constraint.
+//
 // Dependency-free: `crypto.subtle` is what both runtimes have.
+
+/**
+ * The value the job's env carries under `SUPABASE_SERVICE_KEY` and
+ * `CREDITS_MINT_SECRET` inside the container: never a credential, a tell. The
+ * Worker's helpers see a truthy string and proceed; the shim sees the marker
+ * on the wire and routes the request here; and a request that somehow reached
+ * Supabase with it would be a 401, which is the safe direction.
+ */
+export const SB_MARKER = "gf-gateway";
+
+/**
+ * THE RPCs A JOB MAY CALL, and the argument that binds each to the job.
+ * `id` / `slug` / `uid` name the token's field the argument must equal; a
+ * trailing `?` binds only when the argument is present and not null (a
+ * handoff names the slug when it sets one); `build-ref` is a reversal's ref,
+ * which must be the job's own (`build:<id>…`, the refs stage 1c mints).
+ * Everything else — the sweeps, the gate's set and clear, `edit_create`,
+ * `add_credits`, `rebuild_claim` — is a Worker's call and is refused by name.
+ */
+export const SB_RPCS = {
+  edit_claim: { p_id: "id" },
+  edit_handoff: { p_id: "id", p_slug: "slug?" },
+  edit_beat: { p_id: "id" },
+  edit_reserve: { p_id: "id" },
+  edit_exempt: { p_id: "id" },
+  edit_may_publish: { p_id: "id" },
+  edit_publish_mark: { p_id: "id" },
+  edit_committed: { p_id: "id" },
+  edit_finalize: { p_id: "id" },
+  edit_refund: { p_id: "id" },
+  edit_reconcile: { p_id: "id" },
+  edit_phase_write: { p_id: "id" },
+  deploy_gate_read: {},
+  credit_reverse: { p_target: "uid", p_ref: "build-ref" },
+};
+
+/**
+ * THE TABLES A JOB MAY TOUCH, per method. `filter` names the query parameter
+ * that must be present as `eq.<the token's field>` (PostgREST ANDs top-level
+ * filters, so one bound filter confines every read and every delete, whatever
+ * else the query says); `rows` names the fields every row of a write must
+ * carry with the token's value. A method not listed is refused; `PATCH` is
+ * nowhere, because no job patches a row.
+ */
+export const SB_TABLES = {
+  edit_traces: { POST: { rows: { slug: "slug", uid: "uid" } } },
+  edit_jobs: { GET: { filter: { id: "id" } } },
+  site_backends: { GET: { filter: { slug: "slug" } }, POST: { rows: { slug: "slug", uid: "uid" } } },
+  site_project: { GET: { filter: { slug: "slug" } }, POST: { rows: { slug: "slug", uid: "uid" } } },
+  site_aliases: { GET: {}, POST: { rows: { slug: "slug", uid: "uid" } }, DELETE: { filter: { slug: "slug" } } },
+  site_functions: { GET: { filter: { slug: "slug" } }, POST: { rows: { slug: "slug", owner_id: "uid" } } },
+  site_builds: { POST: { rows: { slug: "slug" } } },
+  credits: { GET: { filter: { user_id: "uid" } } },
+};
+
+/** The request headers forwarded to Supabase, and the response headers handed back. */
+export const SB_REQUEST_HEADERS = ["content-type", "prefer", "accept", "accept-profile", "content-profile", "range"];
+export const SB_RESPONSE_HEADERS = ["content-type", "content-range", "preference-applied"];
+/** A Supabase request's body cap, and how long the forward may take. */
+export const SB_MAX_BODY = 1 << 20;
+export const SB_TIMEOUT_MS = 20_000;
+
+const NAME_RE = /^[a-z_][a-z0-9_]{0,62}$/;
+
+/** The token's field a binding word names. */
+function boundValue(who, word) {
+  const w = String(word).replace(/\?$/, "");
+  if (w === "id") return who.id;
+  if (w === "slug") return who.slug;
+  if (w === "uid") return who.uid;
+  return undefined;
+}
+
+/**
+ * MAY THIS JOB MAKE THIS SUPABASE REQUEST? `who` is the token's payload,
+ * `path` the Supabase path (`/rest/v1/rpc/edit_beat`), `search` the query
+ * string (with or without its `?`), `text` the body as sent. Answers
+ * `{ ok: true, body }` — the body to FORWARD, re-serialised from what was
+ * checked so a duplicate key cannot pass one value to the check and another
+ * to Postgres, with `p_mint` replaced by `mint` when the marker was sent — or
+ * `{ ok: false, why }`. Pure, so every rule is driven with literals.
+ */
+export function sbDecision(who, method, path, search, text, mint) {
+  const m = String(method || "GET").toUpperCase();
+  const p = String(path || "");
+  const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  const sel = params.get("select");
+  if (sel && /[(!]/.test(sel)) return { ok: false, why: "embed" };
+  const rpc = /^\/rest\/v1\/rpc\/([^/?]+)$/.exec(p);
+  if (rpc) {
+    const fn = rpc[1];
+    if (m !== "POST") return { ok: false, why: "method" };
+    if (!NAME_RE.test(fn) || !Object.hasOwn(SB_RPCS, fn)) return { ok: false, why: "rpc" };
+    let body;
+    try { body = JSON.parse(String(text || "{}")); } catch { return { ok: false, why: "body" }; }
+    if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, why: "body" };
+    for (const [arg, word] of Object.entries(SB_RPCS[fn])) {
+      const v = body[arg];
+      if (word === "build-ref") {
+        if (typeof v !== "string" || !v.startsWith("build:" + who.id)) return { ok: false, why: "bind:" + arg };
+        continue;
+      }
+      if (String(word).endsWith("?") && (v === undefined || v === null)) continue;
+      if (v !== boundValue(who, word)) return { ok: false, why: "bind:" + arg };
+    }
+    if (Object.hasOwn(body, "p_mint")) {
+      if (body.p_mint !== SB_MARKER) return { ok: false, why: "mint" };
+      body.p_mint = mint;
+    }
+    return { ok: true, body: JSON.stringify(body) };
+  }
+  const tbl = /^\/rest\/v1\/([^/?]+)$/.exec(p);
+  if (!tbl) return { ok: false, why: "path" };
+  const table = tbl[1];
+  if (!NAME_RE.test(table) || !Object.hasOwn(SB_TABLES, table)) return { ok: false, why: "table" };
+  const rule = SB_TABLES[table][m];
+  if (!rule) return { ok: false, why: "method" };
+  for (const [param, word] of Object.entries(rule.filter || {})) {
+    if (params.get(param) !== "eq." + boundValue(who, word)) return { ok: false, why: "filter:" + param };
+  }
+  if (m === "GET" || m === "HEAD" || m === "DELETE") return { ok: true, body: undefined };
+  let body;
+  try { body = JSON.parse(String(text || "")); } catch { return { ok: false, why: "body" }; }
+  const rows = Array.isArray(body) ? body : [body];
+  if (!rows.length) return { ok: false, why: "body" };
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return { ok: false, why: "body" };
+    for (const [field, word] of Object.entries(rule.rows || {})) {
+      if (row[field] !== boundValue(who, word)) return { ok: false, why: "row:" + field };
+    }
+  }
+  return { ok: true, body: JSON.stringify(body) };
+}
 
 const B64 = {
   encode(bytes) {
@@ -260,18 +424,59 @@ const json = (status, body) => new Response(JSON.stringify(body), { status, head
  * or a key outside the job's site), 400 (a request this protocol does not
  * have), 404 (no such object), 412 (a `put` whose condition failed), 204 (a
  * delete), 200.
+ *
+ * `sb` is `{ url, key, mint, fetch }` — the platform's Supabase origin, the
+ * SERVICE KEY and the MINT SECRET the Worker holds and the container does not
+ * (stage 4b), and the fetch the forward goes out on (injected for tests).
+ * Without it the `/sb/` branch answers 503 and nothing else changes.
  */
-export function gatewayHandler({ bucket, verify, log = () => {} }) {
+export function gatewayHandler({ bucket, verify, log = () => {}, sb = null }) {
   return async function handle(request, id) {
     const auth = String(request.headers.get("authorization") || "");
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
     const who = token ? await verify(token) : null;
     if (!who) return json(401, { error: "unauthorized" });
     if (String(who.id) !== String(id || "")) { log("id-mismatch", { token: who.id, path: id }); return json(403, { error: "not this job" }); }
-    if (!bucket) return json(503, { error: "no bucket" });
     const url = new URL(request.url);
     const base = url.pathname.replace(/\/+$/, "");
     const tail = base.slice(base.indexOf("/api/job/") + ("/api/job/" + id).length);
+
+    // ── SUPABASE (stage 4b): the key and the mint stay here ────────────────
+    if (tail === "/sb" || tail.startsWith("/sb/")) {
+      if (!sb || !sb.url || !sb.key) return json(503, { error: "no supabase" });
+      const sbPath = tail.slice("/sb".length) || "/";
+      const op = request.method + " " + sbPath;
+      const rpcCall = sbPath.startsWith("/rest/v1/rpc/");
+      let text = "";
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        const len = Number(request.headers.get("content-length") || 0);
+        if (len > SB_MAX_BODY) return json(413, { error: "request too large" });
+        text = await request.text();
+        if (text.length > SB_MAX_BODY) return json(413, { error: "request too large" });
+      }
+      const d = sbDecision(who, request.method, sbPath, url.search, text, String(sb.mint || ""));
+      if (!d.ok) { log("sb-out-of-scope", { id: who.id, slug: who.slug, op, reason: d.why }); return json(403, { error: "supabase op not in this job's scope", op, why: d.why }); }
+      const fwd = { apikey: sb.key, authorization: "Bearer " + sb.key };
+      for (const h of SB_REQUEST_HEADERS) if (request.headers.has(h)) fwd[h] = request.headers.get(h);
+      let r;
+      try {
+        r = await (sb.fetch || globalThis.fetch)(String(sb.url).replace(/\/+$/, "") + sbPath + url.search, {
+          method: request.method, headers: fwd, body: d.body, signal: AbortSignal.timeout(sb.timeoutMs || SB_TIMEOUT_MS),
+        });
+      } catch (e) {
+        log("sb-unreachable", { id: who.id, op, error: String((e && e.name) || e) });
+        return json(502, { error: "supabase unreachable" });
+      }
+      const out = new Headers();
+      for (const h of SB_RESPONSE_HEADERS) if (r.headers.has(h)) out.set(h, r.headers.get(h));
+      // THE STATUS, NEVER THE BODY, when an RPC refused: PostgREST quotes the
+      // request it refused, and an RPC request carries the mint.
+      if (!r.ok && rpcCall) { log("sb-refused", { id: who.id, op, status: r.status }); return json(r.status, { error: "supabase", status: r.status }); }
+      if (r.status === 204) return new Response(null, { status: 204, headers: out });
+      return new Response(await r.arrayBuffer(), { status: r.status, headers: out });
+    }
+
+    if (!bucket) return json(503, { error: "no bucket" });
     const key = url.searchParams.get("key") || "";
     const refuse = (k) => { log("out-of-scope", { id: who.id, slug: who.slug, key: k }); return json(403, { error: "key not in this job's scope", key: k }); };
 

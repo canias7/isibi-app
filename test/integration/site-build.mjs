@@ -685,10 +685,14 @@ try {
   // container: the Worker's consumer fires the launch and returns, and this
   // service spawns the Worker's own module (the `worker/` tree in the image;
   // this checkout, here) under the loader with the launch on stdin. FREE, and
-  // whole: a launch with no secrets runs the real consumer to its own named
-  // refusal — the claim is first, and the RPC helper refuses before any fetch
-  // without the service key — so nothing reaches Supabase, R2 or a provider,
-  // and every hop between the socket and the consumer is exercised.
+  // whole: a launch with no secrets runs the real consumer to its own refusal
+  // — the claim is first, and SINCE STAGE 4b (2026-09-06) the claim goes
+  // through the runner's fetch shim to the job GATEWAY, which here is a stub
+  // on localhost that answers 401 and remembers what it was asked — so nothing
+  // reaches Supabase, R2 or a provider, every hop between the socket and the
+  // consumer is exercised, and what LEFT the child is read off a real socket:
+  // the claim on the gateway's `/sb/` path with the job token, the marker as
+  // its mint, and no service key anywhere (the launch carries none).
   {
     const post = (body) => fetch(`http://127.0.0.1:${PORT}/job/run`, { method: "POST", headers: { "content-type": "application/json" }, body });
     const bad = await post("not a launch");
@@ -696,7 +700,27 @@ try {
     ok("POST /job/run refuses a launch it cannot read, 400, before any child is started",
       bad.status === 400 && badBody.ok === false && /not JSON/.test(String(badBody.error)), `status ${bad.status} ${JSON.stringify(badBody).slice(0, 120)}`);
     const id = "harness_" + Date.now().toString(36);
-    const launch = { v: 1, kind: "edit", id, gateway: { url: "https://gofarther.dev/api/job/" + id, token: "harness" }, secrets: {}, buildPort: PORT };
+    const seen = [];
+    const gw = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization || "", apikey: req.headers.apikey || "", body });
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+      });
+    });
+    await new Promise((res) => gw.listen(0, "127.0.0.1", res));
+    const gwUrl = "http://127.0.0.1:" + gw.address().port + "/api/job/" + id;
+    const v1 = await post(JSON.stringify({ v: 1, kind: "edit", id, gateway: { url: gwUrl, token: "harness" }, secrets: { SUPABASE_SERVICE_KEY: "leak" }, buildPort: PORT }));
+    const v1Body = await v1.json().catch(() => ({}));
+    ok("a v1 launch — the shape that carried the service key — is refused 400 by name, the old Worker's inline path",
+      v1.status === 400 && /v2/.test(String(v1Body.error)), `status ${v1.status} ${JSON.stringify(v1Body).slice(0, 120)}`);
+    const leak = await post(JSON.stringify({ v: 2, kind: "edit", id, gateway: { url: gwUrl, token: "harness" }, sb: { url: "https://ujrqdmmtcptvimazlhom.supabase.co" }, secrets: { CREDITS_MINT_SECRET: "leak" }, buildPort: PORT }));
+    const leakBody = await leak.json().catch(() => ({}));
+    ok("a v2 launch that still carries a Supabase credential is refused 400 naming it, before any child is started",
+      leak.status === 400 && /CREDITS_MINT_SECRET/.test(String(leakBody.error)), `status ${leak.status} ${JSON.stringify(leakBody).slice(0, 120)}`);
+    const launch = { v: 2, kind: "edit", id, gateway: { url: gwUrl, token: "harness" }, sb: { url: "https://ujrqdmmtcptvimazlhom.supabase.co" }, secrets: {}, buildPort: PORT };
     const r = await post(JSON.stringify(launch));
     const j = await r.json().catch(() => ({}));
     ok("…and takes one it can: 200 {ok, id, pid} — the launch is running, the caller is free to go",
@@ -710,10 +734,17 @@ try {
       if (job && job.state !== "running") break;
       await new Promise((res) => setTimeout(res, 200));
     }
+    await new Promise((res) => gw.close(res));
     ok("…and the child ran the Worker's consumer to its end: done, exit 0",
       job && job.state === "done" && job.code === 0, JSON.stringify(job).slice(0, 400));
-    ok("…with the consumer's own refusal in the job's tail — no service key, so no claim, no network",
-      job && Array.isArray(job.tail) && job.tail.some((l) => /no-service-key/.test(l)), JSON.stringify(job && job.tail).slice(0, 400));
+    ok("…with the consumer's own refusal in the job's tail — the claim went to the gateway and came back refused, never for want of a service key",
+      job && Array.isArray(job.tail) && job.tail.some((l) => /not claimed .*rpc/.test(l)) && !job.tail.some((l) => /no-service-key/.test(l)), JSON.stringify(job && job.tail).slice(0, 400));
+    ok("…and what left the child was the claim on the gateway's Supabase path, with the job token as its bearer",
+      seen.length === 1 && seen[0].method === "POST" && seen[0].url === "/api/job/" + id + "/sb/rest/v1/rpc/edit_claim" && seen[0].authorization === "Bearer harness" && seen[0].apikey === "",
+      JSON.stringify(seen).slice(0, 300));
+    ok("…carrying the marker as its mint and the job's own id — no service key, no mint secret, on the wire or in the launch",
+      seen.length === 1 && (() => { try { const b = JSON.parse(seen[0].body); return b.p_mint === "gf-gateway" && b.p_id === id; } catch { return false; } })() && !JSON.stringify(seen).includes("leak"),
+      JSON.stringify(seen[0] && seen[0].body).slice(0, 300));
     ok("…and the done line names the job", job && job.tail && job.tail.some((l) => l.includes('"job":"' + id + '"') && l.includes('"done":true')), JSON.stringify(job && job.tail).slice(0, 400));
     // Busy is released with the child: a container is held under a running
     // job and not a moment longer.
@@ -4403,7 +4434,7 @@ function P() {
     ok("SIGTERM under a hold: the service reports stopping and stays up for what it holds",
       !!(busy && busy.stopping === true && busy.busy === true), JSON.stringify(busy).slice(0, 160));
     const id = "harness_stop_" + Date.now().toString(36);
-    const launch = { v: 1, kind: "edit", id, gateway: { url: "https://gofarther.dev/api/job/" + id, token: "harness" }, secrets: {}, buildPort: PORT };
+    const launch = { v: 2, kind: "edit", id, gateway: { url: "http://127.0.0.1:1/api/job/" + id, token: "harness" }, sb: { url: "https://ujrqdmmtcptvimazlhom.supabase.co" }, secrets: {}, buildPort: PORT };
     const r = await fetch(`http://127.0.0.1:${PORT}/job/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(launch) });
     const j = await r.json().catch(() => ({}));
     ok("POST /job/run answers 503 {error: stopping} while the service is stopping — the Worker's inline path, no child started",

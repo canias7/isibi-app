@@ -34,13 +34,24 @@
 // refunds, so a non-zero exit here is the runtime failing, not the edit.
 
 import { readFileSync } from "node:fs";
-import { makeContainerEnv, makeContainerCtx } from "./container-env.mjs";
+import { makeContainerEnv, makeContainerCtx, gatewayFetch } from "./container-env.mjs";
+
+/**
+ * THE TWO NAMES A LAUNCH MAY NOT CARRY (stage 4b, 2026-09-06). The service
+ * key and the mint secret reach Supabase from the Worker's side of the
+ * gateway now, and a launch that still sends them is a Worker that forgot —
+ * refused here, loudly, rather than held in this process's memory for the
+ * job's length. The version number is what tells the shapes apart: a v1
+ * launch (the one Worker before this) carried them, and a runner of this
+ * version answers it 400, which is that Worker's inline path.
+ */
+export const LAUNCH_NEVER = ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET"];
 
 /** The launch payload, checked. Throws on anything this runner cannot run. */
 export function readLaunch(raw) {
   let p = null;
   try { p = JSON.parse(String(raw || "")); } catch { throw new Error("launch payload is not JSON"); }
-  if (!p || typeof p !== "object" || p.v !== 1) throw new Error("launch payload is not v1");
+  if (!p || typeof p !== "object" || p.v !== 2) throw new Error("launch payload is not v2");
   const kind = String(p.kind || "");
   if (!["edit", "build", "resume"].includes(kind)) throw new Error("launch kind " + JSON.stringify(p.kind) + " is not one this runner runs");
   const id = String(p.id || "");
@@ -49,8 +60,15 @@ export function readLaunch(raw) {
   if (!g || typeof g !== "object" || typeof g.url !== "string" || !/^https?:\/\//.test(g.url) || typeof g.token !== "string" || !g.token) {
     throw new Error("launch has no usable gateway");
   }
+  // THE SUPABASE ORIGIN THE SHIM INTERCEPTS (stage 4b): the Worker names it,
+  // the runner matches requests against it, and the gateway forwards to its
+  // own. Required — a v2 launch without it would run the Worker's code with
+  // no way to reach Postgres at all.
+  const sb = p.sb;
+  if (!sb || typeof sb !== "object" || typeof sb.url !== "string" || !/^https?:\/\/[^/]+/.test(sb.url)) throw new Error("launch has no supabase origin for the gateway");
   const secrets = {};
   for (const [k, v] of Object.entries(p.secrets && typeof p.secrets === "object" ? p.secrets : {})) if (typeof v === "string") secrets[k] = v;
+  for (const never of LAUNCH_NEVER) if (Object.hasOwn(secrets, never)) throw new Error("a v2 launch carries no Supabase credential, and this one sent " + never);
   const buildPort = Number(p.buildPort) || 8080;
   // THE LEASE'S HOLDER (stage 6): the Worker's consumer claims the row before
   // it fires, so the site's lock has answered before a container is asked,
@@ -58,7 +76,21 @@ export function readLaunch(raw) {
   // without one is the runner claiming fresh, as it did before — and held to
   // the shape a minted owner has, because it reaches an RPC's WHERE.
   const holder = typeof p.holder === "string" && /^[A-Za-z0-9_:-]{4,80}$/.test(p.holder) ? p.holder : "";
-  return { kind, id, gateway: { url: g.url, token: g.token }, secrets, buildPort, ...(holder ? { holder } : {}) };
+  return { kind, id, gateway: { url: g.url, token: g.token }, sb: { url: new URL(sb.url).origin }, secrets, buildPort, ...(holder ? { holder } : {}) };
+}
+
+/**
+ * PUT THE GATEWAY FETCH IN FRONT OF THE PROCESS (stage 4b). The Worker's code
+ * calls the global `fetch`; the shim wraps it so a Supabase request carrying
+ * the marker goes to the gateway with the job token, and everything else goes
+ * out as it was. Installed BEFORE the Worker module is imported and before the
+ * env is built, so the bucket shim and every helper run under it. Answers the
+ * restore, for a test that runs in a process that goes on living.
+ */
+export function installGatewayFetch(launch, g = globalThis) {
+  const real = g.fetch;
+  g.fetch = gatewayFetch({ gateway: launch.gateway, sbUrl: launch.sb.url, fetch: real });
+  return () => { g.fetch = real; };
 }
 
 /**
@@ -69,8 +101,10 @@ export function readLaunch(raw) {
 export async function runJob(launch, { importWorker, env, ctx, log = () => {} } = {}) {
   const at = Date.now();
   const { kind, id } = launch;
+  let restore = () => {};
   try {
-    const jobEnv = env || makeContainerEnv({ secrets: launch.secrets, gateway: launch.gateway });
+    restore = installGatewayFetch(launch);
+    const jobEnv = env || makeContainerEnv({ secrets: launch.secrets, gateway: launch.gateway, sb: launch.sb });
     const jobCtx = ctx || makeContainerCtx();
     const worker = await importWorker();
     if (!worker || typeof worker.runContainerJob !== "function") throw new Error("the Worker module has no runContainerJob export — the image's Worker tree is older than this runner");
@@ -80,6 +114,8 @@ export async function runJob(launch, { importWorker, env, ctx, log = () => {} } 
     return { ok: true, kind, id, ms: Date.now() - at };
   } catch (e) {
     return { ok: false, kind, id, ms: Date.now() - at, error: String((e && e.stack) || (e && e.message) || e).slice(0, 2000) };
+  } finally {
+    restore();
   }
 }
 

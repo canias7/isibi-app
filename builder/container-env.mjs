@@ -28,7 +28,7 @@
 // Dependency-free; the `fetch` is injected so the shim is driven in tests
 // against the real handler and a fake bucket, with no server.
 
-import { metaHeaders, readMetaHeaders, onlyIfHeaders } from "./job-gateway.mjs";
+import { metaHeaders, readMetaHeaders, onlyIfHeaders, SB_MARKER, SB_REQUEST_HEADERS } from "./job-gateway.mjs";
 
 /** An object as R2 hands it out: metadata, and a body read once. */
 export class GatewayObject {
@@ -155,14 +155,57 @@ export const refusingQueue = {
 };
 
 /**
- * The env for one job. `secrets` are the string bindings (keys, the service
- * key, the flags); `gateway` is `{ url, token }`; `fetch` is injected for
+ * SUPABASE THROUGH THE GATEWAY (stage 4b, 2026-09-06): the `fetch` a job
+ * process runs under. A request to the platform's Supabase origin that
+ * presents `SB_MARKER` as its credential — `apikey`, or `Authorization:
+ * Bearer` — is what the Worker's helpers send when the env carries the marker
+ * under `SUPABASE_SERVICE_KEY`; it goes to the gateway's `/sb/<path>` with the
+ * job token instead, the path and the query as they were, the body as it was,
+ * the caller's own `signal` kept (its timeout is the caller's clock). Every
+ * other request — the customer's own calls with the anon key and their JWT, a
+ * provider, Neon, the Cloudflare API, the build service next door, the R2
+ * gateway itself — goes out untouched. The marker is the tell; the origin is
+ * the belt.
+ */
+export function gatewayFetch({ gateway, sbUrl, fetch: f = globalThis.fetch } = {}) {
+  if (!gateway || !gateway.url || !gateway.token) throw new Error("the gateway fetch needs its gateway");
+  const base = String(gateway.url).replace(/\/+$/, "");
+  const origin = new URL(String(sbUrl)).origin;
+  return async function fetchThroughGateway(input, init) {
+    const req = typeof Request !== "undefined" && input instanceof Request ? input : null;
+    let u;
+    try { u = new URL(req ? req.url : String(input)); } catch { return f(input, init); }
+    if (u.origin !== origin) return f(input, init);
+    const headers = new Headers(req ? req.headers : undefined);
+    if (init && init.headers) for (const [k, v] of new Headers(init.headers)) headers.set(k, v);
+    const marked = headers.get("apikey") === SB_MARKER || headers.get("authorization") === "Bearer " + SB_MARKER;
+    if (!marked) return f(input, init);
+    const method = String((init && init.method) || (req && req.method) || "GET").toUpperCase();
+    const fwd = new Headers();
+    for (const h of SB_REQUEST_HEADERS) if (headers.has(h)) fwd.set(h, headers.get(h));
+    fwd.set("authorization", "Bearer " + gateway.token);
+    let body;
+    if (method !== "GET" && method !== "HEAD") body = init && init.body !== undefined ? init.body : (req ? req.body : undefined);
+    const signal = (init && init.signal) || (req && req.signal) || undefined;
+    return f(base + "/sb" + u.pathname + u.search, {
+      method, headers: fwd, body, signal, ...(body != null && typeof body !== "string" ? { duplex: "half" } : {}),
+    });
+  };
+}
+
+/**
+ * The env for one job. `secrets` are the string bindings (keys, the flags);
+ * `gateway` is `{ url, token }`; `sb` — `{ url }`, the Supabase origin the
+ * shim intercepts — puts `SB_MARKER` under `SUPABASE_SERVICE_KEY` and
+ * `CREDITS_MINT_SECRET`, whatever `secrets` carried under those names (a
+ * launch is refused with them; this is the belt); `fetch` is injected for
  * tests. Every non-string binding is either the shim or absent.
  */
-export function makeContainerEnv({ secrets = {}, gateway, fetch: f } = {}) {
+export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f } = {}) {
   if (!gateway || !gateway.url || !gateway.token) throw new Error("a job env needs its gateway");
   const env = {};
   for (const [k, v] of Object.entries(secrets || {})) if (typeof v === "string") env[k] = v;
+  if (sb && sb.url) { env.SUPABASE_SERVICE_KEY = SB_MARKER; env.CREDITS_MINT_SECRET = SB_MARKER; }
   env.SITES_BUCKET = new GatewayBucket({ url: gateway.url, token: gateway.token, fetch: f });
   env.BUILD_QUEUE = refusingQueue;
   env.SITE_BUILD_CONTAINER = { local: true };

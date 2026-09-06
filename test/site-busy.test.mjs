@@ -400,7 +400,8 @@ test("the runner: a leased row is taken over from the launch's holder by name an
 });
 
 test("the launch admits a holder in a minted owner's shape and nothing else, and the runner hands it to the Worker", async () => {
-  const good = { v: 1, kind: "edit", id: ID, gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "t" }, secrets: {}, buildPort: 8080 };
+  // v2 since stage 4b (the launch names the Supabase origin; the credential shape is sb-gateway.test.mjs's).
+  const good = { v: 2, kind: "edit", id: ID, gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "t" }, sb: { url: "https://ujrqdmmtcptvimazlhom.supabase.co" }, secrets: {}, buildPort: 8080 };
   assert.equal(readLaunch(JSON.stringify(good)).holder, undefined);
   assert.equal(readLaunch(JSON.stringify({ ...good, holder: "c_abc123" })).holder, "c_abc123");
   for (const bad of ["", "ab", "x".repeat(81), "has space", ["c_abc"], 7, { c: 1 }]) {

@@ -13199,12 +13199,19 @@ async function gatewayKeyFor(env) {
   return k;
 }
 
-/** The gateway as this Worker mounts it: the real bucket, the derived key. */
+/**
+ * The gateway as this Worker mounts it: the real bucket, the derived key —
+ * and, since stage 4b (2026-09-06), the platform's Supabase origin with the
+ * SERVICE KEY and the MINT SECRET, which the job process no longer holds: a
+ * job's RPCs and table reads arrive under `/sb/` with the job token and go
+ * out to Postgres from here with the real credentials.
+ */
 function jobGateway(env) {
   return gatewayHandler({
     bucket: env && env.SITES_BUCKET,
     verify: async (t) => { const k = await gatewayKeyFor(env); return k ? verifyJobToken(t, k, Date.now()) : null; },
     log: (why, d) => console.error("job gateway refused:", why, JSON.stringify(d)),
+    sb: { url: SUPABASE_URL, key: (env && env.SUPABASE_SERVICE_KEY) || "", mint: (env && env.CREDITS_MINT_SECRET) || "" },
   });
 }
 
@@ -13241,8 +13248,14 @@ async function fireContainerJob(env, id, { holder = "" } = {}) {
   if (!key) return { fired: false, why: "no-key" };
   const token = await signJobToken({ id, slug: job.slug, uid: job.uid, exp: Math.floor((Date.now() + EDIT_JOB_MS) / 1000) + JOB_TOKEN_GRACE_S }, key);
   const payload = JSON.stringify({
-    v: 1, kind: "edit", id,
+    // v2 (stage 4b, 2026-09-06): the launch names the Supabase origin the
+    // runner's fetch shim intercepts and carries NO Supabase credential —
+    // `jobSecrets` no longer lists the service key or the mint, the runner
+    // refuses a launch that has them, and a runner from before this (v1) answers
+    // this shape 400, which is the inline path below.
+    v: 2, kind: "edit", id,
     gateway: { url: "https://" + APP_ZONE + "/api/job/" + id, token },
+    sb: { url: SUPABASE_URL },
     secrets: jobSecrets(env),
     buildPort: 8080,
     // WHO HOLDS THE ROW'S LEASE (stage 6): the consumer's own name, for the
