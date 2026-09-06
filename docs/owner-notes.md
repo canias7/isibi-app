@@ -3630,3 +3630,60 @@ it needs a stuck job, which nobody can make on purpose; the log line to
 look for is `job <id>: stopping (deadline)` followed by `stopped:
 deadline` on the record. The Worker and the container's code change, so
 the merge rolls the container.
+
+## 2026-09-06 — Stage 5b/5c: a build runs inside the site's container
+
+The next missing step, and the one the plan called the biggest: until now
+only edits and add-ons ran in the site's container. A BUILD still held a
+Worker queue slot for its design (three minutes or so), fired the page
+generation at the container and walked away, and then a chain of short
+"looks" came back every minute to collect the answer, refire a lost one,
+or give up — the whole resume machinery existed only because the Worker
+had fifteen minutes and a generation alone can take ten.
+
+**What changed.**
+- **The consumer hands the whole build to the site's container** — for the
+  identities the runner flags admit (the same canary/everyone doors as
+  edits) — and returns in seconds. The container runs the build from
+  start to finish: the design, the page generation (to the build service
+  next door, no fire, no resume looks), the compile, the publish. It has
+  a longer clock there: thirty minutes for the job, twenty-seven for the
+  build's own budget, against the consumer's thirteen.
+- **The build's token follows the name.** A revise, or a first build where
+  the customer chose a free name, is scoped to that site from the start.
+  A first build with NO name yet gets a "pre-scope" token that can touch
+  only the job's own objects; the moment the designer names the site,
+  the job asks the gateway to re-scope it — the Worker checks the name is
+  free or the customer's own, never somebody else's, and re-mints the
+  token. A name another account holds is never fired at a container at
+  all: the inline path answers "that name is taken" in seconds as it
+  always did.
+- **The row learns the site's name from the holder** right after the name
+  is claimed (a first build's row is filed under a placeholder; the fire
+  used to set the real name, and a build that runs whole never fires).
+- **A stopped build ends as a build**: the build's own clock reads the
+  runner's stop signal (stage 5d), so a stop refuses the next stage and
+  publishes the stand-in rather than dying mid-flight.
+- Everything the runner cannot take — no room, an old image, a refusal,
+  the flags off, a row the consumer does not hold — is the Worker
+  building exactly as before, said so in the log.
+
+**What it means for you.** Nothing visible on a build that works. The
+Worker's queue slots are freed for the whole length of every build the
+runner takes; a build can run longer than fifteen minutes without the
+resume chain; and one more class of "the consumer was evicted mid-build"
+goes away for the sites the runner takes. The resume chain stays for the
+builds the Worker still runs itself.
+
+**Proven / not proven.** Driven: the fork through the real queue handler
+six ways, the runner's takeover through the Worker's own export, the
+scope op through the real gateway handler, the shim's re-scope, the
+build route's scope hook through the real route, and the container
+harness running a build launch through the real runner. Sweep: 64 mutants, 61 killed, none surviving, three comment-only controls survived — two got past the first pass, both gaps in the guard (a hand-forged token, and the wrong key asked of the wall), both closed and re-run to a kill.
+Suite 5,333; harness 373/373. NOT proven live — the canary is the
+owner's: a revise of fretwork-1 (~17 credits) with `JOB_RUNNER_CANARY`
+naming it (the deploy's default already does), or a first build with the
+owner's uid in the canary list; the Worker log says `job runner: fired
+build <id> into fretwork-1's lane`, the build service's log carries the
+child's lines, and the site publishes with no `resume:` mark on its
+trace. Pushed to the branch, NOT merged (a merge rolls the container).

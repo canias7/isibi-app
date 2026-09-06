@@ -34,10 +34,10 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
-import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "./builder/build-budget.mjs";
+import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "./builder/build-budget.mjs";
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
-import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken } from "./builder/job-gateway.mjs";
-import { JOB_KIND, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
+import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
+import { JOB_KIND, BUILD_JOB_MS, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
   PUBLISH_LEASE_S, REPLAY_HEADER, FINAL_HEADER, FINAL_VALUE, makeEditBudget, cleanIdemKey, newLeaseOwner,
@@ -64,7 +64,7 @@ import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, 
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
-import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, isRowSlug, buildOutcome, rowVerdict, genBound, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
+import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -6504,7 +6504,7 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "" }) {
  * before this existed, one whose route could not file, or a sandbox with no
  * service key, and is not a failure.
  */
-async function claimBuildRow(env, id, owner, holder) {
+async function claimBuildRow(env, id, owner, holder, slug = null) {
   const c = await editRpc(env, "edit_claim", claimArgs(env, id, owner));
   if (c && c.claimed === true) return { held: true, row: true };
   // NO ANSWER AT ALL (stage 3a): the RPC failed, was refused, or answered no
@@ -6527,7 +6527,10 @@ async function claimBuildRow(env, id, owner, holder) {
   // still holds its thirty minutes — either way the collector knows the
   // holder's name and the handoff moves the lease from that name to this.
   if (c.error === "leased" && holder) {
-    const h = await editRpc(env, "edit_handoff", { p_id: id, p_owner: holder, p_next: owner, p_ttl: LEASE_TTL_S, p_state: null, p_slug: null });
+    // THE LAUNCH'S SLUG RIDES THE TAKEOVER (stage 5b): a build fired with its
+    // site known names it here, so the row learns the site the moment the
+    // runner holds it; null for the collector and for a build with no name yet.
+    const h = await editRpc(env, "edit_handoff", { p_id: id, p_owner: holder, p_next: owner, p_ttl: LEASE_TTL_S, p_state: null, p_slug: isRowSlug(slug) ? slug : null });
     if (h && h.ok === true) return { held: true, row: true };
     console.log("build row:", id, "is held by another and not by", holder, "—", String((h && h.error) || "rpc"));
     return { held: false, row: true };
@@ -6650,6 +6653,23 @@ async function handoffBuildRow(env, { id, from, genId, slug }) {
 /** The container's report landed: a short expiry, the holder kept — the collector claims or takes over, or the sweep ends it. */
 async function releaseBuildRow(env, { id, genId }) {
   return editRpc(env, "edit_handoff", { p_id: id, p_owner: containerOwner(genId), p_next: null, p_ttl: RELEASE_TTL_S, p_state: null, p_slug: null });
+}
+
+/**
+ * THE ROW LEARNS ITS SITE FROM THE HOLDER (stage 5b, 2026-09-06). A first
+ * build's row is filed under a placeholder, and the fire's handoff used to
+ * set the real name — a build that runs whole inside the container never
+ * fires. So the build route says the name here, once the claim is the
+ * customer's: a SELF-HANDOFF, `edit_handoff` from the holder's name to the
+ * same name, the one RPC that sets a row's slug, moving nothing else (the
+ * lease renews, as a beat would). Best-effort — the row is an instrument —
+ * and said in the log when it does not land.
+ */
+async function rowLearnsSlug(env, { id, owner, slug }) {
+  if (!id || !owner || !isRowSlug(slug)) return null;
+  const h = await editRpc(env, "edit_handoff", { p_id: id, p_owner: owner, p_next: owner, p_ttl: LEASE_TTL_S, p_state: null, p_slug: isRowSlug(slug) ? slug : null });
+  if (!h || h.ok !== true) console.log("build row:", id, "did not learn its name", slug, "—", String((h && h.error) || "rpc"));
+  return h;
 }
 
 /**
@@ -12383,7 +12403,7 @@ async function awaitJobResult(env, id, uid) {
  * two come to disagree. What this side owns is the WORK, which outlives the
  * request by design.
  */
-async function runQueuedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
+async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, slug: launchSlug = "", budgetMs = null } = {}) {
   let job = null;
   // THE RAW OBJECT IS KEPT for one reason: a claim the site's own lock refuses
   // (stage 6) puts it back, so the message re-sent with a delay finds it.
@@ -12418,7 +12438,12 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   // the row is an instrument on top of that, and a build that cannot claim it
   // — no row, no service key, a refusal — builds exactly as before.
   const rowOwner = newLeaseOwner();
-  const row = await claimBuildRow(env, id, rowOwner, null);
+  // THE RUNNER TAKES THE LEASE OVER BY NAME (stage 5b): inside the container
+  // this runs with the Worker consumer's own lease name as `takeOver` — that
+  // consumer claimed the row and fired this build — and the launch's slug
+  // rides onto the handoff so the row learns the site the moment the runner
+  // holds it. Null for the Worker's own fresh claim.
+  const row = await claimBuildRow(env, id, rowOwner, takeOver, launchSlug);
   // ── THE SITE IS SOMEBODY ELSE'S RIGHT NOW (stage 6) ────────────────────────
   //
   // A revise whose site an edit, an addon or the platform rebuild holds is
@@ -12467,7 +12492,10 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   // carrying `tries` — rather than started on an isolate a deploy may be about
   // to evict. The second time it builds as it always did: the row is an
   // instrument, and a database that is down is not a deploy.
-  if (row.unread && tries < CLAIM_RETRY_MAX) {
+  // …AND NEVER THE RUNNER'S (stage 5b): a runner has no queue to re-send on,
+  // so its claim that could not be read is a build that runs without a
+  // lease, as a second delivery always did.
+  if (row.unread && tries < CLAIM_RETRY_MAX && !takeOver) {
     let kept = false;
     try { await env.SITES_BUCKET.put(jobKey(id), raw); kept = true; }
     catch (e) { console.error("build queue: could not put the job back for", id, String((e && e.message) || e)); }
@@ -12478,6 +12506,48 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
     }
   }
   const lease = row.held ? rowOwner : null;
+
+  // ── THE BUILD RUNS IN THE SITE'S CONTAINER WHEN IT CAN (stage 5b, 2026-09-06) ──
+  //
+  // The edit consumer's fork, on the build. For the identities the runner
+  // flags admit, this consumer hands the WHOLE build — design, generation,
+  // compile, publish — to the site's own container, which runs this very
+  // module under Node and executes `runQueuedSiteBuild` itself (`takeOver`
+  // above, taking the lease over from `rowOwner`), and returns: the
+  // invocation is over in seconds instead of holding a queue slot for the
+  // design and firing the generation into a resume chain. Only with the
+  // lease held (the runner takes it over by name; there is nothing to take
+  // otherwise), only from the Worker's own consumer (a runner never fires),
+  // and only once the flags say the runner is on — an off platform pays no
+  // read. The object goes BACK for the runner first, since it was deleted on
+  // read above, and is taken again when the fire fails: a container that
+  // cannot take it (no room, an older image, a refusal) is this consumer
+  // building exactly as it did, said so in the log. WHO the build is for and
+  // WHICH site decide the token's scope (`buildFireIdentity`): a revise or a
+  // chosen free name is scoped to the name from the start; a stranger's name
+  // is never fired (the inline path answers its 409 in seconds); a build
+  // with no name yet is fired PRE-SCOPED and re-scoped inside the job the
+  // moment the designer names the site.
+  if (lease && !takeOver && jobRunnerOn(env)) {
+    const who = await buildFireIdentity(env, job);
+    if (who) {
+      let kept = false;
+      try { await env.SITES_BUCKET.put(jobKey(id), raw); kept = true; }
+      catch (e) { console.error("build queue: could not put the job back for the runner", id, String((e && e.message) || e)); }
+      if (kept) {
+        const beat = buildRowBeat(env, id, lease);
+        let fire;
+        try { fire = await fireContainerJob(env, id, { holder: lease, kind: "build", who }); }
+        finally { clearInterval(beat); }
+        if (fire.fired) {
+          console.log("job runner: fired build", id, "into", who.pre ? "a lane of its own (pre-scoped)" : who.slug + "'s lane");
+          return;
+        }
+        if (fire.why !== "off") console.log("job runner: inline build", id, "—", fire.why);
+        try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the token expires on its own */ }
+      }
+    }
+  }
   const rowBeat = lease ? buildRowBeat(env, id, lease) : null;
 
   const rec = makeRecorder({
@@ -12485,7 +12555,13 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
     hold: (p) => { try { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); } catch { /* never */ } },
   });
   const tr = makeTrace(undefined, (snap) => rec.step(snap));
-  const budget = makeBudget();
+  // THE CONTAINER'S LONGER CLOCK, AND THE STOP (stage 5b/5d): inside the
+  // container the whole build runs here under `CONTAINER_BUILD_BUDGET_MS`
+  // rather than the consumer's ceiling, and the budget reads the runner's
+  // stop signal, so a stopped build refuses its next stage and publishes the
+  // stand-in instead of dying mid-flight. The Worker's own consumer hands no
+  // budget (the default) and has no stop signal.
+  const budget = makeBudget(budgetMs || undefined, undefined, env && env.JOB_STOP && env.JOB_STOP.signal ? env.JOB_STOP.signal : null);
   let out;
   try {
     // THE JOB ID TRAVELS, because it is what the resume record is keyed by. A
@@ -13193,11 +13269,14 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
  * covers the addon too — one queue kind, two ops, as `runQueuedSiteEdit` has
  * always read them.
  */
-export async function runContainerJob(env, ctx, { kind, id, holder = "" } = {}) {
+export async function runContainerJob(env, ctx, { kind, id, holder = "", slug = "" } = {}) {
   // THE LEASE'S HOLDER RIDES THE LAUNCH (stage 6): the consumer claimed the
   // row before it fired, and the runner takes the lease over from that name.
   if (kind === "edit") return runQueuedSiteEdit(env, ctx, id, { takeOver: typeof holder === "string" && holder ? holder : null });
-  if (kind === "build") return runQueuedSiteBuild(env, ctx, id);
+  // A BUILD, WHOLE, IN THE CONTAINER (stage 5b): the takeover names the
+  // launch's slug on the row, and the build runs under the container's own
+  // longer budget — no fire, no resume; the generation is waited for here.
+  if (kind === "build") return runQueuedSiteBuild(env, ctx, id, { takeOver: typeof holder === "string" && holder ? holder : null, slug: typeof slug === "string" ? slug : "", budgetMs: CONTAINER_BUILD_BUDGET_MS });
   if (kind === "resume") return runResumedSiteBuild(env, ctx, id);
   throw new Error("no such job kind: " + String(kind));
 }
@@ -13225,7 +13304,42 @@ function jobGateway(env) {
     verify: async (t) => { const k = await gatewayKeyFor(env); return k ? verifyJobToken(t, k, Date.now()) : null; },
     log: (why, d) => console.error("job gateway refused:", why, JSON.stringify(d)),
     sb: { url: SUPABASE_URL, key: (env && env.SUPABASE_SERVICE_KEY) || "", mint: (env && env.CREDITS_MINT_SECRET) || "" },
+    // THE SCOPE OP (stage 5b): a pre-scoped build's job asks for the name the
+    // designer gave, and this side re-mints its token for that site — free or
+    // this owner's own, read FRESH (never the memoized lookup, whose stale
+    // answer could hand out a name somebody just took), signed with the
+    // derived key the fire signs with.
+    scope: {
+      sign: async (p) => { const k = await gatewayKeyFor(env); if (!k) throw new Error("no key"); return signJobToken(p, k); },
+      owner: async (slug) => { const r = await siteBackendRowFresh(env, slug); return (r && r.uid) || null; },
+    },
   });
+}
+
+/**
+ * WHO A QUEUED BUILD IS FOR AND WHICH SITE (stage 5b, 2026-09-06), for the
+ * token the fire mints — read off the job object and the Worker's own site
+ * lookup, never the container's. A revise, or a chosen name nobody holds, is
+ * scoped to the name from the start (the wall's uid binding on the claim's
+ * row keeps a stranger out of it, and a claim lost to a race is the build's
+ * own "that name is taken"); a name ANOTHER account holds is never fired —
+ * null, and the inline path answers its 409 in seconds with no token minted
+ * for a site that is not this customer's; a build with no name yet is
+ * PRE-SCOPED — the placeholder's lane, a token that opens only the job's own
+ * objects, and the gateway's scope op the moment the designer names the
+ * site. The owner is asked of the memoized lookup, which answers null for a
+ * free name AND for a read that failed: cannot-tell fires the build scoped to
+ * the name, and the build's own fresh ownership check inside the job decides
+ * honestly.
+ */
+async function buildFireIdentity(env, job) {
+  let body = null;
+  try { body = JSON.parse(job.body); } catch { body = null; }
+  const named = cleanBuildSlug(body && body.slug);
+  if (!named) return { uid: job.uid, slug: "", pre: true };
+  const owner = await siteOwnerBySlug(named, env);
+  if (owner && owner !== job.uid) return null;
+  return { uid: job.uid, slug: named, pre: false };
 }
 
 /**
@@ -13246,27 +13360,42 @@ function jobGateway(env) {
  * THE JOB OBJECT IS READ AND LEFT: the runner reads it again through the
  * gateway and deletes it after its claim, exactly as this consumer would. The
  * token outlives the job's clock by a grace, for the finalize.
+ *
+ * A BUILD IS FIRED THE SAME WAY (stage 5b, 2026-09-06), with the kind's own
+ * clock and an identity the build consumer resolved (`who`, from
+ * `buildFireIdentity`): the token is scoped to the site when there is one,
+ * and PRE-SCOPED — the placeholder as its slug and its lane, `pre` on the
+ * token and the launch — for a build with no name yet.
  */
-async function fireContainerJob(env, id, { holder = "" } = {}) {
+async function fireContainerJob(env, id, { holder = "", kind = "edit", who: identity = null } = {}) {
   if (!jobRunnerOn(env)) return { fired: false, why: "off" };
   if (!env || !env.SITES_BUCKET || !env.SITE_BUILD_CONTAINER) return { fired: false, why: "no-binding" };
-  let job = null;
-  try {
-    const obj = await env.SITES_BUCKET.get(editJobKey(id));
-    if (obj) job = readEditJob(JSON.parse(await obj.text()));
-  } catch { job = null; }
-  if (!job) return { fired: false, why: "no-object" };
-  if (!jobRunnerFor(env, { uid: job.uid, slug: job.slug })) return { fired: false, why: "not-this-one" };
+  let who = identity;
+  if (kind === "edit") {
+    let job = null;
+    try {
+      const obj = await env.SITES_BUCKET.get(editJobKey(id));
+      if (obj) job = readEditJob(JSON.parse(await obj.text()));
+    } catch { job = null; }
+    if (!job) return { fired: false, why: "no-object" };
+    who = { uid: job.uid, slug: job.slug, pre: false };
+  }
+  if (!who) return { fired: false, why: "no-object" };
+  if (!jobRunnerFor(env, { uid: who.uid, slug: who.slug })) return { fired: false, why: "not-this-one" };
   const key = await gatewayKeyFor(env);
   if (!key) return { fired: false, why: "no-key" };
-  const token = await signJobToken({ id, slug: job.slug, uid: job.uid, exp: Math.floor((Date.now() + EDIT_JOB_MS) / 1000) + JOB_TOKEN_GRACE_S }, key);
+  // THE KIND'S OWN CLOCK: an edit's budget, or a build's longer one — the
+  // whole build runs in the container now — for the deadline and the expiry.
+  const budgetMs = kind === "build" ? BUILD_JOB_MS : EDIT_JOB_MS;
+  const pre = who.pre === true;
+  const token = await signJobToken({ id, slug: pre ? preScopeSlug(id) : who.slug, uid: who.uid, exp: Math.floor((Date.now() + budgetMs) / 1000) + JOB_TOKEN_GRACE_S, pre }, key);
   const payload = JSON.stringify({
     // v2 (stage 4b, 2026-09-06): the launch names the Supabase origin the
     // runner's fetch shim intercepts and carries NO Supabase credential —
     // `jobSecrets` no longer lists the service key or the mint, the runner
     // refuses a launch that has them, and a runner from before this (v1) answers
     // this shape 400, which is the inline path below.
-    v: 2, kind: "edit", id,
+    v: 2, kind, id,
     gateway: { url: "https://" + APP_ZONE + "/api/job/" + id, token },
     sb: { url: SUPABASE_URL },
     secrets: jobSecrets(env),
@@ -13274,16 +13403,24 @@ async function fireContainerJob(env, id, { holder = "" } = {}) {
     // THE JOB'S DEADLINE (stage 5d): this consumer's clock plus the job's
     // whole budget, the same clock the token's expiry is minted from. The
     // build service stops a child that outlives it by a grace.
-    deadlineAt: Date.now() + EDIT_JOB_MS,
+    deadlineAt: Date.now() + budgetMs,
     // WHO HOLDS THE ROW'S LEASE (stage 6): the consumer's own name, for the
     // runner to take it over from. Not a secret — a lease name reaches
     // nothing but the row's own WHERE.
     ...(holder ? { holder } : {}),
+    // A BUILD'S SITE, OR NONE YET (stage 5b): the runner's takeover names the
+    // slug on the handoff; a pre-scoped launch names none and carries the
+    // flag, which is what puts the scope hook on the job's env.
+    ...(kind === "build" && !pre && who.slug ? { slug: who.slug } : {}),
+    ...(pre ? { pre: true } : {}),
   });
   const deadline = Date.now() + JOB_FIRE_MS;
   let out;
   try {
-    const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(job.slug));
+    // A NAMELESS BUILD RUNS IN A LANE OF ITS OWN: there is no site yet to
+    // share one with, and the shim inside ignores the lane anyway — the job
+    // runs in whichever container it was fired at.
+    const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(pre ? preScopeSlug(id) : who.slug));
     out = await withRoom(async () => {
       const r = await c.fetch(new Request("http://build/job/run", {
         method: "POST", headers: { "content-type": "application/json" }, body: payload,
@@ -14640,6 +14777,31 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       const slug = namedSlug || cleanSlug(designed && designed.slug)
         || ("site-" + Math.random().toString(36).slice(2, 8));
 
+      // ── THE JOB'S SCOPE FOLLOWS THE NAME (stage 5b, 2026-09-06) ────────
+      //
+      // A build running inside the site's container under a PRE-SCOPED
+      // token (a first build the designer has just named) carries a hook the
+      // runner built: it asks the gateway to re-mint the token for this name
+      // — free, or this owner's own — before anything below reads or writes
+      // under it (the recorder's row, the ownership check, the claim). The
+      // Worker's own consumer and every other caller carry no hook. A name a
+      // stranger holds is the claim's own refusal, refunded and answered as
+      // the claim answers it; a gateway that cannot answer is "could not
+      // check that name", refunded — never a build under a name it cannot
+      // touch.
+      if (env && typeof env.JOB_SCOPE === "function") {
+        try { await env.JOB_SCOPE(slug); }
+        catch (e) {
+          if (e && e.conflict) {
+            const back = await refundFields();
+            return Response.json({ ok: false, error: "that name is taken", ...back, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I’ll build it under that." }, { status: 409 });
+          }
+          console.error("job scope failed:", slug, e && (e.detail || e.message));
+          const back = await refundFields();
+          return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment.", ...back }, { status: 503 });
+        }
+      }
+
       // THE RECORDER GETS ITS KEY HERE — the first moment there is one. Every
       // step above (auth, the body, the credit gate, the design call) has been
       // held in the recorder rather than dropped, and this flushes them, so a
@@ -14843,6 +15005,15 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           await claimSiteSlug(env, slug, bu.id, brief);
         }
         tr.at("provision", needsDb ? undefined : { db: 0 });
+        // ── THE ROW LEARNS THE NAME (stage 5b) ──────────────────────────
+        //
+        // A first build's row was filed under a placeholder; the fire's
+        // handoff used to set the real slug, and a build that runs whole in
+        // the container never fires. So the row learns the name here, from
+        // the holder itself — after the claim, so a name that was not the
+        // customer's is never written to it, and best-effort, as every touch
+        // of the row is.
+        if (lease && jobId) await rowLearnsSlug(env, { id: jobId, owner: lease, slug });
       } catch (e) {
         if (e && e.conflict) {
           const back = await refundFields();
@@ -15453,7 +15624,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // answers the customer with a `resuming` stage nothing handles. All
             // three are what a resume needs: an id to key the record by, a
             // bucket to write it to, and a queue to be woken through.
-            canFire: !!(jobId && env.SITES_BUCKET && env.BUILD_QUEUE),
+            //
+            // …AND A QUEUE THAT CAN CARRY THE RESUME BACK (stage 5b): inside
+            // the site's container the queue REFUSES (`refusingQueue`), and a
+            // build there has the container's own clock — so it makes the
+            // generation call and waits, which is the whole point of running
+            // it there. A queue that says it refuses is no queue to fire on.
+            canFire: !!(jobId && env.SITES_BUCKET && env.BUILD_QUEUE && !env.BUILD_QUEUE.refusing),
             // THE JOB ID RIDES TO THE FIRE (stage 2c), so the container can be
             // told which row's lease it holds and where to beat. Null on the
             // inline path, where there is no row to hold.

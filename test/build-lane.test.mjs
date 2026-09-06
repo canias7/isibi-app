@@ -336,13 +336,18 @@ test("EVERY SITE BUILD IS KEYED BY THE SLUG, and only a probe may key by a liter
       continue;
     }
     // THE JOB RUNNER'S FIRE IS THE FIFTH LEGAL SHAPE (2026-09-04), and it is the
-    // rule's own case rather than an exception to it: the queued edit is fired
-    // at the lane of the site it edits — `laneName(job.slug)`, the slug read off
-    // the STORED job object, which the consumer alone can read — so it lands
-    // on the container that will compile it, under `oneAtATime` with every
-    // other build of that site. Admitted by name AND by place: anywhere else,
-    // a job object's slug is a caller-supplied key.
-    if (arg === "laneName(job.slug)" && enclosing(at) === "fireContainerJob") continue;
+    // rule's own case rather than an exception to it: the queued job is fired
+    // at the lane of the site it works on — the slug read off the STORED job
+    // object, which the consumer alone can read (an edit's), or resolved by the
+    // build consumer off the stored object and the Worker's own owner lookup
+    // (a build's, `who.slug`) — so it lands on the container that will compile
+    // it, under `oneAtATime` with every other build of that site. RE-ANCHORED
+    // 2026-09-06 (stage 5b): a build with NO name yet is fired at a lane of its
+    // own, the job's placeholder (`preScopeSlug(id)`, the job id — minted here,
+    // never a caller's), since there is no site yet to share one with; the
+    // expression names both halves. Admitted by name AND by place: anywhere
+    // else, a job's slug is a caller-supplied key.
+    if (arg === "laneName(pre ? preScopeSlug(id) : who.slug)" && enclosing(at) === "fireContainerJob") continue;
     // Anything else that is not a build must be a FIXED literal. A probe keyed by
     // something caller-supplied could pick a container and starve a real build.
     assert.ok(arg === "laneName(slug)" || /^laneName\("[a-z0-9-]+"\)$/.test(arg),

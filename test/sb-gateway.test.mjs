@@ -568,7 +568,10 @@ test("the Worker mounts the Supabase branch with its own origin, key and mint, a
   const mount = src.slice(src.indexOf("function jobGateway(env)"), src.indexOf("\n}\n", src.indexOf("function jobGateway(env)")));
   assert.match(mount, /sb: \{ url: SUPABASE_URL, key: \(env && env\.SUPABASE_SERVICE_KEY\) \|\| "", mint: \(env && env\.CREDITS_MINT_SECRET\) \|\| "" \}/, "the gateway is not handed the Worker's Supabase origin, key and mint");
   const fire = src.slice(src.indexOf("async function fireContainerJob("), src.indexOf("\n}\n", src.indexOf("async function fireContainerJob(")));
-  assert.match(fire, /v: 2, kind: "edit", id,/, "the launch is not v2");
+  // RE-ANCHORED for stage 5b: the launch's kind is the CALLER's now (an edit
+  // or a build fire the same way); the edit's `kind: "edit"` is driven in
+  // container-job.test.mjs and the build's in build-runner.test.mjs.
+  assert.match(fire, /v: 2, kind, id,/, "the launch is not v2");
   assert.match(fire, /sb: \{ url: SUPABASE_URL \},/, "the launch does not name the Supabase origin");
   assert.match(fire, /secrets: jobSecrets\(env\),/);
 });

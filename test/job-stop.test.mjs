@@ -275,5 +275,10 @@ test("editStopped has the stopped sentence, and the fire names the deadline the 
   assert.match(stopped, /was stopped before it could publish/, "the stopped sentence is missing");
   assert.match(stopped, /p_state: why === "cancelled" \? "cancelled" : "failed"/, "a stopped job is refunded as something other than failed");
   const fire = fn("async function fireContainerJob(");
-  assert.match(fire, /deadlineAt: Date\.now\(\) \+ EDIT_JOB_MS,/, "the launch does not name the job's deadline");
+  // RE-ANCHORED for stage 5b: the deadline is the KIND's own clock — an
+  // edit's budget or a build's longer one — so the launch names `budgetMs`
+  // and the fire derives it from the kind; the edit's deadline is driven in
+  // container-job.test.mjs, the build's in build-runner.test.mjs.
+  assert.match(fire, /deadlineAt: Date\.now\(\) \+ budgetMs,/, "the launch does not name the job's deadline");
+  assert.match(fire, /const budgetMs = kind === "build" \? BUILD_JOB_MS : EDIT_JOB_MS;/, "the launch's clock is not the kind's own");
 });

@@ -2687,12 +2687,81 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
   reserve is returned by the job's own refund or, if the belt ended it, by
   the lease sweep; the Worker's cancel route does not reach the service's
   DELETE (the beat is the cancel's path; the DELETE is an operator's).
-- **Later phases**: builds through the same runner (`kind: "build"` and
-  `"resume"` are dispatched by `runContainerJob` already; the fork is not),
-  a longer clock inside the container (nothing there is bounded by the queue's
-  fifteen minutes; `EDIT_JOB_MS` still is), #52's interrupted-job answer.
-  Supabase through the gateway shipped as stage 4b, the child's clock as
-  stage 5d (the bullets above).
+- **A BUILD RUNS INSIDE THE SITE'S CONTAINER (2026-09-06, stage 5b/5c,
+  owner: *"finish the missing steps"*).** The edit and addon jobs ran in
+  the container since task #93; a build still held a Worker queue slot for
+  its design and FIRED its generation into the resume chain — short looks
+  every minute, refires, a give-up — because the consumer had fifteen
+  minutes and a generation alone can take ten. Now, for the identities the
+  runner flags admit, **the Worker's consumer claims the row, puts the job
+  object back, fires `kind: "build"` at the site's lane with its own lease
+  name as `holder`, and returns**; the runner takes the lease over by name
+  (the launch's slug on the handoff) and runs the WHOLE build there —
+  design, generation, compile, publish — with **no fire and no resume**:
+  `canFire` is false where the queue refuses (`refusingQueue.refusing`),
+  so the generation goes to the build service next door through
+  `containerPagesCall` and the job waits for it, under
+  `CONTAINER_BUILD_BUDGET_MS` (27 min; the launch's clock is
+  `BUILD_JOB_MS`, 30 min, the token's expiry and the 5d deadline minted
+  from it) instead of the consumer's thirteen; the budget reads
+  `env.JOB_STOP`, so a stopped build refuses its next stage and publishes
+  the stand-in. **THE TOKEN'S SCOPE FOLLOWS THE NAME** (`buildFireIdentity`):
+  a revise, or a chosen name nobody holds, is scoped to the site from the
+  start (the wall's uid binding on the claim's row keeps a stranger out; a
+  claim lost to a race is the build's own "that name is taken"); a name
+  ANOTHER account holds is never fired — the inline path answers its 409
+  in seconds with no token minted for a site that is not the customer's;
+  a build with NO name yet is fired PRE-SCOPED — `pre: true` in the token
+  and the launch, the placeholder `pre-<id>` as its slug and its lane, a
+  wall that opens only the job's own `jobs/` objects and the id- and
+  uid-bound calls (never a slug-bound one, not even for the placeholder)
+  — and `runSiteBuild` asks the env's `JOB_SCOPE` hook the moment the
+  designer names the site, BEFORE the recorder, the ownership check and
+  the claim: the gateway's **`POST /api/job/<id>/scope {slug}`** re-mints
+  the token for a name that is free or this owner's own (read FRESH,
+  never the memoized lookup), 403 `taken` for a stranger's (the claim's
+  own refusal shape, refunded, 409), 503 when the owner cannot be read
+  (refunded, 503 — cannot-tell is never free), 403 on a token that is not
+  pre-scoped, 400 on a name the platform would not claim (a non-string
+  refused, never coerced). Both shims carry the new token after
+  (`rescopeJob`: the fetch shim reads `gateway.token` at call time, the
+  bucket's `token` is reassigned). **The row learns the name from the
+  holder** after the claim (`rowLearnsSlug`, a self-handoff —
+  `edit_handoff` from the holder's name to itself, the one RPC that sets a
+  row's slug), since a build that runs whole never fires the handoff that
+  used to. What the runner cannot take — no room, an older image, a
+  refusal, the flags off, a row the consumer does not hold, an owner that
+  cannot be resolved — is the Worker building exactly as before, the
+  object taken back, said in the log. **The resume chain stays** for the
+  builds the Worker runs itself. Guards: `test/build-runner.test.mjs`
+  (22) — the numbers, the budget's stop, the pre-scope token and both
+  walls under it, the scope op through the real handler, the launch, the
+  env and the shim's re-scope, the fork DRIVEN through `worker.queue` six
+  ways, the runner's takeover DRIVEN through `runContainerJob`, `canFire`
+  evaluated out of the source, the build route's scope hook DRIVEN through
+  the real route, every hop read by order; the container harness runs a
+  build launch through the real runner to the consumer's own "nothing to
+  run". Two older guards re-anchored, not appeased: the fire's `kind` and
+  the launch's clock are the caller's now. **Sweep: 64 mutants, 61 killed, none surviving, none unapplied, three comment-only controls survived — two survived the first pass and both were the guard's: G3 (the reader's own check that a `pre` token names the placeholder, removed) passed because no test forged a token the mint refuses — one is signed by hand under the derived key now and refused at verify; G16 (the R2 read handed to the ordinary wall without `pre`) passed because the key the case asked for is one the ordinary wall refuses under the placeholder slug anyway — every R2 op is asked under the pre token for the placeholder's OWN prefix now, which only the pre wall refuses, and the re-minted token is driven through the same ops. Both re-run to a kill.** Suite 5,333;
+  `site build` 373/373 (367 before; the six are the build-launch case). **Not proven live**: the canary is the owner's — a
+  revise of fretwork-1 (~17 credits; the deploy's default canary names it),
+  or a first build with the owner's uid in `JOB_RUNNER_CANARY`; the Worker
+  log says `job runner: fired build <id> into fretwork-1's lane`, the
+  build service's log carries the child's lines, the trace has no
+  `resume:` mark. Stated residues: a runner whose fresh claim answers
+  `site-busy` (the consumer's lease lapsed under a slow container start)
+  cannot re-send and builds anyway, the pointer deciding — the edit path's
+  own residue; a build stopped by the deadline keeps its design debit (the
+  sweep's `external` refund moves nothing), as an evicted consumer's
+  always did; a first build's pre-scoped lane is a container of its own for
+  that build's length.
+- **Later phases**: Supabase through the gateway shipped as stage 4b, the
+  child's clock as stage 5d, and builds through the runner — whole, under a
+  longer clock, no fire and no resume — as stage 5b/5c (the bullets above).
+  What is left: the broad flip (`JOB_RUNNER_EVERYONE`, stage 5e — the
+  owner's, after the canary's live proof), the platform rebuild as a job
+  and a retention sweep of staged builds (stage 9), and #52's
+  interrupted-job answer for the builds the Worker still runs itself.
 
 ### A BUILD HAS A ROW, AND ONE LEASE MOVES ALONG ITS CHAIN (2026-09-05, stage 2c)
 
@@ -4144,7 +4213,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 367/367** against the real container (2026-09-06, stage
+- **`site build` is 373/373** against the real container (2026-09-06, stage
+  5b's six: a build launch taken by `POST /job/run`, the real runner's
+  build consumer run to its end, started as a build naming the launch's
+  site and holder, the job's own object read through the gateway with
+  the job token, nothing to run said, the container not busy after; 367
+  earlier the same day, stage
   5d's eight: a launch with a deadline taken and its record carrying it,
   the child running, `DELETE /job/<id>` answering 200 `{stopping, why:
   cancel}`, the real child ended under the stop grace with `stopped:
@@ -4174,8 +4248,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,311
-  (2026-09-06, after stage 5d's seventeen — `test/job-clock.test.mjs`'s
+  build and the pre-list payload added sixteen); the unit suite is 5,333
+  (2026-09-06, after stage 5b/5c's twenty-two in `test/build-runner.test.mjs`
+  — the numbers, the budget's stop, the pre-scope token and both walls, the
+  scope op, the launch, the env and the shim, the fork DRIVEN six ways, the
+  runner's takeover DRIVEN, `canFire` evaluated, the build route's scope
+  hook DRIVEN, the hops read; 5,311 the same day, after stage 5d's seventeen — `test/job-clock.test.mjs`'s
   eight, the policy with fake timers, and `test/job-stop.test.mjs`'s nine,
   the launch, the runner's stop, the service driven with fakes, a real
   child stopped, the routes, the drain, the gate, the sentence and the

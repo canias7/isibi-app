@@ -416,7 +416,11 @@ test("the POST's own wait asks the row every tenth look, and answers its verdict
 test("the consumer claims after the object, beats while it works, hands its name to the build, stops the beat on every exit, and closes the row after the answer", () => {
   const fn = fnW("runQueuedSiteBuild");
   const del = fn.indexOf("SITES_BUCKET.delete(jobKey(id))");
-  const claim = fn.indexOf("await claimBuildRow(env, id, rowOwner, null)");
+  // RE-ANCHORED 2026-09-06 (stage 5b): the claim takes the launch's holder
+  // (the runner's takeover by name) and slug; the Worker's own consumer hands
+  // null and "" — driven in build-runner.test.mjs. The property here is the
+  // claim's PLACE: after the object, before the recorder.
+  const claim = fn.indexOf("await claimBuildRow(env, id, rowOwner, takeOver, launchSlug)");
   const rec = fn.indexOf("makeRecorder(");
   assert.ok(del > 0 && claim > del && rec > claim, "the claim is not between the object's delete and the recorder");
   assert.match(fn, /const lease = row\.held \? rowOwner : null;/);
@@ -489,7 +493,12 @@ test("the helpers: a takeover by name on `leased`, one retry on the handoff, a r
   // not be READ is its own answer (`unread`) ahead of "no row" — so the fresh
   // consumer can ask again once before building as it always did.
   assert.match(claim, /editRpc\(env, "edit_claim", claimArgs\(env, id, owner\)\)/);
-  assert.match(claim, /if \(c\.error === "leased" && holder\) \{\s+const h = await editRpc\(env, "edit_handoff", \{ p_id: id, p_owner: holder, p_next: owner, p_ttl: LEASE_TTL_S, p_state: null, p_slug: null \}\);/,
+  // RE-ANCHORED 2026-09-06 (stage 5b): the takeover names the launch's slug
+  // on the handoff when it is a real one (a build fired with its site known),
+  // null otherwise — the collector's and a nameless build's takeovers are what
+  // they were. The property: from the named holder to this owner, for the
+  // lease's TTL, moving no state.
+  assert.match(claim, /if \(c\.error === "leased" && holder\) \{[\s\S]*?const h = await editRpc\(env, "edit_handoff", \{ p_id: id, p_owner: holder, p_next: owner, p_ttl: LEASE_TTL_S, p_state: null, p_slug: isRowSlug\(slug\) \? slug : null \}\);/,
     "a leased row is not taken over from its named holder");
   assert.match(claim, /if \(unreadClaim\(c\)\) return \{ held: false, row: false, unread: true \};\s+if \(c\.error === "no-job" \|\| c\.error === "no-service-key"\) return \{ held: false, row: false \};/, "no row is read as a row, or an unreadable claim is read as no row");
   const hand = fnW("handoffBuildRow");

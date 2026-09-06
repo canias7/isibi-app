@@ -665,7 +665,10 @@ test("the hops: every claim goes through claimArgs, the collector's gate precede
   assert.match(resume, /if \(gate\.blocked \|\| \(gate\.unread && tries < CLAIM_RETRY_MAX\)\) \{\s+const again = \{ \.\.\.packResumeMessage\(id\), \.\.\.\(gate\.unread \? \{ tries: tries \+ 1 \} : \{\}\) \};/, "a blocked or unreadable gate does not re-send the look, or an unreadable one is not bounded");
   const build = fnW("runQueuedSiteBuild");
   const busy = build.indexOf("if (row.busy) {");
-  const unread = build.indexOf("if (row.unread && tries < CLAIM_RETRY_MAX) {");
+  // RE-ANCHORED 2026-09-06 (stage 5b): the retry is the Worker's consumer's,
+  // never the runner's, which has no queue to re-send on — so the gate names
+  // `!takeOver`; the runner's own unread claim is driven in build-runner.
+  const unread = build.indexOf("if (row.unread && tries < CLAIM_RETRY_MAX && !takeOver) {");
   const lease = build.indexOf("const lease = row.held ? rowOwner : null;");
   assert.ok(busy > 0 && unread > busy && lease > unread, "the build's unread retry is not between the busy wait and the lease");
   assert.match(build, /await resendMessage\(env, \{ kind: JOB_KIND, id, tries: tries \+ 1 \},/);

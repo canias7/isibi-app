@@ -49,6 +49,15 @@ export const JOB_KIND = "site-build";
 // because the fields that would be misread are the auth token and the body.
 export const JOB_VERSION = 1;
 
+// A BUILD'S CLOCK INSIDE THE SITE'S CONTAINER (stage 5b, 2026-09-06): the
+// launch's deadline and the token's expiry are minted from it when the
+// Worker's consumer fires a build at the runner. Thirty minutes — every build
+// ever measured finished inside twelve, and the generation alone can take
+// ten; the container's own build budget (build-budget.mjs) runs under it
+// with room left for the stand-in and the terminal writes, and the build
+// service's terminator (job-clock.mjs) stops a child that outlives it.
+export const BUILD_JOB_MS = 30 * 60_000;
+
 // A job id is 32 hex characters — 128 bits from `crypto.getRandomValues`. It is
 // unguessable on purpose: whoever holds it names an R2 key holding a live access
 // token. Nothing outside the Worker can read that bucket, so this is depth

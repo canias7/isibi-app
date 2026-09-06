@@ -533,7 +533,10 @@ test("the fire waits for room and shares one clock across its attempts, read off
   // edit under a takeover from the launch's holder.
   const ex = src.slice(src.indexOf("export async function runContainerJob("), src.indexOf("\n}\n", src.indexOf("export async function runContainerJob(")));
   assert.match(ex, /kind === "edit"\) return runQueuedSiteEdit\(env, ctx, id, \{ takeOver: /);
-  assert.match(ex, /kind === "build"\) return runQueuedSiteBuild\(env, ctx, id\)/);
+  // RE-ANCHORED 2026-09-06 (stage 5b): a build runs whole in the container —
+  // under a takeover from the launch's holder, naming its slug, with the
+  // container's own budget. Driven in build-runner.test.mjs.
+  assert.match(ex, /kind === "build"\) return runQueuedSiteBuild\(env, ctx, id, \{ takeOver: [^\n]*budgetMs: CONTAINER_BUILD_BUDGET_MS \}\)/);
   assert.match(ex, /kind === "resume"\) return runResumedSiteBuild\(env, ctx, id\)/);
 });
 

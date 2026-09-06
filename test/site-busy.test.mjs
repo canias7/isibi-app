@@ -522,10 +522,13 @@ test("the consumer runs under a handed lease, takes over on `leased` only when t
   const send = defer.indexOf("return resendMessage(env, { kind: EDIT_JOB_KIND, id },");
   assert.ok(gave > 0 && send > gave, "a job the RPC gave up on could be re-sent");
   const ex = fnW("runContainerJob");
-  assert.match(ex, /\{ kind, id, holder = "" \} = \{\}/);
+  // RE-ANCHORED 2026-09-06 (stage 5b): the job carries a build's slug beside
+  // the holder, and the fire takes the kind and an identity; the holder's
+  // hop is the property, driven for an edit here and a build in build-runner.
+  assert.match(ex, /\{ kind, id, holder = "", slug = "" \} = \{\}/);
   assert.match(ex, /runQueuedSiteEdit\(env, ctx, id, \{ takeOver: typeof holder === "string" && holder \? holder : null \}\)/);
   const fire = fnW("fireContainerJob");
-  assert.match(fire, /async function fireContainerJob\(env, id, \{ holder = "" \} = \{\}\)/);
+  assert.match(fire, /async function fireContainerJob\(env, id, \{ holder = "", kind = "edit", who: identity = null \} = \{\}\)/);
   assert.match(fire, /\.\.\.\(holder \? \{ holder \} : \{\}\),/, "the launch does not carry the holder");
 });
 
@@ -539,7 +542,9 @@ test("the build consumer waits or gives the deposit back; the collector goes on 
   const build = fnW("runQueuedSiteBuild");
   const read = build.indexOf("raw = await obj.text(); job = readJob(JSON.parse(raw));");
   const del = build.indexOf("await env.SITES_BUCKET.delete(jobKey(id));");
-  const rowAt = build.indexOf("const row = await claimBuildRow(env, id, rowOwner, null);");
+  // RE-ANCHORED 2026-09-06 (stage 5b): the claim takes the launch's holder and
+  // slug (null and "" from the Worker's own consumer); the order is the property.
+  const rowAt = build.indexOf("const row = await claimBuildRow(env, id, rowOwner, takeOver, launchSlug);");
   const busy = build.indexOf("if (row.busy) {");
   const reverse = build.indexOf('await reverseCredits(env, job.uid, "build:" + id + ":deposit", row.gated ? "gated" : "busy", SITE_BUILD_FEE);');
   const back = build.indexOf("await env.SITES_BUCKET.put(jobKey(id), raw);");

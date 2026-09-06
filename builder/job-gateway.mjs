@@ -29,6 +29,13 @@
 // so a gateway request costs no read before the R2 call it carries. It expires
 // with the job's own clock and a little grace.
 //
+// A BUILD WITH NO NAME YET (stage 5b, 2026-09-06) carries a PRE-SCOPE token:
+// `pre: true` in the payload and the placeholder `pre-<id>` as its slug
+// (`preScopeSlug`), refused at the mint AND at the reader if the two disagree.
+// It opens the job's own objects and the id- and uid-bound calls, nothing of
+// any site — and is re-minted for the site's real name by the `/scope` op the
+// moment the designer gives one.
+//
 // ── THE SCOPE ────────────────────────────────────────────────────────────────
 //
 // `allowedJobKey(slug, id, key)` is the wall: a site's own prefixes (`sites/`,
@@ -37,7 +44,8 @@
 // the job's own objects under `jobs/` — read out of the key builders the code
 // uses, not guessed. A key outside it is refused with 403 and LOGGED with the
 // key, so the first live job on a site says exactly which key it needed that
-// this list lacks, and the answer is a line here, never a wider wall.
+// this list lacks, and the answer is a line here, never a wider wall. Under a
+// pre-scope token (`pre`) only the job's own objects pass.
 //
 // ── THE OPS ──────────────────────────────────────────────────────────────────
 //
@@ -48,6 +56,8 @@
 //                        condition fails, which the shim answers as R2 does: null
 //   DELETE /r2?key=      one object; POST /r2/delete {keys} for several
 //   POST   /r2/list      {prefix, cursor, limit, delimiter} → the listing
+//   POST   /scope        {slug} → a pre-scope token re-minted for that name
+//                        (stage 5b; the rules on `gatewayHandler`)
 //
 // Metadata rides as headers because R2 keeps it beside the bytes and a JSON
 // envelope would mean base64 for every dist file. `x-gf-meta-<name>` carries a
@@ -190,6 +200,9 @@ export function sbDecision(who, method, path, search, text, mint) {
         continue;
       }
       if (String(word).endsWith("?") && (v === undefined || v === null)) continue;
+      // A PRE-SCOPED JOB NAMES NO SITE (stage 5b): a slug-bound argument is
+      // refused whatever it says — the placeholder included.
+      if (who.pre === true && String(word).replace(/\?$/, "") === "slug") return { ok: false, why: "bind:" + arg };
       if (v !== boundValue(who, word)) return { ok: false, why: "bind:" + arg };
     }
     if (Object.hasOwn(body, "p_mint")) {
@@ -205,6 +218,7 @@ export function sbDecision(who, method, path, search, text, mint) {
   const rule = SB_TABLES[table][m];
   if (!rule) return { ok: false, why: "method" };
   for (const [param, word] of Object.entries(rule.filter || {})) {
+    if (who.pre === true && word === "slug") return { ok: false, why: "filter:" + param };
     if (params.get(param) !== "eq." + boundValue(who, word)) return { ok: false, why: "filter:" + param };
   }
   if (m === "GET" || m === "HEAD" || m === "DELETE") return { ok: true, body: undefined };
@@ -215,6 +229,7 @@ export function sbDecision(who, method, path, search, text, mint) {
   for (const row of rows) {
     if (!row || typeof row !== "object" || Array.isArray(row)) return { ok: false, why: "body" };
     for (const [field, word] of Object.entries(rule.rows || {})) {
+      if (who.pre === true && word === "slug") return { ok: false, why: "row:" + field };
       if (row[field] !== boundValue(who, word)) return { ok: false, why: "row:" + field };
     }
   }
@@ -251,20 +266,41 @@ export async function gatewayKey(secretsKey) {
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 const ID_RE = /^[a-z0-9][a-z0-9_-]{3,80}$/i;
+/** A name the build route claims — lower-case, no edge dash, sixty at most (its `cleanSlug`). */
+const SITE_NAME_RE = /^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/;
 
-/** Mint a token for one job. `exp` is a unix time in SECONDS. */
-export async function signJobToken({ id, slug, uid, exp }, key) {
+/**
+ * THE PLACEHOLDER A BUILD WITH NO NAME YET RUNS UNDER (stage 5b, 2026-09-06).
+ * A first build lets the designer invent the site's name minutes into the
+ * job, so its token cannot name a site at the mint: it names this — one
+ * placeholder per job, never a site (the wall under `pre` opens no site
+ * prefix whatever the slug says) — and is re-minted for the real name by
+ * the `/scope` op the moment the designer gives one.
+ */
+export function preScopeSlug(id) {
+  return "pre-" + String(id || "");
+}
+
+/**
+ * Mint a token for one job. `exp` is a unix time in SECONDS. `pre` marks a
+ * PRE-SCOPE token (stage 5b): it must name the placeholder, and the flag
+ * rides the signed payload so the wall reads it off the token, never off
+ * the spelling of the slug.
+ */
+export async function signJobToken({ id, slug, uid, exp, pre = false }, key) {
   if (!ID_RE.test(String(id || ""))) throw new Error("bad job id");
   if (!SLUG_RE.test(String(slug || ""))) throw new Error("bad slug");
   if (typeof uid !== "string" || !uid) throw new Error("bad uid");
   const e = Math.floor(Number(exp));
   if (!Number.isFinite(e) || e <= 0) throw new Error("bad exp");
-  const payload = B64.encode(TE.encode(JSON.stringify({ id: String(id), slug: String(slug), uid, exp: e })));
+  if (pre === true && String(slug) !== preScopeSlug(id)) throw new Error("a pre-scope token names the placeholder, not a site");
+  const payload = B64.encode(TE.encode(JSON.stringify({ id: String(id), slug: String(slug), uid, exp: e, ...(pre === true ? { pre: true } : {}) })));
   const sig = await crypto.subtle.sign("HMAC", key, TE.encode("v1." + payload));
   return "v1." + payload + "." + B64.encode(new Uint8Array(sig));
 }
 
-/** The payload of a valid, unexpired token, or null. Never throws. */
+/** The payload of a valid, unexpired token, or null. Never throws. `pre` is
+ *  carried only when it is set, so a scoped token's payload is what it was. */
 export async function verifyJobToken(token, key, now = Date.now()) {
   try {
     const t = String(token || "");
@@ -277,7 +313,9 @@ export async function verifyJobToken(token, key, now = Date.now()) {
     if (!ID_RE.test(String(p.id || "")) || !SLUG_RE.test(String(p.slug || "")) || typeof p.uid !== "string" || !p.uid) return null;
     const exp = Number(p.exp);
     if (!Number.isFinite(exp) || exp * 1000 <= Number(now)) return null;
-    return { id: String(p.id), slug: String(p.slug), uid: p.uid, exp };
+    const pre = p.pre === true;
+    if (pre && String(p.slug) !== preScopeSlug(String(p.id))) return null;
+    return { id: String(p.id), slug: String(p.slug), uid: p.uid, exp, ...(pre ? { pre: true } : {}) };
   } catch { return null; }
 }
 
@@ -289,11 +327,16 @@ export function jobPrefixes(slug) {
   return ["sites/", "source/", "versions/", "uploads/", "backups/", "builds/"].map((p) => p + s + "/");
 }
 
-/** May a job for `slug` with id `id` touch `key`? */
-export function allowedJobKey(slug, id, key) {
+/**
+ * May a job for `slug` with id `id` touch `key`? Under a PRE-SCOPE token
+ * (stage 5b) the answer is the job's own objects and nothing of any site —
+ * not even the placeholder's prefixes, since a pre-scoped job has no site.
+ */
+export function allowedJobKey(slug, id, key, pre = false) {
   const k = String(key || "");
   if (!k || !SLUG_RE.test(String(slug || "")) || !ID_RE.test(String(id || ""))) return false;
   if (k.includes("..")) return false;
+  if (pre === true) return k.startsWith("jobs/") && k.includes(String(id));
   if (jobPrefixes(slug).some((p) => k.startsWith(p))) return true;
   if (k === "config/" + slug + ".json") return true;
   // The site's pointer (stage 7) — the one object activation moves.
@@ -316,9 +359,10 @@ export function allowedJobKey(slug, id, key) {
 }
 
 /** May a job list under `prefix`? Only inside a prefix it may touch at all. */
-export function allowedJobPrefix(slug, id, prefix) {
+export function allowedJobPrefix(slug, id, prefix, pre = false) {
   const p = String(prefix || "");
   if (!p) return false;
+  if (pre === true) return allowedJobKey(slug, id, p, true);
   if (jobPrefixes(slug).some((own) => p.startsWith(own))) return true;
   return allowedJobKey(slug, id, p);
 }
@@ -429,8 +473,21 @@ const json = (status, body) => new Response(JSON.stringify(body), { status, head
  * SERVICE KEY and the MINT SECRET the Worker holds and the container does not
  * (stage 4b), and the fetch the forward goes out on (injected for tests).
  * Without it the `/sb/` branch answers 503 and nothing else changes.
+ *
+ * `scope` is `{ sign, owner }` (stage 5b): `sign(payload)` mints a token the
+ * way the fire does, `owner(slug)` answers who holds a site's name — null
+ * for a free one, a uid, or a throw when it cannot tell. Without it the
+ * `/scope` op answers 503.
+ *
+ *   POST   /scope  {slug}   a PRE-SCOPE token re-minted for the name the
+ *                           designer gave: free or this owner's own, never
+ *                           a stranger's (403 `taken`), never on a token
+ *                           that is not pre-scoped (403), never when the
+ *                           owner cannot be read (503); a name the platform
+ *                           would not claim is 400, and a non-string is
+ *                           never coerced into one
  */
-export function gatewayHandler({ bucket, verify, log = () => {}, sb = null }) {
+export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scope = null }) {
   return async function handle(request, id) {
     const auth = String(request.headers.get("authorization") || "");
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -476,12 +533,31 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null }) {
       return new Response(await r.arrayBuffer(), { status: r.status, headers: out });
     }
 
+    // ── THE SCOPE OP (stage 5b): a pre-scoped build learns its site ───────
+    if (tail === "/scope" && request.method === "POST") {
+      if (!scope || typeof scope.sign !== "function" || typeof scope.owner !== "function") return json(503, { error: "no scope" });
+      if (who.pre !== true) { log("scope-not-pre", { id: who.id, slug: who.slug }); return json(403, { error: "not a pre-scope token" }); }
+      let body = null;
+      try { body = await request.json(); } catch { body = null; }
+      const slug = body && typeof body.slug === "string" ? body.slug : null;
+      if (slug === null || !SITE_NAME_RE.test(slug)) return json(400, { error: "bad slug" });
+      let owner;
+      try { owner = await scope.owner(slug); } catch { owner = undefined; }
+      if (owner === undefined) { log("scope-unread", { id: who.id, slug }); return json(503, { error: "owner unreadable" }); }
+      if (owner && owner !== who.uid) { log("scope-taken", { id: who.id, slug, uid: who.uid }); return json(403, { error: "taken", slug }); }
+      let token;
+      try { token = await scope.sign({ id: who.id, slug, uid: who.uid, exp: who.exp }); }
+      catch (e) { log("scope-sign", { id: who.id, slug, error: String((e && e.message) || e) }); return json(503, { error: "could not sign" }); }
+      return json(200, { ok: true, token, slug });
+    }
+
     if (!bucket) return json(503, { error: "no bucket" });
     const key = url.searchParams.get("key") || "";
-    const refuse = (k) => { log("out-of-scope", { id: who.id, slug: who.slug, key: k }); return json(403, { error: "key not in this job's scope", key: k }); };
+    const pre = who.pre === true;
+    const refuse = (k) => { log("out-of-scope", { id: who.id, slug: who.slug, key: k, ...(pre ? { pre: true } : {}) }); return json(403, { error: "key not in this job's scope", key: k }); };
 
     if (tail === "/r2" && (request.method === "GET" || request.method === "HEAD")) {
-      if (!allowedJobKey(who.slug, who.id, key)) return refuse(key);
+      if (!allowedJobKey(who.slug, who.id, key, pre)) return refuse(key);
       const obj = request.method === "HEAD" ? await bucket.head(key) : await bucket.get(key);
       if (!obj) return new Response(null, { status: 404 });
       const headers = metaHeaders(obj);
@@ -489,7 +565,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null }) {
       return new Response(obj.body, { status: 200, headers });
     }
     if (tail === "/r2" && request.method === "PUT") {
-      if (!allowedJobKey(who.slug, who.id, key)) return refuse(key);
+      if (!allowedJobKey(who.slug, who.id, key, pre)) return refuse(key);
       const meta = readMetaHeaders(request.headers);
       const onlyIf = readOnlyIf(request.headers);
       const opts = {};
@@ -504,7 +580,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null }) {
       return json(200, listEntry(put));
     }
     if (tail === "/r2" && request.method === "DELETE") {
-      if (!allowedJobKey(who.slug, who.id, key)) return refuse(key);
+      if (!allowedJobKey(who.slug, who.id, key, pre)) return refuse(key);
       await bucket.delete(key);
       return new Response(null, { status: 204 });
     }
@@ -513,7 +589,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null }) {
       try { body = await request.json(); } catch { body = null; }
       const keys = body && Array.isArray(body.keys) ? body.keys.map(String) : null;
       if (!keys) return json(400, { error: "keys" });
-      for (const k of keys) if (!allowedJobKey(who.slug, who.id, k)) return refuse(k);
+      for (const k of keys) if (!allowedJobKey(who.slug, who.id, k, pre)) return refuse(k);
       if (keys.length) await bucket.delete(keys);
       return new Response(null, { status: 204 });
     }
@@ -521,7 +597,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null }) {
       let body = null;
       try { body = await request.json(); } catch { body = null; }
       const prefix = String((body && body.prefix) || "");
-      if (!allowedJobPrefix(who.slug, who.id, prefix)) return refuse(prefix);
+      if (!allowedJobPrefix(who.slug, who.id, prefix, pre)) return refuse(prefix);
       const opts = { prefix };
       if (body.cursor) opts.cursor = String(body.cursor);
       if (body.limit) opts.limit = Number(body.limit);

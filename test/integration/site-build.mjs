@@ -804,6 +804,50 @@ try {
     ok("…and the container is not held busy after a stopped child", busy2 && !busy2.busy, JSON.stringify(busy2).slice(0, 120));
   }
 
+  // ── A BUILD LAUNCH THROUGH THE REAL RUNNER (stage 5b, 2026-09-06) ────────
+  //
+  // `kind: "build"` runs the Worker's BUILD consumer inside the container:
+  // the runner reads the job's own object through the gateway first — here
+  // the 401 stub again — finds nothing to run, and ends clean. FREE, and
+  // whole: the door, the dispatch, the gateway read of the job's object under
+  // the job token (a 32-hex id, the only shape the build's keys are built
+  // from), and the runner's exit are all on a real socket. Nothing reaches a
+  // provider, Supabase or R2.
+  {
+    const id = Date.now().toString(16).padStart(32, "0");
+    const seen = [];
+    const gw = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization || "", body });
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+      });
+    });
+    await new Promise((res) => gw.listen(0, "127.0.0.1", res));
+    const gwUrl = "http://127.0.0.1:" + gw.address().port + "/api/job/" + id;
+    const launch = { v: 2, kind: "build", id, gateway: { url: gwUrl, token: "harness" }, sb: { url: "https://ujrqdmmtcptvimazlhom.supabase.co" }, secrets: {}, buildPort: PORT, holder: "c_harness", slug: "harness-site", deadlineAt: Date.now() + 1_800_000 };
+    const r = await fetch(`http://127.0.0.1:${PORT}/job/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(launch) });
+    const j = await r.json().catch(() => ({}));
+    ok("POST /job/run takes a build launch: 200 {ok, id, pid}", r.status === 200 && j.ok === true && j.id === id, `status ${r.status} ${JSON.stringify(j).slice(0, 160)}`);
+    let job = null;
+    for (let i = 0; i < 450; i++) {
+      job = await (await fetch(`http://127.0.0.1:${PORT}/job/${id}`)).json().catch(() => null);
+      if (job && job.state !== "running") break;
+      await new Promise((res) => setTimeout(res, 200));
+    }
+    await new Promise((res) => gw.close(res));
+    ok("…the child ran the Worker's build consumer to its end: done, exit 0", job && job.state === "done" && job.code === 0, JSON.stringify(job).slice(0, 400));
+    ok("…started as a build, naming the launch's site and holder",
+      job && Array.isArray(job.tail) && job.tail.some((l) => l.includes('"kind":"build"') && l.includes('"started":true') && l.includes('"slug":"harness-site"') && l.includes('"holder":"c_harness"')), JSON.stringify(job && job.tail).slice(0, 400));
+    ok("…and what left the child first was the read of the job's own object through the gateway, with the job token as its bearer",
+      seen.length >= 1 && seen[0].method === "GET" && seen[0].url === "/api/job/" + id + "/r2?key=" + encodeURIComponent("jobs/" + id + ".json") && seen[0].authorization === "Bearer harness", JSON.stringify(seen).slice(0, 300));
+    ok("…finding nothing to run, said so, and ended", job && job.tail && job.tail.some((l) => /nothing to run|could not read job/.test(l)), JSON.stringify(job && job.tail).slice(0, 400));
+    const busy3 = await (await fetch(`http://127.0.0.1:${PORT}/busy`)).json().catch(() => ({}));
+    ok("…and the container is not held busy after it", busy3 && !busy3.busy, JSON.stringify(busy3).slice(0, 120));
+  }
+
   // ── THE CONTAINER CAN MAKE THE MODEL CALL, DRIVEN ──────────────────────────
   //
   // Page generation is moving here because a queue consumer is capped at

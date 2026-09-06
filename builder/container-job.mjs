@@ -81,7 +81,19 @@ export function readLaunch(raw) {
   // the job's whole budget — read strictly; a launch naming none gets now
   // plus that budget. The build service stops a child that outlives it.
   const deadlineAt = readDeadline(p.deadlineAt, Date.now());
-  return { kind, id, gateway: { url: g.url, token: g.token }, sb: { url: new URL(sb.url).origin }, secrets, buildPort, deadlineAt, ...(holder ? { holder } : {}) };
+  // A BUILD'S SITE, OR NONE YET (stage 5b): `slug` is the site a build is
+  // scoped to from the start (a revise, a chosen free name), handed to the
+  // Worker's job so the takeover names it on the row; `pre` is a build with
+  // no name yet, whose env gets the scope hook. A slug this platform would
+  // not claim is a confused Worker, refused; both at once is too.
+  let slug = "";
+  if (p.slug !== undefined && p.slug !== null && p.slug !== "") {
+    if (typeof p.slug !== "string" || !/^[a-z0-9][a-z0-9-]{0,80}$/.test(p.slug)) throw new Error("launch names a slug this runner cannot use");
+    slug = p.slug;
+  }
+  const pre = p.pre === true;
+  if (pre && slug) throw new Error("a pre-scope launch names no slug");
+  return { kind, id, gateway: { url: g.url, token: g.token }, sb: { url: new URL(sb.url).origin }, secrets, buildPort, deadlineAt, ...(holder ? { holder } : {}), ...(slug ? { slug } : {}), ...(pre ? { pre: true } : {}) };
 }
 
 /**
@@ -126,7 +138,7 @@ export async function runJob(launch, { importWorker, env, ctx, log = () => {}, s
   let onTerm = null;
   try {
     restore = installGatewayFetch(launch);
-    const jobEnv = env || makeContainerEnv({ secrets: launch.secrets, gateway: launch.gateway, sb: launch.sb });
+    const jobEnv = env || makeContainerEnv({ secrets: launch.secrets, gateway: launch.gateway, sb: launch.sb, pre: launch.pre === true });
     const jobCtx = ctx || makeContainerCtx();
     let stopping = false;
     onTerm = () => {
@@ -140,8 +152,8 @@ export async function runJob(launch, { importWorker, env, ctx, log = () => {}, s
     signals.on("SIGTERM", onTerm);
     const worker = await importWorker();
     if (!worker || typeof worker.runContainerJob !== "function") throw new Error("the Worker module has no runContainerJob export — the image's Worker tree is older than this runner");
-    log({ job: id, kind, started: true, ...(launch.holder ? { holder: launch.holder } : {}) });
-    await worker.runContainerJob(jobEnv, jobCtx, { kind, id, ...(launch.holder ? { holder: launch.holder } : {}) });
+    log({ job: id, kind, started: true, ...(launch.holder ? { holder: launch.holder } : {}), ...(launch.slug ? { slug: launch.slug } : {}), ...(launch.pre ? { pre: true } : {}) });
+    await worker.runContainerJob(jobEnv, jobCtx, { kind, id, ...(launch.holder ? { holder: launch.holder } : {}), ...(launch.slug ? { slug: launch.slug } : {}) });
     if (typeof jobCtx.drain === "function") await jobCtx.drain();
     return { ok: true, kind, id, ms: Date.now() - at };
   } catch (e) {

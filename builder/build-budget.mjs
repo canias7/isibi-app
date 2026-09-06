@@ -126,14 +126,30 @@ export const BUILD_BUDGET_MS = 780000;
 export const CONTAINER_CALL_MS = 600000;
 
 /**
+ * THE BUILD'S BUDGET INSIDE THE SITE'S CONTAINER (stage 5b, 2026-09-06).
+ * `BUILD_BUDGET_MS` is thirteen minutes because the Worker's consumer is
+ * stopped at fifteen; a build that runs whole in the container — design,
+ * generation, compile, publish, no fire and no resume — is bounded by the
+ * job's deadline instead (`BUILD_JOB_MS`, thirty minutes), and this is what
+ * is left of it once the stand-in and the terminal writes have their room.
+ */
+export const CONTAINER_BUILD_BUDGET_MS = 27 * 60_000;
+
+/**
  * The clock a build is measured against.
  *
  * `capMs(cap)` is the one callers should reach for: it hands back whichever is
  * SOONER, the per-call bound or what is left of the build. That is what makes
  * the two bounds compose rather than compete — a pages call started at minute
  * fourteen gets sixty seconds, not another ten minutes.
+ *
+ * `stop` (stage 5b/5d) is an AbortSignal — the runner's, inside the container
+ * — and an aborted one EXPIRES the budget: a stopped build refuses its next
+ * stage and publishes the stand-in, instead of dying mid-flight under the
+ * runner's belt. A call already started keeps its own cap; the gate is what
+ * refuses. Absent for the Worker's own consumer, which has no such signal.
  */
-export function makeBudget(ms = BUILD_BUDGET_MS, now = () => Date.now()) {
+export function makeBudget(ms = BUILD_BUDGET_MS, now = () => Date.now(), stop = null) {
   const clock = () => {
     try {
       const t = now();
@@ -152,8 +168,8 @@ export function makeBudget(ms = BUILD_BUDGET_MS, now = () => Date.now()) {
     totalMs: total,
     usedMs: used,
     remainingMs: () => Math.max(0, total - used()),
-    /** Has the build run out of time? */
-    expired: () => used() >= total,
+    /** Has the build run out of time — or been told to stop? */
+    expired: () => used() >= total || !!(stop && stop.aborted === true),
     /**
      * The bound for one call: the sooner of its own cap and what is left.
      *

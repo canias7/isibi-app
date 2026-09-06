@@ -225,7 +225,11 @@ test("the build's refs: one per debit, the job's id under the queue, carried to 
   const route = w.slice(w.indexOf("async function runSiteBuild("), w.indexOf("\n}\n", w.indexOf("async function runSiteBuild(")));
   assert.ok(route.length > 50_000, "the build route window is too small: " + route.length);
   assert.doesNotMatch(route, /creditBack\(|refundCredits\(|useCredits\(auth|collectCredits\(auth, settle/, "the route still pays or refunds through the old calls");
-  assert.equal((route.match(/await refundFields\(\)/g) || []).length, 6, "the six refusals no longer all reverse through the ledger of refs");
+  // EIGHT SINCE STAGE 5b (2026-09-06): the six, plus the two at the job's
+  // scope hook — a name the designer gave that a stranger holds (409), and a
+  // gateway that could not re-scope the job (503) — both before anything is
+  // provisioned, both reversing every ref the build debited.
+  assert.equal((route.match(/await refundFields\(\)/g) || []).length, 8, "the eight refusals no longer all reverse through the ledger of refs");
   // What the reply carries.
   assert.match(route, /exempt: \(exempt \|\| \(pages && pages\.exempt === true\)\) \? true : undefined,/, "the reply does not carry exempt");
   // A FOUNDER IS NEVER SETTLED, and the flag that says so is set where the

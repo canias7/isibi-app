@@ -148,11 +148,50 @@ export class GatewayBucket {
   }
 }
 
-/** A queue nothing inside the container may send to. */
+/**
+ * A queue nothing inside the container may send to. `refusing` is what the
+ * build's `canFire` reads (stage 5b): a generation is fired only where a
+ * queue can carry the resume back, and inside the container it cannot — so
+ * the build there makes the generation call and waits for it.
+ */
 export const refusingQueue = {
+  refusing: true,
   async send(msg) { throw new Error("BUILD_QUEUE.send inside the container: " + JSON.stringify(msg).slice(0, 120)); },
   async sendBatch() { throw new Error("BUILD_QUEUE.sendBatch inside the container"); },
 };
+
+/**
+ * RE-SCOPE A PRE-SCOPED BUILD TO THE NAME THE DESIGNER GAVE (stage 5b,
+ * 2026-09-06). One POST to the gateway's `/scope` op with the token the job
+ * holds; on a re-mint BOTH shims carry the new token from the next request
+ * on — the fetch shim reads `gateway.token` at call time, the bucket's
+ * `token` is reassigned. A name a stranger holds comes back as the claim's
+ * own refusal (`conflict`, stage `claim`), so the build route's catch says
+ * "that name is taken" and refunds exactly as it does for a lost claim; any
+ * other answer is a named failure under the same stage — the route refunds
+ * and says it could not check the name — and the token is left as it was.
+ */
+export async function rescopeJob({ gateway, bucket = null, fetch: f = globalThis.fetch }, slug) {
+  const name = String(slug || "");
+  let r;
+  try {
+    r = await f(String(gateway.url).replace(/\/+$/, "") + "/scope", {
+      method: "POST", headers: { authorization: "Bearer " + gateway.token, "content-type": "application/json" },
+      body: JSON.stringify({ slug: name }), signal: AbortSignal.timeout(20_000),
+    });
+  } catch (e) {
+    throw Object.assign(new Error("could not scope the job to " + name + ": " + String((e && e.message) || e)), { stage: "claim" });
+  }
+  let j = null;
+  try { j = await r.json(); } catch { j = null; }
+  if (r.status === 403 && j && j.error === "taken") throw Object.assign(new Error("that name is taken"), { stage: "claim", conflict: true });
+  if (!r.ok || !j || typeof j.token !== "string" || !j.token) {
+    throw Object.assign(new Error("could not scope the job to " + name + ": " + r.status), { stage: "claim", detail: String((j && j.error) || "").slice(0, 120) });
+  }
+  gateway.token = j.token;
+  if (bucket) bucket.token = j.token;
+  return { ok: true, slug: name };
+}
 
 /**
  * SUPABASE THROUGH THE GATEWAY (stage 4b, 2026-09-06): the `fetch` a job
@@ -199,9 +238,12 @@ export function gatewayFetch({ gateway, sbUrl, fetch: f = globalThis.fetch } = {
  * shim intercepts — puts `SB_MARKER` under `SUPABASE_SERVICE_KEY` and
  * `CREDITS_MINT_SECRET`, whatever `secrets` carried under those names (a
  * launch is refused with them; this is the belt); `fetch` is injected for
- * tests. Every non-string binding is either the shim or absent.
+ * tests; `pre` (stage 5b) is a build launched with no name yet, whose env
+ * carries `JOB_SCOPE(slug)` — the build route asks it the moment the
+ * designer names the site, and nothing else's env carries it. Every
+ * non-string binding is either the shim, a signal, the hook, or absent.
  */
-export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f } = {}) {
+export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f, pre = false } = {}) {
   if (!gateway || !gateway.url || !gateway.token) throw new Error("a job env needs its gateway");
   const env = {};
   for (const [k, v] of Object.entries(secrets || {})) if (typeof v === "string") env[k] = v;
@@ -209,6 +251,7 @@ export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f } 
   env.SITES_BUCKET = new GatewayBucket({ url: gateway.url, token: gateway.token, fetch: f });
   env.BUILD_QUEUE = refusingQueue;
   env.SITE_BUILD_CONTAINER = { local: true };
+  if (pre === true) env.JOB_SCOPE = (slug) => rescopeJob({ gateway, bucket: env.SITES_BUCKET, fetch: f }, slug);
   // THE STOP SIGNAL (stage 5d, 2026-09-06): aborted by the runner when the
   // process is told to stop (SIGTERM — the build service past the job's
   // deadline, a cancel from outside, the service's own drain giving up), read
