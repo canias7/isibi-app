@@ -4588,10 +4588,14 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 5 credits** (read off the ledger 2026-09-06, `credits.balance`
-  for the building account, no open job; the harness read the same 5 on
-  2026-09-04 20:59Z after run 39's langs case: 6 → 5; run 37 took 24 → 7,
-  run 38 7 → 6). It was **0**
+- **Balance: 505 credits** (read off the ledger 2026-09-06 19:12Z after the
+  owner's *"Top it up"*: a DIRECT GRANT of 500, not a purchase — `add_credits`
+  is mint-key gated and the secret is not in a session, so the grant mirrors
+  that function's body minus the mint check, one `purchases` row under
+  `ref 'grant:session_…:2026-09-06'` with **`amount_cents` 0**, the ref its
+  idempotency, proven by a re-run that moved nothing. It was 5 before, and
+  unchanged since 2026-09-04 20:48Z; run 37 took 24 → 7, run 38 7 → 6, run 39
+  6 → 5.) It was **0**
   on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not

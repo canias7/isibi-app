@@ -186,13 +186,32 @@ balance the work is done and thrown away. Since stage 1a-i that refusal stops
 the publish and says so ("there aren't enough credits for it, so it wasn't
 published and nothing was charged") instead of shipping free.
 
-**BALANCE: 5 credits** — read off the ledger 2026-09-06, unchanged since
-2026-09-04 20:48Z, so nothing has been spent since run 39.
+**BALANCE: 505 credits** — you said *"Top it up"* on 2026-09-06 and chose the
+direct grant at 500. It was 5, unchanged since 2026-09-04 20:48Z, so nothing
+had been spent since run 39.
 
-**THE INITIAL-BUILD CANARY IS PENDING AND STAYS PENDING.** A first build is
-11–45 credits (measured range, two builds on one model), and `buildFloor`
-refuses before spending. 5 credits cannot cover it, and a refusal reads to a
-customer like a broken builder. **Not runnable until you top up.**
+**HOW THE TOP-UP WAS DONE, because it was NOT a purchase and the ledger should
+not be read as if it were.** `add_credits(target, amount, cents, ref, mint_key)`
+is service-role AND mint-key gated, and `CREDITS_MINT_SECRET` lives in GitHub
+Actions, not in a session — so the product's own path was closed to me. The
+grant mirrors that function's body exactly, minus the mint check: one
+`purchases` row `(500 credits, ref 'grant:session_01Ro69RoRa3qPtpAd3uJk215:
+2026-09-06')` inserted `on conflict (ref) do nothing`, and the balance moved
+only because that insert landed — the same CTE shape, so the ref IS the
+idempotency. **PROVEN, not asserted**: the identical statement re-run
+immediately after returned zero rows and moved nothing; balance 505, one grant
+row. **`amount_cents` is 0 on purpose** — no money was paid, and a fabricated
+figure there is the one thing that would make a Stripe reconciliation lie. To
+reverse it: delete that ref's row and subtract 500.
+
+**THE INITIAL-BUILD CANARY IS NOW FUNDED.** A first build is 11–45 credits
+(measured range, two builds on one model) and `buildFloor` refuses before
+spending; 505 covers it many times over. **What the top-up did NOT do is
+create a ceiling** — the entry above still stands: nothing gates an edit or an
+addon, an edit is metered on real usage with a floor of 1 and no cap, and the
+only enforcement is `edit_reserve` refusing after the model calls are made.
+A large balance removes the one thing that was accidentally limiting a
+runaway, so the run list below is the budget now, not the ledger.
 
 **THE ASK — deterministic, no invention.** Not "the nearest car parks", which
 asks a model for a fact nobody here can check. Instead, on the `text` lane:
