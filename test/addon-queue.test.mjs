@@ -134,16 +134,27 @@ test("the replay identity resolves for exactly the two queued routes, which are 
   const m = CODE.match(/const eReplay = \(([^)]*)\) \? editReplayUser\(request, ownerSlug\) : null;/);
   assert.ok(m, "the replay identity line moved or lost its route condition");
   const named = m[1].split("||").map((s) => s.trim()).sort();
-  assert.deepEqual(named, ["ad", "ed"], "the replay identity is offered to a different set of routes from the two that file jobs");
-  // The two forks live inside those two route blocks and nowhere else.
-  // `await` distinguishes a call site from the function's own definition.
+  // RE-ANCHORED 2026-09-06 (stage 9): a third route is replayed — the platform
+  // rebuild, whose job the CRON files rather than the route itself, and which
+  // refuses anything that is not a replay. So the property is no longer "the
+  // identity's routes are the routes that file jobs"; it is that every route
+  // offered the identity is one the QUEUE replays, and nothing else is. The
+  // two halves are asserted apart below.
+  assert.deepEqual(named, ["ad", "ed", "rb"], "the replay identity is offered to a different set of routes from the ones the queue replays");
+  // WHO FILES. `await` distinguishes a call site from the function's own
+  // definition. Two of the three are the customer-facing routes, in their own
+  // blocks and nowhere else; the third is the platform rebuild's, filed by the
+  // CRON for the site's owner — outside the router entirely, which is what
+  // makes the rebuild route replay-only rather than a button.
   const forks = [...CODE.matchAll(/await enqueueEditJob\(env, \{/g)].map((x) => x.index);
-  assert.equal(forks.length, 2, `${forks.length} routes file jobs`);
+  assert.equal(forks.length, 3, `${forks.length} places file jobs`);
   const edOpen = at(CODE, "\n          if (ed) {", "edit route");
   const adOpen = at(CODE, "\n          if (ad) {", "addon route");
   const txOpen = at(CODE, "\n          if (tx) {", "text route");
-  assert.ok(forks[0] > edOpen && forks[0] < adOpen, "the first fork is not inside the edit route");
-  assert.ok(forks[1] > adOpen && forks[1] < txOpen, "the second fork is not inside the addon route");
+  const cron = at(CODE, "async function runSiteRebuild(env) {", "the rebuild drain");
+  assert.ok(forks[0] > cron && forks[0] < edOpen, "the platform rebuild's job is not filed by the cron");
+  assert.ok(forks[1] > edOpen && forks[1] < adOpen, "the edit route's fork is not inside the edit route");
+  assert.ok(forks[2] > adOpen && forks[2] < txOpen, "the addon route's fork is not inside the addon route");
 });
 
 test("the addon body is read as text before the fork, stored verbatim, and parsed once", () => {
@@ -296,7 +307,10 @@ test("the spine is handed the job and the trace, or a queued addon publishes pas
 
 test("enqueueEditJob files under the op it is given, and edit by default", () => {
   const fn = between(CODE, "\nasync function enqueueEditJob(env, {", "\nfunction enqueueReply(q)", "enqueue");
-  assert.match(fn, /\{ slug, uid, url, body, idem, op = "edit" \}/, "the enqueue does not take an op that defaults to edit");
+  // RE-ANCHORED 2026-09-06 (stage 9): the parameter object gained `delayS`, so
+  // the rebuild's own message can wait out the drain's claim mark. The property
+  // is the OP and its default, read without pinning the whole list.
+  assert.match(fn, /\{ slug, uid, url, body, idem, op = "edit"[,}]/, "the enqueue does not take an op that defaults to edit");
   assert.match(fn, /p_op: String\(op \|\| "edit"\)/, "the op is not what the row is filed under");
   // The edit route passes none (its calls have no `op:`), the addon route
   // passes its own — so an edit is still `edit` on the row.

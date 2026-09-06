@@ -78,7 +78,9 @@ import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets
 import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
-import { drainRebuild, BATCH as REBUILD_BATCH } from "./site-rebuild.mjs";
+import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SEC, REBUILD_OP, REBUILD_START_DELAY_S, rebuildIdem } from "./site-rebuild.mjs";
+// The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
+import { sweepJobObjects } from "./builder/job-retention.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
@@ -2590,6 +2592,11 @@ export default {
     // with no jobs the RPC is one Supabase call that comes back empty, the same
     // posture `runSiteRebuild` above has.
     ctx.waitUntil(runLostEditJobs(env));
+    // Take out the litter under `jobs/` — the requests, answers and resume
+    // records the unhappy paths leave behind, which nothing has ever swept
+    // (stage 9, 2026-09-06). One nibble of the prefix per tick and nothing
+    // younger than a week, so it needs no lease and no row.
+    ctx.waitUntil(runJobRetention(env));
   },
   // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
   //
@@ -2870,6 +2877,37 @@ async function runNeonTeardown(env) {
 }
 
 /**
+ * TAKE OUT THE LITTER UNDER `jobs/` (stage 9, 2026-09-06).
+ *
+ * The wiring half of `builder/job-retention.mjs` — see that file for why age
+ * alone decides, why no row is read, and why it is a rotation rather than a
+ * scan. This supplies the two side effects and nothing else.
+ *
+ * WHY THE CRON. Nothing else has a reason to look: every consumer deletes its
+ * own objects on the way past, and the ones that are left are precisely the
+ * ones whose consumer never came back. On a tidy platform this is two listings
+ * that come back empty-handed, which is the same posture `runSiteRebuild` has.
+ */
+async function runJobRetention(env) {
+  if (!env.SITES_BUCKET) return;
+  try {
+    const out = await sweepJobObjects({
+      list: async (prefix, limit) => {
+        const r = await env.SITES_BUCKET.list({ prefix, limit });
+        return (r && r.objects) || [];
+      },
+      // ONE CALL FOR THE BATCH. R2's delete takes an array, and a hundred
+      // separate deletes would be a hundred subrequests on a tick that has
+      // five other jobs on it.
+      remove: (keys) => env.SITES_BUCKET.delete(keys),
+    }, { now: Date.now() });
+    // Only worth a line when something was actually taken out — this runs
+    // every two minutes over a prefix that is empty almost all of the time.
+    if (out.deleted || out.errors.length) console.log("job retention:", JSON.stringify(out));
+  } catch (e) { console.error("job retention failed:", (e && e.message) || e); }
+}
+
+/**
  * REPUBLISH A FEW QUEUED SITES, SIDE BY SIDE.
  *
  * The wiring half of site-rebuild.mjs — see that file for every decision. This
@@ -2896,8 +2934,12 @@ async function runSiteRebuild(env) {
   try {
     const out = await drainRebuild({
       due: async (limit) => {
+        // `enqueued_at` (stage 9) is the row's GENERATION — written once by the
+        // operator sweep's insert and never touched here — and it names the
+        // job this attempt files, so the next tick finds that job instead of
+        // filing a second one. See `rebuildIdem`.
         const g = await rest(`site_rebuild?next_try_at=lte.${encodeURIComponent(new Date().toISOString())}` +
-          `&select=slug,attempts&order=next_try_at.asc&limit=${Number(limit) || 1}`);
+          `&select=slug,attempts,enqueued_at&order=next_try_at.asc&limit=${Number(limit) || 1}`);
         if (!g.ok) throw new Error("site_rebuild read " + g.status);
         return await g.json();
       },
@@ -2944,26 +2986,70 @@ async function runSiteRebuild(env) {
         if (r.busy === true) return "busy";
         return r.won === true;
       },
-      rebuild: async (slug) => {
-        // THE SITE'S OWN STORED SOURCE, WHICH IS WHY THIS COSTS NO CREDITS. A
-        // rebuild recompiles the pages the model already wrote; it never calls a
-        // model. Without them there is nothing to compile — and publishing a
-        // site with no routes would replace a working site with an empty one, so
-        // this REFUSES rather than proceeding.
-        //
-        // `ours: true`, because `loadSiteSource` swallows an R2 blip and a
-        // genuinely sourceless site into the same null and the two cannot be told
-        // apart here. Retrying heals the blip; a site that really has no stored
-        // source parks at the backoff cap and stays visible with this sentence.
-        const pages = await loadSiteSourceForEdit(env, slug);
-        if (!pages) return { ok: false, error: "read", ours: true, detail: "no stored page source for " + slug };
-        return await recompileAndPublish(env, {
-          slug, pages,
-          // NAMED IN THE OWNER'S OWN VERSION HISTORY. Every publish archives a
-          // version, and a row there with no label reads as a change they made
-          // and cannot remember. This one was not theirs.
-          label: "platform rebuild",
+      // ── THE REBUILD IS A JOB (stage 9, 2026-09-06) ────────────────────────
+      //
+      // It used to run HERE: `recompileAndPublish` awaited inside the cron
+      // invocation, eight at a time, every one of them bounded by the fifteen
+      // minutes the invocation gets and none of them holding a lease. A tick
+      // that ran out of clock left a container mid-compile with nothing
+      // recording it; a deploy rolled under it (3a gates the queue, never the
+      // cron); and none of the recovery the edit path grew — the row, the
+      // lease, the sweep, the reconcile — applied to it.
+      //
+      // Now the tick FILES a job for the site's owner and returns. The same
+      // consumer that runs their edits runs it, in the site's own container
+      // when the runner flags admit, under a lease with a heartbeat, deferred
+      // by a deploy gate, swept when it dies. Nothing is charged: the route
+      // makes no model call, so the job reserves nothing and the publish gate
+      // exempts it, exactly as the free rungs are.
+      //
+      // AND THE ROW IS STILL THE QUEUE. The job does not touch it — that would
+      // need a wall the container has no business being given — so the drain
+      // reads the job's own answer on a later tick and applies the verdict it
+      // always applied. `rebuildIdem` is what makes that possible without a
+      // column to remember an id in: asking for the same attempt twice answers
+      // the same job.
+      rebuild: async (slug, row) => {
+        const key = rebuildIdem(row && row.enqueued_at, row && row.attempts);
+        // WITHOUT A STABLE NAME THERE IS NO JOB TO FIND AGAIN, and filing one
+        // under a name that changes every tick would queue a rebuild every two
+        // minutes. Ours, so it retries rather than parking the site.
+        if (!key) return { ok: false, error: "read", ours: true, detail: "the queue row for " + slug + " has no enqueue time to name its job with" };
+        // WHOSE JOB IT IS. `edit_jobs` rows are the owner's — the review wall,
+        // the poll route and the replay identity all key on it — and a rebuild
+        // is work done to their site. A read that answers nothing is a retry:
+        // `siteOwnerBySlug` collapses "no owner" and "could not ask" into one
+        // null, and the drain's `exists` has already said the site is there.
+        const uid = await siteOwnerBySlug(slug, env);
+        if (!uid) return { ok: false, error: "read", ours: true, detail: "could not read who owns " + slug };
+        const q = await enqueueEditJob(env, {
+          slug, uid,
+          url: `https://${APP_ZONE}/api/site/${slug}/rebuild`,
+          body: "{}", idem: key, op: REBUILD_OP, delayS: REBUILD_START_DELAY_S,
         });
+        // A SITE UNDER REVIEW takes no new jobs until a person settles its last
+        // publish. Not a failure of this site's source — asked again on the
+        // busy cadence, with the reason where somebody can read it.
+        if (!q.ok && q.error === "needs-review") {
+          return { pending: true, wait: REBUILD_BUSY_SEC, reason: "the site's last publish is under review; a person has to settle it first" };
+        }
+        if (!q.ok) return { ok: false, error: "queue", ours: true, detail: "could not file the rebuild job: " + String(q.error || "") };
+        // FILED THIS TICK. Nothing to read yet; the row waits.
+        if (!q.duplicate) return { pending: true, reason: "handed to job " + q.job };
+        // FILED EARLIER — the key found it. Its state is the answer.
+        const g = await editRpc(env, "edit_get", { p_id: q.job, p_uid: uid });
+        if (!g || g.ok !== true) return { pending: true, reason: "job " + q.job + " could not be read (" + String((g && g.error) || "rpc") + ")" };
+        if (!isTerminalEdit(g.state)) return { pending: true, reason: "job " + q.job + " is " + String(g.state || "running") };
+        let answer = null;
+        try { answer = g.result && typeof g.result.body === "string" ? JSON.parse(g.result.body) : null; }
+        catch { answer = null; }
+        // A TERMINAL JOB WITH NO READABLE ANSWER is ours — a consumer the sweep
+        // declared lost writes no reply — so it retries under a new key, which
+        // the next attempt's number mints.
+        if (!answer || typeof answer !== "object") {
+          return { ok: false, error: "read", ours: true, detail: "job " + q.job + " ended " + String(g.state) + " with no readable answer" };
+        }
+        return answer;
       },
       forget: async (slug) => {
         const d = await rest(`site_rebuild?slug=eq.${encodeURIComponent(slug)}`, { method: "DELETE" });
@@ -13014,7 +13100,7 @@ export async function runReviewReconcile(env) {
  * its live state, which is the whole point of the client's idempotency key: a
  * lost response followed by a retry must not become two charged edits.
  */
-async function enqueueEditJob(env, { slug, uid, url, body, idem, op = "edit" }) {
+async function enqueueEditJob(env, { slug, uid, url, body, idem, op = "edit", delayS = 0 }) {
   if (!env.BUILD_QUEUE || !env.SITES_BUCKET) return { ok: false, error: "queue not configured" };
   const key = cleanIdemKey(idem);
   // REFUSED, NEVER MINTED HERE. A server-generated key makes every retry a
@@ -13052,7 +13138,11 @@ async function enqueueEditJob(env, { slug, uid, url, body, idem, op = "edit" }) 
     return { ok: false, error: "store" };
   }
   try {
-    await env.BUILD_QUEUE.send({ kind: EDIT_JOB_KIND, id: jobId });
+    // A DELAY ONLY WHERE THE CALLER ASKED FOR ONE (stage 9): a customer's edit
+    // goes now, and the platform rebuild asks for a few seconds so its own
+    // claim mark is cleared before the job's claim reads it. `queueDelay`
+    // bounds it, as it does every other delayed send.
+    await env.BUILD_QUEUE.send({ kind: EDIT_JOB_KIND, id: jobId }, delayS > 0 ? { delaySeconds: queueDelay(delayS) } : undefined);
   } catch (e) {
     console.error("edit queue: could not enqueue", jobId, String((e && e.message) || e));
     return { ok: false, error: "enqueue" };
@@ -20489,6 +20579,13 @@ async function handleRequest(request, env, ctx) {
       // `applySiteSchema`, `seedSiteRows` or the page generator — rather than as
       // a rule somebody has to keep remembering inside a 700-line handler.
       const ed = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/edit$/i);
+      // THE PLATFORM REBUILD'S OWN DOOR (stage 9, 2026-09-06), and it is
+      // INTERNAL: the cron's drain files a job whose stored request is this
+      // route, and the job's replay marker is the only credential that opens
+      // it. A signed-in owner reaching it directly would be a free, unbounded
+      // container run per press, so the branch refuses anything that is not a
+      // replay — which is why it may sit inside the owner block at all.
+      const rb = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rebuild$/i);
       // THE ADDON LANE. Add what the site does not have, keep everything it
       // does. Its own route for the same reason the edit lane has one: what a
       // rung may touch is worth being a property of the code path.
@@ -20538,10 +20635,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv || sh) {
+      if (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv || sh)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -20551,15 +20648,18 @@ async function handleRequest(request, env, ctx) {
         // the job row's IMMUTABLE `uid` instead, proved by a secret the customer
         // has never seen — see `editReplayUser`.
         //
-        // `(ed || ad) &&` IS LOAD-BEARING AND IS NOT TIDINESS. This block gates
-        // NINETEEN routes; without it a replay marker would authenticate a
+        // `(ed || ad || rb) &&` IS LOAD-BEARING AND IS NOT TIDINESS. This block
+        // gates TWENTY routes; without it a replay marker would authenticate a
         // request to the domains panel, the secrets editor or the delete route.
         // The grant is one uid, one slug, one running job — offered to exactly
-        // the two routes the queue replays: the edit route, and since
-        // 2026-09-03 the addon route (run 21: the first live addon was reset at
-        // 257.6s on the same ~273s wall, on the one route still on the
-        // customer's connection). Nothing else is ever a replay.
-        const eReplay = (ed || ad) ? editReplayUser(request, ownerSlug) : null;
+        // the three routes the queue replays: the edit route, since 2026-09-03
+        // the addon route (run 21: the first live addon was reset at 257.6s on
+        // the same ~273s wall, on the one route still on the customer's
+        // connection), and since 2026-09-06 the platform rebuild (stage 9),
+        // which is a job now and has no other way in — that route REFUSES a
+        // request that is not a replay, which no other route here does or
+        // should. Nothing else is ever a replay.
+        const eReplay = (ed || ad || rb) ? editReplayUser(request, ownerSlug) : null;
         const ou = (await authUser(request)) || eReplay;
         if (!ou) return UNAUTHED();
         const ownerDeps = {
@@ -20624,6 +20724,53 @@ async function handleRequest(request, env, ctx) {
           // other route in this block; a slug that is not yours answers 404
           // rather than 403, because the slug space is public and a 403 confirms
           // which names are taken.
+          if (rb) {
+            // ── THE PLATFORM REBUILD, AS A JOB (stage 9, 2026-09-06) ──────
+            //
+            // The cron's drain used to await `recompileAndPublish` inside the
+            // tick. Now it files a job whose stored request is this, and the
+            // ordinary edit consumer runs it — in the site's own container
+            // when the runner flags admit — under a lease, a heartbeat, the
+            // deploy gate and the sweeps. The drain reads the answer this
+            // returns off the job's row on a later tick and applies the same
+            // verdict it always did.
+            //
+            // INTERNAL. There is no owner-facing rebuild button and this is
+            // not one: a signed-in owner could otherwise spend unbounded
+            // container time for free, once per press. The replay marker is
+            // minted server-side and lives only in the service-role job
+            // object, so requiring it is requiring the queue.
+            if (request.method !== "POST") return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+            if (!eReplay) return Response.json({ error: "not found" }, { status: 404 });
+            const rbGate = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (rbGate.error) return Response.json(rbGate.error.body, { status: rbGate.error.status });
+            // THE SITE'S OWN STORED SOURCE, WHICH IS WHY THIS COSTS NO
+            // CREDITS. A rebuild recompiles the pages the model already wrote
+            // and never calls one — so the job reserves nothing and the
+            // publish gate exempts it, exactly as the free rungs are. Without
+            // stored source there is nothing to compile, and publishing a site
+            // with no routes would replace a working site with an empty one,
+            // so this REFUSES rather than proceeding. `ours: true`, because
+            // the reader collapses an R2 blip and a genuinely sourceless site
+            // into one null: retrying heals the blip, and a site that really
+            // has none parks at the backoff cap with this sentence on its row.
+            const rbPages = await loadSiteSourceForEdit(env, ownerSlug);
+            if (!rbPages) return Response.json({ ok: false, error: "read", ours: true, detail: "no stored page source for " + ownerSlug }, { status: 200 });
+            // 200 WHATEVER HAPPENED, and the body is the verdict. The
+            // consumer reads `ok: false` as "did not ship" and refunds a job
+            // that was never charged; the drain reads this object out of the
+            // row and decides done, retry or stuck. A 5xx here would make the
+            // consumer's own error the only thing the drain could see.
+            const rbOut = await recompileAndPublish(env, {
+              slug: ownerSlug, pages: rbPages,
+              // NAMED IN THE OWNER'S OWN VERSION HISTORY. Every publish
+              // archives a version, and a row there with no label reads as a
+              // change they made and cannot remember. This one was not theirs.
+              label: "platform rebuild",
+              job: eReplay.replay,
+            });
+            return Response.json(rbOut, { status: 200 });
+          }
           if (ed) {
             // ── THE EDIT LANE ─────────────────────────────────────────────
             //

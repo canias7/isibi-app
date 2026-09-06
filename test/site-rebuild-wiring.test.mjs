@@ -31,6 +31,17 @@ function bodyOf(name) {
   assert.fail(name + " has no closing brace");
 }
 
+/** The internal route the rebuild JOB replays (stage 9) — landmark to
+ *  landmark, both asserted, since a missing one yields the empty string and
+ *  every assertion inside it then passes. */
+function rebuildRoute() {
+  const a = worker.indexOf("          if (rb) {");
+  assert.notEqual(a, -1, "the rebuild route is not in worker.js");
+  const b = worker.indexOf("          if (ed) {", a);
+  assert.ok(b > a, "the rebuild route has no end (the edit lane follows it)");
+  return worker.slice(a, b);
+}
+
 test("the cron actually calls it", () => {
   // Without this the queue fills and nothing ever drains it — the shape twelve
   // dead features here had in common.
@@ -163,14 +174,17 @@ test("the claim asks the site's question first, under its lock, and the busy ans
 test("`rebuild` REFUSES without stored source rather than publishing an empty site", () => {
   // Publishing with no pages replaces a working site with one that has no
   // routes — strictly worse than not rebuilding it at all.
-  const body = bodyOf("runSiteRebuild");
-  const at = body.indexOf("rebuild: async");
-  const seg = body.slice(at, body.indexOf("forget: async"));
+  // RE-ANCHORED 2026-09-06 (stage 9): the rebuild is a JOB now, so the source
+  // read, the refusal and the publish moved out of the drain's dep and into the
+  // route the job replays. The property is unchanged and is read where it
+  // lives; what the dep must still do is hand the site to that job, which the
+  // stage's own guard drives.
+  const seg = rebuildRoute();
   // RE-ANCHORED 2026-09-05 (stage 6): the reader that goes on to publish
   // reads through the repairing wrapper, so a copy behind the pointer is put
   // back before a rebuild republishes it.
   assert.match(seg, /loadSiteSourceForEdit\(/, "it must read the site's own stored source, through the repairing reader");
-  const guard = seg.indexOf("if (!pages)");
+  const guard = seg.indexOf("if (!rbPages)");
   const publish = seg.indexOf("recompileAndPublish(");
   assert.ok(guard !== -1 && guard < publish, "the refusal must come BEFORE the publish");
   assert.match(seg.slice(guard, publish), /ours:\s*true/,
@@ -192,13 +206,15 @@ test("the publish is the SHARED spine, not a second copy of it", () => {
   // `recompileAndPublish` was extracted precisely because a second copy of the
   // publish dropped three fields of the published meta. A bulk path with its own
   // copy would do it again, on every site at once.
-  assert.match(bodyOf("runSiteRebuild"), /recompileAndPublish\(env,/);
+  // RE-ANCHORED 2026-09-06 (stage 9): read on the route the job replays.
+  assert.match(rebuildRoute(), /recompileAndPublish\(env, \{/);
 });
 
 test("the version it archives is LABELLED as ours", () => {
   // Every publish archives a version. An unlabelled row in an owner's history
   // reads as a change they made and cannot remember.
-  assert.match(bodyOf("runSiteRebuild"), /label:\s*["'`]platform rebuild/);
+  // RE-ANCHORED 2026-09-06 (stage 9): the same move.
+  assert.match(rebuildRoute(), /label:\s*["'`]platform rebuild/);
 });
 
 test("nothing in the Worker enqueues — the queue is operator-written", () => {

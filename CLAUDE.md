@@ -456,7 +456,12 @@ concurrent because eight in series is sixteen minutes and a cron invocation is
 dead at fifteen; the claim covers the overlap as before, and the only edit that
 waits behind a rebuild is an edit of the site being rebuilt, exactly as at 1.
 240 an hour, 5,760 a day; a batch size, raise it once a real platform-wide
-republish has been measured. `test/site-rebuild.test.mjs` drives the
+republish has been measured. **AND SINCE 2026-09-06 (stage 9) THE TICK ONLY
+FILES**: each due row becomes an edit job for the site's owner, run by the
+ordinary consumer in the site's own container, and the drain reads the job's
+answer on a later tick — so the batch is no longer bounded by the cron
+invocation at all, and a rebuild gets the lease, the deploy gate and the
+sweeps every other job has. `test/site-rebuild.test.mjs` drives the
 concurrency — every rebuild of a tick started before any returns — and the
 per-chain isolation; the two guards that pinned `BATCH === 1` and its reason
 were re-anchored. Sweep 8/8, control survived; suite 5,045. Not proven live:
@@ -2822,9 +2827,10 @@ queue consumer ─► fireContainerJob ─► POST /job/run on laneName(job.slug
 - **Later phases**: Supabase through the gateway shipped as stage 4b, the
   child's clock as stage 5d, builds through the runner — whole, under a
   longer clock, no fire and no resume — as stage 5b/5c, and the broad flip's
-  readiness as stage 5e (the bullets above). What is left: the platform
-  rebuild as a job and a retention sweep of staged builds (stage 9), and
-  #52's interrupted-job answer for the builds the Worker still runs itself.
+  readiness as stage 5e (the bullets above), and the platform rebuild as a
+  job with a sweep of the litter under `jobs/` as stage 9 (its own section).
+  What is left of the plan: nothing. What is left beside it: #52's
+  interrupted-job answer for the builds the Worker still runs itself.
 
 ### A BUILD HAS A ROW, AND ONE LEASE MOVES ALONG ITS CHAIN (2026-09-05, stage 2c)
 
@@ -3813,6 +3819,120 @@ pageless (a job, an internal function): the apply runs directly, `applied` at on
   container harness was not re-run (no container-side code changed; the
   image guards read the module).
 
+### THE PLATFORM REBUILD IS A JOB, AND `jobs/` IS SWEPT (2026-09-06, stage 9)
+
+Owner: *"finish the missing steps"* — the plan's last row, and its two halves
+are unrelated except that both are litter the job machinery left behind.
+
+**A REBUILD IS A JOB NOW, AND THE CRON ONLY FILES IT.** It used to run inside
+the tick: `recompileAndPublish` awaited there, eight sites at a time, every one
+bounded by the fifteen minutes an invocation gets and none of them holding a
+lease. A tick that ran out of clock left a container mid-compile with nothing
+recording it; a deploy rolled under it (3a gates the queue, never the cron);
+and none of the recovery the edit path grew — the row, the lease, the
+heartbeat, the stale sweep, the reconcile — applied to a rebuild at all.
+
+```
+cron tick ──rebuild_claim (the site's own lock, unchanged)──► enqueueEditJob(op "rebuild", the OWNER's uid)
+          ──defer the row PENDING_DEFER_SEC, no attempt, "handed to job <id>"──► returns
+consumer  ──the ordinary edit consumer, in the site's container when the flags admit──►
+          POST /api/site/<slug>/rebuild   (INTERNAL: a replay marker is the only way in)
+          ──loadSiteSourceForEdit → recompileAndPublish(label "platform rebuild", job)──► 200, the spine's own answer
+a later tick ──enqueueEditJob with the SAME key answers `duplicate` + the job id──► edit_get
+          terminal → the stored reply IS `verdictFor`'s input → forget | defer | park
+```
+
+- **THE ROW IS STILL THE QUEUE, and the drain still makes every verdict.** The
+  job does not touch `site_rebuild` — that would need the gateway wall to admit
+  a PATCH, which no job has and none should — so the drain reads the job's own
+  answer on a later tick and applies `verdictFor` exactly as it always did:
+  `done` forgets the row, `retry` backs off, `stuck` parks at the last rung with
+  its reason. What is new is `pending`, read FIRST: the job has not answered,
+  so no attempt is counted and no rung climbed — the busy branch's rule, for the
+  same reason.
+- **`rebuildIdem` IS WHAT MAKES THAT POSSIBLE WITHOUT A COLUMN.** `edit_create`
+  keys on `(uid, slug, op, idem_key)`, so asking twice inside one attempt
+  answers the SAME job — that is how a later tick finds the job it filed
+  instead of filing a second one. The key is the row's `enqueued_at` (written
+  once by the operator sweep's insert, never touched by the drain — the
+  generation) and its `attempts` (a failed rebuild deserves a fresh job, not
+  the old one's answer). A row whose stamp cannot be read is REFUSED a name
+  rather than given a guessed one: a key that changed every tick would file a
+  rebuild every two minutes. **No migration and no new column**; the `due` read
+  carries one more field.
+- **THE ROUTE IS INTERNAL AND REFUSES ANYTHING THAT IS NOT A REPLAY.** There is
+  no owner-facing rebuild button and this is not one — an owner reaching it
+  directly would be unbounded free container time, once per press. The replay
+  marker is minted server-side and lives only in the service-role job object,
+  so requiring it is requiring the queue. `editReplayUser` is offered to
+  `(ed || ad || rb)` and nothing else; the route answers 404 without a marker,
+  before it reads anything, and takes the same `assertOwner` gate every route
+  in that block takes.
+- **IT COSTS NOTHING, and that is now a property of the job rather than of the
+  cron.** No model call on the path, so the job reserves nothing and the
+  publish gate exempts it (`edit_exempt`, the free-rung state) — driven end to
+  end. The spine is handed no charge funnel, so translations stay free on a
+  rebuild as they always were.
+- **THE DELAY IS NOT POLITENESS.** `rebuild_claim` marks the row
+  (`running_until`), which is exactly what `site_busy` reads as "the platform
+  is rebuilding this site" — so the job's own `edit_claim` would race the
+  deferral that clears it. `REBUILD_START_DELAY_S` (5 s) on the send is longer
+  than the two writes between; a delivery that beats it anyway costs one
+  deferral and heals itself.
+- **What this buys**: the tick returns in a second instead of holding an
+  invocation; a rebuild gets a lease, a heartbeat and the sweeps; it is
+  DEFERRED BY A DEPLOY GATE (3a's stated residue (d) — "the rebuild drain is
+  not gated" — is closed by the job's own claim naming `DEPLOY_ID`); it runs in
+  the site's container under the runner flags; and it is serialized against the
+  customer's own edits by the same lock, from both sides.
+
+**AND NOTHING SWEPT `jobs/` — the code said so in three places.** Every object
+under it is deleted on its happy path; what is left is the unhappy ones: a
+build whose message was never delivered, an answer nobody came back for, a
+resume record whose collector never came, a request whose row was failed before
+any consumer claimed it. **And they are not all small**: a build's stored
+request carries the customer's whole POST body, up to 24MB with attachments —
+"a stranded record is a few kilobytes" was true of the resume record and never
+of the job. `builder/job-retention.mjs` (dependency-free, driven): age alone
+decides, because the longest a job can legitimately hold one is bounded from
+every side (14 min of budget, 30 in the container, 45 of deferrals, 53 of the
+browser's watch) and `JOB_RETENTION_MS` is **seven days** — so the sweep reads
+no row and takes no lease. **A rotation, not a scan**: one nibble of the prefix
+per tick (`jobs/7`, `jobs/edit/7`), the sixteen coming round every 32 minutes,
+because R2 lists lexicographically and a fixed page would hide its tail for
+ever. An object whose `uploaded` cannot be read is KEPT (cannot-tell is never
+nothing-there, pointed at a delete); a key outside `jobs/` is never returned
+whatever the listing said; one delete call for the batch, capped at 100.
+
+- **Guards**: `test/job-retention.test.mjs` (5) — the window against the four
+  bounds it rests on, the rotation's coverage, what is old enough and what is
+  never touched, a tick driven (both prefixes, one delete, a quiet tick, a
+  failed listing, a failed delete, deps that are not deps), and the cron's own
+  hop; `test/rebuild-job.test.mjs` (11) — the key, the pending verdict, the
+  drain's branch driven, the Worker's dep DRIVEN THROUGH THE REAL CRON against
+  a fake Supabase (filed, found again, done, parked, lost, under review, no
+  stamp, no owner, busy), the route's gate through the real router, and **the
+  whole loop through the real queue consumer**: a filed job replays into the
+  route, compiles once, reaches no model, reserves nothing, is exempted, and
+  stores an answer `verdictFor` reads as `done`.
+- **Six older guards went red for the change and were re-anchored, not
+  appeased**: the replay identity's route set in two files (three routes now,
+  and the third files no job of its own — the census names who files instead),
+  `enqueueEditJob`'s parameter list (the op and its default are the property),
+  the editing readers (the rebuild's read moved one hop into the route), and
+  the image's input list (the new module, caught by the walk the hour it was
+  written — the recorded trap, again).
+- **Sweep: 24 mutants, 24 killed, none unapplied, two comment-only controls
+  survived.**
+  Full suite **5,353**.
+- **Not proven live.** The next platform republish is the proof, and it is
+  free: file a `site_rebuild` row and watch one tick file a job
+  (`site rebuild: {"pending":1…}`), the consumer publish it, and a later tick
+  forget the row. The retention sweep is inert until something is a week old —
+  `job retention:` appears only when it takes something out. The deploy rolls
+  the container (`worker.js` and the builder modules are image inputs), so the
+  15–20 minute hold applies.
+
 ---
 
 ## Data, auth, payments, mail
@@ -4311,8 +4431,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,338
-  (2026-09-06, after stage 5e's five in `test/broad-rollout.test.mjs` — the
+  build and the pre-list payload added sixteen); the unit suite is 5,354
+  (2026-09-06, after stage 9's sixteen — `test/job-retention.test.mjs`'s
+  five, the window against the bounds it rests on, the rotation, what is
+  old enough and what is never touched, a tick driven and the cron's hop;
+  and `test/rebuild-job.test.mjs`'s eleven, the key, the pending verdict, the
+  drain's branch, the Worker's dep DRIVEN through the real cron, the
+  route's gate through the real router, the retention sweep driven on that
+  same tick, and the whole loop through the real queue consumer; 5,338 the
+  same day, after stage 5e's five in
+  `test/broad-rollout.test.mjs` — the
   arithmetic that makes the inline budget's cap necessary, the decision
   driven, the handler's per-message clock and both hand-downs, each
   consumer's capped budget beside the container's uncapped one, and the

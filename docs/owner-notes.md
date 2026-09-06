@@ -3725,3 +3725,47 @@ fixed and re-run. Full suite green. NOT proven live: it needs a full account
 to bite, which is a launch and not a test; the log line to look for is
 "inline budget cut to …". Five older tests went red for the change and were
 re-anchored on what they actually mean.
+
+## 2026-09-06 — Stage 9: the platform rebuild is a job, and the job litter is swept
+
+The last row of the plan, and two unrelated things that were both leftovers of
+the job machinery.
+
+**Rebuilds are jobs now.** The "republish every site" queue used to do the work
+inside the two-minute cron tick: eight sites at a time, each one compiling and
+publishing while the tick waited, all of it inside the fifteen minutes a cron
+run is allowed. That meant a big republish could run out of clock mid-compile
+with nothing recording it, a deploy could roll under it, and none of the
+recovery the edit path has grown over the last week applied to it at all.
+
+Now the tick files a job for the site's owner and returns in a second. The same
+consumer that runs their edits runs it — in the site's own container when the
+runner flags allow — with a lease, a heartbeat, the deploy gate and the sweeps.
+The queue row stays where it was and still decides everything: on a later tick
+the drain reads the job's own answer and does what it always did — forget the
+row when the site republished, back off when it was our fault, park it at the
+last rung when the site's own source will not compile.
+
+It still costs nothing (no model call, so nothing is charged), it is still
+started only by the operator sweep, and there is still no rebuild button: the
+route the job replays refuses anything that is not the queue's own replay, so
+nobody can spend container time by pressing something.
+
+**And the leftovers under `jobs/` are swept.** Three comments in the code said
+"nothing sweeps this" — and what collects there is not small: a build's stored
+request holds the customer's whole upload, up to 24MB. Anything older than a
+week is now taken out on the cron, a sixteenth of the prefix per tick. A week
+is about two hundred times longer than the longest job can possibly run, so
+nothing in flight can be touched, and an object whose age cannot be read is
+left alone.
+
+**Proven / not proven.** Driven: the whole loop through the real queue consumer
+(a filed job replays into the route, compiles once, reaches no model, reserves
+nothing, and stores an answer the drain reads as "republished"), the drain's
+own dep through the real cron against a fake database in nine shapes, and the
+retention tick. Sweep: 26 mutants, 26 killed, controls survived — one got
+past the first pass because the cron's call to the sweep was read rather than
+run, which is driven now. Full suite 5,354 green. NOT proven live: the next
+republish is the proof and it is free — file one queue row and watch a tick
+file the job, the consumer publish, and a later tick forget the row. Six older
+tests went red for the change and were re-anchored on what they actually mean.

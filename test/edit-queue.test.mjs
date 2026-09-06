@@ -227,12 +227,17 @@ test("the replay identity is offered to the two queued routes and to no other", 
   // RE-ANCHORED 2026-09-03: the condition was `ed ?` and is `(ed || ad) ?` —
   // the addon route files jobs through the same queue now (run 21's
   // synchronous addon was reset at 257.6s on the same wall), so its replay
-  // must resolve the same identity. The property is that the condition names
-  // EXACTLY the two routes the consumer replays, and nothing wider: a bare
-  // `true`, a third route or a missing check would each be a different hole.
-  const auth = CODE.slice(at(CODE, "const eReplay = (ed || ad) ?", "auth"), at(CODE, "const ownerDeps = {", "auth end"));
-  assert.match(auth, /const eReplay = \(ed \|\| ad\) \? editReplayUser\(request, ownerSlug\) : null;/,
-    "the replay identity is no longer restricted to the edit and addon routes");
+  // must resolve the same identity.
+  // RE-ANCHORED AGAIN 2026-09-06 (stage 9): a third route is replayed — the
+  // platform rebuild, whose job the CRON files and which refuses anything that
+  // is not a replay. The property is unchanged and is what is asserted: the
+  // condition names EXACTLY the routes the consumer replays and nothing wider,
+  // so a bare `true`, a route that is not replayed, or a missing check are each
+  // still a different hole. The list itself is derived in
+  // test/addon-queue.test.mjs against who files a job.
+  const auth = CODE.slice(at(CODE, "const eReplay = (ed || ad || rb) ?", "auth"), at(CODE, "const ownerDeps = {", "auth end"));
+  assert.match(auth, /const eReplay = \(ed \|\| ad \|\| rb\) \? editReplayUser\(request, ownerSlug\) : null;/,
+    "the replay identity is no longer restricted to the three routes the queue replays");
   assert.match(auth, /const ou = \(await authUser\(request\)\) \|\| eReplay;/,
     "a real token no longer takes precedence over the replay identity");
   assert.match(auth, /if \(!ou\) return UNAUTHED\(\);/, "an unidentified request is no longer refused");

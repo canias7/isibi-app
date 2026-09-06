@@ -593,7 +593,11 @@ test("the editable copy: four editing readers read through the repairing reader,
     "let eSrc = await loadSiteSourceForEdit(env, ownerSlug);",
     "const aSrc = await loadSiteSourceForEdit(env, ownerSlug);",
     "priorPages: existing ? await loadSiteSourceForEdit(env, slug) : null,",
-    "const pages = await loadSiteSourceForEdit(env, slug);",
+    // RE-ANCHORED 2026-09-06 (stage 9): the platform rebuild's read moved out
+    // of the cron's dep (`const pages = …(env, slug)`) and into the route its
+    // JOB replays, where the compile now happens. Same reader, same property,
+    // one hop over.
+    "const rbPages = await loadSiteSourceForEdit(env, ownerSlug);",
   ]) assert.ok(W.includes(line), "an editing reader does not read through the repair: " + line);
   // CALL SITES, not the definition: the wrapper's own read, and the three
   // readers that answer a count, a listing or a delete and never publish.
