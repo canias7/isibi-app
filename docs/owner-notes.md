@@ -342,6 +342,49 @@ is the free way to see whether the canary flag actually names that site.
 
 ---
 
+## 2026-09-07 — The start screen shows every site you own, from the server
+
+You: *"fix it so the screen shows everysite, server not local."*
+
+**What was wrong, in one number.** That grid read your browser's own storage and
+nothing else, and the save keeps **twenty**. Your account owns **51 sites**. So
+the screen could show at most twenty of them, only in the browser that built
+them, and none at all on your phone or after clearing site data. They were live,
+they were yours, they were paid for, and the app could not see them.
+
+**Now**: the app asks the server for your sites and shows all of them. Your
+browser still supplies what only it has — the conversation on each site, the
+name you typed — and the server decides which sites exist.
+
+**The rule I built it on, because it is the one that can hurt you.** A list we
+*could not read* is not an empty list. If the network blips, or you are signed
+out, or the database is slow, your existing screen stands exactly as it was —
+you never open the app and find every site you own gone. Those two cases are
+spelled differently at every step so they cannot be confused.
+
+**One thing that would have shipped broken and did not.** Every card looked its
+site up in browser storage. For a site built on another machine that finds
+nothing — so the thumbnail would have been blank, clicking would have done
+nothing, and worst, the **delete** button would have quietly skipped the real
+server-side delete and left the live site running while telling you it was
+removed. All three go through the merged list now and adopt the site on first
+touch.
+
+**Two things to know before you look:**
+
+1. **I have not seen it in a browser yet.** It is driven by tests and the sweep,
+   not by eyes. I will screenshot it before calling it done.
+2. **The names will look like `fretwork-1`, `northgroup-9`.** The friendly name
+   you typed only ever lived in that one browser. The server knows the slug, the
+   address and your original brief; the real brand name sits in each site's own
+   config file, which would be 51 reads on one page load. Your call whether that
+   is worth a second hop — say the word and I will do it.
+
+Suite 5,442. Sweep 28/28 with its control — one survived the first pass and it
+was my test's fault, not the code's, so it was tightened and re-run to a kill.
+
+---
+
 ## Open — waiting on you
 
 **0a. THE CANARY PLAN, REVISED (2026-09-06, your call to run it or not).**

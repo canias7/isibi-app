@@ -10256,7 +10256,11 @@ function renderSites() {
   // the render every reply triggers.
   if (open) { resumeOpenSite(open); renderSiteWorkspace(view, open); return; }
   siteOpenId = null;
-  const sites = sitesLoad();
+  // EVERY SITE THIS ACCOUNT OWNS, not only the ones this browser built. The
+  // fetch is fire-and-forget and re-renders when it lands, so the first paint
+  // is still the local list and nothing waits on the network.
+  sitesFetchRemote();
+  const sites = SiteList.merge(sitesLoad(), sitesRemote, sitesRemote !== null);
   view.innerHTML =
     '<div class="st-page">' +
       '<div class="st-hero">' +
@@ -10288,19 +10292,34 @@ function renderSites() {
   const attBtn = document.getElementById('stAttachBtn');
   if (attBtn) attBtn.onclick = siteAttachOpen;
   paintAttachStrip();
+  // A CARD MAY NAME A SITE THIS BROWSER HAS NO RECORD OF — one the server
+  // listed and another machine built. `siteById` searches localStorage alone,
+  // so every one of these three (the thumbnail, the click, the delete) would
+  // have found nothing and done nothing. They resolve through the MERGED list
+  // and adopt on first touch instead.
+  const cardEntry = (id) => sites.find((s) => s.id === id) || null;
+  const cardOpen = (id) => {
+    const rec = siteAdopt(cardEntry(id));
+    if (!rec) return;
+    siteOpenId = rec.id;
+    renderSites();
+  };
   // thumbnails: srcdoc set via property (attribute-escaping-proof), inert
   view.querySelectorAll('.st-card').forEach((card) => {
-    const s = siteById(card.dataset.open);
+    const s = cardEntry(card.dataset.open);
     const fr = card.querySelector('iframe');
     const home = s && (siteActivePage(s) || sitePages(s)[0]);
     if (fr && s && s.react && s.url) fr.src = s.url; // compiled React thumbnail
     else if (fr && home && home.html) fr.srcdoc = home.html;
-    card.onclick = (e) => { if (e.target.closest('[data-del]')) return; siteOpenId = card.dataset.open; renderSites(); };
-    card.onkeydown = (e) => { if (e.key === 'Enter') { siteOpenId = card.dataset.open; renderSites(); } };
+    card.onclick = (e) => { if (e.target.closest('[data-del]')) return; cardOpen(card.dataset.open); };
+    card.onkeydown = (e) => { if (e.key === 'Enter') cardOpen(card.dataset.open); };
   });
   view.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
     const id = b.dataset.del;
-    const s = siteById(id);
+    // Adopted first for the same reason: the delete below is a REAL server-side
+    // delete keyed on `s.slug`, and a remote card with no local record would
+    // have fallen through it silently, leaving the live site running.
+    const s = siteAdopt(cardEntry(id));
     // A published/React site has a live page + (maybe) its own database — deleting
     // it is permanent, so confirm, then wipe it server-side before removing locally.
     if (s && s.slug) {
@@ -10344,6 +10363,65 @@ function renderSites() {
     sitesCache = sitesLoad().filter((x) => x.id !== id);
     sitesSave(); renderSites();
   });
+}
+// ── THE ACCOUNT'S OWN SITES, FROM THE SERVER (2026-09-07) ────────────────────
+//
+// `sitesLoad` is this browser's localStorage and `sitesSave` keeps twenty of
+// them. The account this shipped for owns 51, so the start screen could show a
+// fraction of them, in one browser, and none on a phone.
+//
+// `null` means NEVER ANSWERED — which is what `SiteList.merge` reads as "show
+// the local list untouched". An empty array is a real answer meaning this
+// account owns nothing, and the two must not be spelled the same way.
+let sitesRemote = null;
+let sitesRemoteAt = 0;
+let sitesRemoteBusy = false;
+const SITES_REMOTE_TTL = 60_000;
+async function sitesFetchRemote(force) {
+  if (sitesRemoteBusy) return;
+  if (!force && sitesRemote !== null && Date.now() - sitesRemoteAt < SITES_REMOTE_TTL) return;
+  // Signed out there is nothing to ask for, and asking would pop the auth gate
+  // on a page the visitor has not tried to do anything on yet.
+  if (!window.Auth || !(await Auth.accessToken().catch(() => null))) return;
+  sitesRemoteBusy = true;
+  try {
+    const r = await apiFetch('/api/site/list');
+    const d = await r.json().catch(() => null);
+    // ANY failure leaves `sitesRemote` exactly as it was: a blip must not blank
+    // a customer's screen, and a stale list is better than an empty one.
+    if (r.ok && d && d.ok && Array.isArray(d.sites)) {
+      sitesRemote = d.sites;
+      sitesRemoteAt = Date.now();
+      renderSites();
+    }
+  } catch { /* offline: the local list stands */ }
+  finally { sitesRemoteBusy = false; }
+}
+// A CARD THE SERVER NAMED AND THIS BROWSER HAS NEVER SEEN HAS NO LOCAL RECORD,
+// and `siteById` only ever searches localStorage — so without this the card
+// would open nothing at all. Adopting writes the same fields a finished build
+// writes (`slug`, `url`, `react`, an empty thread), so the workspace cannot
+// tell the difference between a site built here and one built on another
+// machine. Idempotent: a slug already held is returned as it stands.
+function siteAdopt(entry) {
+  if (!entry || !entry.slug) return entry && entry.id ? siteById(entry.id) : null;
+  const all = sitesLoad();
+  const have = all.find((s) => s.slug === entry.slug);
+  if (have) return have;
+  const rec = {
+    id: 'site_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    name: entry.name || entry.slug,
+    slug: entry.slug,
+    url: entry.url || '',
+    react: true,
+    createdAt: entry.createdAt || Date.now(),
+    updatedAt: entry.updatedAt || entry.createdAt || Date.now(),
+    html: '',
+    msgs: [],
+  };
+  all.unshift(rec);
+  sitesSave();
+  return rec;
 }
 function siteCreate(prompt) {
   const id = 'site_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);

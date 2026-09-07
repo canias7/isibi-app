@@ -710,6 +710,72 @@ the next platform-wide republish is the measurement).
 
 ---
 
+### THE START SCREEN LISTS EVERY SITE THE ACCOUNT OWNS (2026-09-07, owner:
+*"fix it so the screen shows everysite, server not local"*)
+
+`renderSites` read `sitesLoad()` — **`localStorage`** — and `sitesSave` keeps
+`slice(0, 20)`. Measured the day this shipped: the owner's account holds **51**
+rows in `site_backends`, so that screen could show at most twenty of them, only
+in the browser that built them, and none at all on a phone or after clearing
+site data. Live sites, paid for, invisible.
+
+- **`GET /api/site/list`** — the caller's own sites. Three reads, every one
+  filtered `uid=eq.<the token's own id>`, and **no slug parameter**, so unlike
+  the owner routes beside it this one cannot be pointed at somebody else's site
+  to probe whether it exists. Capped at `MAX_SITE_LIST` (200) — headroom over
+  the biggest real account, not a cut.
+  **Only `site_backends` is load-bearing**: the alias and build reads are
+  enrichment (a nicer address, a last-touched date) and a failure in either
+  leaves the list standing with the storage slug and the created date. Refusing
+  a whole screen because a timestamp could not be read is the cure worse than
+  the disease.
+- **`public/site-list.js`** — the merge, in a file that runs in the browser AND
+  under `node --test`, `edit-poll.js`'s pattern and for its reason: `chat.js`
+  touches `document` at load and can only ever be asserted by reading.
+  **THE SERVER decides which sites exist; the LOCAL record supplies what the
+  server does not have** — the thread, the name the customer typed, the stored
+  page HTML a legacy thumbnail draws from. A local site with **no slug** is a
+  build in flight and is never dropped (the slug is claimed when the design
+  lands); a local site the server did not list is not shown, and its record is
+  left alone — this decides the SCREEN, never the store.
+- **AND THE RULE THAT DECIDES IT: a server list we could not read is not an
+  empty one.** A blip, an outage, a signed-out visitor each answer `ok: false`
+  and the local list stands untouched — exactly the screen that shipped before
+  this existed. `null` (never answered) and `[]` (this account owns nothing) are
+  spelled apart at every hop, on the wire and in the browser. Cannot-tell must
+  never read as nothing-there; here the cost of getting it backwards is somebody
+  opening the app during a hiccup and finding every site they own gone.
+- **THE HOP THAT WOULD HAVE SHIPPED DEAD**: all three card handlers resolved
+  through `siteById`, which searches `localStorage` alone — so a card for a site
+  built on another machine would have had a blank thumbnail, opened nothing, and
+  **its delete would have fallen straight through the real server-side delete**
+  (`DELETE /api/site/<slug>`, keyed on `s.slug`) leaving the live site running
+  while saying it was removed. They resolve through the merged list and
+  `siteAdopt` on first touch, which writes the same fields a finished build
+  writes, so the workspace cannot tell a site built here from one built
+  elsewhere.
+- **Guards**: `test/site-list.test.mjs` (23) — the merge driven both ways
+  including the failure direction and its control, the coercion refusal
+  (`String(["a"])`), a hostile slug PARSED rather than string-matched, and the
+  route DRIVEN through the real router against a fake Supabase (401 reading
+  nothing, all three reads uid-scoped, the alias as the name, an unreadable
+  backends list as 503 and never `sites: []`, a failed enrichment leaving the
+  list standing, the newest build winning). **Sweep: 28 mutants, 28 killed, none
+  unapplied, the comment-only control survived — one survived the first pass and
+  it was the guard's**: the mutant reverted the CLICK handler alone and the check
+  passed because `cardOpen` still appeared on the keydown line below it, the
+  recorded "a guard proves the branch it drives" shape; counted and re-run to a
+  kill. Full suite **5,442**.
+- **Not proven live, and not seen in a browser yet.** The next load of
+  gofarther.dev signed in is the proof: 51 cards instead of however many that
+  browser held. **The names will be slug-ish** (`fretwork-1`, `northgroup-9`) —
+  the friendly name only ever existed in `localStorage`, and the server knows
+  the slug, the alias and the brief; the real brand name lives in each site's R2
+  config, which is 51 reads on one page load. Owner's call whether that is worth
+  a second hop.
+
+---
+
 ## Editing a site — the ladder
 
 The router picks a layer; each falls through to the one above it when it cannot
@@ -4902,7 +4968,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,419
+  build and the pre-list payload added sixteen); the unit suite is 5,442
+  (2026-09-07, after the start screen's twenty-three in `test/site-list.test.mjs`
+  — the merge driven in both directions with its failure control, the coercion
+  refusal, a hostile slug parsed rather than matched, and the route DRIVEN
+  through the real router against a fake Supabase; before it 5,419
   (2026-09-07, after the one-mark work's twenty-one in `test/site-mark.test.mjs`
   — the pair derived from the baker's own two branches both ways, `readMark` over
   the new shape AND the legacy string with every refusal, the fold driven on

@@ -6927,6 +6927,13 @@ async function userSiteProject(env, uid) {
 // sequential round trips were the request and three were this lookup plus the
 // schema read. Cached, a warm isolate pays one.
 const SITE_CONN_TTL_MS = 300_000;
+// How many of an account's own sites `/api/site/list` hands back. A ceiling on
+// one screen's payload, not a limit on how many a customer may own: the biggest
+// account on the platform holds 51 (read 2026-09-07), so this is headroom
+// rather than a cut, and the rows are slug-sized. A customer past it would see
+// their newest 200, which is a real edge and is why the cap is one number here
+// rather than spelled into the query string at the call site.
+const MAX_SITE_LIST = 200;
 const _connCache = makeCache({ ttlMs: SITE_CONN_TTL_MS, max: 500 });
 
 // KV first, then the two Supabase calls. Supabase stays the source of truth —
@@ -19283,6 +19290,78 @@ async function handleRequest(request, env, ctx) {
     }
 
     // GET /api/site/runtime?slug= — WHICH PATH WOULD THIS SITE'S NEXT EDIT
+    // GET /api/site/list — EVERY SITE THIS ACCOUNT OWNS (2026-09-07, owner:
+    // "fix it so the screen shows everysite, server not local").
+    //
+    // The start screen listed `localStorage` and nothing else, and `sitesSave`
+    // keeps `slice(0, 20)`. Measured the day this shipped: this account holds
+    // 51 rows in `site_backends`, so that screen could show at most twenty of
+    // them, only in the browser that built them, and none at all on a phone or
+    // after clearing site data. Live sites, paid for, invisible.
+    //
+    // SCOPED BY THE CALLER'S OWN uid AND NOTHING ELSE. There is no slug
+    // parameter and no way to name one: every query below filters on
+    // `uid=eq.<the token's own id>`, so unlike the owner routes above this one
+    // cannot be pointed at somebody else's site to probe whether it exists.
+    //
+    // ONLY `site_backends` IS LOAD-BEARING. The alias and build reads are
+    // enrichment — a nicer address, a last-touched date — so a failure in
+    // either leaves the list standing with the storage slug and the created
+    // date instead of refusing it. Refusing the whole screen because a
+    // timestamp could not be read would be the cure worse than the disease.
+    if (url.pathname === "/api/site/list" && request.method === "GET") {
+      const lu = await authUser(request);
+      if (!lu) return UNAUTHED();
+      const luid = encodeURIComponent(lu.id);
+      const lq = (p) => fetch(`${SUPABASE_URL}/rest/v1/${p}`,
+        { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+      const lrows = async (r) => {
+        if (!r || !r.ok) return null;                 // null is "could not ask"
+        const j = await r.json().catch(() => null);
+        return Array.isArray(j) ? j : null;
+      };
+      let lb, la, ld;
+      try {
+        [lb, la, ld] = await Promise.all([
+          lq(`site_backends?uid=eq.${luid}&select=slug,created_at,brief&order=created_at.desc&limit=${MAX_SITE_LIST}`),
+          lq(`site_aliases?uid=eq.${luid}&current=is.true&select=alias,slug`),
+          lq(`site_builds?uid=eq.${luid}&select=slug,updated_at&order=updated_at.desc&limit=1000`),
+        ]);
+      } catch { return Response.json({ ok: false, error: "read" }, { status: 503 }); }
+
+      const backends = await lrows(lb);
+      // A LIST WE COULD NOT READ IS NOT AN EMPTY LIST. The browser keeps its
+      // own sites on a 503 and shows exactly the screen that shipped before
+      // this route existed; answering `{sites: []}` here would blank it.
+      if (!backends) return Response.json({ ok: false, error: "read" }, { status: 503 });
+
+      const aliasBy = Object.create(null);
+      for (const a of (await lrows(la)) || []) {
+        if (a && typeof a.slug === "string" && typeof a.alias === "string") aliasBy[a.slug] = a.alias;
+      }
+      // Newest first out of Postgres, so the FIRST row seen for a slug is its
+      // latest build and every later one is skipped.
+      const builtBy = Object.create(null);
+      for (const b of (await lrows(ld)) || []) {
+        if (b && typeof b.slug === "string" && !builtBy[b.slug]) builtBy[b.slug] = b.updated_at;
+      }
+
+      const stamp = (v) => { const t = Date.parse(String(v || "")); return Number.isFinite(t) ? t : 0; };
+      return Response.json({
+        ok: true,
+        sites: backends.filter((r) => r && typeof r.slug === "string").map((r) => ({
+          slug: r.slug,
+          // The site's CURRENT public address, which is not always its storage
+          // slug: a renamed site answers at its alias, and printing the storage
+          // name would show an address its owner no longer uses.
+          name: aliasBy[r.slug] || r.slug,
+          brief: typeof r.brief === "string" ? r.brief.slice(0, 300) : "",
+          createdAt: stamp(r.created_at),
+          updatedAt: stamp(builtBy[r.slug]) || stamp(r.created_at),
+        })),
+      });
+    }
+
     // TAKE, AND WHICH CODE WOULD RUN IT (2026-09-06).
     //
     // ── THE FLAGS COULD NOT BE READ FROM OUTSIDE, AND THAT COST A SESSION ────
