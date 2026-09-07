@@ -306,13 +306,25 @@ Only `tsx`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
 - **`theme`** — one of a 100-name shortlist, out of a 500-theme registry
   (`builder/site-theme-registry.mjs`). `FIELD_KEEPS.theme` judges against all 500,
   so a stored off-shortlist theme survives every merge.
-- **`favicon`** — a complete SVG document the model draws. `cleanFavicon` is an
-  allow-list that **refuses whole**: 18 elements, ~50 attributes, no `script`,
-  no `href` of any kind, entities decoded before the danger checks. We own the
-  document element, the model owns the shapes.
-- **`wordmark`** — the literal `text` (the name in type, the right answer for
-  most) or one drawn SVG. Sized from its own viewBox, because the header
-  constrains by height.
+- **`favicon` / `wordmark` — ONE FIELD EACH, CARRYING A FORM (2026-09-07).** The
+  tool is unchanged and still asks for a DRAWING (or, for the wordmark, the
+  literal `text`), because that is a good thing to ask a model for and a form
+  object is not; the merge normalises the answer on the way out. What each field
+  STORES is `{form:"text"|"initials"} | {form:"svg", svg} | {form:"image", url}`,
+  and the third is the picture the `logo` rung uploads — so a mark has one home,
+  one door and no precedence ladder, and a new form simply replaces the one
+  before it. `builder/site-mark.mjs` owns the shape, the compatibility fold for
+  every site still on the old `config.logo`/`config.icon` pair, the ONE wire
+  projection, and `markUrlOk`, which is the single copy of what may reach a
+  generated `src`. A model must not outrank a person is `mergeLook`'s `asked`
+  flag: an edit the customer named replaces, a design step's volunteered answer
+  leaves an uploaded mark alone.
+  `cleanFavicon` is still the drawing's validator — an allow-list that **refuses
+  whole**: 18 elements, ~50 attributes, no `script`, no `href` of any kind,
+  entities decoded before the danger checks. We own the document element, the
+  model owns the shapes. And the two readers stay two: a favicon is forced
+  square, a wordmark is sized from its own viewBox, because the header constrains
+  by height.
 - **`css`** — the model's own stylesheet, appended LAST so it wins on source
   order. The 500 themes are the base; this is the layer a customer asks for.
 - **`lang` / `langs`** — the language the pages are written in, and every other
@@ -710,7 +722,7 @@ express the change. Cheapest first:
 | `rules` | schema features enforced in Postgres or read from `_meta` | ~0.3 |
 | `look` | the EDIT PATH — 17 lanes, 8 of which act (see below) | 1 |
 | `picture` | swap or reframe a photograph (matched on its alt text) | ~0.3 |
-| `logo` | the header logo — the attachment IS which picture | 0 |
+| `logo` | the header logo or tab icon — the attachment IS which picture, stored as that mark's `image` form | 0 |
 | `nav` | menu, header button, footer contact/social/legal, in-body links | ~0.3 |
 | `page` | one page's layout, via `tweak` (Haiku, minimal patch) | ~1–3 |
 | `addon` | a real page rewrite | ~25 |
@@ -1002,48 +1014,116 @@ credits and reported success for something no visitor could ever be shown:
 **doing less than was asked while saying it was done**, the one failure this
 path exists to avoid. The precedence is right and stays; what was wrong is that
 the lane could not SEE it.
-**THE WALL IS AT THE PICKER AND COSTS NOTHING.** `UPLOAD_SHADOWS`
-(`site-lanes.mjs`, `{wordmark: "logo", favicon: "icon"}`) with `shadowedBy` and
-`shadowedRefusal`; the edit route's picker widens its existing config read to
-serve both walls (`wallConfig`, the whole config — the uploads are their own
-fields BESIDE `look`, never members of it, which is why the logo rung stores
-outside it) and answers 422 with `cost: 0` and a sentence naming the upload and
-offering the way through. **The offer is real rather than aspirational**:
-`runLogoEdit(deps, { remove: true })` removes the picture today on a rung the
-ladder prices at 0, and a guard holds the sentence to that mechanism — the
-recorded trap is a hint promising something nobody built. **It is an OFFER, not
-an action**: removing a picture a person uploaded because a lane inferred they
-meant to is the one reading of "redraw the header wordmark" that cannot be taken
-back. **A read that FAILED lets the lane run** — here the danger inverts, since
-reading cannot-tell as "there IS an upload" would refuse a change that would
-have worked — and **a cleared upload is not an upload**, because the logo rung
-clears by writing `""` and truthiness would lock the lane out for ever.
-**TWO FIELDS, WHICH IS THE POINT OF THE MAP.** The favicon has the identical
-shape and would have cost the identical credit the first time anyone asked for
-one on a site with an uploaded icon; nothing announced it, and an `if` on
-`wordmark` would have shipped with it open. Full suite **5,411**.
-`test/upload-shadow.test.mjs` (13)
-DERIVES the pair from the baker's own two branches in BOTH directions, and
-drives the wall through the real route with the lane's tool COUNTED — the
-property is not that a refusal exists but that the 292-second call is never
-made — with two controls (no upload → the lane runs; a cleared upload → the lane
-runs) without which a wall that refused everything would pass. **Sweep: 13
-mutants, 13 killed, none survived, none unapplied, the comment-only control
-survived** — the wall gone, the refusal charging, marking-and-falling-through,
-the upload read by truthiness, the config read only for the addon wall, a failed
-read still refusing, the sentence dropped, the map forgetting the favicon,
-`shadowedBy` answering off the prototype, the sentence dropping "weren't
-charged" or the offer, one sentence for both fields, and a sentence for a field
-nothing shadows.
-**TWO TRAPS HIT WHILE BUILDING IT, BOTH RECORDED ONES.** (1) The trace mark was
-written as `eMark(...)`, a function that does not exist; `node --input-type=module
---check` PASSED, because a free identifier is legal, and it would have thrown
-`ReferenceError` on the refusal path live — run 22's `TOKEN` exactly, caught by
-grep rather than by the parse. (2) A `git checkout --` restore trap on the sweep
-fired on its NORMAL exit and wiped the uncommitted work; the runner already
-restores in its own `finally`, so the belt was redundant and destructive. **The
-rule: snapshot to a copy, never `git checkout` a tree carrying uncommitted
-work.**
+**ONE MARK, SEVERAL FORMS — AND THE WALL THAT STOOD HERE FOR ONE MORNING IS
+GONE (2026-09-07, owner: *"instead of it being 3 things or 4 or 5, its gotta be
+one, wordmark, but it can be made in svg, etc etc etc"* → *"exactly yeah"*).**
+The first answer to run 41 was a wall at the picker (`UPLOAD_SHADOWS`) refusing
+such an ask for `cost: 0`. It was honest and it was a symptom: **three fields per
+mark with the precedence between them a layer away.** `config.logo` (an uploaded
+raster, the logo rung), `look.wordmark` (the word `text`, or a drawing) and the
+name in type under both — and the identical split one field over for the tab
+icon: `config.icon`, `look.favicon`, `initialsMark()`. Six storage locations, two
+doors, three names for two slots.
+**NOW ONE FIELD PER MARK, CARRYING A FORM** (`builder/site-mark.mjs`,
+dependency-free apart from the two drawing readers, imported by the container):
+
+    look.wordmark = {form:"text"} | {form:"svg", svg} | {form:"image", url}
+    look.favicon  = {form:"initials"} | {form:"svg", svg} | {form:"image", url}
+
+A new form REPLACES the one before it, so run 41's ask simply works: there is
+nothing to shadow and nothing to refuse.
+**PROVENANCE IS DERIVED, NEVER STORED.** *"A model must not outrank a person"*
+(owner, 2026-08-28) survives as `ownedMark`, which reads the FORM: only a person
+can produce `image` (the model cannot mint an upload URL) and only the model
+produces `svg` (an uploaded SVG is refused — `/u/` serves inline from the site's
+own origin, so one would be stored XSS). A stored `set: "owner"` field would be a
+second value that can disagree with the first, the trap `dir` is derived to avoid
+one module over — said in the module, with the note that admitting an uploaded
+SVG is what would make provenance a real field.
+**AND THAT RULE NOW LIVES IN `mergeLook`, UNDER A NEW `asked` FLAG.** A DESIGN
+STEP answers every field whether or not anybody mentioned it, so a rebuild leaves
+an uploaded mark alone — run 16 is that case and only the baker's precedence
+saved it. An EDIT LANE runs only for the fields the customer named, so its answer
+always replaces. **The flag DEFAULTS TO PROTECT**, because of which way being
+wrong hurts: wrong toward "keep the person's file" costs an edit that does not
+take effect and can be said again; wrong toward "replace" silently deletes
+artwork somebody uploaded.
+**NOTHING MOVES.** `markOf` folds a site still carrying the old pair — every live
+site today — with the old precedence exactly, and the merge normalises to a form
+on the way out, so the new shape is written the first time anybody touches a mark
+and every published site's frozen `server.js` bakes the same string it bakes now.
+The `qrList` rule. `markRemove` is what a removal leaves behind: the drawing the
+upload was hiding on a legacy site, the floor on a site already on the new shape,
+and the reply names which (`markWords`) instead of promising the floor.
+**THE WIRE IS UNCHANGED AND `markWire` IS THE ONE PROJECTION.** The container's
+baker re-validates whatever it is handed (hand-written payloads, version skew) so
+it keeps its own ladder as a belt — and the Worker sends exactly ONE half of each
+pair now, so that ladder can never fire, which the guard pins rather than leaving
+a dead precedence to rot. Every one of those four fields has been the site of a
+"read here and never put on the wire" bug; one reader for all four is what stops
+the next path forgetting one.
+**AND ONE COPY OF THE URL RULE.** The regex pair deciding what may reach a
+customer's generated `src` was written out TWICE — inline in `writeSiteBrand` and
+again in `siteIconFrom` — for one refusal about `javascript:` URLs, the recorded
+"two lists of the same thing" with the worst possible subject. `markUrlOk` owns
+it, both import it, and the guard DRIVES it against ten shapes it must refuse and
+two it must admit instead of matching a fragment of a regex in a file.
+**FOUR DEFECTS THE SUITE CAUGHT THAT A READ WOULD NOT HAVE, all in the new
+code.** (1) The fold INVERTED the precedence it promised to keep — `readMark`
+parsed the legacy drawn string before the upload was consulted — so fretwork-1's
+next publish would have taken the owner's own logo off; found by driving it with
+that site's real stored shape. (2) The logo rung patched `{ look: { wordmark } }`
+and `withConfig` replaces a named field WHOLE, which would have taken the theme,
+the brand, the description and every language off the site; it reads and merges
+now, and REFUSES rather than writing when the read fails. (3) `lookWithMarks`
+turned an absent look into `{}` and the edit path's thin-look gate keys on
+`!priorLook`, so a site with neither a look nor a stylesheet stopped being refused
+and went all the way to a real compile. (4) `MARKS` used in `currentStateNote` and
+never imported — run 22's `TOKEN` trap for the THIRD time in one session, with
+`node --check` passing again; every touched module is now LOADED, not parsed.
+`test/site-mark.test.mjs` (18) keeps the two things worth having from the deleted
+wall's guard — the pair DERIVED from the baker's own two branches in both
+directions, and the driven route with the lane's tool COUNTED, inverted: the
+property was "the 292-second call is never made" and it is now "the call is made
+and the site's stored mark really becomes the drawing" — plus `readMark` over
+both shapes and every refusal, the fold on fretwork-1's own shape, the removal,
+`ownedMark` over every form, the projection's one-half-per-pair, the merge rule
+driven both ways, the note, the Worker's hops, the wall's absence with a live
+observer, the removal's whole sentence chain DRIVEN, `siteIconFrom`'s refusal
+driven, and four route cases with two controls. Full suite **5,419**.
+**Sweep: 48 mutants, 47 killed, none survived, none unapplied, the comment-only
+control survived — SEVEN survived the first pass and every one was a guard gap,
+not the product's**: `markUnder` answering for a drawing nothing covers, the two
+readers' sizing swapped (INERT against a 64×64 fixture — the favicon forces a
+square and the wordmark reads its own viewBox, so only a NON-square document
+tells them apart), and the removal's three hops — the rung discarding the stored
+form, the sentence ignoring it, the route's save answering nothing — none of
+which anything drove, plus `siteIconFrom`'s refusal, which had no driver at all.
+One anchor was AMBIGUOUS and never applied: the build path's
+`priorLook = lookWithMarks(cfg.config)` at ten spaces is a SUBSTRING of the lane
+path's at sixteen, the recorded "a mutant whose anchor is a substring of
+another's"; re-anchored with its neighbour and killed. The rest: the fold
+inverting the ladder, an unreadable form falling to the floor, the upload
+losing to the drawing, a removal always flooring, `ownedMark` counting a
+drawing, the form read by truthiness, a coerced url, a non-https url admitted,
+the payload sending both halves of a pair, the floor going silent, `markWire`
+projecting one mark, `lookWithMarks` making an object out of nothing or dropping
+every other key, a favicon reading `text`, a drawing stored unvalidated,
+`sameMark` blind to the drawing, one sentence for both marks; the merge letting
+a volunteered mark win, protecting against a named lane, defaulting to replace,
+not normalising or normalising an absent mark, `FIELD_KEEPS` refusing the form,
+the note silent about an upload or truncating a drawing; and on the Worker every
+projection and every fold cut in turn, both merges' flags swapped, the rung
+writing an unread look, and the baker admitting any url shape.
+**SIXTEEN OLDER GUARDS WENT RED AND WERE RE-ANCHORED, NOT APPEASED**, each naming
+which spelling moved and why — and three of them are DRIVEN now where they read a
+regex fragment or walked a byte window between two lines that no longer exist
+(the favicon/wordmark pair in the build args was the window this repo has been
+outrun by three times; it cannot be separated any more, because it is not two
+lines). One INVERTED deliberately: "the logo is its OWN stored field, never a
+member of the look" was true because `mergeLook` rebuilt from `EDIT_FIELDS`
+alone, and that reason expired when a mark became an edit field — the recorded
+"a rule true because of a layer below it expires when that layer moves".
 **Not proven live**: the refusal needs the deploy, and its proof is FREE — the
 same wordmark ask should come back in seconds with `cost: 0` and the sentence.
 Two things are the owner's: that test PNG is still fretwork-1's header logo and
@@ -4788,8 +4868,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,411
-  (2026-09-07, after the upload-shadow wall's thirteen in
+  build and the pre-list payload added sixteen); the unit suite is 5,419
+  (2026-09-07, after the one-mark work's twenty-one in `test/site-mark.test.mjs`
+  — the pair derived from the baker's own two branches both ways, `readMark` over
+  the new shape AND the legacy string with every refusal, the fold driven on
+  fretwork-1's own stored shape, the removal, `ownedMark` over every form, the
+  projection's one-half-per-pair, the merge's `asked` rule driven both ways, the
+  note, the Worker's hops, the wall's absence with a live observer, the removal
+  sentence chain, `siteIconFrom`'s refusal, and four driven route cases with two
+  controls; the thirteen of the upload-shadow wall it replaced went with the wall.
+  5,411 before it, after that wall's thirteen in
   `test/upload-shadow.test.mjs` — the pair DERIVED from the baker's own two
   branches in both directions, the sentence held to a mechanism that exists,
   the wall's placement and its two fail-open rules, and the refusal DRIVEN

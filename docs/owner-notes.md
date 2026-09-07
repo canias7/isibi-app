@@ -169,38 +169,60 @@ lane drew 612 characters of SVG, published a whole build, took 2 credits and
 said "done" for something no visitor could ever be shown. **That is the defect,
 not the precedence**: the precedence is right and stays.
 
-**FIXED — the lane now refuses before it spends.** At the picker, before any
-lane call: if the field you asked for is one an upload shadows, you get a
-sentence and no charge —
+**FIRST FIX — a wall at the picker that refused such an ask for nothing.** It
+worked and it was a symptom, and you said so: *"instead of it being 3 things or
+4 or 5, its gotta be one, wordmark, but it can be made in svg, etc etc etc"*.
 
-> Your header shows the logo you uploaded, and that always wins over a drawn one
-> — so a new wordmark wouldn't be visible. Nothing was changed and you weren't
-> charged. Say "take the logo off" and I'll remove it for nothing, then ask me
-> for the wordmark again.
+**SO IT IS ONE THING NOW.** Your site's header mark was three separate fields
+with an invisible ladder between them — a picture you uploaded, a drawing the
+model made, and your name in type underneath both — and the tab icon had the
+same three-way split. Six places, two doors, three names for two slots.
 
-The offer is real: `runLogoEdit(deps, { remove: true })` removes it today, on a
-rung the ladder prices at nothing, and a guard holds the sentence to that
-mechanism so it can never promise something nobody built.
+Each mark is one field carrying a **form**:
 
-**IT IS TWO FIELDS, NOT ONE.** The baker has the identical shape twice —
-`if (!logoValue)` for the wordmark, `if (!icon)` for the favicon — so the
-favicon would have burned the same credit the first time anyone asked for one on
-a site with an uploaded icon. Nothing announced that second case. The pair is
-DERIVED from the baker's own two branches in both directions, so a third cannot
-arrive quietly.
+| form | what it is |
+|---|---|
+| `text` / `initials` | the floor — your name in type, or a mark drawn from its initials |
+| `svg` | a drawing |
+| `image` | a file you sent |
 
-**What it does not do**: it does not remove your picture for you. Reading
-"redraw the header wordmark" as "delete the logo I uploaded" is the one reading
-that cannot be taken back, so you say the second sentence, not us.
+A new form **replaces** the one before it. So the ask that started all this just
+works: "redraw the header wordmark" redraws the header wordmark, whatever was
+there. There is nothing left to shadow and nothing to refuse, so the wall and its
+sentence are gone.
 
-**Two things worth your call:**
-- **That test PNG is still your header logo** and probably shouldn't be. Say the
-  word and I'll take it off — free — and the wordmark you already paid for
-  becomes visible without another model call.
-- **There is no way to LOOK at a stored wordmark** without publishing it. You
-  asked me to render it tonight and I couldn't: it lives in the site's config in
-  R2, and no route hands the stored look back. A small owner-gated read route
-  would fix that permanently.
+**THE ONE RULE FROM THE OLD LADDER SURVIVES, and it is yours** (2026-08-28,
+*a model must not outrank a person*). It is not a ladder any more, it is a rule
+in one place: an **edit you asked for** always replaces the mark; a **rebuild**,
+which re-answers every design field whether or not you mentioned it, leaves a
+picture you uploaded alone. Without that, run 16's rebuild would have wiped your
+logo. And it defaults to protecting: getting it wrong toward "keep your file"
+costs an edit that does not take, which you can see and say again — wrong the
+other way silently deletes artwork you sent us.
+
+**NOTHING MOVES ON ANY LIVE SITE.** Every site still stores the old shape and
+reads exactly as it does today; the new one is written the first time anything
+touches that site's mark. No migration, no republish, nothing a visitor sees
+changes until a site is edited.
+
+**THE ICON CAME ALONG.** It had the identical three-way split, and fixing the
+wordmark alone would have left the same mess one field over — the favicon would
+have cost the same wasted credit the first time anyone asked for one on a site
+with an uploaded icon.
+
+**A REMOVAL NOW SAYS WHAT IT FELL BACK TO.** "Took the logo off — back to your
+name in type" was a sentence about a site nobody had looked at. It names the
+actual result now: on your sites, taking the striped PNG off reveals the CGS
+wordmark you already paid for.
+
+**Four defects in my own new code that the test suite caught**, all of which a
+source read would have missed: the fold inverted the very precedence it was
+meant to preserve (fretwork-1's next publish would have dropped your uploaded
+logo); the logo rung would have written the site's look field whole and taken
+the theme, brand, description and every language off; an absent look became an
+empty object and a broken-site check stopped firing; and one name was used and
+never imported — the third time this session that `node --check` passed a file
+that would have thrown live.
 
 **Not proven live.** The refusal needs this deploy. The proof is free: ask for a
 wordmark on fretwork-1 again and it should come back in seconds, cost 0, with

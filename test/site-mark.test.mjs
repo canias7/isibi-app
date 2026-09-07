@@ -34,6 +34,8 @@ import { mergeLook, movedFields, EDIT_FIELDS, currentStateNote } from "../builde
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
+import { runLogoEdit } from "../builder/site-logo.mjs";
+import { siteIconFrom } from "../builder/site-identity.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const BAKER = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
@@ -117,7 +119,15 @@ test("a drawing is re-validated, so a stored document that is no longer acceptab
   const got = readMark("wordmark", DRAWN);
   assert.match(got.svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="160" height="40"/,
     "the wordmark is not sized from its own viewBox — the header constrains by height");
-  assert.match(readMark("favicon", ICON).svg, /width="64" height="64"/, "the favicon is not forced square");
+  // A NON-SQUARE DOCUMENT, because the two readers only DIFFER on one: the
+  // favicon forces a square and the wordmark sizes from the viewBox, so a 64x64
+  // fixture is sized identically either way and a mutant swapping the readers
+  // survives. The sweep found exactly that.
+  const WIDE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50"><rect width="200" height="50" fill="#332a26"/></svg>';
+  assert.match(readMark("favicon", WIDE).svg, /width="64" height="64"/,
+    "the favicon is not forced square — it is being sized by the wordmark's own rule");
+  assert.match(readMark("wordmark", WIDE).svg, /width="200" height="50"/,
+    "the wordmark is not sized from its own viewBox — it is being squared like a tab icon");
   assert.equal(readMark("wordmark", '<svg viewBox="0 0 10 10"><script>x</script></svg>'), null);
 });
 
@@ -147,6 +157,13 @@ test("THE FOLD KEEPS THE OLD PRECEDENCE EXACTLY — fretwork-1's own shape", () 
     { form: "image", url: UPLOAD });
   assert.equal(markUnder({ look: { wordmark: { form: "image", url: UPLOAD } } }, "wordmark"), null,
     "a site on the new shape has something under its one value");
+  // NOTHING IS UNDER A MARK THAT IS NOT COVERED. A legacy drawing with no upload
+  // over it is the site's mark, not something hidden beneath one — reading it as
+  // "under" makes a removal reveal what was already showing.
+  assert.equal(markUnder({ look: { wordmark: DRAWN } }, "wordmark"), null,
+    "a drawing nothing covers reads as being underneath something");
+  assert.equal(markUnder({ logo: "not a url", look: { wordmark: DRAWN } }, "wordmark"), null,
+    "an unusable upload counts as covering the drawing");
 });
 
 test("a removal drops the top form: the drawing on a legacy site, the floor otherwise", () => {
@@ -288,6 +305,74 @@ test("the current-state note says which form, and prints a drawing whole", () =>
   // AND IT NEVER LEAKS THE UPLOAD'S ADDRESS to the model — there is nothing it
   // could do with one, and a URL in the note is a URL a model will echo.
   assert.ok(!currentStateNote({ wordmark: { form: "image", url: UPLOAD } }).includes(UPLOAD));
+});
+
+/* ── the removal's sentence ──────────────────────────────────────────────── */
+
+test("A REMOVAL SAYS WHAT THE MARK FELL BACK TO, asked rather than assumed", async () => {
+  // This file used to promise the floor unconditionally — "the header shows your
+  // name again" — which is a sentence about a site nobody had looked at. With one
+  // field per mark, what a removal reveals is whatever form is LEFT, and on a
+  // site still carrying the old pair that is the drawing the upload was hiding.
+  //
+  // THE WHOLE CHAIN IS DRIVEN, because three separate mutants survived a sweep
+  // that only read it: the rung throwing the stored form away, the sentence
+  // ignoring it, and the route's save answering nothing at all.
+  const runs = [];
+  const run = (left) => runLogoEdit({
+    save: async (patch) => { runs.push(patch); return left; },
+    publish: async () => ({ ok: true, files: 3 }),
+  }, { remove: true });
+
+  const revealed = await run({ form: "svg", svg: readMark("wordmark", DRAWN).svg });
+  assert.equal(revealed.ok, true);
+  assert.match(revealed.msg, /drawn wordmark/,
+    "a removal that revealed a drawing told the customer their name is in type: " + revealed.msg);
+  assert.deepEqual(revealed.left, { form: "svg", svg: readMark("wordmark", DRAWN).svg },
+    "the rung threw away the form the store answered with");
+
+  const floored = await run({ form: "text" });
+  assert.match(floored.msg, /name in type/, floored.msg);
+  const icon = await runLogoEdit({
+    save: async () => ({ form: "initials" }), publish: async () => ({ ok: true, files: 3 }),
+  }, { remove: true, tab: true });
+  assert.match(icon.msg, /tab icon off/);
+  assert.match(icon.msg, /initials/, icon.msg);
+
+  // A DEP THAT ANSWERS NOTHING gets the floor's wording, which is what this
+  // always said — so an older caller is not made worse, only a knowing one better.
+  const quiet = await run(undefined);
+  assert.match(quiet.msg, /name in type/);
+  // …and the rung still clears the slot the module chose.
+  assert.deepEqual(runs[0], { logo: "" });
+});
+
+test("the route's save answers the form it stored", () => {
+  // Without this the sentence above is handed `undefined` for ever and every
+  // removal claims the floor — the mutant that survived the first sweep.
+  const w = blank(WORKER);
+  const at = w.indexOf("save: async (patch) => {");
+  assert.ok(at > 0, "the logo rung's save dep is gone");
+  const body = w.slice(at, w.indexOf("\n                },", at));
+  assert.match(body, /const next = url \? \{ form: "image", url \} : markRemove\(c\.config, field\);/,
+    "the rung no longer computes the form it is about to store");
+  assert.match(body, /\n\s+return next;\s*$/,
+    "the save answers nothing, so a removal cannot say what the mark fell back to");
+});
+
+test("siteIconFrom refuses the same shapes the baker does — one rule, driven", () => {
+  // The second reader of `markUrlOk`. Nothing drove its refusal, so a mutant
+  // deleting the check survived: an `href` the platform did not mint would reach
+  // a `<link rel="icon">` in generated TypeScript.
+  for (const bad of ["javascript:alert(1)", "data:image/svg+xml,<svg/>", "http://e.test/i.png", "//e.test/i.png", "i.png"]) {
+    const r = siteIconFrom(bad);
+    assert.equal(r && r.href, null, "siteIconFrom admits " + JSON.stringify(bad));
+    assert.equal(r && r.refused, true, "a refused icon does not say it was refused: " + bad);
+  }
+  // …and the shapes it must admit, so the guard cannot pass by refusing all.
+  assert.equal(siteIconFrom("/u/s/icon.png").href, "/u/s/icon.png");
+  assert.equal(siteIconFrom("https://cdn.test/icon.png").href, "https://cdn.test/icon.png");
+  assert.equal(siteIconFrom(""), null, "an absent icon is not a refusal");
 });
 
 /* ── the Worker's hops ───────────────────────────────────────────────────── */
