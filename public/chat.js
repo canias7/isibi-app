@@ -10117,6 +10117,55 @@ function siteActivePage(site) {
   const pages = sitePages(site);
   return pages.find((p) => p.path === (site && site.active)) || pages[0] || null;
 }
+// WHAT THE PREVIEW FRAME MAY DO — decided from the URL it is about to load,
+// and failing closed (2026-09-07, owner: "SO ITS PREVIEW THING … SO FIX").
+//
+// A sandboxed iframe with no `allow-same-origin` has an OPAQUE origin, and a
+// PUBLISHED SITE cannot run inside one. Two independent walls refuse every
+// script it needs: module scripts are always fetched in CORS mode and the site
+// answers no `access-control-allow-origin` for origin `null`, and the site's
+// own policy is `script-src 'self'`, which under an opaque origin matches
+// nothing. So the panel painted the server-rendered document — header, nav,
+// headings, every word — and then stopped: no hydration, no 3D scene, no
+// language switcher, no accordion, no form, no calendar. It looked whole,
+// which is why it went unreported until an empty 3D box was asked about.
+//
+// MEASURED on one page framed three ways (scratchpad probe, the live CSP header
+// served with the mirror): at top level the canvas is 1096x420 and the scene
+// draws; under today's flags it sits at 300x150 — the size a canvas is when no
+// code has ever touched it — and the console carries the CORS refusal; with
+// `allow-same-origin` added it is 1096x420 and draws again.
+//
+// `allow-same-origin` lets the framed document keep ITS OWN origin — the
+// site's — and never the app's; that is what the flag means, and the common
+// misreading of it is the reason this was written the tight way first. The
+// combination that is genuinely dangerous is `allow-scripts allow-same-origin`
+// on a frame that is ALREADY same-origin with the app, because such a frame can
+// reach into the app and take its own sandbox off. THAT CASE IS LIVE HERE: the
+// draft preview is served from `gofarther.dev/preview/<uid>/<nonce>`, our own
+// origin. So the answer is computed per URL and anything that cannot be PROVEN
+// cross-origin keeps exactly the flags of the day before this.
+const FRAME_SANDBOX = 'allow-scripts allow-forms allow-popups';
+function frameSandbox(url) {
+  if (typeof url !== 'string' || !url) return FRAME_SANDBOX; // never coerce: String(["a"]) is "a"
+  let origin = '';
+  try { origin = new URL(url, location.href).origin; } catch (e) { return FRAME_SANDBOX; }
+  // "null" is what an opaque or non-hierarchical URL parses to; it is not proof
+  // of a different origin, so it stays on the tight flags with everything else
+  // we cannot tell about.
+  if (!origin || origin === 'null' || origin === location.origin) return FRAME_SANDBOX;
+  return FRAME_SANDBOX + ' allow-same-origin';
+}
+// THE ONE PLACE THE PREVIEW FRAME IS POINTED ANYWHERE. Two call sites set a
+// react site's address (the workspace render and the page picker) and two more
+// set the draft preview's, and a sandbox attribute applies AT NAVIGATION — so
+// the flags have to be written before the src on every one of them, and one
+// function is what stops the four drifting apart.
+function loadSiteFrame(fr, url) {
+  if (!fr || typeof url !== 'string' || !url) return;
+  fr.setAttribute('sandbox', frameSandbox(url));
+  fr.src = url;
+}
 // The workspace preview renders from a Blob URL in a sandboxed allow-scripts
 // iframe (opaque origin — no access to the app), NOT srcdoc: srcdoc inherits
 // the app CSP, which blocks the generated site's own inline scripts. One live
@@ -10132,14 +10181,14 @@ async function loadSitePreview(fr, html, slug) {
   const withShim = sitePreviewHtml(html, slug);
   try {
     const r = await apiFetch('/api/site/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html: withShim }) });
-    if (r && r.ok) { const d = await r.json().catch(() => ({})); if (d && d.url) { fr.src = d.url; return; } }
+    if (r && r.ok) { const d = await r.json().catch(() => ({})); if (d && d.url) { loadSiteFrame(fr, d.url); return; } }
   } catch (e) {}
   // Fallback only if the round-trip fails (offline / not signed in): a blob URL.
   // Styled but its inline scripts are blocked by the app CSP, so dynamic content
   // won't run — still better than a hard failure.
   if (sitePrevUrl) { try { URL.revokeObjectURL(sitePrevUrl); } catch (e) {} sitePrevUrl = null; }
   sitePrevUrl = URL.createObjectURL(new Blob([withShim], { type: 'text/html' }));
-  fr.src = sitePrevUrl;
+  loadSiteFrame(fr, sitePrevUrl);
 }
 function sitePreviewHtml(html, slug) {
   // Intercept internal "/path" link clicks in the preview and hand them to the
@@ -10238,11 +10287,16 @@ function switchSitePage(path) {
   // A comment here used to claim the opposite — that the frame deliberately
   // stayed on `/s/<slug>/` to be "same-origin with the builder". It was wrong
   // twice over. The value was never `/s/` for any site built since the zone went
-  // live, and the frame is sandboxed WITHOUT `allow-same-origin`, so it is an
-  // opaque origin either way and there was no same-origin to preserve. Corrected
+  // live, and the frame was sandboxed WITHOUT `allow-same-origin`. Corrected
   // rather than deleted, because a false claim in a comment is the thing that
-  // gets read and believed the next time somebody changes this line.
-  else if (f && s.react && s.url) f.src = s.url + (path !== '/' ? String(path).replace(/^\//, '') : '') + '?v=' + (s.previewV || 1);
+  // gets read and believed the next time somebody changes this line — AND ITS
+  // SECOND HALF WENT STALE ON 2026-09-07, which is the same lesson again: the
+  // sentence went on "so it is an opaque origin either way and there was no
+  // same-origin to preserve", which was true and was also the defect. An opaque
+  // origin is precisely what stopped the site's own scripts loading, so the
+  // frame is pointed through `loadSiteFrame` now and a cross-origin site keeps
+  // its own origin. The draft branch above it does not, and must not.
+  else if (f && s.react && s.url) loadSiteFrame(f, s.url + (path !== '/' ? String(path).replace(/^\//, '') : '') + '?v=' + (s.previewV || 1));
   if (typeof paintPreviewErrBadge === 'function') paintPreviewErrBadge();
 }
 // THE THREE ON EVERY CARD: its data, its live address, its phone view (owner,
@@ -10327,6 +10381,17 @@ function renderSites() {
         '</div>' +
       '</div></div>' +
       (sites.length
+        // THE THUMBNAILS KEEP THE TIGHT SANDBOX, DELIBERATELY, and it is worth
+        // saying because they carry the same defect as the workspace preview
+        // did: no `allow-same-origin`, so the site's own scripts never load and
+        // the picture is its server-rendered HTML. That is the RIGHT trade
+        // here and the wrong one there. This screen draws one frame per site —
+        // 51 on the owner's own account — and letting each run its whole app
+        // would start fifty-one React bundles to paint fifty-one postage
+        // stamps. The workspace preview is ONE frame the customer is looking
+        // at; the difference is the number, not the principle. If a thumbnail
+        // ever needs to be true rather than cheap, `loadSiteFrame` is the
+        // function to point it at, and the cost has to be measured first.
         ? '<div class="st-grid-h">Your sites</div><div class="st-grid">' + sites.map((s) =>
             '<div class="st-card" data-open="' + esc(s.id) + '" role="button" tabindex="0">' +
               '<div class="st-card-prev"><iframe sandbox="' + (s.react && s.url ? 'allow-scripts' : '') + '" loading="lazy" title="' + esc(s.name) + '"></iframe></div>' +
@@ -11138,7 +11203,7 @@ function renderSiteWorkspace(view, site) {
                   ? '<div class="st-datawrap" id="stData"><div class="st-empty">Loading your data…</div></div>'
                   : siteView === 'more'
                     ? siteMoreView(site)
-                    : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>') +
+                    : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="' + FRAME_SANDBOX + '" title="Site preview"></iframe></div>') +
           ((hasSite && siteView === 'preview')
             ? '<div class="st-fixbar" id="stFixBar" hidden><span class="st-fixbar-ic">' + ic('alert', 15) + '</span><span class="st-fixbar-n"></span><button type="button" class="st-fixbar-btn" id="stFixBtn">Fix with AI</button><button type="button" class="st-fixbar-x" id="stFixX" aria-label="Dismiss">×</button></div>'
             : '') +
@@ -11196,7 +11261,7 @@ function renderSiteWorkspace(view, site) {
     // being the mechanism and became the bug, leaving the frame on the home
     // page whatever the picker said. Same fix as `switchSitePage`.
     const at = (active && active.path) || '/';
-    fr.src = site.url + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 1);
+    loadSiteFrame(fr, site.url + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 1));
   } else if (fr && curHtml) {
     sitePreviewErrs[site.id + '|' + (site.active || '/')] = []; // fresh page load → clear stale errors
     loadSitePreview(fr, curHtml, site.slug);

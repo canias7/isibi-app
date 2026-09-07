@@ -929,6 +929,89 @@ name, and only a person pressing it finds out.
 - **Not proven live.** The next signed-in load shows the bar with the two icons
   gone; Cloud still lists both cards and both still open.
 
+### THE PREVIEW PANEL RUNS THE SITE'S OWN JAVASCRIPT (2026-09-07, owner: *"SO
+ITS PREVIEW THING, BECAUSE ON THE URL SHOWS FINE, SO FIX … MAKE THE FIX FOR
+FUTURE SITES"*)
+
+The workspace preview framed a published site with **no `allow-same-origin`**,
+so that document's origin was opaque and NOTHING it loaded could run. Two
+independent walls, either one sufficient: module scripts are always fetched in
+CORS mode and the site answers no `access-control-allow-origin` for origin
+`null` (read live off `/assets/index-B5jpyqgn.js`), and the site's own policy is
+`script-src 'self'`, which under an opaque origin matches nothing. **So the
+panel painted the server-rendered document — header, nav, headings, every word,
+because `__root.tsx` renders the whole page per request — and then stopped**: no
+hydration, no 3D scene, no language switcher, no accordion, no form, no
+calendar. It looked whole, which is why it stood for months and surfaced as *"I
+CANT SEE THE 3D THING"*.
+
+**IT WAS NEVER A SITE DEFECT, and the owner is the one who said so**: the same
+page at its own address was always fine. The fix is in `public/chat.js`, so it
+reaches every site at once — the ones already published and every future one —
+with no republish and no container roll.
+
+- **MEASURED, three framings of one page** (a local mirror serving the live CSP
+  header): top level → canvas **1096×420**, pixel spread 178 of 255, the scene
+  draws; today's flags → **300×150**, the size a canvas is when no code has
+  ever touched it, spread 15, and the CORS refusal in the console; plus
+  `allow-same-origin` → 1096×420 again. And the SHIPPED path drives separately,
+  because `loadSiteFrame` writes the attribute onto a frame that already exists
+  rather than into markup: setAttribute-then-src gives 1096×420, so a sandbox
+  really does apply at navigation. `docs/edits/preview-sandbox-fix.png` is the
+  before and after.
+- **THE FLAG IS NOT A LOOSENING, AND THE COMMON MISREADING IS WHY IT WAS
+  WRITTEN TIGHT FIRST.** `allow-same-origin` lets the framed document keep ITS
+  OWN origin — the site's — never the app's. The pair that is genuinely
+  dangerous is `allow-scripts allow-same-origin` on a frame ALREADY same-origin
+  with the app, which can then reach into the app and take its own sandbox off.
+  **That case is live here**: the draft preview is served from
+  `gofarther.dev/preview/<uid>/<nonce>`, our own origin. So `frameSandbox(url)`
+  decides per URL and **fails closed** — a non-string (never coerced), an empty
+  or unparseable URL, an origin of `null`, or our own origin all keep exactly
+  the flags of the day before. Only a proven different origin is widened.
+- **ONE SETTER, FOUR CALL SITES.** A sandbox attribute applies AT NAVIGATION, so
+  the flags must be written before the src every time; `loadSiteFrame(fr, url)`
+  is the only thing that points that frame anywhere (the workspace render, the
+  page picker, the draft preview, the blob fallback). Four copies of "set the
+  flags, then the src" is the recorded "two lists of the same thing" waiting to
+  drift, and cutting the call out of any ONE of them leaves the function perfect
+  and that surface dead — the wiring trap, which the guard counts by call site.
+- **THE THUMBNAILS KEEP THE TIGHT SANDBOX, DELIBERATELY.** They carry the same
+  defect and it is the right trade there: the start screen draws one frame per
+  site — 51 on the owner's account — and widening them would start fifty-one
+  React bundles to paint fifty-one postage stamps. The difference is the number,
+  not the principle; said in the code, and asserted by a guard whose observer is
+  proved alive beside it.
+- **A COMMENT THAT WENT STALE IN THE SAME BREATH.** `switchSitePage` carried a
+  correction ending "so it is an opaque origin either way and there was no
+  same-origin to preserve" — true when written, and the defect itself. Corrected
+  rather than deleted, for the reason its own first half gives.
+- **Guards**: `test/preview-frame.test.mjs` (7) — `frameSandbox` EVALUATED out
+  of chat.js with a `location` handed in (site-list's technique) and driven both
+  ways: a site's own address and a custom domain widened, the app's origin and
+  its `/preview/` and `/s/` paths refused, and every cannot-tell case refused
+  (empty, null, undefined, a genuinely throwing URL, `data:`, a blob of our own
+  origin, an array and an object — `String(["a"])` is `"a"`); the setter's order
+  read (flags before src); the four call sites counted AND named; no function
+  holding `#stFrame` assigning its src directly, asked per function because the
+  thumbnail does exactly that and is meant to; the markup born tight with the
+  base flags spelled ONCE in the file; and the thumbnails' tightness asserted
+  beside a live observer. **Sweep: 18 mutants, 18 killed, none unapplied, the
+  comment-only control survived — one survived the first pass and it was the
+  guard's**: the only case I had called "unparseable" (`::::not a url`) resolves
+  against the base as a PATH on the app rather than throwing, so the catch
+  branch had no driver at all and a mutant widening it passed. Three genuinely
+  throwing URLs drive it now; re-run to a kill. **One older guard went red for
+  the change and was re-anchored, not appeased**: `test/preview-pages.test.mjs`
+  pinned `f.src =` and `fr.src = site.url` — both assignments moved behind the
+  setter; the property (picking a page really re-points the frame at a real
+  path, never a fragment) is unchanged and is what it asserts. Full suite
+  **5,465**.
+- **Not proven live.** The next signed-in load of the workspace preview is the
+  proof: fretwork-1's 3D box should show the guitar, and the language switcher,
+  the accordion and the forms should work inside the panel. The push touches
+  `public/` only — no container roll, so no 15–20 minute hold.
+
 ---
 
 ## Editing a site — the ladder
@@ -5123,8 +5206,14 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,458
-  (2026-09-07, after two icons came OFF the workspace top bar — neither drawn
+  build and the pre-list payload added sixteen); the unit suite is 5,465
+  (2026-09-07, after the preview frame's sandbox added seven in
+  `test/preview-frame.test.mjs` — `frameSandbox` evaluated out of chat.js with a
+  location handed in and driven both ways, every cannot-tell case refused
+  including three URLs that really throw, the setter's order, the four call
+  sites counted and named, the markup's single spelling, and the thumbnails'
+  deliberate tightness beside a live observer; before it 5,458
+  after two icons came OFF the workspace top bar — neither drawn
   nor looked up, asserted beside three that stay, both panels still reachable
   through their Cloud cards with each key matched at its own position; before
   them 5,456 after the card's three icons added fourteen to

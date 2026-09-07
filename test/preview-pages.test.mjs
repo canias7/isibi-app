@@ -135,7 +135,12 @@ test("the preview follows the picked page", () => {
   const i = chat.indexOf("function switchSitePage(");
   const block = chat.slice(i, chat.indexOf("\nfunction renderSites(", i));
   assert.ok(block.length > 300, "switchSitePage moved; this guard checks nothing");
-  assert.match(block, /else if \(f && s\.react && s\.url\) f\.src =/,
+  // RE-ANCHORED 2026-09-07: this pinned `… s.url) f.src =`, and the assignment
+  // moved behind `loadSiteFrame`, which writes the frame's sandbox flags from
+  // the URL before navigating (a published site needs its own origin or none of
+  // its scripts load). The property is unchanged and is what is asserted: the
+  // branch NAVIGATES the frame rather than only relabelling it.
+  assert.match(block, /else if \(f && s\.react && s\.url\) loadSiteFrame\(f,/,
     "picking a page on a React site changes the label and not the preview");
   // A REAL PATH, not a fragment. The hash was right while the app was
   // hash-routed and a real path 404'd; the Worker answers an extensionless path
@@ -147,7 +152,7 @@ test("the preview follows the picked page", () => {
   // above that line explains what the fragment used to do and so contains the
   // literal — scanned over the whole block this assertion is defeated by prose,
   // which is the comment-vs-code failure this repo has recorded more than once.
-  const srcLine = (block.match(/^.*f\.src = s\.url.*$/m) || [""])[0];
+  const srcLine = (block.match(/^.*loadSiteFrame\(f, s\.url.*$/m) || [""])[0];
   assert.ok(srcLine, "the preview src assignment is gone");
   assert.doesNotMatch(srcLine, /'#'/, "a fragment is inert under browser history");
 
@@ -161,7 +166,9 @@ test("the preview follows the picked page", () => {
   const first = chat.slice(j, chat.indexOf("} else if (fr && curHtml) {", j));
   assert.match(first, /\(at !== '\/' \? String\(at\)\.replace\(\/\^\\\/\/, ''\) : ''\)/,
     "the initial preview ignores the active page");
-  const firstLine = (first.match(/^.*fr\.src = site\.url.*$/m) || [""])[0];
+  // Re-anchored with its twin above: the first-render assignment moved behind
+  // `loadSiteFrame` for the same reason. The fragment check is the property.
+  const firstLine = (first.match(/^.*loadSiteFrame\(fr, site\.url.*$/m) || [""])[0];
   assert.ok(firstLine, "the first-render src assignment is gone");
   assert.doesNotMatch(firstLine, /'#'/, "a fragment is inert under browser history");
 });

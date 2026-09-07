@@ -778,7 +778,53 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 ## Open — bugs and gaps
 
+**Fixed 2026-09-07 — the Preview panel was showing your sites with the
+JavaScript switched off**
+
+You spotted this as *"I CANT SEE THE 3D THING"*, then nailed it yourself:
+*"ITS PREVIEW THING, BECAUSE ON THE URL SHOWS FINE."* You were right, and it was
+bigger than the 3D box.
+
+- **What was wrong.** The Preview panel shows your site inside a locked-down
+  window. The lock was one notch too tight: it stripped the site of its own
+  identity, and a site with no identity is not allowed to load its own code. So
+  the panel showed the page's text and pictures — which arrive already
+  written out from the server, which is why it looked complete — and then
+  nothing else ever ran. **Not just the 3D box: the language switcher, the
+  accordions, the forms and the calendar were all dead in that panel too.**
+  Your published sites were fine the whole time; only the preview of them was
+  not.
+- **Why the two screenshots disagreed.** You were looking through the Preview
+  panel and I was looking at the site directly, which is why mine had the guitar
+  and yours had an empty grey box. Same page, two different windows.
+- **The fix.** One permission on that window, and it is not a loosening: it lets
+  the framed page be *itself*, never our app. There is one case where that
+  permission would be dangerous — the old draft preview, which really is served
+  from our own address — so the code works it out per site and, whenever it
+  cannot be certain, keeps the old tight setting.
+- **It covers every site, old and new, with nothing to republish.** The change
+  is in our app rather than in any site, so it applies the moment it deploys.
+- **The proof, before and after:** `docs/edits/preview-sandbox-fix.png`.
+- **Not proven live yet** — the next time you open a site's Preview after this
+  deploys is the proof. The 3D box should show the guitar and the switcher
+  should work inside the panel.
+- **The thumbnails on the start screen are deliberately left as they are.** They
+  have the same limitation, and there it is the right trade: that screen draws
+  one little frame per site — 51 of them on your account — and letting each run
+  its whole app would mean starting fifty-one apps to draw fifty-one stamps.
+
 **Live bugs**
+
+- **3D scenes come out grey instead of wearing the site's colours (open, your
+  call).** Separate from the preview fix above, and smaller than I first said.
+  When you asked about the 3D box I told you the guitar was "white on white and
+  therefore invisible" — **that was wrong, and I'd measured it badly.** Read
+  properly, the guitar has real contrast: it is plainly there, just grey rather
+  than themed. What is true is that the 3D part cannot read the colour format
+  our themes are written in, so it falls back to its own default grey and
+  ignores your palette. The fix is to write the colours out in a second, older
+  format alongside the modern one at build time, so the 3D part can read them.
+  Worth doing for new builds; nothing is broken without it.
 
 - **The gif step is gone (2026-08-31, your call).** You asked for it deleted "for
   now", and it is off the design step — no future build will be asked for an
