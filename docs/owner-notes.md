@@ -414,9 +414,11 @@ deploy run 2039 green in 2m57s, container rolled at 18:44:29Z — so hold off on
 container work until about 19:05Z. I read the live files back: the three icons,
 the tooltip and the dimming are all being served.
 
-**Not seen in a browser yet.** Next signed-in load of gofarther.dev shows them.
-If a card's icons are missing, or the cylinder is dim on a site you know has a
-database, tell me what you see rather than assuming I know.
+**You looked and nothing was missing** ("NO MISSING"), so both of today's start
+screen changes are proven live in the one way that counts: the server-side site
+list AND the three card icons, seen on a real screen. Everything I could check
+myself was bytes on the wire; only your load could answer whether it renders as
+a screen you recognise.
 
 **0a. THE CANARY PLAN, REVISED (2026-09-06, your call to run it or not).**
 Nothing below has been run. Everything below is on branch

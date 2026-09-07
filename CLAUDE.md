@@ -766,9 +766,10 @@ site data. Live sites, paid for, invisible.
   passed because `cardOpen` still appeared on the keydown line below it, the
   recorded "a guard proves the branch it drives" shape; counted and re-run to a
   kill. Full suite **5,442**.
-- **Not proven live, and not seen in a browser yet.** The next load of
-  gofarther.dev signed in is the proof: 51 cards instead of however many that
-  browser held. **The names will be slug-ish** (`fretwork-1`, `northgroup-9`) —
+- **PROVEN LIVE 2026-09-07** — the owner's own load of the signed-in screen,
+  the same one that proved the card icons (*"NO MISSING"*). Before it, that
+  screen could show at most twenty sites and only in the browser that built
+  them. **The names will be slug-ish** (`fretwork-1`, `northgroup-9`) —
   the friendly name only ever existed in `localStorage`, and the server knows
   the slug, the alias and the brief; the real brand name lives in each site's R2
   config, which is 51 reads on one page load. Owner's call whether that is worth
@@ -881,9 +882,13 @@ tooltip, add the branch.
   `/site-list.js` answers 200 at 7,064 bytes; `/api/site/list` answers **401
   "sign in required"** where a route that does not exist answers 404 — so it is
   mounted and gated.
-- **NOT proven live IN A BROWSER.** Nobody has loaded the signed-in start screen
-  yet: three controls on every card, the cylinder dim on a site with no
-  database, the handset dim on all of them. That is the owner's next load.
+- **PROVEN LIVE IN THE BROWSER (owner, 2026-09-07, on being asked what was off:
+  *"NO MISSING"*).** The signed-in start screen was loaded and nothing was
+  missing — the cards, their three controls, and the disabled states as drawn.
+  **The evidence is the owner's own look, and it is the only instrument that
+  could answer this**: everything above was read off served files with curl,
+  which can prove the bytes are there and can never prove they render as a
+  screen a person recognises.
   **AND THE ASSUMPTION WAS ANSWERED RATHER THAN LEFT STANDING**, which is the
   thing worth keeping from this: the guess ("mobile app" = the phone preview we
   already had) was written down as an assumption in the entry and in the reply,
