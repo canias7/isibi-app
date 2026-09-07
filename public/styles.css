@@ -1874,6 +1874,37 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-building { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--muted, #8b849e); background: var(--bg); }
 .st-bring { width: 32px; height: 32px; border-radius: 50%; border: 3px solid #211d30; border-top-color: #000000; animation: sbspin 1s linear infinite; }
 .st-building-t { font-size: .9rem; }
+/* ── B1: the build's own display (2026-09-07, owner: "OK B1") ────────────────
+   The panel this sits in is the largest thing on the screen and for a
+   seventeen-minute build it held a spinner and the word "Thinking…". The spinner
+   (`.st-bring`) is gone from the react path; what replaces it says which stage
+   the build is in, how long it has been going, and how far along it is.
+   `.st-building` still centres it, and the legacy static-site path still renders
+   the spinner through the same wrapper — which is why none of these rules
+   repurpose an existing class. */
+.st-b1 { width: 100%; max-width: 460px; text-align: center; padding: 4px 16px; }
+.st-bchips { display: flex; gap: 7px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; }
+.st-bchip { font-family: 'Space Grotesk', Inter, sans-serif; font-size: .69rem; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: .25rem .65rem; }
+/* THE DISPLAY FACE IS NAMED, NOT INHERITED. The app's `body` rule lives nested
+   inside the `:root` block at the top of this file, which resolves as
+   `:root body` — it applies in the app and did NOT apply in the headless render
+   I checked this against, so what I drew and what shipped would have been two
+   different typefaces. Naming it here makes the panel render the same wherever
+   it is drawn, which is also what lets a screenshot of it be evidence. */
+.st-b1 .st-building-t { font-family: 'Patrick Hand', 'Segoe Print', Inter, system-ui, sans-serif; font-size: 2rem; line-height: 1.1; color: var(--text); }
+.st-bsub { font-size: .8rem; color: var(--muted); margin-top: .35rem; }
+/* TABULAR FIGURES, because this redraws every 1.5s: proportional digits make a
+   running clock jitter sideways on every tick, which reads as the page twitching
+   rather than as time passing. */
+.st-bclock { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 2.35rem; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin: 1rem 0 .9rem; color: var(--text); }
+.st-brail { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.st-brail i { display: block; height: 5px; border-radius: 999px; background: var(--panel-2); position: relative; overflow: hidden; }
+/* The fill is a child rather than a width on the track, so an empty segment is
+   still a visible track — four rails that vanish as they empty would read as the
+   build going backwards. */
+.st-brail i::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: var(--w, 0); border-radius: 999px; background: var(--graphite); transition: width .6s ease; }
+.st-bleg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: .45rem; font-family: 'Space Grotesk', Inter, sans-serif; font-size: .64rem; color: var(--graphite-3); }
+@media (prefers-reduced-motion: reduce) { .st-brail i::after { transition: none; } }
 @keyframes sbspin { to { transform: rotate(360deg); } }
 /* Composer — "Ask Go Farther…" card with a Build selector + round send. */
 .st-comp { margin: .4rem .7rem .7rem; border: 1px solid var(--line-2); border-radius: 16px; background: rgba(255, 255, 255, .03); padding: .6rem .7rem .55rem; }

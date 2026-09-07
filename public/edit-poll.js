@@ -452,10 +452,45 @@
     return "up";
   }
 
+  // ── WHICH PHASE A BUILD'S 202 SAYS IT IS IN ──────────────────────────────
+  //
+  // Lives here rather than in chat.js for the reason everything else here does:
+  // chat.js touches `document` at load and can only ever be asserted by reading
+  // its source, and this is a decision — it deserves to be driven.
+  //
+  // The build poll's pending body already carries `state`, and (since the row
+  // learns its stage) may carry `phase`. This turns either into a word the
+  // browser's own ordered vocabulary knows, or "" for "say nothing".
+  //
+  // `publish` MAPS TO `compiling`, DELIBERATELY, and it is the one line here that
+  // is not obvious. The server's four stages come from `budgetStage`, which calls
+  // a build "publish" from the `img` mark onward — and `img` is BEFORE the
+  // compile. Mapping it to `publishing` would tick "Compiled React ✓" over a
+  // compile that has not started, which is exactly the defect the images row was
+  // removed for: a step reporting what was planned rather than what happened.
+  //
+  // NOTHING IS COERCED. `String(["design"])` is `"design"`, and a one-element
+  // array has passed as a string three times in this repo.
+  var BUILD_PHASE_OF = {
+    design: "planning", provision: "planning", generate: "generating", publish: "compiling",
+  };
+  var BUILD_STATE_OF = { queued: "planning", claimed: "planning", generating: "generating" };
+  function buildPhase(body) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) return "";
+    if (typeof body.phase === "string" && Object.prototype.hasOwnProperty.call(BUILD_PHASE_OF, body.phase)) {
+      return BUILD_PHASE_OF[body.phase];
+    }
+    if (typeof body.state === "string" && Object.prototype.hasOwnProperty.call(BUILD_STATE_OF, body.state)) {
+      return BUILD_STATE_OF[body.state];
+    }
+    return "";
+  }
+
   var api = {
     FINAL_HEADER: FINAL_HEADER,
     FINAL_VALUE: FINAL_VALUE,
     readPoll: readPoll,
+    buildPhase: buildPhase,
     escalateAction: escalateAction,
     newIdemKey: newIdemKey,
     pollDelayMs: pollDelayMs,

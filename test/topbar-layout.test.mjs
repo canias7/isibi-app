@@ -287,11 +287,26 @@ test("the steps appear the moment it IS a build, from ONE place", () => {
   // left stuck on `thinking` forever.
   const src = chat();
   const i = src.indexOf("function reactSend(");
-  const head = src.slice(i, i + 700);
-  assert.match(head, /siteBuild\.rphase = 'generating'/, "a build never leaves the thinking state");
+  assert.ok(i > 0, "reactSend is gone — rescope this guard");
+  // LANDMARK TO LANDMARK, both ends asserted. This was `i + 700` and the promotion
+  // sat at byte ~690 of it: the comment above the line grew by six lines for the
+  // build-progress change and pushed it out of view. A byte window over this
+  // repository's source is outrun by its next comment, every time.
+  const end = src.indexOf("const endpoint =", i);
+  assert.ok(end > i, "reactSend no longer picks an endpoint — rescope this guard");
+  const head = src.slice(i, end);
+  // RE-ANCHORED 2026-09-07. It pinned the word `'generating'`, which was the
+  // DEFECT, not the property: the build POST holds the socket through the design,
+  // the provisioning, the schema and the look, so promoting straight to "writing
+  // the code" put a claim on the screen for the first minutes of every build that
+  // nothing had begun to do. The property is that a build leaves `thinking` from
+  // exactly one place, promotes to the FIRST phase and repaints.
+  assert.match(head, /siteBuild\.rphase = ST_PHASE_ORDER\[0\]/, "a build never leaves the thinking state");
   assert.match(head, /paintReactLive\(\)/, "the phase changes but nothing repaints");
-  assert.equal((src.match(/rphase = 'generating'/g) || []).length, 1,
+  assert.equal((src.match(/siteBuild\.rphase = ST_PHASE_ORDER\[0\]/g) || []).length, 1,
     "more than one place promotes out of thinking — they will disagree");
+  assert.ok(!/rphase = 'generating'/.test(src),
+    "the promotion straight to 'writing the code' is back, over a design call");
 });
 
 test("the thinking dot survives reduced motion", () => {

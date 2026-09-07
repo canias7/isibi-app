@@ -236,7 +236,15 @@ test("…and that shape is exactly what the browser's success gate records and r
   // AND THE FOLLOWER HANDS BACK ANY ANSWER THAT IS NOT 202 OR 503 — a 410
   // reaches the branches below it, where `d.msg` is rendered.
   const follow = CHAT.slice(CHAT.indexOf("async function followBuildJob("), CHAT.indexOf("\n}", CHAT.indexOf("async function followBuildJob(")));
-  assert.match(follow, /if \(r\.status === 202\) \{ bad = 0; continue; \}/);
+  // RE-ANCHORED 2026-09-07: this pinned the 202 branch as one line, verbatim.
+  // The branch now also opens the body and hands the progress to the phase
+  // setter, so the spelling moved and the PROPERTY did not: a 202 keeps the
+  // follow going and resets the bad-answer run, so a 410 reaches the branches
+  // below. That is what this case rests on and that is what is asserted.
+  const two = follow.slice(follow.indexOf("if (r.status === 202)"));
+  assert.ok(two, "the follower no longer has a 202 branch");
+  assert.match(two.slice(0, two.indexOf("if (r.status === 503)")), /bad = 0;[\s\S]*continue;/,
+    "a 202 no longer resets the run and carries on, so a build in flight ends the follow");
   assert.match(follow, /return \{ r, d \};/, "the follower no longer hands the answer back");
 });
 

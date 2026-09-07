@@ -200,10 +200,25 @@ const liveSteps = (() => {
   const i = chat.indexOf("function reactLiveStepsHTML(");
   const end = chat.indexOf("\nfunction ", i + 10);
   assert.ok(i > 0 && end > i, "reactLiveStepsHTML is gone");
+  // THE ORDER AND THE CLOCK COME OUT OF chat.js, NEVER TYPED HERE (re-anchored
+  // 2026-09-07). `reactLiveStepsHTML` reads `ST_PHASE_ORDER` and `stAgo` since
+  // the build-progress change, and a second copy of either in this file is the
+  // recorded "two lists of the same thing" — a phase added to the product and
+  // not to the fixture would make this driver answer for a list nobody ships.
+  const src = (head) => {
+    const a = chat.indexOf(head);
+    assert.ok(a > 0, head + " is gone — rescope this driver");
+    return chat.slice(a, chat.indexOf("\n}", a) + 2);
+  };
+  const orderSrc = chat.slice(chat.indexOf("const ST_PHASE_ORDER = "),
+    chat.indexOf(";", chat.indexOf("const ST_PHASE_ORDER = ")) + 1);
+  assert.match(orderSrc, /planning/, "ST_PHASE_ORDER is gone — rescope this driver");
   const ctx = {
     esc: (s) => String(s == null ? "" : s),
     stStepRow: (o) => JSON.stringify({ label: o.label, state: o.state }),
     stAgentsBody: () => "", stCodeBody: () => "", stImgsBody: () => "",
+    ST_PHASE_ORDER: new Function("return " + orderSrc.replace(/^const ST_PHASE_ORDER = /, "").replace(/;$/, ""))(),
+    stAgo: new Function(src("function stAgo(") + "\nreturn stAgo;")(),
     siteBuild: null,
   };
   // eslint-disable-next-line no-new-func
@@ -236,16 +251,24 @@ test("every build phase shows the right steps in the right state", () => {
   // three magic indices (`idx > 0`, `idx > 2`, `idx >= 4`) at the wrong steps;
   // they are named lookups now. This is the table that proves it, and it is the
   // check that would have caught the off-by-one.
+  //
+  // RE-ANCHORED 2026-09-07: every row gained a `Planning your site` step above it.
+  // That is the change, not a break — the first three minutes of a build are the
+  // design, and the rail used to open on "Writing the code" while nothing had
+  // been written. The property this table asserts is unchanged: each phase shows
+  // the steps at the right state, and nothing claims work it has not reached.
+  assert.deepEqual(liveSteps({ rphase: "planning" }),
+    ["Planning your site:run", "Writing the code:wait", "Compiling React:wait"]);
   assert.deepEqual(liveSteps({ rphase: "generating" }),
-    ["Writing the code:run", "Compiling React:wait"]);
+    ["Planned your site:done", "Writing the code:run", "Compiling React:wait"]);
   assert.deepEqual(liveSteps({ rphase: "compiling" }),
-    ["Wrote the code:done", "Compiling React:run"]);
+    ["Planned your site:done", "Wrote the code:done", "Compiling React:run"]);
   assert.deepEqual(liveSteps({ rphase: "fixing" }),
-    ["Wrote the code:done", "Fixing a build error:run"]);
+    ["Planned your site:done", "Wrote the code:done", "Fixing a build error:run"]);
   assert.deepEqual(liveSteps({ rphase: "publishing" }),
-    ["Wrote the code:done", "Compiled React:done", "Publishing:run"]);
+    ["Planned your site:done", "Wrote the code:done", "Compiled React:done", "Publishing:run"]);
   assert.deepEqual(liveSteps({ rphase: "database" }),
-    ["Wrote the code:done", "Compiled React:done", "Published:done", "Setting up the database:run"]);
+    ["Planned your site:done", "Wrote the code:done", "Compiled React:done", "Published:done", "Setting up the database:run"]);
   // A publishing row must not appear before publishing is reached — that was
   // `idx >= 4` against a list whose indices just moved.
   for (const rphase of ["generating", "compiling"]) {

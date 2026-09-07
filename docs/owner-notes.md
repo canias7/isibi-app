@@ -489,6 +489,51 @@ was my test's fault, not the code's, so it was tightened and re-run to a kill.
 
 ---
 
+## 2026-09-07 — The build now shows what it is doing
+
+You: *"WHEN THE BUILDER IS DOING STUIFF, IT KINDA NEEDS TO SHOW IT."* Then, after
+I drew six treatments and four variants of the one you liked: *"B, BUT LETS EDIT
+B"* → *"OK B1."*
+
+**What you were looking at.** That build of `plyhouse` took **17 minutes 8
+seconds** and cost 16 credits, and for the whole of it the screen said a spinner
+and the word "Thinking…", above a box with a blinking cursor in it.
+
+**Why.** The box was not an empty placeholder waiting for something — it was a
+real display wired to a feed the site builder has never sent. Only the game
+builder streams; the site builder fires the job and walks away. So that box
+could never have had anything in it, on any build, ever. Three more things sat
+under that: the poll asking for progress every six seconds read only "still
+going" and threw the rest of the answer away; the label on the right was painted
+once at the start and never again; and the first thing a build did was announce
+"Writing the code" — over the three minutes it spends designing the site,
+claiming the address and setting up the database, before a line is written.
+
+**What is there now.** The big panel is the display. It shows the stage the
+build is actually in, a line saying what that stage does, a running clock, ticks
+for the stages already finished with nothing invented, and four bars that fill as
+it goes. The steps on the left move with it. The empty cursor box is gone.
+
+**The one rule I would not bend.** Inside a stage we genuinely do not know how
+far along it is — the code the model is writing never leaves its container until
+it is finished. So the bar for the stage in progress creeps up with time and
+**stops short of the end, always**. Filling it would be the screen claiming a
+stage had finished when only the build gets to say that. A progress bar that
+invents progress is worse than none, and this one has to be honest for a quarter
+of an hour at a stretch.
+
+**Not proven live.** Nothing about progress can be checked from a served file —
+your next real build is the proof. What to watch for in the first minute: the
+words leaving "Thinking…" and becoming "Planning your site", and a ✓ appearing
+as each stage ends.
+
+Suite 5,487. Sweep 30/30 with its control. Five mutants survived a first pass;
+four were my tests' fault and one was a wall that genuinely changes nothing today
+— I drove all 126 cases to prove that rather than guess, kept the wall, and wrote
+down why.
+
+---
+
 ## Open — waiting on you
 
 **0z. THREE ICONS ON EVERY SITE CARD (2026-09-07, your "A,B,A" then "LEAVE IT

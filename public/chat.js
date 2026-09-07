@@ -11261,7 +11261,13 @@ function renderSiteWorkspace(view, site) {
             // A first React build has no preview yet → show a compile placeholder in
             // the stage; the live code is in the chat. (A React revise keeps its
             // existing preview visible and just reloads it when done.)
-            ? '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><div class="st-building"><div class="st-bring"></div><div class="st-building-t">' + esc(reactStageLabel()) + '</div></div></div>'
+            // THE STAGE IS DRAWN FROM `buildStageHTML()` HERE AND IN
+            // `paintReactLive`, AND NOWHERE ELSE. The label used to be built
+            // inline on this line and repainted nowhere, which is why the panel
+            // said "Thinking…" for a seventeen-minute build while the thread
+            // moved: two halves that can be painted apart will eventually
+            // disagree. One composition, two call sites, and a guard counts them.
+            ? '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><div class="st-building">' + buildStageHTML() + '</div></div>'
             : !hasSite
               ? (siteBusy && siteBuild
                   ? '<div class="st-empty"><div class="st-livelog st-livelog-stage"></div></div>'
@@ -11493,11 +11499,24 @@ function siteBuildStart(react) {
   // STARTS IN `thinking`, NOT `generating`. This runs the instant a message is
   // sent — before the router has said whether it is even a build — and starting
   // at `generating` is what made "hey" paint "Writing the code".
-  siteBuild = { phase: 'plan', pages: [], done: [], tick: 0, react: !!react, code: '', file: '', rphase: 'thinking', images: [], filesSeen: [], agents: {} };
+  siteBuild = { phase: 'plan', pages: [], done: [], tick: 0, react: !!react, code: '', file: '', rphase: 'thinking', images: [], filesSeen: [], agents: {}, startedAt: Date.now() };
   if (siteTicker) clearInterval(siteTicker);
   // React builds repaint on stream events, not on a timer — the timer only drives
   // the classic rotating activity log.
-  siteTicker = setInterval(() => { if (!siteBuild || siteBuild.react) return; siteBuild.tick++; paintBuildLog(); }, 1500);
+    // A REACT BUILD REPAINTS ON THIS TICK NOW, for the clock alone (2026-09-07).
+  // It returned early here because a react build was meant to repaint on stream
+  // events — from a stream that has never arrived on this path — so between
+  // six-second polls nothing moved at all. A repaint can lose no expand state
+  // today because no live row has a body any more; the day one comes back, that
+  // stops being true and this has to preserve it.
+  //
+  // THE TIMER IS CLEARED BY `siteBuildStop`, which is the only thing that nulls
+  // `siteBuild` — a clock outliving its build is this repo's recorded shape.
+  siteTicker = setInterval(() => {
+    if (!siteBuild) return;
+    if (siteBuild.react) { paintReactLive(); return; }
+    siteBuild.tick++; paintBuildLog();
+  }, 1500);
 }
 function siteBuildStop() { siteBuild = null; if (siteTicker) { clearInterval(siteTicker); siteTicker = null; } }
 // ---- React builder: Claude-Code-style "what it did" step rows (live + finished) ----
@@ -11549,6 +11568,60 @@ function reactStepsHTML(b) {
   if (b.backend) rows.push(stStepRow({ label: 'Set up the database', meta: 'live', state: 'done' }));
   return '<div class="st-steps">' + rows.join('') + '</div>';
 }
+// THE PHASES A BUILD MOVES THROUGH, IN ORDER, READ BY NAME AND NEVER BY NUMBER.
+// Hoisted out of `reactLiveStepsHTML` (2026-09-07) because `setBuildPhase` below
+// needs the same list to refuse a backwards move, and two copies of an ordered
+// vocabulary is the recorded "two lists of the same thing" on the list most
+// likely to grow.
+//
+// `planning` IS NEW AND IT IS THE FIRST HONEST WORD THIS SCREEN HAS SAID. A build
+// spends its first minutes designing the site, claiming the address, making the
+// database and merging the look — and `reactSend` used to set `generating` before
+// the POST even left, so the panel said "Writing the code" over a design call and
+// the code pane sat empty underneath it. That one line is most of what the owner
+// saw. The screen cannot know more than this during that window — the build POST
+// holds the socket until the generation is fired — but it can at least not lie.
+const ST_PHASE_ORDER = ['planning', 'generating', 'compiling', 'fixing', 'publishing', 'database'];
+
+// THE ONE WRITER OF THE LIVE PHASE, and it refuses three things.
+//
+// A FOREIGN ORIGIN: the customer may have opened another site while this build
+// runs, and a poll that lands then must not repaint somebody else's workspace.
+//
+// A WORD IT DOES NOT KNOW: `indexOf` answers -1 for one, and `Math.max(0, -1)`
+// downstream would snap the display back to the first step — the magic-index
+// hazard the comment inside `reactLiveStepsHTML` already warns about, reached
+// from the outside.
+//
+// AND A BACKWARDS MOVE, which is the one that is not obvious: the build is polled
+// every six seconds and two answers can land out of order, so a stale one must
+// never un-say what the customer has already been told. Compared by INDEX, never
+// by string — a string comparison here is an ordering that only looks like one.
+function setBuildPhase(origin, ph) {
+  if (!siteBuild || siteOpenId !== origin) return false;
+  if (typeof ph !== 'string') return false;
+  const next = ST_PHASE_ORDER.indexOf(ph);
+  // THIS REFUSAL IS INERT TODAY AND STAYS, and the reason is worth writing down
+  // rather than rediscovering. A sweep cut it and no test moved, so I drove all
+  // 126 reachable (current, incoming) pairs both ways: the answers are identical,
+  // because `indexOf` gives -1 for a word the list does not have and the clamp
+  // below refuses every -1 already. It is not dead code — it is the wall that
+  // becomes load-bearing the moment the clamp is loosened to `next < now`, when a
+  // build sitting on `thinking` (deliberately not in the list, so -1 as well)
+  // would accept any nonsense as its next phase. Kept as the second wall, said
+  // out loud, and NOT pretended to be covered by a guard.
+  if (next < 0) return false;
+  const now = ST_PHASE_ORDER.indexOf(siteBuild.rphase);
+  if (next <= now) return false;
+  siteBuild.rphase = ph;
+  paintReactLive();
+  return true;
+}
+// "4m 12s" / "48s" — the elapsed clock on the running row and in the stage panel.
+function stAgo(ms) {
+  const t = Math.max(0, Math.round((Number(ms) || 0) / 1000));
+  return t < 60 ? t + 's' : Math.floor(t / 60) + 'm ' + (t % 60) + 's';
+}
 // Live steps while a React build/revise streams (reads siteBuild).
 function reactLiveStepsHTML() {
   const sb = siteBuild || {};
@@ -11572,8 +11645,8 @@ function reactLiveStepsHTML() {
   // build row are both guarded on there BEING images, so they show nothing today
   // and light up on their own if generation is ever wired. That is the honest
   // version — a step that reports what happened rather than what was planned.
-  const order = ['generating', 'compiling', 'fixing', 'publishing', 'database'];
-  const idx = Math.max(0, order.indexOf(sb.rphase || 'generating'));
+  const order = ST_PHASE_ORDER;
+  const idx = Math.max(0, order.indexOf(sb.rphase || order[0]));
   const st = (name) => { const i = order.indexOf(name); return i < idx ? 'done' : i === idx ? 'run' : 'wait'; };
   // BY NAME, NOT BY NUMBER. These were `idx > 0`, `idx > 2`, `idx >= 4` — magic
   // indices into the array above, so removing one phase from it silently
@@ -11582,25 +11655,124 @@ function reactLiveStepsHTML() {
   const past = (name) => order.indexOf(name) < idx;
   const reached = (name) => order.indexOf(name) <= idx;
   const rows = [];
-  rows.push(stStepRow({ label: past('generating') ? 'Wrote the code' : 'Writing the code', meta: sb.file || '', state: st('generating'), open: true, body: stAgentsBody(sb.agents) + stCodeBody((sb.code || '').slice(-2600), st('generating') === 'run') }));
+  // THE CLOCK GOES ON THE RUNNING ROW AND NOWHERE ELSE. A time beside work that
+  // has not started is the same lie the images row was removed for — a step
+  // reporting what was planned rather than what happened.
+  const clk = (name) => (st(name) === 'run' && sb.startedAt ? stAgo(Date.now() - sb.startedAt) : '');
+  rows.push(stStepRow({ label: past('planning') ? 'Planned your site' : 'Planning your site', meta: clk('planning'), state: st('planning') }));
+  // NO BODY, AND THE EMPTY PANE IS GONE WITH IT (2026-09-07). This row carried
+  // `open: true` and a `stCodeBody` fed from `siteBuild.code`, which is written
+  // only by `readReactStream` — reachable only from an NDJSON response the site
+  // build route has never sent. So `stCodeBody('', true)` rendered exactly an
+  // empty bordered box with one blinking caret, for the whole build. It was not
+  // an unfed placeholder: it was a real control whose source could not ever be
+  // non-empty. The owner saw it for seventeen minutes and asked what it was.
+  rows.push(stStepRow({ label: past('generating') ? 'Wrote the code' : 'Writing the code', meta: clk('generating') || sb.file || '', state: st('generating') }));
   if (sb.images && sb.images.length) rows.push(stStepRow({ label: 'Generated images', meta: sb.images.length + (sb.images.length === 1 ? ' photo' : ' photos'), state: 'done', body: stImgsBody(sb.images) }));
   if (sb.rphase === 'fixing') rows.push(stStepRow({ label: 'Fixing a build error', state: 'run' }));
-  else rows.push(stStepRow({ label: past('compiling') ? 'Compiled React' : 'Compiling React', state: st('compiling') }));
-  if (reached('publishing')) rows.push(stStepRow({ label: past('publishing') ? 'Published' : 'Publishing', state: st('publishing') }));
+  else rows.push(stStepRow({ label: past('compiling') ? 'Compiled React' : 'Compiling React', meta: clk('compiling'), state: st('compiling') }));
+  if (reached('publishing')) rows.push(stStepRow({ label: past('publishing') ? 'Published' : 'Publishing', meta: clk('publishing'), state: st('publishing') }));
   if (sb.rphase === 'database') rows.push(stStepRow({ label: 'Setting up the database', state: 'run' }));
   return '<div class="st-steps st-steps-live">' + rows.join('') + '</div>';
+}
+// ── B1: the stage panel IS the display (owner, 2026-09-07: "OK B1") ─────────
+//
+// The panel that holds this is the biggest thing on the screen and for a
+// seventeen-minute build it held a spinner and the word "Thinking…". It now
+// carries, in one composition: the stages already finished as chips with the
+// time each took, the current stage as the hero, a line saying what that stage
+// is doing, the elapsed clock, and a four-segment rail under a four-word legend.
+//
+// ONE FUNCTION, TWO CALL SITES — the workspace's own render and `paintReactLive`.
+// That is the whole point: the label and the rail lived in different places and
+// only one of them was ever repainted, so the panel said "Thinking…" while the
+// thread said "Writing the code". Two halves that cannot be painted apart cannot
+// disagree.
+const ST_STAGE_STEPS = [
+  { p: 'planning',   leg: 'Design',   chip: 'Designed' },
+  { p: 'generating', leg: 'Code',     chip: 'Wrote the code' },
+  { p: 'compiling',  leg: 'Compile',  chip: 'Compiled' },
+  { p: 'publishing', leg: 'Publish',  chip: 'Published' },
+];
+// HOW FULL THE RUNNING SEGMENT IS, AND WHY IT CAN NEVER BE FULL.
+//
+// Within a stage we do not know how far along we are — the generation's text
+// never leaves its container until it is finished — so this is elapsed time
+// against a rough sense of how long that stage runs. It approaches 92% and stops.
+// A segment that reached the end would be claiming the stage had finished, which
+// is a claim only the build gets to make; a progress display that invents
+// progress is a lying instrument, and this one has to be honest for a quarter of
+// an hour at a stretch.
+const ST_STAGE_TYPICAL_MS = 4 * 60 * 1000;
+function stStageFill(ms) {
+  const t = Math.max(0, Number(ms) || 0);
+  return Math.min(0.92, t / ST_STAGE_TYPICAL_MS);
+}
+function buildStageHTML() {
+  const sb = siteBuild || {};
+  const idx = Math.max(0, ST_PHASE_ORDER.indexOf(sb.rphase || ST_PHASE_ORDER[0]));
+  const at = (p) => ST_PHASE_ORDER.indexOf(p);
+  const el = sb.startedAt ? Date.now() - sb.startedAt : 0;
+  // THE CHIPS ARE DERIVED FROM WHAT IS ACTUALLY PAST, never a fixed pair: a build
+  // that has only just started shows none, and each one appears as its stage ends.
+  const chips = ST_STAGE_STEPS.filter((x) => at(x.p) < idx)
+    .map((x) => '<span class="st-bchip">✓ ' + esc(x.chip) + '</span>').join('');
+  const segs = ST_STAGE_STEPS.map((x) => {
+    const i = at(x.p);
+    const w = i < idx ? 1 : i === idx ? stStageFill(el) : 0;
+    return '<i style="--w:' + Math.round(w * 100) + '%"></i>';
+  }).join('');
+  const legs = ST_STAGE_STEPS.map((x) => '<span>' + esc(x.leg) + '</span>').join('');
+  return '<div class="st-b1">' +
+    (chips ? '<div class="st-bchips">' + chips + '</div>' : '') +
+    '<div class="st-building-t">' + esc(reactStageLabel()) + '</div>' +
+    '<div class="st-bsub">' + esc(reactStageDetail()) + '</div>' +
+    '<div class="st-bclock">' + esc(sb.startedAt ? stAgo(el) : '') + '</div>' +
+    '<div class="st-brail">' + segs + '</div>' +
+    '<div class="st-bleg">' + legs + '</div>' +
+  '</div>';
+}
+// WHAT THE CURRENT STAGE IS ACTUALLY DOING — the line under the hero, and the
+// body of the expanded row. Its own sentences, NOT `budgetNote`'s: those read
+// "This build ran out of time before your data model was ready", which is the
+// DEADLINE sentence. The stage names match, which is exactly what makes reusing
+// it tempting and what makes it the worst available lie — a running build told
+// it has already failed.
+function reactStageDetail() {
+  const p = (siteBuild && siteBuild.rphase) || ST_PHASE_ORDER[0];
+  return {
+    thinking: 'Working out what you asked for.',
+    planning: 'Designing the site, claiming the address and setting up the database.',
+    generating: 'Writing your pages — this is the long one.',
+    compiling: 'Turning the pages into an app and checking every route opens.',
+    fixing: 'A page did not compile. Trying a fix before publishing.',
+    publishing: 'Putting the finished site at its address.',
+    database: 'Setting up the tables your site stores things in.',
+  }[p] || '';
 }
 function paintReactLive() {
   const host = document.querySelector('#stThread .st-steps-live');
   if (host) host.outerHTML = reactLiveStepsHTML();
-  const pre = document.querySelector('#stThread .st-steps-live .st-lc'); if (pre) pre.scrollTop = pre.scrollHeight;
-  const th = document.getElementById('stThread'); if (th) th.scrollTop = th.scrollHeight;
+  // AND THE STAGE PANEL, which is the defect this whole change is about. This
+  // function rewrote the thread and nothing else, so `.st-building-t` kept the
+  // label baked at the last FULL render — which happens while the phase is still
+  // `thinking` — and the next full render is the one that ends the build. Hence
+  // "Thinking…" on the right for seventeen minutes while the left rail moved.
+  // Painting only the label would leave that mechanism intact; the whole
+  // composition is swapped, from the one function that builds it.
+  const st = document.querySelector('#stStage .st-b1');
+  if (st) st.outerHTML = buildStageHTML();
+  // THE THREAD IS ONLY DRAGGED DOWN IF IT WAS ALREADY THERE. This repaints on a
+  // 1.5s tick now, and yanking the scroll away from somebody reading their own
+  // build log every 1.5 seconds is worse than the stale scroll it fixes.
+  const th = document.getElementById('stThread');
+  if (th && th.scrollHeight - th.scrollTop - th.clientHeight < 80) th.scrollTop = th.scrollHeight;
 }
 function reactStageLabel() {
   const p = (siteBuild && siteBuild.rphase) || 'generating';
   // No `images` entry — see reactLiveStepsHTML. Nothing sets that phase, so the
   // label was unreachable and said something untrue if it ever were reached.
-  return { thinking: 'Thinking…', generating: 'Writing the code…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: 'Publishing…', database: 'Setting up the database…' }[p] || 'Building…';
+  return { thinking: 'Thinking…', planning: 'Planning your site…', generating: 'Writing the code…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: 'Publishing…', database: 'Setting up the database…' }[p] || 'Building…';
 }
 // Read the React build/revise NDJSON stream: fold code/phase/image into the live
 // steps, return the terminal {done|error} payload.
@@ -12922,7 +13094,7 @@ const BUILD_POLL_MS = 6000;
 // Past the Worker's own 16-minute queue wait plus the container's tail. A build
 // still unanswered here has not failed — it is told honestly and left running.
 const BUILD_FOLLOW_MS = 20 * 60 * 1000;
-async function followBuildJob(job, signal) {
+async function followBuildJob(job, signal, origin) {
   const until = Date.now() + BUILD_FOLLOW_MS;
   // A RUN of unreadable answers gives up, a single one does not. The route
   // answers 503 both for "the bucket blinked" and for "the stored answer will
@@ -12941,7 +13113,20 @@ async function followBuildJob(job, signal) {
       continue;
     }
     // NOT AN ERROR — the ordinary answer while the pages are being written.
-    if (r.status === 202) { bad = 0; continue; }
+    //
+    // AND IT CARRIES PROGRESS, WHICH THIS LOOP THREW AWAY (2026-09-07). For up to
+    // twenty minutes it read the status code and nothing else, while the body was
+    // already telling it which state the build was in. That is why the screen
+    // never moved: not a missing signal, an unopened envelope.
+    //
+    // THE BODY IS A COURTESY AND THE 202 IS THE ANSWER. One that will not parse
+    // must never end the follow — the same rule the server keeps for `flight`.
+    if (r.status === 202) {
+      bad = 0;
+      const p = await r.json().catch(() => null);
+      if (p) setBuildPhase(origin, EditPoll.buildPhase(p));
+      continue;
+    }
     if (r.status === 503) { if (++bad > 5) return null; continue; }
     const d = await r.json().catch(() => null);
     if (!d) return null;
@@ -12956,7 +13141,11 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
   // WE KNOW IT IS A BUILD NOW, so the steps may appear. Set here rather than in
   // `siteRoute` because an attachment skips the router and comes straight here —
   // one place, so neither entry can leave it stuck on `thinking`.
-  if (siteBuild) { siteBuild.rphase = 'generating'; paintReactLive(); }
+  // THE FIRST PHASE, NOT THE LAST. This said `'generating'` and it is the single
+  // line that put "Writing the code" on the screen over a design call: the build
+  // POST holds the socket through design, provisioning, the schema and the look,
+  // so for the first minutes the only true word is the first one.
+  if (siteBuild) { siteBuild.rphase = ST_PHASE_ORDER[0]; paintReactLive(); }
   const endpoint = mode === 'build' ? '/api/site/react-build' : '/api/site/react-revise';
   // `picker` on BOTH, and it was on neither in any way that mattered until
   // 2026-08-08: the build sent it and the server read it zero times, and the
@@ -12996,7 +13185,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
     // change that is three lines of behaviour.
     let firedJob = '';
     if (r.status === 202 && d && d.stage === 'resuming' && d.job) {
-      const done = await followBuildJob(d.job, siteAbort ? siteAbort.signal : undefined);
+      const done = await followBuildJob(d.job, siteAbort ? siteAbort.signal : undefined, origin);
       if (done) { r = done.r; d = done.d; }
       // STILL RUNNING WHEN WE STOPPED WATCHING. Not a failure and not a build:
       // the site has a real page at its real address and the pages are still

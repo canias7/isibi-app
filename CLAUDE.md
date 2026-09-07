@@ -1213,6 +1213,130 @@ language, on the picked model, reserved by the spine before its compile and
 floored at 1 like every charge. A monolingual site and a cached bilingual one
 pay nothing more; the platform rebuild never pays.
 
+### THE BUILD SHOWS ITS WORK (2026-09-07, owner: *"WHEN THE BUILDER IS DOING
+STUIFF, IT KINDA NEEDS TO SHOW IT"* → six treatments rendered → *"B, BUT LETS
+EDIT B"* → *"OK B1"*)
+
+A real build the owner watched — `plyhouse`, filed 20:58:23Z, `done` 21:15:32Z,
+**17 minutes 8 seconds**, 16 credits, published clean — showed a spinner and the
+word **"Thinking…"** for the whole of it, above a left rail whose one expanded
+row contained a blinking cursor and nothing else.
+
+**THE PROGRESS UI WAS BUILT AND NEVER CONNECTED — the wiring trap at its largest
+scale here.** `readReactStream` folds NDJSON events into `siteBuild.code` and
+`paintReactLive` renders them; its only call site needs an `x-ndjson` response,
+and `/api/site/react-build` has never sent one (only the game routes do). So
+`siteBuild.code` is permanently `''` and `stCodeBody('', true)` renders exactly
+an empty bordered box with one caret. **Not an unfed placeholder: a real control
+whose source could not ever be non-empty.** Three consequences, each its own fix:
+- **the two halves could not agree.** `paintReactLive` rewrote
+  `#stThread .st-steps-live` and nothing else, so `.st-building-t` kept whatever
+  the last FULL render baked — and the last full render happens while the phase
+  is still `thinking`, the next being the one that ENDS the build. That is the
+  mechanism behind "Thinking…", and painting only the label would have left it;
+- **the poll threw the answer away.** `followBuildJob` polls every 6 s for 20
+  minutes and read `if (r.status === 202) { bad = 0; continue; }` — the status
+  code and nothing else, while the body was already saying which state the build
+  was in. Not a missing signal: an unopened envelope;
+- **the promotion was to the LAST stage, not the first.** `reactSend` set
+  `rphase = 'generating'` before the POST, and the build POST holds the socket
+  through the design, the provisioning, the schema and the look — so "Writing the
+  code" sat over a design call for the first minutes of every build.
+
+**B1 — THE STAGE PANEL IS THE DISPLAY.** `buildStageHTML()` composes, in one
+function: chips for the stages already finished, the current stage as the hero in
+the app's own hand-drawn face, a line saying what that stage is doing, the elapsed
+clock in tabular figures, and a four-segment rail under a four-word legend
+(Design · Code · Compile · Publish).
+**ONE COMPOSITION, TWO CALL SITES** — the workspace's own render and
+`paintReactLive` — and the guard COUNTS them, because cutting either leaves both
+functions perfect and one half of the screen frozen, which is exactly how this
+shipped. The sweep proved it: the call site in the render was the one thing
+missing when the guard was first run, on a change whose whole subject is that hop.
+- **THE RUNNING SEGMENT APPROACHES FULL AND CAN NEVER REACH IT.** Within a stage
+  we do not know how far along we are — the generation's text never leaves its
+  container until it is done — so its fill is elapsed time against
+  `ST_STAGE_TYPICAL_MS` (4 min), capped at 0.92. A segment that reached the end
+  would be claiming the stage had finished, which is a claim only the build gets
+  to make; a progress display that invents progress is a lying instrument, and
+  this one has to be honest for a quarter of an hour at a stretch.
+- **THE CHIPS ARE DERIVED FROM WHAT IS PAST**, never a fixed pair, and the clock
+  is drawn only when there is a start time — a time beside work that has not begun
+  is the images row's lie in a smaller font.
+- **THE SENTENCES ARE THE PROGRESS ONES AND NEVER `budgetNote`'s.** That function
+  has a line per stage and the stage names MATCH, which is what makes reusing it
+  tempting and what makes it the worst available lie: it says *"This build ran out
+  of time before your data model was ready"*, and rendering that over a healthy
+  running build tells a customer their build has already failed. Said in the code,
+  and asserted by absence beside a live observer.
+- **`EditPoll.buildPhase(body)`** is the one reader of the 202: `phase`
+  (`design`/`provision` → planning, `generate` → generating, `publish` →
+  compiling) then `state` (`queued`/`claimed` → planning, `generating` →
+  generating), `hasOwnProperty` not truthiness, nothing coerced, `""` for anything
+  else. **`publish` maps to `compiling`, deliberately**: `budgetStage` calls a
+  build "publish" from the `img` mark onward and `img` is BEFORE the compile, so
+  answering `publishing` would tick "Compiled ✓" over a compile that has not
+  started. **Cannot-tell reads as the EARLIEST stage, never a later one** — the
+  same rule as the failure sentence, one field over.
+- **`setBuildPhase(origin, ph)` is the ONE writer**, and it is monotonic: a
+  foreign workspace, an unknown word and a backwards move are each refused, and
+  it repaints only on a real change — two 6-second polls can land out of order,
+  so a stale one must never un-say what the customer has been told. Compared by
+  INDEX, never by string. **Its explicit unknown-word refusal is INERT today and
+  stays**: driven over all 126 reachable (current, incoming) pairs the answers are
+  identical, because `indexOf` gives -1 and the monotonic clamp refuses every -1
+  already — it is the wall that becomes load-bearing the moment the clamp is
+  loosened to `next < now`, when a build sitting on `thinking` (also -1) would
+  accept any nonsense. Kept, said out loud in the code, and NOT pretended to be
+  covered by a guard.
+- **The clock ticks in the browser, not on the poll.** A 6-second poll cannot
+  drive a seconds display; `siteBuild.startedAt` is the anchor and the existing
+  1.5 s ticker renders between polls — it used to `return` early for react builds,
+  because they were meant to repaint on a stream that never arrives.
+- **What is NOT in this change**: no NDJSON from the build route, no change to
+  fire-and-walk-away, and no server-side progress field. The generation cannot
+  stream to the browser — the text lives in a `longPost` closure inside the
+  container until the terminal POST — so the panel is driven by the row's own
+  `state` and `phase`, which the 202 already carries.
+- **Guards**: `test/build-progress.test.mjs` (11) — `buildPhase` driven including
+  every refusal AND five inherited keys (`{phase:"constructor"}` is the recorded
+  `X["constructor"]` trap, and with truthiness the module's whole refusal list
+  still passes); the setter driven for forward-only, foreign-origin and repaint;
+  the fill driven past a day of elapsed time; the chips derived; the rail read
+  SEGMENT BY SEGMENT (done full, running part way, ahead empty) with "no build at
+  all" asserted apart from "unknown phase", since neither is evidence for the
+  other; the rows' planning step and single clock; the two call sites COUNTED and
+  the one writer counted; the poll's parse read INSIDE its own 202 branch; the
+  stylesheet's named display face, tabular figures and reduced-motion rule.
+  **Sweep: 30 mutants, 30 killed, none unapplied, the comment-only control
+  survived — five survived a first pass and four were guard gaps**: the inherited
+  key (claimed in a comment, driven by nothing), an unknown phase drawing an
+  empty rail (nothing drove `thinking`, the state every build starts in), a
+  finished segment left at the running one's fill (four segments were still
+  drawn, so every assertion passed while the rail never filled in behind the
+  run), and the 202's `.catch` — cut, and the check passed because the TERMINAL
+  parse forty lines below carries one and satisfied a whole-function match.
+  **The fifth was INERT and is the entry above**. Four mutants NEVER APPLIED on
+  the first pass because their anchors were written from memory rather than from
+  the file; re-anchored and all four killed.
+  **Three older guards went red for the change and were re-anchored, not
+  appeased**: `test/build-jobs.test.mjs` pinned the 202 branch as one line
+  verbatim (the property is that a 202 keeps the follow going and resets the
+  bad-answer run, so a 410 reaches the branches below); `test/topbar-layout.test.mjs`
+  pinned `rphase = 'generating'`, which was the DEFECT rather than the property —
+  **and its window was `i + 700` bytes, outrun by the six comment lines this change
+  added**, the recorded byte-window trap, landmark to landmark now;
+  `test/preview-pages.test.mjs`'s `liveSteps` driver needed `ST_PHASE_ORDER` and
+  `stAgo`, both read OUT of chat.js rather than typed, and its phase table gained
+  the planning row. Full suite **5,487** — the eleven guards are assertions
+  inside existing cases as much as new ones, so the case COUNT moved by four
+  while the checks moved by far more.
+- **Not proven live.** Nothing about progress can be proven from a served file:
+  the next real build is the proof, and the line to read is the stage label
+  leaving "Thinking…" inside the first minute and the chips appearing as each
+  stage ends. The push touches `public/` only — no container roll, no 15–20
+  minute hold.
+
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
 *"Add will always go in addon"* — and the one carve-out is the owner's too:
@@ -5379,8 +5503,18 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,476
-  (2026-09-07, after the builder picker added eleven in
+  build and the pre-list payload added sixteen); the unit suite is 5,487
+  (2026-09-07, after the build-progress panel added eleven in
+  `test/build-progress.test.mjs` — `buildPhase` driven with every refusal and
+  five inherited keys, the phase setter driven forward-only and origin-scoped,
+  the running segment's fill driven past a day of elapsed time, the chips
+  derived from what is past, the rail read segment by segment with the no-build
+  case asserted apart from the unknown-phase one, the rows' planning step and
+  single clock, the two call sites and the one writer COUNTED, the 202's parse
+  read inside its own branch, and the stylesheet's named face, tabular figures
+  and reduced-motion rule — three of which are re-anchors of older guards, so
+  the case count moved by four while the checks moved by far more; before it
+  5,476, after the builder picker added eleven in
   `test/build-picker.test.mjs` — the pick DRIVEN across reloads against a real
   store and every model-spending POST derived from the file rather than listed,
   plus the routing call's body driven out of chat.js
