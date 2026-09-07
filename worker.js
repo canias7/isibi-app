@@ -69,7 +69,8 @@ import {
   // picked up is sent again.
   deployIdOf, unreadClaim, deferredClaim, CLAIM_RETRY_MAX, STALE_QUEUED_S,
 } from "./builder/edit-job.mjs";
-import { RESUME_FIRST_SECONDS, resumeKey, genKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
+import { tailOf, CODE_TAIL_MAX } from "./builder/gen-code.mjs";
+import { RESUME_FIRST_SECONDS, resumeKey, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
@@ -5912,6 +5913,14 @@ const MODEL_HOP_SLACK_MS = 30000;
 // cold start (measured 2,453ms) and short enough that a container which has gone
 // away costs one look rather than an invocation.
 const FIRE_HOP_MS = 20000;
+/** THE CAP ON ONE CODE UPDATE'S REQUEST BODY (`POST /api/site/gencode`).
+ *
+ * A tail is `CODE_TAIL_MAX` characters; this is that plus room for the file
+ * name, the counter and the JSON around them. Checked against `content-length`
+ * BEFORE the body is read, so a container that went wrong is refused rather
+ * than read — and derived from the tail rather than typed, so the two cannot
+ * disagree the day the tail changes. */
+const GEN_CODE_BODY_MAX = CODE_TAIL_MAX + 2048;
 
 // HOW BIG A REPORTED GENERATION MAY BE, and it is derived rather than picked.
 // `SITE_PAGES_MAX_TOKENS` is 30,000, so the model cannot emit more than that
@@ -6105,7 +6114,15 @@ function containerPagesFire(env, slug, out, jobId = null) {
           // record on the Worker's side, so the token alone still authorises
           // nothing but one answer's write. Absent on the inline path, which
           // has no job and no row — and the container then beats nowhere.
-          ...(jobId ? { job: jobId, beat: `https://${APP_ZONE}/api/site/genbeat`, beatMs: GEN_BEAT_MS } : {}),
+          //
+          // AND WHERE TO SEND THE CODE AS IT IS WRITTEN (2026-09-07, owner:
+          // "send the code out as it writes"). Its own address rather than a
+          // field on the beat: the beat renews the LEASE, and a call whose
+          // failure loses a build does not want a few kilobytes of the
+          // customer's source on it. Bound by the same record; a container on
+          // an older image simply never reads the field and sends nothing.
+          ...(jobId ? { job: jobId, beat: `https://${APP_ZONE}/api/site/genbeat`, beatMs: GEN_BEAT_MS,
+            code: `https://${APP_ZONE}/api/site/gencode` } : {}),
         } }),
         // THE FIRE, NOT THE GENERATION. This hop stores a job and returns; it
         // is milliseconds of work, so it is bounded like one. Bounding it at
@@ -19150,6 +19167,44 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ ok: true, alive: !!(r && r.alive === true) });
     }
 
+    // POST /api/site/gencode — THE CODE AS IT IS BEING WRITTEN (2026-09-07,
+    // owner: "send the code out as it writes").
+    //
+    // The beat's wall exactly: the report token, and `genBindingFor` matching
+    // the job and the generation against the record this build's own fire
+    // wrote. Same credential, same binding, no new kind of access — what a
+    // holder of the token could already do was write one generation's ANSWER,
+    // and this is strictly less than that.
+    //
+    // IT IS A COURTESY AND IT ANSWERS LIKE ONE. Nothing reads the reply, the
+    // build does not depend on it, and a failure to store leaves the customer
+    // the panel they had before this existed — so every branch here is `ok:
+    // false` and never a 5xx a container would retry. The one thing it must
+    // not do is cost the generation anything.
+    if (url.pathname === "/api/site/gencode" && request.method === "POST") {
+      const token = request.headers.get("x-gen-report") || "";
+      if (!isReportToken(token) || !env.SITES_BUCKET) return Response.json({ ok: false }, { status: 404 });
+      // Bounded well above one update (a tail plus a file name) and far below
+      // anything that could fill R2 — the cap is on the REQUEST, before the
+      // body is read, so a container that went wrong cannot post a megabyte.
+      const tlC = tooLargeBody(request, GEN_CODE_BODY_MAX); if (tlC) return tlC;
+      let body = null;
+      try { body = JSON.parse((await request.text()).slice(0, GEN_CODE_BODY_MAX)); } catch { body = null; }
+      const bind = await genBindingFor(env, token, body);
+      if (!bind) return Response.json({ ok: false }, { status: 404 });
+      // RE-CLIPPED HERE, never trusted from the wire. The container clips to
+      // the same bound and this is the wall behind it: what is stored is what
+      // this side decided, so a container on any image writes the same size.
+      const code = typeof body.code === "string" ? tailOf(body.code, CODE_TAIL_MAX) : "";
+      if (!code) return Response.json({ ok: true, stored: false });
+      const file = typeof body.file === "string" ? body.file.slice(0, 120) : "";
+      const chars = Number.isFinite(body.chars) && body.chars > 0 ? Math.floor(body.chars) : code.length;
+      try {
+        await env.SITES_BUCKET.put(codeKey(bind.id), JSON.stringify({ code, file, chars, at: Date.now() }));
+      } catch { return Response.json({ ok: false }, { status: 200 }); }
+      return Response.json({ ok: true, stored: true });
+    }
+
     if (url.pathname === "/api/site/genprobe" && request.method === "GET") {
       const gu = await authUser(request);
       if (!gu) return UNAUTHED();
@@ -20595,13 +20650,42 @@ async function handleRequest(request, env, ctx) {
       // job id is 32 unguessable hex, and this still carries the site's slug.
       if (!obj) {
         let flight = null;
+        // MINE IS THE ONLY GATE ON THE CODE, and it is this one. What the
+        // generation is writing is the customer's own site source, so the read
+        // below happens only inside a record whose `uid` is this caller — never
+        // on the job id alone, which a stranger could guess at and which is the
+        // shape every owner route on the platform refuses.
+        let mine = false;
         try {
           const rObj = await env.SITES_BUCKET.get(resumeKey(jid));
           if (rObj) {
             const rec = readResume(JSON.parse(await rObj.text()));
-            if (rec && rec.uid && rec.uid === bu.id) flight = flightOf(rec, Date.now());
+            if (rec && rec.uid && rec.uid === bu.id) { mine = true; flight = flightOf(rec, Date.now()); }
           }
         } catch { /* the flight is a courtesy; `pending` is the answer */ }
+        // ── THE CODE AS IT IS BEING WRITTEN (2026-09-07) ───────────────────
+        //
+        // A SECOND R2 READ ON A SIX-SECOND POLL, and it is bounded on purpose:
+        // only for the owner, and only while a generation is actually running
+        // (`flight`, which is the record's own account of a fired generation).
+        // Before the fire and after it there is nothing to show, and a read
+        // per poll for every build on the platform is a cost with no answer.
+        //
+        // AND IT IS A COURTESY LIKE THE FLIGHT: a bucket blip must not turn a
+        // healthy in-flight build into a failure, so it answers nothing and
+        // the panel shows what it showed a moment ago.
+        let code = null;
+        if (mine && flight) {
+          try {
+            const cObj = await env.SITES_BUCKET.get(codeKey(jid));
+            if (cObj) {
+              const c = JSON.parse(await cObj.text());
+              if (c && typeof c.code === "string" && c.code) {
+                code = { code: tailOf(c.code, CODE_TAIL_MAX), file: typeof c.file === "string" ? c.file : "" };
+              }
+            }
+          } catch { /* the code is a courtesy; the build is the answer */ }
+        }
         // ── THE ROW'S VERDICT (stage 2c) ───────────────────────────────────
         //
         // No answer object and a row that says `lost` is a build whose chain
@@ -20622,6 +20706,7 @@ async function handleRequest(request, env, ctx) {
         const pend = { ok: false, pending: true, job: jid };
         if (rs && rs.state) pend.state = rs.state;
         if (flight) pend.flight = flight;
+        if (code) pend.code = code;
         return Response.json(pend, { status: 202 });
       }
       let out = null;

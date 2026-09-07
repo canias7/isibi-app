@@ -1337,6 +1337,132 @@ missing when the guard was first run, on a change whose whole subject is that ho
   stage ends. The push touches `public/` only — no container roll, no 15–20
   minute hold.
 
+### THE CODE GOES OUT AS IT IS WRITTEN (2026-09-07, owner: *"yea lets do it,
+send the code out as it writes"*)
+
+The owner asked whether the code step showed the actual code. It did not, and
+**it could not**: the display that used to sit there — `readReactStream` folding
+NDJSON into `siteBuild.code` — is reachable only from an `x-ndjson` response,
+and the only streaming routes in `worker.js` are `/api/_slow` and the two
+`/api/game/*` ones. Three walls, traced rather than assumed:
+the Worker fires the build and returns (the browser polls every 6 s, there is no
+pipe); the text lives in the CONTAINER, which streams from the model into a
+variable and `await`s the whole call before posting the answer to
+`/api/site/genresult`; and holding the connection open like the game routes is
+refused, because it undoes fire-and-walk-away and meets the ~270 s egress wall
+in a build's first stage.
+
+**SIX HOPS CARRY IT, and every one is the layer this repository has shipped
+twelve dead features on.**
+
+```
+longPost's res.on("data")  ── the ONLY place a generation's bytes are seen arriving
+  → callBuilderModel's onPartial   throttled by the CLOCK, fenced
+  → the joiner's `partial`         the SAME accumulator the finished path reads
+  → gen-code.mjs                   partial tool-call JSON → readable source
+  → the container's codeSender     only what is new, one in flight
+  → POST /api/site/gencode         genBindingFor's wall → jobs/<id>.code.json
+  → the build poll's 202           owner-checked, only while flying
+  → setBuildCode → the code step
+```
+
+- **WHAT ARRIVES IS NOT CODE, and that is `builder/gen-code.mjs`'s whole
+  reason.** The generation answers a forced tool call, so the wire carries
+  PARTIAL JSON with the page source as an escaped string inside it — printing it
+  raw would show a customer `{"pages":[{"path":"index.tsx","source":"import {`
+  rather than their site being written. **It never PARSES** (a partial document
+  has no parse): it scans for the string currently being written, unescapes it,
+  **drops a half-finished escape rather than throwing** — `JSON.parse('"ab\\"')`
+  throws, and a blank panel every few seconds is what that would look like — and
+  names the file from the enclosing item. Between two pages it holds the LAST
+  finished source, because blanking while the model writes `"path":"menu.tsx"`
+  would make a working generation flicker.
+  **The field names are DERIVED from `write_pages`** (`source` under `pages[]`
+  keyed `path`, and `parts[]` keyed `name`): a second copy would drift the first
+  time the tool is edited, and the drift is SILENT — the panel would quietly
+  stop finding the code, which reads exactly like a model that has not started.
+- **THE JOINERS ANSWER THEIR OWN PARTIAL, NOT A SECOND PARSER.** Both already
+  accumulate the tool arguments; `{complete: false}` now carries that same
+  variable, and `streamPartial` picks the provider's. A partial read by
+  different code from the finished one is "two lists of the same thing" on a
+  provider's wire format.
+- **THROTTLED BY THE CLOCK, NEVER BY THE CHUNK** (`PARTIAL_EVERY_MS` 4000,
+  under the browser's 6 s poll so every poll carries text nobody has seen).
+  Re-reading a transcript is O(what has arrived), so per-chunk is quadratic in
+  the longest thing this platform does.
+- **NOTHING ON THIS PATH MAY COST A BUILD.** The hook is fenced inside the
+  socket's data handler — a throw there is an unhandled rejection on the
+  connection carrying the generation; the container's send is not even logged
+  per call (a generation makes a hundred, and a hundred identical lines bury the
+  one that matters); a failed store answers `ok: false` and never a 5xx a
+  container would retry; a bucket blip on the poll leaves the panel showing what
+  it showed a moment ago; and the sender is `null` when the fire named no
+  address, so an older image posts nowhere rather than at `undefined`.
+- **THE OWNER CHECK IS THE ONE THAT MATTERS.** This is the customer's own site
+  source. The poll reads it only inside the record whose `uid` is the caller —
+  never on the job id alone, which is guessable in a way a uid is not — and only
+  while `flight` says a generation is running, which bounds the second R2 read
+  to the window that has an answer.
+- **THE STORE IS `jobs/<id>.code.json`**, keyed by the JOB because the reader is
+  the poll (which has never seen the report token; the token is the credential
+  on the way IN). Under `jobs/` so stage 9's retention sweep already owns it —
+  a key anywhere else would be a new thing nobody sweeps, which is the finding
+  that stage exists for.
+- **The clip is THIS side's**, applied again on the Worker and again on the
+  poll, so a container on any image writes the same size; and an oversized body
+  is refused on `content-length` before it is read at all.
+- **Guards**: `test/gen-code.test.mjs` (22) — the reader driven at EVERY cut
+  point of a real page (a reader that leaks on one byte in four hundred blanks
+  the panel every few seconds, and a sampled test finds that only by luck), both
+  providers' partials proved to be PREFIXES of their own arguments, the hook
+  driven against a fake transport for growth, throttling, a caller that does not
+  ask and a display that throws, the container's sender driven for
+  send-only-what-is-new, the route DRIVEN through the real Worker for its wall
+  and both refusal paths, and the browser's reader, setter and row driven with
+  the call sites COUNTED.
+  **Six older guards went red and were re-anchored, not appeased**: four were
+  one-line pins outrun by an argument list that wrapped onto two lines (the
+  recorded spelling trap, four times in one change), one a size sanity ceiling
+  the poll route honestly outgrew, and one the public-endpoint COUNT in
+  `api-auth` — which is the guard working: a new unauthenticated route has to be
+  a decision somebody wrote down, and the sentence beside it is that decision.
+  **AND THE DOCKERFILE GUARD CAUGHT A REAL DEFECT**: the module was on neither
+  COPY line, so the image would have built and the service would have died at
+  import on the first build after the deploy — reported to the customer as *"our
+  build service was restarting"*, the sentence that has already hidden two other
+  causes. The recorded trap, firing exactly as designed, for the second time.
+  **Sweep: 49 mutants, 49 killed, none survived, none unapplied, the
+  comment-only control survived — five survived the first pass (four guard
+  gaps and one INERT), and three never applied on an ambiguous anchor, the
+  three routes that share a shape.** The four gaps: `tailOf`'s window whose ONLY newline is its last
+  character (the fixture drove a long line with NO newline, where both
+  readings agree — the differing case blanks the panel on the file being
+  written); the reader's non-string door, whose fixture was a one-element
+  ARRAY OF STRINGS, which any scanner drops anyway — an array of CHARACTERS
+  indexes and lengths exactly like a string and is the shape that would be
+  walked; `codeUpdate`'s own clip, which nothing drove past the cap (an
+  unclipped update is a body the door refuses whole, so a big page — the page
+  worth watching — would show NOTHING); and the sender's one-in-flight latch,
+  whose gate the fixture declared and never armed. **The fifth was INERT —
+  `streamPartial`'s catch**: neither joiner has a reachable throw and both
+  call sites wrap this one, so removing it changes nothing observable — kept
+  as an exported door's own wall, said out loud in the module, and NOT
+  pretended to be covered by a guard; the mutant was re-aimed at
+  `GEN_CODE_BODY_MAX`, which is derived from the tail plus an envelope and
+  whose every small fixture passes at any cap. **And one of the re-anchored
+  three then survived a second pass, and taught the better guard**: the route's own `isReportToken` check
+  changes no ANSWER (`genBindingFor` refuses a bad token too) — what it
+  changes is whether a stranger can make the isolate read and parse kilobytes
+  first, so it is driven now by watching `text()`, with the bound case
+  asserted beside it so the observer is proved alive. Full suite **5,509**, and
+  **`site build` 373/373 through the real container** — unchanged, since
+  nothing container-side is new but the module the image now copies, and the
+  25 minutes are not optional on a change to `build-server.mjs`.
+- **Not proven live.** The next real build is the proof: the file name appears
+  in the code step's row and the source fills in under it. The push changes
+  container image inputs, so the container rolls and the 15–20 minute hold
+  applies.
+
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
 *"Add will always go in addon"* — and the one carve-out is the owner's too:
@@ -5503,8 +5629,17 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,487
-  (2026-09-07, after the build-progress panel added eleven in
+  build and the pre-list payload added sixteen); the unit suite is 5,509
+  (2026-09-07, after the code going out as it is written added twenty-two in
+  `test/gen-code.test.mjs` — the reader driven at EVERY cut point of a real
+  page, the field names DERIVED from `write_pages`, both providers' partials
+  proved prefixes of their own arguments, the hook driven against a fake
+  transport for growth, throttling and a display that throws, the container's
+  sender driven for send-only-what-is-new and one-in-flight, the route DRIVEN
+  through the real Worker for its wall, both refusal paths and the
+  refuse-before-reading order, and the browser's reader, setter and row driven
+  with the call sites COUNTED; before it 5,487, after the build-progress panel
+  added eleven in
   `test/build-progress.test.mjs` — `buildPhase` driven with every refusal and
   five inherited keys, the phase setter driven forward-only and origin-scoped,
   the running segment's fill driven past a day of elapsed time, the chips

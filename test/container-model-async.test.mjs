@@ -272,7 +272,12 @@ test("every model call in the container carries longPost", () => {
   // To the end of the statement, not to the first `)` — the first argument is
   // `keysFrom(BUILD_KEYS)`, and a flat `[^)]*` scan stops inside it. This repo
   // has recorded that exact miss five times; this was the sixth.
-  const calls = [...SERVER_SRC.matchAll(/await callBuilderModel\((.+)\);/g)];
+  // AND ACROSS LINES, re-anchored 2026-09-07: `.` does not match a newline, so
+  // the moment one call site's arguments were wrapped onto a second line this
+  // found one call and reported the other gone. The property — every model call
+  // in the container goes through `longPost` — never changed; only the layout
+  // did, which is this repository's most-repeated own-goal in a guard.
+  const calls = [...SERVER_SRC.matchAll(/await callBuilderModel\(([\s\S]+?)\);/g)];
   assert.ok(calls.length >= 2, `expected the two model call sites, found ${calls.length} — rescope this guard`);
   for (const c of calls) {
     assert.match(c[1], /longPost/, "a model call site does not pass the transport — that call runs on undici's 300s headers timeout");

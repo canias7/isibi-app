@@ -35,6 +35,14 @@ import { XAI_ENDPOINT, isXaiModel, toXaiRequest, fromXaiResponse, xaiErrorDetail
 // that reads it has to learn a second name.
 export const BUILDER_CALL_MS = 600000;
 
+/** HOW OFTEN THE ANSWER-SO-FAR IS READ while a stream runs (`opts.onPartial`).
+ *
+ * Four seconds: faster than the build poll the customer's browser makes (six),
+ * so every poll carries text nobody has seen, and slow enough that re-reading
+ * the transcript stays a rounding error against a generation that measures in
+ * minutes. A caller may ask for its own with `opts.partialMs`. */
+export const PARTIAL_EVERY_MS = 4000;
+
 /**
  * Call whichever provider this model belongs to, and answer in ANTHROPIC'S
  * SHAPE whichever one served it — so every line downstream is unchanged and
@@ -97,6 +105,34 @@ export const BUILDER_CALL_MS = 600000;
 export async function callBuilderModel(keys, req, budget = null, send = null, opts = null) {
   const doFetch = send || fetch;
   const streaming = !!(opts && opts.stream === true);
+  // ── SHOWING THE CODE WHILE IT IS WRITTEN ────────────────────────────────
+  //
+  // `opts.onPartial(text)` is called with the model's answer SO FAR while the
+  // stream runs, so the container can send it to the customer's screen. It is
+  // handed to the transport as `onData`, because the transport is the only
+  // thing that sees bytes arrive; nothing here changes for a caller that does
+  // not ask, and a transport that does not offer `onData` (the plain `fetch`
+  // every non-container caller uses) simply never calls it.
+  //
+  // THROTTLED BY THE CLOCK, NEVER BY THE CHUNK. Re-reading the transcript is
+  // O(what has arrived), so doing it per chunk is quadratic in the length of a
+  // generation — and a generation is the longest thing this platform does. On
+  // a timer it is a handful of re-reads a minute whatever the model's cadence.
+  const wantPartial = typeof (opts && opts.onPartial) === "function";
+  let partialAt = 0;
+  const everyMs = Number.isFinite(opts && opts.partialMs) && opts.partialMs > 0 ? opts.partialMs : PARTIAL_EVERY_MS;
+  const onData = wantPartial
+    ? (soFar) => {
+        const now = Date.now();
+        if (now - partialAt < everyMs) return;
+        partialAt = now;
+        // NEVER LETS A DISPLAY FAULT KILL A BUILD. This runs inside the
+        // transport's data handler, where a throw is an unhandled rejection on
+        // the socket, and the generation is worth incomparably more than the
+        // view of it.
+        try { opts.onPartial(streamPartial(soFar, req && req.model)); } catch { /* the view is a courtesy */ }
+      }
+    : undefined;
   const k = keys || {};
   // The sooner of the call's own ceiling and what is left of the build. See
   // `builder/build-budget.mjs`: the two bounds have to COMPOSE, or a pages call
@@ -133,6 +169,7 @@ export async function callBuilderModel(keys, req, budget = null, send = null, op
       headers: { Authorization: `Bearer ${k.xai}`, "content-type": "application/json" },
       body: JSON.stringify(wireBody),
       signal: AbortSignal.timeout(callMs),
+      onData,
     });
     if (!r.ok) {
       const e = new Error("xai " + r.status);
@@ -170,6 +207,7 @@ export async function callBuilderModel(keys, req, budget = null, send = null, op
     // the platform (the exact reason `budget` is an argument, not a field).
     body: JSON.stringify(streaming ? { ...req, stream: true } : req),
     signal: AbortSignal.timeout(callMs),
+    onData,
   });
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);
@@ -214,6 +252,65 @@ function sseEvents(text) {
   }
   flush();
   return out;
+}
+
+/**
+ * WHAT HAS ARRIVED SO FAR, off the accumulator the finished path already reads.
+ *
+ * These exist so the code being generated can be shown to the customer while
+ * it is being generated (`builder/gen-code.mjs`, and the `code` field on the
+ * build poll). They are deliberately NOT a second SSE parser: a partial answer
+ * read by different code from the finished one would drift the first time a
+ * provider changed a field, and the drift would be silent — the panel would
+ * quietly show nothing, which reads exactly like a model that has not started.
+ * The joiner above does the reading; this only says which variable holds it.
+ *
+ * The generation is a forced tool call, so the arguments are the answer;
+ * plain content is the fallback for a model that answered without the tool.
+ */
+function partialOf(calls, content) {
+  for (const c of Array.isArray(calls) ? calls : []) {
+    const a = c && c.function && c.function.arguments;
+    if (typeof a === "string" && a) return a;
+  }
+  return typeof content === "string" ? content : "";
+}
+
+/** The Anthropic shape of the same question: a tool_use block's JSON, else text. */
+function partialOfBlocks(blocks) {
+  for (const b of Array.isArray(blocks) ? blocks : []) {
+    if (b && typeof b.json === "string" && b.json) return b.json;
+  }
+  for (const b of Array.isArray(blocks) ? blocks : []) {
+    if (b && typeof b.text === "string" && b.text) return b.text;
+  }
+  return "";
+}
+
+/**
+ * The partial answer of whichever provider's transcript this is.
+ *
+ * Asked by the container on a timer while a generation runs. It re-reads the
+ * whole transcript each time rather than folding incrementally — bounded by
+ * the CLOCK it is called on, never by the number of chunks, so the cost is a
+ * few re-reads a minute and the reading is the joiner's, not a copy of it.
+ *
+ * ITS CATCH IS INERT TODAY, AND IT STAYS. Neither joiner has a throwing path a
+ * transcript can reach — every `JSON.parse` inside them is already caught — and
+ * both call sites wrap this one anyway (the hook in `callBuilderModel` below,
+ * and the container's `res.on("data")`), so removing it changes nothing that
+ * can be observed: a throw would be swallowed one frame up and the tick would
+ * send nothing, which is exactly what an empty answer does. Kept because this
+ * is an EXPORTED door and the wall becomes load-bearing the moment a caller
+ * does not wrap it. Said out loud rather than covered by a guard that would
+ * only be proving its own fixture.
+ */
+export function streamPartial(text, model) {
+  if (typeof text !== "string" || !text) return "";
+  try {
+    const j = isXaiModel(model) ? joinXaiStream(text) : joinAnthropicStream(text);
+    return j && typeof j.partial === "string" ? j.partial : "";
+  } catch { return ""; }
 }
 
 /**
@@ -263,7 +360,7 @@ export function joinXaiStream(text) {
   // `finish_reason: "length"` without [DONE] is still a finished response —
   // the provider stopped at its token cap and said so. Neither marker is a
   // wire that died mid-generation.
-  if (!done && !finish) return { complete: false };
+  if (!done && !finish) return { complete: false, partial: partialOf(calls, content) };
   return {
     complete: true,
     response: {
@@ -320,7 +417,7 @@ export function joinAnthropicStream(text) {
     if (t === "error") { error = j; continue; }
   }
   if (error) return { error };
-  if (!msg || !stopped) return { complete: false };
+  if (!msg || !stopped) return { complete: false, partial: partialOfBlocks(blocks) };
   const content = [];
   for (const b of blocks) {
     if (!b) continue;

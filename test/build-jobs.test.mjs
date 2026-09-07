@@ -471,8 +471,18 @@ test("the job id rides to the fire: buildArgs → buildAndPublishPages → conta
   assert.match(W, /containerPagesFire\(env, slug, genPath, jobId\)/, "the fire is not handed the job id");
   assert.match(W, /function containerPagesFire\(env, slug, out, jobId = null\)/);
   const fire = fnW("containerPagesFire");
-  assert.match(fire, /\.\.\.\(jobId \? \{ job: jobId, beat: `https:\/\/\$\{APP_ZONE\}\/api\/site\/genbeat`, beatMs: GEN_BEAT_MS \} : \{\}\)/,
-    "the container is not told the job, the beat address at our zone and the cadence, gated on a job");
+  // RE-ANCHORED 2026-09-07, and read property by property: the code address
+  // (`gencode`) joined the same conditional and wrapped it onto two lines, so a
+  // one-line pin reported the whole row's half gone. What must hold is that the
+  // job, the beat at OUR zone and the cadence are all told to the container and
+  // all inside the `jobId` gate — a build with no row has no binding and must
+  // be told none of them.
+  const rowHalf = /\.\.\.\(jobId \? \{([\s\S]+?)\} : \{\}\)/.exec(fire);
+  assert.ok(rowHalf, "the container is no longer told the row's half, gated on a job");
+  assert.match(rowHalf[1], /job: jobId\b/, "the container is not told which job it holds");
+  assert.match(rowHalf[1], /beat: `https:\/\/\$\{APP_ZONE\}\/api\/site\/genbeat`/,
+    "the beat address is gone, or no longer built from our own zone");
+  assert.match(rowHalf[1], /beatMs: GEN_BEAT_MS\b/, "the container is not told the cadence");
   // AND THE RESUME PASSES ITS OWN ID EXPLICITLY, since the design has none.
   const resume = fnW("runResumedSiteBuild");
   assert.match(resume, /buildAndPublishPages\(env, \{\s+\.\.\.design,\s+jobId: id,/, "the resumed build is not handed the record's id");

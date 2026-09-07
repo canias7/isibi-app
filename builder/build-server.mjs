@@ -35,6 +35,7 @@ import path from "node:path";
 // child the whole environment. See the file for the measurement.
 import { BUILD_KEYS } from "./build-keys.mjs";
 import { callBuilderModel, keysFrom, BUILDER_CALL_MS } from "./build-call.mjs";
+import { codeUpdate } from "./gen-code.mjs";
 import { resolvePair, resolvePageFonts, resolveFont, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss, transitionOn } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
@@ -237,6 +238,58 @@ async function sendModelBeat(report, gen) {
     return false;
   }
 }
+/**
+ * THE CODE SO FAR, SENT HOME WHILE IT IS BEING WRITTEN (owner, 2026-09-07:
+ * "send the code out as it writes").
+ *
+ * The beat's shape exactly — same token, same binding, same fenced failure —
+ * and a SEPARATE call rather than a field on the beat, for two reasons. The
+ * beat renews the row's LEASE, and a body that grows to a few kilobytes on a
+ * call whose failure loses a build is a bad trade; and the two want different
+ * cadences (a lease is renewed once a minute, a screen wants a few seconds).
+ *
+ * A FAILURE HERE IS NEVER REPORTED UPWARDS. Nothing depends on it: the answer
+ * still travels on the report, the build still publishes, and the customer
+ * sees the panel it saw before this existed. It is not even logged per call —
+ * a generation makes a hundred of these, and a hundred identical lines would
+ * bury the one line that matters in the same log.
+ */
+async function sendModelCode(report, gen, update) {
+  if (!report || typeof report.code !== "string" || !report.code) return false;
+  if (typeof report.token !== "string" || !report.token) return false;
+  if (typeof report.job !== "string" || !report.job) return false;
+  try {
+    const r = await fetch(report.code, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-gen-report": report.token },
+      body: JSON.stringify({ job: report.job, gen, ...update }),
+      signal: AbortSignal.timeout(BEAT_CALL_MS),
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
+/** The code sender for one generation, or null when the fire named no address.
+ *
+ * SENDS ONLY WHAT IS NEW, and that is the whole rate control: a model that has
+ * gone quiet — thinking, or between tool blocks — produces no calls at all,
+ * where a plain timer would send the same kilobytes every four seconds for the
+ * length of a pause. One in flight at a time, because these are ordered in
+ * meaning and a slow one overtaking a fast one would show a customer their
+ * code going backwards. */
+function codeSender(report, gen) {
+  if (!report || typeof report.code !== "string" || !report.code) return null;
+  let sent = -1, busy = false;
+  return (partial) => {
+    if (busy || typeof partial !== "string") return;
+    const update = codeUpdate(partial);
+    if (!update.code || update.chars === sent) return;
+    sent = update.chars;
+    busy = true;
+    sendModelCode(report, gen, update).catch(() => false).then(() => { busy = false; });
+  };
+}
+
 /** The row's half of a report: which job and which generation, when the fire named one. */
 function genTag(report, gen) {
   return report && typeof report.job === "string" && report.job ? { job: report.job, gen } : {};
@@ -274,6 +327,7 @@ function beatEvery(report) {
 function longPost(url, init) {
   return new Promise((resolve, reject) => {
     const signal = init && init.signal;
+    const onData = init && typeof init.onData === "function" ? init.onData : null;
     const bail = (e) => reject((signal && signal.reason) || e || new Error("aborted"));
     if (signal && signal.aborted) return bail();
     const u = new URL(url);
@@ -299,7 +353,18 @@ function longPost(url, init) {
       wire.headersMs = Date.now() - t0;
       let text = "";
       res.setEncoding("utf8");
-      res.on("data", (c) => { text += c; wire.chars += c.length; });
+      // `init.onData` IS WHERE "SHOW THE CODE AS IT IS WRITTEN" BEGINS. This is
+      // the only place in the system that sees a generation's bytes while they
+      // are still arriving: everything above it awaits the finished call, and
+      // the Worker is not even on the connection. It is handed the whole answer
+      // so far rather than the chunk, because the reader upstream re-reads a
+      // transcript and has no use for a fragment; and it is fenced, because a
+      // throw here is an unhandled rejection on the socket carrying the build.
+      res.on("data", (c) => {
+        text += c;
+        wire.chars += c.length;
+        if (onData) { try { onData(text); } catch { /* the view never costs the build */ } }
+      });
       res.on("end", () => {
         if (settled) return;
         settled = true;
@@ -1980,8 +2045,15 @@ const server = http.createServer((req, res) => {
           ? setInterval(() => { sendModelBeat(report, id).catch(() => {}); }, beatEvery(report))
           : null;
         if (beat && typeof beat.unref === "function") beat.unref();
+        // THE CODE GOES HOME WHILE IT IS WRITTEN. `onPartial` is called on
+        // build-call's own clock with the model's answer so far; the sender
+        // turns it into readable source and posts only what is new. Null when
+        // the fire named no address — an older Worker, or the harness — and a
+        // null hook means `callBuilderModel` never asks for a partial at all.
+        const code = codeSender(report, id);
         try {
-          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost, { stream: true });
+          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost,
+            code ? { stream: true, onPartial: code } : { stream: true });
           MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
           await sendModelReport(report, { state: "done", answer, ...genTag(report, id) });
         } catch (e) {

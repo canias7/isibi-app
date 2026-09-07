@@ -11617,6 +11617,28 @@ function setBuildPhase(origin, ph) {
   paintReactLive();
   return true;
 }
+/**
+ * THE CODE THE BUILD IS WRITING, onto this workspace's own build.
+ *
+ * The phase setter's rules, for the phase setter's reasons: a foreign origin
+ * never repaints somebody else's screen, and nothing repaints unless something
+ * changed — this is asked on every poll, and rewriting the DOM every six
+ * seconds for identical text is work with no answer.
+ *
+ * IT NEVER CLEARS. A poll that carries no code means the container has not
+ * sent since the last one — a quiet model, a failed courtesy call, a phase
+ * that has moved on — and blanking the panel for any of those would make a
+ * working generation flicker. The code leaves the screen when the step does.
+ */
+function setBuildCode(origin, got) {
+  if (!siteBuild || siteOpenId !== origin) return false;
+  if (!got || typeof got.code !== 'string' || !got.code) return false;
+  if (siteBuild.code === got.code && siteBuild.file === got.file) return false;
+  siteBuild.code = got.code;
+  if (typeof got.file === 'string') siteBuild.file = got.file;
+  paintReactLive();
+  return true;
+}
 // "4m 12s" / "48s" — the elapsed clock on the running row and in the stage panel.
 function stAgo(ms) {
   const t = Math.max(0, Math.round((Number(ms) || 0) / 1000));
@@ -11667,7 +11689,20 @@ function reactLiveStepsHTML() {
   // empty bordered box with one blinking caret, for the whole build. It was not
   // an unfed placeholder: it was a real control whose source could not ever be
   // non-empty. The owner saw it for seventeen minutes and asked what it was.
-  rows.push(stStepRow({ label: past('generating') ? 'Wrote the code' : 'Writing the code', meta: clk('generating') || sb.file || '', state: st('generating') }));
+  // THE CODE, WHEN THERE IS CODE (2026-09-07, owner: "send the code out as it
+  // writes"). `sb.code` is filled by the build poll from what the container
+  // sends while the model writes; the row opens only when something has
+  // actually arrived, so the empty bordered box with one blinking caret — the
+  // thing that stood here for a seventeen-minute build — cannot render.
+  const wrote = past('generating');
+  const codeNow = !wrote && typeof sb.code === 'string' && sb.code ? sb.code : '';
+  rows.push(stStepRow({
+    label: wrote ? 'Wrote the code' : 'Writing the code',
+    meta: clk('generating') || sb.file || '',
+    state: st('generating'),
+    open: !!codeNow,
+    body: codeNow ? stCodeBody(codeNow, true) : '',
+  }));
   if (sb.images && sb.images.length) rows.push(stStepRow({ label: 'Generated images', meta: sb.images.length + (sb.images.length === 1 ? ' photo' : ' photos'), state: 'done', body: stImgsBody(sb.images) }));
   if (sb.rphase === 'fixing') rows.push(stStepRow({ label: 'Fixing a build error', state: 'run' }));
   else rows.push(stStepRow({ label: past('compiling') ? 'Compiled React' : 'Compiling React', meta: clk('compiling'), state: st('compiling') }));
@@ -13124,7 +13159,14 @@ async function followBuildJob(job, signal, origin) {
     if (r.status === 202) {
       bad = 0;
       const p = await r.json().catch(() => null);
-      if (p) setBuildPhase(origin, EditPoll.buildPhase(p));
+      if (p) {
+        setBuildPhase(origin, EditPoll.buildPhase(p));
+        // AND THE CODE, from the same envelope. Read through the poll module
+        // like the phase is — it is the half a test can drive, and "is this a
+        // string somebody may put on a screen" is exactly the question that
+        // belongs there rather than here.
+        setBuildCode(origin, EditPoll.buildCode(p));
+      }
       continue;
     }
     if (r.status === 503) { if (++bad > 5) return null; continue; }

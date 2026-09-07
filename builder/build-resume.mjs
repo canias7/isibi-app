@@ -282,6 +282,28 @@ export function genKey(token) {
 }
 
 /**
+ * WHERE THE CODE-SO-FAR LIVES WHILE IT IS BEING WRITTEN (2026-09-07).
+ *
+ * Under `jobs/` with the rest of a build's litter, and that is load-bearing in
+ * two directions: an operator listing a stranded build sees this beside its
+ * request, its answer and its resume record; and the retention sweep (stage 9,
+ * `builder/job-retention.mjs`) already takes the whole prefix after a week, so
+ * this needs no cleanup of its own and cannot become a new thing nobody sweeps.
+ *
+ * KEYED BY THE JOB, not by the report token, because the READER is the build
+ * poll — which knows the job id and has never seen the token. The token is the
+ * credential on the way IN (the same wall the beat passes); the job id is the
+ * name on the way out.
+ *
+ * IT IS OVERWRITTEN, never appended: this is a view of what is happening now,
+ * and the finished source is stored whole by `deps.keep` on the way past.
+ */
+export function codeKey(id) {
+  if (!isResumeId(id)) throw new Error("build-resume: refusing to build a key from an id we did not mint");
+  return `${RESUME_PREFIX}${id}.code.json`;
+}
+
+/**
  * WHAT THE CONTAINER REPORTED, READ BACK IN THE SHAPE THE POLL ALREADY SPEAKS.
  *
  * ONE VOCABULARY, DELIBERATELY. `resumeDecision` reads `{state, answer|status,

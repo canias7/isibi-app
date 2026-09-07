@@ -325,7 +325,13 @@ test("THE WIRING: the poll opens the envelope and hands it to the one setter", (
   assert.ok(twoStart > 0 && twoEnd > twoStart, "the 202 branch is gone — rescope this guard");
   const branch = follow.slice(twoStart, twoEnd);
   assert.match(branch, /r\.json\(\)\.catch\(\(\) => null\)/, "an unparseable body now ends the build watch");
-  assert.match(branch, /if \(p\) setBuildPhase/, "a null body is handed to the setter");
+  // RE-ANCHORED 2026-09-07: the branch hands the body to TWO setters now (the
+  // phase and the code), so it opened a block and this one-line pin stopped
+  // matching. The property is unchanged and is what is asserted — an
+  // unparseable body reaches neither setter.
+  assert.match(branch, /if \(p\) \{/, "a null body is handed to the setters");
+  assert.ok(branch.indexOf("if (p) {") < branch.indexOf("setBuildPhase("),
+    "the phase setter is called outside the null check");
   assert.match(follow, /bad = 0;/, "a 202 no longer resets the bad-answer counter");
 
   // The origin really reaches it, or every repaint is refused as foreign.

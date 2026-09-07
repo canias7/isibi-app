@@ -534,6 +534,54 @@ down why.
 
 ---
 
+## 2026-09-07 — The build shows the code as it writes it
+
+You asked whether the code step showed the actual code. It did not, and the
+answer to why is worth keeping.
+
+**The box you were looking at could never have had anything in it.** It was a
+real display wired to a live feed — and only the *game* builder sends that feed.
+The site builder fires the job and walks away, so there was no open pipe, and
+the code itself was sitting inside the container in a variable that nothing read
+until the whole thing was finished.
+
+**Now it comes out as it is written.** The container sends what it has every few
+seconds, the server keeps the latest, and your browser picks it up on the poll it
+was already making. You see the file name and the code filling in, a few seconds
+at a time — more like a log filling than a typewriter, which is the honest speed.
+
+**Two things I made sure of.**
+
+1. **It can never cost you a build.** Everything on this path is a courtesy: if
+   the display throws, if a send fails, if storage blips — the build carries on
+   and you see what you saw a moment ago. Nothing about showing the code can
+   take the code away.
+2. **Only you can see yours.** This is your own site's source, so the server
+   hands it back only inside a check that the build is yours, and only while it
+   is actually being written.
+
+**One thing that would have shipped broken and did not.** The new file was
+missing from the container's build recipe. The image would have built fine and
+then died the moment the first customer's build started — reported to them as
+"our build service was restarting", which is the sentence that has already
+hidden two other causes here. A check that compares the recipe against what the
+code imports caught it before it went anywhere.
+
+**And the checking round found five holes in my own checks, not in the code.**
+The way I test this is to break the code on purpose, one small change at a time,
+and see whether a check notices. Five changes went unnoticed — each one a case
+my tests described but never actually ran, which is the shape that has caught
+this project out before. All five are covered now. A sixth turned out to make no
+difference at all whichever way it went, so I wrote that down instead of adding
+a test that would only have been proving itself.
+
+**Not proven live.** Your next real build is the proof: in the code step you
+should see the file name appear and the source fill in under it. This one rolls
+the container, so leave 15–20 minutes after it deploys before starting a build
+that needs the new code.
+
+---
+
 ## Open — waiting on you
 
 **0z. THREE ICONS ON EVERY SITE CARD (2026-09-07, your "A,B,A" then "LEAVE IT

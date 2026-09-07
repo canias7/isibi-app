@@ -486,11 +486,34 @@
     return "";
   }
 
+  /**
+   * THE CODE THE BUILD IS WRITING RIGHT NOW, off a 202 (2026-09-07, owner:
+   * "send the code out as it writes").
+   *
+   * Answers `{ code, file }` or null — never a partial object, so the caller
+   * has one thing to test. `""` for a poll that carries none is deliberately
+   * NOT the answer: the display must be able to tell "nothing arrived this
+   * time" (keep what is on screen) from "there is no code", and a falsy string
+   * collapses those two into one.
+   *
+   * NOTHING IS COERCED, and here that is not a formality: this text is put on
+   * a screen, so a non-string reaching the renderer is the shape every
+   * injection in this file's history has had.
+   */
+  function buildCode(body) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+    var c = body.code;
+    if (!c || typeof c !== "object" || Array.isArray(c)) return null;
+    if (typeof c.code !== "string" || !c.code) return null;
+    return { code: c.code, file: typeof c.file === "string" ? c.file : "" };
+  }
+
   var api = {
     FINAL_HEADER: FINAL_HEADER,
     FINAL_VALUE: FINAL_VALUE,
     readPoll: readPoll,
     buildPhase: buildPhase,
+    buildCode: buildCode,
     escalateAction: escalateAction,
     newIdemKey: newIdemKey,
     pollDelayMs: pollDelayMs,

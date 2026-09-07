@@ -279,7 +279,14 @@ test("A BUILD THAT ANSWERED 202 CAN BE ASKED ABOUT LATER", () => {
   // file, where every assertion below passes against something else entirely —
   // which is exactly how one of these guards went quiet earlier in this arc.
   assert.ok(nextRoute > 0, "the next route matcher is gone — this window has no end and proves nothing");
-  assert.ok(block.length > 800 && block.length < 6000,
+  // THE CEILING MOVED 2026-09-07, and it is a sanity check rather than a
+  // window: the window itself is landmark to landmark (above) and still is.
+  // What grew is the ROUTE — its pending branch now also reads the code the
+  // generation is writing and puts it on the 202 — so the bound was outrun by
+  // an honest change, which is the one thing a size assertion is allowed to
+  // report. It exists to catch a window that swallowed the file, and the file
+  // is two orders of magnitude bigger than this, so the headroom costs nothing.
+  assert.ok(block.length > 800 && block.length < 12000,
     `the result route reads as ${block.length} bytes — the window has lost its bounds`);
   // AUTHENTICATED, like every other route on this surface.
   assert.match(block, /await authUser\(request, env\)/, "the build result route is not behind a sign-in");
@@ -929,8 +936,18 @@ test("THE FIRE MINTS A NAME FOR THE ANSWER AND TELLS BOTH SIDES", () => {
   assert.match(reportObj, /token: report\b/, "the report object drops the token — the route cannot authorise the write");
   // AND THE ROW'S HALF (stage 2c), GATED ON A JOB: the job id and a beat
   // address at our own zone, absent on the inline path that has no row.
-  assert.match(reportObj, /\.\.\.\(jobId \? \{ job: jobId, beat: `https:\/\/\$\{APP_ZONE\}\/api\/site\/genbeat`, beatMs: GEN_BEAT_MS \} : \{\}\)/,
-    "the fire does not tell the container which row it holds and where to beat, gated on a job id");
+  // RE-ANCHORED 2026-09-07: this pinned the row's half as ONE line, and the
+  // code address (`gencode`, the code sent home while it is written) joined the
+  // same conditional and wrapped it onto two. The properties are unchanged and
+  // are asserted one by one: the job, the beat at OUR zone, the cadence — and
+  // all of them inside the `jobId` condition, since a build with no row has no
+  // binding and must be told none of it.
+  const rowHalf = /\.\.\.\(jobId \? \{([\s\S]+?)\} : \{\}\)/.exec(reportObj);
+  assert.ok(rowHalf, "the fire no longer gates the row's half on a job id — an inline build would be told to beat");
+  assert.match(rowHalf[1], /job: jobId\b/, "the fire does not tell the container which row it holds");
+  assert.match(rowHalf[1], /beat: `https:\/\/\$\{APP_ZONE\}\/api\/site\/genbeat`/,
+    "the beat address is not built from APP_ZONE, or is gone");
+  assert.match(rowHalf[1], /beatMs: GEN_BEAT_MS\b/, "the fire no longer sets the beat's cadence");
 
   // AND THE SENTINEL CARRIES IT, or the record cannot remember the one name the
   // answer was written under and the persisted copy is unreachable.
