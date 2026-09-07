@@ -387,9 +387,8 @@ was my test's fault, not the code's, so it was tightened and re-run to a kill.
 
 ## Open — waiting on you
 
-**0z. THREE ICONS ON EVERY SITE CARD — SHIPPED, AND ONE ASSUMPTION IS YOURS TO
-CONFIRM (2026-09-07, your "A,B,A").** The cylinder, the globe and the handset
-are on every card in the start screen's grid. Where each one goes:
+**0z. TWO ICONS ON EVERY SITE CARD (2026-09-07, your "A,B,A" then "THE PHONE ONE
+GOTTA BE OFF FOR NOW THO").** What ships:
 
 - **cylinder → the site's Data view.** A site with **no database** shows it
   dimmed with the tooltip *"No database yet — ask for one in the chat"*. That is
@@ -397,14 +396,15 @@ are on every card in the start screen's grid. Where each one goes:
   other option and it is how nobody learns the feature exists.
 - **globe → the live site**, in a new tab. Dimmed with *"Not published yet"*
   before a site has an address.
-- **handset → the site at phone width** — the workspace's own Preview device
-  switch, the one already in the top bar.
 
-**THE ASSUMPTION.** You said "mobile app", and what I wired is *see it on a
-phone*, because that is the only thing in the tree that answers to it — the
-platform builds websites and there is no app product anywhere in it. If you
-meant a real mobile app, say so: the icon is already in place and only what it
-does changes.
+**The phone one is off, and REMOVED rather than greyed.** The two dimmed states
+above earn their place by saying something — "No database yet", "Not published
+yet". There is no honest sentence for a button that works and simply is not
+wanted, so a third dimmed icon would just read as broken.
+
+**Putting it back is two lines**, and I have written down which ones. The phone
+glyph itself is untouched (the workspace's device switch still draws it), so
+nothing has to be redrawn.
 
 **Not seen in a browser yet.** Next signed-in load of gofarther.dev shows them.
 If a card's icons are missing, or the cylinder is dim on a site you know has a

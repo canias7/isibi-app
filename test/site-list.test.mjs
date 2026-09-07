@@ -383,20 +383,26 @@ function loadCardActs() {
     + "\n" + cut("cardActs") + "\nreturn cardActs;")();
 }
 
-test("DRIVEN: three buttons, one per thing, each named on the element", () => {
+test("DRIVEN: two buttons, one per thing, each named on the element", () => {
   const cardActs = loadCardActs();
   const html = cardActs({ id: "s1", react: true, backend: true, url: "https://x.gofarther.app/" });
-  for (const act of ["data", "live", "phone"]) {
+  for (const act of ["data", "live"]) {
     assert.equal((html.match(new RegExp('data-act="' + act + '"', "g")) || []).length, 1,
       "exactly one " + act + " button");
   }
-  assert.equal((html.match(/<button/g) || []).length, 3, "three and no more");
-  assert.ok(!/ disabled/.test(html), "a published site with a database has all three live");
+  // THE PHONE ONE IS OFF (owner, 2026-09-07: "THE PHONE ONE GOTTA BE OFF FOR
+  // NOW"). Asserted BESIDE the two above rather than alone, because an absence
+  // proves nothing unless its observer is alive — this same check would pass on
+  // a `cardActs` that had been deleted outright.
+  assert.equal((html.match(/data-act="phone"/g) || []).length, 0,
+    "the phone button is off; to restore it, the button and the handler branch");
+  assert.equal((html.match(/<button/g) || []).length, 2, "two and no more");
+  assert.ok(!/ disabled/.test(html), "a published site with a database has both live");
   // ONE SET, drawn through the app's own icon helper rather than pasted: a
   // hand-written <svg> here would drift from the 1.85 stroke every other glyph
-  // in the chrome uses, and the trio would read as imported.
-  assert.equal((html.match(/class="st-svg"/g) || []).length, 3);
-  assert.equal((html.match(/stroke-width="1\.85"/g) || []).length, 3);
+  // in the chrome uses, and the pair would read as imported.
+  assert.equal((html.match(/class="st-svg"/g) || []).length, 2);
+  assert.equal((html.match(/stroke-width="1\.85"/g) || []).length, 2);
 });
 
 test("DRIVEN: a site with no database keeps the button and says why", () => {
@@ -407,18 +413,20 @@ test("DRIVEN: a site with no database keeps the button and says why", () => {
   // HIDING IT IS HOW A CUSTOMER NEVER LEARNS THE FEATURE IS THERE TO ASK FOR.
   assert.match(dataBtn, /No database yet/, "the tooltip says what to do about it");
   assert.ok(!/ disabled/.test(html.slice(html.indexOf('data-act="live"'))),
-    "the other two are unaffected");
+    "the other one is unaffected");
 });
 
-test("DRIVEN: an unpublished site cannot be opened, and the phone view always can", () => {
+test("DRIVEN: an unpublished site cannot be opened, and says so", () => {
   const cardActs = loadCardActs();
   const html = cardActs({ id: "s1", react: true, backend: true, url: "" });
-  const live = html.slice(html.indexOf('data-act="live"'), html.indexOf('data-act="phone"'));
+  // To the END, since the live button is the last one drawn now — this sliced
+  // to `data-act="phone"` and would have become `slice(n, -1)` when that came
+  // off, which is the recorded window-with-no-end-landmark trap.
+  const live = html.slice(html.indexOf('data-act="live"'));
   assert.ok(/ disabled/.test(live), "there is no address to open");
   assert.match(live, /Not published yet/);
-  // The phone view is the workspace's own preview, which exists for a site that
-  // has never published — that is exactly when you want to look at it.
-  assert.ok(!/ disabled/.test(html.slice(html.indexOf('data-act="phone"'))));
+  // And the data button beside it is untouched — the observer is alive.
+  assert.ok(!/ disabled/.test(html.slice(html.indexOf('data-act="data"'), html.indexOf('data-act="live"'))));
 });
 
 test("DRIVEN: the id is escaped into the attribute, never concatenated raw", () => {
@@ -428,7 +436,7 @@ test("DRIVEN: the id is escaped into the attribute, never concatenated raw", () 
   assert.ok(html.includes("&quot;"), "it is escaped rather than dropped");
 });
 
-test("each of the three goes somewhere that exists", () => {
+test("each of the two goes somewhere that exists, and nothing else acts", () => {
   const c = blankComments(read("../public/chat.js"));
   const at = c.indexOf("view.querySelectorAll('.st-card-act')");
   assert.ok(at > 0, "the handlers are gone");
@@ -439,11 +447,15 @@ test("each of the three goes somewhere that exists", () => {
   assert.ok(/siteAdopt\(cardEntry\(b\.dataset\.sid\)\)/.test(body), "adopts");
   assert.ok(/window\.open\(rec\.url/.test(body), "the live site opens at its own address");
   assert.ok(/siteView = 'data'/.test(body), "the data button opens the Data view");
-  assert.ok(/siteDevice = 'phone'/.test(body), "the phone button switches the preview device");
-  // BOTH, on the phone branch: arriving from a card last left on Data would
-  // otherwise open Data at phone width.
-  assert.ok(/siteView = 'preview'; siteDevice = 'phone'/.test(body),
-    "the phone branch sets the view as well as the device");
+  // ONLY THE ACTS WE DRAW DO ANYTHING. The data branch was an `else` while the
+  // phone button existed; leaving it one when that came off would have made any
+  // unknown `data-act` open the Data view.
+  assert.ok(/b\.dataset\.act !== 'data'/.test(body),
+    "an act this card does not draw must fall out, not land on the last branch");
+  assert.ok(!/\belse\b/.test(body), "no catch-all branch is left");
+  // THE PHONE BRANCH WENT WITH ITS BUTTON. Asserted beside the two live ones
+  // above, so the absence has an observer that is demonstrably awake.
+  assert.ok(!/siteDevice/.test(body), "the phone branch is off, along with its button");
   assert.ok(/e\.stopPropagation\(\)/.test(body), "a click on a button is not also a click on the card");
 });
 
@@ -458,13 +470,18 @@ test("the card's click guard covers every button on it, not a list of them", () 
   assert.ok(!/data-del/.test(line), "the old single-control spelling is gone");
 });
 
-test("the cylinder is in the icon table, and the trio is the set that was chosen", () => {
+test("the cylinder is in the icon table, and the set that was chosen is intact", () => {
   const c = read("../public/chat.js");
   const iAt = c.indexOf("const ST_ICONS = {");
   const table = c.slice(iAt, c.indexOf("\n};", iAt));
+  // `phone` is here on purpose with its card button off: the workspace's own
+  // device switch draws it, and it is what a restore of that button reaches for.
+  // Deleting a glyph because one of its callers went quiet is how a feature
+  // becomes expensive to put back.
   for (const name of ["database", "globe", "phone"]) {
     assert.ok(new RegExp("\\n\\s*" + name + ":").test(table), name + " is not in ST_ICONS");
   }
+  assert.ok(/ic\('phone', 16\)/.test(c), "the workspace's device switch still draws it");
   // The chosen database mark is the three-band cylinder, and it is drawn on the
   // same 24×24 grid as every other glyph — a viewBox is not a thing `ic` sets
   // per icon, so a path outside 0..24 would render clipped and nothing would say so.

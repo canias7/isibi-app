@@ -10257,7 +10257,18 @@ function switchSitePage(path) {
 //
 //   database → the workspace's Data view, `siteDatabase`'s own jump
 //   site     → the live address, in a new tab
-//   phone    → the workspace's Preview at phone width
+//
+// THE THIRD IS OFF (owner, 2026-09-07: "THE PHONE ONE GOTTA BE OFF FOR NOW").
+// It shipped opening Preview at phone width and is REMOVED rather than greyed:
+// a disabled control earns its place by SAYING something — "No database yet",
+// "Not published yet" — and there is no such sentence for a button that works
+// and is simply not wanted, so a dimmed third icon would read as broken.
+//
+// TO PUT IT BACK, two things and nothing else: the button below (the `phone`
+// glyph is still in ST_ICONS — the workspace's own device switch uses it, so
+// nothing was deleted), and the branch in the handler that sets `siteView` AND
+// `siteDevice` together. Both are named in the guards, which assert the button
+// is absent while proving they can still see the other two.
 //
 // A SITE WITH NO DATABASE GETS A DISABLED BUTTON THAT SAYS SO, never a live one
 // that lands on Preview without explanation: a first build provisions none, so
@@ -10275,8 +10286,6 @@ function cardActs(s) {
       (s.url ? '' : ' disabled') +
       ' title="' + (s.url ? 'Open the live site' : 'Not published yet') + '"' +
       ' aria-label="Open the live site in a new tab">' + ic('globe', 15) + '</button>' +
-    '<button type="button" class="st-card-act" data-act="phone" data-sid="' + id + '"' +
-      ' title="See it on a phone" aria-label="Preview this site at phone width">' + ic('phone', 15) + '</button>' +
   '</div>';
 }
 function renderSites() {
@@ -10365,12 +10374,17 @@ function renderSites() {
     const rec = siteAdopt(cardEntry(b.dataset.sid));
     if (!rec) return;
     if (b.dataset.act === 'live') { if (rec.url) window.open(rec.url, '_blank', 'noopener'); return; }
+    // ONLY THE ACTS WE DRAW DO ANYTHING. This was an `else`, which was right
+    // while `phone` was the only other one and became a way for any unknown
+    // `data-act` to open the Data view the moment that button came off.
+    //
+    // The phone branch went with the button (owner: "THE PHONE ONE GOTTA BE OFF
+    // FOR NOW"). It read `{ siteView = 'preview'; siteDevice = 'phone'; }` —
+    // BOTH, because arriving from a card last left on Data would otherwise open
+    // Data at phone width. That is the line to restore beside the button.
+    if (b.dataset.act !== 'data') return;
     siteOpenId = rec.id;
-    if (b.dataset.act === 'data') { siteView = 'data'; }
-    // The phone view is the PREVIEW at phone width — the workspace's own device
-    // switch, not a separate screen. Set both: arriving from a card that was
-    // last left on Data would otherwise open Data at phone width.
-    else { siteView = 'preview'; siteDevice = 'phone'; }
+    siteView = 'data';
     renderSites();
   });
   view.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {

@@ -779,24 +779,37 @@ icons, one for database, one for site and one more mobile app"* → *"A,B,A"*)
 
 Rendered as five variant sets first and chosen by name: **A's cylinder, B's
 globe, A's handset**. The glyphs go through `ic()` like every other one in the
-chrome — 24×24, no fill, `currentColor` at 1.85, round caps — so the trio is the
-app's own set and not an import; `globe` and `phone` were already in `ST_ICONS`
+chrome — 24×24, no fill, `currentColor` at 1.85, round caps — so the set is the
+app's own and not an import; `globe` and `phone` were already in `ST_ICONS`
 and only `database` is new.
 
+**AND THE PHONE ONE IS OFF, THE SAME DAY** (owner: *"THE PHONE ONE GOTTA BE OFF
+FOR NOW THO"*). **Two icons ship**; the third is REMOVED rather than greyed,
+because a disabled control here earns its place by SAYING something — "No
+database yet", "Not published yet" — and there is no such sentence for a button
+that works and is simply not wanted; a dimmed third icon would read as broken.
+**To put it back, two things and nothing else**: the button in `cardActs` and
+the handler branch that sets `siteView` AND `siteDevice` together. `ST_ICONS.phone`
+was NOT deleted — the workspace's own device switch draws it, and deleting a
+glyph because one caller went quiet is how a feature becomes expensive to
+restore; the guard pins that reasoning to the other caller.
+
 - **EACH ONE GOES SOMEWHERE THAT EXISTS**, which is why `cardActs(s)` takes the
-  site rather than drawing three glyphs: `database` → the workspace's Data view
-  (`siteDatabase`'s own jump), `site` → the live address in a new tab, `phone` →
-  Preview at phone width (the workspace's own device switch, so BOTH `siteView`
-  and `siteDevice` are set — arriving from a card last left on Data would
-  otherwise open Data at phone width). The repo carries an open **dead-control**
-  finding about links pointing at where they already are; three decorative icons
-  across 51 cards would have been that finding fifty-one times.
+  site rather than drawing glyphs: `database` → the workspace's Data view
+  (`siteDatabase`'s own jump), `site` → the live address in a new tab. The repo
+  carries an open **dead-control** finding about links pointing at where they
+  already are; decorative icons across 51 cards would have been that finding
+  fifty-one times.
+- **AND ONLY THE ACTS WE DRAW ACT.** The data branch was an `else` while the
+  phone button existed, which was right then and became a way for any unknown
+  `data-act` to open the Data view the moment that button came off — the
+  recorded "a rule true because of a layer below it expires when that layer
+  moves", inside one function. It is `if (act !== 'data') return;` now.
 - **A SITE WITH NO DATABASE KEEPS ITS BUTTON, DIMMED, AND THE TOOLTIP SAYS WHAT
   TO DO** ("No database yet — ask for one in the chat"). A first build
   provisions none, so that is the ORDINARY card; hiding the control is how a
   customer never learns the feature is there to ask for. Same shape for an
-  unpublished site's globe ("Not published yet"); the phone view works either
-  way, which is exactly when you want it.
+  unpublished site's globe ("Not published yet").
 - **THE FACT COMES OFF THE COLUMN THAT IS THE CREDENTIAL.** `/api/site/list`
   selects `neon_db` and emits `db: !!r.neon_db` — the boolean, never the
   connection. The guard searches the WHOLE payload for the value and for the
@@ -810,26 +823,35 @@ and only `database` is new.
   workspace by accident. The recorded "two lists of the same thing", avoided
   rather than extended.
 - **Guards**: `test/site-list.test.mjs` +12 — the real `cardActs` EVALUATED out
-  of chat.js (three buttons, the two disabled states and their sentences, a
-  hostile id escaped, the glyphs drawn through `ic`), the wire driven both ways
-  with a whole-payload credential search, the strict read and the OR merge
-  driven, and the handlers read for where each one lands. **Sweep: 28 mutants,
-  28 killed, none unapplied, the comment-only control survived — one survived
-  the first pass and it was the purest form of the wiring trap**: cutting
-  `cardActs(s)` out of the card markup left every assertion green and the icons
-  off every card, because all twelve drove the function and none read its one
-  call site. Guarded and re-run to a kill. Full suite **5,454**.
+  of chat.js (two buttons, both disabled states and their sentences, a hostile
+  id escaped, the glyphs drawn through `ic`), the wire driven both ways with a
+  whole-payload credential search, the strict read and the OR merge driven, and
+  the handlers read for where each one lands. **EVERY ABSENCE IS ASSERTED BESIDE
+  A PRESENCE** — the phone button, the phone branch, the catch-all `else` — so
+  the check would fail on a `cardActs` deleted outright, which is the recorded
+  "a negative assertion must prove its observer is alive". **Sweeps: 28/28 with
+  the trio, then 26/26 with the phone off, none unapplied, the comment-only
+  control surviving both.** One survived the FIRST pass of the first sweep and
+  it was the purest form of the wiring trap: cutting `cardActs(s)` out of the
+  card markup left every assertion green and the icons off every card, because
+  all twelve drove the function and none read its one call site. Guarded and
+  re-run to a kill. Full suite **5,454**.
   **AND AN OLDER GUARD WENT RED, RE-ANCHORED NOT APPEASED**: the card-hop check
   windowed `at + 1800` bytes and the three buttons landed between the card loop
   and the delete, pushing the delete's own adopt out of view — the recorded
   byte-window trap, in the guard whose comment already records fighting a
-  different one. Landmark to landmark now, both ends asserted.
+  different one. Landmark to landmark now, both ends asserted. **A second window
+  was corrected before it could bite**: the unpublished-site check sliced from
+  `data-act="live"` to `data-act="phone"`, which the removal would have turned
+  into `slice(n, -1)` — a window with no end landmark, the recorded trap's other
+  half.
 - **Not proven live.** The next signed-in load of gofarther.dev is the proof:
-  three controls on every card, the cylinder dim on a site with no database.
-  **And one is an assumption, stated**: "mobile app" is wired as *see it on a
-  phone*, because that is what exists — the platform builds websites and there
-  is no app product anywhere in the tree. If a real mobile app was meant, the
-  icon is already in place and only its handler changes.
+  two controls on every card, the cylinder dim on a site with no database.
+  **The assumption behind the third is now moot rather than answered**: it was
+  wired as *see it on a phone*, because that is what exists — the platform
+  builds websites and there is no app product anywhere in the tree — and it is
+  off before it was ever seen live. If a real mobile app is meant later, the
+  restore is the two lines above and the glyph is still there.
 
 ---
 
