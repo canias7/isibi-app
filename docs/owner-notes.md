@@ -146,6 +146,74 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-07 — Run 41: the streaming works, and it uncovered a lane that charges for an invisible change
+
+**The streaming is proven live.** You fired `wordmark` on fretwork-1 at 22:13Z.
+`lane:wordmark` ran **292,336 ms** and finished. Runs 11, 12 and 40 were all cut
+at exactly 240,000 ms for nothing; this one went 52 seconds past that wall,
+answered, stored, published and charged 2 credits. Job `2b9b2201…`, `state:
+done`, `billing: finalized`, build `mtnfl34h-8uuf06` → `mtqdjyhg-bizsag`.
+
+**Two proofs rode along free.** fretwork-1 served no `x-site-version` before
+this; it now serves `01788733184386-yboq08`. That publish was the site's FIRST
+activation under the immutable layout, and the corrected activation from the
+publication-integrity work carried it — 36 files, render check ok, nothing left
+leased. Both were "not proven live" this morning.
+
+**And the run was red, correctly.** The wordmark is stored (`moved:
+["wordmark"]`) and nothing on the site shows it. `writeSiteBrand` bakes a
+designed mark only when you have uploaded none — *"a model must not outrank a
+person"*, its own words — and fretwork-1's header carries an uploaded PNG (run
+10's striped test image, which run 16's rebuild made the header logo). So the
+lane drew 612 characters of SVG, published a whole build, took 2 credits and
+said "done" for something no visitor could ever be shown. **That is the defect,
+not the precedence**: the precedence is right and stays.
+
+**FIXED — the lane now refuses before it spends.** At the picker, before any
+lane call: if the field you asked for is one an upload shadows, you get a
+sentence and no charge —
+
+> Your header shows the logo you uploaded, and that always wins over a drawn one
+> — so a new wordmark wouldn't be visible. Nothing was changed and you weren't
+> charged. Say "take the logo off" and I'll remove it for nothing, then ask me
+> for the wordmark again.
+
+The offer is real: `runLogoEdit(deps, { remove: true })` removes it today, on a
+rung the ladder prices at nothing, and a guard holds the sentence to that
+mechanism so it can never promise something nobody built.
+
+**IT IS TWO FIELDS, NOT ONE.** The baker has the identical shape twice —
+`if (!logoValue)` for the wordmark, `if (!icon)` for the favicon — so the
+favicon would have burned the same credit the first time anyone asked for one on
+a site with an uploaded icon. Nothing announced that second case. The pair is
+DERIVED from the baker's own two branches in both directions, so a third cannot
+arrive quietly.
+
+**What it does not do**: it does not remove your picture for you. Reading
+"redraw the header wordmark" as "delete the logo I uploaded" is the one reading
+that cannot be taken back, so you say the second sentence, not us.
+
+**Two things worth your call:**
+- **That test PNG is still your header logo** and probably shouldn't be. Say the
+  word and I'll take it off — free — and the wordmark you already paid for
+  becomes visible without another model call.
+- **There is no way to LOOK at a stored wordmark** without publishing it. You
+  asked me to render it tonight and I couldn't: it lives in the site's config in
+  R2, and no route hands the stored look back. A small owner-gated read route
+  would fix that permanently.
+
+**Not proven live.** The refusal needs this deploy. The proof is free: ask for a
+wordmark on fretwork-1 again and it should come back in seconds, cost 0, with
+that sentence — instead of five minutes and 2 credits.
+
+**A note on my own mistake, since it cost time:** I put a `git checkout --`
+restore trap on the mutation sweep, and on a normal exit it fired and wiped my
+own uncommitted changes. The sweep runner already restores in its own `finally`;
+my belt was redundant and destructive. Re-applied and re-verified. The rule
+should be: snapshot to a copy, never `git checkout` a tree with uncommitted work.
+
+---
+
 ## 2026-09-06 — Run 40: the wordmark timed out a third time, and the fix for it was aimed at the wrong bound
 
 You fired the `wordmark` lane on fretwork-1. It failed the same way it failed

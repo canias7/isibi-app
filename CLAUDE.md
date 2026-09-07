@@ -982,6 +982,75 @@ three things at once**, because fretwork-1 is still on the LEGACY publish layout
 work. And a timeout there would read differently from run 40's — the ceiling is
 480 s now, so it would be a genuinely slow generation rather than our own wall.
 
+**RUN 41 PROVED THE STREAMING AND FOUND A LANE THAT CHARGES FOR AN INVISIBLE
+CHANGE (2026-09-06/07, owner: *"Ran"* → *"we gotta fix it"*).** The proof the
+entry above asked for came back green on the half it was testing:
+`lane:wordmark` ran **292,336 ms** and FINISHED, where runs 11, 12 and 40 were
+each cut at exactly 240,000 ms for nothing — 52 seconds past the old wall, job
+`2b9b2201…`, `done`, `finalized`, **2 credits**, `moved: ["wordmark"]`, build
+`mtnfl34h-8uuf06` → `mtqdjyhg-bizsag`. **Two other entries' proofs rode on it**:
+fretwork-1 served no `x-site-version` before and now serves
+`01788733184386-yboq08`, so that publish was the site's FIRST activation under
+stage 7's immutable layout and the corrected activation carried it (36 files,
+render check ok, nothing left leased).
+**AND THE SITE DID NOT MOVE, CORRECTLY.** `writeSiteBrand` bakes a designed mark
+ONLY when the owner uploaded none — `if (!logoValue)` for the wordmark and
+`if (!icon)` for the favicon, *"a model must not outrank a person"* in its own
+comment — and fretwork-1's header carries an uploaded PNG since run 16. So the
+lane drew 612 characters of SVG, stored it, published a whole build, took 2
+credits and reported success for something no visitor could ever be shown:
+**doing less than was asked while saying it was done**, the one failure this
+path exists to avoid. The precedence is right and stays; what was wrong is that
+the lane could not SEE it.
+**THE WALL IS AT THE PICKER AND COSTS NOTHING.** `UPLOAD_SHADOWS`
+(`site-lanes.mjs`, `{wordmark: "logo", favicon: "icon"}`) with `shadowedBy` and
+`shadowedRefusal`; the edit route's picker widens its existing config read to
+serve both walls (`wallConfig`, the whole config — the uploads are their own
+fields BESIDE `look`, never members of it, which is why the logo rung stores
+outside it) and answers 422 with `cost: 0` and a sentence naming the upload and
+offering the way through. **The offer is real rather than aspirational**:
+`runLogoEdit(deps, { remove: true })` removes the picture today on a rung the
+ladder prices at 0, and a guard holds the sentence to that mechanism — the
+recorded trap is a hint promising something nobody built. **It is an OFFER, not
+an action**: removing a picture a person uploaded because a lane inferred they
+meant to is the one reading of "redraw the header wordmark" that cannot be taken
+back. **A read that FAILED lets the lane run** — here the danger inverts, since
+reading cannot-tell as "there IS an upload" would refuse a change that would
+have worked — and **a cleared upload is not an upload**, because the logo rung
+clears by writing `""` and truthiness would lock the lane out for ever.
+**TWO FIELDS, WHICH IS THE POINT OF THE MAP.** The favicon has the identical
+shape and would have cost the identical credit the first time anyone asked for
+one on a site with an uploaded icon; nothing announced it, and an `if` on
+`wordmark` would have shipped with it open. Full suite **5,411**.
+`test/upload-shadow.test.mjs` (13)
+DERIVES the pair from the baker's own two branches in BOTH directions, and
+drives the wall through the real route with the lane's tool COUNTED — the
+property is not that a refusal exists but that the 292-second call is never
+made — with two controls (no upload → the lane runs; a cleared upload → the lane
+runs) without which a wall that refused everything would pass. **Sweep: 13
+mutants, 13 killed, none survived, none unapplied, the comment-only control
+survived** — the wall gone, the refusal charging, marking-and-falling-through,
+the upload read by truthiness, the config read only for the addon wall, a failed
+read still refusing, the sentence dropped, the map forgetting the favicon,
+`shadowedBy` answering off the prototype, the sentence dropping "weren't
+charged" or the offer, one sentence for both fields, and a sentence for a field
+nothing shadows.
+**TWO TRAPS HIT WHILE BUILDING IT, BOTH RECORDED ONES.** (1) The trace mark was
+written as `eMark(...)`, a function that does not exist; `node --input-type=module
+--check` PASSED, because a free identifier is legal, and it would have thrown
+`ReferenceError` on the refusal path live — run 22's `TOKEN` exactly, caught by
+grep rather than by the parse. (2) A `git checkout --` restore trap on the sweep
+fired on its NORMAL exit and wiped the uncommitted work; the runner already
+restores in its own `finally`, so the belt was redundant and destructive. **The
+rule: snapshot to a copy, never `git checkout` a tree carrying uncommitted
+work.**
+**Not proven live**: the refusal needs the deploy, and its proof is FREE — the
+same wordmark ask should come back in seconds with `cost: 0` and the sentence.
+Two things are the owner's: that test PNG is still fretwork-1's header logo and
+probably should not be, and there is no way to LOOK at a stored wordmark without
+publishing it (it lives in the site's config in R2 and no route hands the stored
+look back).
+
 **EVERY SMALL CALL FOLLOWS THE PICKER, NOT A HARDCODED MODEL** (owner,
 2026-08-31: *"we are gonna get rid of haiku routing, we are gonna use for routing
 the same model is picked, if grok is picked then that will be it"*).
@@ -4719,8 +4788,14 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,398
-  (2026-09-06, after the streamed lane call's five in
+  build and the pre-list payload added sixteen); the unit suite is 5,411
+  (2026-09-07, after the upload-shadow wall's thirteen in
+  `test/upload-shadow.test.mjs` — the pair DERIVED from the baker's own two
+  branches in both directions, the sentence held to a mechanism that exists,
+  the wall's placement and its two fail-open rules, and the refusal DRIVEN
+  through the real route with the lane's tool counted, beside the two controls
+  that stop a wall which refuses everything from passing; 5,398 before it,
+  after the streamed lane call's five in
   `test/lane-stream.test.mjs` — the real `quickSend` EVALUATED out of
   worker.js with `callBuilderModel` recorded: the flag reaching the module on
   both caller shapes, the queued ceiling above 240 s and below a build's, the

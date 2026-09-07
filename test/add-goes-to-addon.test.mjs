@@ -68,7 +68,13 @@ test("the wall sits at the picker, before any step is planned, and names the add
   // `no-meta` itself, rather than refusing on a guess.
   const gate = branch.slice(branch.indexOf("let wallLook = null;"), wall);
   assert.match(gate, /if \(wallLook\)/, "an unreadable config must not fire the wall");
-  assert.match(gate, /catch \{ wallLook = null; \}/, "a throwing config read must not fire the wall");
+  // RE-ANCHORED 2026-09-07 (run 41). This pinned the catch as the exact string
+  // `catch { wallLook = null; }` and went red for an honest addition: the
+  // shadow wall below shares this one config read, so the catch nulls
+  // `wallConfig` beside `wallLook` now. THE PROPERTY IS UNCHANGED — a throw
+  // must leave `wallLook` null so this wall cannot fire on a guess — and it is
+  // the property that is asserted, whatever else the catch clears.
+  assert.match(gate, /catch \{[^}]*\bwallLook = null;/, "a throwing config read must not fire the wall");
   // "EXISTS" IS READ OFF THE SITE, NOT ONLY THE STORED LOOK. Run 12
   // (2026-09-02) sent an edit of fretwork-1's 3D pick to the addon step:
   // the page rung had drawn it in sweep five and stores no design field.

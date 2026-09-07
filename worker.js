@@ -159,7 +159,7 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, shadowedBy, shadowedRefusal } from "./builder/site-lanes.mjs";
 // THE ADD STEP (2026-09-02) — the same split for the step that ADDS: its own
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
@@ -21532,8 +21532,17 @@ async function handleRequest(request, env, ctx) {
               // the stored list too: which codes the page shows is a question
               // about the codes BY NAME, and the names are in the look.
               let wallLook = null;
-              if (pickedFields.some((f) => ADD_ONLY_FIELDS.includes(f))) {
-                try { const c = await readSiteConfig(env, ownerSlug, null); if (c.ok) wallLook = c.config.look; } catch { wallLook = null; }
+              // THE WHOLE CONFIG, because the wall below this one reads the
+              // UPLOADS (`logo`, `icon`) and those are their own fields beside
+              // `look`, never members of it — `mergeLook` rebuilds that object
+              // from `EDIT_FIELDS` alone, which is exactly why the logo rung
+              // stores outside it. One read serves both walls.
+              let wallConfig = null;
+              if (pickedFields.some((f) => ADD_ONLY_FIELDS.includes(f) || shadowedBy(f))) {
+                try {
+                  const c = await readSiteConfig(env, ownerSlug, null);
+                  if (c.ok) { wallConfig = c.config; wallLook = c.config.look; }
+                } catch { wallConfig = null; wallLook = null; }
                 if (wallLook) {
                   for (const f of ADD_ONLY_FIELDS) {
                     // "EXISTS" IS A FACT ABOUT THE SITE, NOT ONLY ABOUT THE
@@ -21545,6 +21554,39 @@ async function handleRequest(request, env, ctx) {
                     // stored field, or the thing's own mark in the page source.
                     const onPage = ADD_EVIDENCE[f] && eSrc.some((p) => ADD_EVIDENCE[f].test(String((p && p.source) || "")));
                     if (pickedFields.includes(f) && !hasLookField(wallLook, f) && !onPage) return escalate("addon", { field: f, layer: "addon" });
+                  }
+                }
+              }
+
+              // ── AND A FIELD AN UPLOAD SHADOWS IS REFUSED FREE (run 41) ────
+              //
+              // Run 41 drew a wordmark on a site whose header carries an
+              // uploaded PNG, stored it, published, charged 2 credits, and said
+              // "done" — while the page could not show it, by the baker's own
+              // deliberate precedence. The lane never knew. Asked BEFORE any
+              // lane runs, so the expensive call is the thing not made: the
+              // 292-second generation run 41 paid for is exactly what this
+              // skips.
+              //
+              // A READ THAT FAILED LETS THE LANE RUN, the same way the addon
+              // wall above treats its own miss. The danger here points the
+              // other way from the usual: reading "could not tell" as "there IS
+              // an upload" would refuse a change that would have worked, so
+              // only a config actually READ can refuse. `wallConfig` is null on
+              // any failure and this whole block is skipped.
+              //
+              // A NON-EMPTY STRING, never truthiness: the logo rung CLEARS by
+              // writing "" (`String(patch.logo || "")`), so a cleared upload is
+              // a present key with an empty value and must read as no upload.
+              if (wallConfig) {
+                for (const f of pickedFields) {
+                  const up = shadowedBy(f);
+                  if (!up) continue;
+                  const held = wallConfig[up];
+                  if (typeof held === "string" && held.trim()) {
+                    editTrace.mark("shadowed", "ok", { field: f, by: up });
+                    return Response.json({ ok: false, layer: "look", field: f, shadowed: up,
+                      cost: 0, msg: shadowedRefusal(f) }, { status: 422 });
                   }
                 }
               }
