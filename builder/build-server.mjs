@@ -769,7 +769,7 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
   // both answered true, so a favicon that was stored and then refused by the
   // shape check reported as a working icon.
   return { lang: langValue, dir: dirValue, langs: langsValue, transition: transitionValue, icon: !!icon, ownIcon: iconOk, favicon: faviconDrawn, wordmark: wordmarkUsed, logo: !!logoValue, slug: !!slugValue,
-    touch: !!touchValue, refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue,
+    touch: !!touchValue, refused: (!!raw && !markUrlOk(raw)) || !!(own && own.refused), build: buildValue,
     version: versionValue(version) };
 }
 

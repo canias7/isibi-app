@@ -5139,6 +5139,26 @@ wraps the command in a shell whose command line contains the pattern, so
 `pkill -f x` kills the thing running it (exit 144, empty log) and
 `until ! pgrep -f x` never exits. Kill by PID; watch a log's tail.
 
+**LOADING A MODULE PROVES ITS IMPORTS, NOT THE IDENTIFIERS INSIDE ITS FUNCTIONS
+(2026-09-07, and it reached MAIN).** De-duplicating the mark URL rule deleted
+`const logoOk` from `writeSiteBrand` and left one reference to it in the return
+statement — `refused: (!!raw && !logoOk) || …`. **`&&` SHORT-CIRCUITS**, so a
+build with no logo never evaluates it and every unit test, every source scan and
+a real `node builder/build-server.mjs` that started and listened all passed. A
+build WITH a logo threw `logoOk is not defined`. The container harness caught it
+— eight failures, one cause: two logo cases directly and six more reading a
+stamp off the build that never happened — and it caught it AFTER the merge,
+because I had reasoned that starting the service was the risk and skipped the
+25-minute wait for `site build`.
+**THE FOURTH FREE-IDENTIFIER MISS IN ONE SESSION** (run 22's `TOKEN`, `eMark`,
+`MARKS`, this) and the first that a module LOAD did not catch: an import graph
+resolves at load, a free identifier inside a function body resolves when that
+line runs, and a short-circuited operand may never run at all. **The check that
+finds this class is grep for every identifier a change deletes**, in both
+directions — and for anything the baker touches, the container harness, which is
+the only thing that runs `writeSiteBrand` with a real logo. Its 25 minutes are
+not optional on a change to `build-server.mjs`; that is what they are for.
+
 **A CHAIN TEST THAT READ THE MODULES INSTEAD OF RUNNING THEM (2026-08-30,
 found while checking why run 83 shipped no QR).** `test/site-marks.test.mjs`
 has a case literally called "THE CHAIN — both marks reach the site, and survive
