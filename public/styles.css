@@ -1752,28 +1752,53 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-ll-dot { width: 7px; height: 7px; border-radius: 50%; background: linear-gradient(120deg, #1e1e22, #000000); flex: none; animation: sbpulse .9s ease-in-out infinite alternate; box-shadow: 0 0 8px rgba(0,0,0,.6); }
 /* React builder — Claude-Code-style "what it did" step rows (live + finished). */
 .st-busy-react { background: none !important; border: 0 !important; padding: 0 !important; }
-.st-steps { display: flex; flex-direction: column; gap: 4px; margin-top: .5rem; }
-.st-step { border: 1px solid var(--line, #211d30); border-radius: 10px; background: rgba(255,255,255,.02); overflow: hidden; }
-.st-step-h { display: flex; align-items: center; gap: 8px; padding: 8px 11px; font-size: .82rem; }
+/* TREATMENT E — A DENSE LOG (2026-09-07, owner picked it from six: "a dense
+   log — line numbers, flush left, all monospace").
+   What went: the three bordered boxes, the nested pane inside them, and the
+   two glyphs drawn in CSS. The rail is one monospace column now, flush left,
+   with a glyph column, a label and a right-hand clock — and the code hangs off
+   it with the FILE'S OWN line numbers in a gutter.
+   THE STATE CLASSES ARE UNCHANGED and still carry the four marks: the state is
+   read by those names here, in chat.js and in the guards, and a rename would be
+   silent on all three. */
+.st-steps {
+  display: flex; flex-direction: column; gap: 0; margin-top: .5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.st-step { border: 0; border-radius: 0; background: none; overflow: visible; }
+.st-step-h { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: .78rem; color: var(--muted); }
 .st-step:not(.st-step-nobody) .st-step-h { cursor: pointer; user-select: none; }
-.st-step-chev { color: var(--muted); font-size: .62rem; width: 9px; flex: none; transition: transform .18s; }
+.st-step-chev { color: var(--graphite-3); font-size: .58rem; width: 8px; flex: none; transition: transform .18s; }
 .st-step.open .st-step-chev { transform: rotate(90deg); }
-.st-step-run { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #000000; animation: sbpulse .9s ease-in-out infinite alternate; box-shadow: 0 0 7px rgba(0,0,0,.6); }
-.st-step-tick { color: #57d9a3; font-size: .82rem; flex: none; }
-.st-step-wait { width: 8px; height: 8px; border-radius: 50%; flex: none; border: 1.5px solid var(--line-2); }
+/* THE GLYPH COLUMN — four characters on one baseline, sized and boxed alike so
+   the labels start at the same x whatever the state. */
+.st-step-run, .st-step-tick, .st-step-wait, .st-step-fail {
+  flex: none; width: 10px; text-align: center; font-size: .72rem; line-height: 1;
+  border: 0; border-radius: 0; height: auto; background: none; box-shadow: none;
+}
+.st-step-run { color: var(--text); animation: sbpulse .9s ease-in-out infinite alternate; }
+.st-step-tick { color: #2f8f6b; }
+.st-step-wait { color: var(--graphite-3); }
 /* A STEP THAT FAILED. Carries a MARK as well as a colour — the tick and the
    cross differ in shape, so the outcome survives greyscale, print, and anyone
    who cannot tell the two hues apart. Same discipline the component kit uses
    for status throughout. */
-.st-step-fail { color: #d1453b; font-size: .82rem; flex: none; font-weight: 600; }
+.st-step-fail { color: #d1453b; font-weight: 600; }
 .st-step:has(.st-step-fail) .st-step-lbl { color: var(--text, #ece9f5); }
-.st-step-lbl { color: var(--text, #ece9f5); font-weight: 500; }
-.st-step-meta { margin-left: auto; color: var(--muted); font-size: .72rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46%; }
-.st-step-b { display: none; border-top: 1px solid var(--line, #211d30); background: rgba(0,0,0,.04); }
+/* LOWER CASE ON THE LABEL ONLY. The bodies carry the model's own words — an
+   image prompt, a file name — and mangling those is a lie about what it said. */
+.st-step-lbl { color: var(--muted); font-weight: 500; text-transform: lowercase; }
+.st-step:has(.st-step-run) .st-step-lbl { color: var(--text, #ece9f5); font-weight: 600; }
+.st-step-meta { margin-left: auto; color: var(--graphite-3); font-size: .72rem; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46%; }
+.st-step-b { display: none; border: 0; background: none; }
 .st-step.open .st-step-b { display: block; }
-.st-lc { margin: 0; padding: 10px 12px; max-height: 260px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .72rem; line-height: 1.6; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.st-lc { margin: 0; padding: 5px 0 9px; max-height: 260px; overflow: auto; font-family: inherit; font-size: .72rem; line-height: 1.62; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+/* THE GUTTER IS THE FILE'S OWN NUMBERING, never the window's — see stCodeBody.
+   `user-select: none` so copying the pane copies code and not a column of
+   numbers down its left edge. */
+.st-lc-n { display: inline-block; width: 2.4em; padding-right: .9em; text-align: right; color: var(--graphite-3); user-select: none; }
 .st-lc .kw { color: #1e1e22; } .st-lc .str { color: #000000; }
-.st-lc-cur { display: inline-block; width: 6px; height: 12px; background: #000000; vertical-align: -2px; animation: sbblink .9s steps(1) infinite; }
+.st-lc-cur { display: inline-block; width: 6px; height: 11px; background: var(--graphite); vertical-align: -2px; animation: sbblink .9s steps(1) infinite; }
 /* BEFORE ANYTHING IS KNOWN TO BE HAPPENING. The build steps used to paint the
    moment a message was sent, so typing "hey" claimed "Writing the code" for a
    build that never ran. This is what shows while the router decides; the steps

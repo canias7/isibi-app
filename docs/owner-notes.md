@@ -582,6 +582,43 @@ that needs the new code.
 
 ---
 
+## 2026-09-07 — The steps on the left, redrawn (you picked E)
+
+I drew six treatments and you picked **E — the dense log**. It's built.
+
+**What changed.** The three bordered boxes are gone. The steps are one
+monospace column now, flush left: a mark, the step in lower case, and the time
+on the right. The code hangs straight off the step that's writing it, with line
+numbers down the side.
+
+**The step that's running says which file it's writing** — "writing index.tsx"
+rather than "writing the code". That's the gap I flagged last time: the file
+name was already being sent all the way to your browser and had nowhere to
+show, because the clock and the name were fighting for the same slot. E gives
+it a slot.
+
+**The line numbers are the file's own, and that took real work.** The panel
+only ever holds the last few thousand characters, so numbering it from the top
+would say "line 1" for what is actually line 47 — a wrong number on your own
+code, which is worse than no numbers at all. So the container counts the lines
+before it cuts, and the number travels with the text and gets adjusted every
+time anything trims it further. If that ever can't be worked out, the numbers
+don't appear rather than being made up.
+
+**The finished list matches.** When a build ends, the live list turns into the
+summary in place — so if I'd only restyled the live half, the whole thing would
+have changed shape at the moment your build succeeded. Both halves are E, and
+the failure state keeps its own red cross so you can still tell at a glance.
+
+**And it made an old typo visible: "1 files".** Every single-file build has
+said that. The line directly below it has counted properly since the day it was
+written. Fixed.
+
+**Not proven live.** Same as before — your next real build shows it. This push
+rolls the container, so leave 15–20 minutes after it deploys.
+
+---
+
 ## Open — waiting on you
 
 **0z. THREE ICONS ON EVERY SITE CARD (2026-09-07, your "A,B,A" then "LEAVE IT

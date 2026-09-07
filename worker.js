@@ -69,7 +69,7 @@ import {
   // picked up is sent again.
   deployIdOf, unreadClaim, deferredClaim, CLAIM_RETRY_MAX, STALE_QUEUED_S,
 } from "./builder/edit-job.mjs";
-import { tailOf, CODE_TAIL_MAX } from "./builder/gen-code.mjs";
+import { tailOf, clipWithLine, CODE_TAIL_MAX } from "./builder/gen-code.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
@@ -19195,12 +19195,18 @@ async function handleRequest(request, env, ctx) {
       // RE-CLIPPED HERE, never trusted from the wire. The container clips to
       // the same bound and this is the wall behind it: what is stored is what
       // this side decided, so a container on any image writes the same size.
-      const code = typeof body.code === "string" ? tailOf(body.code, CODE_TAIL_MAX) : "";
+      // AND THE LINE NUMBER RIDES THE CLIP. `clipWithLine` does both together
+      // because a clip that moves the window without moving the number leaves
+      // a pane that says `1` for what is really line 47 — wrong numbers on a
+      // customer's own source, which is worse than none. A container that
+      // named no line answers 0 and the display draws no gutter.
+      const clipped = typeof body.code === "string" ? clipWithLine(body.code, body.line, CODE_TAIL_MAX) : { code: "", line: 0 };
+      const code = clipped.code;
       if (!code) return Response.json({ ok: true, stored: false });
       const file = typeof body.file === "string" ? body.file.slice(0, 120) : "";
       const chars = Number.isFinite(body.chars) && body.chars > 0 ? Math.floor(body.chars) : code.length;
       try {
-        await env.SITES_BUCKET.put(codeKey(bind.id), JSON.stringify({ code, file, chars, at: Date.now() }));
+        await env.SITES_BUCKET.put(codeKey(bind.id), JSON.stringify({ code, file, chars, line: clipped.line, at: Date.now() }));
       } catch { return Response.json({ ok: false }, { status: 200 }); }
       return Response.json({ ok: true, stored: true });
     }
@@ -20681,7 +20687,8 @@ async function handleRequest(request, env, ctx) {
             if (cObj) {
               const c = JSON.parse(await cObj.text());
               if (c && typeof c.code === "string" && c.code) {
-                code = { code: tailOf(c.code, CODE_TAIL_MAX), file: typeof c.file === "string" ? c.file : "" };
+                const cl = clipWithLine(c.code, c.line, CODE_TAIL_MAX);
+                code = { code: cl.code, file: typeof c.file === "string" ? c.file : "", line: cl.line };
               }
             }
           } catch { /* the code is a courtesy; the build is the answer */ }

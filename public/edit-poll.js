@@ -505,7 +505,17 @@
     var c = body.code;
     if (!c || typeof c !== "object" || Array.isArray(c)) return null;
     if (typeof c.code !== "string" || !c.code) return null;
-    return { code: c.code, file: typeof c.file === "string" ? c.file : "" };
+    // THE WINDOW'S FIRST LINE, IN THE FILE. 0 is "not known", and the renderer
+    // draws no gutter for it rather than numbering from 1 — a pane that says
+    // `1` for what is really line 47 is a lying instrument about the
+    // customer's own source, and the display cannot recover the truth from
+    // here: the lines above the window were cut before it ever arrived.
+    var ln = c.line;
+    return {
+      code: c.code,
+      file: typeof c.file === "string" ? c.file : "",
+      line: typeof ln === "number" && isFinite(ln) && ln >= 1 ? Math.floor(ln) : 0,
+    };
   }
 
   var api = {

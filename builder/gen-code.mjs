@@ -177,5 +177,55 @@ export function tailOf(code, max = CODE_TAIL_MAX) {
 export function codeUpdate(partial, opts) {
   const { file, code } = readCodeSoFar(partial, opts);
   const max = (opts && Number.isFinite(opts.max) && opts.max > 0) ? opts.max : CODE_TAIL_MAX;
-  return { file: String(file || "").slice(0, 120), code: tailOf(code, max), chars: code.length };
+  const tail = tailOf(code, max);
+  return {
+    file: String(file || "").slice(0, 120),
+    code: tail,
+    chars: code.length,
+    // WHICH LINE OF THE FILE THE WINDOW STARTS ON. Computed HERE because this
+    // is the only place that holds the whole answer: once the tail is cut, the
+    // lines above it are gone and no later reader can count them.
+    line: lineOffset(code, tail),
+  };
+}
+
+/**
+ * The 1-based line number, IN THE FILE, of the first line of `tail`.
+ *
+ * THE DISPLAY NUMBERS ITS LINES FROM THIS, and a wrong number is worse than
+ * none: a pane that says `1` for what is really line 47 is a lying instrument
+ * about the customer's own source. So `0` is the honest "cannot tell", and it
+ * is what a tail that is NOT a suffix of the full text answers — that pairing
+ * has no line numbering, and guessing one would invent the thing being asked
+ * for.
+ */
+export function lineOffset(full, tail) {
+  if (typeof full !== "string" || typeof tail !== "string" || !tail) return 0;
+  if (tail.length > full.length) return 0;
+  const cut = full.length - tail.length;
+  if (full.slice(cut) !== tail) return 0;
+  let n = 1;
+  for (let i = 0; i < cut; i++) if (full[i] === "\n") n++;
+  return n;
+}
+
+/**
+ * Clip a stored tail again AND carry its line number through the clip.
+ *
+ * ONE FUNCTION BECAUSE THE ARITHMETIC IS THE PART THAT DRIFTS. Both the route
+ * that stores an update and the poll that hands it back clip what they were
+ * given (the clip is always THIS side's — a container on any image writes the
+ * same size), and each has to move the line number by however much it took
+ * off. Written out twice, the two copies disagree the first time either cap
+ * moves, and the failure is silent: numbers that are merely wrong.
+ *
+ * `line` 0 in gives 0 out — a window with no known start cannot gain one by
+ * being cut further.
+ */
+export function clipWithLine(full, line, max) {
+  const code = tailOf(full, max);
+  const start = Number.isFinite(line) && line >= 1 ? Math.floor(line) : 0;
+  if (!start || !code) return { code, line: 0 };
+  const off = lineOffset(full, code);
+  return { code, line: off ? start + off - 1 : 0 };
 }

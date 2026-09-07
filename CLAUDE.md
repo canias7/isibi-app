@@ -1463,6 +1463,109 @@ longPost's res.on("data")  ── the ONLY place a generation's bytes are seen a
   container image inputs, so the container rolls and the 15–20 minute hold
   applies.
 
+### THE STEP RAIL IS A DENSE LOG (2026-09-07, owner: *"the ones in the left lets
+change how it looks too , gimme options"* → six treatments rendered → *"e"*)
+
+Six treatments of the left rail were drawn at the real width in the app's own
+tokens and type — the control, a timeline, a code-is-the-step panel, an editor
+tab, a dense log and a quiet-rows card — and **E** was picked. What went: the
+three bordered boxes, the pane nested inside one of them, and the two marks
+drawn in CSS. What it is: one monospace column, flush left, a glyph, the step in
+lower case, the clock on the right, and the code hanging off the step that is
+writing it with the FILE'S OWN line numbers down its side.
+
+- **BOTH RAILS, BECAUSE THEY ARE THE SAME RAIL.** `stStepRow` has exactly two
+  consumers — `reactLiveStepsHTML` while a build runs and `reactStepsHTML` once
+  it has finished — and the live one is REPLACED IN PLACE by the finished one at
+  the moment of success. Restyling only the half the owner was looking at would
+  have made the thread change shape exactly when a build worked, so the treatment
+  is the row's, not the screen's. No third consumer exists; the edit path has its
+  own reply shape.
+- **THE GLYPH COLUMN IS FOUR CHARACTERS, and it was two-and-two before**: `run`
+  and `wait` were divs sized in pixels with a border-radius, `done` and `fail`
+  were text — so they never shared a baseline and the labels after them started
+  at different places. As characters in one 10px box they line up by
+  construction. **The class names did not move**: the state is read by those
+  names in the stylesheet, in `test/build-progress.test.mjs` and in the finished
+  rows, so a rename is silent in three places at once.
+- **LOWER CASE ON THE LABEL AND NOWHERE ELSE.** `text-transform` on `.st-steps`
+  would have caught the BODIES too, and those carry the model's own words — an
+  image prompt, a file name — where lower-casing is a lie about what it said.
+  Asserted in both directions.
+- **THE RUNNING ROW NAMES ITS FILE** (`writing index.tsx`). The name had been
+  computed, sent, stored and handed to the browser since the code started
+  streaming, and rendered NEVER: the meta was `clk('generating') || sb.file` and
+  the clock is never empty while the stage runs. A value with no slot is the
+  wiring trap's quietest form — nothing is missing, nothing fails, and the field
+  simply never appears. E gives it the label.
+- **THE LINE NUMBERS ARE THE FILE'S OWN, AND THAT IS THE WHOLE COST OF E.** The
+  pane is a WINDOW on the last `CODE_TAIL_MAX` (4,000) characters of a file still
+  being written, and a real page is ~9,000 — so for most of a generation the
+  window does not start at line 1, and numbering it from 1 would say `1` for what
+  is really line 47. A wrong number on the customer's own source is a lying
+  instrument; **`0` is the honest cannot-tell and renders as no gutter at all.**
+  Three hops carry it, and none of them may guess:
+  - `lineOffset(full, tail)` (gen-code) counts the newlines above the window —
+    **in the one place that still holds the whole answer**, because once the tail
+    is cut the lines above it are gone and no later reader can recover them. A
+    `tail` that is not a suffix of `full` answers 0 rather than a number.
+  - `clipWithLine(full, line, max)` is the clip AND the adjustment **as one
+    function with two callers** — the route clipping what a container sent, the
+    poll clipping what the route stored. Written out twice, the arithmetic
+    disagrees the first time either cap moves and the failure is silent: numbers
+    that are merely wrong. `0` in is `0` out — a window with no known start
+    cannot gain one by being cut again.
+  - the browser refuses a coercion at the last door: `stCodeBody` takes
+    `typeof from === 'number'`, because `Number('47')` is 47 and
+    `Number(['47'])` is 47 too — the recorded trap, on the value that decides
+    what the gutter claims. `setBuildCode` writes 0 as 0 rather than leaving the
+    previous window's number beside a new window.
+  The gutter is `user-select: none`, so copying the pane copies code and not a
+  column of numbers.
+- **AND IT MADE A TYPO VISIBLE: `1 files`.** `reactStepsHTML`'s file count never
+  pluralised, and the images row directly beneath it has since the day it was
+  written — one line of one function disagreeing with the next. It only ever
+  showed on a one-file build, in a right-aligned mono column nobody read; the
+  monospace rail put it where the eye goes. Fixed with the row's own guard.
+- **Guards**: `test/gen-code.test.mjs` +3 and `test/build-progress.test.mjs` +3 —
+  `lineOffset` driven over a suffix, a PREFIX (the window is the file's END, and
+  a prefix answering a number would be the subtlest wrong gutter there is), a
+  non-suffix and every junk shape; `clipWithLine` driven for a second clip
+  moving the number, a number that already started at 20, and `0` staying `0`;
+  `codeUpdate` driven to prove a clipped update never claims line 1; the pane
+  DRIVEN out of chat.js for the file's numbering, for no gutter on every
+  cannot-tell shape, for the code surviving the gutter and staying escaped, and
+  counted by the gutter's OWN tag (`st-lc-num` on the `<pre>` contains
+  `st-lc-n`, so a looser count reads the wrapper as a line); the route driven for
+  the stored line, a missing one stored as 0, and THIS side's clip moving it;
+  the four glyphs and their four class names driven; and the stylesheet read for
+  the monospace rail, the absent boxes, the label-only lower case, the gutter's
+  unselectability and the shared glyph column. **Three older guards went red and
+  were re-anchored, not appeased** — each pinned to a spelling that moved: the
+  poll's `tailOf(...)` (now `clipWithLine`, the property being that what it hands
+  back is bounded by this side), `buildCode`'s exact answer shape (it carries a
+  line now, and the new refusals are driven), and the row's `stCodeBody(codeNow,
+  true)` (the pane takes the line; the property — a body ONLY when there is code,
+  so the empty caret box cannot return — is unchanged).
+  **Sweep: 27 mutants, 27 killed, none survived, none unapplied, the comment-only
+  control survived — two survived the first pass and both were one guard gap**:
+  the setter dropping the line outright (E's gutter then never appears at all)
+  and the setter keeping the PREVIOUS window's number when a new update carries
+  none — the exact failure the whole chain exists to prevent, one hop from the
+  screen. Nothing drove `setBuildCode`'s handling of the line; it is DRIVEN now,
+  with the setter's older rules asserted beside the new ones so the line cases
+  are not the only thing the case proves. Full suite **5,515**.
+  **The container harness was NOT re-run, and that is a decision rather than an
+  omission**: `build-server.mjs` is byte-for-byte unchanged, its import of
+  `codeUpdate` is unchanged, and every new function is driven directly by the
+  suite — where the recorded trap (a free identifier behind a short-circuit,
+  which only a real logo reached) turned on a change to the baker itself.
+- **Not proven live.** The next real build is the proof, and the line to read is
+  the running row saying `writing index.tsx` with the gutter numbering from
+  wherever the window starts rather than from 1. The push changes container image
+  inputs (`worker.js` and `gen-code.mjs`), so the container rolls and the 15–20
+  minute hold applies.
+
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
 *"Add will always go in addon"* — and the one carve-out is the owner's too:
@@ -5629,8 +5732,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,509
-  (2026-09-07, after the code going out as it is written added twenty-two in
+  build and the pre-list payload added sixteen); the unit suite is 5,515
+  (2026-09-07, after treatment E — the step rail as a dense log — added six:
+  `lineOffset` and `clipWithLine` driven over a suffix, a PREFIX, a non-suffix
+  and every junk shape, a second clip moving the number and 0 staying 0; the
+  pane DRIVEN out of chat.js for the file's own numbering and for no gutter on
+  every cannot-tell shape; the route's stored line and this side's clip moving
+  it; the four glyphs and their four class names; the stylesheet's monospace
+  rail, absent boxes, label-only lower case and unselectable gutter; and
+  `setBuildCode` DRIVEN for the line it carries and the stale one it must not
+  keep; before it 5,509, after the code going out as it is written added twenty-two in
   `test/gen-code.test.mjs` — the reader driven at EVERY cut point of a real
   page, the field names DERIVED from `write_pages`, both providers' partials
   proved prefixes of their own arguments, the hook driven against a fake

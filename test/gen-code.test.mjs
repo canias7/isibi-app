@@ -17,7 +17,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createRequire } from "node:module";
-import { readCodeSoFar, unescapeJson, tailOf, codeUpdate, CODE_FIELD, NAME_FIELDS, CODE_TAIL_MAX } from "../builder/gen-code.mjs";
+import { readCodeSoFar, unescapeJson, tailOf, codeUpdate, lineOffset, clipWithLine, CODE_FIELD, NAME_FIELDS, CODE_TAIL_MAX } from "../builder/gen-code.mjs";
 import { streamPartial, joinXaiStream, joinAnthropicStream, PARTIAL_EVERY_MS, BUILDER_CALL_MS, callBuilderModel } from "../builder/build-call.mjs";
 import { codeKey, packResume } from "../builder/build-resume.mjs";
 import { loadWorker } from "./fixtures/worker-harness.mjs";
@@ -167,6 +167,55 @@ test("DRIVEN: the update the container posts is bounded on the way out, and says
   assert.equal(u.chars, big.length, "chars reported the clip rather than the code");
   const smaller = codeUpdate(partial, { max: 300 });
   assert.ok(smaller.code.length <= 300, "an asked-for cap was ignored");
+});
+
+// ── TREATMENT E: THE LINE NUMBERS ARE THE FILE'S OWN ────────────────────────
+
+test("DRIVEN: the window's first line is the FILE's, and cannot-tell is 0 rather than 1", () => {
+  const src = "a\nb\nc\nd\ne\nf\ng\nh";
+  assert.equal(lineOffset(src, src), 1, "an unclipped window does not start at line 1");
+  assert.equal(lineOffset(src, "f\ng\nh"), 6);
+  assert.equal(lineOffset(src, "h"), 8, "the last line of an eight-line file is not line 8");
+  assert.equal(lineOffset("one line", "one line"), 1);
+  // NOT A SUFFIX IS 0, NOT A GUESS. The number is put on a screen beside the
+  // customer's own source, so `1` for what is really line 47 is a lying
+  // instrument — worse than no numbering, which is what 0 renders as.
+  assert.equal(lineOffset(src, "nope"), 0);
+  assert.equal(lineOffset(src, "a\nb"), 0, "a PREFIX was read as a tail — the window is the END of the file");
+  for (const junk of [null, undefined, 7, [], {}, ""]) {
+    assert.equal(lineOffset(src, junk), 0, "junk was read as a window: " + JSON.stringify(junk));
+    assert.equal(lineOffset(junk, "h"), 0, "junk was read as a file: " + JSON.stringify(junk));
+  }
+  assert.equal(lineOffset("short", "a much longer tail than the whole"), 0);
+});
+
+test("DRIVEN: a second clip moves the number with the window, and 0 stays 0", () => {
+  // ONE FUNCTION FOR BOTH, and this is why: the route clips what a container
+  // sent and the poll clips what the route stored, so the arithmetic runs twice
+  // on one update. Written out twice it disagrees the first time either cap
+  // moves, and the failure is silent — numbers that are merely wrong.
+  const src = "a\nb\nc\nd\ne\nf\ng\nh";        // 8 lines, 15 chars
+  assert.deepEqual(clipWithLine(src, 1, 5), { code: "g\nh", line: 7 });
+  // Clipping something that ALREADY started at line 20 lands at 26, not 7.
+  assert.deepEqual(clipWithLine(src, 20, 5), { code: "g\nh", line: 26 });
+  // Nothing to clip: the number is untouched.
+  assert.deepEqual(clipWithLine(src, 4, 4000), { code: src, line: 4 });
+  // A WINDOW WITH NO KNOWN START CANNOT GAIN ONE BY BEING CUT FURTHER.
+  assert.equal(clipWithLine(src, 0, 5).line, 0);
+  for (const bad of ["4", null, undefined, -1, NaN, [4]]) {
+    assert.equal(clipWithLine(src, bad, 5).line, 0, "a non-line survived the clip: " + JSON.stringify(bad));
+  }
+  assert.equal(clipWithLine("", 3, 5).line, 0, "an empty window kept a line number");
+
+  // AND THE CONTAINER'S OWN UPDATE CARRIES IT, from the one place that has the
+  // whole answer — once the tail is cut the lines above it are gone.
+  const long = Array.from({ length: 300 }, (_, i) => "const line" + i + " = " + i + ";").join("\n");
+  const u = codeUpdate('{"pages":[{"path":"index.tsx","source":"' + long.replace(/\n/g, "\\n") + '"');
+  assert.ok(u.line > 1, "a clipped update claimed to start at line 1");
+  assert.equal(long.split("\n").length - u.code.split("\n").length + 1, u.line,
+    "the line does not name the first line of the window it was sent with");
+  // An update that was NOT clipped starts at 1, and says so rather than 0.
+  assert.equal(codeUpdate('{"pages":[{"path":"i.tsx","source":"a\\nb"').line, 1);
 });
 
 test("the field names are DERIVED from the tool, never a second copy of it", () => {
@@ -474,13 +523,37 @@ test("DRIVEN: a bound container's update is stored, clipped by THIS side, under 
     method: "POST", headers: { "content-type": "application/json", "x-gen-report": token }, body: JSON.stringify(body),
   }), env, { waitUntil() {}, passThroughOnException() {} });
 
-  const r = await post({ job, gen, code: "const a = 1\n", file: "index.tsx", chars: 12 });
+  const r = await post({ job, gen, code: "const a = 1\n", file: "index.tsx", chars: 12, line: 4 });
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { ok: true, stored: true });
   assert.equal(put.length, 1, "nothing was stored");
   assert.equal(put[0].key, codeKey(job), "the update was stored somewhere other than the job's own key");
   assert.equal(put[0].body.code, "const a = 1\n");
   assert.equal(put[0].body.file, "index.tsx");
+  assert.equal(put[0].body.line, 4, "the line the container named was not stored");
+
+  // A CONTAINER THAT NAMED NO LINE STORES 0, never a guessed 1.
+  put.length = 0;
+  await post({ job, gen, code: "x\ny\n" });
+  assert.equal(put[0].body.line, 0, "a missing line was invented");
+  for (const bad of ["4", null, -2, [4]]) {
+    put.length = 0;
+    await post({ job, gen, code: "x\ny\n", line: bad });
+    assert.equal(put[0].body.line, 0, "a non-line was stored as one: " + JSON.stringify(bad));
+  }
+  // AND THIS SIDE'S OWN CLIP MOVES IT. The route re-clips whatever it is given,
+  // so a number that did not move with the window would be wrong by however
+  // many lines the route took off.
+  put.length = 0;
+  // OVER THE TAIL CAP so the route really clips, and UNDER the door's body cap
+  // (`CODE_TAIL_MAX` + an envelope) so it is not refused before it gets there.
+  const many = Array.from({ length: 250 }, (_, i) => "const line" + i + " = " + i + ";").join("\n");
+  await post({ job, gen, code: many, line: 1 });
+  assert.equal(put.length, 1);
+  const kept = put[0].body.code.split("\n").length;
+  assert.equal(put[0].body.line, many.split("\n").length - kept + 1,
+    "the route clipped the window and left the line number where it was");
+  assert.ok(put[0].body.line > 1, "the fixture no longer exercises a clip");
 
   // ANOTHER GENERATION'S CONTAINER IS REFUSED — the binding, not just the token.
   const other = await post({ job, gen: "gen-9", code: "x" });
@@ -554,7 +627,13 @@ test("the poll hands the code back, to its OWNER, while a generation is running"
   assert.match(pending, /if \(mine && flight\)/, "the code is read for a caller who is not the owner, or when nothing is generating");
   // A blip must not turn a healthy build into a failure.
   assert.match(pending, /codeKey\(jid\)[\s\S]{0,600}catch \{/, "the code read is no longer fenced");
-  assert.match(pending, /tailOf\(c\.code, CODE_TAIL_MAX\)/, "the poll no longer clips what it hands back");
+  // RE-ANCHORED 2026-09-07: this pinned `tailOf(c.code, CODE_TAIL_MAX)`, and the
+  // clip moved behind `clipWithLine` when the pane gained line numbers — one
+  // call that clips AND moves the number, because a clip that moves the window
+  // and leaves the number behind produces numbers that are merely wrong. The
+  // property is unchanged: what the poll hands back is bounded by THIS side.
+  assert.match(pending, /clipWithLine\(c\.code,[^)]*CODE_TAIL_MAX\)/, "the poll no longer clips what it hands back to this side's bound");
+  assert.match(pending, /line: cl\.line/, "the poll clips the window and drops its line number — the gutter would number from the wrong place");
 });
 
 test("the fire tells the container where to send the code, beside where to beat", () => {
@@ -585,10 +664,17 @@ test("DRIVEN: the browser's reader takes a code update, and coerces nothing", ()
   const req = createRequire(import.meta.url);
   const EditPoll = req("../public/edit-poll.js");
   const p = EditPoll.buildCode;
-  assert.deepEqual(p({ code: { code: "import x", file: "index.tsx" } }), { code: "import x", file: "index.tsx" });
+  assert.deepEqual(p({ code: { code: "import x", file: "index.tsx", line: 47 } }), { code: "import x", file: "index.tsx", line: 47 });
   // A missing file is "", never undefined — one shape for the renderer.
-  assert.deepEqual(p({ code: { code: "a" } }), { code: "a", file: "" });
-  assert.deepEqual(p({ code: { code: "a", file: ["x"] } }), { code: "a", file: "" }, "a non-string file was coerced onto the screen");
+  assert.deepEqual(p({ code: { code: "a" } }), { code: "a", file: "", line: 0 });
+  assert.deepEqual(p({ code: { code: "a", file: ["x"] } }), { code: "a", file: "", line: 0 }, "a non-string file was coerced onto the screen");
+  // THE LINE IS 0 FOR EVERY SHAPE THAT IS NOT A REAL FILE LINE, and 0 draws no
+  // gutter. Anything else invents numbering for a window whose start nobody
+  // established — `1` for what is really line 47, on the customer's own source.
+  for (const bad of ["9", ["9"], null, undefined, 0, -3, NaN, Infinity, {}, true]) {
+    assert.equal(p({ code: { code: "a", line: bad } }).line, 0, "a non-line was read as one: " + JSON.stringify(bad));
+  }
+  assert.equal(p({ code: { code: "a", line: 2.7 } }).line, 2, "a fractional line was not floored");
   // EVERY REFUSAL, beside the answers above so the observer is provably alive.
   for (const junk of [null, undefined, {}, [], "x", 7, { code: null }, { code: "x" }, { code: [] },
                       { code: { code: "" } }, { code: { code: ["a"] } }, { code: { code: 7 } }]) {
@@ -598,6 +684,45 @@ test("DRIVEN: the browser's reader takes a code update, and coerces nothing", ()
   // "nothing arrived this time" (keep what is on screen) from "there is no
   // code", and a falsy string collapses those two.
   assert.equal(p({ pending: true, job: "x" }), null);
+});
+
+test("DRIVEN: the pane numbers its lines from the FILE, and draws no gutter it cannot justify", () => {
+  const src = bare(CHAT);
+  const cut = (h) => { const a = src.indexOf(h); assert.ok(a > 0, h + " is gone"); return src.slice(a, src.indexOf("\n}", a) + 2); };
+  const body = new Function(
+    cut("function stHlCode(") + "\n" + cut("function stCodeBody(") + "\n" +
+    "const esc = (s) => String(s).replace(/[&<>\"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\n" +
+    "return stCodeBody;")();
+
+  const three = "const a = 1\nconst b = 2\nconst c = 3";
+  const at47 = body(three, true, 47);
+  // THE FILE'S OWN NUMBERS, CONTINUING — not the window's, which would say 1.
+  for (const n of [47, 48, 49]) {
+    assert.ok(at47.includes('<span class="st-lc-n">' + n + "</span>"), "line " + n + " is not in the gutter");
+  }
+  assert.ok(!/st-lc-n">1</.test(at47), "the gutter numbered from 1 for a window that starts at 47");
+  assert.match(at47, /class="st-lc st-lc-num"/, "the numbered pane is not marked as one");
+  assert.match(at47, /st-lc-cur/, "the caret is gone from a pane that IS being written");
+
+  // NO NUMBER, NO GUTTER — never a numbering nobody established.
+  for (const bad of [0, -1, undefined, null, "47", NaN, [47], {}]) {
+    const h = body(three, true, bad);
+    assert.ok(!/st-lc-n/.test(h), "a gutter was invented for " + JSON.stringify(bad));
+    assert.ok(!/st-lc-num/.test(h), "the pane claimed numbering for " + JSON.stringify(bad));
+    assert.ok(h.replace(/<[^>]*>/g, "").includes("const a = 1"), "the code went missing along with the gutter");
+  }
+
+  // THE CODE ITSELF IS UNTOUCHED BY THE GUTTER, and still escaped: this is the
+  // customer's own source and it reaches a screen.
+  const nasty = body('const x = "<img onerror=alert(1)>"', false, 3);
+  assert.ok(!/<img/.test(nasty), "markup in the customer's source reached the screen unescaped");
+  assert.match(nasty, /&lt;img/);
+  // Highlighted per line, and the keyword survives the split.
+  assert.match(at47, /<span class="kw">const<\/span>/, "highlighting was lost when the gutter arrived");
+  // ONE LINE, ONE NUMBER — a pane of one line gets exactly one.
+  // COUNTED BY THE GUTTER'S OWN TAG: `st-lc-num` on the <pre> contains
+  // `st-lc-n`, so a looser count reads the wrapper as a line.
+  assert.equal((body("only", false, 9).match(/st-lc-n">/g) || []).length, 1);
 });
 
 test("THE WIRING: the poll opens the envelope, one setter writes it, and the row draws it", () => {
@@ -625,8 +750,19 @@ test("THE WIRING: the poll opens the envelope, one setter writes it, and the row
   const rows = fn("function reactLiveStepsHTML(");
   assert.match(rows, /const codeNow = !wrote && typeof sb\.code === 'string' && sb\.code \? sb\.code : ''/,
     "the code row no longer reads the code");
-  assert.match(rows, /open: !!codeNow,\s*\n\s*body: codeNow \? stCodeBody\(codeNow, true\) : ''/,
-    "the row opens or draws a body when there is no code — the empty box is back");
+  // RE-ANCHORED 2026-09-07: this pinned `stCodeBody(codeNow, true)`, and the pane
+  // takes a third argument now — the file line the window starts on. The
+  // property is what it always was: a body ONLY when there is code, so the empty
+  // bordered box with one blinking caret cannot come back.
+  assert.match(rows, /open: !!codeNow,\s*\n\s*body: codeNow \? stCodeBody\(codeNow, true, sb\.codeLine\) : ''/,
+    "the row opens or draws a body when there is no code, or draws the pane without its line number");
+  // AND THE FILE IS IN THE LABEL. It rode the whole chain and had no slot: the
+  // meta was `clk(...) || sb.file` and the clock is never empty while the stage
+  // runs, so the name never rendered once.
+  assert.match(rows, /const codeLbl = wrote \? 'Wrote the code' : \(sb\.file \? 'Writing ' \+ sb\.file : 'Writing the code'\)/,
+    "the running row no longer names the file it is writing");
+  assert.match(rows, /label: codeLbl,\s*\n\s*meta: clk\('generating'\),/,
+    "the file is back in the meta, where the clock always wins and it never shows");
 });
 
 test("DRIVEN: the code row draws real code, and draws no pane at all without it", () => {

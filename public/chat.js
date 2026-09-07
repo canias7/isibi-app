@@ -11522,13 +11522,19 @@ function siteBuildStop() { siteBuild = null; if (siteTicker) { clearInterval(sit
 // ---- React builder: Claude-Code-style "what it did" step rows (live + finished) ----
 function stHlCode(t) { return esc(t).replace(/\b(import|from|export|default|function|return|const|let|className)\b/g, '<span class="kw">$1</span>').replace(/(&quot;[^&]*?&quot;)/g, '<span class="str">$1</span>'); }
 function stStepRow(o) { // {label, meta, state:'run'|'done'|'wait', body, open}
-  const mark = o.state === 'run' ? '<span class="st-step-run"></span>'
+  // ONE GLYPH COLUMN, FOUR CHARACTERS (owner, 2026-09-07, treatment E). These
+  // were a styled dot, a tick, a cross and a ring — two of them drawn in CSS and
+  // two as text, so they never sat on one baseline. As characters in the rail's
+  // own monospace they line up by construction, and the class names are kept
+  // because they are what the state is read by, here and in the guards.
+  //
+  // A STEP THAT FAILED. There were three states and none of them could say
+  // "this did not work", which is why the compile step reported a tick on a
+  // build that had just failed to compile.
+  const mark = o.state === 'run' ? '<span class="st-step-run">●</span>'
     : o.state === 'done' ? '<span class="st-step-tick">✓</span>'
-    // A STEP THAT FAILED. There were three states and none of them could say
-    // "this did not work", which is why the compile step reported a tick on a
-    // build that had just failed to compile.
     : o.state === 'fail' ? '<span class="st-step-fail">✕</span>'
-    : '<span class="st-step-wait"></span>';
+    : '<span class="st-step-wait">○</span>';
   return '<div class="st-step' + (o.open ? ' open' : '') + (o.body ? '' : ' st-step-nobody') + '">' +
     '<div class="st-step-h"' + (o.body ? ' data-steptog' : '') + '><span class="st-step-chev">' + (o.body ? '▶' : '') + '</span>' + mark +
     '<span class="st-step-lbl">' + esc(o.label) + '</span>' + (o.meta ? '<span class="st-step-meta">' + esc(o.meta) + '</span>' : '') + '</div>' +
@@ -11536,7 +11542,29 @@ function stStepRow(o) { // {label, meta, state:'run'|'done'|'wait', body, open}
 }
 function stFilesBody(files) { return '<div class="st-fchips">' + (files || []).map((f) => '<span class="st-fchip">' + esc(String(f).split('/').pop()) + '</span>').join('') + '</div>'; }
 function stImgsBody(imgs) { return '<div class="st-ithumbs">' + (imgs || []).map((im) => '<span class="st-ithumb"><img src="' + esc(im.url) + '" alt="" loading="lazy"><em>' + esc(String(im.prompt || '').slice(0, 70)) + '</em></span>').join('') + '</div>'; }
-function stCodeBody(txt, cursor) { return '<pre class="st-lc">' + stHlCode(txt) + (cursor ? '<span class="st-lc-cur"></span>' : '') + '</pre>'; }
+// THE CODE PANE. `from` is the file line the window starts on (owner, 2026-09-07,
+// picking treatment E: "a dense log — line numbers, flush left").
+//
+// NO GUTTER WITHOUT A TRUE NUMBER. The pane is a WINDOW on the last few thousand
+// characters of a file that is still being written, so numbering it from 1 would
+// say `1` for what is really line 47 — a lying instrument, pointed at the
+// customer's own source. `from` is 0 when nothing upstream could establish it,
+// and 0 draws the pane with no numbers rather than inventing them.
+//
+// HIGHLIGHTED PER LINE, which is not a compromise: `stHlCode`'s string rule is
+// non-greedy between two quote entities, so a line-at-a-time pass is if anything
+// tighter than one that can run across a newline.
+function stCodeBody(txt, cursor, from) {
+  const cur = cursor ? '<span class="st-lc-cur"></span>' : '';
+  // A NUMBER, NEVER SOMETHING THAT LOOKS LIKE ONE. `Number('47')` is 47 and
+  // `Number(['47'])` is 47 too — the recorded coercion, on the value that
+  // decides what the gutter claims about the customer's own file.
+  const n = typeof from === 'number' && isFinite(from) ? Math.floor(from) : 0;
+  if (n < 1) return '<pre class="st-lc">' + stHlCode(txt) + cur + '</pre>';
+  const body = String(txt).split('\n')
+    .map((l, i) => '<span class="st-lc-n">' + (n + i) + '</span>' + stHlCode(l)).join('\n');
+  return '<pre class="st-lc st-lc-num">' + body + cur + '</pre>';
+}
 // Multi-agent fan-out: one chip per agent with its model + running/done state (shown when MULTI_AGENT streams).
 function stAgentsBody(agents) {
   const keys = Object.keys(agents || {});
@@ -11551,7 +11579,11 @@ function stAgentsBody(agents) {
 // Finished build, stored on an assistant message — collapsed by default.
 function reactStepsHTML(b) {
   const rows = [];
-  rows.push(stStepRow({ label: 'Wrote the code', meta: (b.files && b.files.length ? b.files.length + ' files' : ''), state: 'done', body: stFilesBody(b.files) }));
+  // "1 files" — visible the moment the rail went monospace and the meta stopped
+  // being a right-aligned column nobody read. The images row directly below has
+  // pluralised correctly since it was written; this one never did.
+  const nFiles = (b.files && b.files.length) || 0;
+  rows.push(stStepRow({ label: 'Wrote the code', meta: nFiles ? nFiles + (nFiles === 1 ? ' file' : ' files') : '', state: 'done', body: stFilesBody(b.files) }));
   if (b.images && b.images.length) rows.push(stStepRow({ label: 'Generated images', meta: b.images.length + (b.images.length === 1 ? ' photo' : ' photos'), state: 'done', body: stImgsBody(b.images) }));
   // THE OUTCOME, NOT A DECORATION. Both of these were `state: 'done'` no matter
   // what happened, so a build whose pages did not compile showed a green tick
@@ -11636,6 +11668,9 @@ function setBuildCode(origin, got) {
   if (siteBuild.code === got.code && siteBuild.file === got.file) return false;
   siteBuild.code = got.code;
   if (typeof got.file === 'string') siteBuild.file = got.file;
+  // 0 IS KEPT AS 0, never left at the previous update's number: a window that
+  // moved and a number that did not is exactly the wrong pairing.
+  siteBuild.codeLine = typeof got.line === 'number' && got.line >= 1 ? got.line : 0;
   paintReactLive();
   return true;
 }
@@ -11696,12 +11731,17 @@ function reactLiveStepsHTML() {
   // thing that stood here for a seventeen-minute build — cannot render.
   const wrote = past('generating');
   const codeNow = !wrote && typeof sb.code === 'string' && sb.code ? sb.code : '';
+  // THE FILE GOES IN THE LABEL, NOT THE META (treatment E). It was
+  // `clk(...) || sb.file`, and the clock is never empty while the stage runs —
+  // so the name was carried the whole way down the chain and then never had a
+  // slot to render in. Here it is part of the sentence: `writing index.tsx`.
+  const codeLbl = wrote ? 'Wrote the code' : (sb.file ? 'Writing ' + sb.file : 'Writing the code');
   rows.push(stStepRow({
-    label: wrote ? 'Wrote the code' : 'Writing the code',
-    meta: clk('generating') || sb.file || '',
+    label: codeLbl,
+    meta: clk('generating'),
     state: st('generating'),
     open: !!codeNow,
-    body: codeNow ? stCodeBody(codeNow, true) : '',
+    body: codeNow ? stCodeBody(codeNow, true, sb.codeLine) : '',
   }));
   if (sb.images && sb.images.length) rows.push(stStepRow({ label: 'Generated images', meta: sb.images.length + (sb.images.length === 1 ? ' photo' : ' photos'), state: 'done', body: stImgsBody(sb.images) }));
   if (sb.rphase === 'fixing') rows.push(stStepRow({ label: 'Fixing a build error', state: 'run' }));

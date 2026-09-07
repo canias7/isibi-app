@@ -250,6 +250,120 @@ test("the live sentences are the PROGRESS ones, never the deadline's", () => {
   assert.match(detail, /Designing the site/);
 });
 
+// ── TREATMENT E: THE RAIL IS A DENSE LOG ────────────────────────────────────
+
+test("DRIVEN: four states, four characters, one column — and the class names stay", () => {
+  const row = new Function("o",
+    fn("function stStepRow(") + "\n" +
+    "const esc = (s) => String(s).replace(/[&<>\"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\n" +
+    "return stStepRow(o);");
+
+  // THE GLYPH IS TEXT NOW, in all four states. Two of them used to be drawn in
+  // CSS (a dot and a ring, sized in pixels) and two as characters, so they never
+  // shared a baseline; in the rail's monospace they line up by construction.
+  const want = { run: "●", done: "✓", fail: "✕", wait: "○" };
+  for (const [state, glyph] of Object.entries(want)) {
+    const h = row({ label: "Writing the code", state });
+    assert.ok(h.includes(">" + glyph + "<"), state + " draws no glyph — the column is empty for it");
+  }
+  // AND THE CLASS NAMES ARE UNCHANGED. The state is read by those names in the
+  // stylesheet, in the guards above and in the finished-build rows; renaming one
+  // is silent in all three at once.
+  for (const [state, cls] of [["run", "st-step-run"], ["done", "st-step-tick"], ["fail", "st-step-fail"], ["wait", "st-step-wait"]]) {
+    assert.match(row({ label: "x", state }), new RegExp('class="' + cls + '"'), state + " lost its class");
+  }
+  // A cross AND a tick — the outcome survives greyscale and anyone who cannot
+  // tell the two hues apart.
+  assert.notEqual(want.done, want.fail);
+  // THE LABEL IS STILL ESCAPED: it carries a file name off the wire.
+  assert.match(row({ label: '<img onerror=x>', state: "run" }), /&lt;img/, "a label reached the screen unescaped");
+
+  // AND THE FINISHED ROW COUNTS IN ENGLISH. It said "1 files" for every
+  // one-file build; the images row beside it has pluralised since it was
+  // written, so this was one line of the same file disagreeing with itself.
+  const done = new Function("b",
+    fn("function stStepRow(") + "\n" + fn("function stFilesBody(") + "\n" +
+    fn("function stImgsBody(") + "\n" + fn("function reactStepsHTML(") + "\n" +
+    "const esc = (s) => String(s).replace(/[&<>\"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\n" +
+    "return reactStepsHTML(b);");
+  assert.match(done({ files: ["a.tsx"], page: "app" }), />1 file</, "a one-file build still says “1 files”");
+  assert.match(done({ files: ["a.tsx", "b.tsx"], page: "app" }), />2 files</);
+  assert.ok(!/ files</.test(done({ files: [], page: "app" })), "a build with no files claimed a count");
+});
+
+test("DRIVEN: the setter carries the window's line, and never leaves a stale one beside a new window", () => {
+  // DRIVEN, not read: both survivors of this change's sweep were here — the
+  // setter dropping the line outright (E's gutter never appears at all) and the
+  // setter keeping the PREVIOUS window's number when a new update carries none
+  // (numbers that are merely wrong, which is the thing the whole line chain
+  // exists to prevent). Neither fails anything a source read can see.
+  const make = (state, open) => {
+    let painted = 0;
+    const api = new Function("siteOpenId", "paintReactLive", "state",
+      "let siteBuild = state;\n" + fn("function setBuildCode(") +
+      "\nreturn { set: setBuildCode, get: () => siteBuild };")(
+        open, () => { painted++; }, state);
+    return { ...api, painted: () => painted };
+  };
+
+  let a = make({ code: "", file: "" }, "site_1");
+  assert.equal(a.set("site_1", { code: "const a = 1", file: "index.tsx", line: 47 }), true);
+  assert.equal(a.get().codeLine, 47, "the setter dropped the line — the gutter has nothing to number from");
+  assert.equal(a.get().code, "const a = 1");
+  assert.equal(a.painted(), 1, "a code that changed must repaint exactly once");
+
+  // A NEW WINDOW WITH NO NUMBER IS A WINDOW WITH NO NUMBER. Keeping the last
+  // one would put line 47 beside text that starts somewhere else entirely.
+  a = make({ code: "old", file: "index.tsx", codeLine: 47 }, "site_1");
+  assert.equal(a.set("site_1", { code: "new text", file: "index.tsx" }), true);
+  assert.equal(a.get().codeLine, 0, "a new window kept the previous window's line number");
+  // Every shape that is not a line lands on 0, at the setter as well as the reader.
+  for (const bad of ["47", 0, -1, null, undefined, NaN, [47], {}]) {
+    a = make({ code: "old", codeLine: 47 }, "site_1");
+    a.set("site_1", { code: "new", line: bad });
+    assert.equal(a.get().codeLine, 0, "a non-line survived the setter: " + JSON.stringify(bad));
+  }
+
+  // AND THE SETTER'S OWN RULES STILL HOLD — a foreign workspace and an
+  // unchanged update, asserted here so the line cases cannot be the only thing
+  // this drives.
+  a = make({ code: "x", file: "i.tsx" }, "site_1");
+  assert.equal(a.set("site_2", { code: "y", line: 3 }), false, "a poll for another workspace wrote this one");
+  assert.equal(a.painted(), 0);
+  a = make({ code: "x", file: "i.tsx", codeLine: 3 }, "site_1");
+  assert.equal(a.set("site_1", { code: "x", file: "i.tsx", line: 3 }), false, "an unchanged update repainted");
+  assert.equal(a.painted(), 0);
+});
+
+test("the rail is one monospace column, and only the LABEL is lower-cased", () => {
+  const at = css.indexOf(".st-steps {");
+  assert.ok(at > 0, ".st-steps is gone from the stylesheet");
+  const end = css.indexOf(".st-think {", at);
+  assert.ok(end > at, "the rail block has no end landmark");
+  const rail = css.slice(at, end);
+
+  assert.match(rail, /\.st-steps \{[^}]*font-family:\s*ui-monospace/, "the rail is no longer monospace — treatment E is all monospace");
+  // THE BOXES ARE GONE. Three equal bordered cards said nothing about which step
+  // mattered; E is flush left with no surface at all.
+  assert.match(rail, /\.st-step \{[^}]*border:\s*0/, "the step boxes are back");
+  assert.match(rail, /\.st-step-b \{[^}]*border:\s*0[^}]*background:\s*none/, "the pane is a box inside a box again");
+
+  // LOWER CASE ON THE LABEL AND NOWHERE ELSE. The bodies carry the model's own
+  // words — an image prompt, a file name — and lower-casing those is a lie about
+  // what it said.
+  assert.match(rail, /\.st-step-lbl \{[^}]*text-transform:\s*lowercase/, "the labels are no longer lower-cased");
+  assert.ok(!/\.st-steps \{[^}]*text-transform/.test(rail), "the whole rail is lower-cased — the model's own words with it");
+  assert.ok(!/\.st-step-b \{[^}]*text-transform/.test(rail), "the bodies are lower-cased — that is the model's text");
+
+  // THE GUTTER IS NOT SELECTABLE: copying the pane copies code, not a column of
+  // numbers down its left edge.
+  assert.match(rail, /\.st-lc-n \{[^}]*user-select:\s*none/, "the line numbers copy along with the code");
+  assert.match(rail, /\.st-lc-n \{[^}]*text-align:\s*right/, "the gutter no longer right-aligns — the numbers stop lining up past 9");
+  // The four marks share one box, so labels start at the same x whatever the state.
+  assert.match(rail, /\.st-step-run, \.st-step-tick, \.st-step-wait, \.st-step-fail \{[^}]*width:\s*10px/,
+    "the glyphs no longer share one column — the labels will not line up");
+});
+
 // ── THE ROWS ────────────────────────────────────────────────────────────────
 
 test("DRIVEN: the rows carry a planning step, a clock on the running one, and no empty pane", () => {
