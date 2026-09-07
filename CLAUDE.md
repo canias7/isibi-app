@@ -1012,6 +1012,95 @@ with no republish and no container roll.
   the accordion and the forms should work inside the panel. The push touches
   `public/` only — no container roll, so no 15–20 minute hold.
 
+### THE BUILDER PICKER REACHES THE ROUTING CALL, AND SITS ON THE START SCREEN
+(2026-09-07, owner: *"PUT THE PICKER TOO IN THE SITESPAGE PAGE, THE ONE BEFORE,
+AND THEN WHATEVR THE USER CHOOSES THERE IT GOES NEXT"*)
+
+Two halves of one thing, found because the owner typed HEY, looked at the
+composer and said *"IT PUTS SONNET THERE"*.
+
+- **THE CHIP WAS TELLING THE TRUTH ABOUT EVERY CALL BUT THE ONE THAT HAD JUST
+  RUN.** `siteRoute` POSTed to `/api/site/route` **without `picker`**, and the
+  route reads `modelsFor(rb && rb.picker).quick` — so `modelsFor(undefined)`
+  fell to `DEFAULT_PICKER` and **every routing call on the platform ran on Grok**
+  whatever the customer had chosen. The build, the revise and the edit all sent
+  the field; this hop never did. Driven rather than read: pulling `siteRoute`'s
+  body out of chat.js and testing it for the name answered `false`.
+  **The wiring layer for the thirteenth recorded time, and the guard written for
+  THIS BUG one hop down did not see it**: `test/picked-model.test.mjs` exists
+  because `routeMessage` took a `model` and never handed it to `askRequest`, and
+  it drives the module WITH a model passed in — which proves the module forwards
+  one and says nothing about whether anybody supplies one. The chain asserted at
+  the layer below the break, again.
+  **And it is not only a wrong label.** The owner's rule when the cheap ladder
+  came off Haiku was *"if grok is picked then that will be it"* — the point being
+  that no single provider decides every message, which is what run 93 cost when
+  Anthropic refused on billing and every routing call died in 5.3 s. Pinned to
+  the default, the router was that shape again with a different provider in the
+  seat; Grok's own credits ran out once already (run 12, xAI answering 403), and
+  a dead one sends every customer to the fallback intent — a build on an empty
+  project, an add-on on a live site.
+- **THE PICKER IS ON THE START SCREEN NOW, WHICH IS WHERE THE FIRST BUILD IS
+  ASKED FOR.** It lived only in the workspace composer — the screen you reach
+  AFTER the build has been sent — so the one build where the model choice matters
+  most was the one build nobody could make it for.
+  **"Whatever they choose there goes next" needed no carrying**: `buildPicker` is
+  ONE module variable behind ONE storage key, `reactSend` reads it when it posts
+  the build, and both chips render from it, so a pick made on the start screen IS
+  the pick the build runs on and the pick the next screen shows. Passing a choice
+  along beside the prompt would have been a second place the answer lives.
+- **ONE FUNCTION, TWO DIRECTIONS.** `buildPickerHTML(dir)` — the composer's chip
+  sits at the foot of the rail and drops UP over the thread; the start screen's
+  sits under the hero and drops DOWN over the sites grid. Anything that is not
+  exactly `"down"` opens up, so the existing call site keeps its behaviour
+  whatever it is handed. A second copy of that markup is the recorded "two lists
+  of the same thing" and would disagree the first time a model joined the table.
+  The two chips share their ids and that is safe **because `renderSites` returns
+  to `renderSiteWorkspace` before drawing anything** when a site is open — pinned,
+  since `setBuildPicker` updates the label through `getElementById`, which answers
+  the first match.
+- **THE CSS: ONE AUTO MARGIN PER ROW, AND A MENU THAT IS WIDE IN BOTH
+  DIRECTIONS.** `.st-attbtn`, `.st-buildsel-wrap` and `.st-gen` each carry an auto
+  margin written for the row each was designed in, and auto margins SPLIT the free
+  space — measured 105.72px to each of two before the chip was added, 70.48px to
+  each of three after, which left it floating mid-row looking like a third
+  unrelated thing. The send button's is the one that belongs to this row, so
+  everything before it gives its up (`.stg-foot .st-attbtn` already does exactly
+  this). And `.build-menu`'s width and solid panel came off `.drop-up`
+  (`.model-menu.build-menu` now), because the downward copy needs them just as
+  much — it wins over `.model-menu.drop-up`'s `min-width: 130px` by SOURCE ORDER,
+  both being two classes, which is asserted rather than left implicit.
+- **Guards**: `test/build-picker.test.mjs` (9) — the routing call's body driven out
+  of chat.js and matched against the build's own variable, the route's read plus
+  `modelsFor`'s fallback and its two coercion refusals, the call sites counted AND
+  named on both screens with both wire-ups, `buildPickerHTML` EVALUATED and driven
+  in both directions with every not-`"down"` value refused, the handoff-before-draw
+  order, the one writer and one key, the row's single auto margin with its three
+  neutralised siblings asserted alive, and the menu's width proved ungated with a
+  specificity floor. **Two older guards went red and were re-anchored, not
+  appeased**: `topbar-layout`'s `menuRule` pinned the three-class spelling and
+  answered "the rule is gone" for a rule that governs one more menu than before;
+  and its derived drop-up scan keyed on selectors, so `.build-menu` would have
+  left the scan **written for it** — keyed by variant NAME now, with both spellings
+  merged, plus the source-order assertion the two-class win rests on. **Sweep: 27
+  mutants, 25 killed, none survived, none unapplied, both comment-only controls
+  survived** — the picker off the wire (the defect itself), sent as a literal copy,
+  the route ignoring it; either screen's chip undrawn, drawn as its own copy of the
+  markup, or drawn and never wired; the direction forced either way, read by
+  truthiness, or the class dropped; the start screen drawing before it hands off;
+  the writer taking any name, or the choice stored twice; the attach button keeping
+  its margin, the rule deleted, the send button releasing the right edge; the menu's
+  width re-gated on `.drop-up`, see-through, narrow, unpositioned, positioned with
+  `right: 0` left standing, losing its `:not()`, or losing a class and with it the
+  weight to win. Full suite **5,473**.
+- **Not proven live.** The push touches `public/` only — no container roll, so no
+  15–20 minute hold. The proof is one message: the next routing call should run on
+  whatever the chip says, and the start screen should carry the chip
+  (`docs/edits/start-screen-picker.png` is the render, both states). **The owner's
+  own browser holds `sonnet` in `zephyr_build_picker_v1`** from a pick made before
+  the Grok default landed on 2026-08-22 — a stored choice wins by design, so that
+  is not a bug and the flip only ever reached new sessions.
+
 ---
 
 ## Editing a site — the ladder
@@ -5206,8 +5295,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,465
-  (2026-09-07, after the preview frame's sandbox added seven in
+  build and the pre-list payload added sixteen); the unit suite is 5,473
+  (2026-09-07, after the builder picker added eight in
+  `test/build-picker.test.mjs` — the routing call's body driven out of chat.js
+  and held to the build's own variable, the route's read with `modelsFor`'s
+  fallback and its coercion refusals, the call sites counted and named on both
+  screens with both wire-ups, `buildPickerHTML` evaluated and driven in both
+  directions, the handoff-before-draw order, the one writer and one key, the
+  row's single auto margin beside its three neutralised siblings, and the menu's
+  width proved ungated with a specificity floor; before it 5,465
+  after the preview frame's sandbox added seven in
   `test/preview-frame.test.mjs` — `frameSandbox` evaluated out of chat.js with a
   location handed in and driven both ways, every cannot-tell case refused
   including three URLs that really throw, the setter's order, the four call

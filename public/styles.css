@@ -681,8 +681,22 @@
    enough for the longest line ("Multi-agent fan-out — nothing truncates") on two
    lines rather than six.
    Solid, like the other three, and for the reason already written above them:
-   these drop UP over the composer and have to read against the attach row. */
-.model-menu.drop-up.build-menu { min-width: 270px; background: #ffffff; }
+   these drop UP over the composer and have to read against the attach row.
+   THE SELECTOR NO LONGER NAMES `.drop-up` (2026-09-07), because the same chip is
+   now drawn on the start screen and opens DOWNWARD there — over the sites grid,
+   which needs the solid panel just as much as the attach row did. It still wins
+   over `.drop-up`'s `min-width: 130px` on the composer's copy, and by SOURCE
+   ORDER rather than by weight: both selectors are two classes, and this one is
+   the later of the two. Moving it above line 658 would silently give the
+   composer's menu back its 130px. */
+.model-menu.build-menu { min-width: 270px; background: #ffffff; }
+/* Dropping DOWN, it hangs under a chip on the LEFT of its row, so it opens
+   rightwards from there — `.model-menu`'s own `right: 0` would push a 270px
+   panel out past the left edge of the box it belongs to. `:not(.drop-up)` is
+   what keeps this off the composer's copy, and it is the reason this can never
+   collide with `.build-menu-end` below, which applies only when `.drop-up` is
+   present. */
+.model-menu.build-menu:not(.drop-up) { left: 0; right: auto; }
 /* The rightmost chip in the composer row opens leftwards. `.drop-up` pins every
    menu to `left: 0`, which put this one 72px past the rail's right edge —
    measured against the real 450px `.st-rail`. Same answer `.dir-menu` already
@@ -1436,6 +1450,21 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-hero .st-in { width: 100%; font: inherit; font-size: 1.04rem; line-height: 1.5; color: var(--text); background: transparent; border: none; border-radius: 0; padding: .35rem .3rem; resize: none; min-height: 3.2rem; }
 .st-hero .st-in:focus { outline: none; }
 .st-new-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .55rem; flex-wrap: wrap; }
+/* ONE AUTO MARGIN ON THIS ROW, AND IT IS THE SEND BUTTON'S. Three elements here
+   each carry one of their own, written for the row each was designed in:
+   `.st-attbtn` has `margin-right: auto` (line ~1933), `.st-buildsel-wrap` has
+   `margin-right: auto` so that in the COMPOSER row it pushes the effort dial and
+   the send button right, and `.st-gen` has `margin-left: auto`. Auto margins
+   split the free space between them, so with two live the row read Attach —
+   space — chip — space — ↑, the chip adrift in the middle looking like a third
+   unrelated thing rather than one of the controls: measured 105.72px to each of
+   the two before the builder chip was added here on 2026-09-07, and 70.48px to
+   each of three after. Whichever way it divides, it is nobody's intent.
+   `.st-gen`'s is the one that belongs to this row — the send button is the thing
+   that must sit at the right — so everything before it gives its up and the
+   controls group on the left: Attach · Builder ————— ↑
+   `.stg-foot .st-attbtn` below does exactly this, for exactly this reason. */
+.st-new-foot .st-attbtn, .st-new-foot .st-buildsel-wrap { margin-right: 0; }
 .st-hint { color: var(--muted); font-size: .8rem; }
 /* Send — round gradient button, mirroring the studio composer. */
 .st-gen {

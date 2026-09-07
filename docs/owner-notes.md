@@ -342,6 +342,57 @@ is the free way to see whether the canary flag actually names that site.
 
 ---
 
+## 2026-09-07 — The model picker was lying about one call, and now it sits on the first screen
+
+You typed HEY, looked at the composer and said *"IT PUTS SONNET THERE."* Two
+separate things came out of that, and one of them was a real bug.
+
+**Sonnet 5 on that chip is your own old choice, not something HEY did.** The
+app's default has been Grok since 22 August, but a choice you have already made
+wins — it is remembered in your browser — so the switch only ever reached new
+sessions. Your browser has been holding "Sonnet" since some earlier pick. That
+part is working as designed.
+
+**The bug: the chip was telling the truth about everything except the call that
+had just run.** Every message you send is first read by a small, cheap step that
+decides what you are asking for — build, question, edit, add-on. That step is
+supposed to run on whichever model you picked. It never received your choice: the
+build, the revise and the edit all sent it, and this one hop did not, so **it has
+always run on Grok for everyone, whatever the chip said.**
+
+Why it matters beyond a wrong label: your own rule when we moved off the old
+routing model was *"if grok is picked then that will be it"* — the point being
+that one supplier should not decide every message. That is exactly what cost us
+before, when Anthropic refused on billing and every routing call died in five
+seconds. Pinned to one default, we were back in that shape — and Grok's credits
+have run dry once already. If that happens now, every customer's message falls
+through to "just build it".
+
+**Fixed.** The routing step gets your pick like everything else does.
+
+**And you asked for the picker on the first screen** — *"PUT THE PICKER TOO IN
+THE SITESPAGE PAGE, THE ONE BEFORE, AND THEN WHATEVR THE USER CHOOSES THERE IT
+GOES NEXT."* It is there now, next to Attach. It was only ever in the workspace,
+which is the screen you land on **after** the first build has already started —
+so the one build where the model matters most was the one build you could not
+choose it for.
+
+Whatever you pick there is what the build runs on, and the next screen shows the
+same thing. That needs no plumbing: there is one setting, in one place, and both
+screens read it — which is also why it cannot drift out of step with itself.
+
+**Screenshot**: `docs/edits/start-screen-picker.png` — the row closed, and the
+menu open. One small thing I had to fix to get there: three separate controls on
+that row each wanted to push the others aside, so the chip floated in the middle
+of the row looking like a stray. The send button is the one that should hold the
+right edge, so the others give way and the controls group on the left.
+
+**Not proven live yet** — this is browser code only, so nothing rebuilds and
+there is no waiting period after the push. The proof is your next message: the
+routing step should run on whatever the chip says.
+
+---
+
 ## 2026-09-07 — The start screen shows every site you own, from the server
 
 You: *"fix it so the screen shows everysite, server not local."*

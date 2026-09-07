@@ -88,9 +88,17 @@ test("the end buttons never wrap", () => {
 // never did, so its descriptions wrapped one or two words per line and the chat
 // showed through the panel.
 
+// `.drop-up` IS NO LONGER PART OF THE SELECTOR FOR EVERY VARIANT (2026-09-07).
+// The builder chip is now drawn on the start screen too, where it opens DOWNWARD,
+// so `.build-menu`'s width and solid panel moved from `.model-menu.drop-up
+// .build-menu` to `.model-menu.build-menu` — the same box in both directions.
+// This reader pinned the three-class spelling, so it answered "the rule is gone"
+// for a rule that is there and governs one more menu than before. It takes either
+// spelling now; the property it exists for — that a menu carrying descriptions is
+// wide enough and not see-through — has not moved.
 const menuRule = (name) => {
   const src = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
-  const m = src.match(new RegExp("\\.model-menu\\.drop-up\\." + name + "\\s*\\{[^}]*\\}"));
+  const m = src.match(new RegExp("\\.model-menu(?:\\.drop-up)?\\." + name + "\\s*\\{[^}]*\\}"));
   return m && m[0];
 };
 
@@ -103,10 +111,20 @@ test("every drop-up that narrows itself also widens itself back", () => {
   assert.ok(base, "the drop-up rule was renamed");
   assert.match(base[0], /min-width:\s*130px/, "the premise changed — re-derive this guard");
 
-  const named = [...src.matchAll(/\.model-menu\.drop-up\.([a-z-]+)\s*\{([^}]*)\}/g)];
-  assert.ok(named.length >= 3, "the drop-up variants have moved");
+  // KEYED BY THE VARIANT'S NAME, NOT BY ITS SELECTOR. `.build-menu` sheds
+  // `.drop-up` from its width rule on 2026-09-07 (it is drawn on the start screen
+  // too now, opening downward), and a scan that only saw three-class selectors
+  // would have stopped watching the very menu it was written for — the hole
+  // reopening exactly where the original bug was. Both spellings are collected
+  // and merged per name, so a variant is judged on everything that styles it.
+  const named = new Map();
+  for (const [, name, body] of src.matchAll(/\.model-menu(?:\.drop-up)?\.([a-z-]+)\s*\{([^}]*)\}/g)) {
+    named.set(name, (named.get(name) || "") + body);
+  }
+  assert.ok(named.has("build-menu"), "the builder menu left this scan — it is the one it was written for");
+  assert.ok(named.size >= 3, "the drop-up variants have moved");
   let checked = 0;
-  for (const [, name, body] of named) {
+  for (const [name, body] of named) {
     // STATE RULES ARE NOT VARIANTS. `.open` sets `animation-name` and nothing
     // else — it says when the menu shows, not how wide it is. A rule that styles
     // no part of the box is out of scope here; flagging it was this check's own
@@ -129,6 +147,16 @@ test("the builder menu is wide enough and opaque", () => {
   // Solid, like the other three drop-ups: these open OVER the composer and have
   // to read against the attach row behind them.
   assert.match(r, /background:\s*#ffffff/, "the chat shows through the menu");
+  // AND IT WINS BY SOURCE ORDER, which is the whole reason two classes are enough.
+  // `.model-menu.drop-up` sets min-width 130px and is also two classes, so weight
+  // cannot separate them — only position can. Moving this rule above that one
+  // would silently give the composer's menu its 130px back, with every assertion
+  // above still passing.
+  const src = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+  const narrow = src.indexOf(".model-menu.drop-up {");
+  const wide = src.indexOf(r);
+  assert.ok(narrow > 0 && wide > 0, "one of the two rules was renamed — re-derive this");
+  assert.ok(wide > narrow, "the builder menu's width rule now sits ABOVE the 130px it overrides, so it loses");
 });
 
 test("the rightmost chip's menu opens leftwards", () => {

@@ -2377,10 +2377,34 @@ const BUILD_PICKER_KEY = 'zephyr_build_picker_v1';
 // 'sonnet'. The flip reaches new sessions, not old ones.
 let buildPicker = localStorage.getItem(BUILD_PICKER_KEY) || 'grok';
 if (!BUILD_PICKERS[buildPicker]) buildPicker = 'grok';
-function buildPickerHTML() {
+// ONE PICKER, DRAWN ON BOTH SCREENS (owner, 2026-09-07: "PUT THE PICKER TOO IN
+// THE SITESPAGE PAGE, THE ONE BEFORE, AND THEN WHATEVR THE USER CHOOSES THERE IT
+// GOES NEXT"). It lived only in the workspace composer, which is the screen you
+// reach AFTER the first build has already been sent — so the one build where the
+// choice matters most was the one build nobody could make it for.
+//
+// "WHATEVER THEY CHOOSE THERE GOES NEXT" NEEDS NO CARRYING. `buildPicker` is one
+// module variable behind one storage key, `reactSend` reads it when it posts the
+// build, and the workspace chip renders from it — so a pick made on the start
+// screen IS the pick the build runs on and the pick the next screen shows. The
+// alternative, passing a choice along beside the prompt, would be a second place
+// the answer lives, and this file already records what two copies of one value
+// cost.
+//
+// `dir` IS WHICH WAY THE MENU OPENS, and it follows from where the chip sits
+// rather than from taste: in the workspace the composer is at the foot of the
+// rail, so the menu drops UP over the thread; on the start screen the same chip
+// is near the top of the page under the hero, where dropping up would open it
+// across the heading and off the top of a short window. Anything that is not
+// exactly "down" opens up, so the existing call site keeps its behaviour whatever
+// it is handed. ONE function either way: a second copy of this markup is the
+// recorded "two lists of the same thing", and the two would disagree the first
+// time a model joined the table.
+function buildPickerHTML(dir) {
+  const up = dir !== 'down';
   return '<span class="st-buildsel-wrap">' +
     '<button type="button" class="st-buildsel" id="stBuildSel" title="Which model builds the site">Builder: <b id="stBuildLabel">' + BUILD_PICKERS[buildPicker].label + '</b> ▾</button>' +
-    '<div class="model-menu drop-up build-menu" id="stBuildMenu">' +
+    '<div class="model-menu ' + (up ? 'drop-up ' : '') + 'build-menu" id="stBuildMenu">' +
       Object.keys(BUILD_PICKERS).map((k) => { const m = BUILD_PICKERS[k]; return '<div class="model-item build-item' + (k === buildPicker ? ' selected' : '') + '" data-pick="' + k + '"><span class="txt"><b>' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
     '</div></span>';
 }
@@ -10377,6 +10401,12 @@ function renderSites() {
         '<div class="st-attach" id="stAttach"></div>' +
         '<div class="st-new-foot">' +
           '<button type="button" class="st-attbtn" id="stAttachBtn" title="Attach a logo, a photo, a PDF menu or price list">' + ic('image', 15) + ' Attach</button>' +
+          // WHICH MODEL BUILDS IT, chosen where the build is asked for. The same
+          // function the workspace composer draws, opening downward because this
+          // row sits under the hero rather than at the foot of a rail. The row is
+          // `space-between` and the wrap carries `margin-right: auto`, so the free
+          // space lands there and it reads Attach · Builder ————— ↑.
+          buildPickerHTML('down') +
           '<button type="button" class="st-gen" id="stGen" aria-label="Build it" title="Build it"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>' +
         '</div>' +
       '</div></div>' +
@@ -10412,6 +10442,14 @@ function renderSites() {
   }
   const attBtn = document.getElementById('stAttachBtn');
   if (attBtn) attBtn.onclick = siteAttachOpen;
+  // THE CHIP IS DRAWN BY THE MARKUP ABOVE AND DOES NOTHING UNTIL THIS RUNS — the
+  // wiring layer, which has shipped twelve features here looking perfect and
+  // doing nothing, and the card icons caught the same shape a fortnight ago by
+  // counting call sites. `wireBuildPicker` finds its own elements by id and
+  // returns quietly when there are none, so calling it on a screen that has no
+  // chip is safe; the ids are never on the page twice because this function
+  // returns to `renderSiteWorkspace` before drawing anything when a site is open.
+  wireBuildPicker();
   paintAttachStrip();
   // A CARD MAY NAME A SITE THIS BROWSER HAS NO RECORD OF — one the server
   // listed and another machine built. `siteById` searches localStorage alone,
@@ -11674,7 +11712,25 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // colour. `hasSite` is deliberately not `!isBuild`: that flag is about this
     // project having pages in localStorage, this one is about the SERVER owning
     // a published site at that slug, and the server re-checks it anyway.
-    body: JSON.stringify({ message: t, site: digest, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!(imgs && imgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length) }),
+    //
+    // `picker` IS WHICH MODEL DECIDES, and it was missing for as long as the
+    // route has existed. The build, the revise and the edit all send it; this
+    // one did not, and `modelsFor(undefined)` falls to `DEFAULT_PICKER` — so
+    // every routing call on the platform ran on Grok no matter which model the
+    // customer had chosen and no matter what the chip above the send button
+    // said. The wiring layer again, and the guard that exists for exactly this
+    // bug (`test/picked-model.test.mjs`, written after `routeMessage` took a
+    // model and never handed it to `askRequest`) drives the module with a model
+    // passed in, so it proved the hop below the break and never this one.
+    //
+    // It is not only a wrong label. The owner's rule when the cheap ladder came
+    // off Haiku was "if grok is picked then that will be it" — the point being
+    // that no one provider decides every message, which is what run 93 cost
+    // when Anthropic refused on billing and every routing call died in 5.3s.
+    // Pinned to the default, the router is that shape again with a different
+    // provider in the seat, and a dead one sends every customer to the fallback
+    // intent: a build on an empty project, an add-on on a live site.
+    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!(imgs && imgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length) }),
   }).then(async (r) => {
     const d = await r.json().catch(() => null);
     if (!r.ok || !d) return go();
