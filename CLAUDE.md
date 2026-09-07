@@ -783,23 +783,34 @@ chrome — 24×24, no fill, `currentColor` at 1.85, round caps — so the set is
 app's own and not an import; `globe` and `phone` were already in `ST_ICONS`
 and only `database` is new.
 
-**AND THE PHONE ONE IS OFF, THE SAME DAY** (owner: *"THE PHONE ONE GOTTA BE OFF
-FOR NOW THO"*). **Two icons ship**; the third is REMOVED rather than greyed,
-because a disabled control here earns its place by SAYING something — "No
-database yet", "Not published yet" — and there is no such sentence for a button
-that works and is simply not wanted; a dimmed third icon would read as broken.
-**To put it back, two things and nothing else**: the button in `cardActs` and
-the handler branch that sets `siteView` AND `siteDevice` together. `ST_ICONS.phone`
-was NOT deleted — the workspace's own device switch draws it, and deleting a
-glyph because one caller went quiet is how a feature becomes expensive to
-restore; the guard pins that reasoning to the other caller.
+**AND THE THIRD IS THE MOBILE APP, THERE AND PERMANENTLY DISABLED** (owner, the
+same day: *"THE PHONE ONE GOTTA BE OFF FOR NOW"* → *"I MEAN LEAVE IT THERE BUT
+OFF SINCE WE HAVENT DONE THE MOBILE APP THING YET"*).
 
-- **EACH ONE GOES SOMEWHERE THAT EXISTS**, which is why `cardActs(s)` takes the
-  site rather than drawing glyphs: `database` → the workspace's Data view
-  (`siteDatabase`'s own jump), `site` → the live address in a new tab. The repo
-  carries an open **dead-control** finding about links pointing at where they
-  already are; decorative icons across 51 cards would have been that finding
-  fifty-one times.
+**It shipped for one afternoon opening Preview at phone width, and that was a
+GUESS at the word** — measured against what the tree had, since the platform
+builds websites and there is no app product in it. It is not a phone preview:
+it is a **placeholder for a feature that does not exist yet**. Disabled whatever
+the site's state, tooltip *"Mobile app — not built yet"*.
+
+**That sentence is the whole reason it may sit greyed.** The rule the first
+removal was argued from still holds — a disabled control earns its place by
+SAYING something — and "we have not built this yet" is a true sentence where
+"this works and we would rather you did not" is not. The three disabled states
+on one card mean three different things and each says which.
+
+**IT HAS NO HANDLER, deliberately.** A disabled button fires no click, and a
+branch for behaviour nobody has designed is a guess written down as code; the
+handler's `act !== 'data'` refuses it on the way past, as a second wall behind
+the attribute. **When the mobile app is real**: drop `disabled`, write the
+tooltip, add the branch.
+
+- **EACH ONE THAT ACTS GOES SOMEWHERE THAT EXISTS**, which is why `cardActs(s)`
+  takes the site rather than drawing glyphs: `database` → the workspace's Data
+  view (`siteDatabase`'s own jump), `site` → the live address in a new tab. The
+  repo carries an open **dead-control** finding about links pointing at where
+  they already are; decorative icons across 51 cards would have been that
+  finding fifty-one times.
 - **AND ONLY THE ACTS WE DRAW ACT.** The data branch was an `else` while the
   phone button existed, which was right then and became a way for any unknown
   `data-act` to open the Data view the moment that button came off — the
@@ -809,7 +820,11 @@ restore; the guard pins that reasoning to the other caller.
   TO DO** ("No database yet — ask for one in the chat"). A first build
   provisions none, so that is the ORDINARY card; hiding the control is how a
   customer never learns the feature is there to ask for. Same shape for an
-  unpublished site's globe ("Not published yet").
+  unpublished site's globe ("Not published yet"), and for the mobile app's
+  permanent one. **And a disabled action must LOOK disabled**: `.st-card-act:disabled`
+  dims to .38, asserted by reading the stylesheet, because a sweep took the
+  `opacity` off and every markup assertion stayed green — three identical-looking
+  icons, one of them inert.
 - **THE FACT COMES OFF THE COLUMN THAT IS THE CREDENTIAL.** `/api/site/list`
   selects `neon_db` and emits `db: !!r.neon_db` — the boolean, never the
   connection. The guard searches the WHOLE payload for the value and for the
@@ -822,36 +837,45 @@ restore; the guard pins that reasoning to the other caller.
   one rule for every control on the card, so the next one added cannot open the
   workspace by accident. The recorded "two lists of the same thing", avoided
   rather than extended.
-- **Guards**: `test/site-list.test.mjs` +12 — the real `cardActs` EVALUATED out
-  of chat.js (two buttons, both disabled states and their sentences, a hostile
-  id escaped, the glyphs drawn through `ic`), the wire driven both ways with a
-  whole-payload credential search, the strict read and the OR merge driven, and
-  the handlers read for where each one lands. **EVERY ABSENCE IS ASSERTED BESIDE
-  A PRESENCE** — the phone button, the phone branch, the catch-all `else` — so
-  the check would fail on a `cardActs` deleted outright, which is the recorded
-  "a negative assertion must prove its observer is alive". **Sweeps: 28/28 with
-  the trio, then 26/26 with the phone off, none unapplied, the comment-only
-  control surviving both.** One survived the FIRST pass of the first sweep and
-  it was the purest form of the wiring trap: cutting `cardActs(s)` out of the
-  card markup left every assertion green and the icons off every card, because
-  all twelve drove the function and none read its one call site. Guarded and
-  re-run to a kill. Full suite **5,454**.
+- **Guards**: `test/site-list.test.mjs` +14 — the real `cardActs` EVALUATED out
+  of chat.js (three buttons, all three disabled states and their sentences, a
+  hostile id escaped, the glyphs drawn through `ic`), the stylesheet read for
+  the dimming, the wire driven both ways with a whole-payload credential search,
+  the strict read and the OR merge driven, and the handlers read for where each
+  one lands. **EVERY ABSENCE IS ASSERTED BESIDE A PRESENCE** — the phone branch,
+  the catch-all `else` — so the check would fail on a `cardActs` deleted
+  outright, which is the recorded "a negative assertion must prove its observer
+  is alive". **Sweeps: 28/28 with the trio, 26/26 with the third removed, then
+  31/31 with it back and disabled; none unapplied, the comment-only control
+  surviving all three.** Full suite **5,456**.
+  **THREE SURVIVED A FIRST PASS AND EVERY ONE WAS A GUARD GAP.** (1) The purest
+  form of the wiring trap: cutting `cardActs(s)` out of the card markup left
+  every assertion green and the icons off every card, because all twelve guards
+  drove the function and none read its one call site. (2) The mobile app's
+  TOOLTIP blanked while the check still passed — it matched the whole button,
+  and the `aria-label` one attribute over still carried the words: an assertion
+  satisfied by a string nobody hovers over. Read out of the `title` attribute
+  now, with the label checked on its own line. (3) The CSS `opacity` removed,
+  above. Each guarded and re-run to a kill.
   **AND AN OLDER GUARD WENT RED, RE-ANCHORED NOT APPEASED**: the card-hop check
   windowed `at + 1800` bytes and the three buttons landed between the card loop
   and the delete, pushing the delete's own adopt out of view — the recorded
   byte-window trap, in the guard whose comment already records fighting a
   different one. Landmark to landmark now, both ends asserted. **A second window
-  was corrected before it could bite**: the unpublished-site check sliced from
-  `data-act="live"` to `data-act="phone"`, which the removal would have turned
-  into `slice(n, -1)` — a window with no end landmark, the recorded trap's other
-  half.
+  nearly bit while the third button was briefly removed**: the unpublished-site
+  check sliced from `data-act="live"` to `data-act="phone"`, which becomes
+  `slice(n, -1)` the moment that landmark goes — a window with no end landmark,
+  the recorded trap's other half. Both ends are asserted there now, which is
+  what makes the button's return safe to keep guarding the same way.
 - **Not proven live.** The next signed-in load of gofarther.dev is the proof:
-  two controls on every card, the cylinder dim on a site with no database.
-  **The assumption behind the third is now moot rather than answered**: it was
-  wired as *see it on a phone*, because that is what exists — the platform
-  builds websites and there is no app product anywhere in the tree — and it is
-  off before it was ever seen live. If a real mobile app is meant later, the
-  restore is the two lines above and the glyph is still there.
+  three controls on every card, the cylinder dim on a site with no database, the
+  handset dim on all of them.
+  **AND THE ASSUMPTION WAS ANSWERED RATHER THAN LEFT STANDING**, which is the
+  thing worth keeping from this: the guess ("mobile app" = the phone preview we
+  already had) was written down as an assumption in the entry and in the reply,
+  not folded in silently — and the owner corrected it in one message. A guess
+  stated is a guess that gets fixed in an afternoon; a guess implemented quietly
+  is one that ships.
 
 ---
 
@@ -5047,8 +5071,8 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,454
-  (2026-09-07, after the card's three icons added twelve to
+  build and the pre-list payload added sixteen); the unit suite is 5,456
+  (2026-09-07, after the card's three icons added fourteen to
   `test/site-list.test.mjs` — the real `cardActs` evaluated out of chat.js with
   both disabled states and their sentences, the `db` boolean driven through the
   route with a whole-payload search for the credential it is derived from, the

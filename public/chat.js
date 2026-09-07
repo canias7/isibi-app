@@ -10258,17 +10258,24 @@ function switchSitePage(path) {
 //   database → the workspace's Data view, `siteDatabase`'s own jump
 //   site     → the live address, in a new tab
 //
-// THE THIRD IS OFF (owner, 2026-09-07: "THE PHONE ONE GOTTA BE OFF FOR NOW").
-// It shipped opening Preview at phone width and is REMOVED rather than greyed:
-// a disabled control earns its place by SAYING something — "No database yet",
-// "Not published yet" — and there is no such sentence for a button that works
-// and is simply not wanted, so a dimmed third icon would read as broken.
+// THE THIRD IS THE MOBILE APP, AND IT IS THERE AND DISABLED (owner, 2026-09-07:
+// "LEAVE IT THERE BUT OFF SINCE WE HAVENT DONE THE MOBILE APP THING YET").
 //
-// TO PUT IT BACK, two things and nothing else: the button below (the `phone`
-// glyph is still in ST_ICONS — the workspace's own device switch uses it, so
-// nothing was deleted), and the branch in the handler that sets `siteView` AND
-// `siteDevice` together. Both are named in the guards, which assert the button
-// is absent while proving they can still see the other two.
+// It shipped for one afternoon opening Preview at phone width, which was a
+// GUESS at what "mobile app" meant against what the tree already had — the
+// platform builds websites and there is no app product in it. It is not a
+// phone preview: it is a placeholder for a thing that does not exist yet.
+//
+// So it is disabled ALWAYS, whatever the site's state, and its tooltip says
+// which of the two kinds of off it is. That distinction is the whole reason it
+// may sit here greyed while the rule below still holds: a disabled control
+// earns its place by SAYING something, and "we have not built this yet" is a
+// true sentence where "this works and we would rather you did not" is not.
+//
+// IT HAS NO HANDLER, deliberately. A disabled button fires no click, and a
+// branch for behaviour nobody has designed is a guess written down as code —
+// the handler's `act !== 'data'` refuses it on the way past. When the mobile
+// app is real, the work is: drop `disabled`, write the tooltip, add the branch.
 //
 // A SITE WITH NO DATABASE GETS A DISABLED BUTTON THAT SAYS SO, never a live one
 // that lands on Preview without explanation: a first build provisions none, so
@@ -10286,6 +10293,9 @@ function cardActs(s) {
       (s.url ? '' : ' disabled') +
       ' title="' + (s.url ? 'Open the live site' : 'Not published yet') + '"' +
       ' aria-label="Open the live site in a new tab">' + ic('globe', 15) + '</button>' +
+    '<button type="button" class="st-card-act" data-act="phone" data-sid="' + id + '" disabled' +
+      ' title="Mobile app — not built yet"' +
+      ' aria-label="Mobile app, not built yet">' + ic('phone', 15) + '</button>' +
   '</div>';
 }
 function renderSites() {
@@ -10378,10 +10388,10 @@ function renderSites() {
     // while `phone` was the only other one and became a way for any unknown
     // `data-act` to open the Data view the moment that button came off.
     //
-    // The phone branch went with the button (owner: "THE PHONE ONE GOTTA BE OFF
-    // FOR NOW"). It read `{ siteView = 'preview'; siteDevice = 'phone'; }` —
-    // BOTH, because arriving from a card last left on Data would otherwise open
-    // Data at phone width. That is the line to restore beside the button.
+    // The mobile-app button IS drawn and is permanently `disabled`, so it fires
+    // no click and needs no branch — and must not be given one, since what it
+    // will do is not designed. This line is what refuses it if a browser ever
+    // dispatches one anyway, and it is the second wall behind the attribute.
     if (b.dataset.act !== 'data') return;
     siteOpenId = rec.id;
     siteView = 'data';

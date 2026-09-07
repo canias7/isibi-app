@@ -387,8 +387,8 @@ was my test's fault, not the code's, so it was tightened and re-run to a kill.
 
 ## Open — waiting on you
 
-**0z. TWO ICONS ON EVERY SITE CARD (2026-09-07, your "A,B,A" then "THE PHONE ONE
-GOTTA BE OFF FOR NOW THO").** What ships:
+**0z. THREE ICONS ON EVERY SITE CARD (2026-09-07, your "A,B,A" then "LEAVE IT
+THERE BUT OFF SINCE WE HAVENT DONE THE MOBILE APP THING YET").** What ships:
 
 - **cylinder → the site's Data view.** A site with **no database** shows it
   dimmed with the tooltip *"No database yet — ask for one in the chat"*. That is
@@ -396,15 +396,18 @@ GOTTA BE OFF FOR NOW THO").** What ships:
   other option and it is how nobody learns the feature exists.
 - **globe → the live site**, in a new tab. Dimmed with *"Not published yet"*
   before a site has an address.
+- **handset → the mobile app**, dimmed on **every** card whatever the site,
+  tooltip *"Mobile app — not built yet"*. A placeholder for the thing we have
+  not built.
 
-**The phone one is off, and REMOVED rather than greyed.** The two dimmed states
-above earn their place by saying something — "No database yet", "Not published
-yet". There is no honest sentence for a button that works and simply is not
-wanted, so a third dimmed icon would just read as broken.
+**I had it wrong for an afternoon and you fixed it in one line.** I read "mobile
+app" as *see it on a phone* — the preview device switch the workspace already
+has — because that was the only thing in the tree the words could point at. That
+guess was written down as a guess in my reply, which is why it cost an afternoon
+and not a feature.
 
-**Putting it back is two lines**, and I have written down which ones. The phone
-glyph itself is untouched (the workspace's device switch still draws it), so
-nothing has to be redrawn.
+**When the mobile app is real**, three small things: drop `disabled`, write the
+tooltip, add what it does. Nothing has to be redrawn.
 
 **Not seen in a browser yet.** Next signed-in load of gofarther.dev shows them.
 If a card's icons are missing, or the cylinder is dim on a site you know has a

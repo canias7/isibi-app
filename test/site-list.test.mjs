@@ -383,26 +383,68 @@ function loadCardActs() {
     + "\n" + cut("cardActs") + "\nreturn cardActs;")();
 }
 
-test("DRIVEN: two buttons, one per thing, each named on the element", () => {
+test("DRIVEN: three buttons, one per thing, each named on the element", () => {
   const cardActs = loadCardActs();
   const html = cardActs({ id: "s1", react: true, backend: true, url: "https://x.gofarther.app/" });
-  for (const act of ["data", "live"]) {
+  for (const act of ["data", "live", "phone"]) {
     assert.equal((html.match(new RegExp('data-act="' + act + '"', "g")) || []).length, 1,
       "exactly one " + act + " button");
   }
-  // THE PHONE ONE IS OFF (owner, 2026-09-07: "THE PHONE ONE GOTTA BE OFF FOR
-  // NOW"). Asserted BESIDE the two above rather than alone, because an absence
-  // proves nothing unless its observer is alive — this same check would pass on
-  // a `cardActs` that had been deleted outright.
-  assert.equal((html.match(/data-act="phone"/g) || []).length, 0,
-    "the phone button is off; to restore it, the button and the handler branch");
-  assert.equal((html.match(/<button/g) || []).length, 2, "two and no more");
-  assert.ok(!/ disabled/.test(html), "a published site with a database has both live");
+  assert.equal((html.match(/<button/g) || []).length, 3, "three and no more");
   // ONE SET, drawn through the app's own icon helper rather than pasted: a
   // hand-written <svg> here would drift from the 1.85 stroke every other glyph
-  // in the chrome uses, and the pair would read as imported.
-  assert.equal((html.match(/class="st-svg"/g) || []).length, 2);
-  assert.equal((html.match(/stroke-width="1\.85"/g) || []).length, 2);
+  // in the chrome uses, and the trio would read as imported.
+  assert.equal((html.match(/class="st-svg"/g) || []).length, 3);
+  assert.equal((html.match(/stroke-width="1\.85"/g) || []).length, 3);
+  // The two that WORK are live on a published site with a database — asserted
+  // here so the mobile-app check below has a demonstrably awake observer.
+  const upTo = (a, b) => html.slice(html.indexOf('data-act="' + a + '"'), html.indexOf('data-act="' + b + '"'));
+  assert.ok(!/ disabled/.test(upTo("data", "live")), "the data button is live");
+  assert.ok(!/ disabled/.test(upTo("live", "phone")), "the live-site button is live");
+});
+
+test("DRIVEN: the mobile app sits there disabled, whatever the site is", () => {
+  // Owner, 2026-09-07: "LEAVE IT THERE BUT OFF SINCE WE HAVENT DONE THE MOBILE
+  // APP THING YET". It is a placeholder for a thing that does not exist — NOT
+  // the phone preview it was briefly wired to, which was a guess at the word.
+  const cardActs = loadCardActs();
+  for (const site of [
+    { id: "s1", react: true, backend: true, url: "https://x/" },   // everything a site can have
+    { id: "s2", react: true, backend: false, url: "" },            // and nothing
+  ]) {
+    const phone = cardActs(site).slice(cardActs(site).indexOf('data-act="phone"'));
+    assert.ok(/ disabled/.test(phone), "it is never live, whatever the site's state");
+    // AND IT SAYS WHICH KIND OF OFF IT IS. That sentence is what lets it sit
+    // greyed beside two buttons whose disabled states mean something else
+    // entirely ("No database yet", "Not published yet").
+    //
+    // READ OUT OF THE `title` ATTRIBUTE, not matched against the whole button.
+    // A sweep blanked the tooltip and this passed, because the aria-label one
+    // attribute over still carried the words — an assertion satisfied by a
+    // string nobody hovers over. The label is checked on its own line below.
+    const title = /title="([^"]*)"/.exec(phone);
+    assert.ok(title, "the button has no tooltip at all");
+    assert.match(title[1], /not built yet/, "the TOOLTIP says the feature does not exist yet");
+    const label = /aria-label="([^"]*)"/.exec(phone);
+    assert.ok(label, "the button has no accessible name");
+    assert.match(label[1], /not built yet/, "and so does the name a screen reader announces");
+  }
+});
+
+test("a disabled card action LOOKS disabled", () => {
+  // A sweep took `opacity` off this rule and every assertion above stayed
+  // green: the markup was right and three identical-looking icons would have
+  // shipped, one of them doing nothing when clicked. Nothing else in this file
+  // reads the stylesheet, so nothing else can see that.
+  const css = read("../public/styles.css");
+  const at = css.indexOf(".st-card-act:disabled");
+  assert.ok(at > 0, "the disabled rule is gone");
+  const rule = css.slice(at, css.indexOf("}", at));
+  const op = /opacity:\s*([\d.]+)/.exec(rule);
+  assert.ok(op, "a disabled action must be visibly dimmed, not merely inert");
+  assert.ok(Number(op[1]) < 0.7, "dimmed enough to read as off: " + op[1]);
+  // The observer is alive: the base rule these override is still here.
+  assert.ok(/\.st-card-act\s*\{/.test(css), "the base rule is gone — re-anchor this");
 });
 
 test("DRIVEN: a site with no database keeps the button and says why", () => {
@@ -412,21 +454,24 @@ test("DRIVEN: a site with no database keeps the button and says why", () => {
   assert.ok(/ disabled/.test(dataBtn), "a site with no database must not offer a live data button");
   // HIDING IT IS HOW A CUSTOMER NEVER LEARNS THE FEATURE IS THERE TO ASK FOR.
   assert.match(dataBtn, /No database yet/, "the tooltip says what to do about it");
-  assert.ok(!/ disabled/.test(html.slice(html.indexOf('data-act="live"'))),
-    "the other one is unaffected");
+  assert.ok(!/ disabled/.test(html.slice(html.indexOf('data-act="live"'), html.indexOf('data-act="phone"'))),
+    "the live-site button beside it is unaffected");
 });
 
 test("DRIVEN: an unpublished site cannot be opened, and says so", () => {
   const cardActs = loadCardActs();
   const html = cardActs({ id: "s1", react: true, backend: true, url: "" });
-  // To the END, since the live button is the last one drawn now — this sliced
-  // to `data-act="phone"` and would have become `slice(n, -1)` when that came
-  // off, which is the recorded window-with-no-end-landmark trap.
-  const live = html.slice(html.indexOf('data-act="live"'));
+  const from = html.indexOf('data-act="live"');
+  const to = html.indexOf('data-act="phone"');
+  // BOTH ENDS ASSERTED. A window whose closing landmark is gone becomes
+  // `slice(n, -1)` and swallows the rest — the recorded trap, and this exact
+  // window nearly hit it when the third button was briefly removed.
+  assert.ok(from > 0 && to > from, "the window's landmarks moved — re-anchor it");
+  const live = html.slice(from, to);
   assert.ok(/ disabled/.test(live), "there is no address to open");
   assert.match(live, /Not published yet/);
   // And the data button beside it is untouched — the observer is alive.
-  assert.ok(!/ disabled/.test(html.slice(html.indexOf('data-act="data"'), html.indexOf('data-act="live"'))));
+  assert.ok(!/ disabled/.test(html.slice(html.indexOf('data-act="data"'), from)));
 });
 
 test("DRIVEN: the id is escaped into the attribute, never concatenated raw", () => {
@@ -436,7 +481,7 @@ test("DRIVEN: the id is escaped into the attribute, never concatenated raw", () 
   assert.ok(html.includes("&quot;"), "it is escaped rather than dropped");
 });
 
-test("each of the two goes somewhere that exists, and nothing else acts", () => {
+test("each button that ACTS goes somewhere that exists, and nothing else acts", () => {
   const c = blankComments(read("../public/chat.js"));
   const at = c.indexOf("view.querySelectorAll('.st-card-act')");
   assert.ok(at > 0, "the handlers are gone");
@@ -453,9 +498,12 @@ test("each of the two goes somewhere that exists, and nothing else acts", () => 
   assert.ok(/b\.dataset\.act !== 'data'/.test(body),
     "an act this card does not draw must fall out, not land on the last branch");
   assert.ok(!/\belse\b/.test(body), "no catch-all branch is left");
-  // THE PHONE BRANCH WENT WITH ITS BUTTON. Asserted beside the two live ones
-  // above, so the absence has an observer that is demonstrably awake.
-  assert.ok(!/siteDevice/.test(body), "the phone branch is off, along with its button");
+  // THE MOBILE-APP BUTTON HAS NO BRANCH AND MUST NOT BE GIVEN ONE: it is
+  // permanently `disabled`, so it fires no click, and what it will DO is not
+  // designed — a branch here would be a guess written down as code. Asserted
+  // beside the two live ones above, so the absence has an awake observer.
+  assert.ok(!/siteDevice/.test(body), "the disabled button has no behaviour to run");
+  assert.ok(!/'phone'/.test(body), "and the handler names it nowhere");
   assert.ok(/e\.stopPropagation\(\)/.test(body), "a click on a button is not also a click on the card");
 });
 
