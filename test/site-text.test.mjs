@@ -283,8 +283,19 @@ test("the site's own look is carried through the recompile", () => {
   // what is asserted, because loading a config and not destructuring it is the
   // select-and-drop shape this repo has lost a feature to before.
   assert.match(block, /readSiteConfig\(env, slug, db\)/, "the spine never reads the stored config");
-  assert.match(block, /\(\{ look, css, logo, icon, verify, langStrings \} = cfg\.config\)/,
+  // RE-ANCHORED 2026-09-07 (one mark, several forms). This pinned the exact
+  // destructure `({ look, css, logo, icon, verify, langStrings } = cfg.config)`,
+  // and `logo`/`icon` left it: a mark is ONE look field carrying a form now, so
+  // those two keys are read by the fold and by nothing else, and the four wire
+  // fields come from `markWire(cfg.config)` beside this line. THE PROPERTY IS
+  // UNCHANGED and is the reason the guard exists — loading a config and not
+  // binding what you loaded is the select-and-drop shape this repo has lost a
+  // feature to — so it is asserted of what the spine still binds, plus the
+  // projection that replaced the two that went.
+  assert.match(block, /\(\{ look, css, verify, langStrings \} = cfg\.config\)/,
     "it must bind the stored look and the stylesheet out of the config it just read");
+  assert.match(block, /marks = markWire\(cfg\.config\);/,
+    "it must project the two marks out of the config it just read");
   // READ, NOT PASSED IN. A recompile handed a look can be handed the WRONG one,
   // and the failure is silent — the site comes back re-themed by a caller that
   // meant nothing by it.

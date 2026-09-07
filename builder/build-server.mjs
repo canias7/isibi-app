@@ -46,6 +46,7 @@ import { dirFor, initialsMark, normalizeLang, siteIconFrom } from "./site-identi
 // two layers, version skew and hand-written payloads reach this one directly,
 // and the mark is an SVG document served from the site's own origin.
 import { cleanFavicon, readWordmark, cleanGif } from "./site-favicon.mjs";
+import { markUrlOk } from "./site-mark.mjs";
 // THE QR LIST'S NAME AND FILE RULES — the dependency-free half of the QR
 // module, so this container never has to carry the encoder (2026-09-03).
 import { QR_NAME, QR_FILE, qrFile, MAX_QRS } from "./site-qr-list.mjs";
@@ -539,9 +540,12 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
   // first person to reach that row through some other route gets an XSS on a
   // customer's site.
   const raw = typeof logo === "string" ? logo.trim() : "";
-  const logoOk = /^https:\/\/[^\s"'<>]+$/i.test(raw)
-    || /^\/u\/[a-z0-9][a-z0-9-]{0,80}\/[a-z0-9._-]{1,120}$/i.test(raw);
-  let logoValue = logoOk ? raw : "";
+  // ONE COPY OF THE RULE (2026-09-07) — `markUrlOk`, shared with `siteIconFrom`
+  // one module over, which carried a byte-identical pair of regexes. Two copies
+  // of a refusal that decides whether a `javascript:` URL reaches a customer's
+  // generated `src` is the recorded "two lists of the same thing", with the
+  // worst possible subject.
+  let logoValue = markUrlOk(raw) ? raw : "";
   // THE DESIGNER'S WORDMARK, under the owner's uploaded logo (a model must not
   // outrank a person) and over the name-as-text default. `text` is a real
   // answer and writes nothing — the header renders the brand in type, which is

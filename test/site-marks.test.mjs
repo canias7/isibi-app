@@ -213,7 +213,14 @@ test("THE CHAIN — both marks reach the site, and survive every later publish",
   // off the site. That is the tab-icon bug, which happened exactly this way.
   const hops = [...w.matchAll(/favicon: /g)];
   assert.ok(hops.length >= 3, "fewer favicon hops than there were — this scan is looking at the wrong shape");
-  const payloadHops = [...w.matchAll(/icon: icon \|\| "",/g)];
+  // RE-ANCHORED 2026-09-07 (one mark, several forms). The anchor was the
+  // literal `icon: icon || "",` and one of the two payloads now takes its
+  // four mark fields from the ONE projection (`icon: marks.icon`), so that
+  // spelling finds a single hop and the floor below passed vacuously.
+  // The property is unchanged: a container payload names the icon, and
+  // whatever else it must carry has to be beside it. Anchored on the
+  // PROPERTY — a payload line naming the icon — which both still are.
+  const payloadHops = [...w.matchAll(/^ +icon: [^\n]+,$/gm)];
   assert.ok(payloadHops.length >= 2, "the two container payloads are no longer findable");
   for (let i = 0; i < payloadHops.length; i++) {
     const from = payloadHops[i].index;

@@ -22,6 +22,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { markWire } from "../builder/site-mark.mjs";
 
 const worker = fs.readFileSync(path.join(import.meta.dirname, "../worker.js"), "utf8");
 
@@ -111,10 +112,23 @@ test("buildAndPublishPages destructures every key its caller passes", () => {
   // nothing was checked.
   assert.ok(params.size >= 15, `only found ${params.size} parameters — the scan is broken`);
   assert.ok(keys.size >= 15, `only found ${keys.size} passed keys — the scan is broken`);
-  // And the two names this was written for, so the check cannot pass vacuously
+  // AND THE TWO NAMES THIS WAS WRITTEN FOR, so the check cannot pass vacuously
   // on a build path that stopped carrying either.
-  for (const n of ["icon", "logo"]) {
-    assert.ok(keys.has(n), `the caller no longer passes \`${n}\``);
+  //
+  // RE-ANCHORED 2026-09-07 (one mark, several forms). `icon` and `logo` are no
+  // longer literal keys at the call site: both marks, and the two drawn fields
+  // beside them, come from ONE spread of `markWire({ look })`, and a spread is
+  // invisible to a text scan — so `keys.has("icon")` went red for a change that
+  // made the property STRONGER (a path can no longer carry one mark and miss
+  // its sibling). Asked of the projection instead, which is derived from the
+  // module rather than re-listed here, so a fifth wire field is covered without
+  // anybody remembering this file.
+  assert.match(worker, /\.\.\.markWire\(\{ look \}\),/,
+    "the caller no longer spreads the mark projection into the build args");
+  const wireKeys = Object.keys(markWire({ logo: "/u/s/a.png", icon: "/u/s/b.png" }));
+  assert.ok(wireKeys.length >= 4, `markWire projects only ${wireKeys.length} fields — the derivation is broken`);
+  for (const n of wireKeys) {
+    assert.ok(params.has(n), `the caller spreads \`${n}\` and buildAndPublishPages does not destructure it`);
   }
   const missing = [...keys].filter((k) => !params.has(k));
   assert.deepEqual(missing, [],

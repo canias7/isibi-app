@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { readLogoImage, logoRefusal, runLogoEdit, MAX_LOGO_BYTES } from "../builder/site-logo.mjs";
 import { withConfig } from "../site-config.mjs";
+import { MARKS, markWire, markUrlOk } from "../builder/site-mark.mjs";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 const b64 = (u8) => Buffer.from(u8).toString("base64");
@@ -284,14 +285,30 @@ test("only a shape that cannot be a javascript: URL is written", () => {
   // own `_meta` today, and "it came from us" is how the first person to reach
   // that row by some other route gets an XSS on a customer's site.
   const block = brandWriter();
-  assert.match(block, /\^https:\\\/\\\//, "an absolute URL is not required to be https");
+  // RE-ANCHORED 2026-09-07, AND DRIVEN RATHER THAN READ. This matched the
+  // literal `^https:\/\/` inside the baker, and that regex pair moved: it was
+  // written out TWICE — here and in `siteIconFrom` — for one rule about what may
+  // reach a customer's generated `src`, which is the recorded "two lists of the
+  // same thing" with the worst possible subject. `markUrlOk` owns it now, and
+  // asking the rule what it REFUSES is a stronger check than finding a fragment
+  // of it in a file: a regex can be present and wrong.
+  for (const bad of [
+    "javascript:alert(1)", "JaVaScRiPt:x", "data:text/html;base64,PHNjcmlwdD4=",
+    "http://e.test/x.png", "//e.test/x.png", "/x.png", "u/s/a.png",
+    " javascript:x", "https://e.test/x .png", 'https://e.test/"x.png',
+  ]) assert.ok(!markUrlOk(bad), "markUrlOk admits " + JSON.stringify(bad) + " into a generated src");
+  // …and the shapes it MUST admit, or the guard would pass by refusing all.
+  for (const good of ["https://cdn.test/logo.png", "/u/fretwork-1/96e1caf.png"]) {
+    assert.ok(markUrlOk(good), "markUrlOk refuses " + good);
+  }
+  assert.match(block, /markUrlOk\(raw\)/, "the baker no longer asks the shared rule");
   assert.match(block, /JSON\.stringify\(logoValue\)/, "the value is not quoted safely into the module");
   // AND THE CHECK HAS TO DECIDE THE VALUE, not merely exist. A mutant replacing
   // `logoOk ? raw : ""` with `raw` left both assertions above intact — the
   // pattern was still in the file and the value was still quoted — while every
   // shape the check exists to refuse went straight into a customer's `src`.
   // Computed and dropped, which is the class this whole guard is about.
-  assert.match(block, /logoValue\s*=\s*logoOk\s*\?/,
+  assert.match(block, /logoValue\s*=\s*markUrlOk\(raw\)\s*\?/,
     "the shape check is computed and then discarded — every refused shape is written anyway");
 });
 
@@ -330,30 +347,74 @@ test("BOTH PUBLISH PATHS CARRY THE STORED LOGO", () => {
   // …and that each payload path really binds it, which the read cannot promise:
   // loading a config and then not destructuring the logo out of it is the
   // select-and-drop shape this repo has lost a feature to before.
-  assert.match(worker, /\(\{ look, css, logo, icon, verify, langStrings \} = cfg\.config\)/,
-    "the spine loads the config and does not bind the logo out of it");
-  assert.match(worker, /priorLogo = cfg\.config\.logo;/,
-    "the build path loads the config and does not bind the logo out of it");
-  assert.match(worker, /\n\s+logo,\n/, "recompileAndPublish does not send it to the container");
-  assert.match(worker, /logo: priorLogo,/, "a revise does not carry the stored logo");
+  // RE-ANCHORED 2026-09-07 (one mark, several forms). This pinned four
+  // spellings — the spine's `({ look, css, logo, icon, … } = cfg.config)`,
+  // `priorLogo = cfg.config.logo`, a bare `logo,` in the payload and
+  // `logo: priorLogo` — and every one of them moved when the header mark became
+  // ONE field carrying a form. THE PROPERTY IS UNCHANGED and is the reason this
+  // guard exists: the container rewrites `site-brand.ts` on every build, so a
+  // publish path that does not put the stored mark on the wire takes it off the
+  // site. What changed is that the four wire fields are no longer bound one at a
+  // time — they come from ONE projection, `markWire`, which is what makes
+  // "a path cannot carry the logo and miss the icon" true by construction
+  // instead of by four assertions that can each go stale alone.
+  assert.match(worker, /marks = markWire\(cfg\.config\);/,
+    "the spine loads the config and does not project the marks out of it");
+  assert.match(worker, /priorLook = lookWithMarks\(cfg\.config\);/,
+    "the build path loads the config and does not resolve the marks out of it");
+  assert.match(worker, /\n\s+logo: marks\.logo,\n/,
+    "recompileAndPublish does not send the header mark to the container");
+  assert.match(worker, /\.\.\.markWire\(\{ look \}\),/,
+    "a revise does not carry the stored marks");
   assert.match(worker, /logo: logo \|\| "",/, "the build path does not send one");
+  // AND THE PROJECTION REALLY PROJECTS BOTH MARKS, driven rather than read: a
+  // `markWire` that answered only the header would satisfy every match above.
+  assert.deepEqual(Object.keys(markWire({ logo: "/u/s/a.png", icon: "/u/s/b.png" })).sort(),
+    ["favicon", "icon", "logo", "wordmark"],
+    "markWire does not carry all four wire fields, so a payload can still drop one");
 });
 
-test("the logo is its OWN stored field, never a member of the look", () => {
-  // `mergeLook` rebuilds its output from `EDIT_FIELDS` alone, so anything else
-  // stored on that object is dropped by the next look edit — a customer
-  // changing a colour would silently lose their logo.
+test("an uploaded mark is a FORM on the look, and setting one mark keeps the other", () => {
+  // REWRITTEN 2026-09-07, AND ITS PREMISE IS DELIBERATELY INVERTED. This guard
+  // used to assert the opposite — that the logo was its own config field and
+  // NEVER a member of the look — because `mergeLook` rebuilds its output from
+  // `EDIT_FIELDS` alone, so anything else stored there was dropped by the next
+  // colour change. That reason expired when a mark became an `EDIT_FIELDS` key
+  // in its own right (`wordmark`, `favicon`), which is exactly this repository's
+  // "a rule true because of a layer below it expires when that layer moves".
+  //
+  // WHAT IS ASSERTED NOW is the invariant that survived the inversion: an upload
+  // is stored in the same field and the same shape as a drawing, so whichever
+  // was set last is what the site wears — and setting ONE mark must still leave
+  // the other exactly as it was.
   const edit = fs.readFileSync(new URL("../builder/site-edit.mjs", import.meta.url), "utf8");
-  assert.ok(!/EDIT_FIELDS = \[[^\]]*logo/.test(edit), "the logo is on EDIT_FIELDS, where a look edit will drop it");
-  assert.match(worker, /patchSiteConfig\(env, ownerSlug, ldb,\s*\n?\s*icon \? \{ icon: [^}]*\} : \{ logo:/,
-    "nothing writes the logo field");
-  // AND `withConfig`'s ABSENT-MEANS-UNCHANGED IS WHAT KEEPS THE OTHER SLOT.
-  // The lane patches one field per call, so setting the icon must leave the logo
-  // exactly as it was — a whole-object write here is how a site with both loses
-  // one. Driven through the real merge rather than read off the lane.
-  const both = withConfig({ logo: "/u/s/logo.png", icon: "/u/s/icon.png" }, { icon: "/u/s/new.png" });
-  assert.equal(both.logo, "/u/s/logo.png", "setting the icon cleared the logo");
-  assert.equal(both.icon, "/u/s/new.png");
+  for (const f of MARKS) {
+    assert.match(edit, new RegExp('EDIT_FIELDS = \\[[^\\]]*"' + f + '"'),
+      f + " is not on EDIT_FIELDS, so a look edit will drop the mark stored there");
+  }
+  assert.match(worker, /\[field\]: next \} \}\);/,
+    "the logo rung no longer writes the mark as a form on the look");
+  assert.match(worker, /const next = url \? \{ form: "image", url \} : markRemove\(c\.config, field\);/,
+    "an upload is not stored as an `image` form, or a removal does not ask what is under it");
+  // THE LOOK IS READ AND MERGED, NEVER PATCHED FIELD BY FIELD, and this is the
+  // half that would be catastrophic to get wrong: `withConfig` replaces a named
+  // config field WHOLE, so `{ look: { wordmark } }` takes the theme, the brand,
+  // the description and every language off the site. Driven through the real
+  // merge, because the first cut of this change did exactly that.
+  const stripped = withConfig({ look: { theme: "Warm Brick", brand: "CGS" } }, { look: { wordmark: { form: "text" } } });
+  assert.equal(stripped.look.theme, undefined,
+    "withConfig started merging `look`, so the rung's read-then-spread is now belt and braces — say so rather than deleting it");
+  const sv = worker.indexOf("save: async (patch) => {");
+  const body = worker.slice(sv, worker.indexOf("\n                },", sv));
+  assert.match(body, /const look = c\.config\.look[^\n]*\n[\s\S]*\.\.\.look,/,
+    "the rung writes a look it did not read and merge, so one mark strips the rest of the design");
+  assert.match(body, /if \(!c\.ok\) throw new Error/,
+    "a look that could not be READ is written over anyway, which publishes a stripped site as a success");
+  // AND `withConfig`'s ABSENT-MEANS-UNCHANGED STILL KEEPS THE OTHER SLOT.
+  const both = withConfig({ look: { wordmark: { form: "image", url: "/u/s/logo.png" } } },
+    { look: { wordmark: { form: "image", url: "/u/s/logo.png" }, favicon: { form: "image", url: "/u/s/new.png" } } });
+  assert.equal(both.look.wordmark.url, "/u/s/logo.png", "setting the icon cleared the logo");
+  assert.equal(both.look.favicon.url, "/u/s/new.png");
 });
 
 test("THE ROUTE IS REACHABLE AND THE CLIENT SENDS THE PICTURE", () => {
@@ -507,7 +568,13 @@ test("the two slots are two _meta keys, and the icon reaches the container from 
   // TWO FIELDS, ONE PER SLOT, and the lane names which. A wordmark is legible at
   // a few hundred pixels and a smear at 16, so a site can have both and setting
   // one must not clear the other.
-  assert.match(w, /icon \? \{ icon: String\(patch\.icon \|\| ""\) \} : \{ logo: String\(patch\.logo \|\| ""\) \}/);
+  // RE-ANCHORED 2026-09-07. This pinned the rung's two-key patch
+  // (`icon ? { icon: … } : { logo: … }`), which went when a mark became ONE
+  // look field carrying a form. THE PROPERTY IS UNCHANGED: the rung still
+  // decides WHICH of the two slots it is writing, from the module's own answer
+  // and not from a flag re-read here, so setting one cannot touch the other.
+  assert.match(w, /const field = Object\.prototype\.hasOwnProperty\.call\(patch, "icon"\) \? "favicon" : "wordmark";/,
+    "the rung no longer picks its slot from the module's own patch");
   // AND A FAILED SAVE MUST THROW. `runLogoEdit` catches `deps.save` and answers
   // "I couldn't save that just now — your site is unchanged", which is the
   // honest refusal; swallowing the store's `{ok:false}` instead publishes and
@@ -517,12 +584,17 @@ test("the two slots are two _meta keys, and the icon reaches the container from 
   assert.ok(sv > 0, "the logo lane's save dep is gone");
   assert.match(w.slice(sv, w.indexOf("\n                },", sv)), /if \(!w\.ok\) throw new Error\(w\.error\);/,
     "the logo lane swallows a failed save, so a lost logo reads as a success");
-  // read on the cheap-edit spine AND on the build path
-  assert.match(w, /\(\{ look, css, logo, icon, verify, langStrings \} = cfg\.config\)/);
-  assert.match(w, /priorIcon = cfg\.config\.icon;/);
+  // read on the cheap-edit spine AND on the build path — RE-ANCHORED 2026-09-07
+  // off the four bindings that moved (`{ look, css, logo, icon, … }`,
+  // `priorIcon = cfg.config.icon`, `icon: icon || ""` on the spine and
+  // `icon: priorIcon` on the revise) and onto the ONE projection that replaced
+  // them. The property is the same and is now stronger: a path cannot read the
+  // marks and send half of them, because both halves come from one call.
+  assert.match(w, /marks = markWire\(cfg\.config\);/);
+  assert.match(w, /priorLook = lookWithMarks\(cfg\.config\);/);
   // and sent on both
-  assert.match(w, /\n {10}icon: icon \|\| "",/);
-  assert.match(w, /\n {12}icon: priorIcon,/);
+  assert.match(w, /\n {10}icon: marks\.icon,/);
+  assert.match(w, /\.\.\.markWire\(\{ look \}\),/);
   // …AND "BOTH" WAS TWO HOPS OF ONE PATH. This test's own title says both
   // publish paths and neither assertion above reached the cheap-edit spine:
   // `icon: icon || ""` matched `buildAndPublishPages` alone, and
@@ -537,17 +609,22 @@ test("the two slots are two _meta keys, and the icon reaches the container from 
   // call, same silent loss when a payload omits one — so "everywhere one goes,
   // the other goes" is the property, and a fourth hop written tomorrow is
   // covered without anybody remembering this file.
-  const logoHops = [...w.matchAll(/^(\s*)logo(?:,|: [^,\n]+,)$/gm)];
-  assert.ok(logoHops.length >= 2,
-    "the scan found only " + logoHops.length + " logo hops, so it has stopped scanning");
-  for (const m of logoHops) {
-    // The next few properties, not strictly the next one, and comments skipped
-    // — this repo puts its reasoning between the two lines, which is exactly
-    // how the sibling `lang`/`mode` guard was made to fail on a correct change.
-    const after = w.slice(m.index + m[0].length, m.index + m[0].length + 2000);
-    const props = after.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("//")).slice(0, 4);
-    assert.ok(props.some((l) => /^icon:/.test(l)),
-      "a `logo` hop with no `icon` beside it: " + props.join(" ").slice(0, 90));
+  // DERIVED FROM `logo`, NOT A LIST OF THE HOPS THERE ARE TODAY — and since
+  // 2026-09-07 the derivation is DRIVEN rather than scanned. The old form
+  // walked every `logo:` line in worker.js and demanded an `icon:` within the
+  // next few properties; with the four fields spread from one projection there
+  // is no longer a line to walk, and a scan that finds nothing passes
+  // vacuously. So the property — "everywhere one goes the other goes" — is
+  // asked of the projection itself, which is now the only thing that can carry
+  // a mark to the container.
+  const hops = [...w.matchAll(/markWire\(/g)];
+  assert.ok(hops.length >= 3,
+    "the scan found only " + hops.length + " markWire call sites, so it has stopped scanning");
+  for (const [store, want] of [[{ logo: "/u/s/a.png" }, "logo"], [{ icon: "/u/s/b.png" }, "icon"]]) {
+    const wire = markWire(store);
+    assert.equal(wire[want], store[want], "markWire dropped the " + want + " it was given");
+    assert.ok(Object.prototype.hasOwnProperty.call(wire, "logo") && Object.prototype.hasOwnProperty.call(wire, "icon"),
+      "a mark reached the wire without its sibling: " + JSON.stringify(wire));
   }
   // ...which used to need both SELECTs to ask for it, or the read was of a row
   // that was never fetched and every publish silently dropped the icon.

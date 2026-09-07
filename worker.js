@@ -159,7 +159,15 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, shadowedBy, shadowedRefusal } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote } from "./builder/site-lanes.mjs";
+// ONE MARK, SEVERAL FORMS (2026-09-07, owner: *"instead of it being 3 things or
+// 4 or 5, its gotta be one, wordmark, but it can be made in svg"*). The header
+// mark and the tab icon are one stored field each, carrying a form — a drawing,
+// an uploaded picture, or the floor — instead of three fields with a precedence
+// ladder hidden in the container. `markOf` folds a site still on the old pair,
+// `markWire` projects the container's four fields off it, and `markRemove` says
+// what a removal leaves behind.
+import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords, lookWithMarks, ownedMark, sameMark } from "./builder/site-mark.mjs";
 // THE ADD STEP (2026-09-02) — the same split for the step that ADDS: its own
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
@@ -10361,8 +10369,13 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     return { ok: false, error: "unbilled", ours: why !== "insufficient", detail: why };
   };
   { const u = unbilled(); if (u) return u; }
-  let look = null, logo = "", icon = ""
+  let look = null;
   let verify = null, langStrings = null;
+  // THE TWO MARKS AS THE CONTAINER WANTS THEM. Filled beside the read below;
+  // the floor is what a site with nothing stored publishes anyway, so a path
+  // that somehow reached the payload without the read still sends a whole,
+  // honest answer rather than four undefineds.
+  let marks = markWire(null);
   // THE MODEL'S OWN STYLESHEET, read here for the reason every other look key is:
   // this spine runs on EVERY cheap edit — a typo fix, a colour change, a swapped
   // picture — and the container rewrites `src/styles.css` from a pristine copy on
@@ -10429,10 +10442,14 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     //
     //   `look`        the brand, the language, the plan
     //   `css`         the model's own stylesheet — the whole design since 2026-08-23
-    //   `logo`        its own key, not a field on `look`: `mergeLook` rebuilds
-    //                 its output from `EDIT_FIELDS` alone, so anything else
-    //                 stored there is dropped by the next look edit
-    //   `icon`        the tab mark; without it the site falls back to initials
+    //   the two marks  read through `markWire` below rather than destructured
+    //                 here. They used to be `logo` and `icon`, their own keys
+    //                 BESIDE `look` because `mergeLook` rebuilds its output from
+    //                 `EDIT_FIELDS` alone and anything else stored on the look
+    //                 was dropped by the next look edit. That reason expired on
+    //                 2026-09-07: a mark is a form ON the look now, so it
+    //                 survives the merge like every other design decision, and
+    //                 the two old keys are read by the fold and by nothing else
     //   `verify`      an owner's Search Console tag, gone on their next typo fix
     //   `langStrings` the translation cache, keyed by the English string, so a
     //                 colour change finds every string already answered and
@@ -10442,7 +10459,14 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // which this shares an answer with. `loadConfig` returns rather than throws,
     // so the refusal is explicit here.
     if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
-    ({ look, css, logo, icon, verify, langStrings } = cfg.config);
+    ({ look, css, verify, langStrings } = cfg.config);
+    // ONE MARK, SEVERAL FORMS (2026-09-07) — the four wire fields off the one
+    // stored form per mark, through the fold, so a site still carrying the old
+    // pair sends exactly what it sends today and one that has been given a form
+    // sends that. `markWire` is the ONE projection: every one of these four has
+    // been the site of a "read here and never put on the wire" bug, and the tab
+    // icon's comment below is what one of them cost.
+    marks = markWire(cfg.config);
   } catch (e) {
     // A THROWING READ FAILS THE EDIT — it does not publish the site stripped.
     // This catch used to console.error and fall through, so a transient
@@ -10746,7 +10770,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
           // `undefined` for every site that has none, which is every site built
           // before 2026-08-29 — byte-identical to the request this sent before.
           parts: siteParts || undefined,
-          logo,
+          logo: marks.logo,
           // THE TAB ICON, for the same reason as `logo` one line up — and it
           // was read here and never put on the wire.
           //
@@ -10765,13 +10789,13 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
           // path of two) and the next cheap edit removed it again — a favicon
           // flipping between the owner's artwork and a drawn mark depending on
           // which lane published last.
-          icon: icon || "",
+          icon: marks.icon,
           // THE DESIGNER'S MARK, ON THE SPINE — the half that is easy to miss,
           // and the exact lane the owner's icon above was once dead on: the
           // container writes the tab icon on EVERY build, so a text fix that
           // does not carry the stored mark takes it off and the site falls
           // back to initials because somebody corrected a typo.
-          favicon: (look && look.favicon) || undefined,
+          favicon: marks.favicon,
           // THE ANIMATED MARK AND THE QR, on the spine as well as the build —
           // this file's standing rule, and both fail the same way without it:
           // the container deletes and rewrites `public/` on every build, so a
@@ -10784,7 +10808,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
           // nothing for the container to compute.
           gif: (look && look.gif) || undefined,
           qr: qrPayload(look && look.qr),
-          wordmark: (look && look.wordmark) || undefined,
+          wordmark: marks.wordmark,
           // THE DESCRIPTION, ON THE SPINE TOO — the container re-composes the
           // share card on EVERY publish, so a text fix that does not carry it
           // republishes a card with the name and no sentence under it.
@@ -11786,8 +11810,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // spine's payload.
           langs: extraLangs.length ? { extra: extraLangs, routes: primaryRoutes } : undefined,
           // A first build has none and sends "", which is what the container
-          // writes anyway. A REVISE carries the stored one — see `priorLogo`,
-          // without which every revise would quietly take the logo off.
+          // writes anyway. A REVISE carries the stored one — see the caller's
+          // `markWire({ look })`, without which every revise would quietly take
+          // the logo off.
           logo: logo || "",
           // THE TAB ICON, which is a DIFFERENT piece of artwork from the
           // header logo and not a smaller copy of it: a wordmark is legible
@@ -14748,7 +14773,12 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
               // scale of every colour on every page. `currentStateNote` prints
               // it in full and `EDIT_RULE` says what to do with it.
               const cfg = await readSiteConfig(env, editSlug, conn);
-              const stored = cfg.ok ? cfg.config.look : null;
+              // BOTH MARKS RESOLVED (2026-09-07), so the note shows the mark the
+              // site is actually WEARING. Before forms, an uploaded logo lived in
+              // a config key this note never read, so the model was told the site
+              // had a drawn wordmark — or none — while the header carried a
+              // picture. That is the shape run 41 paid 2 credits for.
+              const stored = cfg.ok ? lookWithMarks(cfg.config) : null;
               const storedCss = cfg.ok ? cfg.config.css : "";
               let storedSchema = null;
               if (conn) {
@@ -15428,7 +15458,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // goes. Best-effort in both directions — losing it re-rolls the look, which
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
-      let priorLook = null, priorLogo = "", priorIcon = "";
+      let priorLook = null;
       // THE STYLESHEET THE SITE IS WEARING. On a revise the designer is told to
       // return it with the change made; when the message is about something else
       // it answers nothing here, and this is what keeps the design.
@@ -15452,10 +15482,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // translation cache is cold so every language is re-translated.
           const cfg = await readSiteConfig(env, slug, db);
           if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
-          priorLook = cfg.config.look;
+          // ONE MARK, SEVERAL FORMS (2026-09-07). `priorLogo` and `priorIcon`
+          // were read here because an upload was its own config key that
+          // `mergeLook` would drop; a mark is a FORM on the look now, so both
+          // travel through the merge like every other design decision and the
+          // fold is what makes a site still on the old pair read the same.
+          priorLook = lookWithMarks(cfg.config);
           priorCss = cfg.config.css;
-          priorLogo = cfg.config.logo;
-          priorIcon = cfg.config.icon;
           priorVerify = cfg.config.verify;
           priorLangStrings = cfg.config.langStrings;
         } catch (e) { console.error("look read failed:", slug, e && e.message); }
@@ -15847,17 +15880,17 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // many words published monolingual, and the answer sat nowhere.
             langs: look.langs,
             langStrings: priorLangStrings,
-            // Read straight off `_meta` rather than through `mergeLook`: the
-            // logo is not something a designer can name, so it has no business
-            // in `EDIT_FIELDS` and would be dropped by that merge if it were.
-            logo: priorLogo,
-            icon: priorIcon,
-            // The designer's mark, out of the MERGED look like the language
-            // above it — `favicon` is on `EDIT_FIELDS`, so a revise that does
-            // not mention the mark keeps it and a fresh answer replaces it.
-            favicon: look.favicon,
+            // THE TWO MARKS, OFF THE MERGED LOOK, THROUGH THE ONE PROJECTION.
+            // These were four hand-written fields, two of them read straight off
+            // the config because an upload could not survive `mergeLook`. Since
+            // 2026-09-07 each mark is ONE form on the look, so a revise that
+            // does not mention it keeps it and a fresh answer replaces it —
+            // except an uploaded one, which `mergeLook` will not let a design
+            // step overwrite. `markWire` turns the pair of forms back into the
+            // four fields the container reads.
+            ...markWire({ look }),
             // The animated mark and the QR, off the same merged look as the
-            // favicon beside them — so a revise that mentions neither keeps both.
+            // two marks above them — so a revise that mentions neither keeps both.
             gif: look.gif,
             qr: look.qr,
             // THE SCENE, off the merged look like the two marks above it. This
@@ -15865,7 +15898,6 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // 2026-08-29 and reached the page writer never, so the design step
             // decided a canvas on every build and no page could ever contain one.
             three: look.three,
-            wordmark: look.wordmark,
             // AND THE SEARCH-CONSOLE TAG, for the reason the icon and the logo
             // are here: the sidecar is rewritten whole on every publish, so a
             // path that does not carry the stored verification publishes none.
@@ -21532,17 +21564,11 @@ async function handleRequest(request, env, ctx) {
               // the stored list too: which codes the page shows is a question
               // about the codes BY NAME, and the names are in the look.
               let wallLook = null;
-              // THE WHOLE CONFIG, because the wall below this one reads the
-              // UPLOADS (`logo`, `icon`) and those are their own fields beside
-              // `look`, never members of it — `mergeLook` rebuilds that object
-              // from `EDIT_FIELDS` alone, which is exactly why the logo rung
-              // stores outside it. One read serves both walls.
-              let wallConfig = null;
-              if (pickedFields.some((f) => ADD_ONLY_FIELDS.includes(f) || shadowedBy(f))) {
+              if (pickedFields.some((f) => ADD_ONLY_FIELDS.includes(f))) {
                 try {
                   const c = await readSiteConfig(env, ownerSlug, null);
-                  if (c.ok) { wallConfig = c.config; wallLook = c.config.look; }
-                } catch { wallConfig = null; wallLook = null; }
+                  if (c.ok) wallLook = c.config.look;
+                } catch { wallLook = null; }
                 if (wallLook) {
                   for (const f of ADD_ONLY_FIELDS) {
                     // "EXISTS" IS A FACT ABOUT THE SITE, NOT ONLY ABOUT THE
@@ -21558,38 +21584,22 @@ async function handleRequest(request, env, ctx) {
                 }
               }
 
-              // ── AND A FIELD AN UPLOAD SHADOWS IS REFUSED FREE (run 41) ────
+              // ── THERE IS NO SHADOW WALL ANY MORE, AND THAT IS THE POINT ───
               //
-              // Run 41 drew a wordmark on a site whose header carries an
-              // uploaded PNG, stored it, published, charged 2 credits, and said
-              // "done" — while the page could not show it, by the baker's own
-              // deliberate precedence. The lane never knew. Asked BEFORE any
-              // lane runs, so the expensive call is the thing not made: the
-              // 292-second generation run 41 paid for is exactly what this
-              // skips.
+              // For one morning (2026-09-07) a wall stood here refusing a
+              // `wordmark` or `favicon` lane for free whenever the site carried
+              // an uploaded picture, because the container's baker made the
+              // upload win and the drawn answer could never be seen — run 41
+              // paid 2 credits and 292 seconds to learn that. The wall was
+              // honest and it was a symptom: three fields per mark with the
+              // precedence between them a layer away.
               //
-              // A READ THAT FAILED LETS THE LANE RUN, the same way the addon
-              // wall above treats its own miss. The danger here points the
-              // other way from the usual: reading "could not tell" as "there IS
-              // an upload" would refuse a change that would have worked, so
-              // only a config actually READ can refuse. `wallConfig` is null on
-              // any failure and this whole block is skipped.
-              //
-              // A NON-EMPTY STRING, never truthiness: the logo rung CLEARS by
-              // writing "" (`String(patch.logo || "")`), so a cleared upload is
-              // a present key with an empty value and must read as no upload.
-              if (wallConfig) {
-                for (const f of pickedFields) {
-                  const up = shadowedBy(f);
-                  if (!up) continue;
-                  const held = wallConfig[up];
-                  if (typeof held === "string" && held.trim()) {
-                    editTrace.mark("shadowed", "ok", { field: f, by: up });
-                    return Response.json({ ok: false, layer: "look", field: f, shadowed: up,
-                      cost: 0, msg: shadowedRefusal(f) }, { status: 422 });
-                  }
-                }
-              }
+              // With ONE field per mark carrying a FORM, a lane's answer simply
+              // REPLACES whatever form is there, so there is nothing to shadow
+              // and nothing to refuse. What the wall was really protecting —
+              // "a model must not outrank a person" — is `mergeLook`'s
+              // `asked` rule now: a design step that VOLUNTEERS a mark leaves
+              // an uploaded one alone, a lane the customer named does not.
 
               // A PAGE-SHAPED LANE NEEDS A PAGE, and a dispatched one carries no
               // `eb.page`. The site's only page is the answer when it has one —
@@ -22343,24 +22353,52 @@ async function handleRequest(request, env, ctx) {
                   await env.SITES_BUCKET.put(uploadKey(ownerSlug, name), bytes, { httpMetadata: { contentType: kind.mime } });
                   return uploadUrl(ownerSlug, name);
                 },
-                // ITS OWN FIELD, never a member of `look`: that object is rebuilt
-                // from `EDIT_FIELDS` by `mergeLook`, so a logo stored on it would
-                // be dropped by the next colour change.
-                // TWO FIELDS, ONE PER SLOT, and the module names which. The
+                // A FORM ON THE LOOK, WHICH IS THE WHOLE OF THE CHANGE (2026-09-07).
+                //
+                // This wrote `config.logo` / `config.icon` — their own fields
+                // BESIDE `look`, because `mergeLook` rebuilt that object from
+                // `EDIT_FIELDS` alone and anything else stored there was dropped
+                // by the next colour change. That reason is gone: a mark IS an
+                // edit field now, so an upload is stored where the drawn one is
+                // stored, in the same shape, and one form replaces the other.
+                //
+                // TWO MARKS, ONE PER SLOT, and the module still names which. The
                 // header logo and the tab icon are different pieces of artwork —
                 // a wordmark is legible at a few hundred pixels and a smear at 16
                 // — so a site can have both, and setting one must not clear the
-                // other. `withConfig`'s absent-means-unchanged rule is what makes
-                // that true, so the patch is passed through as the module built
-                // it rather than rebuilt from a flag re-read here.
+                // other. That is `withConfig`'s absent-means-unchanged rule plus
+                // this patch naming exactly one look key.
+                //
+                // A REMOVAL IS `markRemove`, not an empty string. The old door
+                // cleared its own key and let the ladder fall through to whatever
+                // was under it; with one field there is no ladder, so what the
+                // removal falls to is COMPUTED — the drawn mark a site still on
+                // the old pair had hidden beneath the upload, otherwise the
+                // floor — and written as a form, so the reveal happens once.
+                //
+                // THE LOOK IS READ AND MERGED, NEVER PATCHED FIELD-BY-FIELD.
+                // `withConfig` replaces a named config field WHOLE, so writing
+                // `{ look: { wordmark } }` would take the theme, the brand, the
+                // description and every language off the site. The read is
+                // therefore not optional and a read that FAILS refuses rather
+                // than writing: the lane's catch says the artwork could not be
+                // saved and the site is unchanged, which is true, where a write
+                // over an unread look is a stripped site reported as success.
                 save: async (patch) => {
-                  const icon = Object.prototype.hasOwnProperty.call(patch, "icon");
-                  const w = await patchSiteConfig(env, ownerSlug, ldb,
-                    icon ? { icon: String(patch.icon || "") } : { logo: String(patch.logo || "") });
+                  const field = Object.prototype.hasOwnProperty.call(patch, "icon") ? "favicon" : "wordmark";
+                  const url = String(patch[MARK_UPLOAD[field]] || "");
+                  const c = await readSiteConfig(env, ownerSlug, ldb);
+                  if (!c.ok) throw new Error(c.why + ": " + c.error);
+                  const look = c.config.look && typeof c.config.look === "object" ? c.config.look : {};
+                  const next = url ? { form: "image", url } : markRemove(c.config, field);
+                  const w = await patchSiteConfig(env, ownerSlug, ldb, { look: { ...look, [field]: next } });
                   // A DISCARDED FAILURE HERE IS A CUSTOMER TOLD THEIR LOGO
                   // LANDED while the next publish serves the site without it.
                   // The lane's own catch turns this into its refusal.
                   if (!w.ok) throw new Error(w.error);
+                  // THE FORM THAT LANDED, so a removal's sentence names what the
+                  // mark fell back to rather than assuming the floor.
+                  return next;
                 },
                 publish: () => publishStep(env, {
                   slug: ownerSlug, pages: eSrc,
@@ -22498,7 +22536,13 @@ async function handleRequest(request, env, ctx) {
                 // themselves for a legacy `_meta` fallback.
                 const cfg = await readSiteConfig(env, ownerSlug, edb);
                 if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
-                priorLook = cfg.config.look;
+                // ONE MARK, SEVERAL FORMS (2026-09-07): both marks resolved to
+                // a form before anything merges, so `wordmark` and `favicon`
+                // are ordinary look fields here and the lane that answers one
+                // is answering the same thing the site is actually wearing —
+                // an uploaded picture included, which the old pair kept in a
+                // key this path could not see.
+                priorLook = lookWithMarks(cfg.config);
                 priorCss = cfg.config.css;
               } catch (e) { console.error("edit look read failed:", ownerSlug, e && e.message); return escalate("no-meta"); }
               // ── A SITE MAY HAVE A STYLESHEET AND A THIN LOOK ───────────────
@@ -22737,7 +22781,14 @@ async function handleRequest(request, env, ctx) {
               // reach is a change reported as applied that no visitor sees, and
               // the customer's colours would sit in `_meta` forever.
               //
-              const merged = mergeLook(priorLook, designed, {}, { instructed: true });
+              // `asked: true` — EVERY FIELD HERE WAS NAMED BY THE CUSTOMER.
+              // `pickLanes` runs one lane per thing the message asked about, so
+              // an answer on this path is never volunteered and always replaces:
+              // asking for a new wordmark is asking for a new wordmark, even
+              // over a picture somebody uploaded. The design step's own merge
+              // omits the flag and leaves an uploaded mark alone — see
+              // `mergeLook`, where that rule lives now.
+              const merged = mergeLook(priorLook, designed, {}, { instructed: true, asked: true });
               const moved = movedFields(priorLook, merged);
 
               // THE LOOK IS THE STYLESHEET, so there is nothing else to merge.
@@ -23759,7 +23810,14 @@ async function handleRequest(request, env, ctx) {
             try {
               const cfg = await readSiteConfig(env, ownerSlug, adb);
               if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
-              aLook = cfg.config.look;
+              // ONE MARK, SEVERAL FORMS (2026-09-07) — resolved here for the
+              // reason the edit path resolves them: this look goes through
+              // `mergeLook` and then to the publish spine, and a mark that
+              // reached the merge as an unresolved legacy pair would publish
+              // as whatever half of it the look happened to carry. The addon
+              // step designs no mark of its own (`ADD_KINDS` has none) and
+              // omits `asked`, so an uploaded one is left alone either way.
+              aLook = lookWithMarks(cfg.config);
               aCss = typeof cfg.config.css === "string" ? cfg.config.css : "";
               if (adb) {
                 const rows = await sqlQuery(adb, "SELECT v FROM _meta WHERE k = 'schema'");

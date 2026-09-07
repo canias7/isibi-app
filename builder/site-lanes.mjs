@@ -166,63 +166,27 @@ export const LANE_MIN_TOKENS = 1000;
 /** What each field can be STORED at. A field absent here has no cap of its own. */
 export const FIELD_STORE_CAP = { css: MAX_CSS, wordmark: MAX_WORDMARK, favicon: MAX_FAVICON };
 
-// ── A FIELD AN UPLOAD SHADOWS IS REFUSED BEFORE IT IS BOUGHT (run 41) ───────
+// ── THERE IS NO SHADOW MAP ANY MORE, AND THAT IS THE FIX (2026-09-07) ──────
 //
-// RUN 41 CHARGED 2 CREDITS FOR A CHANGE NOBODY COULD EVER SEE. The `wordmark`
-// lane drew 612 characters of SVG on fretwork-1, stored it, published a whole
-// new build — and the header kept the PNG it already had, because the baker
-// writes a designed mark ONLY when the owner has uploaded none:
+// For one morning this file carried `UPLOAD_SHADOWS`, `shadowedBy` and
+// `shadowedRefusal`: a wall that refused the `wordmark` and `favicon` lanes for
+// nothing whenever the site's header or tab already carried an uploaded
+// picture, because the container's baker wrote a designed mark ONLY when the
+// owner had uploaded none. Run 41 is why it was written — the lane drew 612
+// characters of SVG on fretwork-1, stored it, published a whole build and took
+// 2 credits for something no visitor could ever be shown.
 //
-//     if (!logoValue) { …the wordmark…  }      an upload beats a drawn mark
-//     if (!icon)      { …cleanFavicon()… }     an upload beats a drawn favicon
+// THE WALL WAS HONEST AND IT WAS A SYMPTOM. Three fields per mark (an upload, a
+// drawing, a floor) with the precedence between them a layer away in the
+// container. Owner, the same day: *"instead of it being 3 things or 4 or 5, its
+// gotta be one, wordmark, but it can be made in svg"*. So a mark is ONE stored
+// field carrying a FORM (`builder/site-mark.mjs`), a lane's answer REPLACES
+// whichever form is there, and there is nothing left to shadow.
 //
-// THAT PRECEDENCE IS RIGHT AND STAYS — "a model must not outrank a person", in
-// `writeSiteBrand`'s own words. What was wrong is that the lane could not SEE
-// it: it answered, billed, published, and reported success for a field the site
-// had no way of showing. Doing less than was asked while saying it was done,
-// which is the one failure this whole path is written to avoid.
-//
-// TWO FIELDS, WHICH IS WHY THIS IS A MAP AND NOT AN `if` ON `wordmark`. The
-// favicon has the identical shape and would have cost the identical credit the
-// first time anyone asked for one on a site carrying an uploaded icon — nothing
-// announced the second case, and a single-field check would have shipped with
-// it still open. `test/upload-shadow.test.mjs` DERIVES this pair from the
-// baker's own two branches, in both directions, so a third shadowed field
-// cannot arrive quietly and this map cannot name one the baker does not.
-//
-// THE VALUE IS THE CONFIG KEY, because the wall has to read the upload itself
-// and the name of the thing to read is exactly what differs between the two.
-export const UPLOAD_SHADOWS = { wordmark: "logo", favicon: "icon" };
-
-/** Which uploaded field shadows this one, or "" for a field nothing shadows. */
-export function shadowedBy(field) {
-  return Object.prototype.hasOwnProperty.call(UPLOAD_SHADOWS, field) ? UPLOAD_SHADOWS[field] : "";
-}
-
-/**
- * What the customer reads instead of being charged.
- *
- * IT NAMES THE UPLOAD AND OFFERS THE WAY THROUGH. "I can't do that" on its own
- * is indistinguishable from the builder being broken — the rule the whole edit
- * path routes by — and the way through here is real rather than aspirational:
- * `runLogoEdit(deps, { remove: true })` takes the picture off today, on a rung
- * the ladder prices at nothing. The recorded trap is a hint that promises a
- * mechanism nobody built, so the sentence offers only what exists.
- *
- * IT IS AN OFFER AND NOT AN ACTION. Removing a picture a person uploaded
- * because a lane inferred they meant to is the one reading of "redraw the
- * header wordmark" that cannot be taken back — so the customer says the second
- * sentence, not us.
- */
-export function shadowedRefusal(field) {
-  const up = shadowedBy(field);
-  if (!up) return "";
-  const where = up === "icon" ? "tab icon" : "header";
-  const what = up === "icon" ? "icon" : "logo";
-  return `Your ${where} shows the ${what} you uploaded, and that always wins over a drawn one — ` +
-    `so a new ${field} wouldn't be visible. Nothing was changed and you weren't charged. ` +
-    `Say "take the ${what} off" and I'll remove it for nothing, then ask me for the ${field} again.`;
-}
+// WHERE THE RULE WENT: "a model must not outrank a person" is `mergeLook`'s
+// `asked` flag now. A design step VOLUNTEERS every field, so it leaves an
+// uploaded mark alone; a lane runs only for what the customer named, so it
+// replaces. `test/site-mark.test.mjs` drives both directions.
 
 /**
  * The arithmetic on its own, so the floor and the clamp can be DRIVEN.

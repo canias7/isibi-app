@@ -16,6 +16,7 @@ import {
   readWordmark, WORDMARK_FIELD, MAX_WORDMARK,
 } from "../builder/site-favicon.mjs";
 import { mergeLook, currentStateNote, EDIT_FIELDS } from "../builder/site-edit.mjs";
+import { readMark, sameMark, markWire } from "../builder/site-mark.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
@@ -161,15 +162,23 @@ test("junk can never replace a good stored mark; a valid answer does", () => {
   // through to the stored mark, or one bad answer strips the mark for good —
   // the container refuses it on every later publish while the response says
   // the look changed.
+  //
+  // COMPARED THROUGH `readMark` SINCE 2026-09-07, not by string identity. The
+  // merge normalises a mark to its FORM on the way out, and the drawing readers
+  // rewrite the `<svg>` element (they bake width/height off the viewBox), so a
+  // valid answer can never come back byte-identical to what went in. The
+  // PROPERTY is which of the two documents survived, which is what this compares.
+  const same = (got, want) => sameMark(got, readMark("favicon", want));
   const junk = mergeLook(stored, { favicon: "<svg onload=x>" }, null, { instructed: true });
-  assert.equal(junk.favicon, GOOD, "a refused answer replaced the stored mark");
+  assert.ok(same(junk.favicon, GOOD), "a refused answer replaced the stored mark");
   const fresh = '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#b3541e"/></svg>';
   const ok = mergeLook(stored, { favicon: fresh }, null, { instructed: true });
-  assert.equal(ok.favicon, fresh, "a valid answer did not replace the stored mark");
+  assert.ok(same(ok.favicon, fresh), "a valid answer did not replace the stored mark");
+  assert.ok(!same(ok.favicon, GOOD), "the merge kept the old mark beside the new one");
   // And silence keeps it — the whole reason the field is on EDIT_FIELDS.
   assert.ok(EDIT_FIELDS.includes("favicon"));
   const quiet = mergeLook(stored, {}, null, { instructed: true });
-  assert.equal(quiet.favicon, GOOD);
+  assert.ok(sameMark(quiet.favicon, readMark("favicon", GOOD)));
 });
 
 test("the designer is shown the stored mark WHOLE — a truncated echo becomes the stored value", () => {
@@ -180,8 +189,14 @@ test("the designer is shown the stored mark WHOLE — a truncated echo becomes t
   const long = '<svg viewBox="0 0 64 64"><path d="M0 0 ' + "L2 3 ".repeat(500) + 'Z" fill="#123"/></svg>';
   assert.ok(long.length > 2000 && long.length < MAX_FAVICON);
   assert.ok(cleanFavicon(long).svg, "the fixture mark must be valid or the note test is about junk");
+  // THE STORED DOCUMENT AS THE NOTE HAS IT — the reader normalises the `<svg>`
+  // element (width/height baked off the viewBox), so `long` itself is not what
+  // is stored; what must not be truncated is the drawing, and the 2,500-character
+  // path is the whole point of the fixture.
+  const kept = readMark("favicon", long).svg;
+  assert.ok(kept.length > 2000, "the fixture stopped being long enough to catch a truncation");
   const note = currentStateNote({ favicon: long });
-  assert.ok(note.includes(long), "the note truncated or dropped the stored mark");
+  assert.ok(note.includes(kept), "the note truncated or dropped the stored mark");
   assert.match(note, /omit `favicon`/, "the keep-it instruction");
 });
 
@@ -225,7 +240,14 @@ test("both container payloads carry the mark — derived from the icon hops", ()
   // mark sits beside, so a third publish path that gains an `icon:` without a
   // `favicon:` fails here without anybody remembering this file.
   const w = blank(worker);
-  const hops = [...w.matchAll(/icon: icon \|\| "",/g)];
+  // RE-ANCHORED 2026-09-07 (one mark, several forms). The anchor was the
+  // literal `icon: icon || "",` and one of the two payloads now takes its
+  // four mark fields from the ONE projection (`icon: marks.icon`), so that
+  // spelling finds a single hop and the floor below passed vacuously.
+  // The property is unchanged: a container payload names the icon, and
+  // whatever else it must carry has to be beside it. Anchored on the
+  // PROPERTY — a payload line naming the icon — which both still are.
+  const hops = [...w.matchAll(/^ +icon: [^\n]+,$/gm)];
   assert.ok(hops.length >= 2, "the two container payloads stopped carrying the owner icon hop");
   for (const h of hops) {
     const window = w.slice(h.index, h.index + 900);
@@ -233,10 +255,16 @@ test("both container payloads carry the mark — derived from the icon hops", ()
   }
   // And the build args read it off the MERGED look, so a revise that does not
   // mention the mark keeps it.
-  const args = w.indexOf("icon: priorIcon,");
-  assert.ok(args > 0, "the build args' icon hop is gone");
-  assert.match(w.slice(args, args + 500), /favicon: look\.favicon/,
-    "the build path does not hand the stored mark to the build");
+  // RE-ANCHORED 2026-09-07: the build args listed `icon: priorIcon` and
+  // `favicon: look.favicon` as separate fields; both marks now come from one
+  // `markWire({ look })` spread off the MERGED look. The property — a revise
+  // that does not mention the mark keeps it — is what the spread guarantees,
+  // so it is driven rather than read.
+  const args = w.indexOf("...markWire({ look }),");
+  assert.ok(args > 0, "the build args' mark hop is gone");
+  const priorOnly = mergeLook({ favicon: GOOD }, { brand: "x" }, null, { instructed: true });
+  assert.match(markWire({ look: priorOnly }).favicon || "", /<svg/,
+    "a revise that mentions no mark stops handing the stored one to the build");
 });
 
 test("the container: owner's icon, then the designer's mark, then the initials", () => {
@@ -343,13 +371,15 @@ test("the wordmark field offers the choice and states its rules", () => {
 
 test("the wordmark merges like the favicon: junk never replaces, `text` is a value", () => {
   const stored = { wordmark: MARK };
+  // Through `readMark`, for the reason the favicon's twin says: the merge
+  // normalises to a form and the reader rewrites the `<svg>` element.
   const junk = mergeLook(stored, { wordmark: "<svg onload=x>" }, null, { instructed: true });
-  assert.equal(junk.wordmark, MARK, "a refused answer replaced the stored wordmark");
+  assert.ok(sameMark(junk.wordmark, readMark("wordmark", MARK)), "a refused answer replaced the stored wordmark");
   const toText = mergeLook(stored, { wordmark: "text" }, null, { instructed: true });
-  assert.equal(toText.wordmark, "text", "`text` is a real answer and must replace a drawn mark when given");
+  assert.deepEqual(toText.wordmark, { form: "text" }, "`text` is a real answer and must replace a drawn mark when given");
   assert.ok(EDIT_FIELDS.includes("wordmark"));
   const note = currentStateNote({ wordmark: MARK });
-  assert.ok(note.includes(MARK), "the note truncated or dropped the stored wordmark");
+  assert.ok(note.includes(readMark("wordmark", MARK).svg), "the note truncated or dropped the stored wordmark");
   assert.match(note, /omit `wordmark`/);
 });
 
@@ -376,7 +406,10 @@ test("the wordmark rides every hop the favicon rides", () => {
   // The closing landmark is the NEXT hop, so anything added between two hops
   // lands INSIDE the window rather than escaping it, and the last hop runs to
   // the end of the file.
-  const hops = [...w.matchAll(/icon: icon \|\| "",/g)];
+  // RE-ANCHORED 2026-09-07 on the payload's own `icon:` line, for the reason
+  // the sibling scans say: one payload takes its four mark fields from the ONE
+  // projection now, so the old literal found a single hop.
+  const hops = [...w.matchAll(/^ +icon: [^\n]+,$/gm)];
   assert.ok(hops.length >= 2);
   for (let i = 0; i < hops.length; i++) {
     const from = hops[i].index;
@@ -394,12 +427,19 @@ test("the wordmark rides every hop the favicon rides", () => {
   //
   // Closed on the next sibling that is NOT a look field, so anything added to
   // this object lands inside the window rather than escaping it.
-  const args = w.indexOf("favicon: look.favicon,");
-  assert.ok(args > 0, "the build args no longer read the mark off the stored look");
-  const argsEnd = w.indexOf("verify: priorVerify,", args);
-  assert.ok(argsEnd > args, "the build args' verification hop is gone — this window has no end");
-  assert.match(w.slice(args, argsEnd), /wordmark: look\.wordmark/,
-    "the build path does not hand the stored wordmark to the build");
+  // RE-ANCHORED 2026-09-07, AND THE WINDOW IS GONE ALTOGETHER. The two hops it
+  // walked between — `favicon: look.favicon,` and `wordmark: look.wordmark` —
+  // were exactly the pair that kept being pushed apart by honest insertions,
+  // three times, which is what all the comment above records. Both are now ONE
+  // spread of `markWire({ look })` off the merged look, so there is nothing to
+  // window: the two marks cannot be separated because they are not two lines.
+  // The property — a revise hands the stored marks to the build — is DRIVEN.
+  const args = w.indexOf("...markWire({ look }),");
+  assert.ok(args > 0, "the build args no longer hand the marks off the merged look");
+  const kept = mergeLook({ wordmark: MARK, favicon: GOOD }, { brand: "x" }, null, { instructed: true });
+  const wire = markWire({ look: kept });
+  assert.match(wire.wordmark || "", /<svg/, "a revise mentioning no mark stops handing the stored wordmark to the build");
+  assert.match(wire.favicon || "", /<svg/, "a revise mentioning no mark stops handing the stored favicon to the build");
 });
 
 test("the container: the owner's logo, then the drawn wordmark, then the name in type", () => {

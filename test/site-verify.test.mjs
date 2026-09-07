@@ -182,7 +182,12 @@ test("every publish-payload read of the config loads it, and BINDS it", () => {
   // destructuring it is the same as not loading it and looks identical from the
   // call. Both payload paths, by name — the spine binds all six at once, the
   // build path assigns each into its own `prior*`.
-  assert.match(w, /\(\{ look, css, logo, icon, verify, langStrings \} = cfg\.config\)/,
+  // RE-ANCHORED 2026-09-07: `logo` and `icon` left this destructure when a mark
+  // became ONE look field carrying a form, and this guard is about `verify`,
+  // which did not move. Pinned to the whole key list it went red for a change
+  // it has no opinion about — the recorded "assert the property, not the
+  // spelling", in a guard whose own subject is still bound exactly as it was.
+  assert.match(w, /\(\{ look, css, verify, langStrings \} = cfg\.config\)/,
     "the spine loads the config and does not bind the verification out of it");
   assert.match(w, /priorVerify = cfg\.config\.verify;/,
     "the build path loads the config and does not bind the verification out of it");

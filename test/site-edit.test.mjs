@@ -24,13 +24,20 @@ const STORED = {
   // merge under test and every "nothing moved" loop would report a phantom.
   theme: "broadsheet",
   // A VALID MARK, for the reason the theme is a real registry name one line up:
-  // `FIELD_KEEPS.favicon` validates through `cleanFavicon`, so junk here would
-  // be nulled by the very merge under test and every "nothing moved" loop would
+  // `FIELD_KEEPS.favicon` validates through `readMark`, so junk here would be
+  // nulled by the very merge under test and every "nothing moved" loop would
   // report a phantom.
-  // …and the wordmark: `text` is the commoner of its two valid answers and is
-  // what most stored sites will hold.
-  wordmark: "text",
-  favicon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#332a26"/><path d="M20 44 L32 20 L44 44 Z" fill="#f7f2ea"/></svg>',
+  //
+  // RE-ANCHORED 2026-09-07 (one mark, several forms). These were the legacy
+  // strings `"text"` and a bare SVG document, and the merge NORMALISES a mark to
+  // its form on the way out — so a legacy fixture makes every "nothing moved"
+  // assertion fail on the canonicalisation rather than on a real change. The
+  // form IS what a stored site holds once anything has touched its mark, so the
+  // fixture is what the store really contains. THE LEGACY STRINGS ARE NOT
+  // UNTESTED: `test/site-mark.test.mjs` drives both shapes through the fold and
+  // through this merge, which is where that property belongs.
+  wordmark: { form: "text" },
+  favicon: { form: "svg", svg: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#332a26"/><path d="M20 44 L32 20 L44 44 Z" fill="#f7f2ea"/></svg>' },
   seeds: { name: "Warm Brick", paper: "#f7f2ea", ink: "#332a26", accent: "#b44a2e" }, family: "salon",
   fonts: { heading: "noto-serif", body: "source-sans-3" },
   lang: "en-GB", mode: "light", langs: ["es"], kind: "shopfront",
@@ -310,8 +317,17 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
     // block down, for the same reason: `favicon` is REPLACED rather than merged,
     // so a designer that cannot see the current document cannot hand it back
     // with one change made.
-    favicon: "value-of-favicon",
-    wordmark: "value-of-wordmark",
+    //
+    // THE MARKER LIVES INSIDE A REAL DRAWING SINCE 2026-09-07, because a mark is
+    // a FORM now and the note reads it through `readMark`: a bare "value-of-x"
+    // is not a mark at all, so it would print nothing and this guard would have
+    // been quietly satisfied by adding two names to the exception list below.
+    // Putting the marker in the drawing's own text keeps the guard's mechanism
+    // exactly — the note must still print the stored document WHOLE, which is
+    // the property, since a designer shown a truncated one hands the truncation
+    // back and it becomes the stored mark.
+    favicon: { form: "svg", svg: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><text x="8" y="40">value-of-favicon</text></svg>' },
+    wordmark: { form: "svg", svg: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="40" viewBox="0 0 160 40"><text x="0" y="30">value-of-wordmark</text></svg>' },
     family: "value-of-family", lang: "value-of-lang",
     fonts: { heading: "inter", body: "inter" }, langs: ["value-of-langs"],
     // THE FIVE OTHER PLAN AXES CARRY THE SHARPEST VERSION OF THIS GUARD'S OWN

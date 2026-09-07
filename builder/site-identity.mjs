@@ -31,6 +31,7 @@
 // themselves plain modules, so nothing here becomes harder to drive.
 import { normalizeSeeds } from "./site-seeds.mjs";
 import { oklchToRgb } from "./site-theme.mjs";
+import { markUrlOk } from "./site-mark.mjs";
 
 /** Two letters is a mark; three is a word set too small to read. */
 export const MAX_INITIALS = 2;
@@ -359,9 +360,12 @@ export const ICON_TYPES = {
 export function siteIconFrom(sent) {
   const raw = typeof sent === "string" ? sent.trim() : "";
   if (!raw) return null;
-  const ok = /^https:\/\/[^\s"'<>]+$/i.test(raw)
-    || /^\/u\/[a-z0-9][a-z0-9-]{0,80}\/[a-z0-9._-]{1,120}$/i.test(raw);
-  if (!ok) return { href: null, type: "", refused: true };
+  // ONE COPY OF THE RULE (2026-09-07). This regex pair was written out here AND
+  // inline in `writeSiteBrand`, which is the recorded "two lists of the same
+  // thing": both values end up in a `src` inside generated TypeScript, so both
+  // have to refuse anything that could be a `javascript:` URL, and two copies of
+  // a security refusal drift in silence. `site-mark.mjs` owns it now.
+  if (!markUrlOk(raw)) return { href: null, type: "", refused: true };
   // AN UNKNOWN EXTENSION IS NOT A REFUSAL. The URL is one we minted or an https
   // address the owner gave us; what we cannot do is CLAIM a type for it, and an
   // absent `type` is a perfectly ordinary `<link rel="icon">` that browsers

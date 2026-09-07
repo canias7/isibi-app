@@ -34,6 +34,7 @@ import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { cleanFavicon, readWordmark } from "./site-favicon.mjs";
 import { qrList } from "./site-qr-list.mjs";
+import { MARKS, isMark, readMark, ownedMark } from "./site-mark.mjs";
 
 /**
  * The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths.
@@ -165,17 +166,29 @@ export function currentStateNote(current) {
   // `MAX_FAVICON` bounds what the merge can store, so the ceiling is set once,
   // at the door. Printed raw like `theme` and `brand` — validation is the
   // MERGE's job (`FIELD_KEEPS.favicon`), not the note's.
-  const mark = str(c.favicon);
-  if (mark) {
-    lines.push("its tab icon (an SVG you drew — to change it, return `favicon` as a whole new mark; " +
-      "to keep it, omit `favicon`):\n" + mark);
-  }
-  // AND THE WORDMARK, same contract: `text` prints as the choice it is, a
-  // drawn one prints whole so a revise can redraw it deliberately.
-  const wm = str(c.wordmark);
-  if (wm) {
-    lines.push("its header logo (`text` = the name in type; to change it, return `wordmark`; to keep " +
-      "it, omit `wordmark`):\n" + wm);
+  // ONE MARK, SEVERAL FORMS (2026-09-07): the note says WHICH form, and prints
+  // a drawing whole. An uploaded picture used to be invisible here — it lived in
+  // a config key this note never read — so a revise was told the site had a
+  // drawn mark, or none, while the header carried a photograph. That gap is
+  // what run 41 spent 2 credits and 292 seconds discovering.
+  //
+  // AND AN UPLOADED MARK IS NAMED AS A PERSON'S CHOICE, because the merge will
+  // refuse to overwrite it with a volunteered answer: a designer that answers
+  // anyway has wasted the field, and one that is told why will not.
+  for (const f of MARKS) {
+    const m = readMark(f, c[f]);
+    if (!m) continue;
+    const what = f === "favicon" ? "its tab icon" : "its header logo";
+    if (m.form === "image") {
+      lines.push(what + ": a picture the owner uploaded, which stands unless they ask for something else. " +
+        "Omit `" + f + "`.");
+    } else if (m.form === "svg") {
+      lines.push(what + " (an SVG you drew — to change it, return `" + f + "` as a whole new mark; " +
+        "to keep it, omit `" + f + "`):\n" + m.svg);
+    } else {
+      lines.push(what + ": " + (f === "favicon" ? "a mark drawn from the name's initials" : "the name in type (`text`)") +
+        ". To change it, return `" + f + "`; to keep it, omit `" + f + "`.");
+    }
   }
   // THE PALETTE THE SITE IS ALREADY WEARING, spelled out as the three colours
   // rather than as a name — there is no registry to name one from since
@@ -602,7 +615,7 @@ export function keepStoredAccess(spec, known) {
  * an edit that does not take effect, which the customer can see and say again.
  * Being wrong toward "designed" silently re-themes a live site.
  */
-export function mergeLook(prior, designed, body, { instructed = false } = {}) {
+export function mergeLook(prior, designed, body, { instructed = false, asked = false } = {}) {
   const p = prior && typeof prior === "object" ? prior : {};
   const d = designed && typeof designed === "object" ? designed : {};
   const b = body && typeof body === "object" ? body : {};
@@ -621,10 +634,56 @@ export function mergeLook(prior, designed, body, { instructed = false } = {}) {
     // current-state note the model is answering the way it always did, and an
     // empty field is far more likely to be silence than a decision.
     if (instructed && clearsField(k, d[k])) { out[k] = d[k]; continue; }
+    // A MODEL MUST NOT OUTRANK A PERSON (owner, 2026-08-28), AND THIS IS WHERE
+    // THAT RULE LIVES NOW (2026-09-07).
+    //
+    // It used to live a layer away, in the container's baker, as the `if
+    // (!logoValue)` that made an uploaded picture beat a drawn one — which
+    // worked, and hid the decision from every door: run 41's `wordmark` lane
+    // drew a mark, stored it, published a build and charged 2 credits for
+    // something no visitor could be shown. With one field per mark there is
+    // nothing to hide behind, so the rule is stated here instead: a mark a
+    // PERSON supplied is not replaced by one the model VOLUNTEERED.
+    //
+    // `asked` is what separates the two, and it is the honest distinction. A
+    // design step answers every field whether or not anybody mentioned it, so a
+    // rebuild must not redraw somebody's uploaded logo away — run 16 is that
+    // case, and only the baker's precedence saved it. An EDIT LANE runs only
+    // for the fields the customer named, so its answer always replaces: asking
+    // for a new wordmark is asking for a new wordmark.
+    //
+    // DEFAULT FALSE, because of which way being wrong hurts. Wrong toward
+    // "keep the person's file" costs an edit that does not take effect, which
+    // the customer can see and say again. Wrong toward "replace" silently
+    // deletes artwork somebody uploaded. A caller that forgets the flag
+    // protects rather than overwrites.
+    if (!asked && isMark(k) && ownedMark(readMark(k, p[k]))) { out[k] = p[k]; continue; }
     const order = instructed ? [d[k], p[k], b[k]] : [p[k], d[k], b[k]];
     // FIELD-AWARE, so a palette is judged by `normalizeSeeds` whatever shape it
     // arrived in rather than by a heuristic that has an outside. See `keepsValue`.
     out[k] = order.find((v) => keepsValue(k, v)) ?? null;
+    // A MARK LEAVES HERE AS A FORM, WHATEVER IT ARRIVED AS (2026-09-07).
+    //
+    // Neither tool changed for the one-mark work: the design step and the
+    // `wordmark` lane both still answer the word `text` or an SVG document,
+    // because that is a good thing to ask a model for and a form object is not.
+    // So the ANSWER is normalised on the way out instead — here, in the one
+    // function that decides what a look becomes, rather than at each of the
+    // three call sites, where the next path added would have to remember.
+    //
+    // TWO THINGS FALL OUT OF DOING IT HERE. The stored shape converges on forms
+    // the first time anybody touches a mark, so the compatibility fold has less
+    // to do for ever after; and `movedFields` compares like with like — a form
+    // against a form, never a form against the string that means the same thing,
+    // which would report every unrelated edit as having changed the mark.
+    //
+    // ONLY WHEN THERE IS A VALUE. `null` means the site has never been given a
+    // mark, and that is NOT the same as being on the floor: normalising an
+    // absent mark into `{form:"text"}` made `movedFields` report "the header
+    // logo changed" on the first edit of every site that had never had one —
+    // caught by the suite, twenty-six guards at once, and it is the recorded
+    // "an answered-empty is a value, silence is not" line one field over.
+    if (isMark(k) && out[k] != null) out[k] = readMark(k, out[k]);
   }
   return out;
 }
@@ -783,10 +842,15 @@ const FIELD_KEEPS = {
   // mark, after which the container refuses it on every publish and the site
   // falls back to the initials for good — while the response says the look
   // changed.
-  favicon: (v) => !!cleanFavicon(v).svg,
-  // Same rule for the wordmark: `text` and a valid SVG are the two answers,
-  // and everything else must not replace either of them in the store.
-  wordmark: (v) => !!readWordmark(v).kind,
+  // ONE MARK, SEVERAL FORMS (2026-09-07): `readMark` is that single validator
+  // now, and it reads BOTH shapes — a stored form and the string this field
+  // held before forms existed — so every value that counted before still
+  // counts and an uploaded picture counts too. `cleanFavicon` and
+  // `readWordmark` are still the ones judging a DRAWING; they are just asked
+  // one layer in, which is what keeps the two marks' different sizing rules
+  // (a square tab icon, a wordmark at its own aspect) in one place each.
+  favicon: (v) => !!readMark("favicon", v),
+  wordmark: (v) => !!readMark("wordmark", v),
   // AN ANSWERED-EMPTY `images` IS A VALUE, NOT SILENCE (2026-08-27). The tool
   // field promises "send an empty list to say it should have none", `images`
   // is REQUIRED on a first build — and `hasValue([])` is false, so this merge

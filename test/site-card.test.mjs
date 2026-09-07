@@ -217,7 +217,14 @@ test("the description rides every container payload the icon rides", () => {
   // description composes a card with the name and no sentence — on the spine,
   // that is every text fix republishing a thinner card than the build made.
   const w = blank(worker);
-  const hops = [...w.matchAll(/icon: icon \|\| "",/g)];
+  // RE-ANCHORED 2026-09-07 (one mark, several forms). The anchor was the
+  // literal `icon: icon || "",` and one of the two payloads now takes its
+  // four mark fields from the ONE projection (`icon: marks.icon`), so that
+  // spelling finds a single hop and the floor below passed vacuously.
+  // The property is unchanged: a container payload names the icon, and
+  // whatever else it must carry has to be beside it. Anchored on the
+  // PROPERTY — a payload line naming the icon — which both still are.
+  const hops = [...w.matchAll(/^ +icon: [^\n]+,$/gm)];
   assert.ok(hops.length >= 2, "the icon hops moved — re-anchor this");
   for (const h of hops) {
     assert.match(w.slice(h.index, h.index + 1600), /description: /,

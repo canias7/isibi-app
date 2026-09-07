@@ -22,6 +22,15 @@
 // Plain module with its side effects injected, like `site-picture.mjs` beside
 // it, so every decision here is tested with no R2, no model and no Worker.
 
+// ONE MARK, SEVERAL FORMS (2026-09-07). An attachment is one FORM the site's
+// mark can take, beside a drawing and the floor, so this rung and the
+// `wordmark`/`favicon` lanes now write the same field in the same shape and
+// whichever ran last is what the site wears. `markWords` is imported for one
+// job: a removal has to say what the mark fell BACK to, and on a site still
+// carrying the old pair that is the drawing the upload was hiding — not always
+// the name in type, which is what this file used to promise unconditionally.
+import { markWords } from "./site-mark.mjs";
+
 /** 2 MB. A header logo is a small piece of artwork; anything larger is a photo. */
 export const MAX_LOGO_BYTES = 2_000_000;
 
@@ -100,7 +109,8 @@ export function logoRefusal(reason) {
  * Run the layer.
  *
  * `deps.store({bytes, kind})` → the public URL of the stored upload, or null.
- * `deps.save({logo})`         → persist it on the site.
+ * `deps.save({logo})`         → persist it on the site, answering the stored
+ *                               form so a removal can say what it fell back to.
  * `deps.publish()`            → recompile and republish.
  *
  * NOTHING IS SAVED UNTIL THE IMAGE IS STORED, and nothing is published until it
@@ -138,18 +148,24 @@ export async function runLogoEdit(deps, { images, remove, tab } = {}) {
   // volunteer a removal from the instruction alone failed against words it was
   // demonstrably reading.
   if (remove === true) {
-    try { await deps.save({ [where]: "" }); }
+    let left = null;
+    try { left = await deps.save({ [where]: "" }); }
     catch { return { ok: false, reason: "store", msg: "That couldn't be saved just now — your site is unchanged. Try again." }; }
     const gone = await deps.publish();
     if (!gone || !gone.ok) return { ok: false, reason: "publish", msg: "I took the " + (where === "icon" ? "tab icon" : "logo") + " off but couldn't republish just now — try again in a moment." };
-    // WHAT IT GOES BACK TO, per slot. Removing the tab icon does not leave the
-    // tab blank — the site returns to the mark drawn from its initials, which
-    // is what every site has until somebody sends one.
+    // WHAT IT GOES BACK TO, ASKED RATHER THAN ASSUMED. Removing the tab icon
+    // does not leave the tab blank and removing the logo does not always leave
+    // the name in type: with one field per mark, what a removal reveals is
+    // whatever form is left, and on a site still carrying the old upload/drawing
+    // pair that is the drawing the upload was hiding. This file used to promise
+    // the floor unconditionally, which was a sentence about a site we had not
+    // looked at. `deps.save` answers the form it stored; a dep that answers
+    // nothing gets the floor's wording, which is what it always said.
+    const mark = where === "icon" ? "favicon" : "wordmark";
     return {
-      ok: true, removed: true, target: where, files: gone.files,
-      msg: where === "icon"
-        ? "✅ Took the tab icon off — back to the mark drawn from your initials."
-        : "✅ Took the logo off — the header shows your name again.",
+      ok: true, removed: true, target: where, left: left || null, files: gone.files,
+      msg: "✅ Took the " + (where === "icon" ? "tab icon" : "logo") + " off — back to " +
+        markWords(mark, left) + ".",
     };
   }
 
