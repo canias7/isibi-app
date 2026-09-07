@@ -409,6 +409,11 @@ and not a feature.
 **When the mobile app is real**, three small things: drop `disabled`, write the
 tooltip, add what it does. Nothing has to be redrawn.
 
+**Merged and deployed** (your "merge it"): main went to `4995e8ef` at 18:42Z,
+deploy run 2039 green in 2m57s, container rolled at 18:44:29Z — so hold off on
+container work until about 19:05Z. I read the live files back: the three icons,
+the tooltip and the dimming are all being served.
+
 **Not seen in a browser yet.** Next signed-in load of gofarther.dev shows them.
 If a card's icons are missing, or the cylinder is dim on a site you know has a
 database, tell me what you see rather than assuming I know.

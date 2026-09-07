@@ -867,9 +867,23 @@ tooltip, add the branch.
   `slice(n, -1)` the moment that landmark goes — a window with no end landmark,
   the recorded trap's other half. Both ends are asserted there now, which is
   what makes the button's return safe to keep guarding the same way.
-- **Not proven live.** The next signed-in load of gofarther.dev is the proof:
-  three controls on every card, the cylinder dim on a site with no database, the
-  handset dim on all of them.
+- **MERGED AND DEPLOYED (owner, 2026-09-07: *"merge it"*).** Main
+  fast-forwarded `e33fd358` → `4995e8ef` at 18:42Z — three commits (the trio in,
+  the third removed, the third back disabled), main having nothing of its own.
+  **Deploy run 2039 green in 2m57s**: the gate set in 1 s; the image step 2m04s,
+  so the site image was BUILT and the container rolled at 18:44:29Z (`worker.js`
+  changed, and it is an image input); `deploy drain` found no live leases;
+  Wrangler 24 s; the gate left to expire on success. `unit tests` run 2307
+  green. **The 15–20 minute hold ends ~19:05Z.**
+  **The assets are proven served** (read live at 18:47Z): `/chat.js` carries all
+  three `data-act` values and the tooltip *"Mobile app — not built yet"*;
+  `/styles.css` carries `.st-card-act:disabled { opacity: .38; … }`;
+  `/site-list.js` answers 200 at 7,064 bytes; `/api/site/list` answers **401
+  "sign in required"** where a route that does not exist answers 404 — so it is
+  mounted and gated.
+- **NOT proven live IN A BROWSER.** Nobody has loaded the signed-in start screen
+  yet: three controls on every card, the cylinder dim on a site with no
+  database, the handset dim on all of them. That is the owner's next load.
   **AND THE ASSUMPTION WAS ANSWERED RATHER THAN LEFT STANDING**, which is the
   thing worth keeping from this: the guess ("mobile app" = the phone preview we
   already had) was written down as an assumption in the entry and in the reply,
