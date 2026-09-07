@@ -1124,12 +1124,45 @@ lines). One INVERTED deliberately: "the logo is its OWN stored field, never a
 member of the look" was true because `mergeLook` rebuilt from `EDIT_FIELDS`
 alone, and that reason expired when a mark became an edit field — the recorded
 "a rule true because of a layer below it expires when that layer moves".
-**Not proven live**: the refusal needs the deploy, and its proof is FREE — the
-same wordmark ask should come back in seconds with `cost: 0` and the sentence.
-Two things are the owner's: that test PNG is still fretwork-1's header logo and
-probably should not be, and there is no way to LOOK at a stored wordmark without
-publishing it (it lives in the site's config in R2 and no route hands the stored
-look back).
+**PROVEN LIVE BY RUN 42 (2026-09-07 04:37Z, `harness: lane`, `lanes: wordmark`,
+"Redraw the header wordmark as the letters CGS in a bold serif, black on
+transparent", 503 → 502).** Job `da70ae7b…`, **1 credit, 176 s**,
+`moved: ["wordmark"]`, `changed: []` — no page source touched, only the mark —
+37 files, `mtqdjyhg-bizsag` → `mtqr2tnz-yqyqvv`. **The proof is one line of the
+harness's own reading: `/logo.svg` 0 → 245 bytes.** That file was a 404 before
+this run, which IS run 41's defect: the drawing was stored, the build published,
+2 credits taken, and the upload's `if (!logoValue)` meant no file was ever
+written. The served header now carries `<img src="/logo.svg" alt="Crookes Guitar
+School">` — `CGS` in Georgia bold serif, black on transparent, 245 bytes
+(`docs/edits/mark-run42-header.png`, read off the served page through a local
+mirror; `mark-run42-logo.svg` is the file itself). The striped test PNG is off
+the page, which answers the first of the two owner questions this entry used to
+carry.
+**And the header is the only instrument that can say the stored form changed.**
+`writeSiteBrand` could never bake a drawing while `config.logo` was set, so a
+drawn mark in the header proves BOTH hops at once: `markWire` sent the drawing
+and not the upload (one half per pair), and the merge normalised the lane's
+answer to `{form:"svg", svg}` on a site that was carrying the old pair. There is
+still no route that hands the stored look back — the second owner question stands
+— so a publish remains the only way to LOOK at a mark.
+Trace `e_mtqr2akbz6xqqlxm`: `pick_lanes` 9.6 s, **`lane:wordmark` 11.8 s**
+(221 chars answered — against runs 11/12/40 cut dead at 240,000 ms and run 41's
+292 s; this answer was short enough that the streamed ceiling was not tested
+again), the compile ~120 s, `stage` 15.3 s, `publish:gate` ok, `activate` from
+`01788733184386-yboq08` to `01788755899622-6w90uf`, `worker:put` **200** with
+`uploaded: true`, then `commit ok` — **the corrected activation's served-not-
+merely-not-refused rule on a real publish** — `prune 0` (the parent kept),
+`dead: 0`. Both languages `cached: true, missing: 0`, so nothing extra was
+charged. Two render findings, neither this change's: React #418 on `/` and `/es`
+at phone width, `/` now naming its own text ("the server rendered “Llun” where
+the browser then rendered “Mon”"), which is task #80's Welsh ICU gap between the
+container's Node and its Chromium; and `deadSelectors: 2`
+(`[data-slot="cta-band"] [data-slot="button"]`, `[data-slot="hero-split"] h1`),
+left over from an earlier css edit and reported rather than enforced.
+**Still not proven live**: the removal. `markRemove` on a site now carrying
+`{form:"svg"}` should answer the FLOOR with `markWords` naming it, where the same
+ask on a legacy site reveals the drawing the upload was hiding — free, and it
+takes the CGS mark back off, so it is the owner's call.
 
 **EVERY SMALL CALL FOLLOWS THE PICKER, NOT A HARDCODED MODEL** (owner,
 2026-08-31: *"we are gonna get rid of haiku routing, we are gonna use for routing
@@ -4789,14 +4822,15 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   this time** (the model kept the component in the page instead of writing a
   part file the edit path never sends — 1 for 2, the task card stands).
   19 lanes, 19 minutes, 16 credits.
-- **Balance: 505 credits** (read off the ledger 2026-09-06 19:12Z after the
-  owner's *"Top it up"*: a DIRECT GRANT of 500, not a purchase — `add_credits`
+- **Balance: 502 credits** (read off the ledger 2026-09-07 04:44Z, after run 42
+  took 503 → 502). It was topped up to 505 on 2026-09-06 19:12Z on the owner's
+  *"Top it up"*: a DIRECT GRANT of 500, not a purchase — `add_credits`
   is mint-key gated and the secret is not in a session, so the grant mirrors
   that function's body minus the mint check, one `purchases` row under
   `ref 'grant:session_…:2026-09-06'` with **`amount_cents` 0**, the ref its
   idempotency, proven by a re-run that moved nothing. It was 5 before, and
   unchanged since 2026-09-04 20:48Z; run 37 took 24 → 7, run 38 7 → 6, run 39
-  6 → 5.) It was **0**
+  6 → 5; then run 41 took 505 → 503 and run 42 503 → 502. It was **0**
   on 08-29;
   a stale number is worse than none here, because `buildFloor` refuses before
   spending and the refusal reads as a broken build. **Read the ledger, do not

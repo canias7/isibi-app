@@ -146,7 +146,7 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-07 — Run 41: the streaming works, and it uncovered a lane that charges for an invisible change
+## 2026-09-07 — Runs 41 and 42: the streaming works, it uncovered a lane that charged for an invisible change, and one mark fixed it
 
 **The streaming is proven live.** You fired `wordmark` on fretwork-1 at 22:13Z.
 `lane:wordmark` ran **292,336 ms** and finished. Runs 11, 12 and 40 were all cut
@@ -212,8 +212,12 @@ with an uploaded icon.
 
 **A REMOVAL NOW SAYS WHAT IT FELL BACK TO.** "Took the logo off — back to your
 name in type" was a sentence about a site nobody had looked at. It names the
-actual result now: on your sites, taking the striped PNG off reveals the CGS
-wordmark you already paid for.
+actual result now. **On a site still carrying the old pair** — every site except
+fretwork-1 — taking an uploaded picture off reveals the drawing that was
+underneath it, and says so. **On fretwork-1 since run 42 there is nothing
+underneath**: the CGS drawing IS the one stored value, so taking it off gives the
+floor, your name in type, and the sentence says that instead. That is what "one
+mark" means, and it is the point of the change rather than a gap in it.
 
 **Four defects in my own new code that the test suite caught**, all of which a
 source read would have missed: the fold inverted the very precedence it was
@@ -224,9 +228,37 @@ empty object and a broken-site check stopped firing; and one name was used and
 never imported — the third time this session that `node --check` passed a file
 that would have thrown live.
 
-**Not proven live.** The refusal needs this deploy. The proof is free: ask for a
-wordmark on fretwork-1 again and it should come back in seconds, cost 0, with
-that sentence — instead of five minutes and 2 credits.
+**PROVEN LIVE — run 42, 2026-09-07 04:37Z, 1 credit, 176 seconds.** You fired
+the `wordmark` lane at fretwork-1: *"Redraw the header wordmark as the letters
+CGS in a bold serif, black on transparent."* It did exactly that. The header now
+carries **CGS** in a bold serif where the striped test PNG was
+(`docs/edits/mark-run42-header.png`), balance 503 → 502.
+
+**The one number that is the whole proof: `/logo.svg` went from 0 bytes to 245.**
+That file was a 404 before this run — which IS what run 41 cost you. Run 41 drew
+a wordmark, stored it, published a whole build and charged 2 credits for
+something no visitor could ever be shown, because the uploaded PNG won and the
+drawing was never written to disk at all. It is written now, and the header
+points at it.
+
+**Three other things rode this run and all held.** The publish went up under the
+corrected activation — the script really served before anything was committed,
+which is the publication-integrity work doing its job on a real customer publish
+for the first time. Both languages were already cached, so nothing extra was
+charged. And the lane call itself finished in **11.8 seconds**, against three
+earlier runs that were cut dead at four minutes and one that needed 292 seconds;
+this answer was short, so it did not re-test the streaming, but nothing went
+backwards.
+
+**Two findings on the run, neither of them this change's.** The site's Welsh
+day-names still disagree between the checker's two runtimes on a phone-width
+render (the open React #418 item — not something a visitor on Chrome sees), and
+the stored stylesheet has two rules aimed at things no longer on the page,
+reported and not enforced. Both were there before run 42.
+
+**Still not proven: the removal.** Free, and it takes the CGS mark back off, so
+it is your call — "take the logo off fretwork-1" should now answer with your name
+in type rather than with the drawing, for the reason two paragraphs up.
 
 **A note on my own mistake, since it cost time:** I put a `git checkout --`
 restore trap on the mutation sweep, and on a normal exit it fired and wiped my
