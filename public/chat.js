@@ -11077,8 +11077,19 @@ function renderSiteWorkspace(view, site) {
             '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">' + ic('tablet', 16) + '</button>' +
             '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">' + ic('phone', 16) + '</button>' +
           '</div>' +
-          (site.slug ? '<button type="button" class="st-icon" id="stInbox" title="Form submissions" aria-label="Form submissions">' + ic('inbox', 16) + '</button>' : '') +
-          (site.slug ? '<button type="button" class="st-icon" id="stMembers" title="Site members" aria-label="Site members">' + ic('users', 16) + '</button>' : '') +
+          // FORM SUBMISSIONS AND SITE MEMBERS ARE OFF THIS BAR (owner,
+          // 2026-09-07: "DELETE THIS 2 THINGS"). Both were SECOND doors to a
+          // Cloud card that already exists and describes itself — "Submissions:
+          // form entries from your visitors", "Members: accounts that sign up
+          // in your app" — so the panels are untouched and still open from
+          // there; what went is the duplicate icon.
+          //
+          // AND ONE OF THEM WAS ALREADY DEAD. `stMembers` was drawn with a
+          // title and an aria-label and never given a handler: the line below
+          // read `const mb = document.getElementById('stMembers');` and nothing
+          // used `mb`. It looked live to every customer and did nothing when
+          // pressed — the repo's own open dead-control finding, in the chrome
+          // rather than in a generated page.
           (isReact ? '' : '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>' + ic('download', 16) + '</button>') +
           '<button type="button" class="st-share" id="stShare">Share</button>' +
           // THE "Live ↗" LINK IS GONE (owner's call, 2026-08-08). A React site
@@ -11315,9 +11326,9 @@ function renderSiteWorkspace(view, site) {
     if (site.liveUrl) pb.textContent = site.offline ? 'Offline' : 'Live';
     pb.onclick = () => { if (!pb.disabled) sitePublishPanel(site); };
   }
-  const ib = document.getElementById('stInbox');
-  if (ib) ib.onclick = () => siteInbox(site);
-  const mb = document.getElementById('stMembers');
+  // The inbox and members handlers went with their buttons (above). Both
+  // panels are still reached from their own Cloud cards, which is the door
+  // that describes what it opens.
   const plusBtn = document.getElementById('stPlus');
   if (plusBtn) plusBtn.onclick = siteAttachOpen;
   paintAttachStrip();

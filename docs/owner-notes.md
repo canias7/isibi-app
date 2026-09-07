@@ -420,6 +420,19 @@ list AND the three card icons, seen on a real screen. Everything I could check
 myself was bytes on the wire; only your load could answer whether it renders as
 a screen you recognise.
 
+**0y. TWO ICONS OFF THE TOP BAR (2026-09-07, your "DELETE THIS 2 THINGS").**
+The **Form submissions** icon and the **Site members** icon are gone from the
+right of the workspace top bar.
+
+**The panels are not gone** — both already had their own card in **Cloud**
+("Submissions", "Members"), which says what it opens instead of making you
+guess from an icon. The two icons were a second door to the same rooms.
+
+**And the people icon was already dead.** It was drawn with a tooltip and did
+nothing at all when pressed — no handler was ever wired to it. That is the
+"dead control" problem on your backlog, found in our own toolbar rather than in
+a site a model built.
+
 **0a. THE CANARY PLAN, REVISED (2026-09-06, your call to run it or not).**
 Nothing below has been run. Everything below is on branch
 `claude/publish-integrity`, which is NOT merged and NOT deployed.

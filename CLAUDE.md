@@ -896,6 +896,39 @@ tooltip, add the branch.
   stated is a guess that gets fixed in an afternoon; a guess implemented quietly
   is one that ships.
 
+### TWO ICONS OFF THE WORKSPACE TOP BAR (2026-09-07, owner: *"DELETE THIS 2
+THINGS"*)
+
+The **Form submissions** icon (`stInbox`) and the **Site members** icon
+(`stMembers`) are gone from the top bar's right group. Both were SECOND doors
+to a Cloud card that already exists and describes what it opens — "Submissions:
+form entries from your visitors", "Members: accounts that sign up in your app"
+— so **the panels are untouched** (`siteInbox`, `siteMembers`, both still
+dispatched from `data-cloud`); what went is the duplicate icon.
+
+**AND ONE OF THEM WAS ALREADY DEAD.** `stMembers` was drawn with a title and an
+aria-label and never given a handler: the line read `const mb =
+document.getElementById('stMembers');` and nothing used `mb`. It looked live to
+every customer and did nothing when pressed — **this repo's own open
+dead-control finding, found in its own chrome rather than in a generated
+page**, and a reminder that the lint the backlog asks for should read the app's
+toolbar as well as a model's output. A control drawn without a handler is
+invisible to every check here: it parses, it renders, it has an accessible
+name, and only a person pressing it finds out.
+
+- **Guards**: `test/site-list.test.mjs` +2 — neither id is drawn or looked up,
+  asserted BESIDE three ids in the same group that stay (the observer is
+  alive), and both panels still reachable, with each Cloud card's key matched
+  **at its own position** in the row rather than anywhere in the block. **Sweep:
+  8 mutants, 8 killed, none unapplied, the comment-only control survived — one
+  survived the first pass and it was the guard's**: renaming the Submissions
+  card's dispatch key passed, because `'inbox'` is ALSO that card's icon name at
+  position 0 and a plain `includes` cannot tell the two apart. `'members'`
+  happened to be unambiguous (its icon is `users`) — exactly the luck a guard
+  must not rest on. Full suite **5,458**.
+- **Not proven live.** The next signed-in load shows the bar with the two icons
+  gone; Cloud still lists both cards and both still open.
+
 ---
 
 ## Editing a site — the ladder
@@ -5090,8 +5123,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,456
-  (2026-09-07, after the card's three icons added fourteen to
+  build and the pre-list payload added sixteen); the unit suite is 5,458
+  (2026-09-07, after two icons came OFF the workspace top bar — neither drawn
+  nor looked up, asserted beside three that stay, both panels still reachable
+  through their Cloud cards with each key matched at its own position; before
+  them 5,456 after the card's three icons added fourteen to
   `test/site-list.test.mjs` — the real `cardActs` evaluated out of chat.js with
   both disabled states and their sentences, the `db` boolean driven through the
   route with a whole-payload search for the credential it is derived from, the

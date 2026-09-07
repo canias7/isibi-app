@@ -559,3 +559,50 @@ test("the card actually draws them — the one hop every other guard misses", ()
   assert.ok(card.indexOf('st-card-meta') < card.indexOf("cardActs(s)"),
     "the actions belong to the meta row");
 });
+
+// ── THE TWO ICONS THAT CAME OFF THE WORKSPACE TOP BAR ───────────────────────
+//
+// Owner, 2026-09-07: "DELETE THIS 2 THINGS" — the Form submissions icon and
+// the Site members icon. Both were SECOND doors to a Cloud card that already
+// exists and describes itself, so what went is the duplicate, not the panel.
+//
+// AND ONE WAS ALREADY DEAD: `stMembers` was drawn with a title and an
+// aria-label and looked up into a variable nothing used. It looked live to
+// every customer and did nothing — this repo's open dead-control finding,
+// found in its own chrome.
+
+test("the top bar no longer draws the submissions or members icons", () => {
+  const c = blankComments(read("../public/chat.js"));
+  for (const id of ["stInbox", "stMembers"]) {
+    assert.ok(!c.includes('id="' + id + '"'), id + " is back on the top bar");
+    assert.ok(!c.includes("getElementById('" + id + "')"), id + " is looked up again");
+  }
+  // THE OBSERVER IS ALIVE. An absence proves nothing unless the same read can
+  // see the bar it is reading: these three sit in that group and stay.
+  for (const id of ["stReload", "stDl", "stShare"]) {
+    assert.ok(c.includes('id="' + id + '"'), "the top bar itself is gone — re-anchor this");
+  }
+});
+
+test("but both panels are still reachable, from the card that describes them", () => {
+  const c = blankComments(read("../public/chat.js"));
+  // The dispatch: the Members card names its own handler, and the fallback is
+  // still the submissions modal. Removing a duplicate door must not remove the
+  // feature — the panels are worth more than the icons were.
+  assert.ok(/b\.dataset\.cloud === 'members'\) siteMembers\(site\)/.test(c), "the Members card");
+  assert.ok(/else siteInbox\(site\)/.test(c), "the Submissions card falls here");
+  assert.ok(/async function siteInbox\(/.test(c), "the submissions panel");
+  assert.ok(/async function siteMembers\(/.test(c), "the members panel");
+  // And both cards are still offered, so the dispatch above has something to
+  // dispatch: a handler with no card is as dead as a card with no handler.
+  //
+  // MATCHED AT THE KEY'S OWN POSITION — the LAST element of the row, which is
+  // what `data-cloud` is built from. A sweep renamed the Submissions key and
+  // this passed, because `'inbox'` is also that card's ICON NAME at position 0
+  // and a plain `includes` cannot tell the two apart. `'members'` happened to
+  // be unambiguous (its icon is `users`), which is exactly the luck a guard
+  // must not rest on.
+  const cards = c.slice(c.indexOf("const cards = ["), c.indexOf("\n  ];", c.indexOf("const cards = [")));
+  assert.ok(/,\s*'members'\],/.test(cards), "the Members card is gone from Cloud");
+  assert.ok(/,\s*'inbox'\],/.test(cards), "the Submissions card is gone from Cloud");
+});
