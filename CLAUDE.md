@@ -1092,7 +1092,50 @@ composer and said *"IT PUTS SONNET THERE"*.
   its margin, the rule deleted, the send button releasing the right edge; the menu's
   width re-gated on `.drop-up`, see-through, narrow, unpositioned, positioned with
   `right: 0` left standing, losing its `:not()`, or losing a class and with it the
-  weight to win. Full suite **5,473**.
+  weight to win. Full suite **5,476**.
+- **AND THE CARRY IS DRIVEN, NOT ASSUMED (owner, 2026-09-07: *"MAKE SURE WHATVER
+  USER SLECETS IT WHAT CARRIES INTO THE NEXT, NO DEFAULT, THE DEFAULT IS WHAT
+  USER SELECTS, BUT FOR OUR TESTING YEA, GROK DEFAULT"*).** Read, the init is
+  three lines and obviously fine; the point is that the default and the stored
+  choice live in ONE statement (`getItem(...) || 'grok'`) with a second fallback
+  under it, so "the default never overwrites a pick" is a claim about an
+  expression, and this session's whole defect was a hop a read had certified.
+  So it is driven twice. **In node**, the real init, writer and chip evaluated
+  against a store carried across a fresh evaluation — which is what a reload is:
+  a cold browser takes Grok and **writes nothing**, every model in the table
+  survives its own reload with both chips showing it, a stored name that is no
+  longer a model falls back, and the writer refuses to store one. **And in a
+  real browser**, with a real `localStorage`, a real click on the menu item and
+  a real page reload: cold `{stored: null, live: "grok"}`; pick Opus → stored,
+  live, both chips "Opus 5", and still Opus after two reloads; same for Sonnet
+  and Grok. **The default is never written**, so it can never become a choice
+  somebody did not make.
+  The other half is that every call that spends a model carries the pick, and
+  the scan that checks it is DERIVED from the file rather than a list kept in
+  the guard — an unwritten list is what the defect above was. `route`, `edit`,
+  `addon`, and the build and revise branches of `reactSend`: five, all named.
+  **The scan's own first draft read the body as 700 characters after `body:`
+  and reported the EDIT call as picker-less** — that object carries 986 bytes of
+  comment between its opening brace and the line naming the model, so the window
+  ended inside the explanation. The recorded "never size a source-read window in
+  bytes" trap, inside a guard written to catch a wiring bug, and it would have
+  called a correct call site broken. It reads by brace depth now.
+  **Sweep re-run whole with the carry mutants: 34 mutants, 32 killed, none
+  survived, none unapplied, both comment-only controls survived** — the seven
+  new ones being the default winning over a stored choice, the testing default
+  moving off Grok, merely reading the default storing it, an unknown stored name
+  rendering an undefined label, and the build, the revise and the addon each
+  dropping the pick.
+- **A NUMBER WAS STAMPED BEFORE ITS LAST TEST, AND IT REACHED MAIN.** The commit
+  and the first draft of this entry said **5,473**; the tree they describe
+  measures **5,474**. The suite was run, then a ninth guard was added for a
+  mutant that would have survived, then the sweep ran, then the commit went out —
+  and nothing re-ran the suite in between. That is this file's own two rules
+  meeting: *stamp measured numbers only AFTER the run*, and *re-run the thing the
+  change is asserted by*. The honest order is run, stamp, then re-run whatever
+  reads the stamp — and a test added after the run is a change the number has not
+  seen. Corrected here rather than quietly; the commit message keeps the wrong
+  number for ever, which is the cost.
 - **Not proven live.** The push touches `public/` only — no container roll, so no
   15–20 minute hold. The proof is one message: the next routing call should run on
   whatever the chip says, and the start screen should carry the chip
@@ -5295,9 +5338,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,473
-  (2026-09-07, after the builder picker added eight in
-  `test/build-picker.test.mjs` — the routing call's body driven out of chat.js
+  build and the pre-list payload added sixteen); the unit suite is 5,476
+  (2026-09-07, after the builder picker added eleven in
+  `test/build-picker.test.mjs` — the pick DRIVEN across reloads against a real
+  store and every model-spending POST derived from the file rather than listed,
+  plus the routing call's body driven out of chat.js
   and held to the build's own variable, the route's read with `modelsFor`'s
   fallback and its coercion refusals, the call sites counted and named on both
   screens with both wire-ups, `buildPickerHTML` evaluated and driven in both

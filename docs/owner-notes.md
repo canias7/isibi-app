@@ -387,9 +387,36 @@ that row each wanted to push the others aside, so the chip floated in the middle
 of the row looking like a stray. The send button is the one that should hold the
 right edge, so the others give way and the controls group on the left.
 
-**Not proven live yet** — this is browser code only, so nothing rebuilds and
-there is no waiting period after the push. The proof is your next message: the
-routing step should run on whatever the chip says.
+**Merged and deployed** — run 2042, green in 51 seconds, nothing rebuilt.
+
+**Then you said: make sure whatever the user selects is what carries into the
+next, no default — and Grok stays the default for our testing.** I checked it
+rather than assumed it, because assuming is exactly what caused the bug above.
+
+Two ways. First in code, against a store carried across a fresh start — which is
+what a reload is. Then **in a real browser**, with real storage, a real click on
+the menu and a real page reload:
+
+- A fresh browser, nothing chosen: it uses Grok, and **writes nothing down**. So
+  the default can never quietly become a choice you did not make.
+- Pick Opus → both screens say Opus 5, and it is still Opus after two reloads.
+- Same for Sonnet, same for Grok.
+
+And every step that spends a model now carries your pick: the routing step, the
+edit, the add-on, the build and the revise. That list is worked out from the code
+itself rather than written down by hand — a hand-written list is what let the
+routing step slip through in the first place.
+
+**One correction I owe you.** The commit says the test suite is 5,473; it is
+5,474 for that commit, and 5,476 now. I ran the suite, then added one more test,
+then shipped the older number without re-running. My own rule says a number goes
+in only after the run that produced it — I broke it, and the commit message keeps
+the wrong figure permanently. The notes and the engineering log are corrected.
+
+**Still not proven in your browser** — this is browser code only, so nothing
+rebuilds and there is no waiting period after the push. The proof is your next
+load: the chip beside Attach on the first screen, and your pick still there after
+a refresh.
 
 ---
 

@@ -165,6 +165,138 @@ test("the pick carries because there is nothing to carry: one variable, one key,
     "the composer's default no longer matches the server's");
 });
 
+// A request body, read by BRACE DEPTH from `body: JSON.stringify({` to its own
+// closing brace — never by a byte count. The first draft of the scan below took
+// 700 characters after `body:` and reported the EDIT call as picker-less: that
+// object carries 986 bytes of comment between the opening brace and the line
+// naming the model, so the window ended inside the explanation. This repo's
+// recorded "never size a source-read window in bytes" trap, met inside the guard
+// written to catch a wiring bug — and it would have reported a correct call site
+// as broken, which is the one failure mode worse than missing one.
+function bodyOf(win) {
+  const at = win.indexOf("body: JSON.stringify(");
+  if (at < 0) return "";
+  let depth = 0;
+  for (let i = win.indexOf("(", at); i < win.length; i++) {
+    if (win[i] === "(" || win[i] === "{") depth++;
+    else if (win[i] === ")" || win[i] === "}") { depth--; if (depth === 0) return win.slice(at, i + 1); }
+  }
+  return win.slice(at);
+}
+
+// ── WHAT THEY PICK IS WHAT CARRIES, ACROSS RELOADS ──────────────────────────
+
+test("DRIVEN: a pick survives a reload and no default reasserts itself", () => {
+  // Owner, 2026-09-07: "MAKE SURE WHATVER USER SLECETS IT WHAT CARRIES INTO THE
+  // NEXT, NO DEFAULT, THE DEFAULT IS WHAT USER SELECTS — BUT FOR OUR TESTING
+  // YEA, GROK DEFAULT."
+  //
+  // Read, this is three lines and obviously fine. Driven, it is the only way to
+  // show that the DEFAULT never overwrites a choice: the two live in the same
+  // statement (`getItem(...) || 'grok'`), and the fallback below it can reach a
+  // stored value too. So the module's own init and its writer are evaluated
+  // against a real store, and the store is carried across a fresh evaluation —
+  // which is what a page reload is.
+  const cAt = chat.indexOf("const BUILD_PICKERS = {");
+  const cEnd = chat.indexOf("\n};", cAt) + 3;
+  // FROM THE KEY, not from the init line: `BUILD_PICKER_KEY` is declared above
+  // it and the init reads it, so a slice starting at `let buildPicker` loads a
+  // module with a free identifier — which is a ReferenceError at call time, not
+  // at parse time, and is the same class of miss this repo has hit four times.
+  const initAt = chat.indexOf("const BUILD_PICKER_KEY = ");
+  assert.ok(initAt > cEnd, "the picker's storage key moved");
+  assert.ok(chat.indexOf("let buildPicker = localStorage.getItem(", initAt) > initAt,
+    "the picker's init line no longer follows its key");
+  const initEnd = chat.indexOf("\nfunction buildPickerHTML(", initAt);
+  assert.ok(initEnd > initAt, "could not bound the init lines");
+
+  // ONE store, shared across every "reload" below, exactly as a browser's is.
+  const store = new Map();
+  const localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+  };
+  const load = () => new Function("localStorage", "document",
+    chat.slice(cAt, cEnd) + "\n" + chat.slice(initAt, initEnd) + "\n" +
+    fn("function buildPickerHTML(", chat) + "\n" + fn("function setBuildPicker(", chat) + "\n" +
+    "return { get: () => buildPicker, set: setBuildPicker, chip: buildPickerHTML };")(
+      localStorage, { getElementById: () => null });
+
+  // A COLD BROWSER TAKES THE TESTING DEFAULT, and it is Grok.
+  let app = load();
+  assert.equal(app.get(), DEFAULT_PICKER, "a browser with nothing stored must take the platform default");
+  assert.equal(DEFAULT_PICKER, "grok", "the testing default is no longer Grok — the owner's call, so re-read this");
+  assert.equal(store.size, 0, "merely reading the default wrote it to storage");
+
+  // THEY PICK. Every model in the table, each proved to survive its own reload.
+  for (const want of Object.keys(BUILD_PICKERS_KEYS())) {
+    app.set(want);
+    assert.equal(app.get(), want, "the pick did not take effect in this session");
+    // A RELOAD: a fresh evaluation of the same module against the same store.
+    app = load();
+    assert.equal(app.get(), want,
+      "after a reload the picker fell back to the default instead of keeping the choice — a pick must outlive the tab");
+    assert.match(app.chip(), new RegExp(">" + BUILD_PICKERS_KEYS()[want].replace(/[.]/g, "\\.") + "<"),
+      "the chip does not show the stored choice after a reload");
+    assert.match(app.chip("down"), new RegExp(">" + BUILD_PICKERS_KEYS()[want].replace(/[.]/g, "\\.") + "<"),
+      "the START SCREEN's chip does not show the stored choice — the two screens disagree");
+  }
+
+  // AND A JUNK STORED VALUE FALLS BACK RATHER THAN RENDERING AN UNDEFINED LABEL.
+  // `auto` really was an option for a few hours and is still in some browsers.
+  store.set("zephyr_build_picker_v1", "auto");
+  assert.equal(load().get(), DEFAULT_PICKER, "a stored value that is no longer a model must fall back");
+  // The writer refuses to store one in the first place.
+  const a = load();
+  a.set("auto");
+  assert.equal(a.get(), DEFAULT_PICKER, "the writer accepted a name that is not a model");
+});
+
+// The label table, read out of chat.js once so the case above compares against
+// the real names rather than a second copy of them.
+function BUILD_PICKERS_KEYS() {
+  const cAt = chat.indexOf("const BUILD_PICKERS = {");
+  const cEnd = chat.indexOf("\n};", cAt) + 3;
+  const t = new Function(chat.slice(cAt, cEnd) + "\nreturn BUILD_PICKERS;")();
+  return Object.fromEntries(Object.keys(t).map((k) => [k, t[k].label]));
+}
+
+test("every model call the browser makes carries the pick — none of them takes the default", () => {
+  const src = bare(chat);
+  // DERIVED FROM THE FILE, not a list kept here: every POST to a site route is
+  // found, and the ones that spend a model call must carry `picker`. A list
+  // written by hand is the recorded "two lists of the same thing", and the whole
+  // defect this file is about was one call site missing from an unwritten list.
+  const lines = src.split("\n");
+  const posts = [];
+  lines.forEach((l, i) => {
+    if (!/apiFetch\(/.test(l)) return;
+    const win = lines.slice(i, i + 90).join("\n");
+    if (!/method: ?'POST'/.test(win.slice(0, 400))) return;
+    const url = (l.match(/apiFetch\((.{0,90})/) || ["", "?"])[1].replace(/,\s*\{.*$/, "").trim();
+    posts.push({ url, picker: /\bpicker\b/.test(bodyOf(win)) });
+  });
+  // THE FOUR THAT SPEND A MODEL CALL. Named, because "carries a picker" is only
+  // half the property — the other half is that these are the ones that must.
+  const spends = [/\/route/, /\/edit/, /\/addon/];
+  for (const re of spends) {
+    const hit = posts.find((p) => re.test(p.url));
+    assert.ok(hit, "a model-spending POST matching " + re + " is gone from chat.js");
+    assert.ok(hit.picker, "the POST to " + hit.url + " does not carry the picked model");
+  }
+  // The build and the revise share one call whose URL is a variable, so they are
+  // read where the body is built rather than at the fetch.
+  const send = fn("function reactSend(");
+  const bodies = send.match(/^.*picker: buildPicker.*$/gm) || [];
+  assert.equal(bodies.length, 2, "the build and the revise no longer both carry the pick");
+  assert.match(bodies[0], /brief:/, "the first branch is no longer the build");
+  assert.match(bodies[1], /instruction:/, "the second branch is no longer the revise");
+  // ALIVE: the scan really did find the free routes too, so "they all carry it"
+  // is not the vacuous answer of a scan that found four things.
+  assert.ok(posts.length >= 10, "the POST scan stopped seeing this file — it now proves nothing");
+  assert.ok(posts.some((p) => !p.picker), "every POST carries a picker, which means the scan is not reading bodies");
+});
+
 // ── THE ROW, MEASURED ───────────────────────────────────────────────────────
 
 test("the start screen's row has exactly one auto margin, and it is the send button's", () => {
