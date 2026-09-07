@@ -2423,7 +2423,29 @@ function wireBuildPicker() {
   menu.querySelectorAll('.build-item').forEach((it) => { it.onclick = () => setBuildPicker(it.dataset.pick); });
 }
 
-// ── Effort dial (1→5) — sits next to the model picker in the site-builder composer, sent as `effort`.
+// ── Effort dial (1→5) — PARKED 2026-09-07, owner: "DELETE THE EFFORT THING FOR NOW".
+//
+// It used to sit beside the model picker in the site-builder composer and ride the
+// build and revise as `effort`. It is off the row, off the wiring and off both
+// request bodies; the table and these three functions stay, because "for now" is
+// what the owner said and this is the `gif` precedent — the mechanism kept, the
+// door removed, and the way back written down rather than remembered.
+//
+// WHY IT WENT, and it is not that nobody used it: it had been VISIBLE AND INERT
+// since 2026-08-08 by the owner's own call ("leave the effort thing off, leave it
+// there but doesn't work, i want it like that"). The build route says so in as
+// many words — `body.effort` stays unread — so what a customer saw was a
+// five-level dial that changed nothing. That is this repo's open dead-control
+// finding, in its own chrome for the third time in a fortnight (`stMembers`, the
+// Security panel's Run scan, this). A disabled control earns its place by SAYING
+// something true; "not built yet" does, a dial with no effect does not.
+//
+// TO PUT IT BACK, three lines and nothing else: `buildEffortHTML() +` after
+// `buildPickerHTML() +` in the composer row, `wireBuildEffort();` beside
+// `wireBuildPicker();` at the end of that render, and `effort: buildEffort` on
+// the two bodies in `reactSend`. Then wire `body.effort` on the build route, or
+// it comes back exactly as inert as it went.
+//
 // Levels 1–4 keep the picked model and just raise tokens-out; level 5 ("Max") trips the multi-agent
 // fan-out, which inherits the model picker (Sonnet→all-Sonnet, Opus→all-Opus, Auto→mixed per task).
 const BUILD_EFFORTS = {
@@ -11218,7 +11240,16 @@ function renderSiteWorkspace(view, site) {
                 '<div class="st-comp-row">' +
                   '<button type="button" class="st-plus" id="stPlus" title="Attach a logo, a photo, a PDF menu or price list" aria-label="Attach a file">+</button>' +
                   buildPickerHTML() +
-                  buildEffortHTML() +
+                  // THE EFFORT DIAL IS OFF THE ROW (2026-09-07, owner: "DELETE THE
+                  // EFFORT THING FOR NOW"). It had been visible-and-inert by an
+                  // earlier call of theirs — 2026-08-08, "leave it there but
+                  // doesn't work, i want it like that" — and that is the whole
+                  // reason it goes now: a control that does nothing says nothing.
+                  // The three disabled controls on a site card each earn their
+                  // place by naming a true sentence ("not built yet", "ask me in
+                  // the chat"); a five-level dial with no effect names none.
+                  // `buildEffortHTML` and its table are parked, not deleted — see
+                  // them for the three lines that put it back.
                   (siteBusy
                     ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop generating">■</button>'
                     : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
@@ -11445,7 +11476,6 @@ function renderSiteWorkspace(view, site) {
     ta.focus();
   }
   wireBuildPicker();
-  wireBuildEffort();
 }
 // #4 — LIVE build activity (Claude-Code-style running log). The server only
 // speaks at a few checkpoints (plan done, each page done, photos), which leaves
@@ -12932,15 +12962,24 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
   // 2026-08-08: the build sent it and the server read it zero times, and the
   // REVISE did not even send it. So the one path where somebody has already seen
   // a result and is reaching for a better model was the path that could not ask
-  // for one. `effort` rides along on both and is still read by nothing — the
-  // control is visible and inert on purpose (owner's call).
+  // for one.
+  //
+  // `effort` NO LONGER RIDES ALONG (2026-09-07, owner: "DELETE THE EFFORT THING
+  // FOR NOW"). It was sent on both and read by nothing, which was survivable
+  // only while the control was on screen: with the chip gone, `buildEffort`
+  // would have kept sending whatever that browser last stored — this account's
+  // was `max`, the multi-agent fan-out — with nobody able to see it and nobody
+  // able to change it. Harmless today, and the exact shape of the defect fixed
+  // an hour earlier: a value on the wire that the person it belongs to cannot
+  // read. If a future reader ever picks `body.effort` up, it must not find a
+  // choice made months ago by a control that no longer exists.
   // `qa` is what they were asked before the build and what they said. Sent RAW,
   // not folded into the brief here — the server composes it, so there is one
   // version of the sentence the designer ends up reading. Build only: questions
   // are never asked on a revise, so a revise has none to send.
   const body = mode === 'build'
-    ? { brief: t, images: imgs, picker: buildPicker, effort: buildEffort, qa: qa || [] }
-    : { slug: site.slug, instruction: t, images: imgs, picker: buildPicker, effort: buildEffort };
+    ? { brief: t, images: imgs, picker: buildPicker, qa: qa || [] }
+    : { slug: site.slug, instruction: t, images: imgs, picker: buildPicker };
   siteAbort = new AbortController();
   apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
     const ct = r.headers.get('content-type') || '';

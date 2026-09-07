@@ -1126,6 +1126,47 @@ composer and said *"IT PUTS SONNET THERE"*.
   moving off Grok, merely reading the default storing it, an unknown stored name
   rendering an undefined label, and the build, the revise and the addon each
   dropping the pick.
+- **AND THE EFFORT DIAL IS PARKED (2026-09-07, owner: *"DELETE THE EFFORT THING
+  FOR NOW"*).** It sat beside the builder chip in the composer and rode the build
+  and the revise as `effort`. It is off the row, off the wiring and off both
+  bodies; `BUILD_EFFORTS`, `buildEffortHTML`, `setBuildEffort` and
+  `wireBuildEffort` STAY, with the three lines that put it back written beside
+  them — *"for now"* is what was said, and this is the `gif` precedent: the
+  mechanism kept, the door removed, the way back written down rather than
+  remembered.
+  **IT WENT BECAUSE IT DID NOTHING, AND THAT WAS ALSO THE OWNER'S CALL** —
+  2026-08-08, *"leave the effort thing off, leave it there but doesn't work, i
+  want it like that"*. The build route says so in as many words (`body.effort`
+  stays unread; `/api/direct` reads its OWN dial, a different variable), so what
+  a customer saw was a five-level control that changed nothing. **The open
+  dead-control finding, in this app's own chrome for the third time in a
+  fortnight** — `stMembers`, the Security panel's Run scan, this — and the rule
+  the card icons settled applies: a control earns its place by SAYING something
+  true. "Not built yet" does; a dial with no effect does not.
+  **THE FIELD CAME OFF THE WIRE TOO, and that half is not cosmetic.**
+  `buildEffort` still reads a stored value, so a chip-less send would have
+  carried whatever that browser last chose — this account's is `max`, the
+  multi-agent fan-out — invisible and unchangeable. Nothing reads it today; the
+  point is that nothing LATER picks up a choice made by a control that no longer
+  exists, which is the defect fixed an hour earlier wearing its other face.
+  **The guard was REWRITTEN, not re-anchored**: `test/build-models.test.mjs`'s
+  case was *"Effort is visible and inert, and that is a DECISION"*, pinning the
+  2026-08-08 call; the same person reversed it, so a red there would report the
+  new instruction as a regression. It now pins the parked state — off the row,
+  off the wiring, off both bodies, the machinery and its restore note still
+  present, and the build route still not reading the field (kept verbatim: that
+  fact is what made the control dead). **Its window met TWO recorded traps in
+  one rewrite**: the comment left where the chip was NAMES `buildEffortHTML`,
+  and the parked block's restore note spells `effort: buildEffort` — "prose
+  contains the thing it forbids", twice, in a guard written for the removal;
+  and the first draft sized the window in bytes, which this file's comments
+  outrun. Blanked and landmark-to-landmark now, both ends asserted.
+  **Sweep: 10 mutants, 9 killed, none unapplied, the comment-only control
+  survived** — the chip back on the row, the dial wired to a chip nobody draws,
+  the build and the revise each sending it again, each of the three parked
+  functions renamed away, the restore note deleted, and the build route reading
+  the field after all. Full suite **5,476** (unchanged: the guard was rewritten
+  in place). Render: `docs/edits/composer-no-effort.png`.
 - **A NUMBER WAS STAMPED BEFORE ITS LAST TEST, AND IT REACHED MAIN.** The commit
   and the first draft of this entry said **5,473**; the tree they describe
   measures **5,474**. The suite was run, then a ninth guard was added for a

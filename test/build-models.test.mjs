@@ -292,23 +292,57 @@ test("the response says which models actually ran", () => {
   assert.ok(!/picker: body\.picker/.test(workerCode), "the response echoes the request instead of the resolution");
 });
 
-test("Effort is visible and inert, and that is a DECISION", () => {
-  // Owner's call 2026-08-08: "leave the effort thing off, leave it there but
-  // doesn't work, i want it like that". Pinned because "we forgot" and "we
-  // decided" look identical in a list of controls a year later — the same reason
-  // `toast` has a test saying it was refused rather than overlooked.
-  // RENDERED, not merely defined. The first draft matched `buildEffortHTML()`
-  // anywhere in the file, which its own definition satisfies — so a mutation
-  // dropping the call out of the composer markup SURVIVED with the control gone
-  // from the screen. Same shape as the Bookmarks guard that matched its own
-  // explanatory comment.
-  const render = chat.indexOf("buildPickerHTML() +");
-  assert.ok(render > 0, "the composer no longer renders the Builder control");
-  assert.match(chat.slice(render, render + 200), /buildEffortHTML\(\) \+/,
-    "the Effort control was removed; it is meant to stay visible");
-  assert.match(chat, /effort: buildEffort/, "the composer stopped sending effort");
-  // And the build route must still not read it. `/api/direct` does — that is a
-  // different feature — so this is scoped to the builder's own handler.
+test("Effort is PARKED — off the screen and off the wire — and that is a DECISION", () => {
+  // THE DECISION THIS PINS WAS REVERSED BY THE PERSON WHO MADE IT, so this case
+  // is rewritten rather than re-anchored. It used to read "Effort is visible and
+  // inert, and that is a DECISION" — owner, 2026-08-08: "leave the effort thing
+  // off, leave it there but doesn't work, i want it like that" — and on
+  // 2026-09-07 the same owner said "DELETE THE EFFORT THING FOR NOW". A guard
+  // that went red here would be reporting the new instruction as a regression.
+  // What has NOT changed is why the case exists at all: "we forgot" and "we
+  // decided" look identical in a list of controls a year later.
+  //
+  // OFF THE SCREEN. Windowed from the Builder chip, which is its neighbour, so
+  // this reads the composer row and not the function's own definition — the
+  // first draft of the old case matched `buildEffortHTML()` anywhere in the file,
+  // which its definition satisfies, and a mutant dropping it from the markup
+  // survived with the control gone from the screen.
+  // COMMENTS BLANKED FIRST, and BOTH landmarks asserted. The comment left in the
+  // composer row where the chip used to be NAMES `buildEffortHTML` — it has to,
+  // to say what was removed and how to put it back — so an unblanked scan reads
+  // the note about the removal as the chip itself. "Prose contains the thing it
+  // forbids", met in a guard rewritten for exactly this removal. And the window
+  // runs landmark to landmark rather than a byte count: this file's comments
+  // outrun any number, which is the trap one line up wearing its other face.
+  const rowSrc = chat.split("\n").map((l) => (/^\s*\/\//.test(l) ? " ".repeat(l.length) : l)).join("\n");
+  const render = rowSrc.indexOf("buildPickerHTML() +");
+  assert.ok(render > 0, "the composer no longer renders the Builder control — this window has no anchor");
+  const rowEnd = rowSrc.indexOf("id=\"stSend\"", render);
+  assert.ok(rowEnd > render, "the composer row's send button is gone — this window has no end");
+  assert.ok(!/buildEffortHTML\(\)/.test(rowSrc.slice(render, rowEnd)),
+    "the Effort chip is back in the composer row");
+  assert.ok(!/wireBuildEffort\(\);/.test(rowSrc), "the Effort dial is wired to a chip that is not drawn");
+
+  // OFF THE WIRE, and this is the half that is not cosmetic. `buildEffort` still
+  // reads a stored value, so a chip-less send would carry whatever that browser
+  // last chose — this account's is `max`, the multi-agent fan-out — invisible and
+  // unchangeable. Nothing reads it today; the point is that nothing later picks
+  // up a choice made by a control that no longer exists.
+  // Blanked, for the third time in this one case: the parked block's own note
+  // spells the field, because saying how to put it back means naming it.
+  assert.ok(!/effort: buildEffort/.test(rowSrc), "a build or revise still sends an effort nobody can see or change");
+
+  // PARKED, NOT DELETED: "for now" was the instruction, so the machinery stays
+  // and the way back is written down beside it.
+  assert.match(chat, /function buildEffortHTML\(/, "the parked Effort markup was deleted — putting it back is no longer three lines");
+  assert.match(chat, /function setBuildEffort\(/, "the parked Effort writer was deleted");
+  assert.match(chat, /function wireBuildEffort\(/, "the parked Effort wiring was deleted");
+  assert.match(chat, /TO PUT IT BACK, three lines/, "the note saying how to restore it is gone");
+
+  // And the build route still does not read it. `/api/direct` does — that is a
+  // different feature with its own dial — so this is scoped to the builder's own
+  // handler. Kept from the old case unchanged: it is the fact that made the
+  // control dead, and it is what a restore would have to fix.
   const i = workerCode.indexOf("const models = modelsFor(body.picker)");
   assert.ok(i > 0);
   const route = workerCode.slice(i, workerCode.indexOf("models: { picker: models.picker", i));

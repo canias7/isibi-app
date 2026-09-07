@@ -418,6 +418,32 @@ rebuilds and there is no waiting period after the push. The proof is your next
 load: the chip beside Attach on the first screen, and your pick still there after
 a refresh.
 
+**Then: "DELETE THE EFFORT THING FOR NOW."** Done — the composer is now just the
+`+`, the Builder chip and the send button (`docs/edits/composer-no-effort.png`).
+
+Worth knowing why it goes so easily: **that dial has never done anything.** You
+decided that yourself back on 8 August — *"leave the effort thing off, leave it
+there but doesn't work, i want it like that"* — and the build has ignored it ever
+since. So what people saw was a five-level control that changed nothing at all.
+
+That is the third dead control found in our own app in a fortnight: the members
+icon, the Security panel's "Run scan" button, and now this. The rule we settled
+on with the site-card icons holds — a control earns its place by saying something
+true. "Not built yet" says something. A dial with no effect does not.
+
+**One thing I did beyond taking the chip away, and it matters.** The setting was
+still being sent to the server on every build, and yours was set to Max. With the
+control gone you could never see or change it again — an invisible setting stuck
+on your most expensive option. Nothing reads it today, but if anyone ever wires it
+up, it would quietly apply a choice you made months ago through a control that no
+longer exists. That is the same bug I fixed an hour earlier, from the other side.
+So the setting comes off the wire too.
+
+**Not deleted, parked** — you said "for now". The machinery is still there with a
+note saying exactly which three lines bring it back, the same way the animated-mark
+step was parked. Bringing it back means also making it *do* something, or it
+returns exactly as dead as it left.
+
 ---
 
 ## 2026-09-07 — The start screen shows every site you own, from the server
