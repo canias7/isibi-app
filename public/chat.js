@@ -10245,6 +10245,40 @@ function switchSitePage(path) {
   else if (f && s.react && s.url) f.src = s.url + (path !== '/' ? String(path).replace(/^\//, '') : '') + '?v=' + (s.previewV || 1);
   if (typeof paintPreviewErrBadge === 'function') paintPreviewErrBadge();
 }
+// THE THREE ON EVERY CARD: its data, its live address, its phone view (owner,
+// 2026-09-07: "next to each square couple of icons, one for database, one for
+// site and one more mobile app"; the set is A/B/A off the variants sheet — the
+// cylinder, the globe, the handset).
+//
+// EACH ONE GOES SOMEWHERE THAT EXISTS, which is the whole reason this function
+// takes the site rather than drawing three glyphs: the repo already carries an
+// open "dead-control" finding about links that point at where they already are,
+// and three decorative icons on 51 cards would be fifty-one times that.
+//
+//   database → the workspace's Data view, `siteDatabase`'s own jump
+//   site     → the live address, in a new tab
+//   phone    → the workspace's Preview at phone width
+//
+// A SITE WITH NO DATABASE GETS A DISABLED BUTTON THAT SAYS SO, never a live one
+// that lands on Preview without explanation: a first build provisions none, so
+// this is the ordinary case and not an edge, and the tooltip is the only place
+// a customer would ever learn the feature is there to ask for.
+function cardActs(s) {
+  const id = esc(s.id);
+  const hasDb = !!(s.react && s.backend);
+  return '<div class="st-card-acts">' +
+    '<button type="button" class="st-card-act" data-act="data" data-sid="' + id + '"' +
+      (hasDb ? '' : ' disabled') +
+      ' title="' + (hasDb ? 'Data' : 'No database yet — ask for one in the chat') + '"' +
+      ' aria-label="' + (hasDb ? 'Open this site’s data' : 'This site has no database yet') + '">' + ic('database', 15) + '</button>' +
+    '<button type="button" class="st-card-act" data-act="live" data-sid="' + id + '"' +
+      (s.url ? '' : ' disabled') +
+      ' title="' + (s.url ? 'Open the live site' : 'Not published yet') + '"' +
+      ' aria-label="Open the live site in a new tab">' + ic('globe', 15) + '</button>' +
+    '<button type="button" class="st-card-act" data-act="phone" data-sid="' + id + '"' +
+      ' title="See it on a phone" aria-label="Preview this site at phone width">' + ic('phone', 15) + '</button>' +
+  '</div>';
+}
 function renderSites() {
   const view = document.getElementById('viewSites');
   if (!view) return;
@@ -10277,8 +10311,11 @@ function renderSites() {
         ? '<div class="st-grid-h">Your sites</div><div class="st-grid">' + sites.map((s) =>
             '<div class="st-card" data-open="' + esc(s.id) + '" role="button" tabindex="0">' +
               '<div class="st-card-prev"><iframe sandbox="' + (s.react && s.url ? 'allow-scripts' : '') + '" loading="lazy" title="' + esc(s.name) + '"></iframe></div>' +
-              '<div class="st-card-meta"><span class="st-card-name">' + esc(s.name) + '</span>' +
-                '<span class="st-card-sub">' + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
+              '<div class="st-card-meta">' +
+                '<div class="st-card-names"><span class="st-card-name">' + esc(s.name) + '</span>' +
+                  '<span class="st-card-sub">' + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
+                cardActs(s) +
+              '</div>' +
               '<button type="button" class="sch-del st-card-del" data-del="' + esc(s.id) + '" title="Delete" aria-label="Delete site">×</button>' +
             '</div>').join('') + '</div>'
         : '');
@@ -10311,8 +10348,30 @@ function renderSites() {
     const home = s && (siteActivePage(s) || sitePages(s)[0]);
     if (fr && s && s.react && s.url) fr.src = s.url; // compiled React thumbnail
     else if (fr && home && home.html) fr.srcdoc = home.html;
-    card.onclick = (e) => { if (e.target.closest('[data-del]')) return; cardOpen(card.dataset.open); };
+    // EVERY BUTTON ON THE CARD, not a list of them. This read `[data-del]` when
+    // the delete was the only control here; the three action buttons arrived
+    // beside it and would each have opened the workspace as well as doing their
+    // own job. `closest('button')` is one rule that cannot drift as controls are
+    // added — the recorded "two lists of the same thing", avoided rather than
+    // extended.
+    card.onclick = (e) => { if (e.target.closest('button')) return; cardOpen(card.dataset.open); };
     card.onkeydown = (e) => { if (e.key === 'Enter') cardOpen(card.dataset.open); };
+  });
+  // The three card actions. Each ADOPTS first, for the same reason the open and
+  // the delete do: a card the server listed and this browser has never seen has
+  // no local record, and every one of these needs one to work on.
+  view.querySelectorAll('.st-card-act').forEach((b) => b.onclick = (e) => {
+    e.stopPropagation();
+    const rec = siteAdopt(cardEntry(b.dataset.sid));
+    if (!rec) return;
+    if (b.dataset.act === 'live') { if (rec.url) window.open(rec.url, '_blank', 'noopener'); return; }
+    siteOpenId = rec.id;
+    if (b.dataset.act === 'data') { siteView = 'data'; }
+    // The phone view is the PREVIEW at phone width — the workspace's own device
+    // switch, not a separate screen. Set both: arriving from a card that was
+    // last left on Data would otherwise open Data at phone width.
+    else { siteView = 'preview'; siteDevice = 'phone'; }
+    renderSites();
   });
   view.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
     const id = b.dataset.del;
@@ -10454,6 +10513,10 @@ const ST_ICONS = {
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="3.5"/><path d="M21 21v-2a4 4 0 0 0-3-3.85"/>',
   download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.9 2.6 15.1 0 18"/><path d="M12 3c-2.6 2.9-2.6 15.1 0 18"/>',
+  // The site card's three: its data, its live address, its phone view. The
+  // globe and the phone were already here — the cylinder is the third, drawn
+  // to the same 24×24 / 1.85-stroke rule so the trio reads as one set.
+  database: '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.55 3.36 2.8 7.5 2.8s7.5-1.25 7.5-2.8v-13"/><path d="M4.5 12c0 1.55 3.36 2.8 7.5 2.8s7.5-1.25 7.5-2.8"/>',
   code: '<path d="M9 7l-5 5 5 5"/><path d="M15 7l5 5-5 5"/>',
   grid: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.4"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.4"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.4"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.4"/>',
   chart: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 20v-5"/><path d="M13 20V9"/><path d="M18 20v-8"/>',

@@ -248,7 +248,16 @@ test("every card hop resolves through the merged list, never localStorage alone"
   const c = blankComments(read("../public/chat.js"));
   const at = c.indexOf("const cardEntry = (id) =>");
   assert.ok(at > 0, "the resolver exists");
-  const body = c.slice(at, at + 1800);
+  // LANDMARK TO LANDMARK, NOT A BYTE COUNT. This was `at + 1800` and went red
+  // the day the three action buttons landed between the card loop and the
+  // delete: the window ended before the delete's own adopt, so the guard
+  // reported a hop as missing that had not moved. The recorded byte-window
+  // trap, in the guard whose comment below records fighting a different one.
+  // Both ends are asserted, because `indexOf` answering -1 makes `slice` return
+  // "" and every assertion inside a window pass on nothing.
+  const to = c.indexOf("Delete this site for good?", at);
+  assert.ok(to > at, "the delete's confirmation is gone — re-anchor this window");
+  const body = c.slice(at, to);
   // The thumbnail, the click and the delete — the three that would each have
   // silently done nothing for a site this browser has no record of.
   assert.ok(/const s = cardEntry\(card\.dataset\.open\)/.test(body), "thumbnail");
@@ -284,4 +293,204 @@ test("the module is loaded before chat.js, which calls into it", () => {
   const b = h.indexOf('src="/chat.js"');
   assert.ok(a > 0, "the page loads it");
   assert.ok(a < b, "before chat.js");
+});
+
+// ── THE THREE ON EVERY CARD ─────────────────────────────────────────────────
+//
+// database · site · mobile app (owner, 2026-09-07). Two things are worth
+// driving and one is worth reading:
+//
+//   1. the credential. The card needs to know WHETHER the site has a database,
+//      and the column that answers it is the connection to that database. The
+//      boolean goes out; the string must not, and a whole-payload search is the
+//      only assertion that survives somebody spreading the row later.
+//   2. the disabled states, off the REAL `cardActs` — a first build has no
+//      database, so that is the ordinary card and not an edge.
+//   3. that each button goes somewhere that exists. This repo already carries
+//      an open finding about controls pointing at where they already are; three
+//      of them on every card would be that finding fifty-one times over.
+
+const DB_URL = "postgres://user:sup3rsecret@ep-x.neon.tech/neondb";
+
+test("DRIVEN: the wire says WHETHER there is a database, never the connection", async () => {
+  const r = await callList({
+    backends: [
+      { slug: "with-db", created_at: "2026-09-01T00:00:00Z", brief: "", neon_db: DB_URL },
+      { slug: "no-db", created_at: "2026-09-01T00:00:00Z", brief: "", neon_db: null },
+      { slug: "empty-db", created_at: "2026-09-01T00:00:00Z", brief: "", neon_db: "" },
+    ],
+  });
+  assert.equal(r.status, 200);
+  const by = Object.fromEntries(r.body.sites.map((s) => [s.slug, s]));
+  assert.equal(by["with-db"].db, true);
+  // A ROW THAT EXISTS WITH `neon_db` EMPTY IS A FRONTEND-ONLY SITE, which most
+  // first builds are — the majority case, not an edge.
+  assert.equal(by["no-db"].db, false, "no connection is no database");
+  assert.equal(by["empty-db"].db, false, "an empty connection is no database");
+  // THE WHOLE PAYLOAD, not the field: a future edit that spreads the row would
+  // pass a field-level check and ship a credential to the browser.
+  const wire = JSON.stringify(r.body);
+  assert.ok(!wire.includes("sup3rsecret"), "the connection reached the browser");
+  assert.ok(!wire.includes("neon_db"), "the column reached the browser under its own name");
+});
+
+test("DRIVEN: the column is asked for, or the answer would always be false", async () => {
+  const r = await callList({ backends: [] });
+  const backendsRead = r.asked.find((u) => u.includes("site_backends"));
+  assert.ok(/select=[^&]*\bneon_db\b/.test(backendsRead),
+    "PostgREST returns only the selected columns, so a `db` computed off an "
+    + "unselected one is false for every site on the platform: " + backendsRead);
+});
+
+test("a row's `db` is read strictly — nothing but a real true is a yes", () => {
+  assert.equal(SiteList.fromRow({ slug: "a", db: true }).backend, true);
+  for (const bad of ["true", "yes", 1, [true], {}, "postgres://x"]) {
+    assert.equal(SiteList.fromRow({ slug: "a", db: bad }).backend, false,
+      "a `db` of " + JSON.stringify(bad) + " read as a database");
+  }
+  assert.equal(SiteList.fromRow({ slug: "a" }).backend, false, "absent is no");
+});
+
+test("either side saying there is a database is a yes", () => {
+  const one = (srv, loc) => SiteList.merge(
+    [{ id: "x", slug: "s", backend: loc, updatedAt: 1 }],
+    [{ slug: "s", db: srv }], true)[0].backend;
+  assert.equal(one(true, false), true, "the server knows");
+  // A BUILD THAT JUST FINISHED sets this locally and the server list is a
+  // minute stale; no path ever takes a database away, so a disagreement is the
+  // local record being AHEAD, never the server correcting it.
+  assert.equal(one(false, true), true, "the local record is ahead, not wrong");
+  assert.equal(one(true, true), true);
+  assert.equal(one(false, false), false, "and two noes stay a no — without this "
+    + "the merge would say yes for every site and the control would never dim");
+});
+
+/** The real `cardActs`, evaluated out of chat.js — it cannot be imported. */
+function loadCardActs() {
+  const chat = read("../public/chat.js");
+  const cut = (name) => {
+    const at = chat.indexOf("function " + name + "(");
+    assert.ok(at > 0, name + " is gone from chat.js");
+    const end = chat.indexOf("\n}", at);
+    assert.ok(end > at, name + " has no end");
+    return chat.slice(at, end + 2);
+  };
+  const iAt = chat.indexOf("const ST_ICONS = {");
+  assert.ok(iAt > 0, "the icon table is gone");
+  const iEnd = chat.indexOf("\n};", iAt);
+  assert.ok(iEnd > iAt, "the icon table has no end");
+  return new Function(chat.slice(iAt, iEnd + 3) + "\n" + cut("esc") + "\n" + cut("ic")
+    + "\n" + cut("cardActs") + "\nreturn cardActs;")();
+}
+
+test("DRIVEN: three buttons, one per thing, each named on the element", () => {
+  const cardActs = loadCardActs();
+  const html = cardActs({ id: "s1", react: true, backend: true, url: "https://x.gofarther.app/" });
+  for (const act of ["data", "live", "phone"]) {
+    assert.equal((html.match(new RegExp('data-act="' + act + '"', "g")) || []).length, 1,
+      "exactly one " + act + " button");
+  }
+  assert.equal((html.match(/<button/g) || []).length, 3, "three and no more");
+  assert.ok(!/ disabled/.test(html), "a published site with a database has all three live");
+  // ONE SET, drawn through the app's own icon helper rather than pasted: a
+  // hand-written <svg> here would drift from the 1.85 stroke every other glyph
+  // in the chrome uses, and the trio would read as imported.
+  assert.equal((html.match(/class="st-svg"/g) || []).length, 3);
+  assert.equal((html.match(/stroke-width="1\.85"/g) || []).length, 3);
+});
+
+test("DRIVEN: a site with no database keeps the button and says why", () => {
+  const cardActs = loadCardActs();
+  const html = cardActs({ id: "s1", react: true, backend: false, url: "https://x/" });
+  const dataBtn = html.slice(html.indexOf('data-act="data"') - 60, html.indexOf('data-act="live"'));
+  assert.ok(/ disabled/.test(dataBtn), "a site with no database must not offer a live data button");
+  // HIDING IT IS HOW A CUSTOMER NEVER LEARNS THE FEATURE IS THERE TO ASK FOR.
+  assert.match(dataBtn, /No database yet/, "the tooltip says what to do about it");
+  assert.ok(!/ disabled/.test(html.slice(html.indexOf('data-act="live"'))),
+    "the other two are unaffected");
+});
+
+test("DRIVEN: an unpublished site cannot be opened, and the phone view always can", () => {
+  const cardActs = loadCardActs();
+  const html = cardActs({ id: "s1", react: true, backend: true, url: "" });
+  const live = html.slice(html.indexOf('data-act="live"'), html.indexOf('data-act="phone"'));
+  assert.ok(/ disabled/.test(live), "there is no address to open");
+  assert.match(live, /Not published yet/);
+  // The phone view is the workspace's own preview, which exists for a site that
+  // has never published — that is exactly when you want to look at it.
+  assert.ok(!/ disabled/.test(html.slice(html.indexOf('data-act="phone"'))));
+});
+
+test("DRIVEN: the id is escaped into the attribute, never concatenated raw", () => {
+  const cardActs = loadCardActs();
+  const html = cardActs({ id: 'x" onclick="steal()', react: true, backend: true, url: "https://x/" });
+  assert.ok(!html.includes('onclick="steal()'), "a hostile id closed the attribute");
+  assert.ok(html.includes("&quot;"), "it is escaped rather than dropped");
+});
+
+test("each of the three goes somewhere that exists", () => {
+  const c = blankComments(read("../public/chat.js"));
+  const at = c.indexOf("view.querySelectorAll('.st-card-act')");
+  assert.ok(at > 0, "the handlers are gone");
+  const body = c.slice(at, c.indexOf("view.querySelectorAll('[data-del]')", at));
+  assert.ok(body.length > 200 && body.length < 1400, "the handler block was not found whole");
+  // ADOPTED FIRST, like the open and the delete: a card the server listed and
+  // this browser has never seen has no local record to act on.
+  assert.ok(/siteAdopt\(cardEntry\(b\.dataset\.sid\)\)/.test(body), "adopts");
+  assert.ok(/window\.open\(rec\.url/.test(body), "the live site opens at its own address");
+  assert.ok(/siteView = 'data'/.test(body), "the data button opens the Data view");
+  assert.ok(/siteDevice = 'phone'/.test(body), "the phone button switches the preview device");
+  // BOTH, on the phone branch: arriving from a card last left on Data would
+  // otherwise open Data at phone width.
+  assert.ok(/siteView = 'preview'; siteDevice = 'phone'/.test(body),
+    "the phone branch sets the view as well as the device");
+  assert.ok(/e\.stopPropagation\(\)/.test(body), "a click on a button is not also a click on the card");
+});
+
+test("the card's click guard covers every button on it, not a list of them", () => {
+  const c = blankComments(read("../public/chat.js"));
+  const at = c.indexOf("card.onclick = (e) =>");
+  assert.ok(at > 0);
+  const line = c.slice(at, c.indexOf("\n", at));
+  assert.ok(/closest\('button'\)/.test(line),
+    "one rule for every control on the card — a named list drifts the next time "
+    + "one is added, which is exactly how these three arrived");
+  assert.ok(!/data-del/.test(line), "the old single-control spelling is gone");
+});
+
+test("the cylinder is in the icon table, and the trio is the set that was chosen", () => {
+  const c = read("../public/chat.js");
+  const iAt = c.indexOf("const ST_ICONS = {");
+  const table = c.slice(iAt, c.indexOf("\n};", iAt));
+  for (const name of ["database", "globe", "phone"]) {
+    assert.ok(new RegExp("\\n\\s*" + name + ":").test(table), name + " is not in ST_ICONS");
+  }
+  // The chosen database mark is the three-band cylinder, and it is drawn on the
+  // same 24×24 grid as every other glyph — a viewBox is not a thing `ic` sets
+  // per icon, so a path outside 0..24 would render clipped and nothing would say so.
+  const db = table.slice(table.indexOf("\n  database:"), table.indexOf("\n", table.indexOf("\n  database:") + 1));
+  assert.equal((db.match(/<path/g) || []).length, 2, "the body and the middle band");
+  assert.equal((db.match(/<ellipse/g) || []).length, 1, "the top disc");
+  for (const n of db.match(/-?\d+(\.\d+)?/g) || []) {
+    assert.ok(Math.abs(Number(n)) <= 24, "a coordinate outside the 24×24 grid: " + n);
+  }
+});
+
+test("the card actually draws them — the one hop every other guard misses", () => {
+  // A SWEEP FOUND THIS. Every assertion above drives `cardActs` directly, so
+  // cutting its ONE call site out of the card markup left all of them green
+  // and the three icons off every card: the wiring trap in its purest form —
+  // the function perfect, the hop gone, nothing failing.
+  const c = blankComments(read("../public/chat.js"));
+  const at = c.indexOf("'<div class=\"st-card\" data-open=");
+  assert.ok(at > 0, "the card markup is gone");
+  const to = c.indexOf('class="sch-del st-card-del"', at);
+  assert.ok(to > at, "the delete button is gone — re-anchor this window");
+  const card = c.slice(at, to);
+  assert.equal((card.match(/cardActs\(s\)/g) || []).length, 1,
+    "the card must call cardActs exactly once");
+  // And inside the meta row, where the name and the date are — not floating
+  // over the thumbnail, which is where the delete lives.
+  assert.ok(card.indexOf('st-card-meta') < card.indexOf("cardActs(s)"),
+    "the actions belong to the meta row");
 });

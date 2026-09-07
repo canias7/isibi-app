@@ -387,6 +387,29 @@ was my test's fault, not the code's, so it was tightened and re-run to a kill.
 
 ## Open — waiting on you
 
+**0z. THREE ICONS ON EVERY SITE CARD — SHIPPED, AND ONE ASSUMPTION IS YOURS TO
+CONFIRM (2026-09-07, your "A,B,A").** The cylinder, the globe and the handset
+are on every card in the start screen's grid. Where each one goes:
+
+- **cylinder → the site's Data view.** A site with **no database** shows it
+  dimmed with the tooltip *"No database yet — ask for one in the chat"*. That is
+  most sites: a first build provisions none. Hiding the button entirely was the
+  other option and it is how nobody learns the feature exists.
+- **globe → the live site**, in a new tab. Dimmed with *"Not published yet"*
+  before a site has an address.
+- **handset → the site at phone width** — the workspace's own Preview device
+  switch, the one already in the top bar.
+
+**THE ASSUMPTION.** You said "mobile app", and what I wired is *see it on a
+phone*, because that is the only thing in the tree that answers to it — the
+platform builds websites and there is no app product anywhere in it. If you
+meant a real mobile app, say so: the icon is already in place and only what it
+does changes.
+
+**Not seen in a browser yet.** Next signed-in load of gofarther.dev shows them.
+If a card's icons are missing, or the cylinder is dim on a site you know has a
+database, tell me what you see rather than assuming I know.
+
 **0a. THE CANARY PLAN, REVISED (2026-09-06, your call to run it or not).**
 Nothing below has been run. Everything below is on branch
 `claude/publish-integrity`, which is NOT merged and NOT deployed.

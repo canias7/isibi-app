@@ -66,6 +66,10 @@
       name: name,
       url: "https://" + name + SITE_HOST + "/",
       brief: str(row.brief).slice(0, 300),
+      // Does this site have its own database. Read STRICTLY — the wire says
+      // `db: !!r.neon_db`, a real boolean, so anything else is a shape we did
+      // not send and must not be believed as a yes.
+      backend: row.db === true,
       createdAt: Number(row.createdAt) || 0,
       updatedAt: Number(row.updatedAt) || Number(row.createdAt) || 0,
       // Every site the builder publishes is a React site; the grid uses this
@@ -109,6 +113,13 @@
         url: made.url,
         remote: true,
         name: str(have.name) || made.name,
+        // EITHER SIDE SAYING YES IS A YES, and the asymmetry is the point: a
+        // build that just finished sets this locally, the server list is a
+        // minute stale, and no path ever takes a database away — so a
+        // disagreement is the local record being AHEAD, never the server
+        // correcting it. Wrong toward "no" dims a button that works; wrong
+        // toward "yes" opens a Data view with nothing in it.
+        backend: made.backend || have.backend === true,
         updatedAt: Math.max(Number(have.updatedAt) || 0, made.updatedAt),
       }) : made);
     }

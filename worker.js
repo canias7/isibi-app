@@ -19323,7 +19323,13 @@ async function handleRequest(request, env, ctx) {
       let lb, la, ld;
       try {
         [lb, la, ld] = await Promise.all([
-          lq(`site_backends?uid=eq.${luid}&select=slug,created_at,brief&order=created_at.desc&limit=${MAX_SITE_LIST}`),
+          // `neon_db` IS READ AND NEVER EMITTED. It is the site's own database
+          // connection — a credential — and it is pulled here only so the row
+          // can answer the one BOOLEAN the card needs: does this site have a
+          // database at all. The reply below sends `db: !!r.neon_db` and
+          // nothing else off this column; a row that exists with `neon_db`
+          // empty is a frontend-only site, which most first builds are.
+          lq(`site_backends?uid=eq.${luid}&select=slug,created_at,brief,neon_db&order=created_at.desc&limit=${MAX_SITE_LIST}`),
           lq(`site_aliases?uid=eq.${luid}&current=is.true&select=alias,slug`),
           lq(`site_builds?uid=eq.${luid}&select=slug,updated_at&order=updated_at.desc&limit=1000`),
         ]);
@@ -19356,6 +19362,11 @@ async function handleRequest(request, env, ctx) {
           // name would show an address its owner no longer uses.
           name: aliasBy[r.slug] || r.slug,
           brief: typeof r.brief === "string" ? r.brief.slice(0, 300) : "",
+          // Whether the site has its own database, and NOT the connection to
+          // it: the card's data button is live for a site that has one and
+          // says so for a site that does not, which is the only thing a
+          // start screen may know about a credential.
+          db: !!r.neon_db,
           createdAt: stamp(r.created_at),
           updatedAt: stamp(builtBy[r.slug]) || stamp(r.created_at),
         })),

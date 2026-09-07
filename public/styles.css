@@ -1456,7 +1456,23 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-card:hover { border-color: rgba(0, 0, 0, .45); transform: translateY(-2px); }
 .st-card-prev { aspect-ratio: 16/10; overflow: hidden; background: var(--bg); pointer-events: none; }
 .st-card-prev iframe { width: 400%; height: 400%; transform: scale(.25); transform-origin: 0 0; border: 0; pointer-events: none; }
-.st-card-meta { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .85rem .8rem; }
+.st-card-meta { display: flex; align-items: flex-end; justify-content: space-between; gap: .6rem; padding: .7rem .85rem .8rem; }
+.st-card-names { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+/* The three actions. `flex: 0 0 auto` so a long site name ellipsises against
+   them rather than pushing them off the card. */
+.st-card-acts { display: flex; gap: 4px; flex: 0 0 auto; }
+.st-card-act {
+  width: 26px; height: 26px; padding: 0; display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); color: var(--muted); cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.st-card-act:hover:not(:disabled) { background: var(--panel-2); color: var(--text); border-color: var(--line-2); }
+.st-card-act:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+/* A site with no database keeps its button, greyed and explained by its own
+   tooltip — the feature is there to ask for, and hiding the control is how a
+   customer never learns that. */
+.st-card-act:disabled { opacity: .38; cursor: default; }
 .st-card-name { font-size: .92rem; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-card-sub { font-size: .75rem; color: var(--muted); }
 /* The small round "remove" control — a site card's corner and a scheduled

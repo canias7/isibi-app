@@ -774,6 +774,63 @@ site data. Live sites, paid for, invisible.
   config, which is 51 reads on one page load. Owner's call whether that is worth
   a second hop.
 
+### THREE ICONS ON EVERY CARD (2026-09-07, owner: *"next to each square couple of
+icons, one for database, one for site and one more mobile app"* → *"A,B,A"*)
+
+Rendered as five variant sets first and chosen by name: **A's cylinder, B's
+globe, A's handset**. The glyphs go through `ic()` like every other one in the
+chrome — 24×24, no fill, `currentColor` at 1.85, round caps — so the trio is the
+app's own set and not an import; `globe` and `phone` were already in `ST_ICONS`
+and only `database` is new.
+
+- **EACH ONE GOES SOMEWHERE THAT EXISTS**, which is why `cardActs(s)` takes the
+  site rather than drawing three glyphs: `database` → the workspace's Data view
+  (`siteDatabase`'s own jump), `site` → the live address in a new tab, `phone` →
+  Preview at phone width (the workspace's own device switch, so BOTH `siteView`
+  and `siteDevice` are set — arriving from a card last left on Data would
+  otherwise open Data at phone width). The repo carries an open **dead-control**
+  finding about links pointing at where they already are; three decorative icons
+  across 51 cards would have been that finding fifty-one times.
+- **A SITE WITH NO DATABASE KEEPS ITS BUTTON, DIMMED, AND THE TOOLTIP SAYS WHAT
+  TO DO** ("No database yet — ask for one in the chat"). A first build
+  provisions none, so that is the ORDINARY card; hiding the control is how a
+  customer never learns the feature is there to ask for. Same shape for an
+  unpublished site's globe ("Not published yet"); the phone view works either
+  way, which is exactly when you want it.
+- **THE FACT COMES OFF THE COLUMN THAT IS THE CREDENTIAL.** `/api/site/list`
+  selects `neon_db` and emits `db: !!r.neon_db` — the boolean, never the
+  connection. The guard searches the WHOLE payload for the value and for the
+  column's name, because a field-level check passes the day somebody spreads the
+  row. `fromRow` reads it STRICTLY (`row.db === true`); the merge takes **either
+  side's yes**, because a build that just finished sets it locally against a
+  minute-stale list and no path ever takes a database away — a disagreement is
+  the local record being ahead, never the server correcting it.
+- **The card's own click guard is `closest('button')` now**, not `[data-del]`:
+  one rule for every control on the card, so the next one added cannot open the
+  workspace by accident. The recorded "two lists of the same thing", avoided
+  rather than extended.
+- **Guards**: `test/site-list.test.mjs` +12 — the real `cardActs` EVALUATED out
+  of chat.js (three buttons, the two disabled states and their sentences, a
+  hostile id escaped, the glyphs drawn through `ic`), the wire driven both ways
+  with a whole-payload credential search, the strict read and the OR merge
+  driven, and the handlers read for where each one lands. **Sweep: 28 mutants,
+  28 killed, none unapplied, the comment-only control survived — one survived
+  the first pass and it was the purest form of the wiring trap**: cutting
+  `cardActs(s)` out of the card markup left every assertion green and the icons
+  off every card, because all twelve drove the function and none read its one
+  call site. Guarded and re-run to a kill. Full suite **5,454**.
+  **AND AN OLDER GUARD WENT RED, RE-ANCHORED NOT APPEASED**: the card-hop check
+  windowed `at + 1800` bytes and the three buttons landed between the card loop
+  and the delete, pushing the delete's own adopt out of view — the recorded
+  byte-window trap, in the guard whose comment already records fighting a
+  different one. Landmark to landmark now, both ends asserted.
+- **Not proven live.** The next signed-in load of gofarther.dev is the proof:
+  three controls on every card, the cylinder dim on a site with no database.
+  **And one is an assumption, stated**: "mobile app" is wired as *see it on a
+  phone*, because that is what exists — the platform builds websites and there
+  is no app product anywhere in the tree. If a real mobile app was meant, the
+  icon is already in place and only its handler changes.
+
 ---
 
 ## Editing a site — the ladder
@@ -4968,7 +5025,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,442
+  build and the pre-list payload added sixteen); the unit suite is 5,454
+  (2026-09-07, after the card's three icons added twelve to
+  `test/site-list.test.mjs` — the real `cardActs` evaluated out of chat.js with
+  both disabled states and their sentences, the `db` boolean driven through the
+  route with a whole-payload search for the credential it is derived from, the
+  strict read and the either-side-yes merge, and the one call site the sweep
+  found nothing was reading; before it 5,442
   (2026-09-07, after the start screen's twenty-three in `test/site-list.test.mjs`
   — the merge driven in both directions with its failure control, the coercion
   refusal, a hostile slug parsed rather than matched, and the route DRIVEN
