@@ -13161,10 +13161,21 @@ function buildDownMsg(d) {
 // "✅ Built “X”. Tell me what to change." over a site whose pages are still
 // being written — and then invites a revise against a build still in flight.
 //
-// THE ANSWER IS THE POST'S OWN, BYTE FOR BYTE: the result route replays the
-// stored status, content-type and body, so everything below runs unchanged
-// whichever invocation actually finished. That is the whole reason this is a
-// follow rather than a second reader of a different shape.
+// THE REPLAY IS BYTE FOR BYTE; WHAT WAS STORED WAS NOT THE SAME SHAPE. The
+// result route really does hand back the stored status, content-type and body
+// untouched, which is the whole reason this is a follow rather than a second
+// reader — and this comment used to stop there, saying "everything below runs
+// unchanged whichever invocation actually finished". The first half was true
+// and the second half was a defect: the two invocations composed DIFFERENT
+// answers. The inline route wrote `{ok, slug, url, backend, brand, …}`; the
+// collector wrote `{ok, resumed, ...pages}`, and `publishPages` takes the slug
+// as an input and never puts it on its output — so a collected build carried
+// no slug, failed the success gate below, and fell to the catch-all, which
+// told a customer with a live site and 14 credits gone that it had not come
+// together and they had not been charged. Measured on `hearth-paper`,
+// 2026-09-08. Both answers are composed by `builder/build-answer.mjs` now, so
+// the sentence is true again — but it is true because ONE function makes both,
+// not because the replay is faithful, and that distinction is the bug.
 const BUILD_POLL_MS = 6000;
 // Past the Worker's own 16-minute queue wait plus the container's tail. A build
 // still unanswered here has not failed — it is told honestly and left running.

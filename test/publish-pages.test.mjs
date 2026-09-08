@@ -1989,9 +1989,20 @@ test("the salvage note reaches the response and the note block, not just the mod
   // The layer below the break, for the tenth recorded time: a field composed
   // correctly and passed on by nothing is a feature that does not exist. Both
   // ends asserted, because either alone passes while the wire is cut.
+  //
+  // RE-ANCHORED 2026-09-08, NOT APPEASED. This pinned the literal
+  // `salvageNote: pages.salvageNote || undefined`, and that spelling moved: the
+  // note is composed by `pageNotes` in `builder/build-answer.mjs` now, spread
+  // by BOTH the inline route and the collector — because the collector composed
+  // none of the three note fields, so every build finished off the POST socket
+  // was silent about a stubbed page. The PROPERTY is unchanged and is what is
+  // asserted: the note the module composes reaches the response.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /salvageNote: pages\.salvageNote \|\| undefined/,
+  assert.match(w, /\.\.\.pageNotes\(pages\)/,
     "the route never returns the note the module composed");
+  const ans = fs.readFileSync(new URL("../builder/build-answer.mjs", import.meta.url), "utf8");
+  assert.match(ans, /out\.salvageNote = salvage/,
+    "the composer both routes spread no longer carries the salvage note");
   const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(c, /typeof d\.salvageNote === 'string'/,
     "the client never renders the note the route returned");

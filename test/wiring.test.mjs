@@ -718,7 +718,14 @@ test("the photograph sentence reaches the chat", () => {
   // Composed on the server and rendered by the client. `imageNote` returning a
   // string that nothing displays is this repo's most-repeated failure, and the
   // response field alone does not prove the other end exists.
-  assert.match(worker, /imagesNote: imageNote\(pages\.images\)/);
+  // RE-ANCHORED 2026-09-08, NOT APPEASED. This pinned `imagesNote:
+  // imageNote(pages.images)`; that spelling moved into `pageNotes`
+  // (`builder/build-answer.mjs`) so the COLLECTOR gets it too — it composed
+  // none of the three notes, so every build whose generation outlived the POST
+  // socket was silent about the photographs. The property is unchanged.
+  assert.match(worker, /\.\.\.pageNotes\(pages\)/, "the build's answer no longer carries the note composer");
+  assert.match(fs.readFileSync(path.join(ROOT, "builder/build-answer.mjs"), "utf8"),
+    /const images = imageNote\(p\.images\)/, "the composer both answers spread no longer asks imageNote");
   assert.match(clientJs, /d\.imagesNote === 'string'/,
     "public/chat.js must actually read it");
   // `[,)]` rather than a closing paren: the call grew a fifth argument (the

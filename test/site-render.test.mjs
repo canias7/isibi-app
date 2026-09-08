@@ -694,7 +694,16 @@ test("publish-pages carries the report through, and ASSIGNS rather than accumula
 test("the route returns it, and the client reads it", () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(w, /import \{ renderNote \} from "\.\/builder\/site-render\.mjs"/, "a call to a name never imported is a ReferenceError on the build path");
-  assert.match(w, /renderNote: renderNote\(pages\.render\)/);
+  // RE-ANCHORED 2026-09-08, NOT APPEASED. This pinned `renderNote:
+  // renderNote(pages.render)` in the build route; that spelling moved into
+  // `pageNotes` (`builder/build-answer.mjs`), spread by the inline route AND by
+  // the collector — which composed no note at all, so every build finished off
+  // the POST socket said nothing about a page that threw. The property is
+  // unchanged: the note the module composes reaches the response, and now from
+  // both of the build's two answers.
+  assert.match(w, /\.\.\.pageNotes\(pages\)/, "the build's answer no longer carries the note composer");
+  const ans = fs.readFileSync(new URL("../builder/build-answer.mjs", import.meta.url), "utf8");
+  assert.match(ans, /const render = renderNote\(p\.render\)/, "the composer both answers spread no longer asks renderNote");
   const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(c, /d\.renderNote === 'string'/, "computed by the server and rendered by nothing is this repo's most-repeated bug");
 });

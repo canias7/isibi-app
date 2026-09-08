@@ -74,6 +74,7 @@ import { RESUME_FIRST_SECONDS, resumeKey, genKey, codeKey, isReportToken, readGe
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
+import { siteAnswer, pageNotes, ANSWER_FIELDS } from "./builder/build-answer.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
@@ -97,7 +98,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // to all 1,632 tests (nothing can import a Worker entrypoint); esbuild refuses
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, photoWait, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, photoWait, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -14177,7 +14178,62 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
       await recordRefire(env, id, claimed, stored, pages.resume, decision, tr, rec, lease);
       return;
     }
-    out = packResult({ status: 200, type: "application/json", body: JSON.stringify({ ok: true, resumed: decision.act, ...pages }), uid: claimed.uid });
+    // ── AND IT MUST SAY WHICH SITE IT MADE ───────────────────────────────────
+    //
+    // THE DEFECT THIS FIXES: this answer was `{ok: true, resumed, ...pages}`,
+    // and `pages` is `publishPages`' out object, which takes `slug` as an INPUT
+    // and never puts it on the output. So a build finished HERE — which is
+    // every build whose generation outlived the POST socket, i.e. every long
+    // one — answered with no slug, failed `public/chat.js`'s success gate
+    // (`r.ok && d && d.error !== true && d.slug`), fell past every named branch
+    // to the catch-all, and told the customer "That didn't come together — you
+    // weren't charged" over a live site they had just paid for. Measured on
+    // `hearth-paper` (14 credits, site serving) and on `plyhouse` before it.
+    //
+    // `siteAnswer` is the same composer the inline route spreads, so the two
+    // answers cannot drift apart again — that was the whole failure.
+    //
+    // WHERE THE SIX COME FROM. The slug is the record's own, falling back to
+    // the design's; the brand and the spec ride on `design`, which is
+    // `buildArgs` minus the things a resume cannot use. `backend` is READ
+    // rather than assumed, because it is an observation — the inline route says
+    // so in as many words — and a wrong `true` here puts a Data panel over a
+    // database that does not exist. A read that fails answers `false`: hiding a
+    // panel is recoverable, promising a missing database is not.
+    const rSlug = (stored && stored.slug) || design.slug || "";
+    let rBackend = false;
+    if (rSlug) {
+      try { rBackend = !!((await siteBackendRowFresh(env, rSlug)) || {}).conn; }
+      catch { rBackend = false; }
+    }
+    const rSpec = (design && design.spec) || {};
+    const rTables = Array.isArray(rSpec.tables) ? rSpec.tables : [];
+    out = packResult({
+      status: 200,
+      type: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        resumed: decision.act,
+        ...pages,
+        ...siteAnswer({
+          slug: rSlug,
+          backend: rBackend,
+          brand: design.brand,
+          tables: rTables.map((t) => t && t.name).filter(Boolean),
+          schema: rTables.map((t) => ({ name: t && t.name, access: accessLabel(t) })),
+        }),
+        // …AND WHAT HAPPENED TO THE PAGES. Found by the same subtraction that
+        // found the slug: the browser reads five sentences off a build's answer
+        // that `publishPages` does not put on its out object, and this path
+        // composed none of them — so every collected build was silent about a
+        // page that threw, a page replaced by a stub, and the photographs.
+        // Three of the five ride on `pages`, which is right here; the other two
+        // want route-local state the record does not carry, and
+        // `builder/build-answer.mjs` names them and says why.
+        ...pageNotes(pages),
+      }),
+      uid: claimed.uid,
+    });
   } catch (e) {
     // ── A FAILED RESUME MUST SAY WHICH ROUTE IT TOOK ──────────────────────────
     //
@@ -16202,13 +16258,21 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // lint, the digest, the seeder and the owner routes; this was the last copy.
       const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: accessLabel(t) }));
       return Response.json({
-        // `backend` IS AN OBSERVATION NOW, not a constant. It was hardcoded
-        // `true` when every build provisioned; since 2026-08-24 a first build
-        // has no database, and `public/chat.js` gates the Data panel and the
-        // delete wording on this field — so a site with nothing stored would
-        // offer a panel over a database that does not exist. `!!db` is the same
+        // WHICH SITE THIS BUILD MADE, composed by `siteAnswer` rather than
+        // written out here — because the COLLECTOR has to answer the same six
+        // fields and did not. Every build whose generation outlives this socket
+        // is finished by `runResumedSiteBuild`, whose answer carried no `slug`,
+        // so it failed the browser's success gate and a published site reported
+        // failure. Measured on `hearth-paper` and `plyhouse`; see
+        // `builder/build-answer.mjs` for the whole account.
+        //
+        // `backend` IS AN OBSERVATION, not a constant. It was hardcoded `true`
+        // when every build provisioned; since 2026-08-24 a first build has no
+        // database, and `public/chat.js` gates the Data panel and the delete
+        // wording on this field — so a site with nothing stored would offer a
+        // panel over a database that does not exist. `!!db` is the same
         // question everything else on this path asks.
-        ok: true, slug, url: "/s/" + slug + "/", backend: !!db, brand, tables: made, schema: levels,
+        ok: true, ...siteAnswer({ slug, url: "/s/" + slug + "/", backend: !!db, brand, tables: made, schema: levels }),
         // Read off the array explicitly: JSON.stringify would drop them from
         // `tables`, which is how a site could declare a function, have it fail,
         // and report success.
@@ -16304,11 +16368,23 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // into `cost` with the tokens, by design, and a customer whose build
         // jumped from 21 credits to 78 deserves to see why.
         images: pages.images || undefined,
-        // THE SAME THING AS A SENTENCE, composed here for the reason
-        // `contextNote` is: the client is a plain script and cannot import the
-        // module that decides it, so a second copy there would eventually claim
-        // photographs that were never made.
-        imagesNote: imageNote(pages.images) || undefined,
+        // WHAT HAPPENED TO THE PAGES, AS SENTENCES — the photographs, a page
+        // replaced by a stub, and a page that threw. Composed on this side
+        // rather than in the browser for the reason `contextNote` is: the
+        // client is a plain script and cannot import the modules that decide
+        // them, so a second copy there would eventually claim photographs that
+        // were never made.
+        //
+        // THROUGH THE COMPOSER, because the collector needs the same three and
+        // three matching lines on each path is the drift this whole module
+        // exists to stop — the slug was exactly that, and it told a customer
+        // with a live site that it had not come together.
+        //
+        // ALL THREE LAND HERE, where `imagesNote` alone used to: `renderNote`
+        // now sits ABOVE `render` rather than below it, which is a change to
+        // the JSON's key ORDER and to nothing else — every reader on both sides
+        // reads by name. Said rather than left to be noticed.
+        ...pageNotes(pages),
         // …AND WHAT THE MODEL'S OWN STYLESHEET COSTS, on a build as well as a
         // revise — unlike `styleNote` one line up, deliberately. That one is
         // silent on a first build because naming axes to somebody seeing their
@@ -16317,12 +16393,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // url() the CSP refuses, a sheet we had to truncate — and those are just
         // as wrong on a first build and just as invisible from the page.
         cssNote: cssNote(cssAsk) || undefined,
-        // WHICH PAGE CAME BACK AS A STUB. One bad file no longer costs the whole
-        // site — it is replaced by a placeholder page and the rest publishes — so
-        // there is now an outcome between "your site" and "the data model", and
-        // this is the only thing that names it. Composed in the module for the
-        // same reason as the three above.
-        salvageNote: pages.salvageNote || undefined,
+        // (`salvageNote` — which page came back as a stub, the one outcome
+        // between "your site" and "the data model" — rides on `pageNotes`
+        // above, with the other two.)
         salvaged: (pages.salvaged && pages.salvaged.length) ? pages.salvaged : undefined,
         // WHAT THE PAGES LOOK LIKE, which nothing else in this response can say.
         // Every other check is textual — a real page can be blank, throw on load
@@ -16335,9 +16408,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // could not RUN (`ok:false`), because a harness that silently reports
         // nothing reads exactly like a site with nothing wrong.
         render: (pages.render && (pages.render.ok === false || (pages.render.findings || []).length)) ? pages.render : undefined,
-        // …and the same thing as a sentence, composed in the module for the
-        // reason all four notes above it are.
-        renderNote: renderNote(pages.render) || undefined,
+        // (…and the same thing as a sentence rides on `pageNotes` above.)
         // WHETHER THIS SITE IS SERVED BY ITS OWN SCRIPT. Absent when there was
         // nothing to say (no dispatch credentials, or no script packaged), so
         // its PRESENCE is the signal — and on a failure it carries Cloudflare's
