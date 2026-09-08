@@ -11454,7 +11454,21 @@ function renderSiteWorkspace(view, site) {
               ? (siteBusy && siteBuild && !siteBuild.react
                   ? '<div class="st-empty"><div class="st-livelog st-livelog-stage"></div></div>'
                   : '<div class="st-empty">' + (siteBusy && stBuildRunning() ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>')
-              : (!isReact && siteView === 'code')
+              // THE PANE IS NOT GATED ON `isReact`, AND THAT WAS THE DEFECT THE
+              // TAB'S OWN FIX LEFT BEHIND. Making Code real took three hops —
+              // draw the tab, render the host, fetch into it — and only two were
+              // changed: this branch kept `!isReact &&`, which is false on every
+              // site that has ever built, so pressing Code highlighted the tab,
+              // fired the fetch, found no host (`loadSiteCode` returns early on
+              // a missing `#stCode`) and fell through this whole chain to the
+              // preview iframe. Live on hartleys-barbers, and silent: no error,
+              // no console, just the wrong pane.
+              //
+              // `siteCodeView` ALREADY asks `site.react && site.url` itself and
+              // answers the empty sentence when there is nothing built, so the
+              // outer test was redundant with the function's own gate and
+              // inverted against it. The condition is the view, and nothing else.
+              : (siteView === 'code')
                 ? siteCodeView(site)
                 : (isReact && site.backend && siteView === 'data')
                   ? '<div class="st-datawrap" id="stData"><div class="st-empty">Loading your data…</div></div>'

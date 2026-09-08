@@ -1076,6 +1076,60 @@ them.
   one signed-in load: **Code** on a built site should show the page's real source
   with its own file names, and the arrow should hand back a zip that opens.
 
+### AND THE CODE TAB'S THIRD HOP WAS NEVER WIRED (2026-09-08, owner: *"now
+check all the things you added and see if they work, for example, look at this
+one"* + a screenshot of `hartleys-barbers`)
+
+The owner pressed **Code** on a real built site and got the **preview**. The tab
+highlighted, the pane showed `hartleys-barbers.gofarther.app` in a frame bar, and
+the source never appeared.
+
+**MAKING CODE REAL TOOK THREE HOPS AND ONLY TWO WERE CHANGED.** Draw the tab
+(11316, ungated ✓), render the host (11457, **left on `!isReact &&`** ✗), fetch
+into it (11552, `isReact && …` ✓). `isReact` is `!!(site.react && site.url)` —
+TRUE on every site that has ever built — so the pane's branch was false on every
+real site, the ternary chain fell all the way through to the preview iframe, and
+`loadSiteCode` fetched the source, ran `getElementById('stCode')`, found nothing
+and **returned early by design**. No error, no console line, no failed request:
+the one shape this repository has shipped a dozen features in.
+
+**AND THE OUTER GATE WAS REDUNDANT WITH THE FUNCTION'S OWN, INVERTED AGAINST
+IT.** `siteCodeView` already asks `site.react && site.url` itself and answers the
+"appears here once the first draft is built" sentence otherwise — it was written
+for the new behaviour while its one call site kept the old test. The fix is to
+delete `!isReact &&`: the condition is the view and nothing else.
+
+- **THE GUARD PROVED THE DOOR AND THE DELIVERY AND NEVER THE ROOM.**
+  `test/site-source.test.mjs` asserted the tab is not gated (two ways), asserted
+  the loader runs for a react site, and drove both browser handlers — **and
+  nothing read the branch that renders the host.** Its own sweep killed "the Code
+  tab gated on `isReact` again" and called that the defect itself; the pane was a
+  fourth hop nobody had listed. A guard that covers a chain must be derived from
+  the chain, not from the hops that were on the author's mind.
+- **The new case reads the PANE, and the two ids are DERIVED from each half** —
+  the id `siteCodeView` renders and the id `loadSiteCode` looks up, asserted
+  EQUAL. That is the recorded "two lists of the same thing" with a silent failure
+  mode: the loader returns early on a miss, so a rename in one place would put
+  this back exactly as it was, invisibly. It also pins `siteCodeView`'s own gate,
+  because dropping the outer test is safe ONLY while the function still decides
+  emptiness itself.
+- **Proven red before green**: the guard fails on the live defect restored
+  verbatim and passes on the fix. **Sweep: 6 mutants, 6 killed, none survived,
+  none unapplied, the comment-only control survived** — the pane gated again (the
+  defect), the branch deleted, the pane and the loader naming different ids
+  (each direction), `siteCodeView` no longer deciding emptiness, and the loader
+  no longer running for a react site. Full suite **5,626**.
+- **The server half was never broken**, which is why nothing looked wrong: read
+  live, `/api/site/source` answers **401** where a route that does not exist
+  answers 404, and `site-zip.js` serves at 9,186 bytes. **And Download kept
+  working throughout** — it asks the server for itself rather than reading the
+  tab's cache, which that entry argued for on the grounds that a customer may
+  press it having never opened Code. The same decision is what kept it alive
+  while the pane beside it was dead.
+- **Not proven live.** `public/` only — no container roll, no hold. The proof is
+  one signed-in load: **Code** on a built site should show `index.tsx` with its
+  real source, not the preview.
+
 ### THE OFFLINE/ONLINE PANEL HAS A DOOR AGAIN (2026-09-08, owner: *"add the
 card"*)
 
@@ -6630,8 +6684,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,625
-  (2026-09-08, after the removal verb was merged onto the one-mark work — its
+  build and the pre-list payload added sixteen); the unit suite is 5,626
+  (2026-09-08, after the Code PANE's own guard — the third hop of the Code tab,
+  which shipped unwired and was found live by the owner: the pane's branch read
+  for the absence of `isReact`, and the host id DERIVED from both `siteCodeView`
+  and `loadSiteCode` and asserted equal; before it 5,625,
+  after the removal verb was merged onto the one-mark work — its
   own three commits' guards, plus the derived import check the merge's sweep
   asked for and the two order cases in `site-mark`; before it 5,603,
   (2026-09-08, after the offline flag became the server's added twenty-four in
@@ -6908,6 +6966,18 @@ outside, "the model did not set it" and "we did not forward it" are the same
 `undefined`. **Before rewording a prompt because a field came back empty, check
 that the field can arrive.** Assert the CHAIN, end to end, and derive it from the
 producer rather than listing today's hops.
+
+**AND THE GUARD CAN COVER THE CHAIN AND STILL MISS A HOP (2026-09-08, the Code
+tab, found LIVE by the owner a day after it shipped).** Making Code real took
+three hops — draw the tab, render the host, fetch into it. The guard asserted the
+tab twice, asserted the loader, drove both handlers, and never read the branch
+that renders the host, which kept its old `!isReact &&` and was therefore false
+on every site that has ever built. The sweep even killed "the Code tab gated on
+`isReact` again" and called that the defect itself. **A hop nobody listed is a
+hop nobody guards**: derive the chain from the value's route — producer, host,
+consumer — and assert each link, rather than the hops that were on your mind when
+you wrote the change. The tell here was available for free: the pane's condition
+and the function it calls asked the SAME question in opposite directions.
 
 **Latest, and it is the purest instance yet: `three`, shipped dead 2026-08-29 and
 found the next day.** A design field added with its lane, its guards and a green

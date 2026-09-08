@@ -146,6 +146,39 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-08 — You found a real one: Code showed the preview
+
+You asked me to check that the things I added actually work, and pointed at the
+Hartley's Barbers screenshot. **You were right — the Code tab was broken, on
+every site.**
+
+**What was wrong.** Making the Code tab real needed three things: put the button
+on the bar, put the code panel on the screen, and fetch the code into it. I did
+the first and the third and left the second one switched off. So pressing Code
+lit the button up, quietly fetched your source, found nowhere to put it, and gave
+up — and the screen fell back to showing the preview. No error message anywhere,
+which is why it looked like nothing was happening.
+
+**It's fixed** — one line, plus a test that fails if it ever comes back. I proved
+the test catches it by putting the bug back and watching the test go red.
+
+**What I should have caught.** My own test checked the button and checked the
+fetch, and never checked the panel in between. Three steps, two tested. I've
+written that down as a rule: when something needs several steps to work, test
+every step, not the ones you happen to be thinking about.
+
+**The rest of the check, and the good news.** Everything else I looked at is
+working: the site is live and serving, the download button works (it asks the
+server for your code directly rather than reading the Code tab, so it survived
+the bug next to it), the build stayed in its own chat, the reply and the step
+list are right, and the server side of the code tab was healthy the whole time.
+
+**One thing I could not settle.** The new "this site belongs to this chat" link
+did not get recorded for Hartley's. The most likely reason is that the browser
+tab you built in was open from before that change went out, so it was still
+running the old page code — the new code is definitely being served now. The way
+to know for sure is to hard-refresh and build once; I did not want to guess.
+
 ## 2026-09-08 — Merged the removal-verb branch into main
 
 You said "Merge". Everything from today was already on main, so what was left

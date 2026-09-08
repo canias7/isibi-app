@@ -627,6 +627,50 @@ test("the Code tab and the Download are drawn whether or not the site has built"
     "the Download is not dimmed before the first build, so it is a control that lies");
 });
 
+// THE THIRD HOP, AND THE ONE THIS FILE SHIPPED BROKEN.
+//
+// Making Code real takes THREE hops: draw the tab, render the host, fetch into
+// it. The two cases above guard the tab, and the case near the end of this file
+// guards the loader — and nothing guarded the PANE, so `!isReact && siteView
+// === 'code'` stayed on the branch that renders the host. `isReact` is true on
+// every site that has ever built, so the branch was dead on every real site:
+// the tab highlighted, the fetch fired, `loadSiteCode` found no `#stCode` and
+// returned, and the chain fell through to the preview iframe. Found live on
+// hartleys-barbers by the owner, a day after this shipped — a guard that proves
+// the door and the delivery and never the room they open onto.
+test("the Code PANE is reachable on a built site, and its host is the one the loader fills", () => {
+  const at = BARE.indexOf("? siteCodeView(site)");
+  assert.ok(at > 0, "the Code pane's branch is gone — nothing renders the code host");
+  // The branch's own condition, back to the `:` that introduces it.
+  const from = BARE.lastIndexOf(":", BARE.lastIndexOf("(", at));
+  const cond = BARE.slice(from, at);
+  assert.ok(/siteView === 'code'/.test(cond), "the Code pane no longer keys on the view");
+  assert.ok(!/isReact/.test(cond),
+    "the Code pane is gated on `isReact` again — it is FALSE on every built site, " +
+    "so Code would highlight the tab and render the preview, which is the live defect");
+
+  // TWO LISTS OF THE SAME THING: the id the pane renders and the id the loader
+  // looks up. Derived from each, never typed here — a rename in one place is
+  // exactly how this hop goes quiet again, and `loadSiteCode` returns early on
+  // a miss, so a drift would be silent in precisely the same way.
+  const paneId = /id="([^"]+)"/.exec(
+    BARE.slice(BARE.indexOf("function siteCodeView"), BARE.indexOf("async function loadSiteCode")),
+  );
+  const loaderId = /getElementById\('([^']+)'\)/.exec(
+    BARE.slice(BARE.indexOf("async function loadSiteCode")),
+  );
+  assert.ok(paneId && loaderId, "could not read the host id from both halves — re-derive this check");
+  assert.equal(paneId[1], loaderId[1],
+    "the pane renders one id and the loader fills another, so the fetch lands nowhere");
+
+  // AND THE EMPTY STATE IS STILL THE FUNCTION'S OWN. Dropping the outer gate is
+  // only safe because `siteCodeView` asks the same question itself; without
+  // this, a project that has never built would render a host nothing fills.
+  const view = BARE.slice(BARE.indexOf("function siteCodeView"), BARE.indexOf("async function loadSiteCode"));
+  assert.match(view, /site\.react && site\.url/,
+    "siteCodeView no longer decides emptiness itself, and the pane now has no gate at all");
+});
+
 test("Publish is gone, and the panel it opened is kept with the way back", () => {
   const bar = topBar();
   assert.ok(!/id="stPub"/.test(bar), "the Publish button is back on the bar");
