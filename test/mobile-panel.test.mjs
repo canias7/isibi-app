@@ -108,8 +108,12 @@ test("the panel is rendered ALWAYS and hidden by CSS, which is what makes the to
   // have to re-render the workspace, and the two properties the class exists for
   // — the preview iframe never reloading, a half-typed message surviving — would
   // die silently. Both are driven in the scratchpad; this is what keeps them.
-  const call = BARE.match(/^\s*siteMobilePanel\((\w+)\) \+$/m);
+  // The argument list grew a second entry (the phone) on 2026-09-08; the
+  // property is the unconditional call on its own line, so the arguments are
+  // matched as a group rather than pinned.
+  const call = BARE.match(/^\s*siteMobilePanel\(([^)]*)\) \+$/m);
   assert.ok(call, "the panel is no longer rendered on its own line in the workspace body");
+  assert.match(call[1], /siteMobileOs/, "the panel is not handed which phone to draw");
   assert.ok(!/siteMobileOpen\s*\?\s*siteMobilePanel/.test(BARE),
     "the panel is rendered conditionally — the toggle now needs a re-render, which reloads the preview");
 
@@ -121,12 +125,22 @@ test("the panel is rendered ALWAYS and hidden by CSS, which is what makes the to
 
 /** The real `siteMobilePanel`, cut out and evaluated — never retyped. */
 function realPanel() {
-  const src = span(BARE, "function siteMobilePanel(hasSite) {", "\n}", "siteMobilePanel") + "\n}";
+  // RE-ANCHORED 2026-09-08: the panel takes the phone as a second argument now
+  // (`hasSite, os`), so this cut named a signature that had moved. The property
+  // is that the real function is evaluated rather than retyped, which is why the
+  // name is matched without its parameter list.
+  const at = BARE.indexOf("function siteMobilePanel(");
+  assert.ok(at >= 0, "siteMobilePanel is gone");
+  const src = span(BARE.slice(at), "function siteMobilePanel(", "\n}", "siteMobilePanel") + "\n}";
+  // It closes over MOBILE_OSES, so that comes with it — a free identifier
+  // resolves when the line RUNS, and a bare scope is what proves it is carried.
+  const list = BARE.match(/^const MOBILE_OSES = \[[^\]]+\];$/m);
+  assert.ok(list, "MOBILE_OSES is gone");
   // Built in a bare scope on purpose: a free identifier resolves when the line
   // RUNS, not when the file loads, so reading this function could never prove it
   // works. That trap has cost this repository four separate misses in one
   // session, one of which reached main.
-  return new Function(src + "; return siteMobilePanel;")();
+  return new Function(list[0] + "\n" + src + "; return siteMobilePanel;")();
 }
 
 test("the panel says something true on a built site and on a project with nothing", () => {
@@ -148,19 +162,30 @@ test("the panel says something true on a built site and on a project with nothin
     "a project with nothing built is promised an app built from a site it does not have");
 });
 
-test("there is no control in the panel, and that is the decision", () => {
+test("nothing in the panel promises an app, and that is the decision", () => {
   const panel = realPanel();
-  // Owner's call, asked directly: "no button, just the sentence". Nothing can
-  // build a mobile app yet, so a button here would be this repo's open
-  // dead-control finding in its own chrome for the fifth time — after
-  // `stMembers`, the Security panel's Run scan, the effort dial and Publish.
-  for (const html of [panel(true), panel(false)]) {
-    assert.ok(!/<button/.test(html), "the panel grew a button for a feature that does not exist");
-    assert.ok(!/onclick|data-act|href=/.test(html), "the panel grew a control");
+  // RE-ANCHORED 2026-09-08, and which spelling moved matters. This asserted the
+  // panel had NO button at all, which was true when the panel held one sentence
+  // and became false when the owner asked for the phone switch. The property was
+  // never "no buttons" — it is that nothing here promises a thing that does not
+  // exist (owner, asked directly: "no button, just the sentence"), because that
+  // is the open dead-control finding this repo has met five times.
+  //
+  // So: the EMPTY STATE — where a "Build the mobile app" button would go — has no
+  // control, and every button in the panel is a phone segment, which changes what
+  // you are looking at and is therefore real.
+  for (const html of [panel(true, "ios"), panel(false, "android")]) {
+    const empty = span(html, '<div class="st-mob-empty">', "</div>", "the empty state");
+    assert.ok(!/<button|onclick|href=/.test(empty), "the empty state grew a control for a feature that does not exist");
+    const btns = [...html.matchAll(/<button[^>]*class="([^"]*)"/g)].map((m) => m[1]);
+    assert.ok(btns.length > 0, "no buttons at all — this reader sees nothing");
+    for (const cls of btns) {
+      assert.match(cls, /st-mob-osbtn/, "a button in the panel is not a phone segment: " + cls);
+    }
   }
   // THE OBSERVER IS ALIVE: it really is reading the panel's markup, so the
   // absences above are absences in the product and not in this reader.
-  assert.match(panel(true), /class="st-mob-empty"/, "the panel's empty state is gone — this reader sees nothing");
+  assert.match(panel(true, "ios"), /class="st-mob-empty"/, "the panel's empty state is gone — this reader sees nothing");
 });
 
 // ── THE DOOR ────────────────────────────────────────────────────────────────
@@ -248,16 +273,206 @@ test("the toggle changes a class and never re-renders", () => {
   assert.ok(!/renderSites\(\)/.test(fn), "the toggle re-renders the workspace, which reloads the preview");
 });
 
+// ── THE PHONE SWITCH ────────────────────────────────────────────────────────
+
+/** The names, out of the file — never a list typed in here. */
+function oses() {
+  const m = BARE.match(/^const MOBILE_OSES = \[([^\]]+)\];$/m);
+  assert.ok(m, "MOBILE_OSES is gone — the two phones have no single list");
+  const names = [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
+  assert.equal(names.length, 2, "expected exactly two phones, found " + names.join(", "));
+  return names;
+}
+
+test("the panel opens on a phone that exists", () => {
+  // ADDED AFTER A SWEEP SURVIVOR that is very nearly inert and worth guarding
+  // anyway: `siteMobileOs = 'ipad'` still DRAWS correctly, because the panel
+  // falls back — so nothing a person could see changes. What breaks is the
+  // invariant, and the next reader that trusts the variable without the fallback
+  // is the one that pays. It costs one line to hold.
+  const m = BARE.match(/^let siteMobileOs = '([a-z]+)';$/m);
+  assert.ok(m, "siteMobileOs is not a module-scope `let` with a phone in it");
+  assert.ok(oses().includes(m[1]), "the panel opens on “" + m[1] + "”, which is not one of the phones");
+});
+
+test("the panel draws one segment per phone, with exactly one lit", () => {
+  const panel = realPanel();
+  const names = oses();
+  for (const want of names) {
+    const html = panel(true, want);
+    for (const n of names) assert.match(html, new RegExp('data-os="' + n + '"'), "the " + n + " segment is gone");
+    // EXACTLY ONE, and it is the one asked for. Two lit, or none, is a control
+    // that cannot say which phone you are looking at.
+    const lit = [...html.matchAll(/class="st-mob-osbtn on" data-os="([a-z]+)"/g)].map((x) => x[1]);
+    assert.deepEqual(lit, [want], "lit segments for " + want + ": " + lit.join(", "));
+  }
+  assert.match(panel(true, "ios"), />iPhone</, "the Apple label moved");
+  assert.match(panel(true, "ios"), />Android</, "the Android label moved");
+});
+
+test("the phone reaches the frame, and an unknown name never does", () => {
+  const panel = realPanel();
+  const [first] = oses();
+  for (const want of oses()) {
+    assert.match(panel(true, want), new RegExp('st-mob-device" data-os="' + want + '"'),
+      "the frame is not drawn as " + want);
+  }
+  // `data-os="undefined"` matches no rule in the stylesheet, so the frame would
+  // silently lose its shape — the coercion trap, on the value that decides it.
+  for (const junk of [undefined, null, "", "ipad", ["ios"], 7, {}]) {
+    const html = panel(true, junk);
+    assert.match(html, new RegExp('st-mob-device" data-os="' + first + '"'),
+      "a phone of " + JSON.stringify(junk) + " did not fall back to " + first);
+    assert.ok(!/data-os="(undefined|null|\[|7|object)/.test(html), "a junk phone reached the markup: " + JSON.stringify(junk));
+  }
+});
+
+/** The real writer and the real click handler, cut out and driven together. */
+function driveOs(start) {
+  const src = [
+    BARE.match(/^const MOBILE_OSES = \[[^\]]+\];$/m)[0],
+    "let siteMobileOs = " + JSON.stringify(start) + ";",
+    span(BARE, "function setMobileOs(os) {", "\n}", "setMobileOs") + "\n}",
+    span(BARE, "  view.querySelectorAll('.st-mob-osbtn')", "\n  });", "the phone handler") + "\n  });",
+  ].join("\n");
+  const btns = oses().map((os) => {
+    const b = { dataset: { os }, cls: new Set(os === start ? ["on"] : []), onclick: null };
+    b.classList = { toggle: (c, on) => (on ? b.cls.add(c) : b.cls.delete(c)) };
+    return b;
+  });
+  const dev = { dataset: { os: start } };
+  const view = {
+    querySelector: (s) => (s === ".st-mob-device" ? dev : null),
+    querySelectorAll: (s) => (s === ".st-mob-osbtn" ? btns : []),
+  };
+  const run = new Function("view", src + "; return { btns: view.querySelectorAll('.st-mob-osbtn'), os: () => siteMobileOs };");
+  const out = run(view);
+  return {
+    press: (os) => { out.btns.find((b) => b.dataset.os === os).onclick(); },
+    state: () => ({ os: out.os(), frame: dev.dataset.os, lit: btns.filter((b) => b.cls.has("on")).map((b) => b.dataset.os) }),
+  };
+}
+
+test("pressing a segment moves the frame and the lit half, and nothing else", () => {
+  const [a, b] = oses();
+  const d = driveOs(a);
+  assert.deepEqual(d.state(), { os: a, frame: a, lit: [a] }, "the harness did not start on " + a);
+
+  d.press(b);
+  assert.deepEqual(d.state(), { os: b, frame: b, lit: [b] }, "pressing " + b + " did not move the frame and the lit half together");
+
+  // Pressing the segment already on is a no-op, not a repaint.
+  d.press(b);
+  assert.deepEqual(d.state(), { os: b, frame: b, lit: [b] }, "a second press changed something");
+
+  d.press(a);
+  assert.deepEqual(d.state(), { os: a, frame: a, lit: [a] }, "it does not go back");
+});
+
+test("the writer refuses a phone that is not one of the two", () => {
+  const src = [
+    BARE.match(/^const MOBILE_OSES = \[[^\]]+\];$/m)[0],
+    "let siteMobileOs = 'ios';",
+    span(BARE, "function setMobileOs(os) {", "\n}", "setMobileOs") + "\n}",
+  ].join("\n");
+  const api = new Function(src + "; return { set: setMobileOs, os: () => siteMobileOs };")();
+  for (const junk of [undefined, null, "", "ipad", "IOS", ["android"], 3, {}]) {
+    assert.equal(api.set(junk), false, "a phone of " + JSON.stringify(junk) + " was accepted");
+    assert.equal(api.os(), "ios", "a refused phone still moved the state: " + JSON.stringify(junk));
+  }
+  assert.equal(api.set("ios"), false, "the phone already on answered as a change");
+  assert.equal(api.set("android"), true, "a real phone was refused");
+  assert.equal(api.os(), "android", "a real phone did not move the state");
+});
+
+test("the switch changes something a person can see, and the two are not one phone", () => {
+  // THE ASSERTION THIS WHOLE FEATURE RESTS ON. A switch whose halves look
+  // identical is a dead control wearing a coat — this repository has found that
+  // five times in its own chrome — and the first cut of this change WAS one:
+  // the two ratios were shipped under a width-led frame where `max-height`
+  // binds, so both phones measured 369x742. Read both blocks and require them
+  // to differ, rather than pinning either one's numbers.
+  const per = {};
+  for (const os of oses()) {
+    // THE BODY, NOT THE BLOCK. `span` returns its opening landmark too, and the
+    // first draft compared the two whole blocks — which begin with their own
+    // selectors and so can NEVER be equal. A sweep mutant that gave Android the
+    // iPhone's camera survived that vacuous comparison; the fix is to strip the
+    // landmark, which is why the two are cut here rather than inline.
+    const boxAt = '.st-mob-device[data-os="' + os + '"] {';
+    const markAt = '.st-mob-device[data-os="' + os + '"]::before {';
+    per[os] = {
+      box: span(CSS_BARE, boxAt, "}", os + "'s frame").slice(boxAt.length),
+      mark: span(CSS_BARE, markAt, "}", os + "'s camera").slice(markAt.length),
+    };
+  }
+  const [a, b] = oses();
+  const num = (s, prop) => {
+    const m = s.match(new RegExp(prop + ":\\s*([^;]+)"));
+    assert.ok(m, "the " + prop + " is gone from a phone's block");
+    return m[1].trim();
+  };
+  assert.notEqual(num(per[a].box, "aspect-ratio"), num(per[b].box, "aspect-ratio"),
+    "both phones are the same shape — the switch changes nothing");
+  assert.notEqual(num(per[a].box, "border-radius"), num(per[b].box, "border-radius"),
+    "both phones have the same corners");
+  assert.notEqual(per[a].mark.trim(), per[b].mark.trim(),
+    "both phones wear the same camera — the Dynamic Island and the punch-hole are the tell");
+
+  // AND THE LIT SEGMENT LOOKS LIT. A sweep took the active colours off and every
+  // markup assertion stayed green — two identical-looking halves with one of them
+  // meaning "you are here". The recorded `.st-card-act:disabled { opacity }`
+  // finding, one control over.
+  const off = span(CSS_BARE, "\n.st-mob-osbtn {", "}", "the segment");
+  const on = span(CSS_BARE, ".st-mob-osbtn.on {", "}", "the lit segment");
+  assert.match(on, /background:\s*var\(--split\)/, "the lit segment has no fill of its own");
+  assert.match(on, /color:\s*var\(--on-accent\)/, "the lit segment does not take the ink that reads on that fill");
+  assert.ok(!/background:\s*var\(--split\)/.test(off), "the unlit segment is filled too — both halves look lit");
+
+  // AND THE RATIOS ARE REALLY APPLIED, which is the correction: width-led with a
+  // height cap made them inert. Measured 342x742 and 334x742 at 1512x950 with
+  // the frame height-led; the exact numbers live in the entry, the property here
+  // is that the height leads and the width is only walled.
+  const base = span(CSS_BARE, "\n.st-mob-device {", "}", "the frame");
+  assert.match(base, /height:\s*100%/, "the frame is not sized from its height — the ratios go inert again");
+  assert.match(base, /width:\s*auto/, "the width does not follow the ratio");
+  assert.match(base, /max-width:\s*100%/, "nothing walls the width in a very tall window");
+  assert.ok(!/max-height:\s*100%/.test(base), "the height cap is back, which is what made the two phones identical");
+});
+
+test("the stylesheet knows every phone the code does", () => {
+  // Two lists of the same thing: the names live in MOBILE_OSES and again as
+  // attribute selectors. A third phone added to the array with no rule beside it
+  // is a segment that draws an unstyled frame, and nothing fails.
+  for (const os of oses()) {
+    assert.match(CSS_BARE, new RegExp('\\.st-mob-device\\[data-os="' + os + '"\\] \\{'),
+      "the stylesheet has no frame for " + os);
+  }
+  const styled = [...CSS_BARE.matchAll(/\.st-mob-device\[data-os="([a-z]+)"\] \{/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(styled)].sort(), oses().sort(),
+    "the stylesheet and MOBILE_OSES disagree about which phones exist");
+});
+
 // ── THE FRAME ───────────────────────────────────────────────────────────────
 
 test("the phone is bounded on both axes, so it can never overflow its column", () => {
-  const dev = span(CSS_BARE, ".st-mob-device {", "}", "the phone frame");
-  // `height: 100%` computed WIDER than the column and overflowed it sideways —
-  // measured while mocking this up. Width leads, height is capped.
-  assert.match(dev, /width:\s*100%/, "the phone no longer takes its width from the column");
-  assert.match(dev, /max-height:\s*100%/, "the phone can now grow past the bottom of its column");
-  assert.ok(!/[^-]height:\s*100%/.test(dev), "the phone is sized from a height again — that overflowed sideways");
-  assert.match(dev, /aspect-ratio:\s*390\s*\/\s*844/, "the frame is no longer phone-shaped");
+  const dev = span(CSS_BARE, "\n.st-mob-device {", "}", "the phone frame");
+  // RE-ANCHORED 2026-09-08 and INVERTED, which is the honest record: this pinned
+  // `width: 100%` with `max-height: 100%` and FORBADE `height: 100%`, because a
+  // height-led frame had overflowed the column sideways when it had no width
+  // wall. Adding the second phone made that shape's cost visible — the cap binds
+  // in an ordinary window, so both phones measured 369x742 and neither ratio did
+  // anything at all. The property was always "it fits and it is phone-shaped";
+  // the sizing that delivers it moved, and the two-phones case above is what now
+  // requires the shapes to DIFFER. Measured after the change: 342x742 and
+  // 334x742 at 1512x950, and inside the column at 1280x800, 1512x1400 and
+  // 1100x700 as well.
+  assert.match(dev, /height:\s*100%/, "the frame is no longer sized from its height");
+  assert.match(dev, /width:\s*auto/, "the width no longer follows the ratio");
+  assert.match(dev, /max-width:\s*100%/, "nothing walls the width — a very tall window would push it out sideways");
+  assert.ok(!/max-height:\s*100%/.test(dev), "the height cap is back, and it is what made both phones the same box");
+  assert.match(dev, /aspect-ratio:\s*390\s*\/\s*844/, "the base frame is no longer phone-shaped");
+  assert.match(dev, /position:\s*relative/, "the camera mark has nothing to position against");
 
   // The bezel takes the palette's own darkest lead, never a literal: this app is
   // one theme drawn in pencil on paper and a hex here would sit outside it.

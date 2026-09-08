@@ -9771,6 +9771,23 @@ let siteRailHidden = false; // collapse the chat rail to give the preview full w
 // workspace re-renders on every reply, so a state kept inside the render would
 // shut the panel each time the builder answered.
 let siteMobileOpen = false;
+// WHICH PHONE THE PANEL IS DRAWN AS (owner, 2026-09-08: "now a switch there for
+// android and apple"). Module scope beside the flag above and for its reason.
+//
+// `iPhone` and `Android` rather than `iOS` and `Android`: that is the pair a
+// small business says out loud, and this panel is read by somebody who sells
+// guitar lessons. The owner's word was "apple" — if they want it on the button,
+// it is one label.
+//
+// AND THE SWITCH REALLY CHANGES SOMETHING, which is the whole reason it may
+// exist beside a panel that has no app in it: the two phones are not the same
+// shape. An iPhone is narrower for its height with rounder corners and a
+// Dynamic Island; an Android is a touch wider with a punch-hole camera. The
+// stylesheet draws both, and a guard asserts the two differ — a switch whose
+// halves look identical is the dead control this repo keeps finding, wearing a
+// coat. When the app is real, the same switch picks which build you are seeing.
+const MOBILE_OSES = ['ios', 'android'];
+let siteMobileOs = 'ios';
 let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
 // Images the owner attached for the next build/revise (logo / reference). Sent to
 // the builder, which hosts them + shows them to the generator's vision.
@@ -10765,10 +10782,31 @@ function stSrcFiles(src) {
 // never built has no site to make an app from, so "ask me and I'll build one
 // from this site" would be a false promise there — it is asked to build the
 // website first. When the app is real: draw it here, and delete both sentences.
-function siteMobilePanel(hasSite) {
+// THE ONE WRITER of which phone is drawn, and it REFUSES a name that is not one
+// of the two rather than storing it — `data-os="undefined"` matches no rule in
+// the stylesheet, so the frame would silently lose its shape. Answers whether
+// anything changed, so the caller can skip a repaint on a second press of the
+// segment that is already on.
+function setMobileOs(os) {
+  if (!MOBILE_OSES.includes(os) || os === siteMobileOs) return false;
+  siteMobileOs = os;
+  return true;
+}
+// The panel TAKES the phone rather than reading the module variable, so it can
+// be evaluated and driven in a bare scope — a free identifier resolves when the
+// line runs, not when the file loads, which is how four misses reached main in
+// one session.
+function siteMobilePanel(hasSite, os) {
+  const on = MOBILE_OSES.includes(os) ? os : MOBILE_OSES[0];
+  const seg = (v, label) =>
+    '<button type="button" class="st-mob-osbtn' + (on === v ? ' on' : '') + '" data-os="' + v + '">' + label + '</button>';
   return '<div class="st-mob">' +
-    '<div class="st-mob-head"><span class="st-mob-title">Mobile app</span></div>' +
-    '<div class="st-mob-stage"><div class="st-mob-device">' +
+    '<div class="st-mob-head"><span class="st-mob-title">Mobile app</span>' +
+      '<div class="st-mob-os" role="group" aria-label="Which phone">' +
+        seg('ios', 'iPhone') + seg('android', 'Android') +
+      '</div>' +
+    '</div>' +
+    '<div class="st-mob-stage"><div class="st-mob-device" data-os="' + on + '">' +
       '<div class="st-mob-empty">' +
         '<h4>No mobile app yet</h4>' +
         '<p>' + (hasSite
@@ -11543,7 +11581,7 @@ function renderSiteWorkspace(view, site) {
               '<div class="st-err-row"><button type="button" class="st-err-logs" id="stErrLogs">Dismiss</button><button type="button" class="st-err-fix" id="stErrFix">Try to fix ⏎</button></div></div>'
             : '') +
         '</div>' +
-        siteMobilePanel(hasSite) +
+        siteMobilePanel(hasSite, siteMobileOs) +
       '</div>' +
     '</div>';
   bindSiteNav();
@@ -11673,6 +11711,15 @@ function renderSiteWorkspace(view, site) {
     mobTog.classList.toggle('on', siteMobileOpen);
     mobTog.title = siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app';
   };
+  // iPhone / Android. Same rule as the toggle above: move the attribute and the
+  // lit segment BY HAND rather than re-rendering, so the preview iframe beside
+  // it never reloads and a half-typed message survives switching phone.
+  view.querySelectorAll('.st-mob-osbtn').forEach((b) => b.onclick = () => {
+    if (!setMobileOs(b.dataset.os)) return;          // already on it, or not a phone
+    const dev = view.querySelector('.st-mob-device');
+    if (dev) dev.dataset.os = siteMobileOs;
+    view.querySelectorAll('.st-mob-osbtn').forEach((o) => o.classList.toggle('on', o.dataset.os === siteMobileOs));
+  });
   view.querySelectorAll('[data-restore]').forEach((b) => b.onclick = () => siteRestore(siteOpenId, +b.dataset.restore));
   // "Try to fix" error card.
   const errFix = document.getElementById('stErrFix');

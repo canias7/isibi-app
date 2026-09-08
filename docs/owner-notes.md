@@ -204,6 +204,40 @@ reads both ends.
 **When the mobile app is real**, this is where it goes: drop the two sentences
 and draw the app inside the phone. Nothing else has to move.
 
+**And then you asked for the switch** — *"now a switch there for android and
+apple"*. It is in the panel's header: **iPhone** and **Android**, two little
+segments, and pressing one changes the phone you are looking at.
+
+**It really changes the phone, which is the point.** An iPhone and an Android
+are not the same shape, so the frame is not the same frame: the iPhone is
+393×852 with much rounder corners and the wide pill Apple calls the Dynamic
+Island; the Android is 412×915, squarer corners, and the little round
+punch-hole camera. Those are the real numbers off the real handsets. That
+matters because a switch whose two halves look identical is a control that does
+nothing — the thing we have now caught five times in our own screens — and this
+one you can see working with no app in it at all.
+
+**I called them iPhone and Android rather than iOS and Android.** That is the
+pair a person actually says. You said "apple" — if you want that word on the
+button it is one line, say so.
+
+**The first version of it was the dead control I just described, and the tests
+caught it.** I had the frame sized from its width with a height cap, and the cap
+is what actually binds — so both phones came out exactly 369×742 and the two
+shapes I had written did nothing whatsoever. The frame is sized from its height
+now, which also fixed something that was already slightly wrong: the phone used
+to be about six per cent squatter than a real handset, and now it is right. I
+measured it at four window sizes and it never spills out of its column.
+
+**Three things survived the first sweep and one of them was my own test being
+wrong** — it compared two CSS blocks that each start with their own selector, so
+they could never come out equal and the check was empty. Fixed. The other two
+were real: nothing checked that the panel opens on a phone that exists, and
+nothing checked that the lit half of the switch actually looks lit.
+
+**Where to look**: `docs/edits/mobile-panel-iphone.png` and
+`mobile-panel-android.png`, side by side.
+
 ---
 
 ## 2026-09-08 — You found a real one: Code showed the preview

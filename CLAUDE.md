@@ -1510,12 +1510,75 @@ open dead-control finding avoided rather than added to for the fifth time.
   `'st-icon' +` where the source reads `class="st-icon' +`, so it reported a
   correct button as broken. Caught before the push by running it; the assertion
   is on the property (the flag feeds the `on` class) rather than on a quote's
-  position. Full suite **5,649**.
+  position. Full suite **5,649** at the column's own commit — the switch below
+  moved the section past it to **5,656**, and both numbers are kept because they
+  describe two different trees. The recorded drift trap is a total left standing
+  while a later bullet moves past it; naming which tree each measures is the
+  answer, not deleting one.
+- **AND A SWITCH FOR THE TWO PHONES (owner, the same day: *"Now a switch there
+  for android and apple"*).** Two segments in the panel's header — **iPhone** and
+  **Android**, the pair a small business says out loud rather than iOS/Android;
+  the owner's word was "apple", and if they want it on the button it is one
+  label. `MOBILE_OSES` is the one list, `setMobileOs` the one writer (refusing a
+  name that is not one of the two rather than storing it — `data-os="undefined"`
+  matches no rule and the frame would silently lose its shape), and
+  `siteMobilePanel(hasSite, os)` TAKES the phone rather than reading the module
+  variable, so it can be driven in a bare scope. The handler moves the attribute
+  and the lit segment by hand: no re-render, so the preview does not reload.
+- **IT CHANGES SOMETHING A PERSON CAN SEE, and that is what earns it a place in a
+  panel with no app in it.** iPhone 393×852 with 46px corners and a Dynamic
+  Island; Android 412×915 with 28px corners and a punch-hole — one `::before`
+  whose shape differs, so the markup gains no element that means nothing. **The
+  guard requires the two blocks to DIFFER on ratio, corners and camera**, derived
+  rather than pinned, because a switch whose halves look identical is the dead
+  control this repo has now found five times in its own chrome.
+- **AND THE FIRST CUT WAS EXACTLY THAT, MEASURED.** The frame was width-led with
+  `max-height: 100%`, and the cap BINDS in an ordinary window — so both phones
+  came out **369×742** and neither aspect ratio did anything at all. Two rules
+  that look like they do something and do not. The frame is height-led now
+  (`height: 100%; width: auto; max-width: 100%`), which also corrects the earlier
+  entry's own "six per cent squatter than a handset": measured **342×742**
+  (0.4612 against a 0.4613 target) and **334×742** (0.4503, exact) at 1512×950,
+  inside the column at 1280×800, 1100×700 and 1512×1400 too. The ratio goes back
+  to approximate only in a window tall enough for `max-width` to bind — a stage
+  over ~800px — which is the stated residue.
+- **Guards**: +8 in `test/mobile-panel.test.mjs` — the segments driven per phone
+  with exactly one lit, the frame's `data-os` and its fallback over seven junk
+  shapes, the real writer and the real handler CUT OUT and driven together
+  (press, press again as a no-op, press back), the writer's refusals, the two
+  CSS blocks required to differ, and the stylesheet's phones derived against
+  `MOBILE_OSES` in both directions. **Two older cases were re-anchored, not
+  appeased, and one of them INVERTED**: "there is no control in the panel"
+  became "nothing in the panel PROMISES an app" (the empty state has no control;
+  every button is a phone segment), because the property was never "no buttons";
+  and the frame's sizing case now pins height-led and forbids the cap that made
+  the two phones one box, with the reason written where the old assertion was.
+- **Sweep: 27 mutants, 27 killed, none survived, none unapplied, two
+  comment-only controls survived — THREE survived the first pass, and one was my
+  guard's own bug.** The camera comparison used `span`, which returns its OPENING
+  LANDMARK too, so it compared two strings that begin with their own selectors
+  and can never be equal: giving Android the iPhone's camera passed a vacuous
+  check. The landmark is stripped now. The other two were real gaps: the module's
+  opening phone was never held to the list (nearly inert — the panel falls back,
+  so nothing visible changes, and the invariant is worth one line anyway), and
+  the lit segment's own colours were unread, which is the recorded
+  `.st-card-act:disabled { opacity }` finding one control over. The killed ones:
+  both phones one shape, one ratio, one radius or one camera; the height cap
+  back; the width unwalled; the mark unpositioned; a phone with no rule; the
+  segments gone, halved, all lit, none lit, or unlabelled; the frame untold; a
+  junk phone reaching the markup; the panel reading the module variable; the
+  writer taking anything, coercing, or never saying what it did; the segments
+  inert, not moving the frame, not moving the lit half, inverted, or
+  re-rendering; a third phone with no rule; an opening phone off the list; and
+  the lit segment drawn as unlit. **The earlier panel sweep was re-anchored and
+  re-run whole on the new tree: 30 mutants, 30 killed, none unapplied.** Full
+  suite **5,656**.
 - **Not proven live.** The push touches `public/` only — no container roll, no
   15–20 minute hold. The proof is one look: open a site, press the panel button
-  right of the phone-width buttons, and the column appears with the phone in it;
-  press again and it goes. Renders: `docs/edits/mobile-panel-closed.png`,
-  `mobile-panel-open.png`, and `mobile-panel-new-project.png` (the other
+  right of the phone-width buttons, and the column appears with an iPhone in it;
+  press Android and the frame changes shape. Renders:
+  `docs/edits/mobile-panel-closed.png`, `mobile-panel-iphone.png`,
+  `mobile-panel-android.png`, and `mobile-panel-new-project.png` (the other
   sentence).
 
 ### THE REMOVAL VERB MEETS THE ONE-MARK WORK (2026-09-08, owner: *"Merge"*)
@@ -6965,16 +7028,19 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,649
-  (2026-09-08, after the mobile app column added thirteen in
-  `test/mobile-panel.test.mjs` — the chain DERIVED from the value's own route
-  rather than from the hops that were on my mind, the hiding rule's DIRECTION
-  asserted so an inversion cannot pass, `siteMobilePanel` evaluated out of
-  chat.js in a bare scope and driven both ways, the toggle handler CUT OUT and
-  driven against a fake document in both directions, the panel's zero controls
-  asserted beside a live observer, the two call sites counted, and the toggle's
-  glyph proved different from the phone-width button's in the same bar; before
-  it 5,636, after all fifteen removable lanes got a route into the lane door
+  build and the pre-list payload added sixteen); the unit suite is 5,656
+  (2026-09-08, after the mobile app column and its iPhone/Android switch added
+  twenty-one in `test/mobile-panel.test.mjs` — the chain DERIVED from the value's
+  own route rather than from the hops that were on my mind, the hiding rule's
+  DIRECTION asserted so an inversion cannot pass, `siteMobilePanel` evaluated out
+  of chat.js in a bare scope and driven both ways, the toggle handler CUT OUT and
+  driven against a fake document in both directions, the two call sites counted,
+  the toggle's glyph proved different from the phone-width button's in the same
+  bar, nothing in the panel promising an app asserted beside a live observer,
+  and — for the switch — the real writer and the real handler cut out and driven
+  TOGETHER, the frame's fallback over seven junk shapes, and the two phones' CSS
+  blocks REQUIRED to differ on ratio, corners and camera, which a switch whose
+  halves look identical would fail; before it 5,636, after all fifteen removable lanes got a route into the lane door
   added ten in `test/removal-door.test.mjs` — a CENSUS walking `REMOVABLE_LANES`
   itself rather than a list of the six that were unreachable, both `const`
   lines of the door EVALUATED out of `worker.js` and driven over every layer in
