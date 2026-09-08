@@ -1347,6 +1347,115 @@ missing when the guard was first run, on a change whose whole subject is that ho
   stage ends. The push touches `public/` only — no container roll, no 15–20
   minute hold.
 
+### THE STAGE PANEL BELONGS TO THE BUILD (2026-09-08, owner on a plain "hey":
+*"it shows that screen to the right everytime , even if its just talking back ,
+that should only be on the build step because all the other steps are different
+tho"*)
+
+A greeting replaced the whole preview with the four-stage rail — hero label,
+elapsed clock, Design · Code · Compile · Publish — while `reactLiveStepsHTML`
+one pane over correctly said **Thinking**. **Two halves of one screen answering
+the same question differently, which is the exact lesson the panel's own comment
+records one layer down**: the label used to be composed inline and repainted
+nowhere, so *"two halves that can be painted apart will eventually disagree"*.
+Drawing was unified by `buildStageHTML`; **the QUESTION was not**.
+
+**THE SIGNAL EXISTED AND ONE OF THE TWO READERS NEVER CONSULTED IT — the wiring
+trap's quieter face.** Not a value computed and never forwarded (the recorded
+thirteen), but a value forwarded and read by one consumer of two. `siteBuildStart`
+opens on `rphase: 'thinking'` the instant ANY message is sent — before the router
+has said whether it is a build at all — and `reactSend` promotes it under a
+comment that says so. The rail has asked since the day it was written; the stage
+gate asked `siteBusy && siteBuild && siteBuild.react && !isReact`, and `siteBusy`
+is true for a greeting, a question and a build alike.
+
+- **`stBuildRunning()` IS THE ONE PREDICATE AND BOTH DISPLAYS ASK IT.** The rail
+  returns the thinking panel on `!stBuildRunning()` where it used to test
+  `sb.rphase === 'thinking'` itself; the stage gate ands it in; the empty state's
+  *"Building your site — this takes a minute or two…"* asks it too, because that
+  sentence is the same false statement one font size down. A guard COUNTS the
+  asks and NAMES each consumer — a count alone is satisfied by two calls in one
+  function, and the defect was a second display answering this its own way.
+- **NAMED POSITIVELY, AND THAT IS NOT A STYLE CHOICE.** `ST_PHASE_ORDER.indexOf
+  (siteBuild.rphase) >= 0` — a build is running when it says which phase it is
+  in. **The first cut was `rphase !== 'thinking'` and it answered TRUE for a
+  build carrying no phase at all**, which is the opposite of the rule its own
+  comment claimed: cannot-tell must read as the earliest state, never as work in
+  flight (`EditPoll.buildPhase`'s rule, one hop over). **Found by DRIVING it, not
+  by reading it** — read, the line looked right. `thinking` is deliberately
+  absent from `ST_PHASE_ORDER`, the same fact `setBuildPhase`'s `next < 0` wall
+  already rests on, so asking the list asks the one question and nothing spells
+  the state anywhere: a guard asserts **zero** direct comparisons against the
+  word.
+- **A REACT MESSAGE OF UNKNOWN SHAPE LEAVES THE PANEL EXACTLY AS IT WAS.**
+  Narrowing the gate dropped such a message into the `!hasSite` branch, whose
+  first arm is the CLASSIC build's log box — and `paintBuildLog`'s call site
+  returns early for a react build, so that div is one nothing ever fills: a blank
+  right-hand side where the invitation had been. The arm keeps its
+  `!siteBuild.react` test and the sentence beside it is gated, so a greeting gets
+  back the screen it had before it was sent.
+- **AND THE FAINT DOTS UNDER THE RAIL WERE THE BUSY BUBBLE'S OWN `::after`.**
+  `.st-msg.st-busy::after { content: '…' }` — the older "still working" mark,
+  suppressed for `.st-livelog` the day that log got its own box and never for
+  `.st-steps`: **one list of the displays this decoration is redundant beside,
+  with one of them missing**, the recorded "two lists of the same thing" in a
+  stylesheet. Both named now, and the guard proves the decoration itself still
+  exists beside the suppression, or it would be asserting about nothing.
+- **THE "NO CODE" HALF IS NOT A DEFECT** (owner: *"also on image 2 nothing shows
+  there tho , no code no nothinbg"*). Traced rather than assumed: `genBindingFor`
+  keys the store on `{id: body.job}`, which is what the poll's `codeKey(jid)`
+  reads; `flightOf` is truthy from the record's creation; and the fire sends the
+  code address whenever `jobId` is set. The screenshot was taken at **`planning`**,
+  where no code exists by construction — the generation has not started. The code
+  fills in at the code step, and after this change the rail at least says which
+  step it is on rather than sitting under a panel that has claimed a build since
+  the first keystroke.
+- **Guards**: `test/build-panel.test.mjs` (5) — the real `stBuildRunning`
+  EVALUATED out of chat.js with **both** its inputs handed in (it closes over
+  `ST_PHASE_ORDER`, a module constant, so the body alone threw `ReferenceError`:
+  **the recorded free-identifier trap, met inside the guard written for this
+  change**, and a read would have called the function correct), driven over
+  `thinking`, every phase DERIVED from the file, `null`, `undefined` and `{}`;
+  the asks counted and named on both displays, with the panel's gate read
+  landmark to landmark; **zero** direct comparisons against the state word
+  asserted beside the order really lacking it; the unknown-shape branch with
+  `paintBuildLog`'s call-site skip asserted where it LIVES rather than where I
+  first guessed it did; and the CSS suppression with the decoration and the
+  rail's own class both proved alive.
+  **Six older guards went red for the change and were re-anchored, not
+  appeased** — and the split is the finding. **Four were the recorded
+  free-identifier trap in THEIR harnesses**: `build-progress`, `gen-code` and
+  `preview-pages` ×2 evaluate `reactLiveStepsHTML` into a scope they build, and
+  it now reaches one identifier further. Each takes the real `stBuildRunning`
+  OUT OF THE FILE — never a stub, because a stub answering `true` would leave
+  every case below blind to the one gate that decides whether the rail draws at
+  all. **Two pinned the CONDITION where the property is the RETURN**:
+  `topbar-layout`'s thinking-branch case (`if (sb.rphase === 'thinking')`, now
+  matched by shape with both ordering landmarks asserted — `indexOf` answering
+  -1 would have made that comparison vacuous) and `site-reconcile`'s waiting
+  sentence, which pinned the same condition as the head of its line.
+- **Sweep: 13 mutants, 13 killed, none survived, none unapplied, TWO comment-only
+  controls survived** —** — the panel gate back on `siteBusy` alone (the defect
+  itself), the rail not asking, the predicate reading the state word again or
+  dropping its own `siteBuild` wall, `thinking` joining the phase order, the
+  second display inlining a copy of the predicate instead of asking it, the
+  classic log box handed a react build, the "Building your site" sentence
+  ungated, the invitation never shown, the suppression dropping either display,
+  the thinking panel losing the class `paintReactLive` swaps, and the classic
+  painter no longer skipped for a react build. **TWO MUTANTS WERE WRITTEN INERT AND WERE RE-AIMED RATHER
+  THAN SHIPPED**, which is the recorded rule applied to the sweep's own spec: the
+  predicate's `siteBuild` wall replaced by `(siteBuild || {}).rphase` answers
+  `-1 >= 0` — false — for a null build, exactly as the wall does, so the wall is
+  only observable without the guard, where a null build THROWS instead of
+  answering; and "the gate runs after the phase maths" changes nothing at all,
+  because an early return returns wherever it sits — that one was re-aimed at the
+  classic painter's call-site skip, a hop this change's guard newly pins.
+  Full suite **5,548**.
+- **Not proven live.** The push touches `public/` only — no container roll, no
+  15–20 minute hold. The proof is one message: **hey** in a fresh chat should
+  leave the right-hand side as the invitation, and a real build should bring the
+  panel back exactly as it was.
+
 ### THE CODE GOES OUT AS IT IS WRITTEN (2026-09-07, owner: *"yea lets do it,
 send the code out as it writes"*)
 
@@ -1755,7 +1864,12 @@ everything else is the shape rule, the constraint and the two readers.
   timeout, its row limit and the two indexes agreeing about a duplicate — every
   one of which then survived, because nothing drove them either, and all four
   are guarded now and re-run to a kill.
-  Full suite **5,542**.
+  Full suite **5,543** — stamped **5,542** here and in that commit message, and
+  MEASURED at 5,543 the next day by running the suite with the following
+  change's own file excluded, because its arithmetic did not close. The same
+  off-by-one shape the entry two sections down records: a guard added after the
+  run is a change the number has not seen. Corrected here rather than quietly;
+  the commit message keeps the wrong number for ever, which is the cost.
   **TWO OF THIS FILE'S OWN GUARDS WERE WRONG ON THEIR FIRST RUN, BOTH THE SAME
   RECORDED TRAP.** A call-site counter used `\(([^)]*)\)`, which stops at the
   first `)` — here inside `(n) => tr.at("prov:" + n)`, an argument of the very
@@ -6069,8 +6183,17 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,542
-  (2026-09-08, after the site learned which chat built it added twenty in
+  build and the pre-list payload added sixteen); the unit suite is 5,548
+  (2026-09-08, after the stage panel learned to belong to the build added six in
+  `test/build-panel.test.mjs` — the real `stBuildRunning` EVALUATED out of chat.js
+  with both its inputs handed in and the phase list DERIVED from the file, driven
+  over `thinking`, every phase, `null`, `undefined` and `{}`; the asks counted and
+  named on both displays with the panel's gate read landmark to landmark; zero
+  direct comparisons against the state word asserted beside the order really
+  lacking it; the unknown-shape branch with `paintBuildLog`'s call-site skip; and
+  the CSS suppression with the decoration and the rail's own class both proved
+  alive; before it 5,543 (measured, not the 5,542 that entry stamped — see it),
+  after the site learned which chat built it added twenty in
   `test/site-chat.test.mjs` — the shape rule driven over every coercion and
   bound, the REAL MINT evaluated out of chat.js against it, the migration and
   the check script held to one index name, the build POST's body EVALUATED for

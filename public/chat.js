@@ -11257,7 +11257,7 @@ function renderSiteWorkspace(view, site) {
               '</div>') +
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
-          ((siteBusy && siteBuild && siteBuild.react && !isReact)
+          ((siteBusy && siteBuild && siteBuild.react && !isReact && stBuildRunning())
             // A first React build has no preview yet → show a compile placeholder in
             // the stage; the live code is in the chat. (A React revise keeps its
             // existing preview visible and just reloads it when done.)
@@ -11267,11 +11267,26 @@ function renderSiteWorkspace(view, site) {
             // said "Thinking…" for a seventeen-minute build while the thread
             // moved: two halves that can be painted apart will eventually
             // disagree. One composition, two call sites, and a guard counts them.
+            //
+            // AND `stBuildRunning()` IS THE OTHER HALF OF THAT SAME LESSON, one
+            // gate up (2026-09-08). Drawing was unified and the QUESTION was
+            // not: this branch asked `siteBusy`, which is true from the instant
+            // any message is sent, so typing "hey" replaced the whole preview
+            // with a build rail for a message that was never a build. The rail
+            // asks the predicate, this asks the predicate, and neither spells
+            // the state itself.
             ? '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><div class="st-building">' + buildStageHTML() + '</div></div>'
             : !hasSite
-              ? (siteBusy && siteBuild
+              // THE CLASSIC LOG BOX IS THE CLASSIC BUILD'S, and it took a react
+              // build's thinking window with it once the gate above narrowed:
+              // `paintBuildLog` returns early for a react build, so that div is
+              // one nothing ever fills — a blank right-hand side where the
+              // invitation used to be. A react build in `thinking` is a message
+              // we do not yet know the shape of, so the panel stays exactly what
+              // it was before it was sent.
+              ? (siteBusy && siteBuild && !siteBuild.react
                   ? '<div class="st-empty"><div class="st-livelog st-livelog-stage"></div></div>'
-                  : '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>')
+                  : '<div class="st-empty">' + (siteBusy && stBuildRunning() ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>')
               : (!isReact && siteView === 'code')
                 ? siteCodeView(site, active, pages)
                 : (isReact && site.backend && siteView === 'data')
@@ -11615,6 +11630,39 @@ function reactStepsHTML(b) {
 // holds the socket until the generation is fired — but it can at least not lie.
 const ST_PHASE_ORDER = ['planning', 'generating', 'compiling', 'fixing', 'publishing', 'database'];
 
+// IS A BUILD ACTUALLY RUNNING? ONE QUESTION, ASKED BY EVERY DISPLAY THAT SHOWS
+// BUILD PROGRESS (2026-09-08, owner: "it shows that screen to the right
+// everytime, even if its just talking back, that should only be on the build
+// step").
+//
+// `siteBuildStart` runs the instant a message is sent — before the router has
+// said whether "hey" is a build at all — so `siteBusy && siteBuild.react` is
+// true for EVERY message on a new project. `thinking` is the state it starts
+// in, and it leaves that state in exactly one place: `reactSend`, under a
+// comment that says "WE KNOW IT IS A BUILD NOW". That is the signal.
+//
+// The rail has always asked it. The stage panel beside it never did, and gated
+// on `siteBusy` instead — so a greeting drew a four-stage Design·Code·Compile·
+// Publish rail over the whole right-hand side while the rail one pane over
+// correctly said "Thinking". Two halves that can be painted apart will
+// eventually disagree — which is the comment already written at the panel's own
+// call site, about the layer below this one. A second way of asking this is a
+// second thing that can disagree with the rail, so there is one.
+//
+// NAMED POSITIVELY — A BUILD IS RUNNING WHEN IT IS IN A PHASE THE ORDER KNOWS,
+// and that is not a style choice. Written as `rphase !== 'thinking'` this
+// answered TRUE for a build carrying no phase at all, which is the opposite of
+// the rule the comment above claims: cannot-tell must read as the earliest
+// state, never as work in flight. Found by driving it rather than reading it.
+//
+// `thinking` is deliberately absent from `ST_PHASE_ORDER`, which is the same
+// fact `setBuildPhase`'s own `next < 0` wall rests on — so asking the list is
+// asking the one question, and junk, an empty object and `thinking` all answer
+// alike without any of them being spelled here.
+function stBuildRunning() {
+  return !!siteBuild && ST_PHASE_ORDER.indexOf(siteBuild.rphase) >= 0;
+}
+
 // THE ONE WRITER OF THE LIVE PHASE, and it refuses three things.
 //
 // A FOREIGN ORIGIN: the customer may have opened another site while this build
@@ -11688,7 +11736,7 @@ function reactLiveStepsHTML() {
   // markup and total at runtime.
   // WAITING IS NOT THINKING (stage 3b): a queued job refused by its site's
   // lock or a deploy's gate says so, in the sentence the poll module chose.
-  if (sb.rphase === 'thinking') return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
+  if (!stBuildRunning()) return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
   // NO "GENERATING IMAGES" STEP, because nothing generates any (owner's call,
   // 2026-08-08). The React builder has never produced an image: the generator in
   // worker.js is from the static-site era and is not reachable from the build

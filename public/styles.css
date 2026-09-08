@@ -1740,7 +1740,14 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-msg.st-busy { color: var(--muted); }
 .st-msg.st-busy::after { content: '…'; animation: sbpulse .9s ease-in-out infinite alternate; }
 .st-msg.st-busy:has(.st-livelog) { padding: 0; background: none; border: none; }
-.st-msg.st-busy:has(.st-livelog)::after { content: none; }
+/* THE BUSY BUBBLE'S PULSING ELLIPSIS IS FOR A BUBBLE WITH NO LIVE DISPLAY OF
+   ITS OWN. It was suppressed for the classic activity log and never for the
+   step rail, so a muted, animated "…" sat under the dense log for the whole of
+   every build — reading, at the left edge below the last row, as an empty code
+   line. Both live displays are named here rather than one, because they are the
+   two things this decoration is redundant beside. */
+.st-msg.st-busy:has(.st-livelog)::after,
+.st-msg.st-busy:has(.st-steps)::after { content: none; }
 /* Live build activity log (Claude-Code-style running steps). Finished steps stay
    dim with a ✓; the active line pulses with a rotating dot. */
 .st-livelog { display: flex; flex-direction: column; gap: .28rem; }

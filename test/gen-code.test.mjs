@@ -778,6 +778,13 @@ test("DRIVEN: the code row draws real code, and draws no pane at all without it"
     stAgo: new Function(cut("function stAgo(") + "\nreturn stAgo;")(),
     siteBuild: null,
   };
+  // RE-ANCHORED 2026-09-08. The rail asks `stBuildRunning()` now rather than
+  // testing `sb.rphase === 'thinking'` itself, so it has to be in this scope.
+  // Built the same `with (ctx)` way so it reads THIS ctx's `siteBuild` and
+  // `ST_PHASE_ORDER` at call time, and taken out of the file rather than stubbed:
+  // a stub answering `true` would leave the cases below blind to the gate that
+  // decides whether the rail draws anything at all.
+  ctx.stBuildRunning = new Function("ctx", "with (ctx) {" + cut("function stBuildRunning(") + "\n return stBuildRunning; }")(ctx);
   const render = new Function("ctx", "with (ctx) {" + cut("function reactLiveStepsHTML(") + "\n return reactLiveStepsHTML; }")(ctx);
   const draw = (b) => { ctx.siteBuild = b; return render(); };
 

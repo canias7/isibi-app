@@ -221,6 +221,14 @@ const liveSteps = (() => {
     stAgo: new Function(src("function stAgo(") + "\nreturn stAgo;")(),
     siteBuild: null,
   };
+  // RE-ANCHORED 2026-09-08. The rail asks `stBuildRunning()` now rather than
+  // testing `sb.rphase === 'thinking'` itself, so it has to be in this scope or
+  // every case below throws a ReferenceError. Built the same `with (ctx)` way so
+  // it reads THIS ctx's `siteBuild` and `ST_PHASE_ORDER` at call time, and taken
+  // out of the file rather than stubbed: a stub answering `true` would leave the
+  // table below blind to the gate that decides whether the rail draws at all.
+  // eslint-disable-next-line no-new-func
+  ctx.stBuildRunning = new Function("ctx", "with (ctx) {" + src("function stBuildRunning(") + "\n return stBuildRunning; }")(ctx);
   // eslint-disable-next-line no-new-func
   const fn = new Function("ctx", "with (ctx) {" + chat.slice(i, end) + "\n return reactLiveStepsHTML; }")(ctx);
   return (build) => {

@@ -269,16 +269,25 @@ test("the thinking state renders NO step rows, and can still be repainted", () =
   // the move from thinking to the real steps never repaints — invisible in the
   // markup, total at runtime.
   const src = chat();
-  const m = src.match(/if \(sb\.rphase === 'thinking'\) return '[^']*'/);
+  // RE-ANCHORED 2026-09-08. This pinned `if (sb.rphase === 'thinking')`, which was
+  // the CONDITION and never the property. The rail asks the one shared predicate
+  // now — `stBuildRunning()`, which the stage panel on the right asks too — so the
+  // branch covers strictly more than it did: an unknown phase and a build that has
+  // ended read as "not a build" as well as `thinking` does. What is asserted is
+  // unchanged and is about the RETURN: no step rows, repaintable, a thinking
+  // indicator, and it runs before the phase-index maths.
+  const m = src.match(/if \(![A-Za-z]+\(\)\) return '[^']*'/);
   assert.ok(m, "the thinking branch is gone — the step rows paint immediately again");
   assert.match(m[0], /st-steps-live/, "the thinking panel cannot be repainted into the steps");
   assert.match(m[0], /st-think/, "it renders no thinking indicator");
   assert.ok(!/st-step-lbl|Writing the code/.test(m[0]), "the thinking state names a build step");
   // It must come BEFORE the phase-index maths, or `order.indexOf('thinking')` is
-  // -1, clamps to 0, and lands on 'generating' — the exact bug, restored.
+  // -1, clamps to 0, and lands on 'generating' — the exact bug, restored. Both
+  // ends asserted: `indexOf` answering -1 would make this comparison vacuous.
   const fn = src.slice(src.indexOf("function reactLiveStepsHTML"));
-  assert.ok(fn.indexOf("rphase === 'thinking'") < fn.indexOf("const order ="),
-    "the thinking check runs after the phase index and will be bypassed");
+  const gate = fn.indexOf(m[0]), maths = fn.indexOf("const order =");
+  assert.ok(gate >= 0 && maths > 0, "reactLiveStepsHTML no longer holds the gate or the phase maths");
+  assert.ok(gate < maths, "the thinking check runs after the phase index and will be bypassed");
 });
 
 test("the steps appear the moment it IS a build, from ONE place", () => {

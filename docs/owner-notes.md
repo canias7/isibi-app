@@ -4774,3 +4774,53 @@ same thing again in that chat: the second should come straight back with the
 site you already have and take no credits. This push rebuilds the container
 image, so give it fifteen to twenty minutes after the deploy before starting
 anything that needs the container.
+
+---
+
+## The build screen only appears when there is a build (2026-09-08)
+
+You typed **hey**, and the whole right-hand side turned into a build screen —
+Design · Code · Compile · Publish, a clock counting up, "Planning your site…" —
+for a message that was never a build. Meanwhile the little list on the left,
+one pane over, correctly said **Thinking**. Two halves of one screen, each
+telling you something different about the same message.
+
+**Why it did that.** The moment you send anything, the app marks itself busy and
+opens a build record, because it does not yet know what you sent — the router
+has not answered. The list on the left has always waited to be told it is a
+build. The big panel on the right never asked: it just checked "busy", which is
+true for a greeting, a question and a real build alike.
+
+So the information was there the whole time and one of the two readers never
+looked at it. That is the same shape as most of the faults in this app's
+history, and the panel's own notes already record the lesson one layer down —
+two things that can be drawn separately will eventually disagree. Drawing had
+been unified; asking had not.
+
+**The fix is one question, asked by both.** There is now a single place that
+answers "is a build actually running", and the list and the panel both ask it.
+Neither works it out for itself any more, so they cannot drift apart again.
+
+It is worded the careful way round: a build is running when it says which stage
+it is in. Written the other way — "running unless it says it's thinking" — a
+message carrying no stage at all would have counted as a build, which is exactly
+the wrong direction to be wrong in. I only found that because I ran the thing
+rather than read it; reading it, it looked right.
+
+**And the faint dots are gone.** Under the left-hand list there was a small
+animated "…" that read like an empty line of code. It is the older "still
+working" mark, left over from before that list existed, and it had already been
+switched off for the other progress display and never for this one. Off for both
+now.
+
+**The second thing you asked about — "no code, no nothing".** That screenshot
+was taken while the build was still **planning**, and there is genuinely no code
+at that point: the model has not started writing the page yet. The code appears
+when the second step starts. So nothing is broken there, and after this change
+that stage is at least honest about which step it is on rather than sitting
+under a panel that has been claiming a build since the first keystroke.
+
+**Not proven live.** The push only touches the browser files, so nothing rebuilds
+and there is no waiting period. Say **hey** in a fresh chat and the right-hand
+side should stay as the invitation to describe your site; start a real build and
+the panel should come back exactly as it was.

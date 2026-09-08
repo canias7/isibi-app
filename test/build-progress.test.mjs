@@ -370,6 +370,12 @@ test("DRIVEN: the rows carry a planning step, a clock on the running one, and no
   const rows = new Function("sb",
     decl("const ST_PHASE_ORDER = ") +
     fn("function stStepRow(") + "\n" + fn("function stAgo(") + "\n" +
+    // RE-ANCHORED 2026-09-08. The rail asks `stBuildRunning()` now instead of
+    // testing `sb.rphase === 'thinking'` itself, so this scope has to carry it or
+    // the whole function throws a ReferenceError. Taken OUT OF THE FILE rather
+    // than stubbed: a stub that answered `true` would make every case below blind
+    // to the one gate that decides whether the rail draws at all.
+    fn("function stBuildRunning(") + "\n" +
     fn("function reactLiveStepsHTML(") + "\n" +
     "const esc = (s) => String(s).replace(/[&<>\"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\n" +
     "const siteBuild = sb;\nreturn reactLiveStepsHTML();");

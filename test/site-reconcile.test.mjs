@@ -621,5 +621,10 @@ test("the browser: a deferred poll says waiting, in the poll module's own senten
   assert.match(wait, /siteBuild\.waitNote = waitNote; paintReactLive\(\);/, "the sentence is not painted");
   assert.match(wait, /siteOpenId === origin/, "a wait on another site's job repaints this one");
   const live = CHAT.slice(CHAT.indexOf("function reactLiveStepsHTML("), CHAT.indexOf("function paintReactLive("));
-  assert.match(live, /sb\.rphase === 'thinking'\) return '<div class="st-steps st-steps-live"><div class="st-think"><i><\/i>' \+ \(sb\.waitNote \? esc\(sb\.waitNote\) : 'Thinking'\)/, "the thinking line does not carry the waiting sentence, escaped");
+  // RE-ANCHORED 2026-09-08. This pinned `sb.rphase === 'thinking')` as the head of
+  // the line; the rail asks the shared `stBuildRunning()` predicate now, so the
+  // CONDITION moved and the property did not. What matters here is the return: the
+  // thinking panel prints the waiting sentence when there is one, escaped, and
+  // falls back to the plain word when there is not.
+  assert.match(live, /return '<div class="st-steps st-steps-live"><div class="st-think"><i><\/i>' \+ \(sb\.waitNote \? esc\(sb\.waitNote\) : 'Thinking'\)/, "the thinking line does not carry the waiting sentence, escaped");
 });
