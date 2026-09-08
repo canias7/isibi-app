@@ -187,6 +187,16 @@ function stubFetch(answers, seen) {
       if (a === undefined) return json({ ok: false, error: "no stub for " + m[1] }, 500);
       return json(typeof a === "function" ? a(args) : a);
     }
+    // THE BACKEND READ, WHICH THE COLLECTOR ASKS TO SAY WHETHER THE SITE HAS A
+    // DATABASE. `siteBackendRowFresh` THROWS on a non-ok answer, so this is the
+    // only way to drive the collector's catch — and until it was driven, a
+    // mutant making that catch answer `true` survived: the default fixture's
+    // read succeeds with no row, so both readings answer `false` and the
+    // fixture cannot tell them apart.
+    if (u.includes("site_backends")) {
+      if (answers.__backend === "throws") return new Response("boom", { status: 500 });
+      return json([]);
+    }
     if (u.includes("/rest/v1/")) return json([]);
     return new Response("unavailable", { status: 503 });
   };
@@ -202,11 +212,11 @@ const DESIGN = {
   picker: "grok",
 };
 
-async function driveResume({ backendRow = null } = {}) {
+async function driveResume({ backend = "none", storedSlug = SLUG, design = DESIGN } = {}) {
   const record = packResume({
-    id: ID, auth: "", uid: UID, slug: SLUG, lane: "site-" + SLUG, genId: "gen-1",
+    id: ID, auth: "", uid: UID, slug: storedSlug, lane: "site-" + SLUG, genId: "gen-1",
     report: TOKEN, firedAt: Date.now() - 60_000, charged: ["deposit", "schema"],
-    looks: 3, refires: 0, steps: [], design: DESIGN,
+    looks: 3, refires: 0, steps: [], design,
   });
   const b = bucket({
     [resumeKey(ID)]: JSON.stringify(record),
@@ -222,6 +232,7 @@ async function driveResume({ backendRow = null } = {}) {
     edit_beat: { ok: true },
     edit_finalize: { ok: true },
     edit_refund: { ok: true },
+    __backend: backend,
   }, seen);
   const sent = [];
   try {
@@ -238,7 +249,7 @@ async function driveResume({ backendRow = null } = {}) {
     );
     await Promise.allSettled(ctx.pending);
   } finally { restore(); }
-  return { b, seen, sent, backendRow };
+  return { b, seen, sent };
 }
 
 test("DRIVEN END TO END: a collected build's stored answer names its site, and passes chat.js's own success gate", async (t) => {
@@ -281,6 +292,37 @@ test("DRIVEN END TO END: a collected build's stored answer names its site, and p
   const stray = Object.keys(d).filter((k) => !known.has(k));
   assert.deepEqual(stray, [], "the collector's answer carries " + stray.join(", ") + " from nowhere the guard can derive");
 });
+
+test("DRIVEN: a backend read the collector could not make answers no, and the site it names is the record's", async () => {
+  // ADDED AFTER THE SWEEP, and both cases were survivors it found — each a
+  // fixture in which the two readings agree, which is this repo's recorded "a
+  // guard proves the branch it drives" shape.
+  //
+  // (1) The read that REFUSES. `siteBackendRowFresh` throws only on a non-ok
+  // answer; the ordinary fixture's read succeeds with no row, so the catch
+  // never ran and a mutant answering `true` there passed. Getting it backwards
+  // puts a Data panel over a database that does not exist — cannot-tell must be
+  // wrong in the direction that hides a panel.
+  const refused = JSON.parse(JSON.parse(await answerOf(await driveResume({ backend: "throws" }))).body || "null") || {};
+  assert.equal(refused.backend, false, "a backend read that failed was reported as a database");
+  assert.equal(refused.slug, SLUG, "the refusal cost the answer its slug");
+
+  // (2) THE SITE IS THE RECORD'S, not the design's. The ordinary fixture has
+  // them equal — they are, on a first build — so nothing could tell the two
+  // readings apart. They differ after a RENAME: the record carries the slug the
+  // build claimed, and reading the design's would name a site this build did
+  // not publish.
+  const renamed = JSON.parse(JSON.parse(await answerOf(await driveResume({ storedSlug: "hearth-paper-2" }))).body || "null") || {};
+  assert.equal(renamed.slug, "hearth-paper-2", "the collector named the design's slug rather than the record's");
+  assert.equal(renamed.url, "/s/hearth-paper-2/");
+});
+
+/** The stored result object a drive left behind, as JSON text. */
+async function answerOf({ b }) {
+  const key = [...b.store.keys()].find((k) => k.includes(ID) && k.includes("result"));
+  assert.ok(key, "the collector stored no result — it stored: " + [...b.store.keys()].join(", "));
+  return b.store.get(key);
+}
 
 
 // ── EVERY FIELD THE BROWSER READS HAS SOMEBODY WHO ANSWERS IT ────────────────
@@ -392,6 +434,15 @@ test("both of the build's success answers are composed by the one composer, and 
   // NAMED, because a count is satisfied by two calls in one function.
   const inline = at(BARE, "async function runSiteBuild(", "the inline build route");
   assert.ok(inline.includes("...siteAnswer({"), "the inline build route composes its own identity fields again");
+  // AND WHAT IT HANDS THE COMPOSER IS AN OBSERVATION, NOT A LITERAL. `backend`
+  // was hardcoded `true` when every build provisioned, and since 2026-08-24 a
+  // first build has no database — so a constant here puts a Data panel over
+  // nothing. The composer's own strictness cannot see this: `true` is a
+  // perfectly good `=== true`. A survivor of the first sweep, because nothing
+  // drove or read the ARGUMENT.
+  const call = /\.\.\.siteAnswer\(\{([^}]*)\}\)/.exec(inline);
+  assert.ok(call, "the inline route's composer call cannot be read");
+  assert.match(call[1], /backend: !!db\b/, "the inline route hands the composer a constant backend, not the question it asks everywhere else");
   const collector = at(BARE, "async function runResumedSiteBuild(", "the collector");
   assert.ok(collector.includes("...siteAnswer({"), "the collector composes its own identity fields again — the defect itself");
   for (const [name, body] of [["the inline build route", inline], ["the collector", collector]]) {

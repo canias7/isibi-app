@@ -1473,6 +1473,131 @@ longPost's res.on("data")  ── the ONLY place a generation's bytes are seen a
   container image inputs, so the container rolls and the 15–20 minute hold
   applies.
 
+### A BUILD'S ANSWER NAMES THE SITE IT MADE, WHICHEVER INVOCATION FINISHED IT
+(2026-09-08, owner on a build that published and reported failure: *"the problem
+is that is the build gotta stay in that chat, not make a new one"*)
+
+`hearth-paper` designed, generated, compiled, **published and charged 14
+credits**, and the app said *"That didn't come together — you weren't charged."*
+Both halves false: the site serves (200, 42 KB, `x-site-version
+01788826952093-fvwxej`) and the ledger moved 484 → 470.
+
+**THE BUILD HAD TWO SUCCESS ANSWERS AND THEY WERE DIFFERENT SHAPES.** The inline
+route composed `{ok, slug, url, backend, brand, tables, schema, …}` from
+route-local variables; `runResumedSiteBuild` — the collector, which finishes
+**every build whose generation outlives the POST socket**, so every long one —
+composed `{ok, resumed, ...pages}`, and `publishPages`' out object takes `slug`
+as an INPUT and never puts it on the output (no `out.slug`, `out.url`,
+`out.brand`, `out.backend` or `out.tables` anywhere in that file). No slug, no
+success: `chat.js`'s gate is `r.ok && d && d.error !== true && d.slug`, so the
+answer fell past 402/`need`/429/501/503 to the catch-all, which has no `msg` to
+print and uses its canned sentence. **`plyhouse` ended `stage: "resume"` too**,
+so this had been failing every long build for as long as the collector has
+existed.
+
+**THREE SYMPTOMS, ONE CAUSE**: the false error; the false "weren't charged"
+(`scheduleCreditRefresh()` runs fourteen lines above, so the real spend appears
+directly beneath the sentence denying it); and the slug never written onto the
+local project — which is what leaves the chat empty and the site standing on the
+start screen as a card of its own, the thing the owner actually reported.
+
+**AND THE COMMENT ABOVE IT ASSERTED THE OPPOSITE.** `followBuildJob`'s header
+said the answer is *"the POST's own, BYTE FOR BYTE… so everything below runs
+unchanged whichever invocation actually finished"*. The first half is true — the
+result route really does replay the stored status, type and body — and the
+second half was the defect written down as a fact. **That sentence is why nobody
+looked here.** Corrected rather than deleted, and it now says which half was
+wrong and that the sentence is true again only because ONE function makes both
+answers.
+
+- **`builder/build-answer.mjs`** composes the identity fields once
+  (`siteAnswer`) and both paths spread it — the `BEHAVIOR_ITEM` / `TABLE_ITEM`
+  shape, for the same reason. **Only these six**, not the whole answer: the
+  inline literal is ~100 lines of per-field reasoning whose own comment says it
+  is "NOT RE-INDENTED, deliberately", and a wholesale extraction is a diff
+  nobody can review. `backend` is READ, never assumed — the inline route's own
+  comment says it is an observation — and the collector's read failing answers
+  `false`, because hiding a panel is recoverable and promising a missing
+  database is not.
+- **AND THE GUARD FOUND A SECOND GAP WHILE IT WAS BEING WRITTEN.** Deriving the
+  browser's read set out of `chat.js` — every `d.<field>` inside its success
+  block, by brace depth — and subtracting `publishPages`' out object left **five
+  sentences** the inline route composes and the collector never did: so a
+  collected build was also silent about a page that threw, a page replaced by a
+  stub, and the photographs. **Three of the five ride on `pages`**, which the
+  collector has in hand, so they are the slug's own shape — a value computed and
+  never put on the wire — and go through a second composer (`pageNotes`) both
+  paths spread. The other two are named with the reason rather than guessed:
+  `cssNote` wants `cssAsk.usable`, which the STORED sheet has already resolved
+  away (`cssAsk.usable ? cssAsk.css : priorCss`), and `contextNote` wants the
+  link-and-research summary, which the resume record does not carry. Adding
+  either means storing a second copy on the record.
+- **AND TWO ARE DEAD READS IN THE BROWSER**: nothing in `worker.js` or
+  `publish-pages.mjs` composes `styleNote` or `tokensNote` onto a build's
+  answer — `styleNote` exists and is composed on the EDIT path, `tokensNote` is
+  named only in a comment. Two branches of `chat.js` that have never rendered.
+  Named, not fixed: whether a build should carry them is the owner's.
+- **The dead import went with it.** `imageNote` has no caller in `worker.js` any
+  more (the composer asks it), so it is off the import list — the recorded "when
+  you delete a consumer, grep for what fed it".
+- **Guards**: `test/build-answer.test.mjs` (6) — both composers DRIVEN including
+  every refusal and every coercion (`String(["a"])` is `"a"`); **chat.js's
+  success gate EVALUATED out of the file** and never retyped, with the pre-fix
+  answer asserted to FAIL it so the case can see the defect it was written for;
+  **a RESUMED build DRIVEN END TO END** through `worker.queue` against a fake
+  R2, queue and Supabase, to a real packed result whose body is then run through
+  that gate — **no guard had ever driven the resumed path's answer shape**,
+  every one drives the inline route, which is exactly why a whole class of build
+  could fail in the browser unnoticed; both call sites of each composer COUNTED
+  and NAMED, with neither writing a field beside the call (the composer's own
+  arguments excised by BRACE DEPTH, since `slug:` appears inside the call as
+  well as beside it); and the read-set derivation above, which is what turns the
+  next added field into a design-time question.
+- **THE IMAGE GUARD CAUGHT A REAL DEFECT**: `builder/build-answer.mjs` was on no
+  COPY line, so the image would have built and the job runtime would have died
+  at import on the first build after the deploy — reported to the customer as
+  *"our build service was restarting"*. The recorded trap, firing as designed,
+  for the third time.
+- **Three older guards went red and were re-anchored, not appeased** — each
+  pinned to a note field's exact spelling (`salvageNote: pages.salvageNote ||
+  undefined`, `renderNote: renderNote(pages.render)`, `imagesNote:
+  imageNote(pages.images)`), each now asserting the property (the note the
+  module composes reaches the response) and naming which spelling moved and why.
+- **Sweep: 28 mutants, 27 killed, none survived, none unapplied, the
+  comment-only control survived — one survived the first pass and it was
+  INERT.** `pageNotes`' `typeof p === "object"` door is a wall that changes no
+  answer: every read below it is a property read, and a property read on a
+  string or a number answers `undefined` rather than throwing — driven over
+  eighteen shapes, the two readings are identical. Said out loud in the module
+  and NOT pretended to be covered; the mutant was re-aimed at the early return,
+  which IS load-bearing (with `p` null, `p.salvageNote` throws while composing
+  the answer, losing a build that had already published) and killed. The rest:
+  the collector's answer losing its slug again (the defect itself), either call
+  site writing its own literal, the collector promising a database it never read
+  or reading a failure as yes or naming the design's slug before the record's,
+  either path dropping the notes, the branch that finished it dropped, an empty
+  slug answering a half-identity, the slug or the brand coerced, the url never
+  composed or composed at another address, `backend` read by truthiness or back
+  to a constant, a list that is not a list, the schema never travelling, a
+  non-string inventing a sentence, an empty sentence riding as a key, and the
+  image without the module.
+- **A SWEEP RUN AS `nohup … &` INSIDE A BACKGROUND CALL IS A SWEEP NOBODY OWNS.**
+  The harness reaped the tracked wrapper the instant `&` returned, leaving the
+  runner an orphan that kept mutating; its log looked like it had stopped after
+  two mutants, and `builder/build-answer.mjs` was left carrying a live mutant.
+  The recorded killed-sweep trap, reached from a new direction — and the second
+  run then correctly refused a red baseline, which is the wall working. **Run
+  the sweep as the background call's own command**, no `nohup`, no `&`; and
+  `pgrep` for a stray runner before believing any result, because two processes
+  writing one log interleave into something that reads like a clean run.
+- Full suite **5,522**.
+- **Not proven live.** The collected path is the normal path, so the next real
+  build is the proof: the reply should say "Built …" with the site in the same
+  chat, the preview filled in, and no loose card on the start screen.
+  `hearth-paper` cannot be reattached — nothing recorded which chat asked for
+  it. The push changes container image inputs, so the container rolls and the
+  15–20 minute hold applies.
+
 ### THE STEP RAIL IS A DENSE LOG (2026-09-07, owner: *"the ones in the left lets
 change how it looks too , gimme options"* → six treatments rendered → *"e"*)
 
@@ -5742,7 +5867,18 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,515
+  build and the pre-list payload added sixteen); the unit suite is 5,522
+  (2026-09-08, after a build's answer learned to name its site added seven in
+  `test/build-answer.test.mjs` — both composers driven including every refusal
+  and coercion; chat.js's success gate EVALUATED out of the file with the
+  pre-fix answer asserted to fail it; a RESUMED build DRIVEN END TO END through
+  `worker.queue` to a real packed result and that result run through the gate,
+  the first guard ever to drive the collector's answer shape; a backend read
+  that REFUSES and a record whose slug differs from the design's, both added
+  after the sweep found the ordinary fixture could not tell the two readings
+  apart; both composers' call sites counted and named with neither writing a
+  field beside the call; and the browser's whole read set derived against both
+  composers and `publishPages`' out object; before it 5,515
   (2026-09-07, after treatment E — the step rail as a dense log — added six:
   `lineOffset` and `clipWithLine` driven over a suffix, a PREFIX, a non-suffix
   and every junk shape, a second clip moving the number and 0 staying 0; the
@@ -6424,6 +6560,23 @@ observe placement is worse than none.
 the tree. Caught only because the guard written for it was failing, which is the
 good outcome and not a plan. **Put the restore on a `trap … EXIT INT TERM HUP`
 and run the sweep in the background**, where nothing can time it out.
+
+**…AND "IN THE BACKGROUND" IS NOT `nohup … &` (2026-09-08, hit anyway, in a
+runner that HAS the trap).** `scripts/mutate.mjs` restores on every exit path,
+and it never got one: run as `nohup node scripts/mutate.mjs … &` inside a
+background tool call, the harness reaped the tracked wrapper the instant `&`
+returned and the runner became an orphan nobody owned. Its log read as though
+it had stopped after two mutants — and `builder/build-answer.mjs` was sitting
+in the tree carrying a live mutant, which `git diff` found and `git status`
+would not have explained. **Run the sweep as the background call's own
+command**: no `nohup`, no `&`.
+Two more things worth having from it. The second run, started while the orphan
+still had a mutant applied, **correctly refused a red baseline** — the wall
+working, and the reason to keep it. And the two processes wrote one log at
+different offsets, so the file interleaved into something that read like a
+clean 28-mutant run with a plausible survivor list: **`pgrep -f
+scripts/mutate.mjs` before believing any sweep result**, because a sweep whose
+tree moved under it proves nothing and does not say so.
 
 **`supabase/applied/` IS NOT THE RECORD OF WHAT IS LIVE (2026-09-01).** Four
 migrations applied earlier that day — phase stats, phase write, the sequenced

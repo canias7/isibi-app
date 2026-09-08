@@ -137,6 +137,15 @@ export const ANSWER_FIELDS = ["slug", "url", "backend"];
  * drift is silent.
  */
 export function pageNotes(pages) {
+  // THE `typeof` HALF IS THIS DOOR'S OWN WALL AND IS INERT TODAY — said out
+  // loud rather than pretended to be covered by a guard. Every read below is a
+  // property read, and a property read on a string or a number answers
+  // `undefined` rather than throwing, so admitting a primitive here changes no
+  // answer: driven over eighteen shapes, the two readings are identical. What
+  // IS load-bearing is the early return: with `p` null, `p.salvageNote` throws,
+  // and a throw composing the ANSWER would lose a build that had already
+  // published — which is the failure one field over from the one this module
+  // exists for.
   const p = pages && typeof pages === "object" ? pages : null;
   if (!p) return {};
   const out = {};

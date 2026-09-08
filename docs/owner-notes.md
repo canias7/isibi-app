@@ -4624,3 +4624,71 @@ first push that changed the Worker's code and nothing above it, so the image
 build reused most of its layers and came in at two minutes instead of the two
 and a half we had been assuming. The container still rolls either way, so the
 twenty-minute wait is unchanged.
+
+## The build that published and said it had failed (2026-09-08)
+
+You asked what happened, and then you worked out the shape of it yourself:
+*"the build gotta stay in that chat, not make a new one."* That was right, and
+the cause turned out to be one line.
+
+**What you saw.** A build designed the site, wrote the pages, compiled them,
+published them and took 14 credits — and the app said *"That didn't come
+together — you weren't charged."* Both halves of that sentence were false.
+`hearth-paper` is live and serving, and the credits really did go.
+
+**Why.** A build can finish in two different places. If it is quick, the same
+request that started it also finishes it and answers you. If it takes longer
+than a few minutes — which most real builds do — the connection is let go and a
+later, separate run picks the answer up and stores it for the browser to
+collect. Those two places were each writing their own version of the answer,
+and the second one left out the site's name.
+
+The browser will only treat a build as successful if the answer names the site.
+No name, no success — so it fell through every sensible branch to the last one,
+which has no explanation of its own and says that generic sentence. The same
+missing name is why the site never attached itself to the chat you built it in
+and turned up on the start screen as a card of its own instead. One cause,
+three symptoms.
+
+`plyhouse` the night before ended the same way, so this had been happening to
+every long build, not just this one.
+
+**The fix.** There is one small file now whose only job is to write that part of
+the answer, and both places use it. They cannot drift apart again, because there
+is only one of them.
+
+**Something the test found on its own.** While writing the guard I had it work
+out, from the browser's own code, every piece of information it expects a
+finished build to hand back — and then check that somebody actually produces
+each one. Five sentences came up missing from the second path: what happened to
+the photographs, whether a page had to be replaced by a stub, and whether any
+page threw an error. So a long build was not only reporting failure, it was also
+silent about all of that. Three of the five it can honestly know, and they go
+through the same shared file now. The other two need information that is not
+kept anywhere the second run can reach, and I have written down where and why
+rather than guessing.
+
+Two more turned out to be things the browser reads and nothing has ever sent —
+a note about the stylesheet's design axes and one about the fonts. They are not
+broken by this change; they have simply never appeared. Whether a build should
+carry them is a design call, so I have named them rather than invented an
+answer.
+
+**A note on the comment that hid it.** Above the code that follows a build there
+was a paragraph saying the answer comes back "byte for byte" and that
+"everything below runs unchanged whichever invocation actually finished". The
+first half was true. The second half was the bug, written down as a fact. That
+is almost certainly why nobody looked here before. I corrected it rather than
+deleting it, and it now says which half was wrong.
+
+**What this does not do.** It stops the answer getting lost. It does not yet
+bind a site to the chat it was built in — that was the second half of what you
+asked for, and it is the next piece of work. `hearth-paper` cannot be put back
+into its chat, because nothing anywhere recorded which chat asked for it; it
+stays a loose card. The two empty `HEY` cards are safe to delete.
+
+**Not proven live.** The next real build is the proof, since the collected path
+is the normal one: the reply should say "Built ..." with the site in the same
+chat and the preview filled in. This push rebuilds the container image, so give
+it fifteen to twenty minutes after the deploy before starting anything that
+needs the container.
