@@ -1291,6 +1291,13 @@ a screen no built site ever showed.
   so it asserts the property (neither read may refuse the screen) and, while it
   was open, came **off its 2,600-byte window** onto landmarks.
   Full suite **5,603**.
+- **THE WINDOW BETWEEN THE MIGRATION AND THE WORKER WAS INERT, by construction
+  rather than by luck** — the `chat_id` column's own argument, one day later. The
+  column went live before the Worker that reads or writes it, and in between
+  nothing selected it and nothing wrote it, so every site behaved exactly as it
+  had the day before. That is available here only because a nullable column with
+  no default is invisible to every reader that does not name it; a NOT NULL one
+  would have made the same window an outage of the switch.
 - **Not proven live.** The push changes `worker.js`, which is a container image
   input, so the container rolls and the 15–20 minute hold applies. The proof
   takes two browsers: take a site off the web in one, open **More → Cloud →
