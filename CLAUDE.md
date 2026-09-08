@@ -1071,10 +1071,14 @@ them.
   was written at two spaces, so a landmark window looking for `\n}` ran past it
   and swallowed `stSaveBlob` — the recorded overlapping-window trap, caught by
   the one-saver check rather than by reading.
-- **Not proven live.** The push changes `worker.js`, which is a container image
-  input, so the container rolls and the 15–20 minute hold applies. The proof is
-  one signed-in load: **Code** on a built site should show the page's real source
-  with its own file names, and the arrow should hand back a zip that opens.
+- **HALF PROVEN LIVE (2026-09-08).** **Code** is proven — the owner's own load,
+  after the pane's own gate was fixed the next day (the entry above; the tab
+  shipped drawing a panel nothing rendered, so this line stood true for a day for
+  a reason nobody had found). **The zip is still unproven**: nothing has opened
+  a downloaded archive, and that is the half a source read can least stand in for
+  — every byte is an offset into a binary format, which is why `site-zip.js`
+  exists as a module the suite drives rather than reads. The proof is one press
+  of the arrow and a double-click.
 
 ### AND THE CODE TAB'S THIRD HOP WAS NEVER WIRED (2026-09-08, owner: *"now
 check all the things you added and see if they work, for example, look at this
@@ -1126,9 +1130,18 @@ delete `!isReact &&`: the condition is the view and nothing else.
   tab's cache, which that entry argued for on the grounds that a customer may
   press it having never opened Code. The same decision is what kept it alive
   while the pane beside it was dead.
-- **Not proven live.** `public/` only — no container roll, no hold. The proof is
-  one signed-in load: **Code** on a built site should show `index.tsx` with its
-  real source, not the preview.
+- **PROVEN LIVE (2026-09-08, owner: *"OK , I SEE IT"*).** Deploy 2052 green, the
+  served `chat.js` carrying the ungated branch and none of the old one — and then
+  the owner's own signed-in load of **Code** on a built site, showing the source
+  rather than the preview. **That look is the only instrument that could answer
+  it**: reading the served bytes proves the branch is there and can never prove a
+  panel renders, which is exactly how the defect survived its own guard.
+  **AND THE HARD REFRESH WAS PART OF THE FIX REACHING ANYBODY.** `chat.js` is
+  ~905 KB and cached, so the first look after the deploy was still the old code
+  and still the preview. A `public/`-only fix is live on the server the moment
+  the deploy is green and live for a CUSTOMER only when their tab reloads — worth
+  saying out loud, because it is also the standing explanation for
+  `hartleys-barbers` never binding to its chat.
 
 ### THE OFFLINE/ONLINE PANEL HAS A DOOR AGAIN (2026-09-08, owner: *"add the
 card"*)

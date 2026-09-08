@@ -173,6 +173,17 @@ server for your code directly rather than reading the Code tab, so it survived
 the bug next to it), the build stayed in its own chat, the reply and the step
 list are right, and the server side of the code tab was healthy the whole time.
 
+**Confirmed working** — you loaded Code after a hard refresh and saw the source.
+That's the proof, and it's the only kind that counts here: I can check that the
+right code is being served, but only a person looking at the screen can tell me
+the panel actually drew.
+
+**Worth knowing for next time:** the app's main script is about 900KB and your
+browser holds on to it. So a fix like this is live on the server the moment the
+deploy is green, and live *for you* only when the tab reloads. If something I've
+just fixed still looks broken, a hard refresh (Ctrl+Shift+R) is the first thing
+to try — it's also the most likely reason Hartley's never got linked to its chat.
+
 **One thing I could not settle.** The new "this site belongs to this chat" link
 did not get recorded for Hartley's. The most likely reason is that the browser
 tab you built in was open from before that change went out, so it was still
