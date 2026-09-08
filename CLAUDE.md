@@ -1076,6 +1076,90 @@ them.
   one signed-in load: **Code** on a built site should show the page's real source
   with its own file names, and the arrow should hand back a zip that opens.
 
+### THE OFFLINE/ONLINE PANEL HAS A DOOR AGAIN (2026-09-08, owner: *"add the
+card"*)
+
+`sitePublishPanel` holds **"Take it offline"** and **"Put it back online"**, and
+its ONLY caller was the Publish button on the workspace top bar — gated
+`isReact ? '' : …`, so it appeared only on a project that had **never** built.
+The capability was live on the server the whole time (`siteSetLive` → `POST
+/api/site/<slug>/offline`, which wipes the script before the files and refuses
+when nothing could put the site back) and unreachable in the product. Removing
+Publish on 2026-09-07 did not bury it; **it was already buried**, which that
+entry says in as many words. This is the one line of code that ends it.
+
+- **A FOURTEENTH CLOUD CARD, `visibility`** — `['zap', 'Visibility', …,
+  !!site.slug, 'visibility']` in `moreCloud`'s table, dispatched from
+  `data-cloud` like the other thirteen. Cloud is the established home for a
+  panel, and it is where the two duplicate top-bar icons removed on 2026-09-07
+  pointed. Placed immediately before **Domains**, the two public-face cards
+  together: is it on the web, and at what address.
+- **THE SENTENCE DESCRIBES THE PANEL, NEVER THE SITE'S STATE, and that is a
+  correctness rule rather than a style choice.** `site.offline` is written by
+  `siteSetLive` into `localStorage` and carried by NOTHING on the wire —
+  `/api/site/list` does not select it and `site-list.js` does not merge it — so
+  a site taken off the web from another machine reads as online in this browser.
+  A card saying *"Live at its address"* there would be a false statement about
+  the customer's own site, on the one card whose entire subject is that.
+  **Every other card here describes its panel rather than its data**, so this one
+  does too and cannot be wrong: "Take your site off the web, or put it back".
+  The guard asserts the absence of the flag AND reads `site-list.js` for the word
+  `offline`, so it fails the day somebody wires the state through and the sentence
+  may then tell the truth.
+- **THE SAME GAP IS IN THE PANEL, PRE-EXISTING AND NOT WIDENED HERE**: it reads
+  the identical local flag to choose between its two faces, so on a fresh browser
+  a site that is off the web opens on the "Live" face. Named for the owner rather
+  than fixed under a one-card ask; the fix is `offline` on `/api/site/list` and in
+  the merge, the shape `db` and `chat` already have.
+- **GATED ON `!!site.slug`, NOT `dataLive`** — the Domains rule directly below it,
+  for its reason: `siteSetLive` returns at once without a slug, and nothing on
+  this path touches the database, so a brochure site with no backend has exactly
+  as much use for the control as an app does. Gating it on a database would have
+  hidden it from most of the platform, which is the `look`/`logo` dead-gate shape
+  one more time.
+- **AND THE NOTE THAT ASKED FOR THIS IS CORRECTED RATHER THAN DELETED.** The
+  Publish removal's comment ended by saying what to build ("add a Cloud card
+  beside Submissions and Members that calls `sitePublishPanel(site)`"); that
+  instruction has been carried out, so it now says where the capability LIVES.
+  A to-do left standing after it is done is the next session's wrong turn.
+- **Guards**: `test/visibility-card.test.mjs` (6) — the card found by its key at
+  its OWN position in the row (the recorded Submissions trap, where `'inbox'` is
+  also that row's icon name and a plain `includes` cannot tell them apart; `zap`
+  is asserted NOT to be a key anywhere, so the reader is proved to be reading
+  keys); the gate held to `!!site.slug` and asserted NOT to be `dataLive`; the
+  sentence proved state-free with `site-list.js` read as the tripwire; the
+  dispatch, the panel, the setter and the panel's two buttons all asserted, since
+  a card with no handler and a handler with no card are equally dead and this
+  repo has shipped both; Publish's absence asserted beside a live observer; and
+  the setter's endpoint checked against `worker.js`'s own route, because
+  `siteUnpublish` before it POSTed a path with zero occurrences there and told
+  the owner to try again forever.
+- **One older guard went red for the change and was re-anchored, not appeased**:
+  `test/site-source.test.mjs`'s "Publish is gone…" case pinned that note's exact
+  wording. **Which spelling moved**: the note was an INSTRUCTION and it has been
+  executed, so pinning it would hold the file to a finished to-do. The property
+  was never the note — it was that removing Publish must not strand the mechanism
+  — and a real call site satisfies that better than a comment describing one, so
+  it asserts reachability now.
+- **Sweep: 16 mutants, 15 killed, none survived, none unapplied, the comment-only
+  control survived** — the card gone (the defect itself), drawn but undispatched,
+  opening the wrong panel, its key drifting from the dispatch's, gated on a
+  database, live before there is an address, claiming a state off the local flag,
+  losing its not-yet-built sentence, taking the Domains icon, the panel deleted,
+  the offline flag inverted so both buttons mean their opposite, the setter
+  pointed at a route `worker.js` lacks, either button no longer calling the
+  setter, and Publish coming back on the bar beside it.
+  **ONE MUTANT WAS WRITTEN INERT AND WAS RE-AIMED RATHER THAN SHIPPED**, the
+  recorded rule applied to the sweep's own spec: "Publish comes back" was written
+  as a `//` line, and a commented-out button draws nothing — the guards blank
+  whole-line comments before scanning, correctly, so it changed no behaviour at
+  all. Re-aimed at the top bar's real markup beside the download button, and
+  killed. Full suite **5,579**.
+- **Not proven live.** The push touches `public/` only — no container roll, no
+  15–20 minute hold. The proof is one look: **More → Cloud** on a built site
+  shows **Visibility**, and pressing it opens the panel with "Take it offline".
+  Render: `docs/edits/cloud-visibility-card.png` (both states).
+
 ### THE PREVIEW PANEL RUNS THE SITE'S OWN JAVASCRIPT (2026-09-07, owner: *"SO
 ITS PREVIEW THING, BECAUSE ON THE URL SHOWS FINE, SO FIX … MAKE THE FIX FOR
 FUTURE SITES"*)
@@ -6322,8 +6406,15 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,573
-  (2026-09-08, after the Code tab and the Download became real added twenty-five
+  build and the pre-list payload added sixteen); the unit suite is 5,579
+  (2026-09-08, after the offline/online panel got a Cloud card added six in
+  `test/visibility-card.test.mjs` — the card read by its key at its OWN position
+  in the row, the gate held to an address rather than a database, the sentence
+  proved state-free with `site-list.js` read as the tripwire, the dispatch and
+  the panel and the setter and its two buttons all asserted, Publish's absence
+  beside a live observer, and the setter's endpoint checked against worker.js's
+  own route; before it 5,573, after the Code tab and the Download became real
+  added twenty-five
   in `test/site-source.test.mjs` — the archive ROUND-TRIPPED through Python's own
   `zipfile` and then taken apart by its own offsets, because that reader decodes
   names from the central directory's flag and walks it by byte size, so the local

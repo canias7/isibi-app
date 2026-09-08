@@ -644,8 +644,19 @@ test("Publish is gone, and the panel it opened is kept with the way back", () =>
   // would make putting it back a rewrite rather than a call site.
   assert.match(BARE, /function sitePublishPanel\(site\)/, "the publish panel was deleted with its button");
   assert.match(BARE, /function siteSetLive\(site, live\)/, "taking a site offline was deleted with the button");
-  assert.match(CHAT, /add a Cloud card beside Submissions and Members that calls/,
-    "the note saying how to give the panel a door again is gone");
+  // AND IT HAS A DOOR AGAIN (2026-09-08, owner: "add the card").
+  //
+  // WHICH SPELLING MOVED: this last line pinned the note that said how to give
+  // the panel a door — "add a Cloud card beside Submissions and Members that
+  // calls…". That note was an instruction, and it has been carried out, so
+  // pinning its wording would now hold the file to a to-do that is done.
+  //
+  // THE PROPERTY WAS NEVER THE NOTE. It was that removing Publish must not
+  // strand the mechanism behind it, and a real call site satisfies that far
+  // better than a comment describing one. Asserted here as reachability;
+  // `test/visibility-card.test.mjs` holds the card itself.
+  assert.match(BARE, /b\.dataset\.cloud === 'visibility'\) sitePublishPanel\(site\)/,
+    "the panel is orphaned again — Publish is gone and nothing else opens it");
 });
 
 test("the Code tab's empty state says WHICH empty it is", () => {

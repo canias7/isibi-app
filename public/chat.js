@@ -11081,6 +11081,31 @@ function moreCloud(site) {
     ['card', 'Payments', dataLive ? 'Sell with your own Stripe' : (isReact ? 'Publish your app to take payments' : 'Publish to take payments'), fnLive, 'payments'],
     ['image', 'Files', 'Pictures and documents \u2014 add a PDF to hand out', dataLive, 'files'],
     ['alert', 'Errors', dataLive ? 'Problems visitors hit on your live site' : (isReact ? 'Add data to enable error reports' : 'Publish to enable error reports'), dataLive, 'errors'],
+    // OFF THE WEB AND BACK, AND THIS CARD IS THE ONLY DOOR TO IT (owner,
+    // 2026-09-08: "add the card"). `sitePublishPanel` holds "Take it offline"
+    // and "Put it back online", and its ONLY caller was the Publish button on
+    // the top bar — gated `isReact ? '' : …`, so it appeared only on a project
+    // that had never built. The capability has been live on the server and
+    // unreachable in the product ever since; deleting Publish did not bury it,
+    // it was already buried.
+    //
+    // THE SENTENCE SAYS WHAT THE CARD DOES, NEVER WHAT STATE THE SITE IS IN,
+    // and that is not a style choice. `site.offline` is written by
+    // `siteSetLive` into localStorage and carried by NOTHING on the wire —
+    // `/api/site/list` does not select it, `site-list.js` does not merge it —
+    // so a site taken off the web from another machine reads as online in this
+    // browser. A card claiming "Live at its address" there would be a false
+    // statement about the customer's own site, on the one card whose whole
+    // subject is that. Every other card here describes its PANEL rather than
+    // its data, so this one does too and cannot be wrong. (The panel behind it
+    // reads the same local flag and has the same gap: pre-existing, and not
+    // widened here.)
+    //
+    // NEEDS ONLY A PUBLISHED SITE — the Domains rule directly below, for its
+    // reason: `siteSetLive` returns at once without a slug, and nothing on this
+    // path touches the database, so a brochure site with no backend has exactly
+    // as much use for it as an app does.
+    ['zap', 'Visibility', site.slug ? 'Take your site off the web, or put it back' : 'Build the first draft, then you can take it off the web', !!site.slug, 'visibility'],
     // Needs only a PUBLISHED site, not a backend: a brochure site with no data
     // wants its own domain just as much as an app does, and gating this on
     // `dataLive` would hide it from exactly those owners.
@@ -11343,10 +11368,14 @@ function renderSiteWorkspace(view, site) {
           // (`siteSetLive`). It has therefore had NO door on any live site
           // since the `isReact` gate went in; this deletion does not bury it,
           // it was already buried. The panel and `siteSetLive` are kept, the
-          // way `gif` and the effort dial were kept: to give it a door again,
-          // add a Cloud card beside Submissions and Members that calls
-          // `sitePublishPanel(site)` — that is where the two icons removed on
-          // 2026-09-07 point, and it is the established place for a panel.
+          // way `gif` and the effort dial were kept.
+          //
+          // AND IT HAS A DOOR AGAIN (owner, 2026-09-08: "add the card"). This
+          // note used to end by saying what to build; the Visibility card in
+          // `moreCloud` is that thing, so it now says where the capability
+          // lives instead. Cloud is the established home for a panel — it is
+          // where the two icons removed on 2026-09-07 point — and the whole of
+          // "take it off the web / put it back" is reached from there.
         '</div>' +
       '</div>' +
       '<div class="st-body">' +
@@ -11517,6 +11546,8 @@ function renderSiteWorkspace(view, site) {
     else if (b.dataset.cloud === 'emails') siteEmails(site);
     else if (b.dataset.cloud === 'payments') sitePayments(site);
     else if (b.dataset.cloud === 'domains') siteDomains(site);
+    // The door that was missing. Everything behind it already worked.
+    else if (b.dataset.cloud === 'visibility') sitePublishPanel(site);
     // WITHOUT THIS BRANCH THE MEMBERS CARD FELL THROUGH TO THE INBOX — a card
     // promising "Accounts that sign up in your app" that opened form
     // submissions, while the whole server-side member API sat unreachable.

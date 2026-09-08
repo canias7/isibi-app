@@ -4896,3 +4896,42 @@ what the build container is made from — so the container rebuilds and you shou
 give it **15–20 minutes** after the deploy goes green before judging anything.
 After that: open any built site, press **Code** — you should see your page's real
 source — then press the arrow and you should get a zip that opens.
+
+---
+
+## "Take it offline" has a button again (2026-09-08)
+
+You asked what a Cloud card was, then said add it. Done.
+
+**More → Cloud** now has a fourteenth tile, **Visibility**, sitting just before
+Domains — the two tiles about your site's public face, side by side. Pressing it
+opens the panel with **"Take it offline"** and **"Put it back online"** in it.
+
+**That panel has existed and worked for weeks with nothing able to open it.** The
+only thing that ever opened it was the Publish button, and Publish only appeared
+on projects that had never built — so on every real site of yours, the ability to
+take it off the web was there on the server and unreachable in the app. Deleting
+Publish yesterday didn't cause that; it just made it obvious.
+
+**It works on any published site**, whether or not it has a database. Taking a
+site off the web has nothing to do with having one, and the tile would have been
+hidden from most of your sites if I'd tied it to that. Before your first build it
+sits greyed with the reason, the same as the others.
+
+**One thing I deliberately did not do, and it's worth a decision.** The tile says
+what it *does* — "Take your site off the web, or put it back" — rather than what
+state your site is currently in. That's because the app only remembers "this site
+is offline" **in the browser you switched it from**. Take a site offline on your
+laptop, open the app on another machine, and that machine still thinks it's live.
+So a tile claiming "Live at its address" would sometimes be lying to you about
+your own site, and I won't ship that.
+
+**The panel behind it has the same blind spot** — it picks which of its two faces
+to show from the same browser-local memory. That's not new and I haven't widened
+it, but it means on a fresh machine an offline site opens on the "Live" face. The
+fix is to have the server tell the app which sites are off the web, the same way
+it already tells it which ones have a database. **Small, and your call.**
+
+**Not proven live.** Browser files only, so nothing rebuilds and there's no
+waiting period. Open any built site, go to **More → Cloud**, and Visibility
+should be there and open.
