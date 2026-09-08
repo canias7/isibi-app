@@ -5081,3 +5081,38 @@ it already tells it which ones have a database. **Small, and your call.**
 **Not proven live.** Browser files only, so nothing rebuilds and there's no
 waiting period. Open any built site, go to **More → Cloud**, and Visibility
 should be there and open.
+
+---
+
+## 2026-09-08 — the download zip opens, and I proved it without your browser
+
+You picked the zip. I can't press the arrow in your browser, so I proved the
+part I can reach — and I made a point of proving it against the **code your
+site is actually serving**, not the copy on my disk.
+
+**What I did.** Downloaded `site-zip.js` from gofarther.dev and checked it is
+identical, byte for byte, to the file in the repo. Cut the three functions that
+name your files and hand a file to the disk straight out of the served
+`chat.js` — not retyped, the real ones. Ran all of it in a real Chrome, through
+the real "save this file" path, and caught the download as a file. Chrome named
+it `fretwork-1.zip` on its own.
+
+**Then I opened it with something that has never seen our code.** The tests
+already open these archives with Python's zip reader; this time I used the
+plain `unzip` command, a completely separate program written by other people.
+It checked every file's checksum and found nothing wrong. All four files came
+out identical to what went in, including an empty file and a folder name
+starting with a dash, which trips some tools up. A line with accents and
+Japanese in it came out perfect, which is the bit most likely to arrive as
+gibberish. And two downloads made in two fresh browsers came out byte for byte
+the same, which is on purpose — the file's internal timestamp is fixed rather
+than "now", so an unchanged site always gives you the same archive.
+
+**What's left.** Your own press adds two things I can't stand in for: the trip
+to the server to fetch your source, and whatever your Mac or PC uses to open
+zips. The server trip is well covered by tests and answers correctly when I
+poke it live. The archive itself now has a third independent program vouching
+for it. So if you press it and it opens, that's confirmation rather than news —
+but it's still worth one press.
+
+**Nothing changed in the code today.** This was a measurement, not a fix.

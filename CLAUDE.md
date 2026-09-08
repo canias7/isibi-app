@@ -1071,14 +1071,43 @@ them.
   was written at two spaces, so a landmark window looking for `\n}` ran past it
   and swallowed `stSaveBlob` — the recorded overlapping-window trap, caught by
   the one-saver check rather than by reading.
-- **HALF PROVEN LIVE (2026-09-08).** **Code** is proven — the owner's own load,
-  after the pane's own gate was fixed the next day (the entry above; the tab
-  shipped drawing a panel nothing rendered, so this line stood true for a day for
-  a reason nobody had found). **The zip is still unproven**: nothing has opened
-  a downloaded archive, and that is the half a source read can least stand in for
-  — every byte is an offset into a binary format, which is why `site-zip.js`
-  exists as a module the suite drives rather than reads. The proof is one press
-  of the arrow and a double-click.
+- **PROVEN LIVE (2026-09-08), BOTH HALVES, EACH BY THE ONLY INSTRUMENT THAT
+  COULD ANSWER IT.** **Code** is the owner's own load, after the pane's own gate
+  was fixed the next day (the entry above; the tab shipped drawing a panel
+  nothing rendered, so this line stood true for a day for a reason nobody had
+  found).
+  **AND THE ZIP IS THE SERVED BYTES, IN A REAL BROWSER, OPENED BY A READER
+  NOBODY HERE WROTE** (owner: *"1"*). The guard round-trips the archive through
+  Python's `zipfile` and takes it apart by its own offsets, and it had never
+  touched the BROWSER — `TextEncoder`, `DataView`, `Blob`,
+  `URL.createObjectURL`, `a.click()` — nor had any reader outside this
+  repository ever opened one of these files. So: `/site-zip.js` fetched off
+  gofarther.dev and proved **byte-identical to the tree** (which is what makes
+  the existing guard a statement about the deployed code rather than the local
+  one); `stSrcPath`, `stSrcFiles` and `stSaveBlob` CUT OUT of the served
+  `chat.js` rather than retyped; all of it run in a real Chromium through the
+  real save path, with the download CAPTURED as a file — the browser named it
+  `fretwork-1.zip` itself.
+  **Then the system `unzip`**, which is a second implementation nobody here
+  wrote and a different one from the guard's: `unzip -t` recomputed every CRC
+  and found **no errors**; all four files extracted **byte-for-byte identical**,
+  a zero-length file and a path segment beginning `-` included (some tools read
+  a leading dash as a flag); the non-ASCII line survived whole (`café — naïve —
+  ✓ — 日本語`), which is bit 11 of the flag word doing its job in a real
+  extractor and not only in Python; `unzip -l` decoded the fixed
+  **1980-01-01 00:00** stamp; and two downloads in two fresh browsers came out
+  byte-identical, which is the property that stamp exists for.
+  **What is still not proven, stated**: the owner's own press, which adds the
+  real `/api/site/source` fetch on their session and their own machine's
+  archiver. The fetch is driven six ways through the real router and reads
+  **401 where a route that does not exist reads 404**; the archiver now has a
+  third independent reader standing in for it.
+  **AND THIS IS A PROOF, NOT A NEW GUARD, DELIBERATELY.** A browser-driven case
+  in the unit suite needs Playwright and a browser that CI's unit job does not
+  install — the recorded "a CI step that does not install what the tests import"
+  trap, which cost this repository fifteen red runs nobody read. The archive's
+  permanent check stays where it is; the driver lives in the scratchpad and the
+  record of what it answered is this entry.
 
 ### AND THE CODE TAB'S THIRD HOP WAS NEVER WIRED (2026-09-08, owner: *"now
 check all the things you added and see if they work, for example, look at this
