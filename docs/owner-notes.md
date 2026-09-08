@@ -195,11 +195,16 @@ service was restarting". Fifth time that check has saved a deploy.
 
 **Proof.** `docs/edits/offline-two-faces.png` shows both faces of the panel side
 by side, with the browser's own flag saying "live" in each — so the only thing
-that differs is the server's answer, which is the whole change. **Not proven
-live**: that takes two browsers. Take a site off the web in one, open **More →
-Cloud → Visibility** in the other, and it should say "Off the web" with "Put it
-back online". This push rebuilds the container, so give it 15–20 minutes before
-firing anything that runs there.
+that differs is the server's answer, which is the whole change.
+
+**It is deployed** (run 2050, green in under three minutes at 05:10Z; both test
+runs green). I read the live files back: the rule is in `/site-list.js`, the
+panel asks for it in `/chat.js`, and the sites route answers "sign in required"
+rather than "no such route", so it is really mounted. That proves the code is
+there and cannot prove two browsers agree. **Not proven live**: that takes two
+browsers — take a site off the web in one, open **More → Cloud → Visibility** in
+the other, and it should say "Off the web" with "Put it back online". The push
+rebuilt the container, so anything that runs there needs until about 05:30Z.
 
 ---
 

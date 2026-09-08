@@ -1298,8 +1298,22 @@ a screen no built site ever showed.
   had the day before. That is available here only because a nullable column with
   no default is invisible to every reader that does not name it; a NOT NULL one
   would have made the same window an outage of the switch.
-- **Not proven live.** The push changes `worker.js`, which is a container image
-  input, so the container rolls and the 15–20 minute hold applies. The proof
+- **DEPLOYED, AND EVERY HOP PROVEN SERVED (deploy run 2050, green in 2m47s).**
+  Pushed to main at 05:07Z (`6f574f20` → `cdfc88b7`, plus `63070b03`, which is
+  docs and runs no deploy). The gate set in 1 s; the image step **2m03s** — a
+  worker-tree-only push, inside the ~2m05s band deploy 2044 measured — so the
+  site image was BUILT and the container ROLLED; `deploy drain` found no live
+  leases in 1 s; Wrangler 24 s; the gate left to expire on success. `unit
+  tests` runs 2335 and 2336 both green. **The 15–20 minute hold ends ~05:30Z.**
+  Read live at 05:11Z: `/site-list.js` carries `readOffline`, `offlineNow`,
+  `offlineFor` and `markOffline`; `/chat.js` carries
+  `SiteList.offlineFor(sitesRemote, site)` in the panel and
+  `SiteList.markOffline(sitesRemote, slug, !live)` in the setter, once each;
+  `/api/site/list` answers **401 "sign in required"** where a route that does
+  not exist answers 404. Served bytes prove the wire is there and can never
+  prove two browsers agree — that is the canary below.
+- **Not proven live.** The push changed `worker.js`, a container image input,
+  so the container rolled and the 15–20 minute hold applied. The proof
   takes two browsers: take a site off the web in one, open **More → Cloud →
   Visibility** in the other, and it should say **Off the web** with "Put it back
   online" — where before today it said Live and offered to take it down again.
