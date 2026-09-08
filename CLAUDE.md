@@ -1495,24 +1495,31 @@ where the two rules already sit in the right order.
   own entry is the record of what it does. The container rolled on this deploy,
   so the hold above applies before any container work.
 
-### AND ALL FIFTEEN CAN BE TAKEN OFF, NOT SEVEN (2026-09-08, owner: *"IT SHOULD
+### AND ALL FIFTEEN CAN BE TAKEN OFF, NOT NINE (2026-09-08, owner: *"IT SHOULD
 BE ABLE TO DELETE THE 15"*)
 
 The removal verb shipped able to remove fifteen lanes and reachable for
-**seven**. Everything it does — `pick_lanes` answering `removes`, the refusal
+**nine**. Everything it does — `pick_lanes` answering `removes`, the refusal
 sentences, the dispatch steps, `mergeLook`'s `clear` — lives inside ONE
 condition, which was the whole of the door:
 
     const eLooking = eLayer === "look";
 
-So a removal arrived only when the intent router answered `look`. The seven
-look-layer subjects (`css theme brand description wordmark favicon langs`) were
-safe; the other eight are lanes that DISPATCH, and the router names their
-destination directly. "Take the photo off" answers `picture`, "drop the button"
-answers `nav`, "take the 3D scene off" answers `page`. **Nothing failed**: the
-door stayed shut, the target rung did its best with the customer's words, and
-the STORED field kept saying the site had the thing — so the design record
-disagreed with the pages and the next revise could bring it back.
+So a removal arrived only when the intent router answered `look`. **DERIVE THE
+SPLIT, DO NOT TRUST THIS LINE** — the first draft of this entry said seven and
+eight and its own numbers did not close; `REMOVABLE_LANES` through `laneLayer`
+is the answer, and note that `LANE_LAYER` is keyed by GROUP (`plan` covers
+`purpose`/`components`/`shape`), so reading that map instead of calling the
+function answers wrong. Today: the **nine** removable OWN-LANES (`css theme
+brand description wordmark favicon langs behavior qr`) carry no layer of their
+own, so `look` is the only door they have ever had and they were safe. The
+other **six** DISPATCH, and the router names their destination directly:
+`images`→`picture` ("take the photo off"), `action`→`nav` ("drop the button"),
+and `components` `shape` `three` `tsx`→`page` ("take the 3D scene off").
+**Nothing failed**: the door stayed shut, the target rung did its best with the
+customer's words, and the STORED field kept saying the site had the thing — so
+the design record disagreed with the pages and the next revise could bring it
+back.
 
 - **THE SIGNAL EXISTED AND WAS BEING THROWN AWAY.** The router already answers
   `remove: true`, and `readEdit` stripped it for every layer but `page` and
@@ -1551,8 +1558,15 @@ disagreed with the pages and the next revise could bring it back.
   CENSUS — it walks `REMOVABLE_LANES` itself and requires each to have a route
   in (its dispatch target on `DOOR_LAYERS`, or `page` and therefore the clause),
   because the recorded trap this change exists because of is *a hop nobody
-  listed is a hop nobody guards*: a list of the eight would be the Code tab's
-  mistake again, and a sixteenth removable lane cannot now arrive unreachable.
+  listed is a hop nobody guards*: a list of the six would be the Code tab's
+  mistake again — and it would have been a list of the WRONG six, since the
+  entry above first miscounted them — while a census cannot, and a sixteenth
+  removable lane cannot now arrive unreachable. **It also catches the code
+  version of that miscount**: it resolves through `laneLayer`, and a resolver
+  reduced to a bare `LANE_LAYER[field]` would hand it `undefined` for
+  `components` and `shape`, which the census then requires to be on
+  `OWN_LANES` — they are not, so it goes red. The prose beside it had no such
+  guard, which is why the prose was the half that drifted.
   Beside it: both `const` lines EVALUATED out of `worker.js` and driven over
   every layer in both directions; the two exempt layers proved never re-routed;
   the leftover layers proved to carry no flag AND not to open the door, with
@@ -2774,7 +2788,17 @@ and `qr` arrived, and twenty-one since `gif` was retired on 2026-08-31).
 twenty-one and what it names decides which layer runs.
 **DERIVE THIS LIST, DO NOT TRUST IT** — it has gone stale twice. `node -e` over
 `site-lanes.mjs` and print `LANE_FIELDS`, `OWN_LANES`, `DISPATCHED_LANES`,
-`VERB_LANES`, `ESCALATE_LANES`, `UNBUILT_LANES` and `LANE_LAYER`.
+`VERB_LANES`, `ESCALATE_LANES` and `UNBUILT_LANES`.
+**FOR A FIELD'S LAYER, CALL `laneLayer(field)` — NEVER READ `LANE_LAYER`
+(2026-09-08).** That map is keyed by GROUP (`plan` covers `purpose`,
+`components` and `shape`; `rename` covers `slug`), so indexing it by a field
+name answers `undefined` for three lanes that dispatch perfectly well, and
+`undefined` reads as "this lane has no layer" — which is exactly how an
+own-lane looks. This line used to name the map, and reading it that way is
+what put the wrong split into two files and the wrong number into a section
+heading, an hour after the census guard beside it derived the right one.
+The map's only reader in the product IS `laneLayer`; it is exported for
+sessions to print, and printing it is the trap.
 
 **`OWN_LANES` is a group name, not a verdict** — renamed from `ACTING_LANES` on
 2026-08-29 after the owner asked *"i thought all of them were act?"* twice. It
@@ -6857,7 +6881,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   build and the pre-list payload added sixteen); the unit suite is 5,636
   (2026-09-08, after all fifteen removable lanes got a route into the lane door
   added ten in `test/removal-door.test.mjs` — a CENSUS walking `REMOVABLE_LANES`
-  itself rather than a list of the eight that were unreachable, both `const`
+  itself rather than a list of the six that were unreachable, both `const`
   lines of the door EVALUATED out of `worker.js` and driven over every layer in
   both directions, the two exempt layers proved never re-routed, the leftover
   layers proved to carry no flag with `data` named, both fall-through halves
@@ -7234,6 +7258,18 @@ applied is a sweep with no control.**
 **Two lists of the same thing.** Routes in a matcher and in a dispatch condition;
 a scanner's list and the kit's. They drift, and the drift is silent. Derive one
 from the other, in BOTH directions where the scan can stop matching.
+
+**A LOOKUP KEYED AT A DIFFERENT GRANULARITY THAN THE THING YOU ASK IT
+(2026-09-08).** `LANE_LAYER` is keyed by GROUP and `laneLayer(field)` is the
+resolver; indexing the map by a field name answers `undefined` for the three
+lanes inside the `plan` group — and `undefined` there is a legitimate value,
+meaning *this lane has no layer of its own*. So the wrong reading produced a
+plausible, wrong split, which went into a section heading, two files and an
+owner note before anything noticed. **The miss and a real answer were the same
+value**, which is this repo's own "cannot-tell must never read as
+nothing-there" one layer down: when a map's absent key means something, ask
+its resolver, not the map. The tell was free and I walked past it — the
+derived numbers did not add up to the split written beside them.
 
 **`String(["a"])` is `"a"`.** Shipped as a real bug three times — a one-element
 array passing as a role, an access level, a language. Refuse a non-string; never

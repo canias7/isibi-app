@@ -5119,25 +5119,31 @@ but it's still worth one press.
 
 ---
 
-## 2026-09-08 — all fifteen can be deleted now, not seven
+## 2026-09-08 — all fifteen can be deleted now, not nine
 
 You were right. The delete verb could take fifteen things off a site and only
-**seven** of them could ever be reached.
+**nine** of them could ever be reached.
 
 **Why.** Everything the delete verb does sits behind one gate in the code, and
 that gate only opened when the router decided your message was about the site's
-"look" — colours, fonts, the name, the languages. Those seven are exactly the
-look ones. The other eight live somewhere else: a photo, the header button, a
-section, the 3D scene, the chord diagrams, a QR code. Ask for one of those to go
-and the router sent your message straight to the part that handles photos, or
-buttons, or pages — past the gate entirely.
+"look" — colours, fonts, the name, the languages, the QR code, what a button
+does. Those nine things have no other door, so they were fine. The other six
+live somewhere else: a photo, the header button, a section, the 3D scene, the
+chord diagrams, the page's shape. Ask for one of those to go and the router sent
+your message straight to the part that handles photos, or buttons, or pages —
+past the gate entirely.
+
+(I first wrote this up as seven and eight. It is nine and six — I read the wrong
+lookup table, which is grouped rather than one row per thing. Corrected here and
+in the engineering notes, with a line telling the next session to work the split
+out rather than trust the sentence.)
 
 **Nothing looked broken, which is why it lasted.** The message still reached
 something, and that something did its best. What went wrong is quieter: the
 site's own record of what it has kept saying it had the thing. So the page and
 the record disagreed, and the next big edit could put it back.
 
-**Two fixes, because the eight don't all arrive the same way.** For a photo or a
+**Two fixes, because the six don't all arrive the same way.** For a photo or a
 button, the router already sets a "they want this gone" flag — it was just being
 thrown away for those. That's now kept, and it opens the gate. For a section, a
 scene or the site's own components, the flag can't be used at all, and that's
