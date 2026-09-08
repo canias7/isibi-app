@@ -1723,6 +1723,39 @@ everything else is the shape rule, the constraint and the two readers.
   pinned `claimSiteSlug`'s parameter list; and `build-answer.test.mjs` counted
   TWO composed answers, which is the guard working — the retry is an honest
   third, and it is named beside the other two now.
+  **Sweep: 48 mutants, 47 killed, none survived, none unapplied, the
+  comment-only control survived — and SIX survived the first pass, of which FOUR
+  were INERT and are the finding.** The killed ones: the rule coercing or
+  admitting anything, the id unbounded or punctuated, the column renamed under
+  the code; the build POST dropping the chat (the defect itself), sending a
+  literal, or a revise re-binding; the route reading the chat past the refusal,
+  short-circuiting a revise, never short-circuiting at all, reading cannot-tell
+  as a site, writing its own answer, claiming a database, charging, or saying
+  nothing; the lookup unscoped, chat-blind, unauthenticated, unbounded in time
+  or unlimited in rows; either claim path forgetting the chat, an absent chat
+  written as `""`, either build call site dropping it, the addon's provision
+  binding; a chat collision wearing the taken-name sentence, not naming the
+  site, or an unreadable lookup claiming one; the list not selecting it,
+  coercing it, or leaking the connection beside it; the browser dropping it, the
+  merge never matching by chat, preferring it over the slug, showing the adopted
+  record twice, marking nothing adopted, keying the index by slug or by the last
+  record, or dropping a build in flight; the index unpartial, unscoped or not
+  unique, the column not-null, the check proving another index, and the image
+  forgetting the module.
+  **THE FOUR INERT ONES ARE TWO PAIRS OF WALLS WHERE ONE SUFFICES, both proven
+  by driving BOTH readings rather than assumed.** `siteForChat` answers `null`
+  for "no site" and `undefined` for "could not tell" — and both callers test
+  `mine && mine.slug`, so the distinction changes no answer this Worker gives;
+  the comment claiming a caller acted on it was simply false and now says what
+  is true, with the direction recorded for whoever does read it. And
+  `byChat[made.chat]` is guarded against an empty key by a loop that already
+  refuses to store one, so neither wall is observable while the other stands.
+  Both kept, both said out loud in the code, and NOT pretended to be covered by
+  a guard; the four mutants were re-aimed at the lookup's credential, its
+  timeout, its row limit and the two indexes agreeing about a duplicate — every
+  one of which then survived, because nothing drove them either, and all four
+  are guarded now and re-run to a kill.
+  Full suite **5,542**.
   **TWO OF THIS FILE'S OWN GUARDS WERE WRONG ON THEIR FIRST RUN, BOTH THE SAME
   RECORDED TRAP.** A call-site counter used `\(([^)]*)\)`, which stops at the
   first `)` — here inside `(n) => tr.at("prov:" + n)`, an argument of the very
@@ -1731,6 +1764,12 @@ everything else is the shape rule, the constraint and the two readers.
   non-greedy now. And a third pinned the composer's `/s/<slug>/` fallback when
   the route really resolves the site's public address; the answer is PARSED now,
   never string-matched, since `https://host//menu` names a different site.
+- **Not proven live.** The next new build is the proof: it should finish inside
+  the chat it was started in, with the preview filled in and no loose card on the
+  start screen. **The retry is provable free** — send the same thing twice in one
+  chat and the second should answer with the site the first made, `reused: true`,
+  no debit. The push changes container image inputs, so the container rolls and
+  the 15–20 minute hold applies.
 
 ### THE STEP RAIL IS A DENSE LOG (2026-09-07, owner: *"the ones in the left lets
 change how it looks too , gimme options"* → six treatments rendered → *"e"*)
@@ -6001,8 +6040,18 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,522
-  (2026-09-08, after a build's answer learned to name its site added seven in
+  build and the pre-list payload added sixteen); the unit suite is 5,542
+  (2026-09-08, after the site learned which chat built it added twenty in
+  `test/site-chat.test.mjs` — the shape rule driven over every coercion and
+  bound, the REAL MINT evaluated out of chat.js against it, the migration and
+  the check script held to one index name, the build POST's body EVALUATED for
+  a build and a revise, the route DRIVEN through the real router five ways with
+  every ledger and model call a tripwire, both writers counted AND named, both
+  claim collisions driven through the real `claimSiteSlug` and `siteForChat`
+  against one fake wire, the lookup's credential, bound and limit, and the merge
+  driven in five directions including the control a chat-matches-everything
+  merge would fail; before it 5,522, after a build's answer learned to name its
+  site added seven in
   `test/build-answer.test.mjs` — both composers driven including every refusal
   and coercion; chat.js's success gate EVALUATED out of the file with the
   pre-fix answer asserted to fail it; a RESUMED build DRIVEN END TO END through

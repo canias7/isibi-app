@@ -109,8 +109,17 @@ test("the column is spelled once, and the migration and the check agree about th
   const idx = /create unique index if not exists (\w+)/.exec(migration);
   assert.ok(idx, "the migration no longer creates the index");
   assert.equal(idx[1], "site_backends_uid_chat_uniq");
-  assert.ok(check.includes(idx[1]),
-    "the check script proves an index the migration does not create");
+  // READ OUT OF THE CHECK'S OWN ASSERTION, not out of the file: that file's
+  // header explains which index it proves and therefore contains the name, so a
+  // whole-file `includes` passes with the assertion pointed at something else
+  // entirely. The recorded "prose contains the thing it forbids", in the guard
+  // written for it — a sweep mutant repointed the refusal check at
+  // `site_backends_pkey` and this passed.
+  const bareCheck = check.split("\n").map((l) => (/^\s*--/.test(l) ? "" : l)).join("\n");
+  const refusal = /refused not like '%(\w+)%'/.exec(bareCheck);
+  assert.ok(refusal, "the check script no longer asserts WHICH constraint refused the second site");
+  assert.equal(refusal[1], idx[1],
+    "the check script proves an index the migration does not create: it asserts " + refusal[1]);
   assert.match(migration, /on public\.site_backends \(uid, chat_id\)\s*\n\s*where chat_id is not null/,
     "the index is no longer partial and scoped to the owner -- an unbound site would now collide with every other unbound site");
   assert.match(migration, new RegExp("add column if not exists " + CHAT_COLUMN + " text"),
@@ -168,7 +177,7 @@ async function build({ body, lookup = [], lookupStatus = 200 } = {}) {
     const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
     if (u.includes("/auth/v1/user")) return json({ id: UID, email: "o@example.com" });
     if (u.includes("/rest/v1/site_backends")) {
-      asked.push({ url: u, method: (init && init.method) || "GET" });
+      asked.push({ url: u, method: (init && init.method) || "GET", init: init || {} });
       return lookupStatus === 200 ? json(lookup) : new Response("x", { status: lookupStatus });
     }
     if (u.includes("/rest/v1/rpc/credit_debit") || u.includes("/rest/v1/rpc/use_credits")) {
@@ -234,7 +243,28 @@ test("DRIVEN: a chat with no site builds, and the lookup is uid-scoped and chat-
     "the chat lookup is not scoped to the caller -- it could answer with a stranger's site: " + q.url);
   assert.ok(q.url.includes(CHAT_COLUMN + "=eq.site_1757000000000_abcde"),
     "the lookup does not filter on the chat that was sent: " + q.url);
+  // ONE ROW, because the answer is one site by construction and a read with no
+  // bound is a read of everything the owner has.
+  assert.ok(/[?&]limit=1(&|$)/.test(q.url), "the chat lookup is unbounded: " + q.url);
+  // AND MADE AS THE SERVICE ROLE. `site_backends` is RLS'd with a SELECT policy
+  // for the row's own owner and no anon grant, so a lookup without the
+  // credential is a 401 — which `!r.ok` turns into "could not tell", which
+  // builds. The retry would silently never fire and every double submit would
+  // buy a second site, with nothing red anywhere.
+  const auth = String((q.init.headers && (q.init.headers.Authorization || q.init.headers.authorization)) || "");
+  assert.match(auth, /^Bearer svc$/, "the chat lookup is not made as the service role: " + JSON.stringify(q.init.headers || null));
   assert.ok(r.spent.length > 0, "the observer is alive: a real build was on its way to spending");
+});
+
+test("the chat lookup is bounded in time — it sits in front of the deposit", () => {
+  // READ, not driven: driving it means a fetch that never settles and a real
+  // ten-second wait. What it costs to be wrong is a build held open on a
+  // question asked only to SAVE the customer money, so the bound is asserted
+  // where it is written, between both landmarks.
+  const w = bare(worker);
+  const body = fn("async function siteForChat(", w);
+  assert.match(body, /await fetch\(q, \{[^}]*signal: AbortSignal\.timeout\(\d+\)/,
+    "the chat lookup can hang the build before the deposit");
 });
 
 test("DRIVEN: a lookup that could not answer BUILDS -- cannot-tell never reads as there-is-one", async () => {
@@ -435,6 +465,21 @@ test("DRIVEN: the list selects the chat and hands it back, and an unbound site s
   const [bound, loose] = r.body.sites;
   assert.equal(bound.chat, "site_1757000000000_abcde");
   assert.equal(loose.chat, "", "an unbound site is not spelled as an empty string");
+  // AND READ STRICTLY, never coerced. `String(["a"])` is `"a"` and `String(7)`
+  // is `"7"`, so a coercing read would put a chat id on the wire that no
+  // workspace ever minted — and the browser matches sites on it. A `text`
+  // column cannot send these today; the door is what keeps that true after the
+  // next person spreads a row through here.
+  const junk = await callList({
+    backends: [
+      { slug: "a-1", created_at: "2026-09-08T01:00:00Z", chat_id: ["site_1757000000000_abcde"] },
+      { slug: "b-1", created_at: "2026-09-08T00:00:00Z", chat_id: 7 },
+      { slug: "c-1", created_at: "2026-09-07T00:00:00Z", chat_id: { id: "x" } },
+    ],
+  });
+  assert.deepEqual(junk.body.sites.map((x) => x.chat), ["", "", ""],
+    "a non-string chat was coerced onto the wire: " + JSON.stringify(junk.body.sites.map((x) => x.chat)));
+  assert.equal(junk.body.sites.length, 3, "the observer is alive — the rows really were listed");
   // AND THE CONNECTION NEVER LEAVES. The row is selected with `neon_db` on it
   // because the boolean is derived from it; the whole payload is searched, since
   // a field-level check passes the day somebody spreads the row.
@@ -473,6 +518,24 @@ test("the merge is unchanged for every site that is not bound", () => {
   assert.equal(merged[0].slug, "fretwork-1");
   assert.equal(merged[0].name, "Fretwork", "the slug match stopped preferring the local record");
   assert.equal(merged[1].id, "site_B", "a slugless record with no chat match is no longer kept as a build in flight");
+});
+
+test("both local indexes resolve a duplicate the same way — the first record wins", () => {
+  // `bySlug` and `byChat` are two indexes over one list, and they must agree
+  // about which record a duplicate resolves to, or the same server row lands on
+  // a different local record depending on which key matched it. Both keep the
+  // FIRST. Two lists of the same thing, asserted rather than left to match by
+  // reading alike.
+  const local = [
+    { id: "site_DUP", name: "first", slug: "dup-1" },
+    { id: "site_DUP", name: "second", slug: "dup-1" },
+  ];
+  const bySlugWins = SiteList.merge(local, [{ slug: "dup-1", name: "dup-1", url: "u", createdAt: 1 }], true);
+  assert.equal(bySlugWins[0].name, "first", "the slug index stopped keeping the first record");
+  const byChatWins = SiteList.merge(
+    [{ id: "site_DUP", name: "first" }, { id: "site_DUP", name: "second" }],
+    [{ slug: "dup-1", name: "dup-1", url: "u", createdAt: 1, chat: "site_DUP" }], true);
+  assert.equal(byChatWins[0].name, "first", "the chat index keeps a different record from the slug index");
 });
 
 test("the merge prefers the slug, and never matches a chat the server did not name", () => {

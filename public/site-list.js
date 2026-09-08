@@ -126,6 +126,12 @@
       // customer typed in, still looking unfinished, and the finished site
       // sitting beside it as a stranger. Matched by chat they are one, and the
       // adopted record keeps its own `id`, so the workspace stays the workspace.
+      //
+      // The `made.chat ?` half is a BELT behind the loop above, which refuses to
+      // store an empty key — so neither wall is observable while the other
+      // stands, driven both ways rather than assumed. Said out loud instead of
+      // pretending a guard covers it: what it costs is nothing, and what it buys
+      // is that the read stays right if the store's rule ever loosens.
       var have = bySlug[made.slug] || (made.chat ? byChat[made.chat] : null);
       // The local record WINS on everything it alone knows — the thread, the
       // name the customer typed, the stored pages — and the server wins on

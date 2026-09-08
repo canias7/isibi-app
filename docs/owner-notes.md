@@ -4742,6 +4742,16 @@ build service was restarting"*. The check that compares the container's file
 list against what the code actually imports found it the same hour it was
 written. That is the third time that particular check has paid for itself.
 
+**One thing worth saying about the checks.** I deliberately broke this in
+forty-eight different ways to see whether anything noticed — dropping the chat
+off the message, letting a retry charge for the site it did not build, taking
+the uniqueness rule out of the database, and so on. Forty-seven were caught.
+The forty-eighth was a control that changes only a comment and is supposed to
+pass. Four of the breakages turned out to change nothing at all, which is its
+own finding: in two places I had written two walls where one does the work, and
+one of them came with a comment claiming it mattered. The comment was wrong and
+now says what is actually true rather than what I assumed.
+
 **Not proven live.** The next new build is the proof: it should finish inside
 the chat you started it in, with the preview filled in and no extra card on the
 start screen. The free half you can try any time — start a build, then send the

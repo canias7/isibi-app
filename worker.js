@@ -7151,16 +7151,29 @@ async function patchSiteConfig(env, slug, db, patch) {
  * THE SITE THIS CHAT ALREADY BUILT, or null.
  *
  * Scoped to the caller's own uid AND the chat, so it can only ever answer with
- * a site this customer owns. `null` is "this chat has no site"; `undefined` is
- * "we could not tell" — and the two are spelled apart at every hop, because the
- * ONE caller that acts on this is about to decide whether to build. Reading a
- * failed lookup as "no site" costs a duplicate build; reading it as "you have
- * one" would hand somebody the wrong site and charge them nothing to find out.
+ * a site this customer owns.
+ *
+ * `null` is "this chat has no site"; `undefined` is "we could not tell". BOTH
+ * CALLERS TREAT THEM IDENTICALLY TODAY and both are right to — the retry builds
+ * either way, and the claim keeps the taken-name sentence either way — so the
+ * distinction changes no answer this Worker gives. That is said here rather
+ * than dressed up: a sweep drove all three readings through both call sites and
+ * found them identical, and the first version of this comment claimed a caller
+ * acted on the difference, which was simply not true.
+ *
+ * It is kept because it is an honest report about THIS function's own
+ * knowledge, and because the direction is decided the moment somebody does read
+ * it: reading a failed lookup as "no site" costs a duplicate build the customer
+ * can see; reading it as "you have one" hands somebody the wrong site and
+ * charges nothing to find out. Cannot-tell must never read as there-is-one.
  */
 async function siteForChat(env, uid, chatId) {
   if (!uid || !chatId) return null;
   try {
     const q = `${SUPABASE_URL}/rest/v1/site_backends?uid=eq.${encodeURIComponent(uid)}&${CHAT_COLUMN}=eq.${encodeURIComponent(chatId)}&select=slug,neon_db,brief&limit=1`;
+    // BOUNDED, because this sits in front of the deposit on the build route: a
+    // lookup that never answers would hold a customer's build open on a
+    // question it only asks to save them money.
     const r = await fetch(q, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
     if (!r.ok) return undefined;
     const rows = await r.json();
