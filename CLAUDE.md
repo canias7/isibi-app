@@ -1764,6 +1764,35 @@ everything else is the shape rule, the constraint and the two readers.
   non-greedy now. And a third pinned the composer's `/s/<slug>/` fallback when
   the route really resolves the site's public address; the answer is PARSED now,
   never string-matched, since `https://host//menu` names a different site.
+- **THE WINDOW BETWEEN THE MIGRATION AND THE WORKER WAS HARMLESS, AND THAT IS BY
+  CONSTRUCTION rather than by luck** — worth saying, since this file records the
+  ones that were not. The column and the index went live at 02:01:58Z and the
+  Worker that writes them at ~02:34Z. In between, every build sent no chat and
+  every claim omitted the column, so the index (partial, `where chat_id is not
+  null`) matched nothing and the platform behaved exactly as it had the day
+  before. The safe direction is available here only because an unbound site is a
+  permanent supported state; a not-null column would have made the same window a
+  total outage of the build route.
+- **A DELETE FREES THE CHAT, AND THAT IS THE ONLY WAY ONE IS EVER RELEASED.**
+  The delete route removes the whole `site_backends` row, so the workspace can
+  build again; a delete that stopped doing that — or that blanked the column
+  instead — would leave that chat permanently unable to build, with the retry
+  answering a site that no longer exists and the index refusing any replacement.
+  The delete route's own comment is about orphan prevention, a different
+  subject, so the property is pinned beside the thing that depends on it.
+- **DEPLOYED, AND EVERY HOP PROVEN SERVED (deploy run 2046, green in ~3
+  minutes).** Main fast-forwarded `b263d319` → `d136b2ee` at 02:30Z; the gate set
+  in 1 s (taking over from the previous deploy's), the image step 2m09s — `built
+  isibi-app-sitebuildcontainer:ec5…8b (registry answered 404; 164 inputs off
+  ./Dockerfile)`, so the container **rolled** (`EDIT`, applied 02:33:11Z; the
+  game image `reused` on a 200) — the drain found no live leases, Wrangler 26 s,
+  and the gate was left to expire on success. `unit tests` run 2328 green.
+  **The 15–20 minute hold ends ~02:53Z.** Read live at 02:34Z: `/chat.js` carries
+  `qa: qa || [], chat: origin` on the build body and the revise body unchanged
+  beside it; `/site-list.js` answers 200 at 9,400 bytes carrying
+  `chat: str(row.chat)`; `/api/site/list` answers **401 "sign in required"**
+  where a route that does not exist answers 404. Served bytes prove the wire is
+  there and can never prove a build binds — that is the next build.
 - **Not proven live.** The next new build is the proof: it should finish inside
   the chat it was started in, with the preview filled in and no loose card on the
   start screen. **The retry is provable free** — send the same thing twice in one

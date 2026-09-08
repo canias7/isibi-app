@@ -4752,6 +4752,21 @@ own finding: in two places I had written two walls where one does the work, and
 one of them came with a comment claiming it mattered. The comment was wrong and
 now says what is actually true rather than what I assumed.
 
+**Deployed and checked.** It went out at 02:30 and was green three minutes
+later; the container rebuilt and rolled at 02:33. I then read the live files
+back off the server: the build request really does carry the chat now, the start
+screen's file really does read it, and the list endpoint answers "sign in
+required" where a route that does not exist answers "not found" — so it is
+mounted and gated. That is as far as reading files can go; it proves the wiring
+is there and cannot prove a build ends up in the right chat. Give it until about
+02:53 before starting anything that needs the container.
+
+**One more thing I checked while it deployed.** Deleting a site frees its chat —
+the delete removes the registration row completely, so that workspace can build
+again. That is the only way a chat is ever released, and nothing was testing it,
+so a future change to the delete could have quietly left a chat unable to ever
+build again. It has a check on it now.
+
 **Not proven live.** The next new build is the proof: it should finish inside
 the chat you started it in, with the preview filled in and no extra card on the
 start screen. The free half you can try any time — start a build, then send the

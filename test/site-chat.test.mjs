@@ -430,6 +430,25 @@ test("the two collisions are told apart, and an unreadable lookup keeps the olde
   assert.match(String(blind.err.message), /that name is taken/);
 });
 
+test("deleting a site frees its chat — the only way a chat is ever released", () => {
+  // ONE CHAT OWNS ONE SITE, so what happens when the site goes matters as much
+  // as what happens when it arrives: a delete that stopped removing the
+  // registration row would leave that workspace permanently unable to build,
+  // with the retry short-circuit answering a site that no longer exists and the
+  // index refusing any replacement. Nothing else in the delete route says so —
+  // its own comment is about orphan prevention, which is a different subject —
+  // so the property is pinned here, beside the thing that depends on it.
+  const w = bare(worker);
+  const at = w.indexOf("/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: \"DELETE\"");
+  assert.ok(at > 0,
+    "the site delete no longer removes the registration row — a deleted site's chat can never build again");
+  // The WHOLE row, never a patch that blanks the column: a row left behind with
+  // a null chat still holds the slug, and the index would then be the only thing
+  // standing between a chat and a second site it is entitled to.
+  assert.doesNotMatch(w, new RegExp("site_backends\\?slug=eq\\.\\$\\{encodeURIComponent\\(dslug\\)\\}`, \\{ method: \"PATCH\""),
+    "the delete blanks the row instead of removing it");
+});
+
 // ── THE LIST, AND THE MERGE ─────────────────────────────────────────────────
 
 async function callList({ backends = [], aliases = [], builds = [] } = {}) {
