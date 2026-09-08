@@ -11089,17 +11089,20 @@ function moreCloud(site) {
     // unreachable in the product ever since; deleting Publish did not bury it,
     // it was already buried.
     //
-    // THE SENTENCE SAYS WHAT THE CARD DOES, NEVER WHAT STATE THE SITE IS IN,
-    // and that is not a style choice. `site.offline` is written by
-    // `siteSetLive` into localStorage and carried by NOTHING on the wire —
-    // `/api/site/list` does not select it, `site-list.js` does not merge it —
-    // so a site taken off the web from another machine reads as online in this
-    // browser. A card claiming "Live at its address" there would be a false
-    // statement about the customer's own site, on the one card whose whole
-    // subject is that. Every other card here describes its PANEL rather than
-    // its data, so this one does too and cannot be wrong. (The panel behind it
-    // reads the same local flag and has the same gap: pre-existing, and not
-    // widened here.)
+    // THE SENTENCE SAYS WHAT THE CARD DOES, NEVER WHAT STATE THE SITE IS IN.
+    //
+    // WHEN THIS WAS WRITTEN THAT WAS FORCED, AND AN HOUR LATER IT BECAME A
+    // CHOICE — corrected here rather than left, since a reason that has expired
+    // is how the next session re-derives the wrong rule. The state was a
+    // localStorage flag carried by nothing on the wire, so a card claiming
+    // "Live at its address" would have been a false statement about a site
+    // taken off the web from another machine. `offline_at` and
+    // `SiteList.offlineFor` fixed that, and the panel behind this card really
+    // does show the live state now.
+    //
+    // It still says nothing about state, because a card in a grid of thirteen
+    // that changes its words on a live fact is noise, and the panel says it in
+    // its own heading the moment you open it. That is where the state belongs.
     //
     // NEEDS ONLY A PUBLISHED SITE — the Domains rule directly below, for its
     // reason: `siteSetLive` returns at once without a slug, and nothing on this
@@ -11191,7 +11194,14 @@ function sitePublishPanel(site) {
   const published = !!site.published;
   let box = document.getElementById('sitePubModal'); if (box) box.remove();
   box = document.createElement('div'); box.id = 'sitePubModal'; box.className = 'si-modal';
-  const offline = site.offline === true;
+  // WHICH FACE THIS PANEL SHOWS, asked of the one rule the grid asks (2026-09-08,
+  // owner: "fix the offline flag on the server too"). It used to be
+  // `site.offline === true` — a flag written into localStorage by whichever
+  // browser pressed the button — so a site taken off the web on a laptop opened
+  // this panel on a phone still offering to take it offline. `offlineFor`
+  // prefers the server's answer, which every machine shares, and falls back to
+  // this browser's only where the server could not tell.
+  const offline = SiteList.offlineFor(sitesRemote, site);
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>' + (offline ? 'Off the web' : 'Live') + '</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
     // THERE IS NO PUBLISH BUTTON ANY MORE, and that is the fix rather than an
     // omission. A React site goes live as part of the build — the old Publish and
@@ -11243,6 +11253,13 @@ function siteSetLive(site, live) {
       // URL has never been built; one that is offline has been, and the panel has
       // to tell somebody which of those they are looking at.
       s.offline = !live;
+      // AND IN THE CACHED COPY OF THE SERVER'S OWN LIST, which the start screen
+      // now PREFERS over this record (`SiteList.merge`). That list is held for a
+      // minute, so without this the merge would spend that minute answering with
+      // a row read before the press and the card would show the face this press
+      // just changed. Nothing is invented: the POST came back ok, so this is the
+      // server's answer, recorded rather than guessed.
+      sitesRemote = SiteList.markOffline(sitesRemote, slug, !live);
       s.msgs.push({ r: 'a', t: d.msg || (live ? '\u2705 Back online.' : '\u23f9 Taken offline.') });
       if (typeof sbToast === 'function') sbToast(live ? 'Back online.' : 'Site taken offline.');
     } else {

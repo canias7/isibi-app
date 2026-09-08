@@ -48,6 +48,18 @@
   }
 
   /**
+   * THE WIRE'S THREE ANSWERS ABOUT BEING OFF THE WEB, kept apart. Spelled ONCE
+   * so a reader cannot drift from `fromRow`'s.
+   *
+   * `true` off, `false` up, `undefined` the server could not tell — which it
+   * says when the build read it compares the switch against failed. Anything
+   * else is a shape we did not send and is never believed as either.
+   */
+  function readOffline(v) {
+    return v === true ? true : (v === false ? false : undefined);
+  }
+
+  /**
    * ONE SERVER ROW → the shape the grid already reads.
    *
    * `name` is the site's CURRENT public address, which is not always its
@@ -74,6 +86,16 @@
       // back into the workspace that asked for it; `""` for every site built
       // before the binding existed, and for any built without one.
       chat: str(row.chat),
+      // IS IT OFF THE WEB (2026-09-08, owner: "fix the offline flag on the
+      // server too"). Until this, the only record of that switch was in the
+      // browser that pressed it, so a site taken down on a laptop read as live
+      // on a phone and the panel showed the wrong one of its two faces.
+      //
+      // THREE ANSWERS, KEPT APART. `true` off, `false` up, and `undefined` for
+      // "the server could not tell" — which it says when the build read it
+      // compares against failed. Read STRICTLY, so a shape we did not send is
+      // never believed as either; the merge below decides what to do with each.
+      offline: readOffline(row.offline),
       createdAt: Number(row.createdAt) || 0,
       updatedAt: Number(row.updatedAt) || Number(row.createdAt) || 0,
       // Every site the builder publishes is a React site; the grid uses this
@@ -149,6 +171,19 @@
         // correcting it. Wrong toward "no" dims a button that works; wrong
         // toward "yes" opens a Data view with nothing in it.
         backend: made.backend || have.backend === true,
+        // AND THIS ONE IS THE OPPOSITE RULE, for a reason worth stating rather
+        // than pattern-matching off the line above. Offline moves in BOTH
+        // directions — a site goes off the web and comes back — so "either
+        // side's yes" would pin it offline for ever after one press. The
+        // server's answer IS the point of this field: it is the only one every
+        // machine shares, and the local flag was written by whichever browser
+        // last pressed the button.
+        //
+        // So the server wins where it can tell, and the local record stands
+        // only where it said `undefined` — cannot-tell reading as "live" would
+        // tell somebody their site is up while it is down, which is the one
+        // mistake this field exists to prevent. Read strictly on both sides.
+        offline: offlineNow(made.offline, have.offline),
         updatedAt: Math.max(Number(have.updatedAt) || 0, made.updatedAt),
       }) : made);
     }
@@ -177,7 +212,85 @@
     return out;
   }
 
-  var api = { merge: merge, fromRow: fromRow, cleanSlug: cleanSlug, SITE_HOST: SITE_HOST };
+  /**
+   * IS THIS SITE OFF THE WEB — THE RULE, IN ONE PLACE.
+   *
+   * `said` is the server's three-valued answer for this site; `local` is the
+   * flag `siteSetLive` wrote in this browser.
+   *
+   * THE SERVER WINS WHERE IT CAN TELL, and that is the opposite of the `backend`
+   * rule in `merge` — worth stating rather than pattern-matching, because the
+   * two sit three lines apart. A database is never taken away, so a
+   * disagreement there is always the local record being ahead and either side's
+   * yes is a yes. Offline moves in BOTH directions, so the same rule would pin
+   * a site off the web for ever after one press. And it is the server's answer
+   * that this whole field exists for: it is the only one every machine shares,
+   * where the local flag was written by whichever browser last pressed.
+   *
+   * THE LOCAL FLAG STANDS ONLY ON `undefined` — cannot-tell reading as "live"
+   * would tell somebody their site is up while it is down, on the one field
+   * whose whole job is to say which.
+   */
+  function offlineNow(said, local) {
+    var s = readOffline(said);
+    return s === undefined ? local === true : s;
+  }
+
+  /**
+   * THE SAME ANSWER, FOR ONE SITE, asked by whatever is about to show it.
+   *
+   * `sitePublishPanel` reads the LOCAL record — `siteById` searches
+   * localStorage and nothing else — so without this the server's answer would
+   * reach the grid, be preferred there, and never reach the one screen that
+   * actually draws the two faces. That is this repository's recorded wiring
+   * trap: a value forwarded and read by one consumer of two.
+   *
+   * It shares `offlineNow` with `merge` rather than repeating the comparison,
+   * so the panel and the card can never disagree about a site.
+   */
+  function offlineFor(rows, site) {
+    var want = cleanSlug(site && site.slug);
+    var said;
+    if (want && Array.isArray(rows)) {
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        if (r && typeof r === "object" && cleanSlug(r.slug) === want) { said = r.offline; break; }
+      }
+    }
+    return offlineNow(said, site && site.offline);
+  }
+
+  /**
+   * RECORD, IN THE CACHED COPY OF THE SERVER'S ANSWER, WHAT THE SERVER JUST SAID.
+   *
+   * `siteSetLive` writes the local record the moment its POST comes back ok, and
+   * the server list is cached for a minute — so without this the merge above
+   * would spend that minute preferring a row read BEFORE the press over a switch
+   * that has already landed, and the panel would show the face the press just
+   * changed. The rule that makes the server authoritative is what makes this
+   * necessary; they are one decision.
+   *
+   * It invents nothing: the switch answered `ok`, so the row's own answer IS
+   * what is written here. A NEW array comes back and the caller's rows are never
+   * mutated, since a render already reading them must not see a list change
+   * under it. A slug that is not a usable one leaves every row alone rather than
+   * matching a first row by accident.
+   */
+  function markOffline(rows, slug, off) {
+    if (!Array.isArray(rows)) return rows;
+    var want = cleanSlug(slug);
+    if (!want) return rows;
+    return rows.map(function (r) {
+      if (!r || typeof r !== "object" || cleanSlug(r.slug) !== want) return r;
+      // `fromRow` reads this strictly, so it is written strictly.
+      return Object.assign({}, r, { offline: off === true });
+    });
+  }
+
+  var api = {
+    merge: merge, fromRow: fromRow, cleanSlug: cleanSlug, SITE_HOST: SITE_HOST,
+    offlineNow: offlineNow, offlineFor: offlineFor, markOffline: markOffline,
+  };
 
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.SiteList = api;

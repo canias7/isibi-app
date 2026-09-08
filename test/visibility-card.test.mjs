@@ -87,20 +87,29 @@ test("the card is live for any published site, backend or not", () => {
 test("the card's sentence describes the panel, never the site's state", () => {
   const row = cardTable().split("\n").find((l) => /'visibility'\],\s*$/.test(l));
 
-  // THE REASON THIS IS A GUARD AND NOT A PREFERENCE. `site.offline` is written
-  // by `siteSetLive` into localStorage and is carried by NOTHING on the wire:
-  // asserted here against the two files that would have to carry it, so this
-  // case fails the day somebody wires it and the sentence may then tell the
-  // truth about state.
+  // RE-ANCHORED 2026-09-08, AND THE SPELLING THAT MOVED IS THE REASON, NOT THE
+  // RULE. This case shipped an hour earlier asserting that `site-list.js` does
+  // NOT carry `offline` — a deliberate tripwire, because the sentence could not
+  // report state while the state was a localStorage flag no wire carried, and
+  // the guard had to fail the day somebody fixed that. Somebody did, the same
+  // day ("fix the offline flag on the server too"), so the tripwire fired
+  // exactly as designed and is spent.
+  //
+  // What it is now: the card CAN report state and deliberately does not. A card
+  // in a grid of thirteen that changes its words on a live fact is noise, and
+  // the panel behind it says the state in its own heading. So the assertion is
+  // the same and its justification is a choice rather than a limit — and the
+  // observer is asserted alive the other way round, since the wiring the old
+  // line forbade is now REQUIRED to exist.
   const listJs = fs.readFileSync(path.join(here, "../public/site-list.js"), "utf8");
-  assert.ok(!/offline/.test(listJs),
-    "site-list.js carries `offline` now — the card MAY report the real state; re-derive this guard");
+  assert.match(listJs, /function offlineFor\(/,
+    "site-list.js no longer answers the offline state — the panel is back on a browser-local flag");
 
   // So the row may not read that flag, and may not claim either state.
   assert.ok(!/site\.offline/.test(row),
-    "the card reads a browser-local flag: a site taken offline elsewhere would be described wrongly");
+    "the card reads the site's state: a live fact in a thirteen-card grid, which the panel already says");
   assert.ok(!/[Ll]ive at|[Oo]ff the web right now|currently/.test(row),
-    "the card claims a state it cannot know for a site taken offline on another machine");
+    "the card claims a state that belongs in the panel's own heading");
 
   // AND IT STILL SAYS WHAT IT DOES, both ways round — a card whose sentence
   // said nothing would pass every assertion above.

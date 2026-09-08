@@ -79,6 +79,7 @@ import { siteAnswer, pageNotes, ANSWER_FIELDS } from "./builder/build-answer.mjs
 // per-workspace id and never sent it; the module owns the shape rule and the
 // one spelling of the column, and says why it is not called `project`.
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
+import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
@@ -6974,6 +6975,44 @@ const _resolveBackend = memoize(_connCache, async (slug, env) => lookupRoute(rou
 
 // Argument order is (env, slug), which is what every caller here uses.
 async function siteBackendBySlug(env, slug) { return _resolveBackend(slug, env); }
+
+/**
+ * RECORD THAT A SITE WAS TAKEN OFF THE WEB, OR PUT BACK.
+ *
+ * The ONE writer of `site_backends.offline_at`, called only from the offline
+ * route and only when the switch actually landed. `off` true stamps the moment,
+ * false clears it.
+ *
+ * OWNER-SCOPED AS WELL AS SLUG-SCOPED. The route has already run `assertOwner`,
+ * so this is a belt rather than the wall — but a write that names only the slug
+ * is one refactor away from being reachable with somebody else's, and the two
+ * filters cost nothing.
+ *
+ * IT ANSWERS, IT NEVER THROWS. The site has really changed state by the time
+ * this runs, so a Supabase blip must not turn a completed switch into an error
+ * the owner would retry; a write we could not make leaves the record where it
+ * was, which is exactly the browser-local behaviour of the day before.
+ */
+async function markSiteOffline(env, slug, uid, off) {
+  const s = String(slug || ""), u = String(uid || "");
+  if (!s || !u) return false;
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s)}&uid=eq.${encodeURIComponent(u)}`,
+      {
+        method: "PATCH",
+        headers: svcHeaders(env, { "content-type": "application/json" }),
+        body: JSON.stringify({ [OFFLINE_COLUMN]: off ? new Date().toISOString() : null }),
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (!r.ok) console.error("offline mark:", s, r.status);
+    return r.ok;
+  } catch (e) {
+    console.error("offline mark:", s, String((e && e.message) || e));
+    return false;
+  }
+}
 
 // An uncached slug lookup. siteBackendBySlug caches for five minutes, which is
 // right on the request path and wrong here — see site-provision.mjs.
@@ -19632,7 +19671,7 @@ async function handleRequest(request, env, ctx) {
           // database at all. The reply below sends `db: !!r.neon_db` and
           // nothing else off this column; a row that exists with `neon_db`
           // empty is a frontend-only site, which most first builds are.
-          lq(`site_backends?uid=eq.${luid}&select=slug,created_at,brief,neon_db,${CHAT_COLUMN}&order=created_at.desc&limit=${MAX_SITE_LIST}`),
+          lq(`site_backends?uid=eq.${luid}&select=slug,created_at,brief,neon_db,${CHAT_COLUMN},${OFFLINE_COLUMN}&order=created_at.desc&limit=${MAX_SITE_LIST}`),
           lq(`site_aliases?uid=eq.${luid}&current=is.true&select=alias,slug`),
           lq(`site_builds?uid=eq.${luid}&select=slug,updated_at&order=updated_at.desc&limit=1000`),
         ]);
@@ -19650,8 +19689,15 @@ async function handleRequest(request, env, ctx) {
       }
       // Newest first out of Postgres, so the FIRST row seen for a slug is its
       // latest build and every later one is skipped.
+      //
+      // AND WHETHER THIS READ ANSWERED AT ALL IS KEPT, because `offline` below
+      // is decided by comparing the switch against the latest build: `null`
+      // from `lrows` is "could not read", which is a different fact from a site
+      // that has never built, and folding the two together would let a blip
+      // report somebody's site as live while it is down.
+      const buildRows = await lrows(ld);
       const builtBy = Object.create(null);
-      for (const b of (await lrows(ld)) || []) {
+      for (const b of buildRows || []) {
         if (b && typeof b.slug === "string" && !builtBy[b.slug]) builtBy[b.slug] = b.updated_at;
       }
 
@@ -19675,6 +19721,22 @@ async function handleRequest(request, env, ctx) {
           // before 2026-09-08 and on any built without one — the merge falls
           // back to matching by slug, which is what it has always done.
           chat: typeof r[CHAT_COLUMN] === "string" ? r[CHAT_COLUMN] : "",
+          // IS IT OFF THE WEB — the server's answer, so every machine agrees.
+          //
+          // DERIVED, not read straight off the column. `offline_at` records the
+          // moment of the switch and nothing clears it when a site comes back
+          // up some other way: `takeOffline` leaves `source/`, `builds/` and the
+          // pointer alone, so an ordinary edit afterwards recompiles, activates
+          // and uploads a script without `putBackOnline` ever running. A publish
+          // AFTER the switch therefore means the site is up, and comparing the
+          // two is what keeps the answer honest without a write from any of the
+          // paths that republish — most of which now run inside the site's
+          // container, where the job gateway admits no PATCH at all.
+          //
+          // THREE ANSWERS, and `null` is one of them: the build read is
+          // enrichment and may fail, and without it a stamped switch cannot be
+          // judged stale or current. `site-list.js` keeps the three apart.
+          offline: siteOffline(r[OFFLINE_COLUMN], buildRows ? (stamp(builtBy[r.slug]) || 0) : undefined),
           createdAt: stamp(r.created_at),
           updatedAt: stamp(builtBy[r.slug]) || stamp(r.created_at),
         })),
@@ -25752,6 +25814,28 @@ async function handleRequest(request, env, ctx) {
             const out = lb.on === false
               ? await putBackOnline(liveDeps, { slug: lslug })
               : await takeOffline(liveDeps, { slug: lslug });
+            // AND THE SWITCH IS RECORDED WHERE EVERY BROWSER CAN SEE IT
+            // (2026-09-08, owner: "fix the offline flag on the server too").
+            //
+            // Before this the ONLY record was `site.offline` in localStorage,
+            // written by `siteSetLive` in the browser that pressed the button —
+            // so a site taken off the web on a laptop read as live on a phone,
+            // and `sitePublishPanel` showed the wrong one of its two faces
+            // there. The Cloud card added an hour earlier made that reachable
+            // rather than theoretical.
+            //
+            // ONLY ON SUCCESS, and this is the one place either switch lands,
+            // so the record cannot disagree with what actually happened: a
+            // refused take-down (`no-way-back`) must not mark a site that is
+            // still up, and a failed restore must not clear a site that is
+            // still down.
+            //
+            // FAIL-SOFT, DELIBERATELY. The site really has changed state by
+            // now; a Supabase blip must not turn a completed switch into an
+            // error the owner would retry. A write we could not make leaves the
+            // record where it was, which is the browser-local behaviour of the
+            // day before — never worse than not having tried.
+            if (out.ok) await markSiteOffline(env, lslug, ou.id, lb.on !== false);
             return Response.json(out, { status: out.ok ? 200 : (out.reason === "no-way-back" ? 409 : 503) });
           } else if (jb) {
             // WHAT THE SCHEDULED WORK HAS BEEN DOING — and the OFF SWITCH.

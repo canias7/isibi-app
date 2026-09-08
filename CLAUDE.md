@@ -1160,6 +1160,145 @@ entry says in as many words. This is the one line of code that ends it.
   shows **Visibility**, and pressing it opens the panel with "Take it offline".
   Render: `docs/edits/cloud-visibility-card.png` (both states).
 
+### AND WHETHER A SITE IS OFF THE WEB IS THE SERVER'S ANSWER (2026-09-08, owner:
+*"fix the offline flag on the server too"*)
+
+An hour after the card above gave that panel a door, the state behind it was
+still a `localStorage` flag. `siteSetLive` wrote `site.offline` in the browser
+that pressed the button and **nothing carried it anywhere** — the column did not
+exist, `/api/site/list` did not select it, `site-list.js` did not merge it. So a
+site taken off the web on a laptop read as **live** on a phone, and the panel
+there offered to take down a site that was already down. The card is what made
+that reachable rather than theoretical: the only door before it was a button on
+a screen no built site ever showed.
+
+- **A TIMESTAMP, NOT A BOOLEAN, AND THE CONTAINER IS THE REASON.** `takeOffline`
+  records nothing today: it drops the site's Worker script and wipes
+  `sites/<slug>/`, and "offline" is the ABSENCE of anything serving. It leaves
+  `source/`, `builds/` and the pointer alone — measured — so an ordinary edit
+  afterwards recompiles, activates and uploads a script, and the site is live
+  again **without `putBackOnline` ever running**. A boolean would therefore have
+  to be cleared by every path that republishes, and most of those now run INSIDE
+  the site's container, where Supabase is reached through the job gateway, whose
+  table allowlist **admits no PATCH at all** (stage 4b). The clear would be
+  refused on exactly the common path, and closing that would mean widening a
+  security wall to keep a convenience field honest.
+  So `offline_at` records the MOMENT of the switch and a site is off the web only
+  while nothing has been published since — `siteOffline(offAt, builtAt)` in
+  `builder/site-offline.mjs`, comparing it against the site's own latest build,
+  a fact `/api/site/list` already reads for its "last touched" date. **The flag
+  ages out of the way on its own; nothing has to remember to clear it, and no
+  wall moves.**
+- **STRICTLY AFTER, and that is not a detail.** A build stamped in the same
+  millisecond as the switch is the publish the switch replaced, so `>=` would
+  answer "back online" for a site that had just been taken down.
+- **THREE ANSWERS, KEPT APART AT EVERY HOP.** The build read is enrichment and is
+  allowed to fail (the route keeps its list standing when it does), and without
+  it a stamped switch cannot be judged stale or current — so `siteOffline`
+  answers **`null`**, the wire carries `null`, and `site-list.js` reads it as
+  `undefined`. Reading that as "online" would tell somebody their site is up
+  while it is down, on the one field whose whole job is to say which. A site with
+  no stamp is online **without needing the build read at all**, which is every
+  site on the platform today, so the unknown answer is rare by construction
+  rather than by luck.
+- **THE MERGE RULE IS THE OPPOSITE OF `backend`'s, three lines above it.** A
+  database is never taken away, so a disagreement there is always the local
+  record being ahead and either side's yes is a yes. Offline moves in BOTH
+  directions, so the same rule would pin a site off the web for ever after one
+  press. **The server wins where it can tell**; the local flag stands only on
+  `undefined`, which is also what a signed-out or offline browser gets.
+- **AND THE PANEL ASKS THE SAME QUESTION THE GRID ASKS — the hop that would have
+  shipped dead.** `sitePublishPanel` gets its site from `siteById`, which
+  searches localStorage and nothing else, so the server's answer would have
+  reached the merge, been preferred there, and never reached the one screen that
+  draws the two faces. The recorded wiring trap in its quieter form: a value
+  forwarded and read by one consumer of two. `SiteList.offlineFor(rows, site)` is
+  what both ask, sharing `offlineNow` rather than repeating the comparison.
+- **A SWITCH MADE HERE CORRECTS THE CACHED SERVER LIST TOO.** That list is held
+  for a minute (`SITES_REMOTE_TTL`), so without `markOffline` the merge would
+  spend that minute preferring a row read BEFORE the press and the card would
+  show the face the press just changed. It invents nothing — the POST came back
+  `ok`, so it is the server's answer recorded rather than guessed — and it
+  returns a NEW array, since a render already reading the list must not see it
+  change under it.
+- **THE WRITE IS THE ROUTE'S, ONCE, ONLY ON SUCCESS.** `markSiteOffline` is the
+  one writer, scoped by slug AND uid (a belt behind `assertOwner`, because a
+  write that names only the slug is one refactor from being reachable with
+  somebody else's), and it **answers rather than throws**: the site has really
+  changed state by then, so a Supabase blip must not turn a completed switch into
+  an error the owner would retry — which is precisely the bug the button this
+  route replaced had. A refused take-down (`no-way-back`) marks nothing, and a
+  failed restore clears nothing.
+- **THE WIRE CARRIES A BOOLEAN**, never the stamp and never the column's name —
+  the `neon_db` precedent, and the guard searches the WHOLE payload because a
+  field-level check passes the day somebody spreads the row.
+- **Migration** `20260908044044_site_backends_offline_at` — one nullable
+  `timestamptz`, no default, applied live and read back. Nullable for ever: the
+  57 existing sites have never been switched and must not need a stamp to be
+  called live.
+- **Guards**: `test/site-offline.test.mjs` (24) — the rule driven over every
+  shape including the same-millisecond case and both coercions; the column held
+  equal to the migration with **zero literal spellings in `worker.js`**; the
+  writer read for both scopes and counted; **the offline route DRIVEN through
+  the real router** for a landed switch (stamped, scoped, timed), a refused
+  take-down, a refused restore, a stranger's site, and a write that throws still
+  answering 200 with the switch's own words; the **list route DRIVEN** for all
+  three answers, for an unreadable build list answering `null` beside a control
+  that must answer `false`, and for the whole-payload search; and the browser's
+  four functions driven with the panel's and the setter's hops read.
+  **The archive's own fixture rule applied again**: the way back is the stored
+  page SOURCE, one key, rather than a hand-typed copy of the version archive's
+  layout — a second copy of something the product already knows.
+- **Sweep: 38 mutants, 37 killed, none survived, none unapplied, the comment-only
+  control survived — three survived the first pass and every one was a guard gap,
+  each proven real before being called one.** (1) The build time coerced
+  (`Number(["…"])` is a number, so an array that looks like a later build would
+  have answered "back online" — the recorded coercion trap on the argument nobody
+  had thought to guard). (2) The fail-soft `catch` rewritten to rethrow, which
+  kept the word the guard matched and lost the property; **fail-soft is a claim
+  about the ANSWER**, so it is driven now with a PATCH that throws. (3)
+  `markOffline`'s unusable-slug wall, which a fixture of good rows cannot observe
+  at all — `want` of `""` matches no ordinary slug either way — so it takes a row
+  whose OWN slug is unusable, driven rather than assumed.
+  The killed ones: the stamp coerced or kept as NaN, an unswitched site needing
+  the build read, cannot-tell folded either way, the same instant read as back
+  online, the comparison inverted, the build ignored entirely; the write ungated,
+  hardcoded in either direction, unscoped by owner or by slug, never clearing,
+  going ahead with no owner; the select dropping the column, an unreadable build
+  list read as no builds, the raw stamp on the wire, the answer never emitted;
+  the wire read by truthiness, cannot-tell read as online, the merge preferring
+  the local flag or dropping the answer, the server never winning, the panel's
+  reader ignoring the server or inlining its own copy of the rule, the cache
+  patch mutating its caller, marking every site, coercing, or patching on an
+  unusable slug; the panel back on the local flag, the cache never corrected, the
+  local record no longer written; and the image without the module.
+- **THE IMAGE GUARD CAUGHT A REAL DEFECT AGAIN** — `builder/site-offline.mjs` was
+  on no COPY line, so the job runtime would have died at import inside the
+  container and every launch been refused, reported to the customer as *"our
+  build service was restarting"*. The recorded trap, firing the hour the module
+  was written, for the **fifth** time.
+- **Two older guards went red for the change and were re-anchored, not
+  appeased.** `test/visibility-card.test.mjs` asserted that `site-list.js` does
+  NOT carry `offline` — a deliberate tripwire, written an hour earlier because
+  the card's sentence could not report state while the state was a local flag,
+  and built to fail the day somebody fixed that. It fired exactly as designed and
+  is spent: the card still says nothing about state, but as a CHOICE now (a live
+  fact in a grid of fourteen cards is noise, and the panel says it in its own
+  heading), so the assertion is inverted to REQUIRE the wiring it used to forbid.
+  And `test/site-list.test.mjs`'s enrichment case counted two `(await lrows(lX))
+  || []` spellings; the build read is taken in two steps now, because `|| []`
+  throws away the one thing the comparison needs — whether it answered at all —
+  so it asserts the property (neither read may refuse the screen) and, while it
+  was open, came **off its 2,600-byte window** onto landmarks.
+  Full suite **5,603**.
+- **Not proven live.** The push changes `worker.js`, which is a container image
+  input, so the container rolls and the 15–20 minute hold applies. The proof
+  takes two browsers: take a site off the web in one, open **More → Cloud →
+  Visibility** in the other, and it should say **Off the web** with "Put it back
+  online" — where before today it said Live and offered to take it down again.
+  Render: `docs/edits/offline-two-faces.png`, both faces with the LOCAL flag
+  saying "live" in each, so the only thing that differs is the server's answer.
+
 ### THE PREVIEW PANEL RUNS THE SITE'S OWN JAVASCRIPT (2026-09-07, owner: *"SO
 ITS PREVIEW THING, BECAUSE ON THE URL SHOWS FINE, SO FIX … MAKE THE FIX FOR
 FUTURE SITES"*)
@@ -6406,8 +6545,19 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,579
-  (2026-09-08, after the offline/online panel got a Cloud card added six in
+  build and the pre-list payload added sixteen); the unit suite is 5,603
+  (2026-09-08, after the offline flag became the server's added twenty-four in
+  `test/site-offline.test.mjs` — the rule driven over every shape including the
+  same-millisecond case and both coercions, the column held equal to its
+  migration with zero literal spellings in `worker.js`, the offline route DRIVEN
+  through the real router five ways including a write that throws still answering
+  the switch's own words, the list route DRIVEN for all three answers with an
+  unreadable build read beside its control, the whole payload searched for the
+  stamp and the column's name, and the browser's four functions driven with the
+  panel's and the setter's hops read; the tripwire in `visibility-card` inverted
+  rather than deleted, and the enrichment case in `site-list` re-anchored off its
+  byte window; before it 5,579, after the offline/online panel got a Cloud card
+  added six in
   `test/visibility-card.test.mjs` — the card read by its key at its OWN position
   in the row, the gate held to an address rather than a database, the sentence
   proved state-free with `site-list.js` read as the tripwire, the dispatch and

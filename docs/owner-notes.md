@@ -146,6 +146,63 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-08 — "Off the web" is now a fact the server knows
+
+You said: *"fix the offline flag on the server too."*
+
+**What was wrong.** Taking a site off the web, and putting it back, both worked
+properly on the server. What did NOT was the app remembering which state a site
+was in: that lived only in the browser that pressed the button. So if you took a
+site down on your laptop and later opened it on your phone, the phone said the
+site was **Live** and offered to take it offline again. The card I added an hour
+earlier is what made this reachable — before it, the panel had no door on any
+built site, so nobody could see the wrong answer.
+
+**What I did NOT do, and why it matters.** The obvious fix is a yes/no column:
+"is this site off?" I did not use one, because it would be wrong within a day.
+Taking a site off the web works by deleting the files and the little program that
+serves them — "offline" is simply *nothing there any more*. It does not touch
+your pages, so **the next ordinary edit you make puts the site straight back up**
+without ever going through the "put it back online" button. A yes/no column would
+still say "off" for a site that was up again, and the thing that would have to
+correct it now runs inside your site's own container, which deliberately is not
+allowed to write to that table at all. Fixing that would mean loosening a
+security wall to keep a convenience field tidy.
+
+**So I stored the TIME of the switch instead.** A site is off the web only while
+nothing has been published since that moment — and the server already knows when
+each site last built. The flag gets out of the way on its own; nothing has to
+remember to clear it, and no wall moved.
+
+**Three answers, not two.** The panel can now say "Live", "Off the web", or fall
+back to what this browser remembers when the server genuinely could not work it
+out (the "when did it last build" read is allowed to fail without breaking your
+sites list). That third answer is deliberate: guessing "Live" there would tell
+you your site is up when it may be down, which is the one thing this field exists
+to get right.
+
+**The bug I nearly shipped.** The panel gets its site from the browser's own
+records, not from the merged server list — so the server's answer would have
+reached the sites grid, been used there, and never reached the one screen that
+actually draws "Live" or "Off the web". That is the same shape of mistake this
+codebase has made thirteen times: the value gets computed, and one of the two
+places that needs it never asks. Both ask the same function now.
+
+**Also caught before it shipped**, by a check that exists for exactly this: the
+new file was not on the list of things copied into your site's container, so the
+first job after deploying would have crashed on startup and told you "our build
+service was restarting". Fifth time that check has saved a deploy.
+
+**Proof.** `docs/edits/offline-two-faces.png` shows both faces of the panel side
+by side, with the browser's own flag saying "live" in each — so the only thing
+that differs is the server's answer, which is the whole change. **Not proven
+live**: that takes two browsers. Take a site off the web in one, open **More →
+Cloud → Visibility** in the other, and it should say "Off the web" with "Put it
+back online". This push rebuilds the container, so give it 15–20 minutes before
+firing anything that runs there.
+
+---
+
 ## 2026-09-07 — Runs 41 and 42: the streaming works, it uncovered a lane that charged for an invisible change, and one mark fixed it
 
 **The streaming is proven live.** You fired `wordmark` on fretwork-1 at 22:13Z.

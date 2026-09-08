@@ -205,14 +205,30 @@ test("the route takes no slug, so it cannot be pointed at another account's site
 test("only site_backends is load-bearing; a failed enrichment does not refuse the list", () => {
   const w = blankComments(read("../worker.js"));
   const at = w.indexOf('url.pathname === "/api/site/list"');
-  const body = w.slice(at, at + 2600);
+  // LANDMARK TO LANDMARK, not a byte window. This case sliced 2600 bytes and
+  // the route has grown twice since; a window measured in bytes is outrun by
+  // the next comment, which is this repository's most-repeated own goal.
+  const end = w.indexOf("sites: backends.filter(", at);
+  assert.ok(at > 0 && end > at, "the list route's own landmarks moved — re-derive this window");
+  const body = w.slice(at, end);
   // The backends read is the one that can 503.
   assert.ok(/if \(!backends\) return Response\.json\(\{ ok: false, error: "read" \}, \{ status: 503 \}\)/.test(body),
     "an unreadable backends list is a 503, never `sites: []`");
-  // The other two are read through `|| []`, so null (could not ask) is empty
-  // enrichment rather than a refusal.
-  assert.equal((body.match(/\(await lrows\(l[ad]\)\) \|\| \[\]/g) || []).length, 2,
-    "the alias and build reads degrade to nothing rather than failing the screen");
+  // AND THE OTHER TWO DEGRADE TO NOTHING. Re-anchored 2026-09-08: this counted
+  // two `(await lrows(lX)) || []` spellings, and the build read is now taken in
+  // two steps — `const buildRows = await lrows(ld)` and then `buildRows || []`
+  // — because `offline` is decided by comparing the switch against the latest
+  // build, and `|| []` throws away the one thing that answer needs: whether the
+  // read answered at all. The PROPERTY is unchanged and is what is asserted
+  // here: neither read can refuse the list, and neither is allowed to become a
+  // `return`.
+  assert.match(body, /\(await lrows\(la\)\) \|\| \[\]/, "the alias read no longer degrades to nothing");
+  assert.match(body, /const buildRows = await lrows\(ld\);/, "the build read no longer keeps its own answer");
+  assert.match(body, /for \(const b of buildRows \|\| \[\]\)/, "an unreadable build list is no longer read as no builds");
+  for (const which of ["la", "ld"]) {
+    assert.ok(!new RegExp("if \\(!(await )?lrows\\(" + which + "\\)").test(body),
+      "the " + which + " read refuses the screen — only site_backends may do that");
+  }
 });
 
 test("the cap is one number and headroom over the biggest real account", () => {
