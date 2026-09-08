@@ -1480,6 +1480,105 @@ where the two rules already sit in the right order.
   own entry is the record of what it does. The container rolled on this deploy,
   so the hold above applies before any container work.
 
+### AND ALL FIFTEEN CAN BE TAKEN OFF, NOT SEVEN (2026-09-08, owner: *"IT SHOULD
+BE ABLE TO DELETE THE 15"*)
+
+The removal verb shipped able to remove fifteen lanes and reachable for
+**seven**. Everything it does — `pick_lanes` answering `removes`, the refusal
+sentences, the dispatch steps, `mergeLook`'s `clear` — lives inside ONE
+condition, which was the whole of the door:
+
+    const eLooking = eLayer === "look";
+
+So a removal arrived only when the intent router answered `look`. The seven
+look-layer subjects (`css theme brand description wordmark favicon langs`) were
+safe; the other eight are lanes that DISPATCH, and the router names their
+destination directly. "Take the photo off" answers `picture`, "drop the button"
+answers `nav`, "take the 3D scene off" answers `page`. **Nothing failed**: the
+door stayed shut, the target rung did its best with the customer's words, and
+the STORED field kept saying the site had the thing — so the design record
+disagreed with the pages and the next revise could bring it back.
+
+- **THE SIGNAL EXISTED AND WAS BEING THROWN AWAY.** The router already answers
+  `remove: true`, and `readEdit` stripped it for every layer but `page` and
+  `logo` — `REMOVABLE_LAYERS`, a constant meaning two things at once: *the flag
+  survives here* AND *this layer answers it itself*. Splitting those two
+  meanings is the fix. The flag now survives on `picture` and `nav` as well;
+  `OWN_REMOVAL_LAYERS` keeps the second meaning alone; and `DOOR_LAYERS` is the
+  difference, **derived** so a third layer added to either list moves it.
+- **`page` IS NOT WIDENED AND MUST NEVER BE.** Four removable lanes dispatch to
+  `page` (`components shape three tsx`), which makes it look like the layer that
+  most needs the flag. It is the one that must not have it: `remove` on `page`
+  means DELETE THE WHOLE PAGE — measured three times, and the field spends a
+  paragraph making that unmissable — so widening it would answer *"take the 3D
+  scene off the home page"* by deleting the home page. Those four arrive by the
+  LAYER answer instead: a removal clause in the `look` description, which says
+  taking anything off is worked out there and excepts a whole page by name.
+  **A rule, with today's behaviour as its failure mode** — read past, the ask
+  lands on the page rung exactly as it does now.
+- **A DOOR THIS ROUTE OPENED NEVER CLIMBS.** `no-lane` escalates to the
+  ~25-credit revise, right for a `look` ask nothing can express and wrong for a
+  message the router sent to `picture` and we redirected. `eRemovalDoor` gates
+  both climbs: a picker with nothing to say falls THROUGH (safe by
+  construction — every step between there and the bottom walks `pickedFields`,
+  so all of them are no-ops on an empty list) and the `!steps.length` branch
+  puts the router's own step back. Without it the removal verb would cost
+  twenty-five credits to be unhelpful.
+- **THE GUARD FOUND A REAL HOLE IN MY OWN FIX.** The door first asked only
+  `!OWN_REMOVAL_LAYERS.includes(eLayer)` — and this route reads `remove` off the
+  REQUEST BODY, never off `readEdit`'s answer, so a hand-made POST of
+  `{layer: "data", remove: true}` opened it. `data` deletes its own rows and the
+  picker would find no lane there, so that POST climbed. **Ask the positive
+  list**, and the door then opens for exactly the layers the flag is read for,
+  whoever sent it. Read, the line looked right; the case that caught it drives
+  the condition with its inputs handed in.
+- **Guards**: `test/removal-door.test.mjs` (10). The one that matters is a
+  CENSUS — it walks `REMOVABLE_LANES` itself and requires each to have a route
+  in (its dispatch target on `DOOR_LAYERS`, or `page` and therefore the clause),
+  because the recorded trap this change exists because of is *a hop nobody
+  listed is a hop nobody guards*: a list of the eight would be the Code tab's
+  mistake again, and a sixteenth removable lane cannot now arrive unreachable.
+  Beside it: both `const` lines EVALUATED out of `worker.js` and driven over
+  every layer in both directions; the two exempt layers proved never re-routed;
+  the leftover layers proved to carry no flag AND not to open the door, with
+  `data` named; both fall-through halves read; the clause and the whole-page
+  exception asserted; the page paragraph pinned verbatim, since that is the one
+  whose widening deletes pages; and the derivation itself asserted.
+- **Sweep: 19 mutants, 19 killed, none survived, none unapplied, the
+  comment-only control survived** — the door back to `look` alone (the defect),
+  the door asking only the exemption (the hole above), the door opening on any
+  layer at all, `eRemovalDoor` forced false, the list spelled instead of
+  imported, either climb restored, the fall-back step losing the router's page,
+  the flag stripped from `picture` and `nav` again, `picture` exempted, `page`
+  un-exempted, the derivation stopped subtracting or inverted to an
+  intersection, the flag read by truthiness, the clause deleted, its whole-page
+  exception deleted, the clause no longer naming the 3D scene (which reaches
+  `look` no other way), the page paragraph widened, and the picture/nav sentence
+  renamed off the field.
+- **TWO OLDER GUARDS WENT RED AND WERE RE-ANCHORED, NOT APPEASED, AND BOTH ARE
+  THE SAME LANDMARK TRAP.** `test/site-contact.test.mjs` windowed the `nav`
+  clause as `slice(indexOf('"nav"'), indexOf('"page"'))` — and my new exception
+  sentence names layer `"page"` INSIDE the `look` clause, which sits earlier. So
+  the window became `slice(bigger, smaller)`, the empty string, and reported the
+  socials and the footer as missing from a clause that still says both. The
+  closing landmark is searched FROM the opening one now, in one helper both
+  cases share, with both ends asserted. **The property is untouched**; only the
+  window's end moved, and prose one section over is exactly how a landmark that
+  was unique stops being.
+- **AND THE GUARD'S OWN COUNT CAUGHT MY PROSE.** It asserts `eRemovalDoor` is
+  read three times in the block and read 4 — because the comments explaining it
+  name it. The recorded "prose contains the thing it forbids", in the guard
+  written for this change; comments are blanked before the scan now.
+- Full suite **5,636**.
+- **Not proven live, and the two halves prove differently.** The FLAG half is
+  provable on `fretwork-1` for ~1 credit: "take the photo of the shop off"
+  should route `picture`, open the door, name `images`, and come back with the
+  stored field cleared. The CLAUSE half is a routing behaviour and only a real
+  message settles it — "take the 3D scene off" should answer `look` rather than
+  `page`, and the tell in the trace is a `pick_lanes` mark where there was none.
+  The push changes container image inputs, so the container rolls and the 15–20
+  minute hold applies.
+
 ### THE PREVIEW PANEL RUNS THE SITE'S OWN JAVASCRIPT (2026-09-07, owner: *"SO
 ITS PREVIEW THING, BECAUSE ON THE URL SHOWS FINE, SO FIX … MAKE THE FIX FOR
 FUTURE SITES"*)
@@ -6726,8 +6825,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,626
-  (2026-09-08, after the Code PANE's own guard — the third hop of the Code tab,
+  build and the pre-list payload added sixteen); the unit suite is 5,636
+  (2026-09-08, after all fifteen removable lanes got a route into the lane door
+  added ten in `test/removal-door.test.mjs` — a CENSUS walking `REMOVABLE_LANES`
+  itself rather than a list of the eight that were unreachable, both `const`
+  lines of the door EVALUATED out of `worker.js` and driven over every layer in
+  both directions, the two exempt layers proved never re-routed, the leftover
+  layers proved to carry no flag with `data` named, both fall-through halves
+  read, and the `remove` field's page paragraph pinned verbatim because that is
+  the one whose widening deletes pages; before it 5,626,
+  after the Code PANE's own guard — the third hop of the Code tab,
   which shipped unwired and was found live by the owner: the pane's branch read
   for the absence of `isReact`, and the host id DERIVED from both `siteCodeView`
   and `loadSiteCode` and asserted equal; before it 5,625,
@@ -7052,6 +7159,31 @@ a thousand lines away. A missing END landmark is a window that swallows the file
 **Overlapping windows.** A window that runs to a NAMED neighbour swallows whatever
 is inserted between them, and a mutation in the wrong half then passes. Derive the
 closing landmark from the next sibling.
+
+**AND PROSE ONE SECTION OVER CAN STEAL A LANDMARK THAT WAS UNIQUE (2026-09-08).**
+`site-contact.test.mjs` windowed the router's `nav` clause as
+`slice(indexOf('"nav"'), indexOf('"page"'))` — correct while `"page"` appeared
+only where the `page` layer is described. The removal work added a sentence to
+the `look` clause naming layer `"page"` as the one exception, and `look` sits
+EARLIER, so the window became `slice(bigger, smaller)`: the empty string, which
+matches nothing and reported the socials and the footer as missing from a clause
+that still says both. **Search the closing landmark FROM the opening one**
+(`indexOf(end, at)`) and assert `end > at`; a landmark is only unique until
+somebody writes about it upstream, and a description that explains its own
+exceptions will always name the other sections.
+
+**A NEGATIVE LIST IS THE WRONG WALL WHEN THE INPUT IS CALLER-SUPPLIED
+(2026-09-08, found by a guard on the change that introduced it).** The lane
+door was written `eRemove && !OWN_REMOVAL_LAYERS.includes(eLayer)` — "open for a
+removal on anything that does not answer removals itself", which reads correctly
+and is correct about every layer the ROUTER can produce, because `readEdit`
+strips the flag elsewhere. The edit route reads `remove` off the REQUEST BODY,
+so `{layer: "data", remove: true}` walked straight through a wall that only knew
+what to exclude. **Ask the positive list** — the one derived from the same
+constant the producer filters on — and the wall then admits exactly what the
+field is read for, whoever sent it. The general shape: a validated producer and
+an unvalidated door reach the same consumer, and a deny-list at the door is a
+claim about the producer, not about the input.
 
 **Prose contains the thing it forbids.** A comment explaining a deletion spells
 the deleted name; a comment arguing for a class name contains that class name.

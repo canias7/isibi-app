@@ -5116,3 +5116,54 @@ for it. So if you press it and it opens, that's confirmation rather than news �
 but it's still worth one press.
 
 **Nothing changed in the code today.** This was a measurement, not a fix.
+
+---
+
+## 2026-09-08 — all fifteen can be deleted now, not seven
+
+You were right. The delete verb could take fifteen things off a site and only
+**seven** of them could ever be reached.
+
+**Why.** Everything the delete verb does sits behind one gate in the code, and
+that gate only opened when the router decided your message was about the site's
+"look" — colours, fonts, the name, the languages. Those seven are exactly the
+look ones. The other eight live somewhere else: a photo, the header button, a
+section, the 3D scene, the chord diagrams, a QR code. Ask for one of those to go
+and the router sent your message straight to the part that handles photos, or
+buttons, or pages — past the gate entirely.
+
+**Nothing looked broken, which is why it lasted.** The message still reached
+something, and that something did its best. What went wrong is quieter: the
+site's own record of what it has kept saying it had the thing. So the page and
+the record disagreed, and the next big edit could put it back.
+
+**Two fixes, because the eight don't all arrive the same way.** For a photo or a
+button, the router already sets a "they want this gone" flag — it was just being
+thrown away for those. That's now kept, and it opens the gate. For a section, a
+scene or the site's own components, the flag can't be used at all, and that's
+worth knowing: on a page, that same flag means *delete this whole page*. If I'd
+widened it, "take the 3D scene off the home page" would have **deleted your home
+page**. So those arrive a different way — the router is now told that taking
+anything off is worked out at the gate, with a whole page named as the one
+exception.
+
+**Two things I want to flag rather than bury.**
+
+The first is that a delete sent to the wrong place used to escalate to the full
+rewrite — about 25 credits. Now, if the gate opens and there turns out to be
+nothing for it to do, the message just carries on to where the router was
+sending it anyway. A delete can't quietly cost you a rewrite.
+
+The second is that my own test caught a hole in my own fix. I'd written the gate
+as "open for anything that isn't a page or a logo", which is right about
+everything the router produces — but the app reads that flag from the request
+itself, so a hand-made one naming the *data* layer would have slipped through and
+escalated. It asks a proper list now. Reading the line, it looked fine; only
+driving it found that.
+
+**Not proven live yet, and the two halves prove differently.** The photo/button
+half costs about a credit: "take the photo of the shop off" on fretwork-1. The
+section/scene half is about how the router decides, so only a real message
+settles it — "take the 3D scene off" is the one. Both are cheap, both are yours
+to call. This touches the worker, so the container rebuilds and there's the
+usual 15–20 minute wait after the deploy before anything heavy.

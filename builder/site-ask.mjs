@@ -152,7 +152,49 @@ export const EDIT_LAYERS = ["data", "text", "look", "page", "rules", "picture", 
  * repo's dead features start. The tool schema's own `remove` description names
  * exactly these two, and a test holds the two lists together.
  */
-export const REMOVABLE_LAYERS = ["page", "logo"];
+export const REMOVABLE_LAYERS = ["page", "logo", "picture", "nav"];
+
+/**
+ * OF THOSE, THE TWO WHOSE OWN RUNG ANSWERS THE FLAG.
+ *
+ * `page` deletes the whole page; `logo` takes the mark off. Both are cheap,
+ * both work, and both have been measured — so a removal that lands on either
+ * is answered where it lands and must NOT be re-routed.
+ *
+ * The other removable layers have no removal of their own: `picture` swaps and
+ * reframes, `nav` rewrites. A removal there opens the lane door instead
+ * (`eLooking` in worker.js), where `pick_lanes` names the field, `mergeLook`
+ * clears what is stored, and the ask still reaches the same rung.
+ *
+ * ── WHY `page` IS NOT ON THIS WIDENING, AND MUST NEVER BE ──────────────────
+ *
+ * Four removable lanes dispatch to `page` (`components`, `shape`, `three`,
+ * `tsx`), so it looks like the layer that most needs the flag. It is the one
+ * layer that must not have it widened: `remove` on `page` means DELETE THE
+ * WHOLE PAGE — measured three times, and the field's own description spends a
+ * paragraph making that unmissable. Widen it to mean "take something off" and
+ * "take the 3D scene off the home page" deletes the home page. Those four
+ * reach the lane door by the LAYER answer instead (the `look` clause in the
+ * layer description), never by this flag.
+ */
+export const OWN_REMOVAL_LAYERS = ["page", "logo"];
+
+/**
+ * THE LAYERS A REMOVAL OPENS THE LANE DOOR FROM — derived, never listed.
+ *
+ * `REMOVABLE_LAYERS` less the two that answer the flag themselves, which is the
+ * whole rule and is therefore worth computing rather than writing down: a third
+ * layer added to either list moves this one with it.
+ *
+ * IT IS THE POSITIVE HALF THAT MATTERS, and a guard found out why. The door in
+ * `worker.js` first asked only `!OWN_REMOVAL_LAYERS.includes(layer)` — and the
+ * route reads `remove` off the REQUEST BODY, not off `readEdit`'s answer, so a
+ * hand-made POST of `{layer: "data", remove: true}` opened it. `data` deletes
+ * its own rows; sending one into the lane picker finds no lane. Asking this
+ * list instead means the door opens for exactly the layers the flag is read
+ * for, whoever sent it.
+ */
+export const DOOR_LAYERS = REMOVABLE_LAYERS.filter((l) => !OWN_REMOVAL_LAYERS.includes(l));
 
 export const ASK_TOOL = {
   name: "route_message",
@@ -267,6 +309,28 @@ export const ASK_TOOL = {
           "handwritten\", \"use a serif on the about page\". Still this layer and still cheap; it is the same look " +
           "change scoped to the page they named. (Corners and spacing are the SITE's and cannot be scoped to a " +
           "page, so a request to change one page's corners is not this.)\n" +
+          // ── AND IT IS WHERE A REMOVAL IS WORKED OUT ─────────────────────────
+          //
+          // `look` is the front door to the twenty-one lanes: `pick_lanes` runs
+          // there and DISPATCHES — a section to the page rung, a photograph to
+          // the picture rung, the button to nav. So naming this layer for a
+          // removal is not a claim that the change is a colour change; it is
+          // how the ask reaches the rung that can make it AND clears whatever
+          // the site has stored about the thing, which the rung alone cannot do.
+          //
+          // The four that most need it (`components`, `shape`, `three`, `tsx`)
+          // all dispatch to `page`, and the `remove` flag cannot carry them:
+          // that flag on `page` deletes the WHOLE page. This clause is the only
+          // way they arrive. If it is read past, the ask still lands on the
+          // rung it names and does its best — today's behaviour, not a failure.
+          "TAKING SOMETHING OFF THE SITE IS THIS LAYER, whatever the something is — \"take the 3D thing off\", " +
+          "\"drop the testimonials band\", \"remove the chord diagrams\", \"get rid of the QR code\", \"take the " +
+          "photo out\", \"the accordion shouldn't open on click any more\", \"stop offering it in French\". This is " +
+          "where a removal is worked out and sent to whatever part of the site holds the thing, so answer \"look\" " +
+          "and say what should go; you do not have to know which part that is.\n" +
+          "THE ONE EXCEPTION IS A WHOLE PAGE. \"Remove the gallery page\", \"we don't need the about page any more\" " +
+          "is layer \"page\" with `remove` — a page is deleted there and nowhere else. Taking a SECTION, a picture, a " +
+          "band or anything else OFF a page that stays is this layer.\n" +
           "\"rules\" — WHAT THE SITE DOES WITH WHAT PEOPLE SUBMIT, rather than anything on a page. Who may see an " +
           "entry and who may add one (\"let people browse the listings without signing in\", \"close the booking " +
           "form\"), whether the customer gets an email or a text when they submit, and what the site refuses (\"don't " +
@@ -372,7 +436,10 @@ export const ASK_TOOL = {
           "have asked for a page to be gone, set it.\n" +
           "For layer \"logo\": true when they want the logo TAKEN OFF and the header to go back to showing the " +
           "business name — \"drop the logo\", \"remove our logo\", \"just the name is fine\". A message that ATTACHES " +
-          "a picture is never a removal.",
+          "a picture is never a removal.\n" +
+          "For layer \"picture\": true when a photograph should GO rather than change — \"take the photo of the shop " +
+          "off\", \"we don't want a picture there\". For layer \"nav\": true when a menu item, a footer link or the " +
+          "header's button should GO — \"drop the button\", \"take Pricing out of the menu\".",
       },
       tab: {
         type: "boolean",

@@ -162,7 +162,7 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs";
+import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS } from "./builder/site-ask.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -22042,7 +22042,53 @@ async function handleRequest(request, env, ctx) {
             // block resolve it; ten copies of `modelsFor(eb && eb.picker).quick`
             // is ten things that can disagree about which picker they read.
             const eQuickModel = modelsFor(eb && eb.picker).quick;
-            const eLooking = eLayer === "look";
+            // ── AND A REMOVAL OPENS THIS DOOR FROM ANOTHER LAYER ────────────
+            //
+            // This condition is the ONLY way into the lane system: `pick_lanes`,
+            // the removal verb, the refusal sentences, the dispatch steps and
+            // `mergeLook`'s `clear` all sit inside it. Fifteen lanes can be
+            // taken off and SEVEN of them were reachable — the look-layer
+            // subjects — because the other eight are lanes that DISPATCH, and
+            // the router names their destination directly. "Take the photo
+            // off" answered `picture`, the door never opened, and the picture
+            // rung (which swaps and reframes, and cannot remove) did its best
+            // with the customer's words while the stored field stayed set.
+            //
+            // So a removal the router marked comes in here too. `page` and
+            // `logo` are exempt because their own rungs ANSWER the flag — a
+            // page deletion and a mark removal, both cheap and both measured —
+            // and re-routing either would buy a picker call to reach the rung
+            // it already reached. `DOOR_LAYERS` is what is left once they are
+            // taken out, derived in `site-ask.mjs` beside the flag it belongs
+            // to rather than spelled a second time here.
+            //
+            // AND IT IS THE POSITIVE LIST, NOT "EVERYTHING BUT THE TWO". This
+            // route reads `remove` off the REQUEST BODY, never off the router's
+            // own answer, so asking only "is this layer exempt?" opened the
+            // door for `data` — whose rung deletes its own rows, and whose flag
+            // `readEdit` strips precisely because nothing else should act on
+            // it — on any hand-made POST that set the field. The lane picker
+            // would find no lane there and climb to the revise. Found by the
+            // guard below, not by reading this line.
+            //
+            // The four lanes that dispatch to `page` cannot use the flag at
+            // all: `remove` on `page` means DELETE THE WHOLE PAGE, so widening
+            // it there would answer "take the 3D scene off" by deleting the
+            // page it sits on. They arrive by the LAYER answer instead — the
+            // removal clause in the layer description — and if a model reads
+            // past that clause the ask lands on the page rung and does its
+            // best, which is exactly today's behaviour rather than a new
+            // failure.
+            //
+            // A REMOVAL THAT ARRIVES WRONG COSTS ONE PICKER CALL. `readRemoves`
+            // acts only on lanes `pick_lanes` itself named, so a `remove` flag
+            // set on a message that is not one names nothing and the ask
+            // dispatches to the same rung it would have reached anyway.
+            const eLooking = eLayer === "look" || (eRemove && DOOR_LAYERS.includes(eLayer));
+            // WHETHER THIS ROUTE OPENED THE DOOR RATHER THAN THE ROUTER.
+            // Read twice below, at the two places a picker with nothing to say
+            // would otherwise climb to the revise.
+            const eRemovalDoor = eLooking && eLayer !== "look";
             if (eLooking) {
               editTrace.mark("pick_lanes", "start");
               const picked = await pickLanes(
@@ -22060,7 +22106,22 @@ async function handleRequest(request, env, ctx) {
                 { fields: Array.isArray(picked.fields) ? picked.fields : [] });
               pickUsage = picked.usage;
               if (picked.failed) return modelDown(picked.error, "The editor is busy — try again in a moment.");
-              if (!picked.fields.length) return escalate("no-lane");
+              // A DOOR THIS ROUTE OPENED ITSELF NEVER ESCALATES FOR BEING WRONG.
+              //
+              // `no-lane` climbs to the ~25-credit revise, which is the right
+              // answer for a `look` ask nothing here can express. It is the
+              // wrong answer for a message the ROUTER sent to `picture` or
+              // `nav` and we redirected: the rung the router named was going to
+              // run, and turning that into a rewrite because our own picker had
+              // nothing to say would make the removal verb cost twenty-five
+              // credits to be unhelpful.
+              //
+              // So a removal-opened door falls THROUGH with no fields, which is
+              // safe by construction: every step between here and the bottom of
+              // this block walks `pickedFields`, so all of them are no-ops on an
+              // empty list, and the `!steps.length` branch at the end puts the
+              // router's own step back. `eRemovalDoor` is read there too.
+              if (!picked.fields.length && !eRemovalDoor) return escalate("no-lane");
               pickedFields = picked.fields;
 
               // ── TAKING SOMETHING OFF ──────────────────────────────────────
@@ -22269,7 +22330,11 @@ async function handleRequest(request, env, ctx) {
               // dropped-ask failure wearing the other face.
               if (!steps.length) {
                 if (notBuilt.length) return escalate("unbuilt", { field: notBuilt[0][0], needs: notBuilt[0][1] });
-                return escalate("no-lane");
+                // THE OTHER HALF OF THE FALL-THROUGH, and the reason is at the
+                // picker's own empty check above: a door this route opened is
+                // put back the way the router left it, never climbed.
+                if (eRemovalDoor) steps.push({ layer: eLayer, page: ePage, fields: [] });
+                else return escalate("no-lane");
               }
             } else {
               // EVERY OTHER LAYER IS THE ROUTER'S OWN DECISION, made with the
