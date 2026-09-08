@@ -669,3 +669,44 @@ test("the floor holds for a cap small enough to need it", () => {
     assert.equal(tokensForChars(junk), LANE_EDIT_MAX_TOKENS, `${String(junk)} was read as a size`);
   }
 });
+
+// EVERY NAME THE WORKER USES FROM THIS MODULE IS ACTUALLY IMPORTED (2026-09-08,
+// found by the merge's own sweep).
+//
+// A named import dropped from the list is NOT a link error: the identifier just
+// becomes free, and a free identifier resolves when its line RUNS. So
+// `worker.js` loads, every source guard finds its landmarks, the suite is
+// green, and the first customer down that path gets a ReferenceError — the
+// recorded free-identifier trap, which has now cost this repository four
+// separate misses.
+//
+// The merge of the removal verb onto the one-mark work is exactly how a name
+// goes missing: both sides edited that one import line, so a resolution that
+// took one side whole would silently drop the other's two names. DERIVED from
+// the uses rather than listed here, because a list in a guard is the second
+// copy that drifts.
+test("every site-lanes name worker.js uses is on its import line", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const line = w.match(/^import \{([^}]*)\} from "\.\/builder\/site-lanes\.mjs";$/m);
+  assert.ok(line, "the site-lanes import line moved — re-derive this guard");
+  const imported = new Set(line[1].split(",").map((n) => n.trim().split(/\s+as\s+/).pop()).filter(Boolean));
+  assert.ok(imported.size >= 10, "only " + imported.size + " names parsed — the reader is broken");
+
+  // THE OBSERVER IS PROVED ALIVE by naming what this module exports and then
+  // asking which of those the Worker uses: a scan that found nothing would pass
+  // an empty check, which is the recorded "a negative assertion must prove its
+  // observer is alive".
+  const mod = fs.readFileSync(new URL("../builder/site-lanes.mjs", import.meta.url), "utf8");
+  const exported = [...mod.matchAll(/^export (?:const|function|async function|class) (\w+)/gm)].map((m) => m[1]);
+  assert.ok(exported.length >= 10, "only " + exported.length + " exports found — the reader is broken");
+
+  // Comments blanked length-preserving: this file's prose names these symbols
+  // while explaining them, the recorded "prose contains the thing it forbids".
+  const bare = w.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? " ".repeat(l.length) : l)).join("\n");
+  const used = exported.filter((n) => new RegExp("(?<![\\w.\"'])" + n + "(?![\\w\"'])").test(bare));
+  assert.ok(used.length >= 5, "only " + used.length + " of this module's names appear in worker.js — the scan is broken");
+
+  const missing = used.filter((n) => !imported.has(n));
+  assert.deepEqual(missing, [],
+    "worker.js uses these and does not import them, so the line throws when it runs: " + missing.join(", "));
+});

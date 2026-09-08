@@ -166,7 +166,7 @@ import { routeMessage, clarifiedBrief, siteDigest } from "./builder/site-ask.mjs
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES } from "./builder/site-lanes.mjs";
 // ONE MARK, SEVERAL FORMS (2026-09-07, owner: *"instead of it being 3 things or
 // 4 or 5, its gotta be one, wordmark, but it can be made in svg"*). The header
 // mark and the tab icon are one stored field each, carrying a form — a drawing,
@@ -10225,6 +10225,29 @@ function unbilledReply(charges) {
   const why = (charges && typeof charges.refusals === "function" && charges.refusals()[0]) || "rpc";
   const pub = { ok: false, error: "unbilled", ours: why !== "insufficient", detail: why };
   return Response.json({ ok: false, error: "unbilled", cost: 0, detail: why, msg: compileMsg(pub, "") }, { status: why === "insufficient" ? 402 : 503 });
+}
+
+/**
+ * WHAT THE CUSTOMER READS WHEN A REMOVAL NAMES SOMETHING THIS ROUTE WILL NOT
+ * TAKE OFF (2026-09-06).
+ *
+ * ONE SENTENCE PER LANE, IN THE LANE'S OWN WORDS, and never a generic "I can't
+ * do that": the whole point of refusing by name rather than dropping is that
+ * the customer learns which door their ask belongs to. `NOT_REMOVABLE` holds
+ * the halves and this only joins them, so there is one copy of each reason.
+ *
+ * The lead-in is deliberately not an apology. It says what did NOT happen —
+ * nothing was published, nothing was charged — because the failure this
+ * replaces is a reply that claimed a removal it never made.
+ */
+function cannotRemoveMsg(refused) {
+  const list = (Array.isArray(refused) ? refused : []).filter((r) => r && typeof r.why === "string");
+  if (!list.length) return "I couldn't take that off. Nothing was changed.";
+  const parts = list.map((r) => r.why);
+  const said = parts.length === 1
+    ? parts[0]
+    : parts.slice(0, -1).join("; ") + "; and " + parts[parts.length - 1];
+  return "I didn't change anything, because " + said + ". Everything else on your site is exactly as it was.";
 }
 
 function compileMsg(pub, theirs) {
@@ -22004,6 +22027,10 @@ async function handleRequest(request, env, ctx) {
             const steps = [];
             let notBuilt = [];
             let pickedFields = [];
+            // WHICH OF THE PICKED LANES ARE REMOVALS. Declared beside the lanes
+            // it subsets, and defaulted so every read below is safe on a path
+            // that never reached the picker.
+            let eRemoves = { remove: [], refused: [], pages: false };
             // `eLooking`, NOT A SECOND `eLayer === "look"`. Four guards window
             // the look LANE by finding that exact condition and slicing to the
             // next branch; a second copy up here moves all four windows onto
@@ -22035,6 +22062,45 @@ async function handleRequest(request, env, ctx) {
               if (picked.failed) return modelDown(picked.error, "The editor is busy — try again in a moment.");
               if (!picked.fields.length) return escalate("no-lane");
               pickedFields = picked.fields;
+
+              // ── TAKING SOMETHING OFF ──────────────────────────────────────
+              //
+              // Owner, 2026-09-06: "delete should be in the edit path , they can
+              // delete literally anything", scoped a moment later to "things in
+              // the site , like a component etc etc etc , not database".
+              //
+              // READ ONCE, HERE, ABOVE EVERY WALL BELOW IT, because both walls
+              // ask a question that inverts for a removal: the addon wall asks
+              // "does the site not have this yet?" and answers by offering to
+              // MAKE it, which is the opposite of what was asked.
+              eRemoves = picked.removes || { remove: [], refused: [], pages: false };
+
+              // A LANE THIS ROUTE WILL NOT TAKE OFF IS SAID, NEVER DROPPED.
+              // Nothing has run and nothing is charged beyond the routing call
+              // this message already paid for. A silent drop is how "delete the
+              // bookings table" comes back "Done" having done nothing, which is
+              // the failure the whole removal verb exists to avoid.
+              if (eRemoves.refused.length) {
+                editTrace.mark("remove:refused", "ok", { fields: eRemoves.refused.map((r) => r.field) });
+                return editAnswer({
+                  ok: false,
+                  status: 422,
+                  error: "not-removable",
+                  msg: cannotRemoveMsg(eRemoves.refused),
+                  cost: 0,
+                });
+              }
+
+              // BOTH SPELLINGS OF ONE ACT. A picker that put "pages" under
+              // `removes` instead of answering `pageVerb: "remove"` has been
+              // perfectly clear; refusing the second-most-natural phrasing is a
+              // wall in front of a customer who said what they meant. Folded
+              // into the verb the page lane already reads, and never over a
+              // verb the picker DID answer — `add` and `move` are that lane's
+              // other two capabilities and neither is a removal.
+              if (eRemoves.pages && !(picked.page && picked.page.verb)) {
+                picked.page = { verb: "remove", layer: verbLayer("remove"), name: ePage || "", to: "" };
+              }
 
               // ── ADDING IS THE ADDON STEP ──────────────────────────────────
               //
@@ -22070,6 +22136,24 @@ async function handleRequest(request, env, ctx) {
                     // edit of it to the addon step. Either record counts: the
                     // stored field, or the thing's own mark in the page source.
                     const onPage = ADD_EVIDENCE[f] && eSrc.some((p) => ADD_EVIDENCE[f].test(String((p && p.source) || "")));
+                    // A REMOVAL NEVER ESCALATES TO THE STEP THAT MAKES ONE.
+                    // This wall asks "does the site not have this yet?" and
+                    // answers by offering to build it — the exact opposite of
+                    // what was asked. "Take the 3D scene off" a site with no
+                    // scene is not an addon: it is already true, and saying so
+                    // costs nothing. Checked before the wall rather than after,
+                    // because the wall RETURNS.
+                    if (eRemoves.remove.includes(f)) {
+                      if (!hasLookField(wallLook, f) && !onPage) {
+                        editTrace.mark("remove:absent", "ok", { field: f });
+                        return editAnswer({
+                          ok: true, status: 200, moved: [], cost: 0,
+                          msg: "Your site doesn't have " + (f === "three" ? "a 3D scene" : "a QR code") +
+                            " on it, so there was nothing to take off. Nothing was changed.",
+                        });
+                      }
+                      continue;
+                    }
                     if (pickedFields.includes(f) && !hasLookField(wallLook, f) && !onPage) return escalate("addon", { field: f, layer: "addon" });
                   }
                 }
@@ -23183,6 +23267,16 @@ async function handleRequest(request, env, ctx) {
                 // rather than a pipeline, and one publish covers all of them.
                 const answers = {};
                 for (const field of pickedFields) {
+                  // TAKING A FIELD OFF IS NOT A CALL (2026-09-06). There is
+                  // nothing for a model to write: the answer is "nothing", and
+                  // `mergeLook` is told the name below. So a removal costs no
+                  // tokens, no seconds and no credits — it is the `logo` lane's
+                  // shape, which is why `edit_exempt` already exists for a rung
+                  // that publishes without reserving.
+                  if (eRemoves.remove.includes(field)) {
+                    editTrace.mark("lane:" + field, "removed");
+                    continue;
+                  }
                   editTrace.mark("lane:" + field, "start");
                   const ran = await runLane(
                     { send: eQuick("lane") },
@@ -23279,7 +23373,31 @@ async function handleRequest(request, env, ctx) {
               // over a picture somebody uploaded. The design step's own merge
               // omits the flag and leaves an uploaded mark alone — see
               // `mergeLook`, where that rule lives now.
-              const merged = mergeLook(priorLook, designed, {}, { instructed: true, asked: true });
+              //
+              // THE REMOVALS ARE NAMED, NOT ANSWERED. `designed` carries what
+              // the lanes that ran wrote; `clear` carries the ones that did not
+              // run because there was nothing to write. `movedFields` then sees
+              // a cleared field as moved exactly as it sees a changed one, so
+              // the reply and the publish gate need no special case.
+              //
+              // THE TWO ARE INDEPENDENT AND BOTH ARE FACTS ABOUT THIS CALL
+              // (2026-09-08, merging the removal verb onto the one-mark work).
+              // `asked` says the customer named these fields, so a lane's answer
+              // replaces an uploaded mark; `clear` says which of the named lanes
+              // are removals rather than changes. Both reach one field when
+              // somebody says "take the logo off", and the removal wins.
+              //
+              // WHAT MAKES IT WIN IS `asked`, NOT THE ORDER INSIDE THE MERGE —
+              // corrected here after the merge's own sweep, because the first
+              // draft of this comment said the opposite and a mutant swapping
+              // the two rules survived. `asked: true` disables the upload guard
+              // outright, so on this path the two never compete; the wipe does
+              // come first, and that only matters to a caller that clears
+              // WITHOUT asking, which nothing here does today. Said rather than
+              // left, since the next reader would otherwise inherit the wrong
+              // reason for a behaviour that is right. `markRemove` is what the
+              // removal leaves behind.
+              const merged = mergeLook(priorLook, designed, {}, { instructed: true, asked: true, clear: eRemoves.remove });
               const moved = movedFields(priorLook, merged);
 
               // THE LOOK IS THE STYLESHEET, so there is nothing else to merge.

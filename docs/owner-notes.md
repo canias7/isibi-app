@@ -146,6 +146,39 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-08 — Merged the removal-verb branch into main
+
+You said "Merge". Everything from today was already on main, so what was left
+was the working branch: three commits nobody had merged, building the **removal
+verb** — saying "take the 3D scene off" and having it actually come off, for no
+model call and no credits, with a plain sentence when a thing cannot be removed.
+
+**It conflicted in two places and both were the same small thing.** That branch
+and today's logo work had each added an option to the same function, and neither
+knew about the other. Both are needed, so the function takes both. Nothing was
+thrown away.
+
+**The interesting part is that my own explanation of the fix was wrong, and the
+mutation sweep caught it.** I wrote a comment saying the removal beats the
+"don't overwrite somebody's uploaded logo" rule *because of the order the two
+checks run in*. It doesn't — it wins for a different reason, and I only found
+that out because I deliberately broke the order and the tests stayed green. The
+behaviour was right either way; the reason written next to it was not, and that
+is the thing the next session would have inherited. Corrected in the code and
+written down rather than quietly changed.
+
+**And the sweep found a real trap the merge itself created**: when two branches
+edit the same import line, it is very easy for the resolution to silently drop
+one side's names. That does not break anything on startup — it breaks the first
+time a customer uses that feature. There is now a check that works out which
+names are needed rather than keeping a list, so it cannot go stale.
+
+5,625 tests green. **Not proven live**: the removal verb has never run on a real
+site — that is a separate test when you want it. The push rebuilds the container,
+so anything running there needs 15–20 minutes.
+
+---
+
 ## 2026-09-08 — "Off the web" is now a fact the server knows
 
 You said: *"fix the offline flag on the server too."*

@@ -60,7 +60,23 @@ test("the wall sits at the picker, before any step is planned, and names the add
   const branch = W.slice(picked, plan);
   const wall = branch.indexOf("for (const f of ADD_ONLY_FIELDS)");
   assert.ok(wall > 0, "the wall is not between the picker's answer and the plan");
-  const body = branch.slice(wall, branch.indexOf("}", wall));
+  // THE WHOLE LOOP BODY, BY MATCHING BRACES — not to the first `}` after the
+  // opener, which is what this read until 2026-09-06. The removal verb put an
+  // `if (…) { … }` inside the loop ahead of the escalate, so the first brace
+  // now closes THAT and the window stopped short of every check below. The
+  // property is "these things are true inside the wall's loop", and where its
+  // body ends is a fact about braces, not about which statement happens to
+  // come first.
+  const body = (() => {
+    const open = branch.indexOf("{", wall);
+    assert.ok(open > 0, "the wall's loop has no body");
+    let depth = 0;
+    for (let i = open; i < branch.length; i++) {
+      if (branch[i] === "{") depth++;
+      else if (branch[i] === "}" && --depth === 0) return branch.slice(wall, i + 1);
+    }
+    assert.fail("the wall's loop body never closes");
+  })();
   assert.match(body, /pickedFields\.includes\(f\)/, "the wall is not keyed on the lane having been picked");
   assert.match(body, /!hasLookField\(wallLook, f\)/, "the wall is not keyed on the stored look lacking the field");
   assert.match(body, /escalate\("addon", \{[^}]*layer: "addon"/, "the escalate does not name the addon layer, so the client falls to the revise");

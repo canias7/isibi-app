@@ -389,8 +389,52 @@ test("every publish path projects the marks, and every editing reader resolves t
   assert.match(w, /priorLook = lookWithMarks\(cfg\.config\);/, "the build path does not resolve the marks");
   assert.match(w, /aLook = lookWithMarks\(cfg\.config\);/, "the addon path does not resolve the marks");
   // The lane path is the one that must REPLACE.
-  assert.match(w, /mergeLook\(priorLook, designed, \{\}, \{ instructed: true, asked: true \}\)/,
+  //
+  // RE-ANCHORED 2026-09-08, merging the removal verb onto this work, and the
+  // spelling that moved is the OPTIONS OBJECT rather than the rule: that call
+  // now carries a third option (`clear`, which lanes are removals), so a
+  // pattern pinning the object's exact two-key shape reported "an uploaded mark
+  // can no longer be changed" about a call that still says exactly that. The
+  // property was never the object's arity — it is that THIS call, the lane
+  // path's, passes `asked: true`. Matched inside the call now, with the call
+  // itself asserted first so a deleted hop cannot pass as a satisfied absence.
+  const laneMerge = w.match(/mergeLook\(priorLook, designed, \{\}, \{([^}]*)\}\)/);
+  assert.ok(laneMerge, "the lane path's merge call is gone");
+  assert.match(laneMerge[1], /\basked: true\b/,
     "the lane merge stopped saying the customer asked — an uploaded mark can no longer be changed");
+  assert.match(laneMerge[1], /\binstructed: true\b/, "the lane merge stopped being instructed");
+
+  // A NAMED REMOVAL TAKES AN UPLOADED MARK OFF — the one question the 2026-09-08
+  // merge had to answer, since `asked` and `clear` arrived from two branches and
+  // meet on this field.
+  //
+  // AND THE FIRST DRAFT OF THIS COMMENT WAS WRONG ABOUT WHY, which the merge's
+  // own sweep caught: it said the wipe running FIRST is what makes it true. It
+  // is not. On the lane path — the only caller that passes `clear` at all —
+  // `asked: true` rides with it, and that alone disables the upload guard, so
+  // the two rules never actually compete there and their ORDER is unobservable
+  // from any call site the Worker makes. The mutant that swapped them survived
+  // for exactly that reason, and is INERT against the product rather than a
+  // guard gap.
+  //
+  // The order IS observable in the exported function, which is driven directly
+  // and by more than the Worker, so it is driven here in the shape that shows
+  // it: `clear` with NO `asked`. Both cases are asserted, because the property
+  // customers have is the first and the property the function promises is the
+  // second, and neither implies the other.
+  const owned = { wordmark: { form: "image", url: "https://x.gofarther.app/u/logo.png" } };
+  assert.equal(
+    mergeLook(owned, {}, {}, { instructed: true, asked: true, clear: ["wordmark"] }).wordmark, null,
+    "a named removal on the lane path left an uploaded mark standing — 'take the logo off' would answer done and change nothing");
+  assert.equal(
+    mergeLook(owned, {}, {}, { instructed: true, clear: ["wordmark"] }).wordmark, null,
+    "the upload guard beat a named removal — the wipe must come first, or a caller that clears without asking is refused silently");
+  // The control, so both of those are about the REMOVAL and not about the mark
+  // guard having quietly stopped working: with nothing named, the same uploaded
+  // mark is still protected from a design step that did not ask.
+  assert.deepEqual(
+    mergeLook(owned, { wordmark: DRAWN }, {}, { instructed: true }).wordmark, owned.wordmark,
+    "the upload guard stopped protecting a mark nobody asked to change");
   // …and the design path must NOT.
   assert.match(w, /mergeLook\(priorLook, designed, body, \{ instructed: !!editState \}\)/,
     "the design merge started claiming the customer asked — a rebuild would wipe an uploaded logo");

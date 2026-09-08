@@ -1320,6 +1320,56 @@ a screen no built site ever showed.
   Render: `docs/edits/offline-two-faces.png`, both faces with the LOCAL flag
   saying "live" in each, so the only thing that differs is the server's answer.
 
+### THE REMOVAL VERB MEETS THE ONE-MARK WORK (2026-09-08, owner: *"Merge"*)
+
+`claude/help-needed-ehlwlj` carried three commits main did not — task #115's
+removal verb (`pickLanes` answering `removes`, `mergeLook` taking `clear`, a
+removal costing no model call) and the lease-less collector audit — and main had
+moved 41 commits past their base. **The merge conflicted in exactly two places,
+and both were the same shape**: two branches adding an independent option to one
+parameter list. `mergeLook(prior, designed, body, { instructed, asked, clear })`
+takes all three; the lane path's call passes all three; the import line takes
+both halves' names. Everything else auto-merged, including `mergeLook`'s BODY,
+where the two rules already sit in the right order.
+
+- **AND THE MERGE'S OWN SWEEP CORRECTED MY REASONING ABOUT WHY.** The resolution
+  comment said the wipe running FIRST is what makes "take the logo off" take an
+  uploaded logo off. **It is not**, and a mutant swapping the two rules survived
+  and proved it: the lane path is the only caller that passes `clear`, and it
+  passes `asked: true` alongside, which disables the upload guard outright — so
+  the two never compete there and their order is unobservable from any call site
+  the Worker makes. The mutant was INERT against the product. The order IS
+  observable in the exported function (`clear` with no `asked`), which is driven
+  directly, so both cases are asserted and the comment now says which fact
+  carries the behaviour. Recorded rather than quietly fixed: a right behaviour
+  with the wrong reason written beside it is what the next session inherits.
+- **Two older guards went red and were re-anchored, not appeased — one from each
+  side, which is what a merge of two independent changes to one call should
+  surface.** `site-mark` pinned `{ instructed: true, asked: true }` and
+  `site-delete` pinned `{ instructed: true, clear: eRemoves.remove }`; each
+  reported the OTHER side's option as its own feature going missing. Both
+  properties were untouched — only the object's arity moved — so each now matches
+  inside the call, with the call itself asserted first so a deleted hop cannot
+  pass as a satisfied absence.
+- **AND THE SWEEP FOUND A GAP THE MERGE CREATED**: dropping `verbLayer,
+  REMOVABLE_LANES` from the resolved import line is not a link error — a named
+  import that goes missing becomes a FREE IDENTIFIER, which resolves when its
+  line runs, so `worker.js` loads, every source guard finds its landmarks, the
+  suite is green, and the first customer down the removal path gets a
+  `ReferenceError`. **The recorded free-identifier trap, and a merge of one
+  import line is precisely how a name goes missing.** `test/edit-lanes.test.mjs`
+  now DERIVES the check: every name `site-lanes.mjs` exports and `worker.js`
+  uses must be on that import line, with both readers proved alive so an empty
+  scan cannot pass.
+- **Sweep: 7 mutants, 6 killed, none unapplied, the comment-only control
+  survived** — either option off the signature, either off the call, the order
+  swapped (the inert one, above), and the import's two names dropped. Full suite
+  **5,625**.
+- **Not proven live.** The removal verb has never run on a real site; task #115's
+  own entry is the record of what it does. The push changes `worker.js`, a
+  container image input, so the container rolls and the 15–20 minute hold
+  applies.
+
 ### THE PREVIEW PANEL RUNS THE SITE'S OWN JAVASCRIPT (2026-09-07, owner: *"SO
 ITS PREVIEW THING, BECAUSE ON THE URL SHOWS FINE, SO FIX … MAKE THE FIX FOR
 FUTURE SITES"*)
@@ -6566,7 +6616,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,603
+  build and the pre-list payload added sixteen); the unit suite is 5,625
+  (2026-09-08, after the removal verb was merged onto the one-mark work — its
+  own three commits' guards, plus the derived import check the merge's sweep
+  asked for and the two order cases in `site-mark`; before it 5,603,
   (2026-09-08, after the offline flag became the server's added twenty-four in
   `test/site-offline.test.mjs` — the rule driven over every shape including the
   same-millisecond case and both coercions, the column held equal to its
