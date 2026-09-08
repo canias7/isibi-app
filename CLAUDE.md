@@ -1864,12 +1864,14 @@ everything else is the shape rule, the constraint and the two readers.
   timeout, its row limit and the two indexes agreeing about a duplicate — every
   one of which then survived, because nothing drove them either, and all four
   are guarded now and re-run to a kill.
-  Full suite **5,543** — stamped **5,542** here and in that commit message, and
-  MEASURED at 5,543 the next day by running the suite with the following
-  change's own file excluded, because its arithmetic did not close. The same
-  off-by-one shape the entry two sections down records: a guard added after the
-  run is a change the number has not seen. Corrected here rather than quietly;
-  the commit message keeps the wrong number for ever, which is the cost.
+  Full suite **5,543** — **5,542** when this line was written, which was right
+  then: the delete-frees-the-chat bullet below added one guard the next commit,
+  and that commit stamped 5,543 in its own message without restamping this line.
+  MEASURED at 5,543 the day after, by running the suite with the following
+  change's file excluded, because that change's arithmetic did not close. Not a
+  mis-stamp — a running total that one later bullet moved past. **A section's
+  total is the section's, so a bullet added to it restamps the total**, or the
+  next change reads a number that was true for a tree two commits back.
   **TWO OF THIS FILE'S OWN GUARDS WERE WRONG ON THEIR FIRST RUN, BOTH THE SAME
   RECORDED TRAP.** A call-site counter used `\(([^)]*)\)`, which stops at the
   first `)` — here inside `(n) => tr.at("prov:" + n)`, an argument of the very
@@ -6192,8 +6194,8 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   direct comparisons against the state word asserted beside the order really
   lacking it; the unknown-shape branch with `paintBuildLog`'s call-site skip; and
   the CSS suppression with the decoration and the rail's own class both proved
-  alive; before it 5,543 (measured, not the 5,542 that entry stamped — see it),
-  after the site learned which chat built it added twenty in
+  alive; before it 5,543, measured rather than carried forward; after the site
+  learned which chat built it added twenty in
   `test/site-chat.test.mjs` — the shape rule driven over every coercion and
   bound, the REAL MINT evaluated out of chat.js against it, the migration and
   the check script held to one index name, the build POST's body EVALUATED for
