@@ -1365,10 +1365,24 @@ where the two rules already sit in the right order.
   survived** — either option off the signature, either off the call, the order
   swapped (the inert one, above), and the import's two names dropped. Full suite
   **5,625**.
+- **PUSHED AND DEPLOYED (2026-09-08 06:05Z).** Main moved `8f163bef` →
+  `82df9b11`. **Deploy run 2051 green in 3m06s**: the gate set in 1 s (taking
+  over from the offline flag's deploy, `cdfc88b7`, and left to expire on success
+  at 06:50:32Z); the image step 2m13s — `built
+  isibi-app-sitebuildcontainer:bce…fa6572 (registry answered 404; 165 inputs
+  off ./Dockerfile)`, so the container **rolled** (`EDIT
+  isibi-app-sitebuildcontainer`; the game image `reused` on a 200); `deploy
+  drain: no live leases after 0s`; Wrangler 29 s. `unit tests` run 2338 green.
+  **The 15–20 minute hold ends ~06:28Z.**
+  **And all three paid workflows that fired SKIPPED** — `build smoke`, `edit
+  smoke` and `schema gen eval`, none of which the merge message could opt in,
+  since git writes a merge message and the smoke opt-in marker can never be in
+  one. That is the 2026-08-30 flip working exactly as intended on the commit
+  shape that used to cost the most: five of the six runs one session bought
+  were merge commits.
 - **Not proven live.** The removal verb has never run on a real site; task #115's
-  own entry is the record of what it does. The push changes `worker.js`, a
-  container image input, so the container rolls and the 15–20 minute hold
-  applies.
+  own entry is the record of what it does. The container rolled on this deploy,
+  so the hold above applies before any container work.
 
 ### THE PREVIEW PANEL RUNS THE SITE'S OWN JAVASCRIPT (2026-09-07, owner: *"SO
 ITS PREVIEW THING, BECAUSE ON THE URL SHOWS FINE, SO FIX … MAKE THE FIX FOR

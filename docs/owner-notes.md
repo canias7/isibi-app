@@ -174,8 +174,15 @@ time a customer uses that feature. There is now a check that works out which
 names are needed rather than keeping a list, so it cannot go stale.
 
 5,625 tests green. **Not proven live**: the removal verb has never run on a real
-site — that is a separate test when you want it. The push rebuilds the container,
-so anything running there needs 15–20 minutes.
+site — that is a separate test when you want it.
+
+**It is on main and deployed.** The deploy went green in three minutes at 06:08
+this morning; the container was rebuilt and swapped in, so anything that runs in
+there needs until about 06:28 before it is on the new code. Nothing was spent:
+the three paid test workflows that would have run all skipped themselves, which
+is what we set up on 30 August — and merges are exactly the case that used to
+cost the most, because git writes the message itself and there is no way to mark
+one as "don't spend".
 
 ---
 
