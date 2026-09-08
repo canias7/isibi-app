@@ -5167,3 +5167,16 @@ section/scene half is about how the router decides, so only a real message
 settles it — "take the 3D scene off" is the one. Both are cheap, both are yours
 to call. This touches the worker, so the container rebuilds and there's the
 usual 15–20 minute wait after the deploy before anything heavy.
+
+**Deploy went out clean** (run 2053, green in about four minutes, tests green).
+The container rebuilt and rolled at 15:34Z, so anything heavy should wait until
+about **15:55Z**.
+
+**One thing the deploy log corrected.** My notes said a push that only touches
+the worker code takes about two minutes to build the image, because the slow
+setup layers get reused. This one took nearly three and rebuilt *everything* —
+including a 48-second Chromium install it was supposed to skip. Nothing is
+broken; the reuse just depends on the build machine having a warm cache, and
+those machines are thrown away after each run. So two minutes is the best case,
+three is normal, and a slow image build is **not** a sign that something bigger
+changed. I've corrected the note.

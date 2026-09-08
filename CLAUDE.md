@@ -206,6 +206,21 @@ changes`), the drain found no live leases in 1 s, Wrangler 28 s, and the gate
 was left to expire on success. **So the band for a worker-tree push is ~2m05s
 of image and ~3m of deploy, and the 15–20 minute hold still applies** — the
 hold is about the ROLL, which happens whatever the image step cost.
+**AND THAT BAND IS NOT A PROPERTY OF WHAT CHANGED — CORRECTED 2026-09-08 by
+deploy 2053.** That push touched `worker.js` and `builder/site-ask.mjs` and
+nothing above them: 2044's shape exactly, so by the sentence above it should
+have reused the apt and template layers and come in near 2m05s. It took
+**2m56s and rebuilt every layer** — the log reads `#7 DONE 48.0s` for the
+apt/Chromium install and `#10 DONE 9.4s` for the template's own `npm ci`, both
+from nothing, with ~81 s more spent pushing the new layers. **Nothing is wrong
+with the skip logic**: the registry answered 404 for the new tag, so a build was
+correct. What is wrong is the inference. Layer reuse here depends on the GitHub
+runner's LOCAL Docker cache, and a runner is ephemeral — there is no registry
+cache import in this workflow — so a cold runner rebuilds everything whatever
+the diff touched. **Treat 2m05s as the best case and ~3m as the ordinary one,
+and never read a slow image step as evidence that something above the worker
+tree changed.** Whether to import a registry cache and make the band real is
+open, and unmeasured either way.
 
 Secrets live in GitHub Actions and upload to the Worker each deploy. **An
 optional secret must carry a `|| fallback`; a required one must not** — listing a
@@ -1570,6 +1585,20 @@ disagreed with the pages and the next revise could bring it back.
   name it. The recorded "prose contains the thing it forbids", in the guard
   written for this change; comments are blanked before the scan now.
 - Full suite **5,636**.
+- **DEPLOYED (run 2053, green in 4m12s; `unit tests` run 2343 green).** Pushed to
+  main at 15:30Z (`0f779df7` → `654a8427`). The gate set in 2 s; the image step
+  **2m56s** — `built isibi-app-sitebuildcontainer:82…70c7e0 (registry answered
+  404; 165 inputs off ./Dockerfile)` — so the site image was BUILT and the
+  container **ROLLED** (`EDIT isibi-app-sitebuildcontainer`, `bce…fa6572` →
+  `82…70c7e0`, applied 15:34:44Z; the game image `no changes`); `deploy drain:
+  no live leases after 1s`; Wrangler 30 s; the gate left to expire on success.
+  **The 15–20 minute hold ends ~15:55Z.**
+- **AND THE IMAGE STEP'S OWN LOG CORRECTS A RECORDED CLAIM — see the Deploy
+  section.** This push touched `worker.js` and `builder/site-ask.mjs` and
+  NOTHING above them, which is the shape deploy 2044 measured at 2m05s "because
+  the apt and template layers were reused". They were not reused here: the log
+  shows `#7 DONE 48.0s` for the apt/Chromium layer and `#10 DONE 9.4s` for the
+  template's own `npm ci`, both rebuilt from nothing.
 - **Not proven live, and the two halves prove differently.** The FLAG half is
   provable on `fretwork-1` for ~1 credit: "take the photo of the shop off"
   should route `picture`, open the door, name `images`, and come back with the
