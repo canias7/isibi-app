@@ -75,6 +75,10 @@ import { RESUME_FIRST_SECONDS, resumeKey, genKey, codeKey, isReportToken, readGe
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
 import { siteAnswer, pageNotes, ANSWER_FIELDS } from "./builder/build-answer.mjs";
+// WHICH CHAT A SITE BELONGS TO (2026-09-08). The browser has always minted a
+// per-workspace id and never sent it; the module owns the shape rule and the
+// one spelling of the column, and says why it is not called `project`.
+import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
@@ -7143,14 +7147,41 @@ async function patchSiteConfig(env, slug, db, patch) {
  * NOT AN UPSERT, so a revise cannot reach this and blank a live site's
  * `neon_db`. The caller gates on `!existing`; this is the belt behind it.
  */
-async function claimSiteSlug(env, slug, uid, brief) {
+/**
+ * THE SITE THIS CHAT ALREADY BUILT, or null.
+ *
+ * Scoped to the caller's own uid AND the chat, so it can only ever answer with
+ * a site this customer owns. `null` is "this chat has no site"; `undefined` is
+ * "we could not tell" — and the two are spelled apart at every hop, because the
+ * ONE caller that acts on this is about to decide whether to build. Reading a
+ * failed lookup as "no site" costs a duplicate build; reading it as "you have
+ * one" would hand somebody the wrong site and charge them nothing to find out.
+ */
+async function siteForChat(env, uid, chatId) {
+  if (!uid || !chatId) return null;
+  try {
+    const q = `${SUPABASE_URL}/rest/v1/site_backends?uid=eq.${encodeURIComponent(uid)}&${CHAT_COLUMN}=eq.${encodeURIComponent(chatId)}&select=slug,neon_db,brief&limit=1`;
+    const r = await fetch(q, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return undefined;
+    const rows = await r.json();
+    if (!Array.isArray(rows)) return undefined;
+    return rows[0] || null;
+  } catch { return undefined; }
+}
+
+async function claimSiteSlug(env, slug, uid, brief, chatId = "") {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends`, {
     method: "POST",
     headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=ignore-duplicates,return=representation" }),
     // The same columns `saveBackend` writes, with an empty database name. The
     // brief rides along here for the same reason it does there: a revise reads
     // it back as the anchor, and it is written exactly once per site.
-    body: JSON.stringify({ slug, uid, neon_db: "", brief: String(brief || "").slice(0, 4000) || null }),
+    //
+    // THE CHAT IS OMITTED WHEN THERE IS NONE, never written as null or "". The
+    // partial unique index is `where chat_id is not null`, so an absent value is
+    // what keeps every unbound site — the 51 that already exist, a harness, a
+    // curl — outside the constraint entirely and behaving exactly as before.
+    body: JSON.stringify({ slug, uid, neon_db: "", brief: String(brief || "").slice(0, 4000) || null, ...(chatId ? { [CHAT_COLUMN]: chatId } : {}) }),
     signal: AbortSignal.timeout(15000),
   });
   if (!r.ok) {
@@ -7165,6 +7196,25 @@ async function claimSiteSlug(env, slug, uid, brief) {
   // there either way; the next request resolves the ownership honestly.
   if (rows === null) return true;
   if (!(Array.isArray(rows) && rows.length > 0)) {
+    // ── WHICH CONFLICT, BECAUSE THERE ARE TWO NOW ──────────────────────────
+    //
+    // `resolution=ignore-duplicates` is `ON CONFLICT DO NOTHING`, which applies
+    // to EVERY unique constraint and not only the primary key — so once the
+    // partial index on (uid, chat_id) exists, an empty representation means the
+    // slug is taken OR this chat already has a site. Left undistinguished, the
+    // second would have told a customer "that site name is taken by another
+    // account" about their own site under a name nobody else holds: the
+    // recorded "a failure that cannot name itself", arriving the same day the
+    // constraint does.
+    //
+    // The pre-build short-circuit answers this case before a penny is spent, so
+    // reaching here means two builds of one chat raced. Rare, and it still has
+    // to be true. A lookup that cannot answer keeps the older sentence, since
+    // the slug conflict is the one that was always possible.
+    const mine = chatId ? await siteForChat(env, uid, chatId) : null;
+    if (mine && mine.slug) {
+      throw Object.assign(new Error("this chat already has a site"), { stage: "claim", conflict: true, chat: true, slug: mine.slug });
+    }
     throw Object.assign(new Error("that name is taken"), { stage: "claim", conflict: true });
   }
   return true;
@@ -7173,7 +7223,11 @@ async function claimSiteSlug(env, slug, uid, brief) {
 // Provision (or reuse) one site's database, returning its connection string.
 // The ordering and the failure paths live in site-provision.mjs, where they are
 // tested; this supplies the real Neon and Supabase calls.
-async function ensureSiteBackend(env, slug, uid, brief, mark) {
+// `chatId` DEFAULTS TO NONE, and the addon route's call deliberately passes
+// nothing: it makes the database for a site that ALREADY EXISTS, whose binding
+// (or deliberate lack of one, for every site built before 2026-09-08) was
+// settled when it was built. Only a first build binds.
+async function ensureSiteBackend(env, slug, uid, brief, mark, chatId = "") {
   const write = async (table, body) => {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
@@ -7301,7 +7355,9 @@ async function ensureSiteBackend(env, slug, uid, brief, mark) {
     // returns early when the slug already has a database, so saveBackend runs
     // exactly once per site — which is what keeps a revise's one-line
     // instruction from overwriting the brief the site was built from.
-    saveBackend: (s2, u, db) => claim("site_backends", { slug: s2, uid: u, neon_db: db, brief: String(brief || "").slice(0, 4000) || null }),
+    // The chat is omitted when there is none — see `claimSiteSlug`, which states
+    // why an absent value and a null are not the same thing to the index.
+    saveBackend: (s2, u, db) => claim("site_backends", { slug: s2, uid: u, neon_db: db, brief: String(brief || "").slice(0, 4000) || null, ...(chatId ? { [CHAT_COLUMN]: chatId } : {}) }),
     connFor: connForDatabase,
     dbNameFor: dbNameForSite,
     // WHICH SERVICE ENDPOINTS THE SITE LACKS, asked through the SAME reader
@@ -14516,6 +14572,54 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // could not resolve is treated as a revise, per the three states above.
       const firstBuild = !namedSlug || namedRow === null;
 
+      // ── THIS CHAT ALREADY HAS A SITE, SO IT IS THE ANSWER ─────────────────
+      //
+      // (2026-09-08, owner: "the build gotta stay in that chat, not make a new
+      // one" — and, on the sites already loose, "idc abut past stuff, but lets
+      // fix anything fro future stuff".)
+      //
+      // A workspace owns exactly one site. Reaching a BUILD from a chat that
+      // already has one means a retry, a double submit, or an answer that got
+      // lost on the way back — never a genuine request for a second site, since
+      // the intent router sends a later message in a workspace with a site to
+      // the edit or add-on rung. So the honest answer is the site they already
+      // own, and the important half is what it is NOT: a second paid build of
+      // the thing they are looking at.
+      //
+      // PLACED HERE ON PURPOSE — after the ownership pre-check and BEFORE the
+      // deposit, the design call and every other spend. A short-circuit below
+      // the deposit would return the right site having charged for it.
+      //
+      // FIRST BUILDS ONLY. A revise names its slug, which already says which
+      // site it is; intercepting one would answer a revise with the site it was
+      // revising and quietly do nothing.
+      //
+      // AND A LOOKUP THAT COULD NOT ANSWER BUILDS. `siteForChat` says `null` for
+      // "this chat has no site" and `undefined` for "we could not tell", and
+      // only the first short-circuits: cannot-tell must never read as
+      // there-is-one, which would answer somebody the wrong site. Wrong the
+      // other way is a duplicate build, which the customer can see and undo.
+      const chatId = firstBuild ? cleanChatId(body.chat) : "";
+      if (chatId) {
+        const mine = await siteForChat(env, bu.id, chatId);
+        if (mine && mine.slug) {
+          const mineUrl = await publicUrlFor(env, mine.slug).catch(() => "");
+          return Response.json({
+            ok: true,
+            // The SAME composer both of the build's real answers spread, so the
+            // browser records this site exactly as it records a fresh build —
+            // which is the whole point: the chat ends up holding it.
+            ...siteAnswer({ slug: mine.slug, url: mineUrl, backend: !!mine.neon_db }),
+            // No brand: the row does not carry one (it lives in the site's own
+            // R2 config), and `siteAnswer` omitting it leaves the project called
+            // whatever it is already called, rather than renaming it to nothing.
+            cost: 0,
+            reused: true,
+            notes: "You already have a site in this chat, so I opened it rather than building a second one. Tell me what to change and I'll edit it.",
+          }, { status: 200 });
+        }
+      }
+
       // Revise sends {slug, instruction} for an existing site; build sends
       // {brief}. Re-applying a schema is safe (all its DDL is additive or
       // IF NOT EXISTS), so both take the same path.
@@ -15381,9 +15485,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // every later message reads as a first build, and the owner can never
         // delete the site — `site_backends` is what all three authorise against.
         if (needsDb) {
-          db = await ensureSiteBackend(env, slug, bu.id, brief, (n) => tr.at("prov:" + n));
+          db = await ensureSiteBackend(env, slug, bu.id, brief, (n) => tr.at("prov:" + n), chatId);
         } else if (!existing) {
-          await claimSiteSlug(env, slug, bu.id, brief);
+          await claimSiteSlug(env, slug, bu.id, brief, chatId);
         }
         tr.at("provision", needsDb ? undefined : { db: 0 });
         // ── THE ROW LEARNS THE NAME (stage 5b) ──────────────────────────
@@ -19461,7 +19565,7 @@ async function handleRequest(request, env, ctx) {
           // database at all. The reply below sends `db: !!r.neon_db` and
           // nothing else off this column; a row that exists with `neon_db`
           // empty is a frontend-only site, which most first builds are.
-          lq(`site_backends?uid=eq.${luid}&select=slug,created_at,brief,neon_db&order=created_at.desc&limit=${MAX_SITE_LIST}`),
+          lq(`site_backends?uid=eq.${luid}&select=slug,created_at,brief,neon_db,${CHAT_COLUMN}&order=created_at.desc&limit=${MAX_SITE_LIST}`),
           lq(`site_aliases?uid=eq.${luid}&current=is.true&select=alias,slug`),
           lq(`site_builds?uid=eq.${luid}&select=slug,updated_at&order=updated_at.desc&limit=1000`),
         ]);
@@ -19499,6 +19603,11 @@ async function handleRequest(request, env, ctx) {
           // says so for a site that does not, which is the only thing a
           // start screen may know about a credential.
           db: !!r.neon_db,
+          // WHICH CHAT BUILT IT, so the start screen can put a site back into
+          // its own workspace rather than beside it. Absent on every site built
+          // before 2026-09-08 and on any built without one — the merge falls
+          // back to matching by slug, which is what it has always done.
+          chat: typeof r[CHAT_COLUMN] === "string" ? r[CHAT_COLUMN] : "",
           createdAt: stamp(r.created_at),
           updatedAt: stamp(builtBy[r.slug]) || stamp(r.created_at),
         })),

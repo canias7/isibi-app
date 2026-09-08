@@ -129,7 +129,12 @@ test("the build route actually uses it", () => {
   // same number. The module reports them through an injected callback, because
   // the interesting case is the build that THROWS half way through — a return
   // value never arrives.
-  assert.match(w, /ensureSiteBackend\(env, slug, bu\.id, brief, \(n\) => tr\.at\("prov:" \+ n\)\)/,
+  // RE-ANCHORED 2026-09-08: the call gained a sixth argument (`chatId`, which
+  // binds the site to the chat that built it), so the closing paren moved and
+  // this pinned the old spelling. The property is unchanged and is all that is
+  // asserted — provisioning reports through the injected per-step callback
+  // rather than as one number, whatever else the call carries.
+  assert.match(w, /ensureSiteBackend\(env, slug, bu\.id, brief, \(n\) => tr\.at\("prov:" \+ n\)[,)]/,
     "provisioning is back to being one opaque number");
   assert.match(w, /^\s*mark,$/m, "the worker's wrapper takes a mark and never forwards it to the module");
   // THE PAGES CALL'S SPLIT. It was the model call, the container compile and ~20

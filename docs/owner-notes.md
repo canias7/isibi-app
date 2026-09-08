@@ -4692,3 +4692,60 @@ is the normal one: the reply should say "Built ..." with the site in the same
 chat and the preview filled in. This push rebuilds the container image, so give
 it fifteen to twenty minutes after the deploy before starting anything that
 needs the container.
+
+---
+
+## 2026-09-08 — the site now belongs to the chat that built it
+
+You said *"idc abut past stuff, but lets fix anything fro future stuff"*, so
+this is the forward half: from now on, a site built in a chat stays in that
+chat.
+
+**The odd part is that the app already had the answer and never sent it.** Every
+workspace has had its own private id since long before any of this — it is how
+the app keeps one conversation's messages apart from another's. It just never
+told the server. So the server had no way of knowing which chat a build came
+from, and a finished site had nowhere to go back to except the start screen.
+Now the build sends it, the server stores it against the site, and the start
+screen uses it to put the site back where it came from.
+
+**One chat, one site — and the database enforces it, not the app.** There is a
+rule in Postgres now saying two sites cannot claim the same chat on the same
+account. That matters because of what happens when you press send twice, or the
+connection hiccups and something retries: two builds start a second apart, both
+look and both see nothing, and both go ahead. No amount of checking in the app
+survives that; the database can refuse it outright, and does. I proved it by
+inserting a second one and watching Postgres throw it out, then rolling the
+whole thing back — nothing was left behind.
+
+**Sending the same build twice now costs nothing.** If a chat already has a
+site, the build stops before it spends anything and just opens the site you
+already have, with a line saying so. Before this, a lost answer or a double
+press could buy a second full build of the thing you were already looking at.
+
+**Your 57 existing sites are left exactly as they are, on purpose.** Nothing
+anywhere ever recorded which chat asked for them, so attaching them now would
+mean guessing, and a wrong guess puts somebody's site into somebody else's
+conversation. They stay as they are, and the rule is written so that is a
+permanent, supported state rather than something half-finished.
+
+**A revise is deliberately not affected.** When you edit a site you already
+have, the message names the site, so there is nothing to work out — and if that
+message came from a different chat, re-pointing the site at it would be wrong.
+Only a first build binds.
+
+**One thing the tests caught that a reading would not have.** The new file was
+not on the list of files copied into the build container. Nothing about that is
+visible from the code — it would have built fine, deployed fine, and then every
+build after the deploy would have failed with what you'd have seen as *"our
+build service was restarting"*. The check that compares the container's file
+list against what the code actually imports found it the same hour it was
+written. That is the third time that particular check has paid for itself.
+
+**Not proven live.** The next new build is the proof: it should finish inside
+the chat you started it in, with the preview filled in and no extra card on the
+start screen. The free half you can try any time — start a build, then send the
+same thing again in that chat: the second should come straight back with the
+site you already have and take no credits. This push rebuilds the container
+image, so give it fifteen to twenty minutes after the deploy before starting
+anything that needs the container.

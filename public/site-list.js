@@ -70,6 +70,10 @@
       // `db: !!r.neon_db`, a real boolean, so anything else is a shape we did
       // not send and must not be believed as a yes.
       backend: row.db === true,
+      // WHICH CHAT BUILT IT (2026-09-08). Carried so `merge` can put a site
+      // back into the workspace that asked for it; `""` for every site built
+      // before the binding existed, and for any built without one.
+      chat: str(row.chat),
       createdAt: Number(row.createdAt) || 0,
       updatedAt: Number(row.updatedAt) || Number(row.createdAt) || 0,
       // Every site the builder publishes is a React site; the grid uses this
@@ -91,23 +95,42 @@
     var rows = Array.isArray(server) ? server : [];
 
     var bySlug = Object.create(null);
+    // AND BY THE CHAT THAT BUILT IT. A local record's `id` IS the chat id —
+    // `siteCreate` mints it per workspace — so this is the workspace a server
+    // row belongs to, when the row says.
+    var byChat = Object.create(null);
     for (var i = 0; i < mine.length; i++) {
       var s = mine[i] && cleanSlug(mine[i].slug);
       // `Object.hasOwn`-safe by construction: a null-prototype map cannot be
       // reached through "constructor" (the recorded truthy-prototype trap).
       if (s && !bySlug[s]) bySlug[s] = mine[i];
+      var c = str(mine[i] && mine[i].id);
+      if (c && !byChat[c]) byChat[c] = mine[i];
     }
 
     var out = [];
     var seen = Object.create(null);
+    var adopted = Object.create(null);
     for (var j = 0; j < rows.length; j++) {
       var made = fromRow(rows[j]);
       if (!made || seen[made.slug]) continue;
       seen[made.slug] = true;
-      var have = bySlug[made.slug];
+      // SLUG FIRST, THEN THE CHAT. The slug is the stronger match: it is what
+      // the two records are actually about, and a workspace whose record
+      // already carries it needs nothing else.
+      //
+      // THE CHAT IS THE FALLBACK, AND IT IS THE ONE THAT FIXES THE REPORTED
+      // BUG. A build whose answer never came back leaves a local record with a
+      // thread, a name and NO slug; the server has the site with its chat on
+      // it. Matched by slug alone those are two cards — the workspace the
+      // customer typed in, still looking unfinished, and the finished site
+      // sitting beside it as a stranger. Matched by chat they are one, and the
+      // adopted record keeps its own `id`, so the workspace stays the workspace.
+      var have = bySlug[made.slug] || (made.chat ? byChat[made.chat] : null);
       // The local record WINS on everything it alone knows — the thread, the
       // name the customer typed, the stored pages — and the server wins on
       // existence and on the address, which only it can be right about.
+      if (have) adopted[str(have.id)] = true;
       out.push(have ? Object.assign({}, have, {
         slug: made.slug,
         url: made.url,
@@ -128,7 +151,14 @@
     // yet — the slug is claimed when the design lands — so dropping it would
     // make the card vanish under the customer while they watch it build.
     for (var k = 0; k < mine.length; k++) {
-      if (!cleanSlug(mine[k] && mine[k].slug)) out.push(mine[k]);
+      if (cleanSlug(mine[k] && mine[k].slug)) continue;
+      // …UNLESS THE SERVER JUST CLAIMED IT BY CHAT. Without this the record
+      // adopted three lines up would ALSO be pushed here as an in-flight build,
+      // and the customer would see the same workspace twice — once finished and
+      // once still spinning. `adopted` is keyed by the chat id, which is the
+      // only thing the two halves have in common when there is no slug.
+      if (adopted[str(mine[k] && mine[k].id)]) continue;
+      out.push(mine[k]);
     }
 
     // A local site whose slug the server did NOT list is not shown: it is gone,

@@ -1598,6 +1598,140 @@ answers.
   it. The push changes container image inputs, so the container rolls and the
   15–20 minute hold applies.
 
+### AND THE SITE BELONGS TO THE CHAT THAT BUILT IT (2026-09-08, owner: *"idc
+abut past stuff , but lets fix anything fro future stuff"*)
+
+The entry above stops the answer getting lost. This means it would not matter if
+it did — and it is the half the owner asked for by name: *"yeah it should per
+project type thing right?"*
+
+**THE ID EXISTED AND WAS NEVER SENT.** `siteCreate` in `public/chat.js` mints
+`site_<epoch-ms>_<5 base36>` per workspace and threads it through every call as
+`origin` — `siteRoute`, `reactSend`, `siteFinishBuild`, `applyEditResult` all
+take it. The server had never seen it. Sending it is the whole change;
+everything else is the shape rule, the constraint and the two readers.
+
+- **`builder/site-chat.mjs`** (dependency-free) owns `CHAT_COLUMN` — the column
+  spelled ONCE across four uses — and `cleanChatId`, which **refuses rather than
+  coerces**: `String(["a"])` is `"a"` and this value decides which site a
+  customer is answered with. `""` is the honest answer for anything unusable and
+  every caller reads it as "this build has no chat", which is exactly what every
+  build did before this existed — an older browser, a harness and a curl are
+  unchanged.
+- **IT IS `chat_id`, NOT THE PLAN'S `project_id`.** `project` already means a
+  NEON project here (`site_project`, `siteNeonProject`) and the column sits
+  directly beside `neon_db`, so a reader would take it for the Neon project's
+  id. `chat` is the owner's own word and collides with nothing. Three names for
+  one value, each right where it is: the browser's `origin`, the wire's `chat`,
+  Postgres's `chat_id`.
+- **THE RULE IS BOUNDED, NOT PINNED TO TODAY'S MINT** (`CHAT_ID_RE`: 8–64 of
+  `[A-Za-z0-9_-]`). The obvious rule is the mint's own shape and it is the wrong
+  one — the mint lives in a file the Worker cannot import, so pinning `site_`
+  here means a future mint that changed shape stops binding SILENTLY, builds
+  still working and simply no longer belonging to their chat. **The suite closes
+  that instead**: the real mint is EVALUATED out of `chat.js` and 200 of its
+  outputs are run through the real refusal.
+- **ONE CHAT, ONE SITE — ENFORCED IN POSTGRES.** Migration
+  `20260908020158_site_backends_chat_id`: a nullable `chat_id text` and a
+  **partial unique index** on `(uid, chat_id) where chat_id is not null`. The
+  split is deliberate — the SHAPE is the application's (a CHECK here would be
+  `CHAT_ID_RE` written a second time in a second language, the recorded "two
+  lists of the same thing"), and UNIQUENESS is Postgres's, because it is the one
+  thing no application check survives concurrency: two builds a second apart both
+  read "no site in this chat" and both insert. The `site_aliases`
+  one-current-name index is the precedent for exactly this division. Scoped by
+  `uid` because a chat id is minted in the browser, so two accounts carrying one
+  is harmless rather than a stranger's build being refused.
+- **NULLABLE FOR EVER.** Nothing anywhere recorded which chat asked for the 57
+  sites that exist, so a backfill could only guess; the owner's decision is that
+  they stay loose. The index is partial for that reason, and an absent chat is
+  **omitted from the insert**, never written as `null` or `""` — `""` would make
+  every unbound site on an account collide with every other one.
+- **DRIVEN ON THE LIVE DATABASE, ROLLED BACK** (`scripts/chat-index-check.sql`,
+  the `edit-rpc-check.sql` pattern): **ALL 7 CHAT-INDEX CHECKS PASSED** — a first
+  bound row lands, a second site in the same chat is refused BY THAT INDEX BY
+  NAME (the slugs differ, so a refusal naming the primary key would be the
+  fixture rather than the constraint), the same chat id under another owner
+  lands, unbound rows are unlimited, a second chat for the same owner lands, and
+  all 57 older sites are still unbound. **Check 2c is the one the application
+  leans on hardest**: `on conflict do nothing` — what PostgREST sends as
+  `resolution=ignore-duplicates`, with NO target, so it covers this index as
+  well as the primary key — writes nothing and **does not raise**, which is what
+  the claim path reads. Reading `pg_indexes` is explicitly not the proof.
+- **THE RETRY IS THE PROPERTY THE OWNER ASKED FOR.** Before the deposit, the
+  design call and every other spend, a FIRST BUILD carrying a chat asks which
+  site that chat already has; one that has a site is answered with it through
+  the **same composer** both real answers spread, `cost: 0`, `reused: true`, and
+  a sentence saying so. A retry, a refresh, a double submit and a lost answer
+  can none of them buy a second paid build of the site the customer is looking
+  at. **Placed before the deposit on purpose**: below it, the right site would
+  come back having been charged for.
+  **FIRST BUILDS ONLY** — a revise names its slug, which already says which site
+  it is, and intercepting one would answer a revise with the site it was
+  revising and quietly do nothing. **And a lookup that could not answer BUILDS**:
+  `siteForChat` spells `null` (no site) apart from `undefined` (could not tell),
+  and only the first short-circuits. Wrong that way costs a duplicate build the
+  customer can see; wrong the other way hands somebody the wrong site and charges
+  nothing to find out.
+- **THE TWO COLLISIONS ARE TOLD APART**, and they arrived the same day the
+  constraint did. An empty representation from the claim used to mean one thing —
+  the slug is taken — and now means that OR this chat already has a site. Left
+  undistinguished the second would have told a customer *"that name is taken by
+  another account"* about their OWN site under a name nobody else holds: the
+  recorded "a failure that cannot name itself". `claimSiteSlug` asks
+  `siteForChat` and throws a chat conflict naming the site; a lookup that could
+  not answer keeps the older sentence, the slug conflict being the one that was
+  always possible.
+- **BOTH CLAIM PATHS WRITE IT** — `claimSiteSlug` (frontend-only) and
+  `saveBackend` inside `ensureSiteBackend` (with a database) — and **the addon
+  route's own provision passes nothing, deliberately**: it makes a database for a
+  site that already exists, whose binding was settled when it was built.
+- **AND THE BROWSER PUTS THE SITE BACK IN ITS WORKSPACE.** `/api/site/list`
+  selects and emits `chat`; `public/site-list.js` carries it and `merge` matches
+  **slug first, then chat** — the slug is the stronger match, and the chat is the
+  fallback that fixes the reported bug: a build whose answer never came back
+  leaves a local record with a thread, a name and NO slug while the server has
+  the site with its chat on it. Matched by slug alone those are two cards, the
+  workspace still looking unfinished and the finished site beside it as a
+  stranger. Matched by chat they are one, and the adopted record keeps its own
+  `id` so the workspace stays the workspace. An `adopted` map stops the same
+  record being pushed again by the in-flight loop below — without it the customer
+  would see one workspace twice, once finished and once still spinning.
+- **Guards**: `test/site-chat.test.mjs` (18) — the refusal driven over every
+  coercion and bound, the REAL MINT evaluated out of `chat.js` against it, the
+  migration and the check script held to one index name, the build POST's body
+  EVALUATED (a build carries the chat, a revise does not), and the route DRIVEN
+  through the real router five ways with every ledger and model call a tripwire:
+  the retry answering the site for nothing, an empty chat building with a
+  uid-and-chat-scoped lookup, an unreadable lookup building, a chat-less build
+  never looking at all, and a revise never intercepted. Both writers counted AND
+  named, the request read ONCE through the refusal, both collisions DRIVEN
+  through the real `claimSiteSlug` and `siteForChat` against one fake wire, the
+  list driven for the column and for the connection never leaving, and the merge
+  driven in four directions including the control that a merge matching
+  EVERYTHING by chat would fail.
+  **THE IMAGE GUARD CAUGHT A REAL DEFECT AGAIN**: the module was on no COPY
+  line, so the job runtime would have died at import inside the container and
+  every launch been refused — reported to the customer as *"our build service
+  was restarting"*. The recorded trap, firing the hour the module was written,
+  for the third time.
+  **Four older guards went red for the change and were re-anchored, not
+  appeased**, each naming which spelling moved: `trace.test.mjs` and
+  `build-runner.test.mjs` pinned the two claim calls' closing parens (the
+  property is that provisioning reports per step, and that the claim comes after
+  the ownership check — neither is about arity); `frontend-build.test.mjs`
+  pinned `claimSiteSlug`'s parameter list; and `build-answer.test.mjs` counted
+  TWO composed answers, which is the guard working — the retry is an honest
+  third, and it is named beside the other two now.
+  **TWO OF THIS FILE'S OWN GUARDS WERE WRONG ON THEIR FIRST RUN, BOTH THE SAME
+  RECORDED TRAP.** A call-site counter used `\(([^)]*)\)`, which stops at the
+  first `)` — here inside `(n) => tr.at("prov:" + n)`, an argument of the very
+  call being counted — and reported a correct hop broken. **The flat-scan trap,
+  in a guard written to count call sites, twice in one file.** Depth-aware and
+  non-greedy now. And a third pinned the composer's `/s/<slug>/` fallback when
+  the route really resolves the site's public address; the answer is PARSED now,
+  never string-matched, since `https://host//menu` names a different site.
+
 ### THE STEP RAIL IS A DENSE LOG (2026-09-07, owner: *"the ones in the left lets
 change how it looks too , gimme options"* → six treatments rendered → *"e"*)
 

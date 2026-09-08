@@ -419,8 +419,13 @@ test("both of the build's success answers are composed by the one composer, and 
   // COUNTED, because cutting the call out of either leaves the composer perfect
   // and one whole class of build broken in the browser with nothing red. That
   // is this repo's recorded wiring trap and it is exactly how this shipped.
+  // THREE SINCE 2026-09-08, and the third is why the count is here rather than a
+  // floor: the retry short-circuit answers the site a chat already has, and it
+  // must answer it in the SAME shape a fresh build does or the browser will not
+  // record it. A fourth writer appearing without a name below is exactly the
+  // drift this counts.
   const calls = BARE.split("siteAnswer({").length - 1;
-  assert.equal(calls, 2, "the build has " + calls + " composed answers, not two — a third writer can drift again");
+  assert.equal(calls, 3, "the build has " + calls + " composed answers, not three — a new writer can drift again");
   const notes = BARE.split("pageNotes(pages)").length - 1;
   assert.equal(notes, 2, "the build has " + notes + " composed note sets, not two");
   // ANCHORED ON THE PROPERTY, NOT THE SPELLING: what must be true is that both
@@ -431,20 +436,29 @@ test("both of the build's success answers are composed by the one composer, and 
   const named = imp[1].split(",").map((x) => x.trim()).filter(Boolean);
   for (const n of ["siteAnswer", "pageNotes"]) assert.ok(named.includes(n), "worker.js does not import " + n);
 
-  // NAMED, because a count is satisfied by two calls in one function.
-  const inline = at(BARE, "async function runSiteBuild(", "the inline build route");
-  assert.ok(inline.includes("...siteAnswer({"), "the inline build route composes its own identity fields again");
-  // AND WHAT IT HANDS THE COMPOSER IS AN OBSERVATION, NOT A LITERAL. `backend`
+  // NAMED, because a count is satisfied by three calls in one function — which
+  // is now literally the case: the retry short-circuit lives INSIDE
+  // `runSiteBuild`, above the inline answer, so "the first one in that function"
+  // stopped meaning the inline route the day the retry landed. Each is found by
+  // something only it says.
+  //
+  // AND WHAT EACH HANDS THE COMPOSER IS AN OBSERVATION, NOT A LITERAL. `backend`
   // was hardcoded `true` when every build provisioned, and since 2026-08-24 a
   // first build has no database — so a constant here puts a Data panel over
   // nothing. The composer's own strictness cannot see this: `true` is a
   // perfectly good `=== true`. A survivor of the first sweep, because nothing
-  // drove or read the ARGUMENT.
-  const call = /\.\.\.siteAnswer\(\{([^}]*)\}\)/.exec(inline);
-  assert.ok(call, "the inline route's composer call cannot be read");
-  assert.match(call[1], /backend: !!db\b/, "the inline route hands the composer a constant backend, not the question it asks everywhere else");
+  // drove or read the ARGUMENT — so every writer's argument is read, not one.
+  const inline = at(BARE, "async function runSiteBuild(", "the inline build route");
+  assert.ok(inline.includes("...siteAnswer({"), "the inline build route composes its own identity fields again");
+  const args = [...inline.matchAll(/\.\.\.siteAnswer\(\{([\s\S]*?)\}\)/g)].map((m) => m[1]);
+  assert.equal(args.length, 2, "expected the retry and the inline answer inside runSiteBuild; found " + args.length);
+  const backends = args.map((a) => /backend:\s*([^,\n]+)/.exec(a)).map((m) => m && m[1].trim());
+  assert.deepEqual(backends.slice().sort(), ["!!db", "!!mine.neon_db"].sort(),
+    "a writer hands the composer a constant backend, not the question it asks everywhere else: " + backends.join(" | "));
   const collector = at(BARE, "async function runResumedSiteBuild(", "the collector");
   assert.ok(collector.includes("...siteAnswer({"), "the collector composes its own identity fields again — the defect itself");
+  assert.match(collector, /backend: rBackend\b/,
+    "the collector hands the composer a constant backend — a site with no database would get a Data panel over nothing");
   for (const [name, body] of [["the inline build route", inline], ["the collector", collector]]) {
     assert.ok(body.includes("...pageNotes(pages)"), name + " does not spread the note composer");
     // AND NEITHER WRITES A NOTE BESIDE IT. A `renderNote:` line back in either

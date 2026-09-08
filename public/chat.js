@@ -13259,8 +13259,15 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
   // not folded into the brief here — the server composes it, so there is one
   // version of the sentence the designer ends up reading. Build only: questions
   // are never asked on a revise, so a revise has none to send.
+  // `chat` IS THE WORKSPACE THIS BUILD WAS ASKED FOR IN, and until 2026-09-08
+  // the server had never seen it. `origin` is minted by `siteCreate` per
+  // project and threaded through every call in this file; sending it is what
+  // lets the finished site belong to the chat that asked for it instead of
+  // turning up on the start screen as a card of its own. Build ONLY: a revise
+  // names its slug, which already says which site it is, and a revise sent
+  // from a second chat must not re-bind the site away from the first.
   const body = mode === 'build'
-    ? { brief: t, images: imgs, picker: buildPicker, qa: qa || [] }
+    ? { brief: t, images: imgs, picker: buildPicker, qa: qa || [], chat: origin }
     : { slug: site.slug, instruction: t, images: imgs, picker: buildPicker };
   siteAbort = new AbortController();
   apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {

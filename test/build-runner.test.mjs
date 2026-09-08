@@ -623,7 +623,11 @@ test("the build route: the job's scope follows the name BEFORE the recorder, the
   const scopeAt = at(build, "await env.JOB_SCOPE(slug)");
   const identifyAt = at(build, "rec.identify(slug, bu.id);");
   const ownerAt = at(build, "const owner = await siteBackendRowFresh(env, slug);");
-  const claimAt = at(build, "await claimSiteSlug(env, slug, bu.id, brief);");
+  // RE-ANCHORED 2026-09-08: the call gained `chatId`, so `brief);` moved to
+  // `brief, chatId);`. The property this reads is ORDER — the claim comes after
+  // the scope hook, the recorder and the ownership check — which the argument
+  // list has nothing to do with.
+  const claimAt = at(build, "await claimSiteSlug(env, slug, bu.id, brief");
   const provAt = at(build, 'tr.at("provision", needsDb ? undefined : { db: 0 });');
   const learnAt = at(build, "await rowLearnsSlug(env, { id: jobId, owner: lease, slug })");
   // The claim's try closes right after the provision mark; the row's name is

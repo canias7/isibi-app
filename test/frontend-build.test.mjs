@@ -537,7 +537,11 @@ test("everything downstream asks whether there IS a database, not whether one wa
 
 test("a site with no database still claims its slug, and a revise never re-claims", () => {
   const src = bare(WORKER);
-  assert.match(src, /async function claimSiteSlug\(env, slug, uid, brief\)/, "claimSiteSlug is gone");
+  // RE-ANCHORED 2026-09-08: the signature gained `chatId = ""`, so the exact
+  // parameter list moved. What this case is about is unchanged — the claim is
+  // atomic, records an empty database name, and only a NEW site reaches it — so
+  // the anchor is the function, not its arity.
+  assert.match(src, /async function claimSiteSlug\(env, slug, uid, brief/, "claimSiteSlug is gone");
 
   // ATOMIC, and the same header `ensureSiteBackend` uses. An upsert here would
   // let two overlapping first builds of one name both succeed — and would let a
@@ -556,6 +560,16 @@ test("a site with no database still claims its slug, and a revise never re-claim
   assert.match(block, /ensureSiteBackend\(env, slug, bu\.id, brief/, "the provisioning branch no longer provisions");
   assert.match(block, /else if \(!existing\) \{\s*await claimSiteSlug\(/,
     "the claim is not gated on the site being new — a revise would 409 itself");
+  // AND THE CHAT RIDES ON BOTH BRANCHES, which is what binds a first build to
+  // the workspace that asked for it whether or not it needs a database.
+  // NON-GREEDY TO THE ARGUMENT ITSELF, never `[^)]*`: the mark callback in that
+  // argument list is `(n) => tr.at("prov:" + n)`, so a flat scan stops at the
+  // `)` after `(n` and reports a correct call site broken. The recorded
+  // flat-scan trap, met on this guard's first run.
+  assert.match(block, /ensureSiteBackend\(env, slug, bu\.id, brief, [\s\S]*?, chatId\)/,
+    "the with-database first build no longer binds the site to its chat");
+  assert.match(block, /await claimSiteSlug\(env, slug, bu\.id, brief, chatId\)/,
+    "the frontend-only first build no longer binds the site to its chat");
 });
 
 test("the placeholder does not promise a database to a site that has none", () => {
