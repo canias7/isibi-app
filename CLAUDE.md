@@ -192,10 +192,20 @@ template layers and come in under that — measure it, do not assume it.
 **MEASURED on deploy 2030 (2026-09-05 23:35Z, the merge of stages 1a–3b
 and 8): the image step 2m33s, the whole deploy 3m28s** — NOT under 2029's
 2m20s, and that push changed the Dockerfile's own COPY line (two builder
-modules added), which is a layer input; the first push that changes the
-worker tree and nothing above it is still the measurement to take. The
+modules added), which is a layer input. The
 step's line: `built isibi-app-sitebuildcontainer:e86…54e47 (registry
 answered 404; 155 inputs off ./Dockerfile)`, then `EDIT` on the app.
+**AND THAT MEASUREMENT IS TAKEN — deploy 2044 (2026-09-08 00:00Z, the dense-log
+rail): the image step 2m05s, the whole deploy 3m01s.** The first push that
+changed the worker tree (`worker.js`, `builder/gen-code.mjs`) and NOTHING above
+it — not the Dockerfile, not `.dockerignore`, not `lovable/template/` — so the
+apt and template layers were reused and it came in **under 2029's 2m20s**, as
+predicted. The container rolled all the same (`EDIT`,
+`5ca52dd70ee…fbe3` → `cbc80…2b96d`, applied 00:03:37Z; the game image `no
+changes`), the drain found no live leases in 1 s, Wrangler 28 s, and the gate
+was left to expire on success. **So the band for a worker-tree push is ~2m05s
+of image and ~3m of deploy, and the 15–20 minute hold still applies** — the
+hold is about the ROLL, which happens whatever the image step cost.
 
 Secrets live in GitHub Actions and upload to the Worker each deploy. **An
 optional secret must carry a `|| fallback`; a required one must not** — listing a

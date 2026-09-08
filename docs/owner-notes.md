@@ -4596,3 +4596,31 @@ was a number from my machine and not from CI. The limit went up earlier tonight
 and CI has now finished it twice, both green, both reading 373 — so that count
 is a real reading again. Its own comment says so, in case it happens a fourth
 time.
+
+## Merged (2026-09-08)
+
+Owner: "merge it". The three commits from tonight are on main — the progress
+panel, the code streaming out as it is written, and the dense-log rail you
+picked as E. Main had nothing of its own, so it went across cleanly with
+nothing to reconcile.
+
+The deploy took three minutes and rebuilt the container image, so the site
+container rolled at 00:03. Wait until about twenty-five past before firing
+anything that needs the container, so it runs on the new image.
+
+The three browser files went out and I read them back off the live site: the
+line-number gutter, the four step marks as characters, the lower-case labels
+and the borderless rail are all there in the served stylesheet and the served
+chat.js.
+
+What none of that proves is how it LOOKS while a build runs, and it cannot —
+reading a file only says the bytes arrived. The next real build is the proof,
+and the two lines to watch are the running step saying "writing index.tsx"
+instead of just a clock, and the code filling in underneath it with the file's
+own line numbers down the side rather than starting at 1.
+
+One number worth having, since the notes had been asking for it: this was the
+first push that changed the Worker's code and nothing above it, so the image
+build reused most of its layers and came in at two minutes instead of the two
+and a half we had been assuming. The container still rolls either way, so the
+twenty-minute wait is unchanged.
