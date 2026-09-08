@@ -1431,6 +1431,93 @@ a screen no built site ever showed.
   Render: `docs/edits/offline-two-faces.png`, both faces with the LOCAL flag
   saying "live" in each, so the only thing that differs is the server's answer.
 
+### A MOBILE APP COLUMN YOU OPEN AND CLOSE (2026-09-08, owner: *"i want to make
+a column in the right hand side"* → *"Is for mobile app"* → *"in a sidebar not
+free like that"* → *"something you open and close, not just something there"*)
+
+A third column on the right of the workspace, closed by default, opened from the
+top bar. It holds a phone frame with one sentence in it, because **nothing can
+build a mobile app yet** — the phone icon on the start screen's cards has been
+disabled and saying so since 2026-09-07, and this is the same fact at full size.
+Three treatments were rendered and the owner picked the docked, toggleable one
+with a phone bezel; a **"Build the mobile app" button was mocked up and cut on
+the owner's own call** (*"no button, just the sentence"*), which is this repo's
+open dead-control finding avoided rather than added to for the fifth time.
+
+- **DRAWN ALWAYS, HIDDEN BY CSS — and that is what makes the toggle cheap.**
+  `.st-ws:not(.st-mob-open) .st-mob { display: none; }`, the chat rail's own
+  pattern one column over and for its recorded reason: the handler flips a class
+  instead of re-rendering, so **the preview iframe never reloads and a half-typed
+  message survives**. Both DRIVEN in a real Chromium against the served files —
+  the frame is the same node with its own stamp after the toggle, and
+  `#stRevise` still holds "half a sentence" after close-then-open. A guard
+  forbids `renderSites()` in the handler and forbids the panel becoming a
+  conditional render, because either one kills both properties silently.
+- **THE STATE IS MODULE SCOPE** (`siteMobileOpen`, beside `siteRailHidden`): the
+  workspace re-renders on every builder reply, so a flag kept inside the render
+  would shut the panel each time the builder answered.
+- **THE CLASS NAME IS ONE NAME WITH THREE READERS** — the markup writes it, the
+  stylesheet keys on it, the toggle flips it — so the guard DERIVES it from the
+  markup and checks the other two against that. Two copies would drift into a
+  toggle that flips a class nothing styles, and nothing would fail.
+- **THE GLYPH IS NOT `phone`, DELIBERATELY.** `ic('phone')` is already the
+  phone-WIDTH button (`.st-dev[data-dev="phone"]`) two positions along the same
+  bar, and two phone icons in one row meaning different things is a control
+  nobody can read. `sidebar` is the mirror of the chat rail's toggle with the
+  divider moved from x=9 to x=15 — a panel opening on the right. The two glyphs
+  are asserted DIFFERENT, since a rename could quietly make them one.
+- **THE SENTENCE DIFFERS BY STATE AND BOTH ARE TRUE.** A built site gets *"Ask in
+  the chat and I'll build one from this site"*; a project with nothing built gets
+  *"Build your website first, then ask me for the app"* — the first would be a
+  promise about a site that does not exist. Driven both ways, with the false one
+  asserted absent from the fresh-project panel.
+- **THE PHONE IS BOUNDED ON BOTH AXES.** `height: 100%` computed WIDER than the
+  column and overflowed it sideways — measured while mocking up — so the width
+  leads and `max-height` is the wall. The cap is what binds in an ordinary window
+  (369×751 against a 390×844 target at 1512×950, measured), so the frame is a few
+  per cent squatter than a handset: the deliberate half of the trade, and the
+  comment says so rather than claiming a ratio it does not hold. The bezel takes
+  `var(--graphite)`, the palette's own darkest lead, never a hex literal.
+  The column is `clamp(300px, 26vw, 420px)`, not a fixed width: at 1200px a fixed
+  420 would leave the preview ~300px between it and the 450px rail.
+- **Guards**: `test/mobile-panel.test.mjs` (13) — the chain DERIVED from the
+  value's route (state → the class on `.st-ws` → the stylesheet's `:not()` → the
+  room → the one writer), with the hiding rule's DIRECTION asserted so an
+  inversion cannot pass; `siteMobilePanel` EVALUATED out of `chat.js` in a bare
+  scope and driven both ways; the toggle handler CUT OUT and driven against a
+  fake document in both directions, because `if (false)` leaves a call exactly
+  where a source read looks for it; the panel's zero controls asserted beside a
+  live observer; the two call sites counted; and the two glyphs compared.
+- **Sweep: 30 mutants, 30 killed, none survived, none unapplied, two comment-only
+  controls survived — ONE survived the first pass and it was a guard gap of the
+  recorded shape.** Cutting `(siteMobileOpen ? ' on' : '')` out of the BUTTON'S
+  MARKUP passed: every assertion about the lit state read the click HANDLER,
+  which lights it correctly, and nothing read the markup that redraws that button
+  on every reply — so the panel would be open with its control unlit from the
+  next builder answer onward. **A guard proves the branch it drives**, and both
+  ends are driven now. The killed ones: the state inside the render or starting
+  open, the root never carrying the class, the markup and stylesheet disagreeing
+  about its name, the hiding rule inverted or gone, the panel rendered
+  conditionally or its one call site cut, both states drawing the built-site
+  sentence, a fresh project promised an app from a site it lacks, the heading
+  gone, a button grown for a feature that does not exist, the toggle removed or
+  gated on `isReact` (the Code tab's own defect, one bar over), the phone glyph
+  drawn instead, the divider moved back to the left, the handler absent or
+  inverted or touching only one of the two, the tooltip frozen, the handler
+  re-rendering, the phone sized from a height or uncapped or unshaped, the bezel
+  a hex literal, and the column back to a fixed width.
+  **AND THE GUARD'S OWN FIRST REGEX WAS A FALSE ALARM** — it expected
+  `'st-icon' +` where the source reads `class="st-icon' +`, so it reported a
+  correct button as broken. Caught before the push by running it; the assertion
+  is on the property (the flag feeds the `on` class) rather than on a quote's
+  position. Full suite **5,649**.
+- **Not proven live.** The push touches `public/` only — no container roll, no
+  15–20 minute hold. The proof is one look: open a site, press the panel button
+  right of the phone-width buttons, and the column appears with the phone in it;
+  press again and it goes. Renders: `docs/edits/mobile-panel-closed.png`,
+  `mobile-panel-open.png`, and `mobile-panel-new-project.png` (the other
+  sentence).
+
 ### THE REMOVAL VERB MEETS THE ONE-MARK WORK (2026-09-08, owner: *"Merge"*)
 
 `claude/help-needed-ehlwlj` carried three commits main did not — task #115's
@@ -6878,8 +6965,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,636
-  (2026-09-08, after all fifteen removable lanes got a route into the lane door
+  build and the pre-list payload added sixteen); the unit suite is 5,649
+  (2026-09-08, after the mobile app column added thirteen in
+  `test/mobile-panel.test.mjs` — the chain DERIVED from the value's own route
+  rather than from the hops that were on my mind, the hiding rule's DIRECTION
+  asserted so an inversion cannot pass, `siteMobilePanel` evaluated out of
+  chat.js in a bare scope and driven both ways, the toggle handler CUT OUT and
+  driven against a fake document in both directions, the panel's zero controls
+  asserted beside a live observer, the two call sites counted, and the toggle's
+  glyph proved different from the phone-width button's in the same bar; before
+  it 5,636, after all fifteen removable lanes got a route into the lane door
   added ten in `test/removal-door.test.mjs` — a CENSUS walking `REMOVABLE_LANES`
   itself rather than a list of the six that were unreachable, both `const`
   lines of the door EVALUATED out of `worker.js` and driven over every layer in

@@ -9764,6 +9764,13 @@ let siteCodeFiles = [];     // Code panel: [{name, text}] from /api/site/source
 let siteCodeOpen = '';      // Code panel: the open file, kept by NAME across renders
 let siteRail = 'chat';      // left rail: chat | history
 let siteRailHidden = false; // collapse the chat rail to give the preview full width
+// THE MOBILE APP COLUMN, closed until somebody opens it (owner, 2026-09-08:
+// "a column in the right hand side … for mobile app" → "in a sidebar not free
+// like that" → "something you open and close, not just something there").
+// Module scope, exactly as `siteRailHidden` is and for the same reason: the
+// workspace re-renders on every reply, so a state kept inside the render would
+// shut the panel each time the builder answered.
+let siteMobileOpen = false;
 let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
 // Images the owner attached for the next build/revise (logo / reference). Sent to
 // the builder, which hosts them + shows them to the generator's vision.
@@ -10684,6 +10691,13 @@ const ST_ICONS = {
   alert: '<path d="M12 3.5l9.2 16H2.8l9.2-16z"/><path d="M12 10v4.5"/><path d="M12 18h.01"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/>',
   card: '<rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/><path d="M6 15h4"/>',
+  // THE RIGHT-HAND PANEL TOGGLE — the mirror of the chat rail's own glyph, whose
+  // divider sits at x=9. NOT `phone`, deliberately: `phone` is already the
+  // phone-WIDTH button (`.st-dev[data-dev="phone"]`) two positions along the
+  // same bar, and two phone icons in one row meaning different things is a
+  // control nobody can read. What this button does is open a panel on the right,
+  // so it draws a panel with a divider on the right.
+  sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
 };
 function ic(name, size) { size = size || 16; return '<svg class="st-svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ST_ICONS[name] || '') + '</svg>'; }
 // `siteFileName` WENT WITH ITS TWO CALLERS (2026-09-08). It turned a static
@@ -10731,6 +10745,39 @@ function stSrcFiles(src) {
 // empty tree, an empty filename and a Download button that did nothing. A tab
 // that opens onto nothing is the dead control this app has now found four times
 // in its own chrome; a sentence naming what is missing is not.
+// THE MOBILE APP COLUMN (owner, 2026-09-08). A third column on the right of the
+// workspace, opened and closed from the top bar's `#stMobile`.
+//
+// ALWAYS RENDERED, HIDDEN BY CSS — the chat rail's own pattern, one column over,
+// and for its reason: the toggle then flips a class instead of re-rendering, so
+// opening the panel never reloads the preview iframe and never eats a
+// half-typed message. `.st-ws:not(.st-mob-open) .st-mob { display: none; }`.
+//
+// THERE IS NO BUTTON IN HERE (owner's call, asked directly: "no button, just the
+// sentence"). Nothing can build a mobile app yet, and a control that promises
+// one would be this repo's open dead-control finding in its own chrome for the
+// fifth time — after `stMembers`, the Security panel's Run scan, the effort dial
+// and the static-site Publish. The phone icon on the start screen's cards is
+// disabled and says "not built yet" for exactly the same reason; this panel says
+// the same thing in a full sentence.
+//
+// The sentence differs by state and both halves are TRUE. A project that has
+// never built has no site to make an app from, so "ask me and I'll build one
+// from this site" would be a false promise there — it is asked to build the
+// website first. When the app is real: draw it here, and delete both sentences.
+function siteMobilePanel(hasSite) {
+  return '<div class="st-mob">' +
+    '<div class="st-mob-head"><span class="st-mob-title">Mobile app</span></div>' +
+    '<div class="st-mob-stage"><div class="st-mob-device">' +
+      '<div class="st-mob-empty">' +
+        '<h4>No mobile app yet</h4>' +
+        '<p>' + (hasSite
+          ? 'Ask in the chat and I’ll build one from this site.'
+          : 'Build your website first, then ask me for the app.') + '</p>' +
+      '</div>' +
+    '</div></div>' +
+  '</div>';
+}
 function siteCodeView(site) {
   if (!(site && site.react && site.url)) {
     return '<div class="st-code"><div class="st-empty">Your site\u2019s code appears here once the first draft is built.</div></div>';
@@ -11293,7 +11340,7 @@ function renderSiteWorkspace(view, site) {
         '</div></div>'
     : '<span class="st-tb-page">Homepage</span>';
   view.innerHTML =
-    '<div class="st-ws st-lv' + (siteRailHidden ? ' st-rail-hidden' : '') + '">' +
+    '<div class="st-ws st-lv' + (siteRailHidden ? ' st-rail-hidden' : '') + (siteMobileOpen ? ' st-mob-open' : '') + '">' +
       '<div class="st-topbar">' +
         '<div class="st-tb-left">' +
           '<button type="button" class="st-icon" id="stBack" title="Your sites" aria-label="Back to your sites">' + ic('back', 18) + '</button>' +
@@ -11342,6 +11389,19 @@ function renderSiteWorkspace(view, site) {
             '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">' + ic('tablet', 16) + '</button>' +
             '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">' + ic('phone', 16) + '</button>' +
           '</div>' +
+          // THE MOBILE APP PANEL'S OWN DOOR. It sits beside the width buttons
+          // because that is what it is — a view control — and it is always
+          // drawn, on a built site and on a project with nothing yet, because
+          // hiding a control is how a customer never learns it is there (the
+          // card icons settled that). What differs by state is the sentence
+          // inside the panel, which is true in both.
+          //
+          // `on` MEANS "the panel this opens is showing", the same as the chat
+          // rail's toggle — note the two variables run opposite ways
+          // (`siteRailHidden` versus `siteMobileOpen`), so one reads `!` and
+          // this one does not. The meaning of the lit state is the thing that
+          // matches, not the polarity of the flag behind it.
+          '<button type="button" class="st-icon' + (siteMobileOpen ? ' on' : '') + '" id="stMobile" title="' + (siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app') + '" aria-label="Show or hide the mobile app">' + ic('sidebar', 17) + '</button>' +
           // FORM SUBMISSIONS AND SITE MEMBERS ARE OFF THIS BAR (owner,
           // 2026-09-07: "DELETE THIS 2 THINGS"). Both were SECOND doors to a
           // Cloud card that already exists and describes itself — "Submissions:
@@ -11483,6 +11543,7 @@ function renderSiteWorkspace(view, site) {
               '<div class="st-err-row"><button type="button" class="st-err-logs" id="stErrLogs">Dismiss</button><button type="button" class="st-err-fix" id="stErrFix">Try to fix ⏎</button></div></div>'
             : '') +
         '</div>' +
+        siteMobilePanel(hasSite) +
       '</div>' +
     '</div>';
   bindSiteNav();
@@ -11600,6 +11661,17 @@ function renderSiteWorkspace(view, site) {
     if (ws) ws.classList.toggle('st-rail-hidden', siteRailHidden);
     railTog.classList.toggle('on', !siteRailHidden);
     railTog.title = siteRailHidden ? 'Show chat' : 'Hide chat';
+  };
+  // Open/close the mobile app column, the same way and for the same reason: a
+  // class on `.st-ws`, never a re-render, so the preview iframe does not reload
+  // and a half-typed message survives.
+  const mobTog = document.getElementById('stMobile');
+  if (mobTog) mobTog.onclick = () => {
+    siteMobileOpen = !siteMobileOpen;
+    const ws = view.querySelector('.st-ws');
+    if (ws) ws.classList.toggle('st-mob-open', siteMobileOpen);
+    mobTog.classList.toggle('on', siteMobileOpen);
+    mobTog.title = siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app';
   };
   view.querySelectorAll('[data-restore]').forEach((b) => b.onclick = () => siteRestore(siteOpenId, +b.dataset.restore));
   // "Try to fix" error card.

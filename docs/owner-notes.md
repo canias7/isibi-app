@@ -146,6 +146,66 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-08 — The mobile app column, on the right, opens and closes
+
+You asked for a column down the right-hand side, said it was for the mobile app,
+then narrowed it twice: *"in a sidebar not free like that"* (so it is docked, not
+floating over the preview) and *"something you open and close, not just something
+there"* (so it has a button). It is built, and it is in `public/` only — nothing
+on the server changed, so the moment the deploy is green and you reload the page
+you have it.
+
+**What you get.** A button on the top bar, just right of the three width buttons
+(desktop / tablet / phone). Press it and a third column slides in on the right
+with a phone drawn in it. Press it again and it goes. It starts closed, and it
+stays however you left it while you are in that site.
+
+**What is in the phone: one sentence, and no button.** I mocked one up that said
+"Build the mobile app" and asked you whether to keep it; you said no button, just
+the sentence — and that was the right call. Nothing on the platform can build a
+mobile app yet, so a button there would do nothing when pressed. That is the same
+problem we have now found five times in our own screens (the members icon, the
+security scan, the effort dial, the old Publish button), and it is why the phone
+icon on the site cards is greyed out with "not built yet" on it.
+
+The sentence changes with the state and both versions are true:
+- a site that has been built: *"No mobile app yet — ask in the chat and I'll
+  build one from this site."*
+- a brand-new project: *"No mobile app yet — build your website first, then ask
+  me for the app."*
+
+The second one matters. On a project with nothing built there is no site to make
+an app from, so the first sentence would be a promise about something that does
+not exist.
+
+**Two things I checked in a real browser rather than assuming.** Opening the
+panel does not reload the preview, and it does not wipe a half-typed message.
+Both are true because the button flips a switch on the screen rather than
+redrawing the whole workspace — the same trick the "hide chat" button already
+uses. I drove both in Chromium against the real files: the preview frame is the
+same one afterwards, and the message box still held what I had typed.
+
+**The icon is deliberately not a phone.** There is already a phone icon two
+buttons along — that is the phone-width preview — and two phone icons in one row
+meaning different things is a control nobody can read. So this one draws a panel
+with a line down the right: "open the right-hand panel". It is the mirror of the
+"hide chat" button's icon on the left.
+
+**One thing the tests missed and the sweep caught.** Every check I wrote about
+the button lighting up read the click handler, which lights it correctly. Nothing
+read the markup that redraws that button every time the builder replies — so if
+someone deleted one line there, the panel would stay open and its button would go
+dark from the next reply onward, and nothing would fail. Fixed, and the check now
+reads both ends.
+
+**Where to look**: `docs/edits/mobile-panel-closed.png`,
+`mobile-panel-open.png`, and `mobile-panel-new-project.png` (the other sentence).
+
+**When the mobile app is real**, this is where it goes: drop the two sentences
+and draw the app inside the phone. Nothing else has to move.
+
+---
+
 ## 2026-09-08 — You found a real one: Code showed the preview
 
 You asked me to check that the things I added actually work, and pointed at the
