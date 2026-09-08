@@ -1690,7 +1690,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    half takes `--split` with `--on-accent` ink, which is the pair this palette
    documents for graphite-on-paper and the same one `.st-dev.on` resolves to. */
 .st-mob-os { display: flex; gap: .15rem; border: 1px solid var(--line-2); border-radius: 10px; padding: 2px; }
-.st-mob-osbtn { font: inherit; font-size: .68rem; font-weight: 600; letter-spacing: .01em; padding: .18rem .5rem; border: none; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
+/* Each half is its platform's mark and then its name. The mark is drawn in
+   `currentColor` and takes no rule of its own, so it inherits the button's ink
+   and flips with the lit state; `flex: none` keeps it its drawn size when the
+   column is at its narrowest, since a squeezed mark is the one thing here that
+   would stop reading as a logo. */
+.st-mob-osbtn { font: inherit; font-size: .68rem; font-weight: 600; letter-spacing: .01em; padding: .18rem .5rem .18rem .42rem; border: none; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
+.st-mob-osbtn .st-svg { flex: none; }
 .st-mob-osbtn.on { background: var(--split); color: var(--on-accent); }
 .st-mob-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
 /* THE HEIGHT LEADS AND THE WIDTH FOLLOWS, and that is a correction rather than a

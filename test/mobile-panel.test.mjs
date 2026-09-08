@@ -136,11 +136,26 @@ function realPanel() {
   // resolves when the line RUNS, and a bare scope is what proves it is carried.
   const list = BARE.match(/^const MOBILE_OSES = \[[^\]]+\];$/m);
   assert.ok(list, "MOBILE_OSES is gone");
+  // AND SINCE 2026-09-08 IT ALSO CLOSES OVER `brandMark`, which reaches
+  // `BRAND_MARKS`. Both come out of the FILE, never stubbed: a stub answering
+  // `''` would leave every assertion about which mark lands on which segment
+  // blind, which is the "a less-capable fake hides bugs" trap pointed at the one
+  // thing this change adds.
   // Built in a bare scope on purpose: a free identifier resolves when the line
   // RUNS, not when the file loads, so reading this function could never prove it
   // works. That trap has cost this repository four separate misses in one
   // session, one of which reached main.
-  return new Function(list[0] + "\n" + src + "; return siteMobilePanel;")();
+  return new Function(list[0] + "\n" + marksSrc() + "\n" + src + "; return siteMobilePanel;")();
+}
+
+/** The real mark table and its real emitter, cut out of the file. */
+function marksSrc() {
+  const table = span(BARE, "const BRAND_MARKS = {", "\n};", "BRAND_MARKS") + "\n};";
+  const fn = span(BARE, "function brandMark(name, size) {", "\n}", "brandMark") + "\n}";
+  return table + "\n" + fn;
+}
+function realMark() {
+  return new Function(marksSrc() + "; return { mark: brandMark, table: BRAND_MARKS };")();
 }
 
 test("the panel says something true on a built site and on a project with nothing", () => {
@@ -438,6 +453,164 @@ test("the switch changes something a person can see, and the two are not one pho
   assert.match(base, /width:\s*auto/, "the width does not follow the ratio");
   assert.match(base, /max-width:\s*100%/, "nothing walls the width in a very tall window");
   assert.ok(!/max-height:\s*100%/.test(base), "the height cap is back, which is what made the two phones identical");
+});
+
+test("the marks are their own set, because `ic` would draw them as outlines", () => {
+  // `ic()` stamps `fill="none" stroke="currentColor"` on the <svg>, which is the
+  // whole of what makes ST_ICONS one coherent line set — and would draw the apple
+  // as an outline and the robot's head as a horseshoe. The property is that the
+  // two emitters really do the opposite thing, with BOTH read so the assertion
+  // cannot pass by one of them having been deleted.
+  const icLine = BARE.match(/^function ic\(name, size\) \{.*$/m);
+  assert.ok(icLine, "ic() is gone — the observer for this comparison is dead");
+  assert.match(icLine[0], /fill="none"/, "ic no longer draws line icons, so this comparison says nothing");
+  assert.match(icLine[0], /stroke="currentColor"/, "ic no longer strokes");
+
+  const wrapper = span(BARE, "function brandMark(name, size) {", "\n}", "brandMark");
+  assert.ok(!/fill="none"/.test(wrapper), "the mark wrapper paints like a line icon — the apple would be an outline");
+  assert.ok(!/stroke="currentColor"/.test(wrapper), "the mark wrapper strokes, so the marks are no longer solid");
+
+  // The paint is on the paths instead, which is what lets one <svg> hold a filled
+  // head and a stroked pair of antennae.
+  const { table } = realMark();
+  for (const [name, inner] of Object.entries(table)) {
+    assert.match(inner, /<path[^>]*\sfill="currentColor"/, name + " has no filled path — it is not a solid mark");
+    assert.ok(!/fill="(?!currentColor|none)[^"]/.test(inner) && !/stroke="(?!currentColor)[^"]/.test(inner),
+      name + " paints with a literal colour, so it cannot flip with the segment's ink");
+  }
+
+  // AND THE TWO ARE TOLD APART BY THEIR SHAPE, which is what catches a swap.
+  // Every check that compares a segment against the table is satisfied by the
+  // pair being exchanged — the iPhone would wear the robot and nothing would
+  // fail — so this names the one structural difference: the apple is a single
+  // solid shape, the robot is a filled head plus stroked antennae. Deliberately
+  // by key name, because it is about these two drawings and not about the list.
+  const paths = (s) => [...s.matchAll(/<path\b/g)].length;
+  assert.equal(paths(table.ios), 1, "the apple is not one solid shape — is it the robot's drawing?");
+  assert.equal(paths(table.android), 2, "the robot is not a filled head plus stroked antennae");
+  assert.match(table.android, /<path fill="none" stroke="currentColor"/, "the robot's antennae are not stroked");
+  assert.ok(!/stroke=/.test(table.ios), "the apple carries a stroked path, which is the robot's shape — the two look swapped");
+
+  // WHAT THIS CANNOT SEE, said rather than implied: whether either mark is
+  // legible at the 13px it is drawn at. That is a rendering question and the
+  // answer is a screenshot — the entry records the sizes it was judged at.
+});
+
+test("every phone has a mark, and a name that is not one draws nothing", () => {
+  // TWO LISTS OF THE SAME THING: the phones live in MOBILE_OSES and again as keys
+  // here. A third phone added to the array with no mark beside it is a segment
+  // with an empty square where its logo should be, and nothing fails.
+  const { mark, table } = realMark();
+  assert.deepEqual(Object.keys(table).sort(), oses().sort(),
+    "BRAND_MARKS and MOBILE_OSES disagree about which phones exist");
+
+  for (const os of oses()) {
+    const svg = mark(os, 13);
+    assert.match(svg, /^<svg /, "the mark for " + os + " is not an svg");
+    assert.match(svg, /width="13" height="13"/, "the mark for " + os + " ignored the size it was asked for");
+    assert.match(svg, /viewBox="0 0 24 24"/, "the mark for " + os + " left the icon box, so it will not line up");
+    assert.match(svg, /<path/, "the mark for " + os + " draws nothing");
+    // Decoration beside a word, never the button's own name — the label is what
+    // a screen reader reads, which is why the owner's "names PLUS their logo"
+    // keeps working for somebody who cannot see either.
+    assert.match(svg, /aria-hidden="true"/, "the mark for " + os + " is announced as content");
+  }
+
+  // `Object.hasOwn`, never truthiness: `BRAND_MARKS["constructor"]` is a function
+  // and `|| ''` would stringify it into the page. The recorded trap, on a table
+  // whose lookup takes a name.
+  for (const junk of ["constructor", "toString", "__proto__", "ipad", "", "IOS"]) {
+    const svg = mark(junk, 13);
+    assert.ok(!/<path/.test(svg), "“" + junk + "” drew something: " + svg.slice(0, 90));
+    assert.ok(!/function|\[native code\]|Object/.test(svg), "“" + junk + "” stringified into the markup: " + svg.slice(0, 90));
+  }
+});
+
+test("each segment wears its OWN mark, beside its own word", () => {
+  // THE WIRING ASSERTION. Both marks can be perfect and both can land on one
+  // button, or the pair can be swapped, and every check above stays green. Drive
+  // the real panel and match the mark that arrives against the one the table
+  // holds for that phone.
+  const panel = realPanel();
+  const { table } = realMark();
+  const names = oses();
+
+  // The path data identifies the mark; take a distinctive slice of each so the
+  // comparison is not satisfied by the shared `<path fill=` prefix.
+  const tell = {};
+  for (const os of names) {
+    const d = table[os].match(/\sd="([^"]{40,})"/);
+    assert.ok(d, "cannot find a path to identify " + os + " by");
+    tell[os] = d[1].slice(0, 40);
+  }
+  assert.notEqual(tell[names[0]], tell[names[1]], "the two marks are the same drawing");
+
+  for (const lit of names) {
+    const html = panel(true, lit);
+    for (const os of names) {
+      // The button cut out from ITS OWN TAGS, so a mark sitting anywhere else in
+      // the panel cannot satisfy this. Landmarks, never a byte offset: the first
+      // draft sliced back a fixed 200 bytes and the lit button opens at ~197, so
+      // `slice` went negative and counted from the END of the string — this
+      // repository's own recorded window trap, met inside the guard written to
+      // catch a wiring bug.
+      const at = html.indexOf('data-os="' + os + '"');
+      assert.ok(at >= 0, "nothing in the panel is drawn as " + os);
+      const open = html.lastIndexOf("<button", at);
+      const close = html.indexOf("</button>", at);
+      assert.ok(open >= 0 && close > open, "the " + os + " segment is not inside a button");
+      const btn = html.slice(open, close);
+      assert.match(btn, /st-mob-osbtn/, "the first " + os + " element is not the segment — this is reading the frame");
+      assert.ok(btn.includes(tell[os]), "the " + os + " segment does not carry the " + os + " mark");
+      const other = names.find((n) => n !== os);
+      assert.ok(!btn.includes(tell[other]), "the " + os + " segment carries the " + other + " mark");
+    }
+    // AND THE WORDS STAY. The owner asked for "the names plus their logo", so a
+    // mark that replaced its label would be the wrong change, not a smaller one.
+    assert.match(html, /<\/svg>iPhone</, "the iPhone label went when the mark arrived");
+    assert.match(html, /<\/svg>Android</, "the Android label went when the mark arrived");
+  }
+});
+
+test("the robot's eyes are holes, and the marks sit in a row with the words", () => {
+  // WHAT MAKES THE EYES HOLES IS THE WINDING, not the fill rule: each eye's arcs
+  // carry sweep 0 where the dome carries sweep 1, so they cancel. Measured —
+  // rendering the android under `evenodd` and `nonzero` gives identical pixels,
+  // so the attribute is INERT and this does not pretend to guard it. Flip an
+  // eye's sweep and it fills in: a robot with one eye, which no other assertion
+  // here would notice.
+  const { table } = realMark();
+  const body = table.android.match(/<path[^>]*\sfill="currentColor"[^>]*\sd="([^"]+)"/);
+  assert.ok(body, "the android's filled path is gone");
+  // PER SUBPATH, so this says "each eye winds against the dome" rather than
+  // depending on the order every arc happens to appear in. Note the second arc of
+  // each circle repeats the `a` implicitly, so matching a leading `a` finds three
+  // arcs where there are five — the reading is `rx ry rotation large sweep`.
+  const subs = body[1].split("M").filter(Boolean);
+  assert.equal(subs.length, 3, "expected the dome and two eyes, found " + subs.length + " subpaths");
+  const sweeps = (s) => [...s.matchAll(/[\d.]+ [\d.]+ 0 [01] ([01])/g)].map((m) => m[1]);
+  const dome = sweeps(subs[0]);
+  assert.equal(dome.length, 1, "the dome is not one arc any more");
+  assert.equal(dome[0], "1", "the dome no longer winds clockwise");
+  for (const [i, eye] of subs.slice(1).entries()) {
+    const w = sweeps(eye);
+    assert.equal(w.length, 2, "eye " + (i + 1) + " is not two arcs: " + eye);
+    assert.ok(w.every((s) => s !== dome[0]),
+      "eye " + (i + 1) + " winds the same way as the dome, so it fills in instead of being a hole: " + w.join(""));
+  }
+
+  // AND THE MARK SITS BESIDE THE WORD RATHER THAN ABOVE IT. A button is not a
+  // flex container by default, so without this the svg — which `.st-svg` sets to
+  // `display: block` — takes its own line and the pill grows to two rows.
+  const seg = span(CSS_BARE, "\n.st-mob-osbtn {", "}", "the segment");
+  assert.match(seg, /display:\s*inline-flex/, "the segment is not a row, so the mark drops under the word");
+  assert.match(seg, /align-items:\s*center/, "the mark and the word do not share a centre line");
+  assert.match(seg, /gap:\s*[.\d]+rem/, "there is no space between the mark and the word");
+  // Measured: at the column's 300px floor the header holds 248px of content, so
+  // nothing is squeezed today. The wall is for the day a longer label arrives —
+  // a squeezed logo is the one thing here that stops reading as a logo.
+  assert.match(CSS_BARE, /\.st-mob-osbtn \.st-svg \{[^}]*flex:\s*none/,
+    "the mark can be squeezed by its own row");
 });
 
 test("the stylesheet knows every phone the code does", () => {

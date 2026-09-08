@@ -10717,6 +10717,58 @@ const ST_ICONS = {
   sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
 };
 function ic(name, size) { size = size || 16; return '<svg class="st-svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ST_ICONS[name] || '') + '</svg>'; }
+// THE TWO PLATFORM MARKS (owner, 2026-09-08: "instead of the names, the names
+// plus their logo"), and they are their OWN table because they cannot go through
+// `ic()`. That emitter stamps `fill="none" stroke="currentColor"` on the <svg>,
+// which is the whole of what makes `ST_ICONS` one coherent line set — and it
+// would draw the apple as an outline and the robot's head as a horseshoe. These
+// are FILLED, so the wrapper carries no paint at all and each path carries its
+// own. A second table rather than a flag on the first, because "line icon" and
+// "solid mark" are two sets, not one set with an exception.
+//
+// DRAWN HERE, NOT FETCHED. The paths are our own rendering of the two
+// platforms' marks, used to say which phone the panel is drawn as, so there is
+// no asset to download at runtime and no file to keep in step with anything.
+// Everything is `currentColor`, so a mark takes the segment's own ink and flips
+// with it between --muted and --on-accent without a rule of its own.
+//
+// SIZED FOR 13px BY LOOKING AT IT, WHICH IS THE ONLY SIZE ANYTHING ASKS FOR.
+// The robot's first draft was a small dome low in the box with long thin
+// antennae; at the 0.54x a 24-unit box renders at 13px its eyes closed up and
+// the antennae read as two stray hairs. The dome fills the box now and the
+// antennae are shorter, splayed wider and thicker. The apple needed no change —
+// it is one solid shape and survives the reduction as it is.
+//
+// KEYED BY THE PLATFORM'S OWN NAME, so the segment asks for a mark with the
+// value it already holds (`MOBILE_OSES`) and there is no second list to drift.
+const BRAND_MARKS = {
+  // Two subpaths — the leaf and the body — that do not overlap, so no fill rule
+  // has anything to decide and none is set. (It carried `evenodd` for an hour;
+  // rendering both rules gave identical pixels, so it was an attribute saying
+  // nothing.)
+  ios: '<path fill="currentColor" d="M15.72 3.06c.62-.76 1.04-1.8.93-2.86-.9.04-1.98.6-2.62 1.35-.58.67-1.09 1.74-.95 2.76 1 .08 2.02-.51 2.64-1.25zM19.4 12.66c-.02-2.2 1.8-3.26 1.88-3.31-1.02-1.5-2.62-1.7-3.19-1.72-1.36-.14-2.65.8-3.34.8-.69 0-1.75-.78-2.88-.76-1.48.02-2.85.86-3.61 2.18-1.54 2.67-.39 6.62 1.11 8.79.73 1.06 1.61 2.25 2.75 2.21 1.1-.04 1.52-.71 2.85-.71 1.33 0 1.71.71 2.88.69 1.19-.02 1.94-1.08 2.67-2.15.84-1.23 1.19-2.42 1.21-2.48-.03-.01-2.32-.89-2.34-3.54z"/>',
+  // The dome and both eyes are ONE path, so the eyes are holes knocked through
+  // the head rather than two paper-coloured discs laid on it — the difference
+  // between a mark that works on any ground and one that only works on the
+  // ground it was drawn against. TWO THINGS MAKE THEM HOLES AND ONLY ONE IS
+  // LOAD-BEARING: each eye's arcs carry sweep 0 where the dome carries sweep 1,
+  // so they wind the opposite way and cancel — which is why `evenodd` here is
+  // INERT, measured by rendering both rules to identical pixels. It stays as the
+  // second wall (a later edit that changes a winding still gets holes) and is
+  // said out loud rather than pretended to be covered by a guard; what the guard
+  // holds is the winding, which is the half that actually decides.
+  // The antennae are stroked, so they keep one weight instead of having to be
+  // drawn as tapered outlines.
+  android: '<path fill="currentColor" fill-rule="evenodd" d="M2 20.5a10 10 0 0 1 20 0ZM6.95 15.6a1.45 1.45 0 1 0 2.9 0 1.45 1.45 0 1 0-2.9 0ZM14.15 15.6a1.45 1.45 0 1 0 2.9 0 1.45 1.45 0 1 0-2.9 0Z"/>'
+    + '<path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" d="M6 5.2 9 10.9M18 5.2 15 10.9"/>',
+};
+// `Object.hasOwn`, never truthiness: `BRAND_MARKS["constructor"]` is a function,
+// and a name that is not a mark must draw nothing rather than a stringified one.
+function brandMark(name, size) {
+  size = size || 13;
+  return '<svg class="st-svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" aria-hidden="true">'
+    + (Object.hasOwn(BRAND_MARKS, name) ? BRAND_MARKS[name] : '') + '</svg>';
+}
 // `siteFileName` WENT WITH ITS TWO CALLERS (2026-09-08). It turned a static
 // site's route into `menu.html`, and both places that asked — the Code tab's
 // file tree and its per-file Download — now read the React source, whose files
@@ -10798,8 +10850,14 @@ function setMobileOs(os) {
 // one session.
 function siteMobilePanel(hasSite, os) {
   const on = MOBILE_OSES.includes(os) ? os : MOBILE_OSES[0];
+  // THE MARK AND THE WORD, not the mark alone (owner: "instead of the names, the
+  // names plus their logo") — so the button keeps an accessible name in text and
+  // the mark is `aria-hidden` decoration beside it. `brandMark` is asked with
+  // `v`, the same value that keys the button and the frame, so the mark cannot
+  // end up on the wrong segment.
   const seg = (v, label) =>
-    '<button type="button" class="st-mob-osbtn' + (on === v ? ' on' : '') + '" data-os="' + v + '">' + label + '</button>';
+    '<button type="button" class="st-mob-osbtn' + (on === v ? ' on' : '') + '" data-os="' + v + '">'
+      + brandMark(v, 13) + label + '</button>';
   return '<div class="st-mob">' +
     '<div class="st-mob-head"><span class="st-mob-title">Mobile app</span>' +
       '<div class="st-mob-os" role="group" aria-label="Which phone">' +

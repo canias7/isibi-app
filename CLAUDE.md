@@ -1573,10 +1573,86 @@ open dead-control finding avoided rather than added to for the fifth time.
   the lit segment drawn as unlit. **The earlier panel sweep was re-anchored and
   re-run whole on the new tree: 30 mutants, 30 killed, none unapplied.** Full
   suite **5,656**.
+- **AND EACH HALF WEARS ITS PLATFORM'S MARK (owner, the same day: *"instead of
+  the names, the names plus their logo"*).** The words STAY and each gains its
+  logo before it — an apple before **iPhone**, the robot's head before
+  **Android** — at 13px, in `currentColor`, so both flip with the lit state
+  without a rule of their own. The label is still what a screen reader reads;
+  the mark is `aria-hidden` decoration beside it, which is what keeps "the names
+  plus their logo" true for somebody who cannot see either.
+- **THEY ARE THEIR OWN TABLE, NOT `ST_ICONS`, AND THE REASON IS ONE ATTRIBUTE.**
+  `ic()` stamps `fill="none" stroke="currentColor" stroke-width="1.85"` on the
+  `<svg>` — which is the whole of what makes that a coherent line set, and what
+  would draw the apple as an OUTLINE and the robot's head as a horseshoe.
+  `BRAND_MARKS` + `brandMark(name, size)` put the paint on the PATHS instead,
+  which is also what lets one `<svg>` hold a filled head and a stroked pair of
+  antennae. A second table rather than a flag on the first: "line icon" and
+  "solid mark" are two sets, not one set with an exception. **Keyed by the
+  platform's own name**, so the segment asks with the value it already holds
+  (`MOBILE_OSES`) and there is no second list to drift — asserted both ways.
+  `Object.hasOwn`, never truthiness, because `BRAND_MARKS["constructor"]` is a
+  function and `|| ''` would stringify one into the page.
+- **DRAWN AND LOOKED AT AT 13px, WHICH IS THE ONLY SIZE ANYTHING ASKS FOR.** The
+  robot's first draft was a small dome low in the box with long thin antennae;
+  rendered at the 0.54× a 24-unit box takes to reach 13px, its eyes closed up and
+  the antennae read as two stray hairs. Three renders later the dome fills the
+  box and the antennae are shorter, splayed wider and thicker; the apple needed
+  no change, being one solid shape. **No guard here could have said that** — the
+  test asserts what it can and says out loud that legibility is a screenshot's
+  answer, not its own.
+- **THE ROBOT'S EYES ARE HOLES, AND `evenodd` IS NOT WHAT MAKES THEM ONE.**
+  MEASURED: rendering the mark under `evenodd` and under `nonzero` gives
+  IDENTICAL pixels, because each eye's arcs carry sweep 0 where the dome carries
+  sweep 1 — they wind against it and cancel. So the attribute is INERT. It stays
+  as the second wall (a later edit that changes a winding still gets holes),
+  said out loud in the module, and NOT pretended to be covered by a guard; what
+  the guard holds is the WINDING, read per subpath, which is the half that
+  decides. **The apple's own `evenodd` was deleted rather than kept**: its two
+  subpaths do not overlap, so no fill rule has anything to decide there — an
+  attribute saying nothing, which is a different thing from a redundant wall.
+- **A SWAP OF THE TWO DRAWINGS WOULD HAVE PASSED EVERY OTHER CHECK.** Each "this
+  segment carries its own mark" assertion derives what it expects FROM the table,
+  so exchanging the pair satisfies it — the iPhone would wear the robot and
+  nothing would fail. The one structural difference names them: the apple is a
+  single solid path, the robot is a filled head PLUS a stroked pair of antennae.
+- **Guards**: +4 in `test/mobile-panel.test.mjs`, and `realPanel` now carries the
+  real `BRAND_MARKS` and `brandMark` into its bare scope — the recorded
+  free-identifier trap, and never stubs, because a stub answering `''` would
+  leave every which-mark-lands-where assertion blind. The two emitters are read
+  AGAINST each other with both proved alive; every phone required to have a mark,
+  derived; the hostile-key refusal driven over six names; the panel DRIVEN with
+  each segment cut out from its own tags and matched against the table; the
+  labels asserted to have survived the marks; the winding read per subpath; and
+  the row's `inline-flex`, `align-items`, `gap` and `flex: none`.
+  **AND THE GUARD'S OWN FIRST DRAFT MET TWO RECORDED TRAPS.** It sliced back a
+  fixed **200 bytes** to find the button's opening tag, and the lit button opens
+  at ~197 — so `slice` went NEGATIVE and counted from the END of the string, and
+  reported a correct segment as markless. The byte-window trap, inside a guard
+  written to catch a wiring bug. Landmark to landmark now, with the slice
+  asserted to really be the segment and not the frame one attribute over. And it
+  counted the robot's arcs by their leading `a`, where the second arc of each
+  circle repeats the command implicitly: three where there are five.
+- **MEASURED, because the marks widened both pills**: at the column's 300px floor
+  the header holds **248px of content in 276px**, each pill on one row, neither
+  overlapping the title, both marks exactly 13×13 — and the same at 1280, 1512
+  and 1920. So nothing is squeezed today and `flex: none` is the wall for the day
+  a longer label arrives.
+- **Sweep: 17 mutants, 17 killed, none survived, none unapplied, two comment-only
+  controls survived** — the mark gone from the segment (the state before this),
+  the mark REPLACING the word rather than joining it, both segments drawing one
+  mark, the iPhone given the robot's drawing, the wrapper painting like a line
+  icon, the emitter ignoring the size it is asked for, the mark leaving the icon
+  box, the mark announced as content, the table read by truthiness, a phone
+  losing its mark, an eye winding with the dome, the antennae filled instead of
+  stroked, a mark painting a literal colour, the segment not a row, the mark and
+  the word off one centre line, the gap gone, and the mark squeezable. **Both
+  earlier sweeps were re-run whole on this tree** — the switch's 27 and the
+  column's 30 — all killed, none unapplied, every control surviving. Full suite
+  **5,660**.
 - **Not proven live.** The push touches `public/` only — no container roll, no
   15–20 minute hold. The proof is one look: open a site, press the panel button
   right of the phone-width buttons, and the column appears with an iPhone in it;
-  press Android and the frame changes shape. Renders:
+  press Android and the frame changes shape and the robot lights up. Renders:
   `docs/edits/mobile-panel-closed.png`, `mobile-panel-iphone.png`,
   `mobile-panel-android.png`, and `mobile-panel-new-project.png` (the other
   sentence).
@@ -7028,9 +7104,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,656
-  (2026-09-08, after the mobile app column and its iPhone/Android switch added
-  twenty-one in `test/mobile-panel.test.mjs` — the chain DERIVED from the value's
+  build and the pre-list payload added sixteen); the unit suite is 5,660
+  (2026-09-08, after the mobile app column, its iPhone/Android switch and the two
+  platform marks added twenty-five in `test/mobile-panel.test.mjs` — the chain
+  DERIVED from the value's
   own route rather than from the hops that were on my mind, the hiding rule's
   DIRECTION asserted so an inversion cannot pass, `siteMobilePanel` evaluated out
   of chat.js in a bare scope and driven both ways, the toggle handler CUT OUT and
@@ -7040,7 +7117,14 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   and — for the switch — the real writer and the real handler cut out and driven
   TOGETHER, the frame's fallback over seven junk shapes, and the two phones' CSS
   blocks REQUIRED to differ on ratio, corners and camera, which a switch whose
-  halves look identical would fail; before it 5,636, after all fifteen removable lanes got a route into the lane door
+  halves look identical would fail; and — for the marks — the two emitters read
+  AGAINST each other with both proved alive, every phone required to have a mark
+  derived from `MOBILE_OSES`, the hostile-key refusal driven over six names, the
+  panel DRIVEN with each segment cut from its own tags and matched against the
+  table, the two drawings told apart structurally so a swap cannot pass, and the
+  robot's eye winding read per subpath — which is the half that decides, the
+  `evenodd` beside it being INERT and said so rather than guarded;
+  before it 5,636, after all fifteen removable lanes got a route into the lane door
   added ten in `test/removal-door.test.mjs` — a CENSUS walking `REMOVABLE_LANES`
   itself rather than a list of the six that were unreachable, both `const`
   lines of the door EVALUATED out of `worker.js` and driven over every layer in

@@ -235,6 +235,40 @@ they could never come out equal and the check was empty. Fixed. The other two
 were real: nothing checked that the panel opens on a phone that exists, and
 nothing checked that the lit half of the switch actually looks lit.
 
+**And then the logos** — *"instead of the names, the names plus their logo"*. The
+two buttons still say **iPhone** and **Android**, and each now has its logo in
+front of the word.
+
+**I drew both by hand rather than downloading them.** Nothing is fetched when the
+page loads, there is no image file to keep in step with anything, and they are
+drawn in the same ink as the button — so they go pale when the button is off and
+light up when it is on, without needing a rule of their own.
+
+**The Android robot took three goes, and only looking at it found that out.**
+These sit at 13 pixels, smaller than the words beside them. My first drawing had
+a small head low in the box with long thin antennae, and at that size his eyes
+closed up and the antennae read as two loose hairs. Nothing in the tests could
+have told me — a test can check the drawing is there and on the right button, not
+whether it looks like anything. So I rendered it, looked, redrew it with a bigger
+head and shorter, wider, thicker antennae, and looked again. The apple was right
+the first time; it is one solid shape and shrinks well.
+
+**One small thing I found and fixed while I was in there.** I had put an
+attribute on both marks whose job was to punch the robot's eyes out as holes
+rather than paint them on. I measured it, and the eyes were already holes for a
+different reason — so on the apple, where it genuinely does nothing at all, I
+took it off; on the robot I left it as a second belt, with a note saying which
+one is actually holding the trousers up. Small, but the alternative is the next
+person reading it as the thing that matters and building on it.
+
+**One of my own tests was wrong again, the same way as before.** To check that
+each button carries its own logo I had to cut the button out of the page markup,
+and I did it by counting backwards a fixed number of characters — and the button
+starts just before that count, so the cut wrapped round to the end of the page
+and reported a perfectly good button as having no logo. Fixed by looking for the
+button's own opening tag instead. This is the third or fourth time counting
+characters has bitten me and it is written down in the rules; I did it anyway.
+
 **Where to look**: `docs/edits/mobile-panel-iphone.png` and
 `mobile-panel-android.png`, side by side.
 
