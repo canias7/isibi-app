@@ -629,6 +629,12 @@
        above. Loaded BEFORE chat.js, which calls into it on every render of the
        start screen. -->
   <script src="/site-list.js"></script>
+  <!-- The zip the Download button writes, in a file that also runs under
+       node --test — and here the reason is stronger than for the two above: a
+       zip is bytes at offsets, so a header written one field short still looks
+       like an archive and fails only when somebody opens it a week later. Its
+       guard round-trips the bytes through Python's own zipfile. -->
+  <script src="/site-zip.js"></script>
   <script src="/vendor/qrcode.js"></script>
   <script src="/chat.js"></script>
   <script src="/ffmpeg-edit.js"></script>

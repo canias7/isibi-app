@@ -19486,6 +19486,60 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ ok: true, slug: aslug, answer: stored });
     }
 
+    // GET /api/site/source — THE SITE'S OWN CODE, FOR THE CUSTOMER WHO OWNS IT.
+    //
+    // Owner, 2026-09-08, on two screenshots of the workspace top bar: "2
+    // different screens when theres a build and not, see, different buttons all
+    // around". The Code tab, the Download icon and the Publish button were the
+    // STATIC-SITE ERA'S, gated `isReact ? '' : …`, so they appeared only on a
+    // project that had never built — where two were greyed out and Code opened
+    // an empty two-pane editor. Nothing can make a non-react site any more
+    // (`siteCreate` writes no flag, `siteSend` routes every first message down
+    // the React path, `site-list.js` stamps `react: true` on every server row),
+    // so those three reached exactly one screen and did nothing on it. The
+    // owner's call was to make Code and Download REAL rather than delete them,
+    // and this route is what they read.
+    //
+    // WHAT IT HANDS BACK IS THE STORE, UNCHANGED. `source/<slug>/pages.json` is
+    // the revise anchor — the page source as the site last published it — and
+    // `source/<slug>/parts.json` the components written for this site. Both are
+    // returned in their stored shapes (`{path, source}` and `{name, source}`)
+    // rather than re-shaped into files here, because the browser has to compose
+    // display names anyway and two composers is the recorded "two lists of the
+    // same thing". `test/site-source.test.mjs` derives the browser's naming from
+    // `build-server.mjs`'s own `safeRoute` / `safePart`, so a drift between what
+    // this shows and where the container really writes is caught in the suite.
+    //
+    // OWNERSHIP, NOT MERELY AUTH, and the 404 that goes with it — the answer
+    // route's rules one block up, for the same reason: this is a customer's own
+    // source, and a distinct 403 would tell whoever asks that the slug is taken.
+    //
+    // NOTHING STORED IS ITS OWN ANSWER. A site that has never published has no
+    // `pages.json`, and answering the 404 above would say "not your site" about
+    // a site they own — the recorded "a failure that cannot name itself". It is
+    // `ok: true` with empty lists and a sentence saying which.
+    if (url.pathname === "/api/site/source" && request.method === "GET") {
+      const su = await authUser(request);
+      if (!su) return UNAUTHED();
+      const sslug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
+      if (!sslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      const sown = await siteOwnerBySlug(sslug, env);
+      if (!sown || sown !== su.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      // READ, NEVER REPAIRED. `loadSiteSourceForEdit` is for the four callers
+      // that go on to PUBLISH what they read; this one only shows it, so it
+      // takes no lease, moves nothing, and cannot make a site busy.
+      const [sPages, sParts] = await Promise.all([loadSiteSource(env, sslug), loadSiteParts(env, sslug)]);
+      const pages = Array.isArray(sPages) ? sPages : [];
+      const parts = Array.isArray(sParts) ? sParts : [];
+      return Response.json({
+        ok: true,
+        slug: sslug,
+        pages,
+        parts,
+        ...(pages.length ? {} : { why: "nothing stored — this site has not published a build yet" }),
+      });
+    }
+
     // GET /api/site/reconcile?slug=&job=&apply=1 — WHAT BECAME OF A CHANGE
     // THAT STOPPED MID-PUBLISH (stage 3b, 2026-09-05).
     //

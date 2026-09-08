@@ -939,6 +939,143 @@ name, and only a person pressing it finds out.
 - **Not proven live.** The next signed-in load shows the bar with the two icons
   gone; Cloud still lists both cards and both still open.
 
+### THE CODE TAB AND THE DOWNLOAD ARE REAL, AND PUBLISH IS GONE (2026-09-08,
+owner on two screenshots of the workspace top bar: *"2 different screens when
+theres a build and not , see , different buttons all around"*)
+
+The two bars differed on ONE flag, and it was not "has a build" — it was
+`isReact = !!(site.react && site.url)`, which gated **Code**, the **Download**
+icon and the **Publish** button as `isReact ? '' : …`. All three are the
+STATIC-SITE ERA'S, so they appeared only on a project that had **never** built:
+Download and Publish greyed, and Code opening a two-pane editor with an empty
+tree, an empty file name and a Download button inside it that did nothing.
+
+**AND NOTHING CAN MAKE A NON-REACT SITE ANY MORE** — three independent proofs,
+read rather than assumed: `siteCreate` writes no such flag; `siteSend` routes
+every first message down the React path (`reactPath = isBuild || site.react`);
+and `site-list.js` stamps `react: true` on every server row. So those three
+controls reached exactly one screen and did nothing on it. **The open
+dead-control finding for the FOURTH time in this app's own chrome** — after
+`stMembers`, the Security panel's Run scan and the effort dial — and the rule
+the card icons settled applies: a control earns its place by SAYING something
+true. The owner's call was to make Code and Download REAL rather than delete
+them.
+
+- **`GET /api/site/source?slug=`** — the caller's OWN pages and parts, owner-gated
+  exactly as the answer and migrations routes are, so a signed-in stranger gets
+  the 404 a missing site gets. **It is a DISPLAY read**: `loadSiteSource` +
+  `loadSiteParts`, never `loadSiteSourceForEdit`, so it takes no lease, repairs
+  no editable state and moves nothing — a tab that shows you your code must not
+  be able to change your site. Nothing stored is `ok: true` with a sentence,
+  never the stranger's 404: those are different facts and the customer needs
+  them apart.
+- **`public/site-zip.js`** — a zip written in the browser, dependency-free, in a
+  file that runs under `node --test`. `site-list.js`'s pattern and one reason of
+  its own: **a zip is the one thing here where reading the writer proves
+  nothing.** Every byte is an offset into a binary format, and a header written
+  one field short still looks like an archive, still downloads, still has the
+  right name in the browser's bar, and fails when somebody double-clicks it a
+  week later. **STORED, NOT DEFLATED, DELIBERATELY** — `CompressionStream` would
+  make it smaller and a subtly wrong deflate stream is exactly the failure the
+  file exists to avoid; a site's source is tens of kilobytes. **The DOS stamp is
+  FIXED at the format's own 1980 epoch**, not `new Date()`, so two downloads of
+  an unchanged site are byte-identical — which is what makes any of this testable
+  — and because a build's clock is not a fact about the source. `safeName`
+  **refuses rather than repairs** (a `../` in an entry name is a file written
+  outside the folder the customer extracted to): a repaired name is a guessed
+  name, and these files are named by us from a store we wrote, so a refusal means
+  something upstream is wrong and renaming it silently would hide that.
+- **`stSrcPath` IS THE BROWSER'S COPY OF THE CONTAINER'S TWO NAMING RULES**
+  (`src/routes/<page>` and `src/routes/-parts/<name>.tsx`), and the guard DERIVES
+  its expectation from `build-server.mjs`'s own `safeRoute` and `safePart`
+  evaluated out of that file — the recorded "two lists of the same thing", where
+  a drift would hand somebody an archive whose layout is not their site's.
+  `stSrcFiles` is ONE list feeding both the tree and the zip, because two lists
+  would let the tab show a file the download leaves out.
+- **The tab's host is rendered and filled afterwards** (the Data view's shape:
+  the source is a fetch and `renderSiteWorkspace` is synchronous), and **the open
+  file is kept by NAME across renders** — a rebuild can add or drop a part, and
+  an index would then open a different file than the one that was open. The pane
+  is clipped for display (a `<pre>` of a megabyte locks the tab) and **the zip
+  gets the whole file**, because a download that quietly lost the end of a page
+  is a lying instrument.
+- **THE DOWNLOAD ASKS THE SERVER FOR ITSELF** rather than reading the tab's list.
+  A customer can press it having never opened Code, so the tab's `siteCodeFiles`
+  is only a cache; reading it alone would make the button work or not depending
+  on where they had clicked first, which is the worst kind of control — one that
+  is sometimes right. **Nothing to zip is SAID, never shipped as an empty
+  archive**: a zip with no entries opens to an empty folder, which reads as "my
+  code is gone" to somebody who has just paid for a build. **ONE saver**
+  (`stSaveBlob`) for the whole-site zip and the single-file download, so the two
+  cannot drift on how a file reaches the disk.
+- **PUBLISH IS DELETED AND ITS PANEL IS KEPT, with the way back written beside
+  it** — the `gif` and effort-dial precedent. A React site publishes as part of
+  every build, so the button's own panel said "publish it first" about a page
+  that was already live. **AND THE FINDING IS THAT IT WAS THE PANEL'S ONLY
+  DOOR**: `sitePublishPanel` is the one route to "Take it offline" / "Put it back
+  online" (`siteSetLive`), and being `isReact`-gated means **that capability has
+  had no door on any live site** — the deletion does not bury it, it was already
+  buried. The comment names the fix: a Cloud card beside Submissions and Members.
+  Owner's call.
+- **Guards**: `test/site-source.test.mjs` (25) — the archive ROUND-TRIPPED
+  through Python's own `zipfile` (`testzip()` plus every file read back, one with
+  accented text and one empty); the names DERIVED from the container; the route
+  DRIVEN six ways through the real router with a per-case slug (`siteOwnerBySlug`
+  memoizes for five minutes, so a shared slug lets one case answer another's —
+  the recorded trap, met again); both controls asserted on BOTH screens; Publish's
+  absence asserted beside live observers; and **both handlers EVALUATED out of
+  `chat.js` and driven** against fakes.
+- **Sweep: 35 mutants, 35 killed, none survived, none unapplied, two comment-only
+  controls survived — SIX survived the first pass and every one was a guard gap,
+  in two families.**
+  **(a) THREE FIELDS THE INSTRUMENT DOES NOT READ, proven by driving rather than
+  argued.** Python's `zipfile` decodes every name from the CENTRAL directory's
+  flag word and walks the central directory by its byte SIZE — so the LOCAL
+  header's UTF-8 flag and the end record's entry count are both invisible to it:
+  with either one wrong the round trip passes unchanged, measured. A streaming
+  extractor reads only the local header and plenty of tools trust the count, so
+  those are the difference between an archive that opens here and one that opens
+  on the customer's machine. Nothing drove the fixed timestamp either. **A second
+  reader now takes the archive apart by its own offsets and compares what it SAYS
+  against what it CONTAINS** — the one comparison a single reader cannot make —
+  with the stamp DECODED as a date rather than compared against the number we
+  wrote.
+  **(b) THREE CONDITIONS THAT HAD BEEN READ RATHER THAN DRIVEN**: `if (false)`
+  leaves the call it guards exactly where a source read looks for it, the
+  recorded trap, so the download's fetch, its nothing-to-zip sentence and the
+  open file's by-name choice all survived a green check. Both handlers are
+  evaluated and driven now.
+  The killed ones: the CRC never computed or its table built on the wrong
+  polynomial, the central directory pointing at the wrong offset, the end record
+  naming the wrong start, a traversal name repaired instead of refused, a
+  non-string name coerced, an entry with no text written as an empty file; the
+  route answering a stranger, asking for no sign-in, wearing the stranger's 404
+  for a site with nothing stored, never sending the site's own components,
+  repairing the editable copy it only shows, taking the slug as sent; the Code
+  tab or the Download gated on `isReact` again (the defect itself), the Download
+  live before there is anything to download, Publish coming back, nothing
+  fetching the source, the empty state an empty editor again, a part shown as a
+  page, a page's prefix doubled, the tab writing its own blob instead of the one
+  saver, the saver never revoking its URL, the panel deleted with its button, the
+  zip loaded after the script that uses it, and the code host losing its layout.
+- **One older guard went red and was re-anchored, not appeased**:
+  `test/site-busy.test.mjs`'s census of bare `loadSiteSource(env, …)` call sites,
+  4 → 5. That is the guard working exactly as designed — it makes a new bare
+  source read something somebody has to justify — and the new one is named there
+  as a display reader that must not repair.
+  Full suite **5,573**. The container harness was NOT re-run, and that is a
+  decision rather than an omission: `build-server.mjs` is byte-for-byte
+  unchanged and nothing new runs container-side — the route is the Worker's and
+  the zip is the browser's.
+- **AND A GUARD FOUND A REAL FORMATTING DEFECT**: `loadSiteCode`'s closing brace
+  was written at two spaces, so a landmark window looking for `\n}` ran past it
+  and swallowed `stSaveBlob` — the recorded overlapping-window trap, caught by
+  the one-saver check rather than by reading.
+- **Not proven live.** The push changes `worker.js`, which is a container image
+  input, so the container rolls and the 15–20 minute hold applies. The proof is
+  one signed-in load: **Code** on a built site should show the page's real source
+  with its own file names, and the arrow should hand back a zip that opens.
+
 ### THE PREVIEW PANEL RUNS THE SITE'S OWN JAVASCRIPT (2026-09-07, owner: *"SO
 ITS PREVIEW THING, BECAUSE ON THE URL SHOWS FINE, SO FIX … MAKE THE FIX FOR
 FUTURE SITES"*)
@@ -6185,8 +6322,18 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,548
-  (2026-09-08, after the stage panel learned to belong to the build added six in
+  build and the pre-list payload added sixteen); the unit suite is 5,573
+  (2026-09-08, after the Code tab and the Download became real added twenty-five
+  in `test/site-source.test.mjs` — the archive ROUND-TRIPPED through Python's own
+  `zipfile` and then taken apart by its own offsets, because that reader decodes
+  names from the central directory's flag and walks it by byte size, so the local
+  header's UTF-8 flag and the end record's entry count are invisible to it; the
+  stamp decoded as a date rather than compared with the number we wrote; the file
+  names DERIVED from `build-server.mjs`'s own `safeRoute` and `safePart`; the
+  route driven six ways through the real router with a slug per case; and BOTH
+  browser handlers EVALUATED out of chat.js and driven, since `if (false)` leaves
+  a call exactly where a source read looks for it; before it 5,548, after the
+  stage panel learned to belong to the build added six in
   `test/build-panel.test.mjs` — the real `stBuildRunning` EVALUATED out of chat.js
   with both its inputs handed in and the phase list DERIVED from the file, driven
   over `thinking`, every phase, `null`, `undefined` and `{}`; the asks counted and

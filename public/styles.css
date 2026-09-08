@@ -2185,6 +2185,11 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-vtab:hover { color: var(--text); }
 .st-vtab.on { background: var(--split); border: 1px solid transparent; color: var(--text); }
 /* ── Code view ── */
+/* The Code tab's host, filled after the fetch — `.st-datawrap`'s job one tab
+   over, and the same rule: it must fill its stage or the two-pane editor inside
+   it collapses to its content and the file tree loses its scroll. */
+.st-codewrap { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.st-codewrap > * { flex: 1; min-height: 0; }
 .st-code { display: flex; width: 100%; height: 100%; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; background: var(--bg); }
 .st-code-tree { flex: 0 0 210px; border-right: 1px solid var(--line); overflow-y: auto; padding: .6rem .5rem; background: var(--panel); }
 .st-code-h { font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding: .3rem .5rem .5rem; }

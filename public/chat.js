@@ -9757,6 +9757,11 @@ let siteView = 'preview';   // workspace stage: preview | code | more | data
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 let siteDataTable = '';     // Data panel: which table is open
 let siteDataForm = null;    // Data panel: the add/edit row form ({editId, values}) when open
+// The Code tab's fetched source, and which file of it is open. `siteCodeFiles` is
+// what the top bar's Download zips, so the tab and the download can never
+// disagree about what the site is made of — one list, two readers.
+let siteCodeFiles = [];     // Code panel: [{name, text}] from /api/site/source
+let siteCodeOpen = '';      // Code panel: the open file, kept by NAME across renders
 let siteRail = 'chat';      // left rail: chat | history
 let siteRailHidden = false; // collapse the chat rail to give the preview full width
 let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
@@ -10681,21 +10686,108 @@ const ST_ICONS = {
   card: '<rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/><path d="M6 15h4"/>',
 };
 function ic(name, size) { size = size || 16; return '<svg class="st-svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ST_ICONS[name] || '') + '</svg>'; }
-function siteFileName(p) { return (p.path === '/' ? 'index' : p.path.replace(/^\//, '').replace(/[^a-z0-9/_-]/gi, '-')) + '.html'; }
-function siteCodeView(site, active, pages) {
-  const files = pages.map((p) =>
-    '<button type="button" class="st-file' + (active && p.path === active.path ? ' on' : '') + '" data-codepath="' + esc(p.path) + '">' +
-    '<span class="st-file-ic">' + ic('code', 13) + '</span><span class="st-file-n">' + esc(siteFileName(p)) + '</span></button>').join('');
-  const raw = active ? String(active.html).slice(0, 120000) : '';
-  const gutter = raw ? Array.from({ length: raw.split('\n').length }, (_, i) => i + 1).join('\n') : '';
-  return '<div class="st-code">' +
-    '<div class="st-code-tree"><div class="st-code-h">Pages</div>' + files + '</div>' +
+// `siteFileName` WENT WITH ITS TWO CALLERS (2026-09-08). It turned a static
+// site's route into `menu.html`, and both places that asked — the Code tab's
+// file tree and its per-file Download — now read the React source, whose files
+// are named by `stSrcPath` from what the container really writes. The recorded
+// "when you delete a consumer, grep for what fed it": nothing else called it.
+// WHERE A SOURCE FILE LIVES IN THE SITE, and there is ONE of these.
+//
+// A page is stored as `{path, source}` with `path` already a file name
+// (`index.tsx`, `prices.tsx`); a component written for this site is stored as
+// `{name, source}` with a kebab-case name. The container writes the first under
+// `src/routes/` and the second under `src/routes/-parts/<name>.tsx`, and this is
+// the browser's copy of those two rules — so `test/site-source.test.mjs` DERIVES
+// the expectation from `build-server.mjs`'s own `safeRoute` and `safePart` and
+// fails if the two ever disagree. The names are what the customer sees in the
+// tree AND what they get inside the zip, so a drift here would hand somebody an
+// archive whose layout is not their site's.
+function stSrcPath(f) {
+  if (!f || typeof f !== 'object') return '';
+  if (typeof f.name === 'string' && f.name) return 'src/routes/-parts/' + f.name + '.tsx';
+  const p = typeof f.path === 'string' ? f.path.replace(/^(?:src\/)?routes\//, '') : '';
+  return p ? 'src/routes/' + p : '';
+}
+// EVERY FILE OF THE SITE, pages first, in ONE list both the tree and the zip
+// read. Two lists would let the tree show a file the download leaves out.
+function stSrcFiles(src) {
+  const out = [];
+  const pages = src && Array.isArray(src.pages) ? src.pages : [];
+  const parts = src && Array.isArray(src.parts) ? src.parts : [];
+  for (const p of pages.concat(parts)) {
+    if (!p || typeof p.source !== 'string') continue;
+    const name = stSrcPath(p);
+    if (name) out.push({ name, text: p.source });
+  }
+  return out;
+}
+// THE CODE TAB. Its file tree, its one open file, and its own download.
+//
+// THE HOST IS RENDERED AND FILLED AFTERWARDS, the Data view's shape: the source
+// is a fetch (`/api/site/source`), and `renderSiteWorkspace` is synchronous.
+//
+// AND THE EMPTY STATE SAYS WHICH EMPTY IT IS. This tab used to be drawn only on
+// a project that had never built — where it rendered a two-pane editor with an
+// empty tree, an empty filename and a Download button that did nothing. A tab
+// that opens onto nothing is the dead control this app has now found four times
+// in its own chrome; a sentence naming what is missing is not.
+function siteCodeView(site) {
+  if (!(site && site.react && site.url)) {
+    return '<div class="st-code"><div class="st-empty">Your site\u2019s code appears here once the first draft is built.</div></div>';
+  }
+  return '<div class="st-codewrap" id="stCode"><div class="st-empty">Loading your code\u2026</div></div>';
+}
+// The fetched half. Answers rather than throws at every step, because a code
+// view that cannot load must say so and never take the workspace down with it.
+async function loadSiteCode(site) {
+  const host = document.getElementById('stCode'); if (!host) return;
+  const slug = String((site && site.slug) || '');
+  if (!slug) { host.innerHTML = '<div class="st-empty">This site has no address yet.</div>'; return; }
+  let src = null;
+  try {
+    const r = await apiFetch('/api/site/source?slug=' + encodeURIComponent(slug));
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d && d.ok) src = d;
+  } catch (e) {}
+  if (!src) { host.innerHTML = '<div class="st-empty">Couldn\u2019t read your code just now \u2014 try the tab again in a moment.</div>'; return; }
+  const files = stSrcFiles(src);
+  siteCodeFiles = files;
+  if (!files.length) {
+    host.innerHTML = '<div class="st-empty">' + esc(src.why || 'Nothing stored for this site yet.') + '</div>';
+    return;
+  }
+  // The chosen file, kept across renders by NAME rather than by index — a
+  // rebuild can add or drop a part, and an index would then open a different
+  // file than the one that was open.
+  let open = files.find((f) => f.name === siteCodeOpen) || files[0];
+  siteCodeOpen = open.name;
+  const tree = files.map((f) =>
+    '<button type="button" class="st-file' + (f.name === open.name ? ' on' : '') + '" data-srcname="' + esc(f.name) + '">' +
+    '<span class="st-file-ic">' + ic('code', 13) + '</span><span class="st-file-n">' + esc(f.name.replace(/^src\/routes\//, '')) + '</span></button>').join('');
+  // CLIPPED FOR DISPLAY ONLY, and the zip gets the whole file. A `<pre>` of a
+  // megabyte locks the tab; a download that quietly lost the end of a page
+  // would be a lying instrument.
+  const raw = String(open.text).slice(0, 120000);
+  const gutter = Array.from({ length: raw.split('\n').length }, (_, i) => i + 1).join('\n');
+  host.innerHTML = '<div class="st-code">' +
+    '<div class="st-code-tree"><div class="st-code-h">Your code</div>' + tree + '</div>' +
     '<div class="st-code-main">' +
-      '<div class="st-code-bar"><span class="st-code-fname">' + (active ? esc(siteFileName(active)) : '') + '</span>' +
-      '<button type="button" class="st-code-dl" id="stCodeDl" title="Download this page">' + ic('download', 14) + ' Download</button></div>' +
+      '<div class="st-code-bar"><span class="st-code-fname">' + esc(open.name) + '</span>' +
+      '<button type="button" class="st-code-dl" id="stCodeDl" title="Download this file">' + ic('download', 14) + ' Download</button></div>' +
       '<div class="st-code-scroll"><pre class="st-code-gutter" aria-hidden="true">' + gutter + '</pre><pre class="st-code-pre"><code>' + esc(raw) + '</code></pre></div>' +
     '</div>' +
   '</div>';
+  host.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { siteCodeOpen = b.dataset.srcname; loadSiteCode(site); });
+  const one = document.getElementById('stCodeDl');
+  if (one) one.onclick = () => stSaveBlob(new Blob([open.text], { type: 'text/plain' }), open.name.split('/').pop());
+}
+// ONE SAVER, so the two downloads cannot drift on how a file reaches the disk.
+function stSaveBlob(blob, filename) {
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = u; a.download = String(filename || 'download');
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 5000);
 }
 function moreStat(label, val) { return '<div class="st-stat"><span class="st-stat-l">' + label + '</span><span class="st-stat-v">' + val + '</span></div>'; }
 function siteMoreView(site) {
@@ -11173,7 +11265,13 @@ function renderSiteWorkspace(view, site) {
         '<div class="st-tb-mid">' +
           '<div class="st-vtabs">' +
             '<button type="button" class="st-vtab' + (siteView === 'preview' ? ' on' : '') + '" data-view="preview">' + ic('globe', 14) + ' Preview</button>' +
-            (isReact ? '' : '<button type="button" class="st-vtab' + (siteView === 'code' ? ' on' : '') + '" data-view="code">' + ic('code', 14) + ' Code</button>') +
+            // THE SAME TABS WHETHER OR NOT IT HAS BUILT (owner, 2026-09-08: "2
+            // different screens when theres a build and not"). This was
+            // `isReact ? '' : …`, so Code showed ONLY on a project that had
+            // never built — the one state where it had nothing to open — and
+            // vanished the moment the site had code worth reading. It shows
+            // always now and says which empty it is when there is nothing yet.
+            '<button type="button" class="st-vtab' + (siteView === 'code' ? ' on' : '') + '" data-view="code">' + ic('code', 14) + ' Code</button>' +
             ((isReact && site.backend) ? '<button type="button" class="st-vtab' + (siteView === 'data' ? ' on' : '') + '" data-view="data">' + ic('grid', 14) + ' Data</button>' : '') +
             '<button type="button" class="st-vtab' + (siteView === 'more' ? ' on' : '') + '" data-view="more">' + ic('grid', 14) + ' More</button>' +
           '</div>' +
@@ -11215,7 +11313,16 @@ function renderSiteWorkspace(view, site) {
           // used `mb`. It looked live to every customer and did nothing when
           // pressed — the repo's own open dead-control finding, in the chrome
           // rather than in a generated page.
-          (isReact ? '' : '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>' + ic('download', 16) + '</button>') +
+          // DOWNLOAD IS THE SITE'S SOURCE, ZIPPED, and it is drawn on both
+          // screens for the reason the Code tab is. It used to be
+          // `Download page HTML` — one file, the static-site era's stored
+          // page — hidden on every React site and greyed on the only screen
+          // that drew it.
+          //
+          // DIMMED RATHER THAN HIDDEN BEFORE THE FIRST BUILD, and the tooltip
+          // says what to do: the card icons settled that rule, and hiding a
+          // control is how a customer never learns it is there.
+          '<button type="button" class="st-icon" id="stDl" title="' + (isReact ? 'Download your code' : 'Nothing to download yet \u2014 build the first draft') + '" aria-label="Download your code"' + (isReact ? '' : ' disabled') + '>' + ic('download', 16) + '</button>' +
           '<button type="button" class="st-share" id="stShare">Share</button>' +
           // THE "Live ↗" LINK IS GONE (owner's call, 2026-08-08). A React site
           // publishes as part of the build, so there was nothing for it to do
@@ -11223,9 +11330,23 @@ function renderSiteWorkspace(view, site) {
           // `/s/<slug>/` URL in a new tab, which reads as "here is your site on
           // some weird page" rather than as the customer's own address. Share
           // is the one way out of this screen now.
-          (isReact
-            ? ''
-            : '<button type="button" class="st-publish" id="stPub"' + (hasSite ? '' : ' disabled') + '>Publish</button>') +
+          //
+          // AND PUBLISH WENT THE SAME WAY (owner, 2026-09-08). It was gated
+          // `isReact ? '' : …` too, so it was already absent from every real
+          // site — a React site goes live as part of its build and has nothing
+          // to publish. What it drew on the one screen that had it was a
+          // disabled button on a project with nothing to put anywhere.
+          //
+          // WHAT WENT WITH IT IS WORTH SAYING: `sitePublishPanel` was its only
+          // caller, and that panel is the only door to "Take it offline" and
+          // "Put it back online" — a capability the server really has
+          // (`siteSetLive`). It has therefore had NO door on any live site
+          // since the `isReact` gate went in; this deletion does not bury it,
+          // it was already buried. The panel and `siteSetLive` are kept, the
+          // way `gif` and the effort dial were kept: to give it a door again,
+          // add a Cloud card beside Submissions and Members that calls
+          // `sitePublishPanel(site)` — that is where the two icons removed on
+          // 2026-09-07 point, and it is the established place for a panel.
         '</div>' +
       '</div>' +
       '<div class="st-body">' +
@@ -11288,7 +11409,7 @@ function renderSiteWorkspace(view, site) {
                   ? '<div class="st-empty"><div class="st-livelog st-livelog-stage"></div></div>'
                   : '<div class="st-empty">' + (siteBusy && stBuildRunning() ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>')
               : (!isReact && siteView === 'code')
-                ? siteCodeView(site, active, pages)
+                ? siteCodeView(site)
                 : (isReact && site.backend && siteView === 'data')
                   ? '<div class="st-datawrap" id="stData"><div class="st-empty">Loading your data…</div></div>'
                   : siteView === 'more'
@@ -11370,20 +11491,19 @@ function renderSiteWorkspace(view, site) {
   if (fixX) fixX.onclick = () => { sitePreviewErrs[previewErrKey()] = []; const bar = document.getElementById('stFixBar'); if (bar) bar.hidden = true; };
   // View tabs (Preview / Code / More).
   view.querySelectorAll('.st-vtab').forEach((b) => b.onclick = () => { siteView = b.dataset.view; renderSites(); });
-  // Code view: clicking a page "file" switches which page's code shows.
-  view.querySelectorAll('[data-codepath]').forEach((b) => b.onclick = () => {
-    const s = siteById(siteOpenId); if (!s) return; s.active = b.dataset.codepath; sitesSave(); renderSites();
-  });
-  const codeDl = document.getElementById('stCodeDl');
-  if (codeDl && curHtml) codeDl.onclick = () => {
-    const blob = new Blob([curHtml], { type: 'text/html' }); const u = URL.createObjectURL(blob); const a = document.createElement('a');
-    a.href = u; a.download = (active ? siteFileName(active) : 'index.html'); document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(u), 5000);
-  };
+  // THE CODE TAB'S OWN WIRING LIVES WITH ITS MARKUP, in `loadSiteCode`, because
+  // that markup arrives after this function has returned — the Data panel's
+  // shape. What stood here was the STATIC-SITE version: a file tree keyed on
+  // `data-codepath` that set `site.active`, and a Download that wrote
+  // `curHtml`, the page's stored HTML. Neither has anything to act on now: the
+  // tab shows the site's real generated source, fetched.
   // More sub-nav (Analytics / Cloud / Security / SEO).
   view.querySelectorAll('[data-more]').forEach((b) => b.onclick = () => { siteMoreTab = b.dataset.more; renderSites(); });
   if (siteView === 'more' && siteMoreTab === 'analytics' && site.slug) loadSiteAnalytics(site);
   if (isReact && site.backend && siteView === 'data') loadSiteData(site);
+  // The Code tab fetches its own source once the markup it fills is on the page
+  // — `loadSiteData`'s hop, one tab over.
+  if (isReact && siteView === 'code') loadSiteCode(site);
   // Cloud cards that are live open their real panels.
   view.querySelectorAll('[data-cloud]').forEach((b) => b.onclick = () => {
     if (b.dataset.cloud === 'database') siteDatabase(site);
@@ -11447,16 +11567,35 @@ function renderSiteWorkspace(view, site) {
     if (st) st.setAttribute('data-dev', siteDevice);
     view.querySelectorAll('.st-dev').forEach((x) => x.classList.toggle('on', x === b));
   });
+  // DOWNLOAD: the site's own source, as a zip named after the site.
+  //
+  // IT FETCHES RATHER THAN READING THE TAB. The Code tab fills `siteCodeFiles`,
+  // but a customer may press this having never opened it — so the button asks
+  // for the source itself and the tab's list is only a cache. Reading the tab
+  // alone would have made the button work or not depending on where they had
+  // clicked first, which is the worst kind of control: one that is sometimes
+  // right.
   const dl = document.getElementById('stDl');
-  if (dl) dl.onclick = () => {
-    if (!curHtml) return;
-    const blob = new Blob([curHtml], { type: 'text/html' });
-    const u = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const pn = (active && active.path && active.path !== '/') ? active.path.replace(/^\//, '') : (site.name || 'index');
-    a.href = u; a.download = String(pn).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.html';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(u), 5000);
+  if (dl) dl.onclick = async () => {
+    if (dl.disabled) return;
+    const stamp = dl.title;
+    dl.disabled = true; dl.title = 'Getting your code\u2026';
+    try {
+      let files = siteCodeFiles;
+      if (!files.length) {
+        const r = await apiFetch('/api/site/source?slug=' + encodeURIComponent(site.slug || ''));
+        const d = await r.json().catch(() => ({}));
+        files = (r.ok && d && d.ok) ? stSrcFiles(d) : [];
+        siteCodeFiles = files;
+      }
+      // NOTHING TO ZIP IS SAID, NEVER SHIPPED AS AN EMPTY ARCHIVE. A zip with
+      // no entries opens to an empty folder, which reads as "my code is gone".
+      if (!files.length) { if (typeof sbToast === 'function') sbToast('No code stored for this site yet.'); return; }
+      const name = String(site.slug || site.name || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'site';
+      stSaveBlob(new Blob([SiteZip.zipFiles(files)], { type: 'application/zip' }), name + '.zip');
+    } catch (e) {
+      if (typeof sbToast === 'function') sbToast('Couldn\u2019t get your code just now \u2014 try again in a moment.');
+    } finally { dl.disabled = false; dl.title = stamp; }
   };
   // Share: copy the live URL.
   //
@@ -11472,15 +11611,11 @@ function renderSiteWorkspace(view, site) {
     if (live) { try { navigator.clipboard.writeText(live); } catch (e) {} if (typeof sbToast === 'function') sbToast('Live link copied — ' + live); }
     else if (typeof sbToast === 'function') sbToast('Publish it first, then you can share the live link.');
   };
-  // Publish: push the site live to gofarther.dev/s/<slug> (or Republish to update).
-  const pb = document.getElementById('stPub');
-  if (pb) {
-    // NOT "Republish" — a React site publishes as part of the build, so there is
-    // nothing to re-do. The panel behind it is about the one thing that IS a
-    // choice: whether the site is on the web at all.
-    if (site.liveUrl) pb.textContent = site.offline ? 'Offline' : 'Live';
-    pb.onclick = () => { if (!pb.disabled) sitePublishPanel(site); };
-  }
+  // THE PUBLISH HANDLER WENT WITH ITS BUTTON (owner, 2026-09-08). It set the
+  // label to "Live" or "Offline" and opened `sitePublishPanel` — on a button
+  // the `isReact` gate had already stopped drawing for every real site, so
+  // both halves were unreachable code that read as live. The panel itself is
+  // kept; the comment on the deleted button says how to give it a door.
   // The inbox and members handlers went with their buttons (above). Both
   // panels are still reached from their own Cloud cards, which is the door
   // that describes what it opens.

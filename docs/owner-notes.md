@@ -4824,3 +4824,75 @@ under a panel that has been claiming a build since the first keystroke.
 and there is no waiting period. Say **hey** in a fresh chat and the right-hand
 side should stay as the invitation to describe your site; start a real build and
 the panel should come back exactly as it was.
+
+---
+
+## The Code tab and the Download are real now (2026-09-08)
+
+You sent two screenshots and said the buttons were different depending on whether
+there was a build. They were, and the reason was not "has a build" — it was a flag
+meaning **has this project ever built**. Three controls were switched on only while
+the answer was no: **Code**, **Download**, and **Publish**.
+
+That is backwards, and it was worse than it looked. On the empty project two of
+them were greyed out and **Code opened an empty code editor** — an empty file
+list, an empty file name, and a Download button in it that did nothing. On a real
+site with real code, all three vanished.
+
+**Why it was that way.** They are all left over from the old static-site version
+of the builder. Nothing can make one of those sites any more: a new project has
+no flag, the first message always goes down the React path, and every site the
+server lists comes back as React. So those three buttons could only ever reach
+one screen, and did nothing on it.
+
+**You chose to make them work rather than delete them, so:**
+
+**Code** now opens on your site's actual code — the page the model wrote, plus any
+component it wrote specially for your site. It comes from the server, so it works
+on any machine you sign in from, and the file names are the real ones your site
+uses. There is a file list down the left and a Download button for the single file
+you are looking at.
+
+**Download** (the arrow in the top right) gives you a **zip of your whole site's
+code**, named after the site. Before your first build it is greyed out and the
+tooltip says why, rather than being hidden — same rule as the icons on the site
+cards: you can't ask for a feature you never knew was there.
+
+**Publish is gone.** It could not do anything: your site goes live as part of every
+build, so there was nothing to publish. It was already invisible on every real
+site anyway.
+
+**One thing that came out of this and is worth a decision.** That Publish button
+was the only way to reach the panel with **"Take it offline"** and **"Put it back
+online"** in it. Because the button was hidden on React sites, **that panel has had
+no door at all on any of your live sites** — the feature works, the server side is
+fine, there is just nothing to press. My change doesn't cause that; it was already
+the case. I've left the panel and its code in place with a note saying exactly how
+to give it a door again: one card in the Cloud tab, beside Submissions and Members.
+**Say the word and it's a ten-minute job.**
+
+**On the zip, since it is the one thing that can look fine and be broken.** A zip
+is a stack of byte offsets — write one field short and the file still downloads,
+still has the right name, and fails when you double-click it a week later. So the
+test doesn't read my code, it makes a real archive and hands it to **Python's own
+zip reader**, which checks every file's checksum and reads every file back out.
+Including one with accented characters in it, which is where this format usually
+goes wrong.
+
+**And the zip test found two real faults in my own writer, which is the point of
+writing it that way.** Python's reader is thorough but it does not look at
+*everything* — it works out the file names from the archive's index at the end,
+and it counts the files by measuring that index rather than by reading the number
+the archive states. So two fields I write were never being checked: the file-name
+encoding recorded on each file itself, and the file count in the footer. Either
+one wrong is an archive that opens perfectly here and badly somewhere else — a
+"drag it out one file at a time" tool reads the first, and plenty of tools trust
+the second. There is a second check now that takes the archive apart by hand and
+compares what it *says* against what it *contains*, which is the one comparison a
+single reader can't make.
+
+**Not proven live.** This one does touch the server file, and that file is part of
+what the build container is made from — so the container rebuilds and you should
+give it **15–20 minutes** after the deploy goes green before judging anything.
+After that: open any built site, press **Code** — you should see your page's real
+source — then press the arrow and you should get a zip that opens.

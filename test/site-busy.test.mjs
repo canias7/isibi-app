@@ -607,10 +607,19 @@ test("the editable copy: four editing readers read through the repairing reader,
     // one hop over.
     "const rbPages = await loadSiteSourceForEdit(env, ownerSlug);",
   ]) assert.ok(W.includes(line), "an editing reader does not read through the repair: " + line);
-  // CALL SITES, not the definition: the wrapper's own read, and the three
-  // readers that answer a count, a listing or a delete and never publish.
+  // CALL SITES, not the definition: the wrapper's own read, and the readers that
+  // answer a count, a listing, a delete or a DISPLAY and never publish.
+  //
+  // RE-ANCHORED 2026-09-08, and the guard is what made it a decision. The Code
+  // tab's route (`GET /api/site/source`) added a fifth bare read, and it belongs
+  // on this side of the line: it hands the owner their own source to LOOK at,
+  // so it publishes nothing, takes no lease and must not repair — running it
+  // through `loadSiteSourceForEdit` would have a read-only tab rewriting the
+  // editable copy out of the pointer's build. The count moved; the property did
+  // not, and a sixth still has to be argued for here.
   const bare = [...W.matchAll(/(?<!function )\bloadSiteSource\(env, [^)]*\)/g)].map((m) => m[0]);
-  assert.equal(bare.length, 4, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.equal(bare.length, 5, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.ok(bare.includes("loadSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
   const wrap = fnW("loadSiteSourceForEdit");
   assert.match(wrap, /try \{ await ensureEditableState\(env, slug\); \}\s+catch/, "the wrapper does not repair before it reads, or a failed check costs the read");
   assert.match(wrap, /return loadSiteSource\(env, slug\);/);
