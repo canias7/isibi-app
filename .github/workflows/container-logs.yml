@@ -1,8 +1,10 @@
 # PRINT THE CONTAINER'S RETAINED LOGS — free, read-only, no marker needed.
 #
-# Fires on a push touching its own two files: the way to read the logs is to
-# nudge LOG_HOURS/LOG_NEEDLE below and push. `workflow_dispatch` is here too
-# for anyone with the button; a session cannot press it (403). It spends
+# THE WAY TO READ THE LOGS IS THE BUTTON. It used to fire on a push touching its
+# own two files — nudge LOG_HOURS/LOG_NEEDLE and push — and that came off on
+# 2026-09-09 with every other workflow but the deploy. So it is
+# `workflow_dispatch` now, and a session cannot press it (403): this one needs a
+# person. It spends
 # nothing — the query runs with `dry: true` and starts no container — so the
 # opt-in marker discipline the paid workflows carry does not apply.
 #
@@ -31,11 +33,16 @@ name: container logs
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/container-logs.yml'
-      - 'scripts/container-logs.mjs'
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   push:
+  #     branches: [main]
+  #     paths:
+  #       - '.github/workflows/container-logs.yml'
+  #       - 'scripts/container-logs.mjs'
 
 jobs:
   logs:

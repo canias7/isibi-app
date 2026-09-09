@@ -15,14 +15,20 @@
 # reporting a pass.
 #
 # No model call, no Neon project, no build, no secrets. It only needs the
-# deployed Worker, which is why it can run on every deploy.
+# deployed Worker, which is why it ran on every deploy until 2026-09-09 — see
+# `on:`. Dispatched by hand now; the cost is still nothing.
 name: frame policy
 
 on:
-  workflow_run:
-    workflows: ["Deploy to Cloudflare"]
-    types: [completed]
-    branches: [main]
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   workflow_run:
+  #     workflows: ["Deploy to Cloudflare"]
+  #     types: [completed]
+  #     branches: [main]
   workflow_dispatch:
     inputs:
       site_url:

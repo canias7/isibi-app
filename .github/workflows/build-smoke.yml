@@ -7,7 +7,8 @@
 # asserted in test/build-smoke-safety.test.mjs, because the teardown's user
 # delete cascades and there is no undo.
 #
-# Runs after every successful deploy to main, and on demand. It spends two real
+# DISPATCHED BY HAND since 2026-09-09 — the deploy chain is parked in `on:`, so
+# nothing starts this but a person. It spends two real
 # Sonnet calls per run (the schema, then the pages) — worth it: both bugs found
 # on 2026-07-27/28 (the access level vocabulary and a 500 on a missing field)
 # were invisible to review and only showed up when something real ran against
@@ -15,10 +16,15 @@
 name: build smoke
 
 on:
-  workflow_run:
-    workflows: ["Deploy to Cloudflare"]
-    types: [completed]
-    branches: [main]
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   workflow_run:
+  #     workflows: ["Deploy to Cloudflare"]
+  #     types: [completed]
+  #     branches: [main]
   workflow_dispatch:
     inputs:
       base_url:

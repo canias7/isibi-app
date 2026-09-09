@@ -3,19 +3,26 @@ name: Deploy to Cloudflare
 on:
   push:
     branches: [main]
-    # A DOCS-ONLY COMMIT COSTS A PAID BUILD, and that is what this stops.
+    # A DOCS-ONLY COMMIT COSTS A DEPLOY AND A CONTAINER ROLL, and that is what
+    # this stops.
     #
-    # The chain is push → Deploy → `build smoke`, and `build smoke` spends two
-    # real model calls plus a Neon project on every run. Measured over one
-    # stretch of this session: three commits that touched nothing but CLAUDE.md
-    # and docs/ each deployed an identical Worker and then paid for a full
-    # site build to prove it still worked.
+    # THE CHAIN THIS WAS WRITTEN FOR IS GONE (2026-09-09): it was push → Deploy →
+    # `build smoke`, and `build smoke` spent two real model calls plus a Neon
+    # project on every run — measured over one stretch of one session, three
+    # commits that touched nothing but CLAUDE.md and docs/ each deployed an
+    # identical Worker and then paid for a full site build to prove it still
+    # worked. Nothing is chained to this deploy any more (owner: "I JUST WANT THE
+    # MERGE THING THERE"), so the money is off. The filter stays because the
+    # OTHER cost did not move: every deploy that changes an image input rolls the
+    # build container, and a roll is fifteen to twenty minutes before anything
+    # that builds may be fired.
     #
     # Nothing here is served or bundled. `docs/components.md` is GENERATED from
     # the kit by `builder/gen-components-doc.mjs` and read by nobody at
     # runtime, and the Worker has no filesystem, so it cannot read a `.md` at
-    # all. `unit tests` still runs on every push with no path filter, so the
-    # drift guards that read GENERATOR.md are unaffected.
+    # all. `unit tests` runs on every push to every branch but this one, so the
+    # drift guards that read GENERATOR.md still run — one push earlier, on the
+    # branch, since a merge here is a fast-forward of a sha they already read.
     #
     # The cost of being wrong: a commit that puts real configuration in a `.md`
     # would silently stop deploying. `test/deploy-secrets.test.mjs` asserts

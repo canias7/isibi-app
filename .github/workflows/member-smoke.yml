@@ -18,10 +18,15 @@
 name: member smoke
 
 on:
-  workflow_run:
-    workflows: ["Deploy to Cloudflare"]
-    types: [completed]
-    branches: [main]
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   workflow_run:
+  #     workflows: ["Deploy to Cloudflare"]
+  #     types: [completed]
+  #     branches: [main]
   workflow_dispatch:
     inputs:
       base_url:

@@ -2966,3 +2966,67 @@ codebase already has a rule for this ("ignore comments before scanning") and thi
 one check had never been given it. Fixed in the check, not in my comment: the
 comment is fine, and had I quietly reworded it, the next person to explain a rule
 in a comment would have hit the same thing.
+
+---
+
+## 2026-09-09 — A merge now runs the deploy and nothing else
+
+You said: *"REMOVE ALL THOSE WORKFLOWS FROM THE MERGE THING, I JUST WANT THE
+MERGE THING THERE, THATS IT."* Done.
+
+**What used to happen when you merged.** Twenty-three separate jobs started. The
+deploy — the one you actually want — plus twenty-two others: five tests that fire
+the moment the deploy finishes (payments, member sign-in, the confirmation email,
+the frame policy, the paid build smoke), three probes that check the container can
+reach a model, the unit test suite, and thirteen more that wake up whenever the
+merge happens to touch a file they watch. One of those thirteen, the edit smoke,
+spends about fifty credits every time it runs.
+
+**What happens now.** One job: the deploy. Nothing else.
+
+**Nothing was deleted.** Every one of those workflows is still in the repository
+with all its settings; what came off is only the part that made it start by
+itself. That part is commented out inside each file with a note saying so and how
+to bring it back — uncomment it. And every one of them still has its manual
+button, so you can run any of them whenever you want by pressing it. I checked
+that specifically: a workflow with no trigger and no button would be one nobody
+could ever run again, and that would have been a deletion pretending to be a
+pause.
+
+**Three of them I treated differently, and I want to flag it in case you meant
+otherwise.** The unit tests, the site-build check and the answer-read tool were
+not set up for main specifically — they ran on *every* branch. So instead of
+switching them off I excluded main only. They still run when I push to the
+working branch, which is where I actually do the work; they just don't run again
+on the merge. The reason that loses nothing: merging here copies a commit that
+has already been tested onto main without changing a single line, so the merge
+run was reading exactly the same files a second time. If you'd rather they were
+off completely, that's one word.
+
+**The honest cost.** Nothing is checked automatically on main any more. Those
+smokes and probes were free and they ran on their own; that safety net is now a
+button somebody has to press. I'd rather say that plainly than let you find it
+later. If something important is about to ship, the thing to do is press the
+buttons first.
+
+**Something I found while doing this, which is worth a minute.** I took twenty-two
+triggers off in one go and then ran the whole test suite — all 5,722 tests — and
+every single one passed. Nothing in this repository had any idea which workflows a
+merge starts. That is the one part of the setup that decides what gets checked and
+what gets spent, and it was the only part with nothing watching it. It also fails
+in the direction that looks fine: a check that quietly stops running doesn't turn
+anything red, it just goes silent. There is now a test that counts them — it reads
+the folder itself rather than a list I typed, so a workflow added next month with
+the old settings copied off an existing one fails immediately instead of showing
+up as a surprise on your next merge.
+
+**Checked:** the whole suite green at 5,732 (the ten new ones are the count). A
+mutation sweep of twenty deliberate breakages — a workflow sneaked back onto the
+merge, the deploy itself taken off it, a parked block mangled so it couldn't be
+restored, the reader made blind in six different ways — all twenty caught, with
+two harmless comment edits confirming the tests aren't just failing at everything.
+Every workflow file still parses, and I cross-checked my own reader against a real
+YAML parser over all thirty-three of them: no disagreements.
+
+**Not proven live yet** — that part is the next merge. What you should see: the
+Actions list showing one run, "Deploy to Cloudflare", and nothing underneath it.

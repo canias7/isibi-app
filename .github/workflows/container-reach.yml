@@ -4,7 +4,10 @@
 # has already cost TWO real builds that each failed to read it — see
 # scripts/container-reach.mjs for what each outcome means.
 #
-# RUNS ON EVERY PUSH, unlike `container hold probe` and `build as owner`, and the
+# IT RAN ON EVERY PUSH until 2026-09-09, when every workflow but the deploy came
+# off the merge; the argument below is why it was free enough to be automatic,
+# and is kept because it is still the argument for pressing the button.
+# Unlike `container hold probe` and `build as owner`, the
 # difference is the cost. Those hold a build lane for ten minutes or spend ~130
 # credits, so they are opt-in by marker. This is two credential-free GETs and one
 # container spin-up: seconds, and nothing billed by anyone. A check that answers
@@ -17,8 +20,13 @@ name: container reach
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   push:
+  #     branches: [main]
 
 jobs:
   reach:

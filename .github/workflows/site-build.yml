@@ -4,11 +4,17 @@
 # and that a page with a type error is REFUSED rather than bundled.
 #
 # Costs nothing: no model call, no container, no Neon project. Runs on changes to
-# the generator, the template or the build service.
+# the generator, the template or the build service — on every branch but main,
+# where a merge is a fast-forward of a sha it already ran on.
 name: site build
 
 on:
   push:
+    # NOT ON THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING
+    # THERE").  main is the merge and a merge here is a fast-forward of a sha
+    # this already ran on the branch, so re-running it on main proves nothing
+    # new.  Every other branch is unchanged.
+    branches-ignore: [main]
     paths:
       - 'builder/**'
       - 'test/integration/site-build.mjs'

@@ -1,9 +1,9 @@
 # IS WEB ANALYTICS COLLECTING ON THE PUBLISHED SITES? — free, read-only.
 #
-# Fires on a push touching its own two files: the way to take a reading is to
-# nudge RUM_DAYS below and push, the `container logs` pattern exactly.
-# `workflow_dispatch` is here for anyone with the button; a session cannot
-# press it (403). It spends nothing — one REST list and one GraphQL query,
+# THE WAY TO TAKE A READING IS THE BUTTON, the `container logs` pattern exactly.
+# It used to fire on a push touching its own two files — nudge RUM_DAYS and
+# push — and that came off on 2026-09-09 with every other workflow but the
+# deploy. A session cannot press it (403): this one needs a person. It spends nothing — one REST list and one GraphQL query,
 # nothing created, no marker needed.
 #
 # WHY (2026-08-28, owner's call: analytics ON): the beacon is injected on the
@@ -15,11 +15,16 @@ name: rum report
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/rum-report.yml'
-      - 'scripts/rum-report.mjs'
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   push:
+  #     branches: [main]
+  #     paths:
+  #       - '.github/workflows/rum-report.yml'
+  #       - 'scripts/rum-report.mjs'
 
 jobs:
   report:

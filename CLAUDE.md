@@ -57,14 +57,35 @@ distinction that still exists once the branding does not.
   tests, and there is no red run to notice. **Done twice, both times inside prose
   about the rule itself.** In prose call it "the skip-CI marker" and never spell
   it. `test/deploy-secrets.test.mjs` holds the half that lives in the tree.
-- **The paid workflows are OPT-IN as of 2026-08-30** (owner: *"flip them, don't
-  spend any"*). `build smoke`, `edit smoke`, `page gen eval` and `schema gen
-  eval` run only when the commit message contains **`[smoke]`**, or when somebody
-  starts them by hand with `workflow_dispatch`. A push with no marker costs
-  nothing, which is the whole point: the old gate ran them unless you opted OUT,
-  and in one session seven pushes went out without the marker and six bought a
-  run — **five of those were merge commits**, whose message git writes itself and
-  which can therefore never carry any marker at all.
+- **A MERGE RUNS THE DEPLOY AND NOTHING ELSE (2026-09-09, owner: *"REMOVE ALL
+  THOSE WORKFLOWS FROM THE MERGE THING, I JUST WANT THE MERGE THING THERE, THATS
+  IT"*).** A push to main used to start twenty-three workflows; it starts one.
+  Every other automatic trigger is **parked** — commented out in its own `on:`
+  block under a note saying so — and every one of those workflows keeps
+  `workflow_dispatch`, so nothing was deleted and nothing became unreachable:
+  putting one back is uncommenting a block. `unit tests`, `site build` and
+  `answer read` had no branch filter at all, so they take `branches-ignore:
+  [main]` instead and still run on every FEATURE-branch push, which is where
+  their answer is actionable and one push before the merge reads the same tree.
+  **`test/merge-triggers.test.mjs` is a CENSUS**, not a list: it walks the
+  directory and requires the answer to be exactly `deploy.yml`, so a workflow
+  added next month with a copied `push: branches: [main]` fails by existing.
+  **THE COST, STATED: nothing is checked automatically on main any more.** The
+  five smokes, the three probes and the unit suite all ran on a merge and all
+  ran for free; that safety net is now a button somebody has to press. Run what
+  matters by hand before anything that matters.
+- **The paid workflows were OPT-IN from 2026-08-30 and are DISPATCH-ONLY since
+  2026-09-09** (owner: *"flip them, don't spend any"*, then the merge rule
+  above). `build smoke`, `edit smoke`, `page gen eval` and `schema gen eval` used
+  to run when the commit message contained **`[smoke]`**; no push starts any of
+  them now, so the marker arms nothing and the wall is the trigger rather than
+  the gate. **The gates are kept anyway**, because a parked trigger is meant to
+  be restorable and restoring one without its gate is how the old default comes
+  back by accident. A push with no marker cost nothing, which was the whole
+  point: the older gate ran them unless you opted OUT, and in one session seven
+  pushes went out without the marker and six bought a run — **five of those were
+  merge commits**, whose message git writes itself and which can therefore never
+  carry any marker at all.
   `[skip smoke]` still appears all over the history and is harmless: it does not
   contain the opt-in marker, which `test/deploy-secrets.test.mjs` asserts against
   the real string so a future rename cannot silently re-arm every old commit.
@@ -2800,6 +2821,26 @@ floor on what was scanned before believing an absence.
 **Inert mutants.** Sixteen-plus recorded. A mutation that changes no behaviour
 reads exactly like a test gap and costs a hunt through checks that are fine.
 Before believing a survivor, prove the mutation changed something.
+**AND TWO REDUNDANT DEFENCES CANNOT BE KILLED ONE AT A TIME (2026-09-09).** The
+trigger reader skips comment lines AND matches an event key as `[a-z_]` right
+after exactly two spaces — either alone keeps a parked trigger from reading as
+live, so cutting the skip changed no answer on any of 33 workflows across five
+questions each, and read as a test gap. **A survivor here is not always a
+missing check; sometimes it is a second wall.** Prove it inert by MEASURING both
+versions over the real corpus, then mutate the PAIR, which must die. Say in the
+code that the redundancy is deliberate — a sweep cannot say it, and the next
+session deletes what nothing appears to need.
+
+**NOTHING GUARDED WHICH WORKFLOWS A MERGE STARTS (2026-09-09).** Twenty-two
+automatic triggers came off `.github/workflows/` in one commit — five smokes
+chained to the Deploy, three probes, the unit suite, thirteen path-filtered —
+and **all 5,722 tests stayed green.** Not one guard anywhere asserted what runs
+on a push to main, so the CI configuration was the one part of this repository
+with no census over it at all, while being the part that decides what gets
+checked and what gets spent. `test/merge-triggers.test.mjs` is that census now.
+**The general shape: the thing that runs your guards is not itself guarded
+unless somebody writes it down** — and it fails silently in the safe-looking
+direction, because a workflow that stops running produces no red run to notice.
 
 **A mutant that never applied.** The mirror. `grep -qF "$to"` is vacuous when the
 replacement is empty or common — verify by CHECKSUM. **A sweep whose control never

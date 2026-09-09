@@ -18,26 +18,31 @@
 name: schema gen eval
 
 on:
-  push:
-    branches: [main]
-    paths:
-      # The tool itself. Every field on it is what this measures, so any edit
-      # to it is exactly when the number is worth having.
-      - "worker.js"
-      # The checks read these to decide what an answer means — a change to how
-      # access resolves, or to what the engine keeps, changes the verdict
-      # without changing the model's answer at all.
-      - "site-access.mjs"
-      - "site-schema.mjs"
-      - "test/integration/schema-gen-eval.mjs"
-      - "test/integration/schema-checks.mjs"
-      # ITS OWN CONFIG. Missing until 2026-08-13, and it bit immediately: the
-      # sample count was raised 1 -> 5 specifically to settle whether a failure
-      # was variance, the commit touched this file and nothing else, and the run
-      # that would have answered never fired. `site-build.yml` has always listed
-      # itself; this one did not, so a change to WHAT gets measured could not
-      # trigger the measurement.
-      - ".github/workflows/schema-gen-eval.yml"
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   push:
+  #     branches: [main]
+  #     paths:
+  #       # The tool itself. Every field on it is what this measures, so any edit
+  #       # to it is exactly when the number is worth having.
+  #       - "worker.js"
+  #       # The checks read these to decide what an answer means — a change to how
+  #       # access resolves, or to what the engine keeps, changes the verdict
+  #       # without changing the model's answer at all.
+  #       - "site-access.mjs"
+  #       - "site-schema.mjs"
+  #       - "test/integration/schema-gen-eval.mjs"
+  #       - "test/integration/schema-checks.mjs"
+  #       # ITS OWN CONFIG. Missing until 2026-08-13, and it bit immediately: the
+  #       # sample count was raised 1 -> 5 specifically to settle whether a failure
+  #       # was variance, the commit touched this file and nothing else, and the run
+  #       # that would have answered never fired. `site-build.yml` has always listed
+  #       # itself; this one did not, so a change to WHAT gets measured could not
+  #       # trigger the measurement.
+  #       - ".github/workflows/schema-gen-eval.yml"
   workflow_dispatch:
     inputs:
       samples:

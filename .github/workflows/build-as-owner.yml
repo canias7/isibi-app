@@ -2,8 +2,9 @@
 # scripts/build-as-owner.mjs for what it does and does not do (no password,
 # no teardown of anything).
 #
-# Fires only on a push touching its own two files AND whose commit message
-# carries `[owner build]` — OPT-IN, because a run spends the owner's real
+# DISPATCHED BY HAND since 2026-09-09. It fired only on a push touching its own
+# two files AND whose commit message carried `[owner build]` — OPT-IN, and the
+# gate below is kept because a run spends the owner's real
 # credits (~45 on a Grok build; see the measurement further down — this line
 # said ~130 for nine days while the block below already carried the measured
 # number, so the file disagreed with itself and the header is what gets read
@@ -47,19 +48,24 @@
 name: build as owner
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/build-as-owner.yml'
-      - 'scripts/build-as-owner.mjs'
-  # ── ON DEMAND, FOR THE EDIT LANE ──────────────────────────────────────────
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
   #
-  # A build is bought by the marker on a push, because it costs real credits and
-  # a push is the deliberate act. An EDIT is ~0.3 and is the thing a customer
-  # does dozens of times after their site exists, so it is dispatched by hand
-  # with the site and the change as inputs — no commit, no marker, re-runnable.
-  # `mode: build` is allowed here too so a build can be re-fired without a push,
-  # but it still spends real credits, which the dispatcher is choosing to do.
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   push:
+  #     branches: [main]
+  #     paths:
+  #       - '.github/workflows/build-as-owner.yml'
+  #       - 'scripts/build-as-owner.mjs'
+  #   # ── ON DEMAND, FOR THE EDIT LANE ──────────────────────────────────────────
+  #   #
+  #   # A build is bought by the marker on a push, because it costs real credits and
+  #   # a push is the deliberate act. An EDIT is ~0.3 and is the thing a customer
+  #   # does dozens of times after their site exists, so it is dispatched by hand
+  #   # with the site and the change as inputs — no commit, no marker, re-runnable.
+  #   # `mode: build` is allowed here too so a build can be re-fired without a push,
+  #   # but it still spends real credits, which the dispatcher is choosing to do.
   workflow_dispatch:
     inputs:
       mode:

@@ -72,7 +72,25 @@ const LAUNCHES = /chromium\.launch\s*\(/;
  * three-line comment in the middle of its list. That regex read four of its
  * seven globs and reported the other three as unmatched, which is a guard
  * failing on correct config. Comments and blank lines continue the block.
+ *
+ * AND IT READS A PARKED FILTER TOO (2026-09-09). The owner took every workflow
+ * but the deploy off the merge, and those triggers are commented out rather
+ * than deleted — so twelve of the fourteen filters this test used to check
+ * became comments in one commit, and it went from twelve subjects to two while
+ * staying green. That is this repo's own vacuous-observer trap, and the floor
+ * below is the other half of the answer.
+ *
+ * A PARKED FILTER STILL HAS TO BE RIGHT, which is why it is read rather than
+ * skipped: the block is there to be uncommented, and a script renamed while it
+ * sits parked gives whoever restores it a trigger that fires on nothing — the
+ * exact failure this test was written for, delayed by however long the trigger
+ * stays off. Un-parking is stripping the `  # ` the parking added, after which
+ * the block is the YAML it was, its own inner comments included.
  */
+function unpark(src) {
+  return src.split("\n").map((l) => l.replace(/^ {2}# ?/, "")).join("\n");
+}
+
 function pathFilterOf(src) {
   const lines = src.split("\n");
   const i = lines.findIndex((l) => /^\s*paths:\s*$/.test(l));
@@ -85,6 +103,11 @@ function pathFilterOf(src) {
     out.push(item[1].replace(/['"]/g, "").trim());
   }
   return out;
+}
+
+/** The live filter, or the parked one when the trigger is off the merge. */
+function anyPathFilterOf(src) {
+  return pathFilterOf(src) || pathFilterOf(unpark(src));
 }
 
 const workflows = fs.readdirSync(DIR).filter((f) => /\.ya?ml$/.test(f))
@@ -159,16 +182,28 @@ test("a workflow triggers on changes to the scripts it runs", () => {
   // when it changes. `site-build.yml` ran theme-seam and theme-render while its
   // path filter named neither, so editing one of them proved nothing until an
   // unrelated push happened to run it.
+  let checked = 0, filtered = 0;
   for (const { file, jobs } of workflows) {
-    const globs = pathFilterOf(fs.readFileSync(path.join(DIR, file), "utf8"));
+    const globs = anyPathFilterOf(fs.readFileSync(path.join(DIR, file), "utf8"));
     if (!globs) continue;                                    // no path filter — runs on everything it is asked to
+    filtered++;
     const covers = (p) => globs.some((g) => g === p || (g.endsWith("/**") && p.startsWith(g.slice(0, -2))));
     for (const { steps } of jobs) {
       for (const { script } of scriptsIn(steps)) {
         if (!fs.existsSync(script)) continue;
+        checked++;
         assert.ok(covers(script),
           `${file} runs ${script} and its path filter does not match it — a change to that script runs nothing`);
       }
     }
   }
+  // THE OBSERVER, PROVED ALIVE. Every assertion above sits inside two loops over
+  // a filtered collection, so a reader that stops matching contributes no checks
+  // and this test reports success for having looked at nothing. That is exactly
+  // what happened on 2026-09-09 — parking the triggers took ten filters out of
+  // its sight and it stayed green — and it is why the numbers are floors rather
+  // than a list: a new dispatch-only workflow may not carry a filter, but the
+  // ones that do must still be read.
+  assert.ok(filtered >= 12, `only ${filtered} workflows carry a path filter — the reader stopped finding them`);
+  assert.ok(checked >= 10, `only ${checked} scripts were checked against a filter`);
 });

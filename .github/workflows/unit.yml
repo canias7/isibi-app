@@ -1,4 +1,8 @@
-# The unit suite, on every push.
+# The unit suite, on every push but the merge.
+#
+# NOT ON main SINCE 2026-09-09 — see `on:`. A merge here is a fast-forward of a
+# sha this already ran on the branch, so the merge run was a second reading of
+# an identical tree.
 #
 # It had no home. site-build runs only page-gen.test.mjs, and `npm test` — the
 # one command that runs all of test/*.test.mjs — lived solely in neon-e2e, which
@@ -10,6 +14,11 @@ name: unit tests
 
 on:
   push:
+    # NOT ON THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING
+    # THERE").  main is the merge and a merge here is a fast-forward of a sha
+    # this already ran on the branch, so re-running it on main proves nothing
+    # new.  Every other branch is unchanged.
+    branches-ignore: [main]
   pull_request:
   workflow_dispatch:
 

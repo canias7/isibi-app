@@ -14,7 +14,7 @@
 # COSTS NOTHING: one authenticated GET against a route that reads two R2 keys. No
 # model call, no container, no build, no Neon project, no publish.
 #
-# IT WAITS FOR THIS PUSH'S DEPLOY FIRST, like `container reach`. Without that it
+# IT WAITS FOR THE LATEST DEPLOY FIRST, like `container reach`. Without that it
 # asks whatever Worker happens to be live, which on a change to the route itself
 # is the version before the change — the mistake edit-smoke recorded on
 # 2026-08-12.
@@ -22,8 +22,13 @@ name: build flight
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   push:
+  #     branches: [main]
 
 jobs:
   flight:

@@ -12,8 +12,9 @@
 # accepted, 401 is one that was not, and no status at all is a request that never
 # left the container.
 #
-# RUNS ON EVERY PUSH, like `container reach`, because a free check that answers a
-# load-bearing question should not need remembering.
+# IT RAN ON EVERY PUSH, like `container reach`, because a free check that answers
+# a load-bearing question should not need remembering — until 2026-09-09, when
+# every workflow but the deploy came off the merge. Dispatched by hand now.
 #
 # PHASE 2 IS OFF BY DEFAULT AND THAT IS A RESULT, NOT A SAVING. Its question —
 # does an instance survive an idle window longer than `sleepAfter` — was answered
@@ -32,8 +33,13 @@ name: gen probe
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   push:
+  #     branches: [main]
 
 jobs:
   probe:

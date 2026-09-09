@@ -31,6 +31,11 @@ on:
   # dispatch-only workflow is one only a person can start, and this exists to
   # prove a store landed on the build that just ran.
   push:
+    # NOT ON THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING
+    # THERE").  main is the merge and a merge here is a fast-forward of a sha
+    # this already ran on the branch, so re-running it on main proves nothing
+    # new.  Every other branch is unchanged.
+    branches-ignore: [main]
     paths:
       - '.github/workflows/answer-read.yml'
       - 'scripts/answer-read.mjs'

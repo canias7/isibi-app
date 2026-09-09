@@ -18,15 +18,20 @@ name: container hold probe
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/container-hold-probe.yml'
-      # THE SCRIPT TOO, or a change to the thing this workflow RUNS triggers
-      # nothing and the probe silently stops being re-run against its own edits.
-      # Caught by `ci-browser-order.test.mjs`, which derives this from the `node
-      # scripts/...` line rather than from a list somebody has to remember.
-      - 'scripts/container-hold-probe.mjs'
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   push:
+  #     branches: [main]
+  #     paths:
+  #       - '.github/workflows/container-hold-probe.yml'
+  #       # THE SCRIPT TOO, or a change to the thing this workflow RUNS triggers
+  #       # nothing and the probe silently stops being re-run against its own edits.
+  #       # Caught by `ci-browser-order.test.mjs`, which derives this from the `node
+  #       # scripts/...` line rather than from a list somebody has to remember.
+  #       - 'scripts/container-hold-probe.mjs'
 
 jobs:
   probe:

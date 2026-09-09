@@ -12,15 +12,22 @@
 #
 # No model call, no Neon project, no Stripe account, no secrets — so it can run
 # on every deploy without costing anything or needing a credential to be
-# rotated. That is the point: the money path should be checked continuously,
-# not once by hand on the day it shipped.
+# rotated. That WAS the point: the money path should be checked continuously,
+# not once by hand on the day it shipped. Since 2026-09-09 it is by hand — the
+# owner took every workflow but the deploy off the merge — so the continuous
+# half is gone and pressing the button after a payments change is the job.
 name: payments smoke
 
 on:
-  workflow_run:
-    workflows: ["Deploy to Cloudflare"]
-    types: [completed]
-    branches: [main]
+  # ── OFF THE MERGE (owner, 2026-09-09: "I JUST WANT THE MERGE THING THERE") ──
+  #
+  # This fired on a push to main, so it ran on every merge.  Nothing here is
+  # deleted: the trigger below is parked, and `workflow_dispatch` still starts
+  # this workflow by hand.  TO PUT IT BACK: uncomment the block.
+  #   workflow_run:
+  #     workflows: ["Deploy to Cloudflare"]
+  #     types: [completed]
+  #     branches: [main]
   workflow_dispatch:
     inputs:
       base_url:
