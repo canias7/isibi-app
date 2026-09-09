@@ -214,8 +214,17 @@ test("the landing's CSS uses only tokens this theme actually defines", () => {
   // forbids", for the tenth recorded time, and a check that flags correct code
   // is worse than no check. Blanking cannot hide a real use: a token is only
   // ever declared or read in code.
+  // AND A DECLARATION IS A DECLARATION WHEREVER IT SITS ON THE LINE
+  // (2026-09-09). This read `^\s*--x:` — the palette's own formatting, one
+  // token per line — and so counted a custom property declared inside a
+  // single-line rule as undefined. It fired on `--db-drop` and `--db-x`, both
+  // declared on `.st-pair` and both used only by rules inside it, and reported
+  // a stylesheet that resolves perfectly as broken. Same lesson as the comment
+  // blanking above, one character over: a check that flags correct code is
+  // worse than no check. A `var(--x)` READ can never match this, because a use
+  // has a `(` before the name and no `:` after it.
   const BARE = CSS.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
-  const defined = new Set([...BARE.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
+  const defined = new Set([...BARE.matchAll(/(?:^|[{;]|\s)(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
   const at = BARE.indexOf("--paper:");
   assert.ok(at > 0, "the landing's pencil palette must be findable by its own first token");
   assert.equal(BARE.indexOf("--paper:", at + 1), -1, "the anchor must be unique to be a window edge");

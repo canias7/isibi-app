@@ -343,8 +343,16 @@ test("three pairs across, and two breakpoints under it", () => {
 // the mobile app 30, the database has to be 50 … outside the square but in the
 // middle on top of each of them" → "just the icon" → "without the box".
 
-/** The real `siteDbIcon`, evaluated out of chat.js — it cannot be imported. */
-function loadDbIcon() {
+/**
+ * The real `siteDbIcon` and `siteWires`, evaluated out of chat.js — neither can
+ * be imported. EVERY FREE NAME IS CARRIED OUT OF THE FILE, never stubbed: the
+ * icon closes over the wires, and the wires close over the three x positions,
+ * so a scope built without them throws `ReferenceError` and a scope built with
+ * stubs would leave every "which wire lands where" assertion blind. That is
+ * this repo's recorded free-identifier trap, met inside the guard written for
+ * the change that introduced the closure.
+ */
+function loadDb() {
   const chat = read("../public/chat.js");
   const cut = (fn) => {
     const at = chat.indexOf("function " + fn + "(");
@@ -353,12 +361,21 @@ function loadDbIcon() {
     assert.ok(end > at, fn + " has no end");
     return chat.slice(at, end + 2);
   };
+  const line = (decl) => {
+    const at = chat.indexOf(decl);
+    assert.ok(at > 0, decl + " is gone from chat.js");
+    const end = chat.indexOf("\n", at);
+    return chat.slice(at, end);
+  };
   const iAt = chat.indexOf("const ST_ICONS = {");
   const iEnd = chat.indexOf("\n};", iAt);
   assert.ok(iAt > 0 && iEnd > iAt, "the icon table moved — re-anchor this");
   return new Function(chat.slice(iAt, iEnd + 3) + "\n" + cut("esc") + "\n" + cut("ic")
-    + "\n" + cut("siteDbIcon") + "\nreturn siteDbIcon;")();
+    + "\n" + line("const SITE_X =") + "\n" + line("const DB_X =")
+    + "\n" + cut("siteWires") + "\n" + cut("siteDbIcon")
+    + "\nreturn { db: siteDbIcon, wires: siteWires, SITE_X, APP_X, DB_X };")();
 }
+function loadDbIcon() { return loadDb().db; }
 
 test("DRIVEN: the database control is just the icon, and keeps both its states", () => {
   const db = loadDbIcon();
@@ -404,34 +421,187 @@ test("the database is drawn ABOVE the pair, exactly once", () => {
   assert.ok(cell.indexOf("siteDbIcon(s)") < card, "the database is inside the card");
 });
 
-test("it is half the pair and centred over BOTH of them", () => {
-  // The owner's own arithmetic: site + phone = 100, database = 50. Spanning both
-  // columns is what makes "the middle" the middle of the PAIR rather than of the
-  // card — centred over the card alone would sit visibly left of centre.
-  const db = rule(read("../public/styles.css"), ".st-db");
-  assert.match(db, /grid-column:\s*1\s*\/\s*-1/,
-    "the control sits in one column, so its centre is that column's, not the pair's");
-  assert.match(db, /justify-self:\s*center/, "it is not centred");
+test("it is half the pair, and its centre is the middle of the two THINGS", () => {
+  // The owner's own arithmetic: site + phone = 100, database = 50. THE WIDTH IS
+  // UNCHANGED and the PLACEMENT MOVED, which is the spelling that moved here:
+  // this used to pin `grid-column: 1 / -1; justify-self: center` on the button
+  // itself, and both of those are now the wrapper's — the button hangs off
+  // `--db-x` instead (owner, 2026-09-09: "the database thing more to the right
+  // so its in the middle, no matter if its not 50 in the middle"). The middle of
+  // a pair whose halves are 74% and 21% is not the middle of the two things, and
+  // the wires are what made that visible.
+  const css = read("../public/styles.css");
+  const wrap = rule(css, ".st-dbwrap");
+  assert.match(wrap, /grid-column:\s*1\s*\/\s*-1/,
+    "the wrapper sits in one column, so `--db-x` measures that column and not the pair");
+  const db = rule(css, ".st-db");
   assert.match(db, /width:\s*50%/, "it is not half the pair's width");
+  // THE CENTRE IS DERIVED, NOT TYPED: half of the 50% width is 25%, so a left
+  // edge a quarter of the pair before `--db-x` puts the box's own centre on it.
+  // Read as arithmetic rather than as a string, so the day either number moves
+  // the other has to move with it.
+  const w = /width:\s*([\d.]+)%/.exec(db);
+  const m = /margin-left:\s*calc\(var\(--db-x\)\s*-\s*([\d.]+)%\)/.exec(db);
+  assert.ok(m, "the control is not placed on --db-x, so the wires leave from nowhere");
+  assert.equal(Number(m[1]), Number(w[1]) / 2,
+    "the offset is not half the width, so the icon's centre is not --db-x");
+  assert.ok(!/justify-self/.test(db),
+    "a justify-self here fights the margin and puts the icon back near the middle");
   // NO BOX — the owner looked at a pill and chose the bare glyph.
   assert.match(db, /border:\s*0/, "the box came back");
   assert.match(db, /background:\s*none/, "the ground came back");
 });
 
-test("a database control with nothing behind it LOOKS disabled", () => {
-  // A SWEEP FOUND THIS. The markup case above proves the `disabled` attribute
-  // and the tooltip, and every one of those assertions stays green with the
-  // dimming removed — so the control would sit on a databaseless card looking
-  // exactly like a live one and doing nothing when pressed. That is this
-  // screen's own recorded finding, made once already on `.st-card-act:disabled`
-  // and repeated here because the new control is a different rule.
+test("DRIVEN: two wires, one to the site and one to the app, from the icon's own centre", () => {
+  // Owner, 2026-09-09: "TWO WIRES COMING FROM THE DATABASE, ONE THAT GOES TO THE
+  // SITE AND ONE TO THE APP" → three treatments rendered → "C".
+  const { wires, db, SITE_X, APP_X, DB_X } = loadDb();
+  const svg = wires();
+
+  // TWO, and they are DECORATION rather than a second control — the button
+  // beside them is the thing you press, and a wire that took focus or a click
+  // would be this repo's own dead-control finding drawn as a picture.
+  const paths = svg.match(/<path /g) || [];
+  assert.equal(paths.length, 2, "there are " + paths.length + " wires, not two");
+  assert.match(svg, /aria-hidden="true"/, "the wires are announced as content");
+  assert.match(svg, /focusable="false"/, "the wires can be tabbed to");
+  assert.ok(!/<button|data-act|data-sid/.test(svg), "a wire grew a handle");
+
+  // ONE VIEWBOX, STRETCHED. `preserveAspectRatio="none"` is what lets the same
+  // two paths serve a pair of any width; the stylesheet's non-scaling-stroke is
+  // what stops that stretch from smearing them, and is asserted below.
+  assert.match(svg, /viewBox="0 0 100 36"/, "the wire box is not the pair's own 100 units");
+  assert.match(svg, /preserveAspectRatio="none"/,
+    "without this the wires keep their own ratio and stop reaching either target");
+
+  // EACH WIRE LEAVES THE ICON AND LANDS ON ITS OWN THING, derived from the same
+  // three numbers the placement uses — never re-typed here, because a guard that
+  // spells the coordinates cannot tell a moved wire from a moved icon.
+  const ds = [...svg.matchAll(/<path d="([^"]+)"/g)].map((x) => x[1]);
+  for (const d of ds) {
+    assert.ok(d.startsWith("M" + DB_X + " "),
+      "a wire starts somewhere other than the icon: " + d.slice(0, 24));
+  }
+  assert.ok(ds.some((d) => d.endsWith(SITE_X + " 35")), "no wire lands on the site");
+  assert.ok(ds.some((d) => d.endsWith(APP_X + " 35")), "no wire lands on the app");
+
+  // AND THE ICON SITS BETWEEN THEM BY ARITHMETIC. This is the owner's "in the
+  // middle": equal runs left and right, which is only true at the midpoint. A
+  // pinned 63.3 would pass while either landing moved underneath it.
+  assert.equal(DB_X, +(((SITE_X + APP_X) / 2).toFixed(2)),
+    "the database is not midway between the two, so one wire runs further than the other");
+  assert.equal(+(DB_X - SITE_X).toFixed(2), +(APP_X - DB_X).toFixed(2),
+    "the two wires do not run the same distance");
+
+  // THE CALL SITE, COUNTED. Cutting it leaves `siteWires` perfect and every
+  // assertion above green, with no wire on any card — the wiring trap, which
+  // this same screen has already shipped once with `cardActs`.
+  assert.ok(db({ id: "s1", react: true, backend: true }).includes(svg),
+    "the icon does not draw the wires");
+  // The declaration matches a bare `siteWires()` too, so it is excluded by name
+  // — counting it would let the one real call be deleted and still read as 1.
+  const chat = blankComments(read("../public/chat.js"));
+  assert.equal((chat.match(/(?<!function )siteWires\(\)/g) || []).length, 1,
+    "siteWires is called somewhere other than the icon, or nowhere at all");
+});
+
+test("the wires hang off the icon and fill exactly the gap it was raised by", () => {
   const css = read("../public/styles.css");
+  const wrap = rule(css, ".st-dbwrap");
+  const w = rule(css, ".st-wires");
+
+  // THE WRAPPER IS THE POSITIONING CONTEXT, and that is the whole reason it
+  // exists: `top: 100%` needs an element whose bottom edge IS the icon's, which
+  // is the one way to place the wires without typing the icon's height in.
+  assert.match(wrap, /position:\s*relative/, "the wires have nothing to hang off");
+  assert.match(w, /position:\s*absolute/, "the wires take space and push the card down");
+  assert.match(w, /top:\s*100%/, "the wires do not start at the icon's bottom edge");
+  assert.match(w, /left:\s*0/, "the wires are not aligned with the pair");
+  assert.match(w, /width:\s*100%/, "the wires do not span the pair, so neither lands");
+  assert.match(w, /pointer-events:\s*none/, "the wires swallow clicks meant for the card");
+
+  // ONE NUMBER, TWO READERS. The gap above the card and the height of the wire
+  // box are the same distance said twice, so they are the same custom property:
+  // a row gap larger than the wires leaves them short of the card, smaller and
+  // they run over it, and neither failure shows up in any markup check.
+  const pair = rule(css, ".st-pair");
+  assert.match(pair, /row-gap:\s*var\(--db-drop\)/, "the gap is no longer the wires' own");
+  assert.match(w, /height:\s*var\(--db-drop\)/, "the wires no longer fill the gap");
+  assert.match(pair, /--db-drop:\s*[\d.]+rem/, "--db-drop is not declared on the pair");
+
+  // AND THE STRETCH MUST NOT SMEAR THE LINE. Without non-scaling-stroke the
+  // viewBox's horizontal squash thickens the wires, so they stop matching the
+  // glyph they leave from — a difference nothing but a screenshot would show.
+  assert.match(css, /^\.st-wires path \{[^}]*vector-effect:\s*non-scaling-stroke/m,
+    "the wires scale their own stroke, so they no longer read as the icon's pen");
+  // The pen: `ic()` draws at stroke-width 1.85 in a 24-unit box, rendered at 17.
+  const sw = /stroke-width:\s*([\d.]+)/.exec(w);
+  assert.ok(sw && Math.abs(Number(sw[1]) - 1.85 * 17 / 24) < 0.05,
+    "the wires are not the same weight as the glyph: " + (sw && sw[1]));
+});
+
+test("the browser and the stylesheet agree where the database sits", () => {
+  // TWO LISTS OF THE SAME THING, avoided by asserting them equal: `--db-x`
+  // places the icon and `DB_X` starts the wires, and nothing else ties them
+  // together. Let them drift and the wires leave from a point the icon is not
+  // at — which reads as a drawing mistake and is really two files disagreeing.
+  const { DB_X } = loadDb();
+  const pair = rule(read("../public/styles.css"), ".st-pair");
+  const x = /--db-x:\s*([\d.]+)%/.exec(pair);
+  assert.ok(x, "--db-x is not declared, so the icon is placed by something else");
+  assert.equal(Number(x[1]), DB_X,
+    "the stylesheet puts the icon at " + x[1] + "% and the wires leave from " + DB_X + "%");
+});
+
+test("the database's lines are dark in BOTH states, on the owner's own call", () => {
+  // THIS CASE IS INVERTED FROM WHAT IT ASSERTED FOR ONE DAY, AND THE DECISION
+  // THAT MOVED IS THE OWNER'S, NOT THE SPELLING. It used to require
+  // `.st-db:disabled { opacity: .38 }` — a sweep had found that every markup
+  // assertion stayed green with the dimming gone, so a control with nothing
+  // behind it would read exactly like a live one. That is still this repo's
+  // convention and it is still right for every other control on this screen.
+  // The owner overruled it for this one icon in as many words (2026-09-09:
+  // "ALSO PUT IT DARK THE LINES , NO MATTER IF ITSD ON IR OFF"), so the guard
+  // asserts the instruction instead of the convention, and asserts the
+  // convention beside it so this reads as a deliberate exception rather than a
+  // drift somebody can quietly widen.
+  const css = read("../public/styles.css");
+
+  // THE INK IS THE DARKEST LEAD, and asserting the TOKEN is what makes this a
+  // statement about darkness rather than about a spelling: `--text` is
+  // `--graphite`, and `--muted` is the greyer one this used to fade to.
+  // IT IS READ THROUGH THE INHERITANCE, because the wires arrived and moved it:
+  // the wrapper sets the colour for the icon and the wires together, so they are
+  // one pen and cannot be darkened apart. Following `inherit` is what keeps this
+  // a statement about what the customer sees rather than about which rule says it.
+  const base = rule(css, ".st-db");
+  const own = /color:\s*([^;]+)/.exec(base);
+  assert.ok(own, "the database icon sets no colour, so it inherits whatever is around it");
+  const from = own[1].trim() === "inherit" ? rule(css, ".st-dbwrap") : base;
+  const ink = /color:\s*var\((--[\w-]+)\)/.exec(from);
+  assert.ok(ink, "nothing declares the ink the icon inherits");
+  assert.equal(ink[1], "--text",
+    "the database's lines must be the darkest lead, not " + ink[1]);
+  assert.match(css, /^\s*--text:\s*var\(--graphite\)/m,
+    "--text is no longer the graphite lead — re-anchor what 'dark' means here");
+
+  // AND NOTHING DIMS IT WHEN IT IS OFF. Read as an absence with its own
+  // observer: the disabled rule must exist (it still sets the cursor), and it
+  // must carry no opacity below 1.
   const off = rule(css, ".st-db:disabled");
+  assert.ok(off && /cursor:/.test(off),
+    "the disabled rule is gone, so this assertion is observing nothing");
   const op = /opacity:\s*([\d.]+)/.exec(off);
-  assert.ok(op, "a disabled control must be visibly dimmed, not merely inert");
-  assert.ok(Number(op[1]) < 0.7, "dimmed enough to read as off: " + op[1]);
-  // The observer is alive: the base rule this overrides is still here.
-  assert.ok(/^\.st-db \{/m.test(css), "the base rule is gone — re-anchor this");
+  assert.ok(!op || Number(op[1]) >= 1,
+    "the owner asked for dark lines whether it is on or off; this dims to " + (op && op[1]));
+
+  // THE CONVENTION IS ALIVE ONE RULE OVER. If this ever goes red, the repo has
+  // stopped dimming disabled controls generally and the exception above is no
+  // longer an exception — which is a decision somebody has to make on purpose.
+  const act = rule(css, ".st-card-act:disabled");
+  const actOp = /opacity:\s*([\d.]+)/.exec(act);
+  assert.ok(actOp && Number(actOp[1]) < 0.7,
+    "the card's own disabled controls no longer dim, so this is no longer an exception");
 });
 
 test("the pair keeps a row for it, and the card still stretches", () => {
@@ -452,9 +622,14 @@ test("the pair keeps a row for it, and the card still stretches", () => {
   // never be a test edit — so this asserts the property that survives every
   // tuning: there IS a gap. Delete the declaration and the icon sits flush on
   // the card, which no other assertion here would notice.
-  const rowGap = /row-gap:\s*([\d.]+)rem/.exec(pair);
-  assert.ok(rowGap && Number(rowGap[1]) > 0,
+  // IT IS READ THROUGH `--db-drop` NOW, which is the spelling that moved: the
+  // wires fill this same distance, so the gap and their height are one custom
+  // property rather than two numbers that can disagree.
+  assert.match(pair, /row-gap:\s*var\(--db-drop\)/,
     "the pair declares no row gap, so the database sits flush on the card");
+  const rowGap = /--db-drop:\s*([\d.]+)rem/.exec(pair);
+  assert.ok(rowGap && Number(rowGap[1]) > 0,
+    "--db-drop is not a real distance, so there is no gap and no room for the wires");
 });
 
 test("the database control is WIRED wherever it sits", () => {

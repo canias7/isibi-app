@@ -1686,13 +1686,123 @@ half. MEASURED on the real tree at 1920, 1512, 1100 and 700: pair 349, site
   row gap back to the columns', the handler back on the class (the trap itself),
   and the dimming above.
   Full suite **5,709**.
+- **AND IT WAS RAISED TWICE MORE, THE SAME DAY** (owner: *"put it a BIT HIGHER,
+  THE DATABASE ICON, DONT MOVE THE OTHER STUFF"* → *"PUT THE DATABASE THING A
+  BIT HIGHER"*). The pair's row gap, `1.25rem` → `1.75` → `2.25rem`: measured
+  **20px → 28px → 36px** above the card, at 1920, 1512, 1100 and 700 each time.
+  **The guard needed no edit across either step, by design** — it requires a row
+  gap to EXIST and never pins the amount, the grid row gap's own rule for its own
+  reason (the owner tunes it, and a tuning must never be a test edit).
+  And *"don't move the other stuff"* was checked rather than assumed: card
+  258/258/383/480, phone within a pixel of its thumbnail, database exactly 50.0%
+  of the pair and centred to the pixel, the grid's own row gap 104px, no page
+  overflow — identical before and after, both times.
+- **THE LINES ARE DARK WHETHER IT IS ON OR OFF (owner: *"ALSO PUT IT DARK THE
+  LINES, NO MATTER IF ITSD ON IR OFF"*).** `--muted` → `--text`, the palette's
+  darkest lead, and `.st-db:disabled` no longer dims. **A DELIBERATE EXCEPTION TO
+  THIS APP'S OWN RULE, written down rather than left to look like a drift**: a
+  control that is inert and does not LOOK inert is the finding this repo has now
+  made twice on this very screen, and the sweep above caught it once already. The
+  owner has overruled it for this one icon, so a site with no database now has a
+  control that reads exactly like a live one — the tooltip and the dead press are
+  what say otherwise. **The convention is asserted ALIVE one rule over**
+  (`.st-card-act:disabled` still dims), so this reads as an exception rather than
+  as the start of a general drift, and a mutant that widens it is killed.
+  The hover and the transition went with it: with the ink already at the darkest
+  lead there is nothing left for either to move, so they are gone rather than
+  kept as rules that do nothing.
+  **The guard was INVERTED, not appeased** — it required the dimming, which was
+  right for a day and is now contrary to an instruction; it asserts the
+  instruction now, and reads the ink through `inherit` so it stays a statement
+  about what the customer sees rather than about which rule says it.
+- **AND TWO WIRES RUN FROM THE DATABASE — ONE TO THE SITE, ONE TO THE APP**
+  (owner, 2026-09-09: *"OK NOW TWO WIRES COMING FROM THE STABASE, ONE THAT GOES
+  TO THE SITE AND ONE TO THE APP"* → three treatments rendered → *"C AND BUT THE
+  DATABSE THNG MORE TO THE RIGHT SO ITS IN THE MIDDEL, NO MATTER IF ITS NOT 50 IN
+  THE MIDDLE"* → *"GOOD"*). Straight lines, a right-angled bus and curves were
+  drawn into the real start screen; the owner picked the curves.
+- **THE ICON MOVED OFF THE PAIR'S 50% AND THE WIRES ARE WHY.** The pair's two
+  halves are 74% and 21%, so the middle of the PAIR is not the middle of the two
+  THINGS — from 50% the left wire ran 12.6% of the pair and the right one 39.2%,
+  which reads as lopsided however carefully it is centred. `--db-x` is the
+  midpoint of the two landings, **computed rather than typed**
+  (`DB_X = (SITE_X + APP_X) / 2` = 63.3), so the two runs are equal by
+  construction: measured **90/90 at three across, 132/132 at two, 165/165 at
+  one**. The 50% WIDTH is untouched — that was the owner's number for the hit
+  area, and this moves where that box sits, not how big it is.
+- **THE TWO LANDINGS ARE DERIVED FROM THE PAIR'S OWN COLUMNS, not eyeballed.**
+  `1fr .2888fr` with a 16.8px gap puts the site's centre at `.38796*(W-16.8)` and
+  the phone's at `W - .11204*(W-16.8)`; as fractions of W those are 36.9–37.8%
+  and 89.1–89.3% across every width this grid reaches, so ONE pair of numbers
+  lands within about two pixels of both centres everywhere. **Measured on the
+  real tree: −2 to +2px off the card's centre and 0 to 1px off the phone's**, and
+  the wires leave the icon's own centre to the pixel at all four widths.
+- **`preserveAspectRatio="none"` + `vector-effect: non-scaling-stroke`, and the
+  pair is load-bearing.** The first is what lets one viewBox stretch to a pair of
+  any width; without the second that stretch thickens the wires and they stop
+  matching the glyph they leave from — a difference nothing but a screenshot
+  would show. The stroke is `1.85 × 17/24`, the effective weight `ic()` draws at.
+- **ONE NUMBER, TWO READERS.** The gap above the card and the height of the wire
+  box are the same distance said twice, so they are one custom property
+  (`--db-drop`): a row gap larger than the wires leaves them hanging short of the
+  card, smaller and they run over it, and neither failure shows up in a markup
+  check. The wrapper exists for the same reason — `top: 100%` needs an element
+  whose bottom edge IS the icon's, which is the one way to place the wires
+  without typing the icon's height in.
+- **AND `--db-x` AND `DB_X` ARE ASSERTED EQUAL**, because that is two lists of
+  the same thing: the stylesheet places the icon and chat.js starts the wires,
+  and nothing else ties them together. Let them drift and the wires leave from a
+  point the icon is not at — which reads as a drawing mistake and is really two
+  files disagreeing.
+- **Guards**: `test/site-card-phone.test.mjs` 21 → **24** — `siteWires` EVALUATED
+  out of chat.js and driven (two paths, decoration rather than a control, the
+  stretch declared, each wire leaving `DB_X` and landing on its own target, the
+  midpoint and the equal runs DERIVED rather than pinned), its one call site
+  COUNTED with the declaration excluded by name (counting it would let the real
+  call be deleted and still read as 1), the wires' placement and the one-number
+  rule, and the icon's centre read as ARITHMETIC — half of the 50% width against
+  the margin's own offset — so the day either number moves the other must move
+  with it.
+  **THE FREE-IDENTIFIER TRAP FIRED IN BOTH EVAL HARNESSES, exactly as
+  `loadCardFn`'s own comment predicted in writing**: the icon now closes over
+  `siteWires`, which closes over the two x positions, so every case in
+  `site-list.test.mjs` failed with `siteWires is not defined` for a function that
+  is perfectly correct. Carried out of the FILE in both loaders, never stubbed —
+  a stub answering `''` would leave every markup assertion blind to whether the
+  wires are drawn at all.
+- **AND A THIRD GUARD WENT RED FOR A STYLESHEET THAT RESOLVES PERFECTLY.**
+  `landing-models.test.mjs`'s token scanner built its "declared" set from
+  `^\s*--x:` — the palette's own formatting, one token per line — so a custom
+  property declared inside a single-line rule counted as undefined, and it named
+  `--db-drop` and `--db-x`. The same lesson as the comment-blanking fix in that
+  very guard, one character over: **a check that flags correct code is worse than
+  no check.** A declaration is a declaration wherever it sits on the line now,
+  and a `var()` READ can never match it (a use has a `(` before the name and no
+  `:` after).
+- **Sweep: 69 mutants, 69 killed, none survived, none unapplied, two comment-only
+  controls survived — none survived the first pass.** Ten of the earlier set's
+  anchors had gone stale on the lines this change touched and were re-pointed at
+  the property each always held before the whole set was re-run; "never applied"
+  reads exactly like a kill in a summary and proves nothing. The new ones: the
+  wires never drawn (the wiring trap, the state before this), drawing nothing,
+  one wire, both wires to the site, leaving from the pair's 50% instead of the
+  icon, the middle typed rather than computed, announced to a screen reader,
+  focusable, the stretch dropped so neither reaches, the viewBox no longer 100
+  units so the percentages stop being percentages; the wrapper not a positioning
+  context, the wires taking space, starting at the icon's top, spanning half the
+  pair, given their own height so it drifts from the gap, swallowing clicks,
+  scaling their own stroke, drawn with a heavier pen; a `justify-self` fighting
+  the margin, the offset not half the width, the stylesheet and the browser
+  disagreeing about `--db-x`, the row gap zeroed, and `--db-drop` renamed so
+  every use of it resolves to nothing.
+  Full suite **5,712**.
 - **Not proven live.** The push touches `public/`, `test/` and `docs/` only — no
   container roll, no 15–20 minute hold. The proof is one look at the signed-in
-  start screen: a database icon floating above each pair, centred over the site
-  and its phone, dim on a site that has no database and opening the Data view on
-  one that does. Renders: `docs/edits/site-cards-phone.png` and `-2across.png`,
-  refreshed for this. **And `chat.js` is cached**, so a hard refresh is part of
-  it reaching anybody.
+  start screen: a database icon between each site and its phone, two curved wires
+  running down to them, dark whether the site has a database or not, and opening
+  the Data view on one that does. Renders: `docs/edits/site-cards-phone.png` and
+  `-2across.png`, refreshed for this. **And `chat.js` is cached**, so a hard
+  refresh is part of it reaching anybody.
 
 ### A MOBILE APP COLUMN YOU OPEN AND CLOSE (2026-09-08, owner: *"i want to make
 a column in the right hand side"* → *"Is for mobile app"* → *"in a sidebar not
@@ -7916,8 +8026,24 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,709
-  (2026-09-09, after the database control moved off the card and above the pair
+  build and the pre-list payload added sixteen); the unit suite is 5,712
+  (2026-09-09, after two wires were run from the database to the site and to the
+  phone — three in `test/site-card-phone.test.mjs`: `siteWires` EVALUATED out of
+  chat.js and driven, with each wire required to leave the icon's own centre and
+  land on its own target and the midpoint between them DERIVED rather than
+  pinned, so the two runs are equal by construction; the wires' placement, the
+  one custom property the gap above the card and the height of the wire box are
+  both read from, and the stretch pair (`preserveAspectRatio="none"` with
+  `vector-effect: non-scaling-stroke`) without which the wires stop matching the
+  pen they leave from; and `--db-x` asserted equal to chat.js's own `DB_X`, which
+  is two lists of the same thing and would otherwise read as a drawing mistake.
+  **The free-identifier trap fired in BOTH eval harnesses**, exactly as
+  `loadCardFn`'s own comment predicted in writing, and both carry the real
+  functions out of the file rather than stubbing them. And a THIRD guard went red
+  for a stylesheet that resolves perfectly: the landing's token scanner counted a
+  custom property declared inside a single-line rule as undefined, which is its
+  own recorded "a check that flags correct code is worse than no check";
+  before it 5,709, after the database control moved off the card and above the pair
   — six more in `test/site-card-phone.test.mjs`: `siteDbIcon` EVALUATED out of
   chat.js and driven for both its states, drawn above the pair exactly once with
   its call site COUNTED and its position derived, the owner's own geometry read

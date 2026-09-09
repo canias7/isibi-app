@@ -388,6 +388,14 @@ test("either side saying there is a database is a yes", () => {
  * `esc`, `ic`) and two copies would drift the first time one of them reaches a
  * new free identifier — the recorded free-identifier trap, which this file's own
  * harnesses have hit before.
+ *
+ * AND ON 2026-09-09 IT HIT AGAIN, exactly as that sentence predicted: the wires
+ * gave `siteDbIcon` three more free names (`siteWires` and the two x positions
+ * it computes from), and every case here failed with `siteWires is not defined`
+ * for a function that is perfectly correct. Carried out of the FILE, never
+ * stubbed — a stub answering `''` would leave every markup assertion below
+ * blind to whether the wires are drawn at all — and carried for BOTH functions,
+ * because one scope is the whole argument for one loader.
  */
 function loadCardFn(name) {
   const chat = read("../public/chat.js");
@@ -398,11 +406,17 @@ function loadCardFn(name) {
     assert.ok(end > at, fn + " has no end");
     return chat.slice(at, end + 2);
   };
+  const line = (decl) => {
+    const at = chat.indexOf(decl);
+    assert.ok(at > 0, decl + " is gone from chat.js");
+    return chat.slice(at, chat.indexOf("\n", at));
+  };
   const iAt = chat.indexOf("const ST_ICONS = {");
   assert.ok(iAt > 0, "the icon table is gone");
   const iEnd = chat.indexOf("\n};", iAt);
   assert.ok(iEnd > iAt, "the icon table has no end");
   return new Function(chat.slice(iAt, iEnd + 3) + "\n" + cut("esc") + "\n" + cut("ic")
+    + "\n" + line("const SITE_X =") + "\n" + line("const DB_X =") + "\n" + cut("siteWires")
     + "\n" + cut(name) + "\nreturn " + name + ";")();
 }
 const loadCardActs = () => loadCardFn("cardActs");
@@ -492,8 +506,18 @@ test("a disabled card action LOOKS disabled", () => {
   // green: the markup was right and three identical-looking icons would have
   // shipped, one of them doing nothing when clicked. Nothing else in this file
   // reads the stylesheet, so nothing else can see that.
+  // THE SELECTOR IS MATCHED AS A RULE, NOT AS A STRING, and that is not
+  // tidiness — this guard went RED on 2026-09-09 for a stylesheet whose rule was
+  // untouched, because a COMMENT one rule up quoted this very selector while
+  // explaining why the database icon is the exception to it. A bare `indexOf`
+  // found the prose, sliced to the next `}`, and reported a correct rule as
+  // undimmed. The recorded "prose contains the thing it forbids"; the line-based
+  // blanker this file uses on JavaScript cannot see it either, because a CSS
+  // block comment's continuation lines are bare prose. What tells a rule from a
+  // sentence about a rule is where it sits: at the start of a line, with its
+  // brace after it.
   const css = read("../public/styles.css");
-  const at = css.indexOf(".st-card-act:disabled");
+  const at = css.search(/^\.st-card-act:disabled \{/m);
   assert.ok(at > 0, "the disabled rule is gone");
   const rule = css.slice(at, css.indexOf("}", at));
   const op = /opacity:\s*([\d.]+)/.exec(rule);

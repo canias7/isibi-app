@@ -10455,13 +10455,47 @@ function switchSitePage(path) {
 // so "no database yet" is the ORDINARY card, and the control stays visible and
 // says what to do about it — hiding it is how a customer never learns the
 // feature is there to ask for.
+// WHERE THE THREE THINGS SIT ACROSS THE PAIR, as percentages of its width —
+// and these are DERIVED from the pair's own columns rather than eyeballed.
+// `.st-pair` is `1fr .2888fr` with a 1.05rem (16.8px) column gap, so for a pair
+// of width W the site is (W-16.8)/1.2888 wide: its centre is .38796*(W-16.8)
+// and the phone's is W - .11204*(W-16.8). As fractions of W those work out at
+// 36.9–37.8% and 89.1–89.3% across every width this grid reaches (349 at three
+// across, 510 at two, 635 at one), so ONE pair of numbers lands within about
+// two pixels of both centres everywhere — a distance nobody can see on a wire.
+const SITE_X = 37.4, APP_X = 89.2;
+// AND THE DATABASE SITS BETWEEN THEM, NOT AT THE PAIR'S OWN 50% (owner,
+// 2026-09-09: "the database thing more to the right so its in the middle, no
+// matter if its not 50 in the middle"). The middle of a pair whose two halves
+// are 74% and 21% wide is not the middle of the two THINGS, and the wires are
+// what make that visible: from 50% the left wire ran 12.6% and the right one
+// 39.2%, which reads as lopsided however carefully it is centred. Computed, so
+// the two runs are equal by construction and cannot drift apart when either
+// landing moves. The 50% WIDTH is untouched — that was the owner's number for
+// the hit area, and this moves where that box sits, not how big it is.
+const DB_X = +(((SITE_X + APP_X) / 2).toFixed(2));
+// TWO WIRES, ONE TO EACH (owner, 2026-09-09: "two wires coming from the
+// database, one that goes to the site and one to the app"). Curves were chosen
+// over straight lines and over a right-angled bus, from three renders.
+// `preserveAspectRatio="none"` is what lets one viewBox stretch to a pair of any
+// width, and `vector-effect: non-scaling-stroke` in the stylesheet is what stops
+// that stretch from smearing the line: without it the horizontal squash would
+// make these wires thicker than the glyph they leave from. Decoration, so
+// `aria-hidden` and unfocusable — the button beside them is the control.
+function siteWires() {
+  const c = (x) => 'M' + DB_X + ' 1 C' + DB_X + ' 21 ' + x + ' 15 ' + x + ' 35';
+  return '<svg class="st-wires" viewBox="0 0 100 36" preserveAspectRatio="none"' +
+    ' aria-hidden="true" focusable="false">' +
+    '<path d="' + c(SITE_X) + '"/><path d="' + c(APP_X) + '"/></svg>';
+}
 function siteDbIcon(s) {
   const hasDb = !!(s.react && s.backend);
-  return '<button type="button" class="st-db" data-act="data" data-sid="' + esc(s.id) + '"' +
+  return '<div class="st-dbwrap">' +
+    '<button type="button" class="st-db" data-act="data" data-sid="' + esc(s.id) + '"' +
     (hasDb ? '' : ' disabled') +
     ' title="' + (hasDb ? 'Data' : 'No database yet — ask for one in the chat') + '"' +
     ' aria-label="' + (hasDb ? 'Open this site’s data' : 'This site has no database yet') + '">' +
-    ic('database', 17) + '</button>';
+    ic('database', 17) + '</button>' + siteWires() + '</div>';
 }
 function cardActs(s) {
   const id = esc(s.id);

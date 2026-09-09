@@ -1531,11 +1531,19 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    property of the layout rather than a preference: row 1 starts at the pair's
    own top edge, so the icon is ALREADY as high as it can go inside the pair —
    "higher" can only mean more air between it and the card, which is this
-   number. .5rem when it shipped, then 1.25, and 1.75rem on a second "a bit
-   higher": measured 8px, 20px and 28px above the card. It moves NOTHING else —
-   not the card's width, not the phone, not the columns, not the space between
-   the rows of the grid. */
-.st-pair { display: grid; grid-template-columns: 1fr .2888fr; grid-template-rows: auto 1fr; column-gap: 1.05rem; row-gap: 1.75rem; align-items: stretch; }
+   number. .5rem when it shipped, then 1.25, 1.75 and 2.25rem across three "a bit
+   higher" asks: measured 8px, 20px, 28px and 36px above the card. It moves
+   NOTHING else — not the card's width, not the phone, not the columns, not the
+   space between the rows of the grid — which is why it can be tuned freely and
+   why no guard pins the amount.
+   IT IS `--db-drop` BECAUSE THE WIRES FILL IT. That distance is now two things
+   at once — the air above the card, and the height of the box the wires are
+   drawn in — and they are one custom property so they cannot drift: a row gap
+   larger than the wires leaves them hanging short of the card, smaller and they
+   run over it. `--db-x` is where the database sits across the pair, and
+   `siteWires` in chat.js computes the same number from the same two landings.
+   Both live here, on the pair, because everything that reads them is inside it. */
+.st-pair { --db-drop: 2.25rem; --db-x: 63.3%; display: grid; grid-template-columns: 1fr .2888fr; grid-template-rows: auto 1fr; column-gap: 1.05rem; row-gap: var(--db-drop); align-items: stretch; }
 /* THE DATABASE IS HALF THE PAIR AND CENTRED OVER BOTH OF THEM (owner: "the
    width of the site and the mobile app together is 100 … the database has to be
    50 … outside the square but in the middle on top of each of them"). Spanning
@@ -1545,19 +1553,50 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    centred to the pixel.
    JUST THE ICON — no box, no label. The owner was shown a pill and a labelled
    bar and picked the bare glyph. The 50% is still real: it is the hit area, so
-   the control is easy to hit without drawing a box around it. */
+   the control is easy to hit without drawing a box around it.
+   AND ITS CENTRE IS `--db-x`, NOT THE PAIR'S OWN HALFWAY MARK (owner,
+   2026-09-09: "the database thing more to the right so its in the middle, no
+   matter if its not 50 in the middle"). The pair's two halves are 74% and 21%
+   wide, so the middle of the PAIR is not the middle of the two THINGS, and the
+   wires are what made that visible. `margin-left` puts the box's own centre on
+   `--db-x`: half of 50% is 25%, so the left edge goes a quarter of the pair to
+   the left of it. Both percentages resolve against the wrapper, which spans the
+   whole pair, so this holds at every width without a media query.
+   THE WRAPPER EXISTS FOR THE WIRES: they hang below the icon with `top: 100%`,
+   which needs something whose bottom edge IS the icon's bottom edge, and that
+   is the one way to place them without typing the icon's height in. */
+.st-dbwrap { grid-column: 1 / -1; position: relative; color: var(--text); }
 .st-db {
-  grid-column: 1 / -1; justify-self: center; width: 50%;
+  width: 50%; margin-left: calc(var(--db-x) - 25%);
   display: flex; align-items: center; justify-content: center;
   border: 0; background: none; padding: 0;
-  color: var(--muted); cursor: pointer;
-  transition: color .15s ease;
+  color: inherit; cursor: pointer;
 }
-.st-db:hover:not(:disabled) { color: var(--text); }
-/* A site with no database keeps its control, dimmed and explained by its own
-   tooltip — the same rule the card's actions are under, and the reason is the
-   same: a first build provisions none, so this is the ORDINARY card. */
-.st-db:disabled { opacity: .38; cursor: default; }
+/* THE WIRES FILL THE GAP THE ICON WAS RAISED BY, exactly — the stroke is the
+   glyph's own 1.85 scaled by the 17/24 `ic()` draws it at, so a wire reads as
+   the same pen as the thing it leaves from. `overflow: visible` because the
+   round caps sit a hair outside the box. */
+.st-wires {
+  position: absolute; top: 100%; left: 0; width: 100%; height: var(--db-drop);
+  fill: none; stroke: currentColor; stroke-width: 1.31;
+  stroke-linecap: round; stroke-linejoin: round;
+  pointer-events: none; overflow: visible;
+}
+.st-wires path { vector-effect: non-scaling-stroke; }
+/* THE LINES ARE DARK IN BOTH STATES, ON THE OWNER'S OWN INSTRUCTION (2026-09-09:
+   "ALSO PUT IT DARK THE LINES , NO MATTER IF ITSD ON IR OFF"). `--text` is
+   `--graphite`, the palette's darkest lead.
+   THIS IS A DELIBERATE EXCEPTION TO THIS APP'S OWN RULE, so it is written down
+   rather than left to look like a drift: everything else here dims when it is
+   disabled (`.st-card-act:disabled` one rule down, which a sweep once caught
+   going missing), because a control that is inert and does not LOOK inert is
+   the thing this repo keeps finding. The owner has overruled that for this one
+   icon, so what a site with no database now has is a control that reads exactly
+   like a live one — the tooltip and the dead press are what say otherwise.
+   And with the ink already at the darkest lead there is nothing left for a
+   hover or a transition to move, so both are GONE rather than kept as rules
+   that do nothing. */
+.st-db:disabled { cursor: default; }
 .st-db:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; border-radius: 6px; }
 /* The mobile app, beside the site and not inside it. `align-content: start` is
    what keeps the phone level with the thumbnail while the card stretches to the

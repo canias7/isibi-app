@@ -194,6 +194,72 @@ markup, and "disabled" is in the markup. The icon would have been inert while
 looking perfectly live. That is the same thing that got past us two days ago on
 the card's own icons, one control over. Guarded now.
 
+**Raised twice more since**, on *"put it a BIT HIGHER"* and then *"PUT THE
+DATABASE THING A BIT HIGHER"*: 20 → 28 → **36 pixels** above the card. Measured
+at four window sizes each time, and nothing else moved either time — same card
+width, same phone, same spacing between rows. The test never needed touching for
+any of it, which is deliberate: it checks that there *is* a gap and never how
+big, so you can keep nudging it without a test edit.
+
+**The lines are dark now whether the site has a database or not** — your call:
+*"ALSO PUT IT DARK THE LINES, NO MATTER IF ITSD ON IR OFF."* Worth saying out
+loud because it goes against a rule this project has otherwise kept: everything
+else here fades when it is switched off, so you can tell at a glance what you
+can press. The database icon no longer does. It is still switched off on a site
+with no database — nothing happens when you press it, and hovering still says
+*"No database yet — ask for one in the chat"* — it just doesn't look it. Written
+down in the code as your decision rather than left looking like a slip, and the
+fading rule on the card's own icons is still tested, so this stays one exception
+rather than quietly becoming the new normal.
+
+---
+
+## 2026-09-09 — Two wires from the database to the site and the app
+
+You asked for *"TWO WIRES COMING FROM THE STABASE, ONE THAT GOES TO THE SITE AND
+ONE TO THE APP."* I drew three versions into the real screen — straight lines, a
+right-angled one like a circuit board, and curves — and you picked the curves,
+then said *"BUT THE DATABSE THNG MORE TO THE RIGHT SO ITS IN THE MIDDEL, NO
+MATTER IF ITS NOT 50 IN THE MIDDLE."* Both are in. You said **"GOOD"** to the
+result.
+
+**You were right, and here is the arithmetic behind why.** The database was
+sitting at the halfway mark across the pair. But the site takes about 74% of the
+width and the phone about 21%, so halfway across the *pair* is nowhere near
+halfway between the two *things* — the wire to the site had a short run and the
+wire to the phone a long one, which looks lopsided no matter how carefully it is
+centred. It now sits at **63.3%**, which is worked out as the exact midpoint
+between the middle of the site and the middle of the phone rather than typed in.
+The result: the two wires run **exactly the same distance** left and right — 90
+pixels each at three across, 132 at two, 165 at one. Measured, not eyeballed.
+
+**The size did not change**, only where it sits. The clickable area is still half
+the pair, which was your number.
+
+**The wires land dead on both.** Within two pixels of the middle of the site and
+one pixel of the middle of the phone, at every window size I tried. They leave
+the icon's own centre to the pixel.
+
+**They are drawn, not a picture file** — same pen weight as the database icon
+itself, so they read as one drawing. And they are decoration only: a screen
+reader ignores them, they can't be tabbed to, and they don't swallow clicks meant
+for the card underneath.
+
+**One thing worth knowing, because it is a mistake this project keeps making.**
+Two of the test harnesses broke the moment the wires went in — not because
+anything was wrong, but because they build a little sandbox to run the card code
+in, and the card code now reaches for one more thing than the sandbox had.
+There's a comment in one of those harnesses, written weeks ago, predicting
+exactly this would happen. It did. Fixed by handing the real code in rather than
+a fake, because a fake would have made every "are the wires there?" check blind.
+
+**And one test was flagging correct code.** A checker that makes sure the
+stylesheet never uses a colour or size it hasn't defined only recognised
+definitions written at the start of a line — so the two new ones, written inline,
+looked undefined to it and it reported a perfectly working stylesheet as broken.
+Fixed the checker, not the stylesheet: a test that cries wolf is worse than no
+test, and that same file already has a note saying so from a similar slip.
+
 43 mutation tests, all 43 caught. Full suite 5,709, all green.
 
 **Not on the live site yet.** When it is: hard refresh, and you should see a
