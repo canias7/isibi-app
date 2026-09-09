@@ -1480,15 +1480,76 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-arrow { font-size: 1.05rem; }
 .st-gen-sm { font-size: .85rem; padding: .55rem .95rem; align-self: flex-end; }
 .st-grid-h { margin: 2rem 0 .8rem; font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.st-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; }
-.st-card { position: relative; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
+/* THREE PAIRS ACROSS, NOT FOUR CARDS (owner, 2026-09-09: "instead of 4 , just 3
+   horizontally , so one square with the site , and one wiht the mobile app").
+   `auto-fill`/`minmax` filled the 1080px page with four 258px cards; each cell
+   now holds a site and the mobile app beside it, so the count is stated rather
+   than derived from a minimum width. The two breakpoints are what stop three
+   pairs from putting a card under 200px on a laptop. */
+.st-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+@media (max-width: 1180px) { .st-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 760px) { .st-grid { grid-template-columns: 1fr; } }
+/* THE PHONE IS THE SITE SQUARE'S HEIGHT BY ARITHMETIC, NOT BY A NUMBER TYPED IN
+   (owner: "the phone same height as the square"). Two ratios decide it and the
+   column is their product:
+
+     thumbnail   .st-card-prev  aspect-ratio: 16/10   -> tall as card_w x 10/16
+     handset     .st-app-phone  aspect-ratio: 390/844 -> that tall is x 390/844 wide
+     so the column is card_w x (10/16) x (390/844) = card_w x .2888
+
+   Hence `1fr .2888fr`, with the phone at `width: 100%`. The two then line up at
+   EVERY width rather than only at the size this was drawn at. MEASURED: phone
+   162 against a 160 thumbnail at 1920 and at 1512, 239/238 at 1100 (two across),
+   300/299 at 700 (one), tops within a pixel each time.
+   THE HANDSET RATIO IS THE WORKSPACE PANEL'S OWN (`.st-mob-device`, 390/844), so
+   the two phones this app draws are one shape rather than two near-misses — and
+   `test/site-card-phone.test.mjs` recomputes this column from both ratios rather
+   than pinning it, so moving either one goes red here instead of drifting.
+   A FIXED px COLUMN WOULD LOOK RIGHT HERE AND BREAK AT THE BREAKPOINTS — the
+   card widens to 382 and then 480, so a phone frozen at 75 would sit beside a
+   thumbnail half as tall again as itself.
+   AND THE GAP IS WHAT HOLDS THE CARD AT THE WIDTH IT HAS TODAY: a pair is 349.3
+   at three across, and 258 + 258 x .2888 leaves 16.8 for it — `1.05rem`. The card
+   measures 258, which is what it measured at four across before this. */
+.st-pair { display: grid; grid-template-columns: 1fr .2888fr; gap: 1.05rem; align-items: stretch; }
+/* The mobile app, beside the site and not inside it. `align-content: start` is
+   what keeps the phone level with the thumbnail while the card stretches to the
+   tallest in its row. */
+.st-app { min-width: 0; display: grid; align-content: start; gap: .12rem; }
+.st-app-phone {
+  width: 100%; aspect-ratio: 390 / 844; position: relative;
+  border: 1px solid var(--line-2); border-radius: 16px;
+  /* THE CARD'S OWN GROUND, read from the same token rather than restated, so a
+     palette change moves both and they cannot drift into two greys. */
+  background: var(--panel-2);
+}
+/* The earpiece slot — the one mark that says handset rather than tall box. */
+.st-app-phone:before {
+  content: ""; position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
+  width: 22px; height: 3px; border-radius: 2px; background: var(--graphite); opacity: .3;
+}
+/* The words sit where the card's name and date sit, so the pair reads as one
+   row. One deliberate margin above the pair of them; the grid's own small gap
+   holds the two lines together. */
+.st-app-t { margin-top: .45rem; font-size: .68rem; font-weight: 700; color: var(--muted); text-align: center; line-height: 1.2; }
+.st-app-s { font-size: .65rem; color: var(--muted); opacity: .78; text-align: center; line-height: 1.2; }
+/* `min-width: 0` is INERT TODAY and stays as the wall. MEASURED both ways with
+   a site name that has no break opportunity at all: card 258 either way, no
+   page overflow either way — because `.st-card-name` already carries
+   `overflow: hidden`, which makes the card's min-content width 0 without any
+   help. It becomes load-bearing the moment anything is added to the card that
+   does NOT clip its own overflow, which is the ordinary way a grid item starts
+   pushing past its column. Kept, said out loud, and NOT claimed to be covered
+   by a guard — a sweep mutant that removes it correctly survives. */
+.st-card { min-width: 0; position: relative; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
 .st-card:hover { border-color: rgba(0, 0, 0, .45); transform: translateY(-2px); }
 .st-card-prev { aspect-ratio: 16/10; overflow: hidden; background: var(--bg); pointer-events: none; }
 .st-card-prev iframe { width: 400%; height: 400%; transform: scale(.25); transform-origin: 0 0; border: 0; pointer-events: none; }
 .st-card-meta { display: flex; align-items: flex-end; justify-content: space-between; gap: .6rem; padding: .7rem .85rem .8rem; }
 .st-card-names { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
-/* The three actions. `flex: 0 0 auto` so a long site name ellipsises against
-   them rather than pushing them off the card. */
+/* The card's actions — two since 2026-09-09, when the mobile-app icon came off
+   and the phone beside the card took over saying it. `flex: 0 0 auto` so a long
+   site name ellipsises against them rather than pushing them off the card. */
 .st-card-acts { display: flex; gap: 4px; flex: 0 0 auto; }
 .st-card-act {
   width: 26px; height: 26px; padding: 0; display: grid; place-items: center;

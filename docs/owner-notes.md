@@ -146,6 +146,67 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-09 — The mobile app sits next to each site on the start screen
+
+You asked for three across instead of four, with the site in one square and the
+mobile app beside it. Then twice more to get it right: *"no i mean the square
+and next to it the phone, not inside"*, and *"leave the square the size it is
+currently, just add the phone thing next to it"*. Then *"the phone same height
+as the square"*. All four are in.
+
+**Your site card did not change.** Same width, same picture, same name and date
+row. It measures 258 pixels wide at three across, which is exactly what it
+measured at four before this. That is not luck — the gap between the card and
+the phone is sized to leave the card alone, and there is a test that fails if
+somebody rounds it off.
+
+**The phone stands exactly as tall as the site picture beside it**, and it stays
+that way at any window size — including when the grid drops to two across and
+then to one, where the card gets much wider and the phone grows with it. That
+comes out of a bit of arithmetic rather than a number I picked: the picture's
+shape and the phone's shape decide the column's width between them, so they
+cannot drift apart. Measured at four window sizes: 161 against 160, 239 against
+238, 300 against 299.
+
+**The little phone icon came off the card.** It was greyed out and said "Mobile
+app — not built yet", and now there is a whole phone beside the card saying the
+same thing — the same sentence twice on one card, three times if you count what
+a screen reader reads out. Taking it off also gave the name back the room those
+two icons were using: `hartleys-barbers` no longer gets cut to
+`hartleys-barb…`.
+
+**The phone is a picture, not a button.** Nothing happens when you click it, on
+purpose — same rule the icon was under. When the mobile app is real, that square
+becomes its preview.
+
+**Two things worth telling you, because both cost time and both were found by
+looking rather than reading.**
+
+First, my first version named the phone's box the same thing as the mobile-app
+column in the workspace — the panel you open and close on the right. It quietly
+inherited that panel's rules and rendered **842 pixels tall**. Renamed, and
+there is now a test that stops anyone doing it again.
+
+Second, a test I wrote to make sure the phone sits *beside* the card and not
+inside it was checking the wrong thing — it would have passed with the phone
+nested inside, which is the exact thing you corrected me on twice. The mutation
+sweep caught it. It counts properly now.
+
+Also: an old test had gone green for the wrong reason. It was looking at a
+stretch of code that ran "from the globe icon to the phone icon", and when the
+phone icon went, that stretch became "to the end", which happened to still
+contain the right thing. It passed while reading something else entirely. Fixed
+so it reads each button on its own.
+
+26 mutation tests, all 26 caught. Full suite 5,702, all green.
+
+**Not live yet.** This touches only browser files, so nothing rebuilds and there
+is no waiting period — but you will need a hard refresh, because `chat.js` is
+about 932 KB and your browser caches it. The proof is one look at the start
+screen. Picture: `docs/edits/site-cards-phone.png`.
+
+---
+
 ## 2026-09-09 — The phone column only shows on Preview now
 
 You said the phone thing should only be there on the preview. It was showing on

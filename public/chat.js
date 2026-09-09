@@ -10453,10 +10453,36 @@ function cardActs(s) {
       (s.url ? '' : ' disabled') +
       ' title="' + (s.url ? 'Open the live site' : 'Not published yet') + '"' +
       ' aria-label="Open the live site in a new tab">' + ic('globe', 15) + '</button>' +
-    '<button type="button" class="st-card-act" data-act="phone" data-sid="' + id + '" disabled' +
-      ' title="Mobile app — not built yet"' +
-      ' aria-label="Mobile app, not built yet">' + ic('phone', 15) + '</button>' +
   '</div>';
+}
+// THE MOBILE APP, BESIDE THE SITE RATHER THAN INSIDE IT (owner, 2026-09-09:
+// "one square with the site , and one wiht the mobile app" → "no i mean the
+// square and next to it the phone , not inside" → "leave the square the size it
+// is currently , just add the phone thing next to it" → "the phone same height
+// as the square").
+//
+// IT TOOK THE CARD'S PHONE ICON WITH IT. That button was drawn disabled with
+// `title="Mobile app — not built yet"`, and a tile beside the card saying the
+// same words made it the same sentence twice on one card — three times counting
+// its `aria-label`, measured. The tile says it better than a greyed 15px glyph
+// can, and dropping the button hands the name back the width it was taking:
+// `hartleys-barbers` stops ellipsising to `hartleys-barb…`.
+//
+// IT TAKES NO SITE, DELIBERATELY. No site has a mobile app, so there is nothing
+// per-site to say, and a parameter nothing reads is a guess written down as
+// code. When the app is real this takes the site and draws its preview where the
+// empty screen is, the way `.st-card-prev` draws the site's.
+//
+// DRAWN AND INERT, and a `div` rather than a disabled `<button>`. A disabled
+// button says "this works and we would rather you did not"; this says "we have
+// not built this yet", which is a different sentence and the true one. A div
+// also has no click for the card's own `closest('button')` guard to think about
+// and no handler to gain by accident — the rule the phone icon was kept under
+// since 2026-09-07, unchanged, on a bigger square.
+function siteAppTile() {
+  return '<div class="st-app"><div class="st-app-phone"></div>' +
+    '<span class="st-app-t">Mobile app</span>' +
+    '<span class="st-app-s">not built yet</span></div>';
 }
 function renderSites() {
   const view = document.getElementById('viewSites');
@@ -10504,15 +10530,25 @@ function renderSites() {
         // at; the difference is the number, not the principle. If a thumbnail
         // ever needs to be true rather than cheap, `loadSiteFrame` is the
         // function to point it at, and the cost has to be measured first.
+        // THE GRID CELL IS A PAIR, NOT A CARD: the site, and the mobile app
+        // beside it. The card itself is untouched by this — same width (258 at
+        // three across, which is what it measured at four), same 16/10
+        // thumbnail, same meta row — because the owner's instruction was to
+        // leave the square as it is and add the phone next to it. What makes
+        // that possible on the existing 1080px page is the pair's own column
+        // arithmetic; `.st-pair` in styles.css carries the derivation.
         ? '<div class="st-grid-h">Your sites</div><div class="st-grid">' + sites.map((s) =>
-            '<div class="st-card" data-open="' + esc(s.id) + '" role="button" tabindex="0">' +
-              '<div class="st-card-prev"><iframe sandbox="' + (s.react && s.url ? 'allow-scripts' : '') + '" loading="lazy" title="' + esc(s.name) + '"></iframe></div>' +
-              '<div class="st-card-meta">' +
-                '<div class="st-card-names"><span class="st-card-name">' + esc(s.name) + '</span>' +
-                  '<span class="st-card-sub">' + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
-                cardActs(s) +
+            '<div class="st-pair">' +
+              '<div class="st-card" data-open="' + esc(s.id) + '" role="button" tabindex="0">' +
+                '<div class="st-card-prev"><iframe sandbox="' + (s.react && s.url ? 'allow-scripts' : '') + '" loading="lazy" title="' + esc(s.name) + '"></iframe></div>' +
+                '<div class="st-card-meta">' +
+                  '<div class="st-card-names"><span class="st-card-name">' + esc(s.name) + '</span>' +
+                    '<span class="st-card-sub">' + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
+                  cardActs(s) +
+                '</div>' +
+                '<button type="button" class="sch-del st-card-del" data-del="' + esc(s.id) + '" title="Delete" aria-label="Delete site">×</button>' +
               '</div>' +
-              '<button type="button" class="sch-del st-card-del" data-del="' + esc(s.id) + '" title="Delete" aria-label="Delete site">×</button>' +
+              siteAppTile() +
             '</div>').join('') + '</div>'
         : '');
   const gen = document.getElementById('stGen');
@@ -10553,17 +10589,17 @@ function renderSites() {
     if (fr && s && s.react && s.url) fr.src = s.url; // compiled React thumbnail
     else if (fr && home && home.html) fr.srcdoc = home.html;
     // EVERY BUTTON ON THE CARD, not a list of them. This read `[data-del]` when
-    // the delete was the only control here; the three action buttons arrived
-    // beside it and would each have opened the workspace as well as doing their
-    // own job. `closest('button')` is one rule that cannot drift as controls are
-    // added — the recorded "two lists of the same thing", avoided rather than
-    // extended.
+    // the delete was the only control here; the action buttons arrived beside it
+    // and would each have opened the workspace as well as doing their own job.
+    // `closest('button')` is one rule that cannot drift as controls are added or
+    // removed — the recorded "two lists of the same thing", avoided rather than
+    // extended, and the reason taking the phone icon off needed nothing here.
     card.onclick = (e) => { if (e.target.closest('button')) return; cardOpen(card.dataset.open); };
     card.onkeydown = (e) => { if (e.key === 'Enter') cardOpen(card.dataset.open); };
   });
-  // The three card actions. Each ADOPTS first, for the same reason the open and
-  // the delete do: a card the server listed and this browser has never seen has
-  // no local record, and every one of these needs one to work on.
+  // The card's actions. Each ADOPTS first, for the same reason the open and the
+  // delete do: a card the server listed and this browser has never seen has no
+  // local record, and every one of these needs one to work on.
   view.querySelectorAll('.st-card-act').forEach((b) => b.onclick = (e) => {
     e.stopPropagation();
     const rec = siteAdopt(cardEntry(b.dataset.sid));
@@ -10573,10 +10609,12 @@ function renderSites() {
     // while `phone` was the only other one and became a way for any unknown
     // `data-act` to open the Data view the moment that button came off.
     //
-    // The mobile-app button IS drawn and is permanently `disabled`, so it fires
-    // no click and needs no branch — and must not be given one, since what it
-    // will do is not designed. This line is what refuses it if a browser ever
-    // dispatches one anyway, and it is the second wall behind the attribute.
+    // THAT MOMENT ARRIVED ON 2026-09-09, and this line is why it cost nothing:
+    // the mobile-app icon came off the card and the mobile app moved beside it
+    // as a tile that is not a button at all. Two acts are drawn now — `live` and
+    // `data` — and anything else is a click on something we do not draw, whose
+    // answer is still nothing. Written for a change that had not happened yet
+    // and paid off when it did, which is the argument for keeping it positive.
     if (b.dataset.act !== 'data') return;
     siteOpenId = rec.id;
     siteView = 'data';

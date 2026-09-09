@@ -1431,6 +1431,133 @@ a screen no built site ever showed.
   Render: `docs/edits/offline-two-faces.png`, both faces with the LOCAL flag
   saying "live" in each, so the only thing that differs is the server's answer.
 
+### THE MOBILE APP SITS BESIDE THE SITE ON THE START SCREEN (2026-09-09, owner:
+*"instead of 4 , just 3 horizontally , so one square with the site , and one
+wiht the mobile app"* → *"no i mean the square and next to it the phone , not
+inside"* → *"leave the square the size it is currently , just add the phone
+thing next to it"* → *"the phone same height as the square"*)
+
+The grid cell is a PAIR now — the site card, and a phone beside it — three
+across where `repeat(auto-fill, minmax(250px, 1fr))` gave four cards on the
+1080px page. **The card itself is untouched**: same 258px width, same 16/10
+thumbnail, same meta row. Ten renders and three corrections got there, and every
+correction is a property a guard now holds.
+
+- **THE PHONE'S HEIGHT IS THE THUMBNAIL'S, BY ARITHMETIC RATHER THAN A NUMBER
+  TYPED IN.** Two ratios decide it: the thumbnail is `16/10`, so it stands at
+  `card_w × 10/16`; a handset at `390/844` that tall is `card_w × 10/16 ×
+  390/844 = × .2888` wide. So the column is `1fr .2888fr` and the phone is
+  `width: 100%`, and the two line up at EVERY width instead of only at the size
+  this was drawn at. MEASURED on the real tree: phone 161 against a 160
+  thumbnail at 1920 and 1512, 239/238 at 1100 (two across), 300/299 at 700
+  (one), tops within a pixel each time, no page overflow anywhere.
+  **A FIXED px COLUMN WOULD HAVE LOOKED RIGHT AND BROKEN AT THE BREAKPOINTS** —
+  the card widens to 383 and then 480, so a phone frozen at 75 would sit beside
+  a thumbnail half as tall again as itself. That mutant is in the sweep.
+- **THE HANDSET RATIO IS THE WORKSPACE PANEL'S OWN** (`.st-mob-device`,
+  `390/844`), so the two phones this app draws are one shape. The first cut said
+  `.47` in the CSS and claimed in its comment that the panel used it — **the
+  panel uses 390/844 ≈ .4621, so the comment asserted an agreement that did not
+  exist.** Corrected by moving the NUMBER rather than the prose, and the guard
+  now compares the two by identity, so a drift is red rather than quiet.
+- **THE GAP IS WHAT HOLDS THE CARD STILL, and that is the owner's instruction as
+  arithmetic.** A pair is 349.3 at three across; `258 + 258 × .2888` leaves 16.8
+  for the gap — `1.05rem`. So the gap is not a spacing choice: round it and the
+  card changes size. The guard derives the card's width from the page's cap, the
+  grid's gap, the pair's gap and the column ratio and requires 258, which is
+  what a card measured at four across before this.
+- **THE PHONE IS BESIDE THE CARD, NOT INSIDE IT** — two corrections were spent
+  on that, so the sibling relationship is COUNTED rather than inferred: the
+  guard counts `<div` against `</div>` between the card's opening literal and
+  the `siteAppTile()` call and requires balance. **A SWEEP FOUND THE FIRST
+  DRAFT**: it asserted the tile came after the DELETE button, which lives INSIDE
+  the card, so moving the call one line up — into the card — satisfied it
+  perfectly. The nested pane the owner ruled out, passing the guard written to
+  forbid it. (The count rests on `cardActs` being balanced, which is asserted
+  beside it rather than assumed.)
+- **THE TILE IS INERT, AND A `div` RATHER THAN A DISABLED BUTTON.** A disabled
+  button says *"this works and we would rather you did not"*; this says *"we
+  have not built this yet"*, which is a different sentence and the true one. It
+  has no handler, no `data-act`, nothing for the card's `closest('button')`
+  guard to think about — the rule the phone icon was kept under since
+  2026-09-07, unchanged, on a bigger square. **It takes no site**, deliberately:
+  no site has an app, so a parameter nothing reads is a guess written as code,
+  and the guard asserts `siteAppTile.length === 0` and drives it with arguments
+  anyway.
+- **AND IT TOOK THE CARD'S PHONE ICON WITH IT.** That button was drawn disabled
+  with `title="Mobile app — not built yet"`, and a tile beside the card carrying
+  the same words made it the sentence twice on one card — **three times counting
+  its `aria-label`, measured**. Dropping it also hands the name back the width
+  two icons were taking: `hartleys-barbers` stops ellipsising to
+  `hartleys-barb…`, and the card comes in at 220 tall instead of 234. The glyph
+  STAYS in `ST_ICONS` (the workspace's device switch draws it) — deleting an
+  icon because one caller went quiet is how a feature becomes expensive to put
+  back, and a mutant that removes it is killed.
+- **`.st-mob` IS TAKEN, AND THAT COST A RENDER TO FIND.** The first cut named
+  the wrapper `.st-mob` — which is already the workspace's mobile-app COLUMN,
+  the overlay pinned `position: absolute` on three edges since 2026-09-09
+  — so the card's phone inherited it and rendered **842px tall**. Caught by
+  MEASURING the box, not by reading the CSS, because a collision between two
+  files' class names is invisible to both. `st-app*` had zero occurrences in
+  `chat.js` and `styles.css`; a guard now forbids the tile's classes from
+  starting `st-mob`, with the panel's own namespace asserted alive beside it.
+- **`min-width: 0` ON `.st-card` IS INERT TODAY AND STAYS AS THE WALL.**
+  MEASURED both ways with a site name that has no break opportunity at all: card
+  258 either way, no page overflow either way, because `.st-card-name` already
+  carries `overflow: hidden` and that alone makes the min-content width 0. It
+  becomes load-bearing the moment anything is added to the card that does not
+  clip its own overflow. Kept, said out loud in the stylesheet, and NOT claimed
+  to be covered — the sweep's mutant for it was RE-AIMED at the pair's gap
+  rather than shipped against an inert wall.
+- **Guards**: `test/site-card-phone.test.mjs` (14) — the tile EVALUATED out of
+  chat.js and driven for its two sentences, its inertness and its indifference
+  to the site; the one call site COUNTED; the sibling relationship counted; the
+  class names DERIVED from the markup and checked at the stylesheet and back;
+  the `st-mob` collision; the column recomputed from both ratios; the two
+  phones' ratios compared by identity; the phone's ground read off the card's
+  own token; `align-content: start`; the card's width derived; the grid and both
+  breakpoints with their ORDER asserted; and the icon's absence beside the two
+  acts that stay.
+  **Four older cases in `test/site-list.test.mjs` were re-anchored, not
+  appeased**, and the split between them is the finding. Three went honestly red
+  (the button count, the mobile-app case, the unpublished-site window — whose
+  own comment predicted this). **The fourth went GREEN VACUOUSLY**: it windowed
+  from `data-act="live"` to `data-act="phone"`, which became `slice(n, -1)` when
+  the phone came off, still happened to contain the right button, and passed for
+  the wrong reason. The difference between it and the case below it is that the
+  latter asserted BOTH ends. Every button is now cut from its own `<button` to
+  its own `</button>`, which removes the question. And the mobile-app case is
+  **INVERTED rather than deleted** — it used to require the button and now
+  forbids it, and it still requires the sentence, with a tripwire that the
+  feature did not simply go.
+- **Sweep: 26 mutants, 26 killed, none survived, none unapplied, two
+  comment-only controls survived — TWO survived the first pass**: the nested
+  tile (a real guard gap, above) and `min-width: 0` (inert, above). The killed
+  ones: the tile never drawn (the wiring trap, the defect itself), drawn inside
+  the card, drawn twice, the pair wrapper gone, the tile as a button, taking a
+  card action, losing its sentence or its name, growing a parameter, answering
+  per site, moving into the panel's namespace; the phone icon back on the card,
+  the glyph leaving `ST_ICONS`; the grid back to auto-fill, either breakpoint
+  gone or inverted; the column a round number, a fixed width, or sized from a
+  height; either ratio drifting; the phone centred instead of top-aligned;
+  painting its own grey; the stylesheet keying on a class nothing writes; the
+  pair's gap rounded and the page's cap moved, each of which resizes the card.
+  Full suite **5,702**.
+- **AND MY OWN GUARD HELPER HIT THE AMBIGUOUS-LANDMARK TRAP.** `rule(css, sel)`
+  used a bare `indexOf(sel + " {")` and matched `.st-mob-one .st-mob-device {`
+  — a DESCENDANT rule eighteen lines above the real one — because the selector
+  it wanted is a SUFFIX of that one. It then reported the workspace panel as
+  having no aspect-ratio, which is the trap wearing a plausible failure message.
+  Anchored at the start of a line now, and a selector that starts two rules is
+  REFUSED rather than resolved by guessing which was meant.
+- **Not proven live.** The push touches `public/`, `test/` and `docs/` only — no
+  container roll, no 15–20 minute hold. The proof is one look at the signed-in
+  start screen: three pairs across, a phone beside each site standing exactly as
+  tall as its thumbnail, and no phone icon in the meta row. Renders:
+  `docs/edits/site-cards-phone.png`, and `-2across.png` for the narrow window.
+  **And `chat.js` is ~932 KB and cached**, so a hard refresh is part of a
+  `public/` fix reaching anybody, as the Code pane's entry records.
+
 ### A MOBILE APP COLUMN YOU OPEN AND CLOSE (2026-09-08, owner: *"i want to make
 a column in the right hand side"* → *"Is for mobile app"* → *"in a sidebar not
 free like that"* → *"something you open and close, not just something there"*)
@@ -7653,8 +7780,24 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,688
-  (2026-09-09, after the mobile app column became an overlay over the preview —
+  build and the pre-list payload added sixteen); the unit suite is 5,702
+  (2026-09-09, after the mobile app moved beside the site card on the start
+  screen — fourteen in `test/site-card-phone.test.mjs`: the tile EVALUATED out
+  of chat.js and driven for its two sentences, its inertness and its
+  indifference to the site it is never handed; its one call site COUNTED,
+  because this same screen shipped `cardActs` uncalled once already; the sibling
+  relationship counted by DIV BALANCE rather than by position, after a sweep
+  showed a position check is satisfied by the nested pane the owner ruled out;
+  the class names derived from the markup and checked at the stylesheet and
+  back; the `st-mob` collision forbidden with the panel's namespace asserted
+  alive; the phone column RECOMPUTED from the thumbnail's ratio and the
+  handset's rather than pinned; the two phones' ratios compared by identity; the
+  card's own width derived from the page cap, both gaps and the column, so the
+  owner's "leave the square the size it is" is arithmetic; and the icon's
+  absence asserted beside the two acts that stay. Four older cases in
+  `test/site-list.test.mjs` re-anchored — three honestly red, and one that had
+  gone GREEN VACUOUSLY on a window running to `-1`;
+  before it 5,688, after the mobile app column became an overlay over the preview —
   two more in `test/mobile-panel.test.mjs`: the panel held to `position:
   absolute` pinned on three edges with the stage asserted never to learn it
   opened (beside the stage's own `flex: 1`, so the check cannot pass by the
