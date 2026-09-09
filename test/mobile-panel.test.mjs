@@ -294,7 +294,7 @@ const TAB_WIRE = "mobTab.onpointerdown";
  * moved. The window now spans the setter and both wire-ups, so a control that
  * stopped being wired is still caught.
  */
-function driveMobile(startOpen, which, dragTo) {
+function driveMobile(startOpen, which, dragTo, startW) {
   const src = span(BARE, "const setMobileOpen = (open) => {", WIRE_END,
                    "the mobile setter and its two controls");
   const ws = { cls: new Set(startOpen ? ["st-ws", "st-mob-open"] : ["st-ws"]), css: {} };
@@ -323,10 +323,13 @@ function driveMobile(startOpen, which, dragTo) {
     : "mobTog.onclick();";
   const run = new Function("document", "view", "siteMobileOpen", "siteMobileW", "MOBILE_MIN_W",
     src + "; " + press + " return siteMobileOpen;");
-  const after = run(doc, view, startOpen, null, 300);
+  const after = run(doc, view, startOpen, startW === undefined ? null : startW, 300);
   return { open: after, wsHas: ws.cls.has("st-mob-open"), lit: btn.cls.has("on"),
            title: btn.title, width: ws.css["--mob-w"] || null };
 }
+
+/** The room this harness's fake row leaves: 1000 wide, a 450 rail, one gap. */
+const FAKE_ROOM = 1000 - 450 - 26;
 
 test("pressing the toggle opens the column, lights the button and renames itself", () => {
   const opened = driveMobile(false, "btn");
@@ -568,6 +571,77 @@ test("the width is ONE property, and everything reads it", () => {
   assert.equal(writes, 1, "expected exactly one writer of --mob-w, found " + writes);
   assert.match(col, /container-type: inline-size/,
     "the panel is not a query container, so the one-phone/two-phone rule can never fire");
+});
+
+// ── THE WIDTH SURVIVES A RE-RENDER ──────────────────────────────────────────
+//
+// (2026-09-09, found by driving the Code tab.) `setMobileW` writes `--mob-w` as
+// an INLINE property on `.st-ws`, and the render replaces that element — which
+// the workspace does on every builder reply, the same fact `siteMobileOpen` is
+// module scope for. So the open class rode the re-render and the width did not:
+// drag the panel wide, send a message, and it snapped back to the clamp.
+// MEASURED at 1004px → 393px across a view switch, not reasoned.
+//
+// The fix is that both halves of the state land in ONE expression, so the next
+// person to touch either one is looking at the other.
+
+test("the render re-applies the dragged width, on the same element as the open class", () => {
+  // DERIVED from the open class rather than typed: whatever element carries the
+  // state must carry both halves of it, and the guard finds that element by
+  // asking which expression writes the class.
+  const cls = openClass();
+  const at = BARE.indexOf("(siteMobileOpen ? ' " + cls + "' : '')");
+  assert.ok(at >= 0, "the open class is no longer written into the workspace root");
+  // TO THE `>` THAT CLOSES THE OPENING TAG, which is the element's own
+  // attributes and no further — so a `--mob-w` written on some other node
+  // cannot satisfy this. Not a line: the attribute list wraps, and a window
+  // that ended at the newline read the tag as finished one attribute early.
+  const tag = span(BARE.slice(at), "(siteMobileOpen ?", "'>' +", "the workspace root's attributes");
+  assert.match(tag, /--mob-w:/,
+    "the workspace root does not carry the stored width, so a re-render drops the drag");
+  // A NON-NUMBER MUST NEVER REACH A STYLE ATTRIBUTE. `Math.round(undefined)` is
+  // NaN, which would bake `--mob-w:NaNpx`.
+  const cond = "Number.isFinite(siteMobileW)";
+  const guarded = tag.indexOf(cond);
+  assert.ok(guarded >= 0, "the stored width reaches the style attribute unchecked");
+  // AND THE VALUE EMITTED IS THE STORED ONE, read AFTER the condition. A sweep
+  // caught this: `--mob-w:420px` baked as a literal survived a check that only
+  // asked whether `siteMobileW` appeared in the tag, because the CONDITION
+  // names it. The recorded "an assertion satisfied by a string one attribute
+  // over" — so the condition is skipped past and the emitted half read alone.
+  assert.match(tag.slice(guarded + cond.length), /siteMobileW/,
+    "the width baked into the markup is a literal, not the value the drag stored");
+});
+
+test("a stored width is re-clamped on render, because the room can have changed", () => {
+  // The markup bakes whatever was last stored; the room it was clamped against
+  // can have shrunk since (the window resized, the chat rail shown). Driven with
+  // a stored width far past this fake row's room.
+  const wide = driveMobile(true, "btn", null, 900);
+  assert.equal(wide.width, FAKE_ROOM + "px",
+    "a stored width wider than the room was not narrowed to it on render, so the panel overflows the row");
+
+  // ...and a width that still fits is left exactly as it is.
+  const fits = driveMobile(true, "btn", null, 400);
+  assert.equal(fits.width, "400px", "a width that fits was moved anyway");
+
+  // The no-op case, which is every undragged panel: nothing stored, nothing
+  // written, and the stylesheet's clamp is what sizes the column.
+  const none = driveMobile(true, "btn");
+  assert.equal(none.width, null,
+    "an undragged panel had a width written for it, so the clamp is no longer the default");
+});
+
+test("the width writer refuses anything that is not a number", () => {
+  // `String(["a"])` is `"a"` and `Math.round(undefined)` is NaN — the recorded
+  // coercion trap, on the one value that reaches a style attribute.
+  const set = span(BARE, "const setMobileW = (px) => {", "\n  };", "the width writer");
+  assert.match(set, /Number\.isFinite/,
+    "the width writer stores whatever it is handed, including NaN");
+  const guard = set.indexOf("Number.isFinite");
+  const store = set.indexOf("siteMobileW =");
+  assert.ok(guard >= 0 && store > guard,
+    "the refusal does not precede the store, so a NaN is written before it is checked");
 });
 
 test("the drag is bounded, measured, and never scrolls the page instead", () => {

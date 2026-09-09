@@ -11481,7 +11481,18 @@ function renderSiteWorkspace(view, site) {
         '</div></div>'
     : '<span class="st-tb-page">Homepage</span>';
   view.innerHTML =
-    '<div class="st-ws st-lv' + (siteRailHidden ? ' st-rail-hidden' : '') + (siteMobileOpen ? ' st-mob-open' : '') + '">' +
+    // BOTH HALVES OF THE PANEL'S STATE LAND HERE, and that is the whole reason
+    // the width is written at the render rather than left where the drag put
+    // it. `setMobileW` sets `--mob-w` as an inline property on THIS element,
+    // and this element is replaced on every render — which the workspace does
+    // on every builder reply. So the open class rode the re-render and the
+    // width did not: drag the panel wide, send a message, and it snapped back
+    // to the clamp. Measured 1004px → 393px on a view switch.
+    // The clamp stays the FALLBACK, so an undragged panel is exactly the
+    // default it always was and the attribute only ever carries a width a
+    // person chose.
+    '<div class="st-ws st-lv' + (siteRailHidden ? ' st-rail-hidden' : '') + (siteMobileOpen ? ' st-mob-open' : '') + '"' +
+      (Number.isFinite(siteMobileW) ? ' style="--mob-w:' + siteMobileW + 'px"' : '') + '>' +
       '<div class="st-topbar">' +
         '<div class="st-tb-left">' +
           '<button type="button" class="st-icon" id="stBack" title="Your sites" aria-label="Back to your sites">' + ic('back', 18) + '</button>' +
@@ -11866,11 +11877,23 @@ function renderSiteWorkspace(view, site) {
   // drag from re-rendering: the panel's flex-basis, the tab's own offset and
   // the container query all read it, so moving it moves everything and the
   // preview iframe beside it never reloads.
+  // A WIDTH THAT IS NOT A NUMBER IS REFUSED RATHER THAN STORED, because this
+  // value is written into a style attribute by the render below and the module
+  // variable is the only thing standing between a caller and that attribute.
+  // `Math.round(undefined)` is NaN, which would bake `--mob-w:NaNpx`.
   const setMobileW = (px) => {
-    siteMobileW = Math.max(MOBILE_MIN_W, Math.min(mobRoom(), Math.round(px)));
+    const n = Math.round(px);
+    if (!Number.isFinite(n)) return;
+    siteMobileW = Math.max(MOBILE_MIN_W, Math.min(mobRoom(), n));
     const ws = view.querySelector('.st-ws');
     if (ws) ws.style.setProperty('--mob-w', siteMobileW + 'px');
   };
+  // AND A STORED WIDTH IS RE-CLAMPED ON EVERY RENDER. The render above bakes
+  // whatever the last drag stored; the room it was clamped against can have
+  // changed since — the window resized, the chat rail hidden — so this narrows
+  // it to what fits now and is a no-op when it already does. `mobRoom` needs
+  // the row on screen, which is why it is here and not in the markup.
+  if (Number.isFinite(siteMobileW)) setMobileW(siteMobileW);
   const mobTab = document.getElementById('stMobileTab');
   if (mobTab) {
     let from = null;                           // { x, w } while a drag is live

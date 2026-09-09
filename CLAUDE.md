@@ -1817,6 +1817,76 @@ the two layouts one next to each other"*)
   border**, which is tight; and the 620px threshold is a chosen number pitched
   just above the clamp rather than a measured "two phones now fit" — at a short
   window two phones will show smaller rather than not at all.
+- **AND THE DRAGGED WIDTH DID NOT SURVIVE A RE-RENDER (2026-09-09, found by
+  driving the Code tab, owner: *"show me what is shows in the code thing"*).**
+  The panel's state has two halves and only one of them rode the render.
+  `siteMobileOpen` is written into the markup at `.st-ws` (the reason it is
+  module scope at all); `--mob-w` was written by `setMobileW` as an INLINE
+  property on that same element — which the render REPLACES. So the open class
+  came back and the width did not. **MEASURED at 1004px → 393px across a view
+  switch**, and a view switch is not the reachable case: the workspace re-renders
+  on **every builder reply**, so a customer drags the panel wide, sends a
+  message, and watches it collapse. The recorded shape is its own section's
+  comment one paragraph up — *a re-render resets what the render does not
+  write* — applied to the flag and not to the number beside it.
+- **BOTH HALVES LAND IN ONE EXPRESSION NOW**, which is the fix and the whole of
+  it: the class and `style="--mob-w:…"` are written by the same line, so the
+  next person to touch either is looking at the other. The clamp stays the
+  FALLBACK (`Number.isFinite`, never truthiness — an undragged panel writes no
+  attribute at all and is exactly the default it always was), and the writer
+  refuses a non-number rather than storing it, because that value now reaches a
+  style attribute and `Math.round(undefined)` is NaN.
+- **AND THE STORED WIDTH IS RE-CLAMPED AFTER EVERY RENDER**, in the wiring where
+  `mobRoom()` can see the row: the markup bakes what was last stored, and the
+  room it was clamped against can have shrunk since — the window resized, the
+  chat rail shown. A no-op when it still fits.
+- **Guards**: `test/mobile-panel.test.mjs` 40 → 43 — the width DERIVED from the
+  open class (whatever element carries the state must carry both halves, found
+  by asking which expression writes the class) and windowed to the `>` that
+  closes the opening tag rather than to the newline, since the attribute list
+  wraps and a line-shaped window read the tag as finished one attribute early;
+  the re-clamp DRIVEN over three shapes (a stored width past the room narrowed
+  to it, one that fits left alone, and nothing stored writing nothing); and the
+  writer's refusal read with its order asserted, so a NaN cannot be stored
+  before it is checked. `driveMobile` takes a starting width now.
+- **Proven red before green**: each of the three fails on its own defect
+  restored verbatim and passes on the fix.
+- **Sweep: 13 mutants, 13 killed, none survived, none unapplied, the
+  comment-only control survived — ONE survived the first pass and it was the
+  guard's**: baking `--mob-w:420px` as a LITERAL passed, because the check asked
+  only whether `siteMobileW` appeared in the tag and the `Number.isFinite`
+  CONDITION names it. The recorded "an assertion satisfied by a string one
+  attribute over", which is the mobile-app tooltip's own finding two sections
+  up. The emitted half is read past the condition now, and it dies. The killed
+  ones: the width off the render (the defect itself), baked on some other
+  element, baked unchecked so NaN reaches the attribute, written for an
+  undragged panel so the clamp stops being the default, the re-clamp gone or
+  running for a panel nobody dragged, the writer taking anything or refusing
+  after storing, its ceiling or its floor dropped, the runtime write gone, and a
+  second writer appearing beside the one.
+- **All five earlier sweeps re-run on this tree, and TWO anchors had gone
+  stale** — both on lines this change touched: the column's "the workspace root
+  never carries the open class" (the markup line's tail moved) and the drag's
+  "the width is not clamped" (`Math.round(px)` moved onto its own line). Each
+  re-pointed at the property it always held, never appeased, and re-run.
+  Totals on this tree: **width 13/13, tab 21/21, column 30/30, switch 27/27,
+  marks 17/17, drag 23/23 — 131 mutants, 131 killed, none unapplied.** Full
+  suite **5,679**.
+  **AND THE SWEEP'S OWN SPEC USED THE WRONG KEY**: `scripts/mutate.mjs` reads
+  `label`, and a spec written with `name` runs correctly and prints every line
+  as `undefined` — including the survivor list, which is the one thing a sweep
+  exists to tell you. Harmless and expensive: the first run's survivor had to be
+  identified by counting positions.
+- **AND WHAT THE CODE TAB SHOWED, since that is what the render was for.** The
+  pane works at every width — tree, filename bar, Download, gutter, source, the
+  source scrolling sideways in its own box with the page never scrolling. Two
+  things NOT changed, both the owner's call: `.st-code-tree` is `flex: 0 0 210px`
+  and `.st-code-main` is `flex: 1`, so as the column widens the CODE is what goes
+  and the file list is what stays (at a 693px panel the source is a 99px sliver,
+  measured); and at full drag the stage is 0 and the Code view is gone while its
+  pill stays lit — which IS "open until the chatbox" as asked, and reads
+  differently on Code than on Preview, where the phones fill the space.
+  Renders: `docs/edits/mobile-code-open.png`, `-wide.png`, `-max.png`.
 
 ### THE REMOVAL VERB MEETS THE ONE-MARK WORK (2026-09-08, owner: *"Merge"*)
 

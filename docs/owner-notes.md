@@ -5387,3 +5387,43 @@ broken; the reuse just depends on the build machine having a warm cache, and
 those machines are thrown away after each run. So two minutes is the best case,
 three is normal, and a slow image build is **not** a sign that something bigger
 changed. I've corrected the note.
+
+---
+
+## 2026-09-09 — The Code tab with the phone column, and a drag that didn't stick
+
+You asked to see what the **Code** tab looks like with the mobile column open.
+It works: the file list, the file name, the Download button, the line numbers
+and your real source, all there, and the code scrolls sideways inside its own
+box rather than pushing the page about. Preview is untouched — switch back and
+the live frame is where it was, with the column still out. Three pictures in
+`docs/edits/`: `mobile-code-open.png`, `-wide.png`, `-max.png`.
+
+**But driving it found a real bug in the drag, and I've fixed it.** The panel
+remembers two things — whether it's open, and how wide you dragged it. Only the
+first one survived the screen redrawing. So you'd drag the panel wide, and the
+next time the workspace redrew it would snap back to its default width. I
+measured it: 1004 pixels down to 393. And the workspace redraws **every time the
+builder replies to you**, so this would have bitten in the middle of an ordinary
+conversation, not just when switching tabs. Both halves are written in the same
+place now, so the next person to touch one is looking at the other. I also made
+it re-check the width after each redraw, in case you've resized the window or
+hidden the chat since.
+
+**Two things I did NOT change, because they're your call:**
+
+1. **The file list never gets narrower.** As you drag the column open, the thing
+   that shrinks is your *code*, and the thing that keeps its full width is the
+   list of file names. At a 693-pixel panel the code is down to a 99-pixel
+   sliver — you can see the line numbers and about four characters. It feels
+   backwards to me: the file names are the part you could afford to lose.
+
+2. **Dragged all the way over, the Code view disappears completely** — and the
+   "Code" tab at the top stays lit above nothing. That is exactly what "open
+   until the chatbox" means, which is what you asked for, so it may be right.
+   It just reads differently on Code than on Preview, where the two phones fill
+   that space.
+
+**Not live yet.** This only touches the browser files, so nothing rebuilds and
+there's no waiting after the deploy. The proof is one drag: pull the panel wide,
+send the builder a message, and the panel should stay where you put it.
