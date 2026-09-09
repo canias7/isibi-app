@@ -179,6 +179,28 @@ Nothing else about the panel changed — same phones, same switch, same drag.
 `public/` only, so there is no container rebuild and no waiting period after the
 push. Picture: `docs/edits/mobile-preview-only.png`, both states.
 
+**Merged and live (you said "merge it").** Main moved forward by four commits —
+the edge tab, the drag and the two phones, the width that now survives the panel
+redrawing, and this one. **The deploy took 55 seconds**, which is the fast kind:
+the container image was untouched, so nothing rebuilt and nothing rolled, and
+there is no twenty-minute wait afterwards. Only two files went up, `chat.js` and
+`styles.css`, and I checked both off the live site — they match the code exactly.
+The tests passed. The paid build test skipped itself, as it should on a merge.
+
+**One thing to do when you look**: hard-refresh the page. `chat.js` is nearly a
+megabyte and your browser holds on to it, so the first load after a deploy is
+often still yesterday's file. That is the standing explanation whenever something
+I have just fixed still looks broken.
+
+**And one thing I noticed while reading the test runs, which is not about this
+change.** Three small checks that run after every deploy sign in as you, and they
+all ask for a login link at the same moment — and asking for a second link
+cancels the first, so whichever one is last gets told its link has expired and
+goes red. It swaps around: this time it was one of them, last time a different
+one. So a red mark on those three is usually them tripping over each other, not
+anything wrong with the site. Worth fixing properly at some point — they should
+share one login — but I have left it alone since you asked for a merge.
+
 ---
 
 ## 2026-09-08 — The mobile app column, on the right, opens and closes

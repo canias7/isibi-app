@@ -1994,12 +1994,50 @@ regression in the drag work above it.
   measurement. Caught before either finished; the suite was stopped and the two
   run in sequence. **A sweep and a suite may never overlap** — one mutates what
   the other measures.
+- **MERGED AND DEPLOYED (owner, 2026-09-09: *"merge it"*).** Main
+  fast-forwarded `49200d54` → `dbea0e7c` at 03:06Z — four commits (the edge tab,
+  the drag and the two phones, the dragged width surviving a re-render, and this),
+  main having nothing of its own. **Deploy run 2055 green in 55 SECONDS**, which is
+  the reused-image shape rather than a fast build: the gate set in 1 s; the image
+  step **1.4 s** — `reused isibi-app-sitebuildcontainer:82…70c7e0 (registry
+  answered 200; 165 inputs off ./Dockerfile)` and the game image likewise — so
+  **NO container roll and no 15–20 minute hold**, Wrangler answering `no changes`
+  for both container apps; the drain found no live leases in 0 s; Wrangler 23 s
+  uploading exactly two assets, `/styles.css` and `/chat.js`; the gate left to
+  expire on success. `unit tests` run 2354 green in 79 s.
+  **The served bytes are the tree's, byte for byte** (sha256 of `/chat.js` and
+  `/styles.css` off gofarther.dev equal to `public/`), carrying `stStageView`, the
+  one `const stageView = stStageView(siteView, …)`, `st-pv` on the workspace root,
+  `st-mob-btn` on the toggle, the fix bar's `stageView === 'preview'`, and all
+  three `:not(.st-pv)` rules. The two `siteView === 'code'` left in the file are
+  the view TAB's own lit state and the Code loader's gate — neither in the stage's
+  chain, which the guard holds at zero.
+  **AND `build smoke` SKIPPED**, as every merge's must: git writes a merge
+  message and the smoke opt-in marker can never be in one. Nothing paid.
+- **AND THE THREE PROBE WORKFLOWS FAIL BY RACING EACH OTHER FOR ONE MAGIC LINK
+  (2026-09-09, read off this deploy; task #120's second cause, and the one that
+  bites a CODE push).** `build flight`, `gen probe` and `container reach` each
+  wait for the same deploy and then sign in as the SAME owner through Supabase's
+  admin `generate_link`, and GoTrue invalidates a user's outstanding magic link
+  when a second is minted — so whichever verifies last reads `403 otp_expired`
+  on a token it was handed 300 ms earlier. Measured here: `build flight` probed
+  at 03:07:17 and passed, `gen probe` and `container reach` both at 03:07:30 and
+  only one of them passed; on the PREVIOUS push the loser was `build flight` and
+  `container reach` passed. **It alternates, which is what a race looks like and
+  what a standing configuration break does not** — the reason to read the pair of
+  runs rather than one. Nothing to do with this change, and separate from #120's
+  first cause (a docs-only push runs no deploy, so the probes' wait times out).
+  The fix is one login per push shared by the three, or a probe that retries its
+  own link once; neither is done here.
 - **Not proven live.** `public/` only — no container roll, no 15–20 minute hold.
   The proof is one look: on **Preview** the tab is on the right edge and the panel
   opens; on **Code** and **More** the tab, the panel and the top bar's phone
   button are all gone, with the view tabs in exactly the same place; and coming
   back to Preview shows the panel exactly as it was left. Render:
   `docs/edits/mobile-preview-only.png` (both states, the panel dragged to 643px).
+  **And `chat.js` is ~931 KB and cached**, so the first load after a deploy can
+  still be the old file — a hard refresh is part of a `public/` fix reaching
+  anybody, exactly as the Code pane's own entry records.
 
 ### THE REMOVAL VERB MEETS THE ONE-MARK WORK (2026-09-08, owner: *"Merge"*)
 
