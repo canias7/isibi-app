@@ -8325,8 +8325,19 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,720
-  (2026-09-09, after an Apple/Android switch went under each card's phone — eight
+  build and the pre-list payload added sixteen); the unit suite is 5,721
+  (2026-09-09, after the switch was made to move the phone and NOTHING ELSE —
+  one more in `test/site-card-phone.test.mjs`: the phone's fixed-shape box held
+  to a LITERAL ratio (a `var(--os-ratio)` there is the defect itself), the phone
+  held height-led inside it, the box's shape asserted EQUAL to the phone's own
+  fallback, the pair's `align-items: stretch` asserted ALIVE beside the reason
+  it matters, the centring pair (the sweep's one first-pass survivor — the phone
+  changes width on every press now, so without it it jumps to the left edge),
+  and the wrapper DRIVEN out of the tile for both phones, since every other
+  assertion here is a statement about the STYLESHEET and a rule for an element
+  nobody writes styles nothing at all. Two older anchors re-pointed and ONE
+  RE-AIMED, its property having become identical to a new mutant's;
+  before it 5,720, after an Apple/Android switch went under each card's phone — eight
   more in `test/site-card-phone.test.mjs`: every phone's segment driven for its
   own mark, name and lit state DERIVED from the product's own list; a swapped
   pair of drawings caught by the one structural difference, since every other
