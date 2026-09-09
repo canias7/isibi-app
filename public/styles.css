@@ -1496,7 +1496,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    `row-gap:` CONTAINS `gap:`, so a guard reading the column gap out of this rule
    would match whichever came first and silently take the wrong number into the
    card-width arithmetic below. Naming both removes the question. */
-.st-grid { display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 1rem; row-gap: 5rem; }
+.st-grid { display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 1rem; row-gap: 6.5rem; }
 @media (max-width: 1180px) { .st-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 760px) { .st-grid { grid-template-columns: 1fr; } }
 /* THE PHONE IS THE SITE SQUARE'S HEIGHT BY ARITHMETIC, NOT BY A NUMBER TYPED IN
