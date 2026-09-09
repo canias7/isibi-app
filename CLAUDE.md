@@ -1729,6 +1729,95 @@ open dead-control finding avoided rather than added to for the fifth time.
   ink, or give it the panel's darker ground so it reads as an object rather than
   a seam.
 
+### AND THE TAB DRAGS, UP TO THE CHAT, AND TWO PHONES FIT (2026-09-09, owner:
+*"that tab can be dragaable and open until the chatbox in the left … it can show
+the two layouts one next to each other"*)
+
+- **THE TAB IS A DRAG HANDLE.** Pull it left and the panel widens; let go and it
+  stays. A press that did NOT move is a click — opening a shut panel, shutting an
+  open one — so one control does both without a second affordance.
+- **THE CEILING IS MEASURED, NEVER A CONSTANT.** "Until the chatbox" is a place
+  on screen, so `mobRoom()` reads the row's width less the chat rail and the
+  gaps. A number typed in would be wrong at every window size but the one it was
+  typed at, and with the rail hidden the ceiling simply grows — which falls out
+  of measuring rather than needing a second rule. Measured live at 1512×950:
+  **1004px, with the stage at 0**, which is the panel touching the rail.
+- **THE WIDTH IS ONE CUSTOM PROPERTY, AND THAT IS WHAT KEEPS A DRAG FREE.**
+  `--mob-w` on `.st-ws`: the panel's flex basis, the tab's own `right` offset and
+  the container query all read it, so a drag moves the whole layout with nothing
+  re-rendered — the preview iframe never reloads and a half-typed message
+  survives, the two properties this panel has been built around since the day it
+  shipped. Both DRIVEN through a real drag, not asserted. The clamp is the
+  FALLBACK, so an undragged panel is exactly the measured default it always was
+  and the variable only ever holds a width a person chose.
+- **BOTH PHONES ARE ALWAYS IN THE MARKUP; CSS DECIDES HOW MANY SHOW.** A
+  `@container (min-width: 620px)` on the panel: narrow, the switch's pick and
+  only it; wide, both side by side with a caption each. Rendering only the
+  selected one would make widening a re-render, which is the thing the whole
+  design avoids. **The threshold is pitched ABOVE the undragged clamp's 420px**,
+  so two phones are something you drag to and never something that happens to
+  you at a window size — asserted by deriving both numbers rather than pinning
+  either.
+- **AND THE SPECIFICITY IS THE FEATURE.** The narrow rule is
+  `.st-mob[data-os="ios"] .st-mob-one[data-os="ios"]` (0,4,0); the widening rule
+  matches it exactly and wins on SOURCE ORDER. A looser selector inside the query
+  would lose, and the second phone would never appear however far you dragged —
+  a mutant of exactly that shape is in the sweep.
+- **THE SWITCH GOES WHEN BOTH SHOW.** It decides nothing then, and a control that
+  decides nothing is this repo's open dead-control finding; the captions arrive
+  in its place, and are hidden while one phone shows because the switch already
+  says which. `MOBILE_LABELS` is the ONE list feeding both — the caption is the
+  copy that would go stale, since it only appears after somebody has dragged.
+- **TWO DEFECTS FOUND BY DRIVING IT, NEITHER VISIBLE IN A READ.**
+  (1) **The frame came out 227×742 — ratio 0.31 against the iPhone's 0.46.** In a
+  flex column an item's width is resolved from its CONTENT before flex stretches
+  the height, so `aspect-ratio` had nothing definite to compute from and the
+  frame came out as wide as its empty-state text. A `1fr` grid row is a definite
+  height; measured after: **339×735 (0.461)** and **330×732 (0.451)**.
+  (2) **Clicking the tab did nothing at all**, because `wasOpen` was read one
+  line AFTER `setMobileOpen(true)` had already flipped the flag — so it was
+  always true and `end()` closed the panel again on every press. The handler's
+  own comment said to read it before. Found by a probe on the tab answering
+  `pointerdown:shut → pointerup:open → click:shut`, which is the close happening
+  between the last two; a source read certified it as correct.
+- **Guards**: `test/mobile-panel.test.mjs` 31 → 40 — both phones in the markup
+  and counted, the narrow/wide rules with their specificity and source order, the
+  threshold DERIVED against the clamp, the switch's disappearance and the
+  captions' arrival, the one word list asserted at both its uses, the grid row
+  the ratio needs, `--mob-w` with exactly one writer, and the measured ceiling
+  with `touch-action`. `driveMobile` drives pointer events now and takes a drag
+  distance, so a resize and a click are told apart by driving both.
+  **Six older cases were re-anchored and ONE INVERTED**: "the tab only ever
+  opens" was true while the stylesheet hid it behind the open panel — an
+  unreachable branch is one nobody guards — and that reason expired when the tab
+  became the handle and stayed on screen. The recorded "a rule true because of a
+  layer below it expires when that layer moves", inside this file's own guards.
+- **AND THE FREE-IDENTIFIER TRAP, A FOURTH TIME IN ONE FUNCTION.** `realPanel`
+  builds a bare scope, and the panel now closes over `MOBILE_LABELS` as well as
+  `MOBILE_OSES`, `brandMark` and `BRAND_MARKS`. Every one of those was invisible
+  until the scope was built without it. Carried out of the FILE, never stubbed.
+- **Sweep: 23 mutants, 23 killed, none survived, none unapplied, two
+  comment-only controls survived.** All four earlier sweeps were re-run on this
+  tree, and **eighteen of their anchors had gone stale** — pointing at panel
+  markup and tab handlers that genuinely moved. "Never applied" reads exactly
+  like a kill in a summary and proves nothing, so every one was re-pointed at
+  the property it always held, and **two then SURVIVED, both real guard gaps**:
+  a `<button>` with no class at all was invisible to a scan matching
+  `<button …class="…">` — and a classless "Build the mobile app" button is
+  precisely the control the owner ruled out — and nothing asserted that the open
+  tab squares up and takes its right border back. Both closed and re-run.
+  Totals on this tree: **tab 21/21, column 30/30, switch 27/27, marks 17/17,
+  drag 23/23 — 118 mutants, 118 killed.** Full suite **5,676**.
+- **Not proven live.** `public/` only — no container roll, no hold. The proof is
+  one drag: open a site, pull the tab left, and the panel should follow the
+  pointer to the chat rail and stop, showing two phones past about 620px with
+  the switch gone. Renders: `docs/edits/mobile-drag-open.png`, `-wide.png`,
+  `-both.png`.
+- **OPEN, THE OWNER'S: the captions sit a few pixels off the panel's bottom
+  border**, which is tight; and the 620px threshold is a chosen number pitched
+  just above the clamp rather than a measured "two phones now fit" — at a short
+  window two phones will show smaller rather than not at all.
+
 ### THE REMOVAL VERB MEETS THE ONE-MARK WORK (2026-09-08, owner: *"Merge"*)
 
 `claude/help-needed-ehlwlj` carried three commits main did not — task #115's
@@ -7176,8 +7265,18 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,667
-  (2026-09-09, after the closed panel got its own edge — a tab on the right
+  build and the pre-list payload added sixteen); the unit suite is 5,676
+  (2026-09-09, after the tab became a drag handle and the panel learned to show
+  both phones at once — nine more in `test/mobile-panel.test.mjs`: both phones in
+  the markup and counted, the narrow and widening rules with the SPECIFICITY and
+  SOURCE ORDER that decide whether the second one can ever appear, the threshold
+  DERIVED against the column's own clamp rather than pinned, the switch's
+  disappearance beside the captions' arrival, `MOBILE_LABELS` asserted at both its
+  uses, the `1fr` grid row the frame's aspect ratio needs, `--mob-w` held to one
+  writer, and the measured ceiling with `touch-action: none`; six older cases
+  re-anchored and one INVERTED, since the tab's closing branch became reachable
+  the moment it stopped hiding behind the open panel;
+  before it 5,667, after the closed panel got its own edge — a tab on the right
   border, `#stMobileTab` — added seven in `test/mobile-panel.test.mjs`: the tab
   held to being a real named button, its place DERIVED between the panel's own
   render and the close of `.st-body`, the chevron compared against `back` and

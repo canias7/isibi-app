@@ -144,6 +144,13 @@ function realPanel() {
   // resolves when the line RUNS, and a bare scope is what proves it is carried.
   const list = BARE.match(/^const MOBILE_OSES = \[[^\]]+\];$/m);
   assert.ok(list, "MOBILE_OSES is gone");
+  // AND SINCE 2026-09-09 IT ALSO CLOSES OVER `MOBILE_LABELS` — the words live in
+  // one place because they are on the switch AND under each frame once the panel
+  // is dragged wide enough to show both phones. Taken out of the FILE, for the
+  // reason below: this is the FOURTH closed-over name this one function has
+  // gained, and every one of them was invisible until the scope was built bare.
+  const labels = BARE.match(/^const MOBILE_LABELS = \{[^}]+\};$/m);
+  assert.ok(labels, "MOBILE_LABELS is gone — the switch and the captions have no shared list");
   // AND SINCE 2026-09-08 IT ALSO CLOSES OVER `brandMark`, which reaches
   // `BRAND_MARKS`. Both come out of the FILE, never stubbed: a stub answering
   // `''` would leave every assertion about which mark lands on which segment
@@ -153,7 +160,7 @@ function realPanel() {
   // RUNS, not when the file loads, so reading this function could never prove it
   // works. That trap has cost this repository four separate misses in one
   // session, one of which reached main.
-  return new Function(list[0] + "\n" + marksSrc() + "\n" + src + "; return siteMobilePanel;")();
+  return new Function(list[0] + "\n" + labels[0] + "\n" + marksSrc() + "\n" + src + "; return siteMobilePanel;")();
 }
 
 /** The real mark table and its real emitter, cut out of the file. */
@@ -200,10 +207,15 @@ test("nothing in the panel promises an app, and that is the decision", () => {
   for (const html of [panel(true, "ios"), panel(false, "android")]) {
     const empty = span(html, '<div class="st-mob-empty">', "</div>", "the empty state");
     assert.ok(!/<button|onclick|href=/.test(empty), "the empty state grew a control for a feature that does not exist");
-    const btns = [...html.matchAll(/<button[^>]*class="([^"]*)"/g)].map((m) => m[1]);
-    assert.ok(btns.length > 0, "no buttons at all — this reader sees nothing");
-    for (const cls of btns) {
-      assert.match(cls, /st-mob-osbtn/, "a button in the panel is not a phone segment: " + cls);
+    // EVERY `<button`, not just the ones carrying a class. The first version of
+    // this matched `<button …class="…">` and so could not see
+    // `<button>Build the mobile app</button>` at all — a classless control is
+    // still a control, and that one is precisely what was ruled out.
+    const opens = [...html.matchAll(/<button([^>]*)>/g)].map((m) => m[1]);
+    assert.ok(opens.length > 0, "no buttons at all — this reader sees nothing");
+    for (const attrs of opens) {
+      assert.match(attrs, /class="[^"]*st-mob-osbtn/,
+        "a button in the panel is not a phone segment: <button" + attrs + ">");
     }
   }
   // THE OBSERVER IS ALIVE: it really is reading the panel's markup, so the
@@ -266,7 +278,10 @@ test("the toggle's glyph is not the phone-WIDTH button's", () => {
  * assertions underneath.
  */
 const WIRE_END = "view.querySelectorAll('.st-mob-osbtn')";
-const TAB_WIRE = "if (mobTab) mobTab.onclick = () => setMobileOpen(true);";
+// RE-ANCHORED 2026-09-09: the tab is a DRAG HANDLE now, so it is wired on
+// pointer events rather than `onclick` — a click is simply a press that did not
+// move. The property is unchanged: the tab reaches the shared setter.
+const TAB_WIRE = "mobTab.onpointerdown";
 
 /**
  * The real setter and BOTH controls, cut out and driven against a fake document.
@@ -279,22 +294,38 @@ const TAB_WIRE = "if (mobTab) mobTab.onclick = () => setMobileOpen(true);";
  * moved. The window now spans the setter and both wire-ups, so a control that
  * stopped being wired is still caught.
  */
-function driveMobile(startOpen, which) {
+function driveMobile(startOpen, which, dragTo) {
   const src = span(BARE, "const setMobileOpen = (open) => {", WIRE_END,
                    "the mobile setter and its two controls");
-  const ws = { cls: new Set(startOpen ? ["st-ws", "st-mob-open"] : ["st-ws"]) };
+  const ws = { cls: new Set(startOpen ? ["st-ws", "st-mob-open"] : ["st-ws"]), css: {} };
   ws.classList = { toggle: (c, on) => (on ? ws.cls.add(c) : ws.cls.delete(c)) };
+  ws.style = { setProperty: (k, v) => { ws.css[k] = v; } };
   const btn = { cls: new Set(startOpen ? ["on"] : []), title: "" };
   btn.classList = { toggle: (c, on) => (on ? btn.cls.add(c) : btn.cls.delete(c)) };
   const tab = {};
+  // A row 1000 wide holding a 450 rail, so the measured ceiling is a real
+  // number rather than a constant this file typed — the ceiling is "until the
+  // chatbox", which is a place on screen.
+  const box = (w) => ({ getBoundingClientRect: () => ({ width: w }) });
+  const panel = Object.assign(box(startOpen ? 393 : 0), {});
+  const rail = Object.assign(box(450), { offsetParent: {} });
+  const body = box(1000);
   const doc = { getElementById: (id) => (id === "stMobile" ? btn : id === "stMobileTab" ? tab : null) };
-  const view = { querySelector: (s) => (s === ".st-ws" ? ws : null) };
+  const view = { querySelector: (sel) => ({ ".st-ws": ws, ".st-mob": panel, ".st-rail": rail, ".st-body": body }[sel] || null) };
   // `if (false)` leaves a call exactly where a source read looks for it — the
-  // recorded trap — so the handlers are RUN rather than read.
-  const run = new Function("document", "view", "siteMobileOpen", "which",
-    src + "; (which === 'tab' ? mobTab : mobTog).onclick(); return siteMobileOpen;");
-  const after = run(doc, view, startOpen, which);
-  return { open: after, wsHas: ws.cls.has("st-mob-open"), lit: btn.cls.has("on"), title: btn.title };
+  // recorded trap — so the handlers are RUN rather than read. The tab is
+  // pointer-driven since it became a drag handle, so a click on it is a press
+  // that did not move: down, then up, at the same place.
+  const press = which === "tab"
+    ? "mobTab.onpointerdown({ clientX: 900, pointerId: 1, preventDefault() {} });"
+      + (dragTo == null ? "" : "mobTab.onpointermove({ clientX: " + dragTo + " });")
+      + "mobTab.onpointerup();"
+    : "mobTog.onclick();";
+  const run = new Function("document", "view", "siteMobileOpen", "siteMobileW", "MOBILE_MIN_W",
+    src + "; " + press + " return siteMobileOpen;");
+  const after = run(doc, view, startOpen, null, 300);
+  return { open: after, wsHas: ws.cls.has("st-mob-open"), lit: btn.cls.has("on"),
+           title: btn.title, width: ws.css["--mob-w"] || null };
 }
 
 test("pressing the toggle opens the column, lights the button and renames itself", () => {
@@ -375,13 +406,31 @@ test("pressing the tab opens the panel AND lights the top bar's button", () => {
   assert.equal(r.title, "Hide the mobile app", "the top bar's tooltip still offers to show an open panel");
 });
 
-test("the tab only ever opens, because its closing branch is unreachable", () => {
-  // The stylesheet hides it while the panel is open, so a tab that toggled
-  // would carry a branch nothing could drive — and the recorded rule is that
-  // such a branch is one nobody guards. Driven from the open state: it must
-  // still be open afterwards.
-  const r = driveMobile(true, "tab");
-  assert.equal(r.open, true, "the tab closed the panel — it is a toggle, and that branch cannot be reached");
+test("a press that does not move opens a shut panel and shuts an open one", () => {
+  // INVERTED 2026-09-09, and the reason is a layer below it moving — the
+  // recorded "a rule true because of a layer below it expires when that layer
+  // moves". This asserted that the tab could only OPEN, which was right while
+  // the stylesheet hid it behind the open panel: a closing branch was one
+  // nothing could reach, and an unreachable branch is one nobody guards. The
+  // tab is a DRAG HANDLE now and stays on screen while the panel is open, so
+  // the branch is reachable and the tab must close.
+  assert.equal(driveMobile(false, "tab").open, true, "a press on the shut tab did not open the panel");
+  assert.equal(driveMobile(true, "tab").open, false, "a press on the open tab did not shut the panel");
+});
+
+test("a press that DOES move resizes instead of shutting", () => {
+  // The same gesture, with the pointer moved: the panel must stay open and take
+  // a width. Without this the drag would end in `end()`'s click branch and shut
+  // the panel the moment you let go of it.
+  const r = driveMobile(true, "tab", 600);
+  assert.equal(r.open, true, "dragging the tab shut the panel when the pointer was released");
+  assert.ok(r.width, "the drag set no width");
+  assert.ok(parseInt(r.width, 10) > 300, "the drag did not widen the panel: " + r.width);
+  // THE CEILING IS MEASURED. A 1000-wide row holding a 450 rail leaves ~537,
+  // so a drag past it is clamped rather than running under the chat.
+  const far = driveMobile(true, "tab", -5000);
+  assert.ok(parseInt(far.width, 10) <= 550,
+    "the panel dragged past the chat rail: " + far.width);
 });
 
 test("the tab wears the panel's own edge, and goes when the panel arrives", () => {
@@ -397,10 +446,140 @@ test("the tab wears the panel's own edge, and goes when the panel arrives", () =
   // THE DIRECTION IS THE PROPERTY. Hidden when OPEN; a rule hiding it when
   // CLOSED is the defect this whole change exists to fix, and it would still
   // match a looser "there is a display:none somewhere" check.
-  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ display: none; \}/,
-    "the tab no longer hides behind the open panel");
-  assert.ok(!/:not\(\.st-mob-open\)[^\n]*\.st-mob-tab/.test(CSS_BARE),
-    "the tab is hidden while the panel is CLOSED — inverted, which is the invisible panel again");
+  // RE-ANCHORED 2026-09-09: the tab used to be hidden once the panel opened,
+  // which was right while it only opened. It SIZES now, and a handle you cannot
+  // reach once the panel is open is a handle for one gesture. So it stays — and
+  // rides the panel's left edge by reading the same `--mob-w` the panel's own
+  // basis reads, which is what makes it track a drag with nothing in JavaScript
+  // moving it.
+  assert.ok(!/\.st-mob-tab \{ display: none|\.st-mob-tab\s*\{[^}]*display:\s*none/.test(CSS_BARE),
+    "the tab is hidden again — it is the drag handle now and must stay reachable");
+  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ right: calc\(var\(--mob-w/,
+    "the open tab does not follow the panel's edge, so a drag would leave it behind");
+  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{[^}]*cursor: ew-resize/,
+    "the open tab does not say it resizes — the pointer is the only hint before you try");
+  // Open, it is a SEAM between two panels rather than an edge on one, so it
+  // takes its right border back and squares up. The dropped border is what made
+  // the closed tab read as sticking out, and there is nothing to stick out of
+  // once the panel is beside it.
+  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ border-right: 1px solid var\(--line-2\); border-radius: 10px; \}/,
+    "the open tab keeps the closed tab's dropped border, so it reads as an edge with a panel behind it");
+});
+
+// ── DRAGGED WIDE, AND TWO PHONES AT ONCE ────────────────────────────────────
+//
+// (2026-09-09, owner: "that tab can be dragaable and open until the chatbox in
+// the left … it can show the two layouts one next to each other".)
+
+test("both phones are always in the markup, so widening never re-renders", () => {
+  const panel = realPanel();
+  const html = panel(true, oses()[0]);
+  for (const os of oses()) {
+    assert.match(html, new RegExp('st-mob-one" data-os="' + os + '"'),
+      "the panel does not carry a box for " + os);
+  }
+  // If only the selected phone were rendered, showing both would need a
+  // re-render — which reloads the preview and eats a half-typed message, the
+  // two properties this whole panel is built around.
+  const boxes = [...html.matchAll(/class="st-mob-one"/g)].length;
+  assert.equal(boxes, oses().length, "expected one box per phone, found " + boxes);
+  assert.match(html, /class="st-mob" data-os="/,
+    "the selection left the panel, so the stylesheet cannot pick which one shows");
+});
+
+test("CSS decides how many phones show, and the direction is the property", () => {
+  // Narrow: the switch's pick, and only it. Wide: both. The widening rule must
+  // be at least as specific as the narrow one AND come after it, or the second
+  // phone never appears however far you drag — the specificity is the feature.
+  const narrow = /\.st-mob\[data-os="ios"\] \.st-mob-one\[data-os="ios"\],\n\.st-mob\[data-os="android"\] \.st-mob-one\[data-os="android"\] \{ display: grid; \}/;
+  assert.match(CSS_BARE, narrow, "the narrow rule no longer shows the selected phone");
+  const q = span(CSS_BARE, "@container (min-width:", "\n}", "the widening query");
+  assert.match(q, /\.st-mob\[data-os\] \.st-mob-one\[data-os\] \{ display: grid; \}/,
+    "the widening rule is gone or too loose to beat the narrow one");
+  assert.ok(CSS_BARE.indexOf("@container (min-width:") > CSS_BARE.search(narrow),
+    "the widening rule sits BEFORE the narrow one, so it loses and the second phone never shows");
+});
+
+test("the threshold is above a single phone's widest default", () => {
+  // Two phones must be something you DRAG to, never something that happens to
+  // you at a particular window size — so the query cannot fire while the panel
+  // is still at its undragged clamp.
+  const at = CSS_BARE.match(/@container \(min-width: (\d+)px\)/);
+  assert.ok(at, "the container query is gone — the panel can never show two phones");
+  const col = span(CSS_BARE, "\n.st-mob {", "}", "the column");
+  const max = col.match(/clamp\(\d+px, [^,]+, (\d+)px\)/);
+  assert.ok(max, "the column's clamp is gone, so there is nothing to pitch the threshold above");
+  assert.ok(+at[1] > +max[1],
+    "the threshold (" + at[1] + "px) is not above the undragged maximum (" + max[1] + "px)");
+});
+
+test("the switch goes when both phones show, and the captions arrive", () => {
+  const q = span(CSS_BARE, "@container (min-width:", "\n}", "the widening query");
+  // A switch that decides nothing while both are on screen is the dead control
+  // this repo keeps finding; it goes rather than sitting there inert.
+  assert.match(q, /\.st-mob-os \{ display: none; \}/,
+    "the switch stays while both phones show, deciding nothing");
+  assert.match(q, /\.st-mob-cap \{ display: inline-flex; \}/,
+    "the captions never arrive, so neither phone is named once the switch has gone");
+  assert.match(CSS_BARE, /\.st-mob-cap \{ display: none;/,
+    "the caption shows with ONE phone too — the switch already says which, so that is the same fact twice");
+});
+
+test("the words are one list, on the switch and under each frame", () => {
+  const panel = realPanel();
+  const html = panel(true, oses()[0]);
+  const labels = BARE.match(/^const MOBILE_LABELS = \{([^}]+)\};$/m);
+  assert.ok(labels, "MOBILE_LABELS is gone");
+  for (const os of oses()) {
+    const word = labels[1].match(new RegExp(os + ": '([^']+)'"));
+    assert.ok(word, "no word for " + os);
+    // Twice: once on the segment, once in the caption. Two spellings of
+    // "iPhone" is two lists of the same thing on the smallest possible subject,
+    // and the caption is the copy that would go stale — it only appears after
+    // somebody has dragged the panel open.
+    const uses = [...html.matchAll(new RegExp(">" + word[1] + "<", "g"))].length;
+    assert.equal(uses, 2, "expected " + word[1] + " on the segment and the caption, found " + uses);
+  }
+  assert.ok(!/'iPhone'|'Android'/.test(span(BARE, "function siteMobilePanel(", "\n}", "the panel")),
+    "the panel spells a phone's name itself instead of reading the one list");
+});
+
+test("the frame is height-led inside its box, or the ratio computes nothing", () => {
+  // MEASURED: flexed first, and the frame came out 227x742 — ratio 0.31 against
+  // the iPhone's 0.46 — because a flex column resolves an item's width from its
+  // CONTENT before stretching the height, leaving `aspect-ratio` nothing
+  // definite to work from. A `1fr` grid row is a definite height.
+  const box = span(CSS_BARE, "\n.st-mob-one {", "}", "the phone's box");
+  assert.match(box, /grid-template-rows: 1fr auto/,
+    "the phone's box is not a grid with a definite row — the frame's aspect ratio has nothing to compute from");
+  assert.match(CSS_BARE, /\.st-mob-one \.st-mob-device \{ height: 100%/,
+    "the frame is no longer height-led inside its box");
+});
+
+test("the width is ONE property, and everything reads it", () => {
+  // The panel's basis, the tab's offset and the query all read `--mob-w`, which
+  // is what lets a drag move the layout with nothing re-rendered. Written twice
+  // they would drift, and the tab would be left behind by the panel it sizes.
+  const col = span(CSS_BARE, "\n.st-mob {", "}", "the column");
+  assert.match(col, /var\(--mob-w/, "the panel's width no longer reads the dragged property");
+  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ right: calc\(var\(--mob-w/,
+    "the tab does not read the dragged property, so it will not follow the panel");
+  const writes = [...BARE.matchAll(/setProperty\('--mob-w'/g)].length;
+  assert.equal(writes, 1, "expected exactly one writer of --mob-w, found " + writes);
+  assert.match(col, /container-type: inline-size/,
+    "the panel is not a query container, so the one-phone/two-phone rule can never fire");
+});
+
+test("the drag is bounded, measured, and never scrolls the page instead", () => {
+  const wire = span(BARE, "const mobRoom = () =>", "\n  };", "the ceiling");
+  assert.match(wire, /\.st-rail/, "the ceiling no longer measures the chat rail — 'until the chatbox' is a place, not a number");
+  assert.match(wire, /getBoundingClientRect/, "the ceiling is a constant now, wrong at every window size but one");
+  assert.match(wire, /MOBILE_MIN_W/, "the ceiling can fall below the floor");
+  const set = span(BARE, "const setMobileW = (px) =>", "\n  };", "the width writer");
+  assert.match(set, /Math\.max\(MOBILE_MIN_W, Math\.min\(mobRoom\(\)/,
+    "the width is not clamped between the floor and the measured ceiling");
+  assert.match(CSS_BARE, /\.st-mob-tab \{[^}]*touch-action: none/,
+    "a drag on a touch screen scrolls the page instead of resizing");
 });
 
 // ── THE PHONE SWITCH ────────────────────────────────────────────────────────
@@ -470,9 +649,13 @@ function driveOs(start) {
     b.classList = { toggle: (c, on) => (on ? b.cls.add(c) : b.cls.delete(c)) };
     return b;
   });
+  // RE-ANCHORED 2026-09-09: both phones are in the markup now and the
+  // stylesheet decides how many show, so the switch moves the PANEL's `data-os`
+  // — which picks which one when there is room for one. The frames keep their
+  // own, because that is what shapes each of them.
   const dev = { dataset: { os: start } };
   const view = {
-    querySelector: (s) => (s === ".st-mob-device" ? dev : null),
+    querySelector: (s) => (s === ".st-mob" ? dev : null),
     querySelectorAll: (s) => (s === ".st-mob-osbtn" ? btns : []),
   };
   const run = new Function("view", src + "; return { btns: view.querySelectorAll('.st-mob-osbtn'), os: () => siteMobileOs };");
@@ -669,7 +852,11 @@ test("each segment wears its OWN mark, beside its own word", () => {
       // `slice` went negative and counted from the END of the string — this
       // repository's own recorded window trap, met inside the guard written to
       // catch a wiring bug.
-      const at = html.indexOf('data-os="' + os + '"');
+      // The switch group FIRST, because `data-os` is on the panel itself since
+      // both phones are rendered — so the first match in the document is the
+      // panel's and `lastIndexOf("<button", …)` then finds nothing at all.
+      const group = span(html, '<div class="st-mob-os"', "</div>", "the switch group");
+      const at = group.indexOf('data-os="' + os + '"') + html.indexOf(group);
       assert.ok(at >= 0, "nothing in the panel is drawn as " + os);
       const open = html.lastIndexOf("<button", at);
       const close = html.indexOf("</button>", at);
@@ -769,6 +956,10 @@ test("the phone is bounded on both axes, so it can never overflow its column", (
 
 test("the column is bounded so it cannot squeeze the preview on a narrow window", () => {
   const col = span(CSS_BARE, "\n.st-mob {", "}", "the column");
-  assert.match(col, /flex:\s*0 0 clamp\(/,
-    "the column has a fixed width again — at 1200px that leaves the preview ~300px between a 450px rail and it");
+  // RE-ANCHORED 2026-09-09: the width is a custom property now so a drag can
+  // move it, and the clamp is its FALLBACK. The property is unchanged and is
+  // what this asserts — a panel nobody has dragged is still bounded, so at
+  // 1200px it does not leave the preview ~300px between a 450px rail and it.
+  assert.match(col, /flex:\s*0 0 var\(--mob-w, clamp\(300px, 26vw, 420px\)\)/,
+    "the column has a fixed width again, or lost the clamp it falls back to");
 });

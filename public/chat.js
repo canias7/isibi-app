@@ -9787,7 +9787,26 @@ let siteMobileOpen = false;
 // halves look identical is the dead control this repo keeps finding, wearing a
 // coat. When the app is real, the same switch picks which build you are seeing.
 const MOBILE_OSES = ['ios', 'android'];
+// ONE PLACE FOR THE WORDS. They are on the switch AND, once the panel is wide
+// enough to show both phones at once, under each frame — two spellings of
+// "iPhone" is the recorded two-lists-of-the-same-thing on the smallest possible
+// subject, and the one that would go stale is the caption, which only appears
+// after somebody has dragged the panel open.
+const MOBILE_LABELS = { ios: 'iPhone', android: 'Android' };
 let siteMobileOs = 'ios';
+// THE PANEL'S WIDTH, DRAGGED (owner, 2026-09-09: "that tab can be dragaable and
+// open until the chatbox in the left"). `null` means "no one has dragged it",
+// and the stylesheet's own clamp decides — so the default is still the measured
+// one and this variable only ever holds a width a person chose. Module scope
+// beside the other two, for their reason: the workspace re-renders on every
+// builder reply, and a width kept inside the render would snap back each time
+// the builder answered.
+let siteMobileW = null;
+// The floor is the stylesheet's own; the ceiling is measured from the row at
+// drag time, because "until the chatbox" is a position on screen and not a
+// number. Two phones need about twice one, so the container query that puts
+// them side by side is pitched just above a single phone's widest clamp.
+const MOBILE_MIN_W = 300;
 let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
 // Images the owner attached for the next build/revise (logo / reference). Sent to
 // the builder, which hosts them + shows them to the generator's vision.
@@ -10863,23 +10882,41 @@ function siteMobilePanel(hasSite, os) {
   // the mark is `aria-hidden` decoration beside it. `brandMark` is asked with
   // `v`, the same value that keys the button and the frame, so the mark cannot
   // end up on the wrong segment.
-  const seg = (v, label) =>
+  const seg = (v) =>
     '<button type="button" class="st-mob-osbtn' + (on === v ? ' on' : '') + '" data-os="' + v + '">'
-      + brandMark(v, 13) + label + '</button>';
-  return '<div class="st-mob">' +
+      + brandMark(v, 13) + MOBILE_LABELS[v] + '</button>';
+  const words = '<div class="st-mob-empty">' +
+    '<h4>No mobile app yet</h4>' +
+    '<p>' + (hasSite
+      ? 'Ask in the chat and I’ll build one from this site.'
+      : 'Build your website first, then ask me for the app.') + '</p>' +
+  '</div>';
+  // BOTH PHONES ARE ALWAYS RENDERED, AND CSS DECIDES HOW MANY SHOW (owner,
+  // 2026-09-09: "when is open until the chatbox … it can show the two layouts
+  // one next to each other"). Wide enough and they sit side by side; narrow and
+  // the switch picks one. A container query does the choosing, which is what
+  // keeps DRAGGING free: the width is one custom property and the layout
+  // follows it, so a drag never re-renders and the preview beside it never
+  // reloads — the property this whole panel is built around.
+  //
+  // The SELECTION lives on `.st-mob`, not on the frame, precisely so that one
+  // attribute can drive "which one when there is room for one" from the
+  // stylesheet. Each phone still carries its own `data-os`, because that is
+  // what shapes it.
+  const one = (v) =>
+    '<div class="st-mob-one" data-os="' + v + '">' +
+      '<div class="st-mob-device" data-os="' + v + '">' + words + '</div>' +
+      // Named only when BOTH are on screen — with one phone the switch above
+      // already says which, and a second label would be the same fact twice.
+      '<span class="st-mob-cap">' + brandMark(v, 12) + MOBILE_LABELS[v] + '</span>' +
+    '</div>';
+  return '<div class="st-mob" data-os="' + on + '">' +
     '<div class="st-mob-head"><span class="st-mob-title">Mobile app</span>' +
       '<div class="st-mob-os" role="group" aria-label="Which phone">' +
-        seg('ios', 'iPhone') + seg('android', 'Android') +
+        seg('ios') + seg('android') +
       '</div>' +
     '</div>' +
-    '<div class="st-mob-stage"><div class="st-mob-device" data-os="' + on + '">' +
-      '<div class="st-mob-empty">' +
-        '<h4>No mobile app yet</h4>' +
-        '<p>' + (hasSite
-          ? 'Ask in the chat and I’ll build one from this site.'
-          : 'Build your website first, then ask me for the app.') + '</p>' +
-      '</div>' +
-    '</div></div>' +
+    '<div class="st-mob-stage">' + MOBILE_OSES.map(one).join('') + '</div>' +
   '</div>';
 }
 function siteCodeView(site) {
@@ -11807,15 +11844,89 @@ function renderSiteWorkspace(view, site) {
   };
   const mobTog = document.getElementById('stMobile');
   if (mobTog) mobTog.onclick = () => setMobileOpen(!siteMobileOpen);
+
+  // THE TAB IS A DRAG HANDLE (owner, 2026-09-09: "that tab can be dragaable and
+  // open until the chatbox in the left"). Pull it left and the panel widens;
+  // far enough and two phones sit side by side.
+  //
+  // THE CEILING IS MEASURED, NEVER A CONSTANT. "Until the chatbox" is a place
+  // on screen: the row's width less the chat rail and the gaps. With the rail
+  // hidden the ceiling is simply larger, which falls out of measuring rather
+  // than needing a second rule — and a number typed here would be wrong at
+  // every window size but the one it was typed at.
+  const mobRoom = () => {
+    const body = view.querySelector('.st-body');
+    if (!body) return MOBILE_MIN_W;
+    const rail = view.querySelector('.st-rail');
+    const railW = rail && rail.offsetParent ? rail.getBoundingClientRect().width : 0;
+    const gaps = railW ? 26 : 13;              // `.st-body`'s .8rem gap, once per gap
+    return Math.max(MOBILE_MIN_W, Math.round(body.getBoundingClientRect().width - railW - gaps));
+  };
+  // The width reaches the layout as ONE custom property, which is what keeps a
+  // drag from re-rendering: the panel's flex-basis, the tab's own offset and
+  // the container query all read it, so moving it moves everything and the
+  // preview iframe beside it never reloads.
+  const setMobileW = (px) => {
+    siteMobileW = Math.max(MOBILE_MIN_W, Math.min(mobRoom(), Math.round(px)));
+    const ws = view.querySelector('.st-ws');
+    if (ws) ws.style.setProperty('--mob-w', siteMobileW + 'px');
+  };
   const mobTab = document.getElementById('stMobileTab');
-  if (mobTab) mobTab.onclick = () => setMobileOpen(true);
+  if (mobTab) {
+    let from = null;                           // { x, w } while a drag is live
+    mobTab.onpointerdown = (e) => {
+      // A DRAG THAT STARTS CLOSED OPENS FIRST, so one gesture both opens the
+      // panel and sizes it — which is what "drag it open" means. The starting
+      // width is whatever is on screen, so the panel never jumps under the
+      // cursor on the first pixel of movement.
+      //
+      // `wasOpen` IS READ BEFORE THE PANEL IS OPENED, and that order is the
+      // whole of it. Written the other way round it is always true — the line
+      // above has just set it — so `end()` below closed the panel again on
+      // every press and clicking the tab did nothing at all. MEASURED, not
+      // reasoned: a probe on the tab answered pointerdown:shut, pointerup:open,
+      // click:shut, which is the close happening between the last two.
+      const wasOpen = siteMobileOpen;
+      const panel = view.querySelector('.st-mob');
+      const now = wasOpen && panel ? panel.getBoundingClientRect().width : (siteMobileW || MOBILE_MIN_W);
+      if (!wasOpen) setMobileOpen(true);
+      from = { x: e.clientX, w: now, moved: false, wasOpen };
+      mobTab.setPointerCapture && mobTab.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    };
+    mobTab.onpointermove = (e) => {
+      if (!from) return;
+      // Leftward is wider: the panel's left edge follows the pointer.
+      const dx = from.x - e.clientX;
+      if (Math.abs(dx) > 3) from.moved = true;
+      if (from.moved) setMobileW(from.w + dx);
+    };
+    const end = () => {
+      // A PRESS THAT DID NOT MOVE IS A CLICK, and a click on an open panel
+      // closes it. Without this the tab would be a handle that can open and
+      // never shut, since the top bar's button would be the only way back.
+      //
+      // IT ASKS WHAT THE PANEL WAS AT POINTERDOWN, NOT WHAT IT IS NOW. A press
+      // on a CLOSED tab has already opened it two lines up, so reading the live
+      // flag here would close it again and a click would do nothing at all —
+      // found by tracing the two presses rather than by running it.
+      if (from && !from.moved && from.wasOpen) setMobileOpen(false);
+      from = null;
+    };
+    mobTab.onpointerup = end;
+    mobTab.onpointercancel = end;
+  }
   // iPhone / Android. Same rule as the toggle above: move the attribute and the
   // lit segment BY HAND rather than re-rendering, so the preview iframe beside
   // it never reloads and a half-typed message survives switching phone.
   view.querySelectorAll('.st-mob-osbtn').forEach((b) => b.onclick = () => {
     if (!setMobileOs(b.dataset.os)) return;          // already on it, or not a phone
-    const dev = view.querySelector('.st-mob-device');
-    if (dev) dev.dataset.os = siteMobileOs;
+    // THE SELECTION MOVED TO THE PANEL (2026-09-09). Both phones are rendered
+    // now and the stylesheet decides how many show, so what this attribute
+    // picks is WHICH ONE when there is only room for one — the frames keep
+    // their own `data-os`, which is what shapes each of them.
+    const panel = view.querySelector('.st-mob');
+    if (panel) panel.dataset.os = siteMobileOs;
     view.querySelectorAll('.st-mob-osbtn').forEach((o) => o.classList.toggle('on', o.dataset.os === siteMobileOs));
   });
   view.querySelectorAll('[data-restore]').forEach((b) => b.onclick = () => siteRestore(siteOpenId, +b.dataset.restore));

@@ -270,6 +270,44 @@ and it's a one-line change.
 
 ---
 
+**And then you can drag it** — *"that tab can be dragaable and open until the
+chatbox in the left … it can show the two layouts one next to each other"*.
+
+Pull the tab leftwards and the panel gets wider, following your pointer, right up
+to where the chat starts and no further. Let go and it stays. Press it without
+moving and it just opens or closes, so the one control does both jobs.
+
+**Drag it far enough and you get both phones side by side** — iPhone and Android
+together, each with its name underneath. Below that width you get one phone and
+the little switch decides which; above it the switch disappears, because once
+both are on screen it isn't choosing anything, and a control that does nothing is
+the thing we keep deleting.
+
+**Nothing reloads while you drag.** I checked by typing half a message into the
+chat and dragging the panel across the screen — the message was still there, and
+the website preview never blinked. That's deliberate: the whole panel is built so
+that opening and resizing move one number rather than redrawing the screen.
+
+**Two things were broken and neither showed up by reading the code.**
+
+The phones came out far too narrow — like a phone squashed sideways. The reason
+is a genuinely obscure one about how browsers work out sizes, and the fix was to
+lay the box out a different way. I only found it because I measured the phone and
+compared it against a real handset's proportions.
+
+And clicking the tab did nothing at all. I'd written a note to myself in the code
+saying "check whether the panel was open *before* you open it" — and then wrote
+the two lines in the wrong order, so it opened and immediately shut again. I
+found it by watching the actual mouse events instead of re-reading my own code,
+which is a lesson I keep having to relearn.
+
+**Two things you might want changed.** The names under the phones sit very close
+to the bottom edge. And the width where the second phone appears is a number I
+picked rather than measured — it's set just above the panel's normal width, so
+two phones only ever show up because you dragged for them, never by accident.
+
+---
+
 **And then the logos** — *"instead of the names, the names plus their logo"*. The
 two buttons still say **iPhone** and **Android**, and each now has its logo in
 front of the word.

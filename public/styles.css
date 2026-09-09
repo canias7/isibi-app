@@ -1685,7 +1685,17 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    Its width is CLAMPED, not fixed: at 1512px it is ~393px and the stage keeps
    room, at 1200px it comes down to ~312px rather than squeezing the preview
    between a 450px rail and a fixed column. */
-.st-mob { flex: 0 0 clamp(300px, 26vw, 420px); display: flex; flex-direction: column; gap: .5rem; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; padding: .7rem; }
+/* THE WIDTH IS ONE CUSTOM PROPERTY (2026-09-09, owner: "that tab can be
+   dragaable and open until the chatbox in the left"). The clamp is the fallback,
+   so a panel nobody has dragged is exactly the measured default it always was
+   and `--mob-w` only ever holds a width a person chose. The panel's basis, the
+   tab's own offset and the container query all read this one value, which is
+   what lets a drag move everything without a re-render — and therefore without
+   reloading the preview beside it.
+   `container-type: inline-size` makes the panel the query container for the
+   one-phone / two-phone rule below. Its basis is set explicitly, so the size
+   containment it brings has nothing to compute against and changes no layout. */
+.st-mob { flex: 0 0 var(--mob-w, clamp(300px, 26vw, 420px)); container-type: inline-size; display: flex; flex-direction: column; gap: .5rem; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; padding: .7rem; }
 .st-ws:not(.st-mob-open) .st-mob { display: none; }
 /* THE TAB ON THE EDGE (owner, 2026-09-09: "it gotta show it like a hidden
    sidebar tho, not like a button opens it"). It is the tucked-away half of
@@ -1693,16 +1703,27 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    inventing a second look — and DROPS the right border with the right half of
    the radius, which is the whole of what makes it read as something sticking
    out of the edge rather than a button parked near it.
-   Hidden the moment the panel opens, because the panel is then its own
-   affordance and a tab overlapping it would point at what is already on screen.
-   That is also why its handler only ever OPENS: the closing branch would be one
-   nothing could reach. */
+   IT STAYS WHEN THE PANEL OPENS AND BECOMES THE DRAG HANDLE (2026-09-09). It
+   shipped for one day hidden-when-open, on the argument that the panel is then
+   its own affordance — true while the tab only opened. Now it also SIZES, and a
+   handle you cannot reach once the panel is open is a handle for one gesture
+   only. Open, it rides the panel's left edge by reading the same `--mob-w`, so
+   it tracks the drag with nothing in JavaScript moving it.
+   `cursor: ew-resize` while open, because the pointer is the only thing that
+   says "this is draggable" before you try it; `touch-action: none` so a drag on
+   a touch screen resizes instead of scrolling the page. */
 .st-mob-tab { position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 6;
   width: 18px; height: 66px; padding: 0; border: 1px solid var(--line-2); border-right: none;
   border-radius: 10px 0 0 10px; background: var(--panel-2); color: var(--muted); cursor: pointer;
-  display: flex; align-items: center; justify-content: center; box-shadow: -2px 0 6px rgba(0, 0, 0, .05); }
+  touch-action: none; display: flex; align-items: center; justify-content: center;
+  box-shadow: -2px 0 6px rgba(0, 0, 0, .05); }
 .st-mob-tab:hover { color: var(--text); }
-.st-ws.st-mob-open .st-mob-tab { display: none; }
+.st-ws.st-mob-open .st-mob-tab { right: calc(var(--mob-w, clamp(300px, 26vw, 420px)) + .8rem); cursor: ew-resize; }
+/* Open, it is a seam between two panels rather than an edge on one, so it takes
+   its border back and squares up — the closed tab's dropped right border is
+   what made it read as sticking OUT, and there is nothing to stick out of once
+   the panel is beside it. */
+.st-ws.st-mob-open .st-mob-tab { border-right: 1px solid var(--line-2); border-radius: 10px; }
 .st-mob-head { display: flex; align-items: center; justify-content: space-between; padding: .1rem .2rem .1rem .35rem; }
 .st-mob-title { font-weight: 700; font-size: .82rem; letter-spacing: .01em; }
 /* iPhone / Android, a segmented control in the panel's own header. Its active
@@ -1717,7 +1738,46 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-mob-osbtn { font: inherit; font-size: .68rem; font-weight: 600; letter-spacing: .01em; padding: .18rem .5rem .18rem .42rem; border: none; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
 .st-mob-osbtn .st-svg { flex: none; }
 .st-mob-osbtn.on { background: var(--split); color: var(--on-accent); }
-.st-mob-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.st-mob-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; gap: .7rem; }
+/* ONE PHONE OR TWO, DECIDED BY THE PANEL'S OWN WIDTH (owner, 2026-09-09: "it
+   can show the two layouts one next to each other"). Both are always in the
+   markup; this picks how many are on screen, which is what lets a drag change
+   the answer without a re-render.
+   Narrow: the switch's choice, and only that one. The selector carries the
+   panel's `data-os` AND the phone's, so it is (0,4,0) — the widening rule below
+   matches it exactly and wins on source order, which is deliberate: a looser
+   selector there would lose to this one and the second phone would never
+   appear however wide the panel got. */
+/* A GRID, NOT A COLUMN FLEX, and that is a correction rather than a preference.
+   Flexed first: the frame took `flex: 1` for its height, and MEASURED 227x742 —
+   ratio 0.31 against the iPhone's 0.46. In a flex column the item's width is
+   resolved from its CONTENT before flex stretches the height, so `aspect-ratio`
+   had nothing definite to compute from and the frame came out as wide as its
+   empty-state text. A `1fr` grid row is a definite height, so `height: 100%` on
+   the frame resolves and the ratio computes the width — which is the same
+   height-leads-width argument the frame's own rule makes, one box out. */
+.st-mob-one { display: none; grid-template-rows: 1fr auto; justify-items: center; align-items: center; gap: .4rem; min-width: 0; height: 100%; }
+.st-mob[data-os] .st-mob-one[data-os] { display: none; }
+.st-mob[data-os="ios"] .st-mob-one[data-os="ios"],
+.st-mob[data-os="android"] .st-mob-one[data-os="android"] { display: grid; }
+/* The caption is silent with one phone — the switch above already says which,
+   and saying it twice is the same fact in two places. */
+.st-mob-cap { display: none; align-items: center; gap: .3rem; font-size: .68rem; font-weight: 600; color: var(--muted); }
+.st-mob-cap .st-svg { flex: none; }
+/* THE THRESHOLD IS PITCHED ABOVE A SINGLE PHONE'S WIDEST CLAMP (420px), so two
+   phones are something you DRAG to and never something that happens to you at a
+   window size. Below it nothing about the panel changes. */
+/* The frame gives the caption its line and takes the rest. `flex: 1` in a column
+   is a definite height, which is what lets `aspect-ratio` compute the width — the
+   height-led sizing the entry below argues for, one box further in. */
+.st-mob-one .st-mob-device { height: 100%; min-height: 0; }
+@container (min-width: 620px) {
+  .st-mob[data-os] .st-mob-one[data-os] { display: grid; }
+  /* The switch decides nothing while both are shown, so it goes rather than
+     sitting there inert — this repo's own dead-control finding, avoided. */
+  .st-mob-os { display: none; }
+  .st-mob-cap { display: inline-flex; }
+}
 /* THE HEIGHT LEADS AND THE WIDTH FOLLOWS, and that is a correction rather than a
    preference. Width-led with `max-height: 100%` was shipped first and MEASURED
    inert: the cap binds in an ordinary window, so the box came out 369x742
