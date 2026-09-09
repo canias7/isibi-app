@@ -260,12 +260,31 @@ looked undefined to it and it reported a perfectly working stylesheet as broken.
 Fixed the checker, not the stylesheet: a test that cries wolf is worse than no
 test, and that same file already has a note saying so from a similar slip.
 
-43 mutation tests, all 43 caught. Full suite 5,709, all green.
+69 mutation tests, all 69 caught. Full suite 5,712, all green.
 
-**Not on the live site yet.** When it is: hard refresh, and you should see a
-small database icon floating above each pair, centred over the site and its
-phone, dim on the sites that have no database. Pictures:
-`docs/edits/site-cards-phone.png` and `site-cards-phone-2across.png`.
+**It is live now.** Merged and deployed at 17:07Z — the whole deploy took **61
+seconds**, because nothing in it touched the container: it is stylesheet and
+browser code only, so there is no waiting period afterwards. Cloudflare uploaded
+exactly two files, `chat.js` and `styles.css`, and I checked the copies now being
+served are byte-for-byte the ones I wrote. I also read the new rules back off the
+live files rather than off my own diff — the icon's position, the wires, the dark
+lines, and the fact that the fading rule on the card's own icons is still there
+and untouched.
+
+**What you should see, after a hard refresh** (the page's code is nearly a
+megabyte and your browser caches it, so the first load can still be yesterday's):
+a small database icon floating above each pair, sitting exactly halfway between
+the site and its phone, with two curved wires running down to them. **It is dark
+on every card**, whether that site has a database or not — that was your call.
+Pictures: `docs/edits/site-cards-phone.png` and `site-cards-phone-2across.png`.
+
+**One test job went red and it is not this change.** Three little check jobs run
+after every merge, and all three sign in as you at the same moment. Supabase only
+lets one sign-in link be outstanding at a time, so whichever of the three is a
+fraction of a second late gets told its link has already expired. This time it
+was the container one; on Tuesday's merge it was a different one; on another it
+was none of them. Known, written down as a task, and worth fixing when there is
+a quiet moment — one shared sign-in instead of three.
 
 ---
 

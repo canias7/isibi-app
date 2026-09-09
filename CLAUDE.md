@@ -1796,13 +1796,48 @@ half. MEASURED on the real tree at 1920, 1512, 1100 and 700: pair 349, site
   disagreeing about `--db-x`, the row gap zeroed, and `--db-drop` renamed so
   every use of it resolves to nothing.
   Full suite **5,712**.
-- **Not proven live.** The push touches `public/`, `test/` and `docs/` only — no
-  container roll, no 15–20 minute hold. The proof is one look at the signed-in
-  start screen: a database icon between each site and its phone, two curved wires
-  running down to them, dark whether the site has a database or not, and opening
-  the Data view on one that does. Renders: `docs/edits/site-cards-phone.png` and
-  `-2across.png`, refreshed for this. **And `chat.js` is cached**, so a hard
-  refresh is part of it reaching anybody.
+- **MERGED AND DEPLOYED (owner, 2026-09-09: *"MERGE"*).** Main fast-forwarded
+  `50ad64d7` → `f8dc4434` at 17:07Z — one commit, main having nothing of its own.
+  **Deploy run 2062 green in 61 SECONDS**, the reused-image shape: the gate set in
+  1 s (`took over from 50ad64d7…`); the image step **2 seconds** — `reused
+  isibi-app-sitebuildcontainer:82…70c7e0 (registry answered 200; 165 inputs off
+  ./Dockerfile)` and the game image likewise — so **NO container roll and no
+  15–20 minute hold**, Wrangler answering `no changes` for both container apps;
+  the drain found no live leases in 0 s; Wrangler 37 s, uploading exactly two
+  assets, `/styles.css` and `/chat.js`; the gate left to expire on success. `unit
+  tests` runs 2374 (branch) and 2375 (main) both green.
+  **The served bytes are the tree's, byte for byte** (sha256 of both files off
+  gofarther.dev equal to `public/`), and read back off the served stylesheet:
+  `.st-pair` carries `--db-drop: 2.25rem`, `--db-x: 63.3%` and `row-gap:
+  var(--db-drop)` — the one-number rule on the deployed file rather than in the
+  diff; `.st-db` is `margin-left: calc(var(--db-x) - 25%)`, half of its own 50%
+  width, so its centre IS `--db-x`; `.st-db:disabled` is `cursor: default` alone
+  and **no `.st-db` rule carries an `opacity` at all**, while `.st-card-act:disabled
+  { opacity: .38 }` still stands one rule over — the exception and the convention
+  it is an exception to, both proven served; `.st-db:hover:not(:disabled)` has
+  **zero occurrences**; and `.st-wires` is the stretched box at `stroke-width:
+  1.31` with `vector-effect: non-scaling-stroke` on its paths. In the served
+  `chat.js`: `SITE_X = 37.4, APP_X = 89.2`, `DB_X` computed from them rather than
+  typed, and `siteWires` declared once and called once.
+  **AND `build smoke` SKIPPED** (run 883), as a fast-forward's must: no merge
+  commit is written, so the message is this change's own and it carries no smoke
+  opt-in marker. `payments smoke` green, free. Nothing paid.
+- **AND THE PROBE TRIO SPLIT AGAIN — one more data point for task #120, and not
+  this change's.** `build flight` 325 and `gen probe` 322 passed; `container
+  reach` 333 failed in **one second** with the sign-in, not the container:
+  `generate_link answered 200; token_hash set` at +0.6 s, then `verify answered
+  403 … otp_expired` at +1.0 s — a link invalidated 0.4 seconds after it was
+  minted, because the three probes sign in as the SAME owner and GoTrue drops a
+  user's outstanding magic link when a second is minted. The 2026-09-09 03:06Z
+  merge lost a different one of the three and the 04:53Z merge lost none, which
+  is what a race looks like and what a standing break does not.
+- **Not proven live.** The proof is one look at the signed-in start screen: a
+  database icon between each site and its phone, two curved wires running down to
+  them, dark whether the site has a database or not, and opening the Data view on
+  one that does. Renders: `docs/edits/site-cards-phone.png` and `-2across.png`,
+  refreshed for this. **And `chat.js` is ~938 KB and cached**, so a hard refresh
+  is part of a `public/` fix reaching anybody, as the Code pane's own entry
+  records.
 
 ### A MOBILE APP COLUMN YOU OPEN AND CLOSE (2026-09-08, owner: *"i want to make
 a column in the right hand side"* → *"Is for mobile app"* → *"in a sidebar not
