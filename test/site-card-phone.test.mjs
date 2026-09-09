@@ -349,7 +349,11 @@ test("the phone column IS the two ratios multiplied — derived, not pinned", ()
   // silently no longer lines up with anything.
   const css = read("../public/styles.css");
   const thumb = ratio(rule(css, ".st-card-prev"), "the site thumbnail");
-  const phone = ratio(rule(css, ".st-app-phone"), "the phone");
+  // READ OFF THE SCREEN BOX, NOT THE PHONE — re-anchored 2026-09-09 with the
+  // owner's "THE SITE SQUARE THING MOVES , WHEN I TAP TO SWICTH". The phone's own
+  // ratio changes with the switch; the BOX it sits in is what the column was
+  // derived for, and is what must never move.
+  const phone = ratio(rule(css, ".st-app-screen"), "the phone's box");
   const want = (1 / thumb) * phone;
 
   const pair = rule(css, ".st-pair");
@@ -361,11 +365,17 @@ test("the phone column IS the two ratios multiplied — derived, not pinned", ()
     "the phone column is " + m[1] + " where the two ratios give " + want.toFixed(4)
     + " — the phone no longer stands as tall as the thumbnail");
 
-  // AND THE PHONE IS SIZED FROM THE COLUMN, never from a fixed width: a px
-  // width looks right at the size it was drawn at and breaks at the two
-  // breakpoints, where the card widens to 382 and then 480.
-  assert.match(rule(css, ".st-app-phone"), /width:\s*100%/,
-    "the phone must take the column's width, so its height follows the card's");
+  // AND THE BOX IS SIZED FROM THE COLUMN, never from a fixed width: a px width
+  // looks right at the size it was drawn at and breaks at the two breakpoints,
+  // where the card widens to 382 and then 480.
+  //
+  // ANCHORED AT THE START OF THE DECLARATION, and that is not tidiness: this
+  // read `/width:\s*100%/` against the PHONE's rule, and when the phone became
+  // `width: auto; max-width: 100%` the check went on passing — satisfied by
+  // `max-width`, four characters over. The recorded "an assertion satisfied by a
+  // string one attribute over", in a guard written three hours earlier.
+  assert.match(rule(css, ".st-app-screen"), /(?:^|[;{]|\s)width:\s*100%/,
+    "the phone's box must take the column's width, so its height follows the card's");
 
   // AND EVERY REAL PHONE STAYS NEAR THAT COLUMN (added 2026-09-09 with the
   // switch). The column above is derived from the FALLBACK ratio, which is the
@@ -1110,4 +1120,91 @@ test("the card's phone has ONE writer, and it is not the workspace panel's", () 
   // AND THE PANEL'S OWN CHOICE IS NOT TOUCHED, so the two switches stay separate.
   assert.ok(!/siteMobileOs/.test(body),
     "the card's switch writes the workspace panel's phone — they are two different questions now");
+});
+
+test("the switch changes the phone and NOTHING ELSE ON THE ROW", () => {
+  // THE OWNER FOUND THIS ONE LIVE: "THE SITE SQUARE THING MOVES , WHEN I TAP TO
+  // SWICTH". The two phones are different SHAPES, so a phone that took the
+  // column's width directly came out 4px taller on Android — and the pair's
+  // second row is `1fr` with stretched items, so that grew the tile, the card,
+  // and every other card in the same grid row. MEASURED before the fix: 3.9px at
+  // 1512, 5.8 at 1100, 7.4 at 700, with the NEIGHBOURING card moving too.
+  //
+  // AND THE GUARDS ABOVE ALL PASSED THROUGH IT, which is the finding. They prove
+  // the switch changes something visible — a corner, a camera, a ratio — and not
+  // one of them proved it changes ONLY that. A control whose side effect is the
+  // layout around it is a different failure from a control that does nothing,
+  // and this file had no reader for it.
+  const css = read("../public/styles.css");
+  const box = rule(css, ".st-app-screen");
+  const phone = rule(css, ".st-app-phone");
+
+  // THE BOX'S SHAPE IS A LITERAL. A `var(--os-ratio)` here puts the movement
+  // straight back, and it is the single edit that would.
+  const boxRatio = /aspect-ratio:\s*([^;]+)/.exec(box);
+  assert.ok(boxRatio, "the phone's box has no aspect-ratio, so the row's height follows the phone");
+  assert.ok(!/var\(/.test(boxRatio[1]),
+    "the phone's box takes its shape from the switch (" + boxRatio[1].trim() + ") — "
+    + "tapping it would resize the tile, the card, and every card in that grid row");
+
+  // AND THE PHONE IS HEIGHT-LED INSIDE IT, so a taller phone comes out NARROWER
+  // rather than taller. `width: auto` is the half that matters: with a width the
+  // phone would drive its own height off its ratio again.
+  assert.match(phone, /(?:^|[;{]|\s)height:\s*100%/, "the phone is not sized from its box's height");
+  assert.match(phone, /(?:^|[;{]|\s)width:\s*auto/,
+    "the phone sets its own width, so its ratio decides its height and the row moves again");
+  assert.match(phone, /max-width:\s*100%/, "the phone may overflow its box sideways");
+  // The phone's ratio DOES vary — that is the switch — asserted here beside the
+  // box's fixed one so the pair reads as the deliberate split it is.
+  assert.match(phone, /aspect-ratio:\s*var\(--os-ratio\s*,/,
+    "the phone stopped reading the shared ratio, so the switch changes no shape at all");
+
+  // THE BOX IS THE PHONE'S OWN FALLBACK SHAPE, so a card with no phone chosen
+  // draws exactly what it drew before the switch existed, and the phone fills its
+  // box rather than sitting in it with a gap. (That the box's shape puts the
+  // phone at the thumbnail's HEIGHT is the column-derivation case's job, two
+  // above; the thumbnail is landscape and the phone portrait, so the two ratios
+  // are not equal and asserting that here would flag correct code.)
+  const fallback = /aspect-ratio:\s*var\(--os-ratio,\s*([^)]+)\)/.exec(phone);
+  assert.ok(fallback, "the phone has no fallback shape to compare the box against");
+  assert.equal(boxRatio[1].trim(), fallback[1].trim(),
+    "the box (" + boxRatio[1].trim() + ") and the phone's fallback (" + fallback[1].trim()
+    + ") are different shapes, so an unswitched card draws a phone that does not fill its box");
+
+  // AND THE PHONE IS CENTRED IN THAT BOX — which this change is what MADE
+  // load-bearing, and a sweep is what said so. The phone changes WIDTH on every
+  // press now (that is the whole mechanism above: a taller phone comes out
+  // narrower), so without a centring rule it sits against the box's left edge
+  // and JUMPS SIDEWAYS each time — the owner's own complaint, one axis over.
+  // Nothing here guarded it and the mutant that removed it survived the first
+  // pass. The `display: flex` is asserted beside it because `justify-content`
+  // governs nothing without it, so the pair is the property rather than either
+  // half alone.
+  assert.match(box, /display:\s*flex/,
+    "the phone's box is not a flex container, so its centring rule governs nothing");
+  assert.match(box, /justify-content:\s*center/,
+    "the phone is not centred in its box — it changes width on every press, so it "
+    + "would jump to the left edge each time you switched");
+
+  // AND THE PAIR STILL STRETCHES ITS ROW, which is what makes the box's fixed
+  // shape load-bearing rather than incidental: with `align-items: start` the
+  // cards would not follow the tile and none of this would matter. Asserted so
+  // the reason above cannot quietly stop being true.
+  assert.match(rule(css, ".st-pair"), /align-items:\s*stretch/,
+    "the pair no longer stretches — re-read whether the box still needs a fixed shape");
+
+  // AND THE BOX IS REALLY DRAWN, WITH THE PHONE INSIDE IT — DRIVEN, because
+  // everything above this line is a statement about the STYLESHEET, and a rule
+  // for an element nobody writes styles nothing at all. Deleting the wrapper
+  // from the markup leaves every assertion here green and puts the movement
+  // straight back: this repository's recorded wiring trap, on the one change
+  // whose whole subject is a defect the guards read past. Nesting is asserted
+  // rather than presence, since a box BESIDE the phone sizes nothing.
+  const l = loadAppTile();
+  for (const os of l.oses) {
+    const html = l.tile("s1", os);
+    assert.match(html, /<div class="st-app-screen"><div class="st-app-phone" data-os="/,
+      "the phone is not inside its box on " + os + " — the rules above style an element nobody draws");
+    assert.equal((html.match(/st-app-screen/g) || []).length, 1, "one box per tile");
+  }
 });

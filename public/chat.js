@@ -10596,8 +10596,16 @@ function siteAppTile(id, os) {
   // means "a control that names a site" and is what the CARD's own handler binds
   // to, and these segments are not card actions — a shared attribute would put
   // them through a handler that opens the Data view.
+  // THE PHONE SITS IN A BOX WHOSE SIZE NEVER CHANGES (owner, 2026-09-09: "THE
+  // SITE SQUARE THING MOVES , WHEN I TAP TO SWICTH"). The two phones are
+  // different SHAPES — 393/852 against 412/915 — so a phone that took the
+  // column's width came out 4px taller on Android, and because the pair's second
+  // row is `1fr` with stretched items that grew the tile, the card, AND every
+  // other card in that grid row. MEASURED before the fix: 3.9px at 1512, 5.8 at
+  // 1100, 7.4 at 700, and the neighbouring card moved with it.
+  // `.st-app-screen` is the fixed box; the phone is height-led inside it.
   return '<div class="st-app" data-app="' + esc(id) + '">' +
-    '<div class="st-app-phone" data-os="' + on + '"></div>' +
+    '<div class="st-app-screen"><div class="st-app-phone" data-os="' + on + '"></div></div>' +
     '<div class="st-app-os" role="group" aria-label="Which phone">' +
       MOBILE_OSES.map(seg).join('') + '</div>' +
     '<span class="st-app-t">Mobile app</span>' +

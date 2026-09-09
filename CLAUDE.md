@@ -1843,9 +1843,16 @@ half. MEASURED on the real tree at 1920, 1512, 1100 and 700: pair 349, site
 *"NOW HERE WHERE THE PHONE THING IS , I WANT LIKE A SWICTH TO SWTITH FROM APPLE
 TO ANDORID , JUST AS A PERVIEW THING"* → two placements rendered → *"A"*)
 
-Two mark-only segments under the tile's phone. Pressing one reshapes **every**
-phone on the screen: rounder corners and a wide pill for the iPhone, squarer
-corners and a punch-hole for the Android.
+Two mark-only segments under the tile's phone. Pressing one reshapes **that
+card's** phone: rounder corners and a wide pill for the iPhone, squarer corners
+and a punch-hole for the Android.
+
+**AND THAT SENTENCE SAID "EVERY PHONE ON THE SCREEN" FOR AN HOUR AFTER IT STOPPED
+BEING TRUE.** The per-card change below rewrote the bullet and left the paragraph
+introducing it describing the behaviour it had just replaced — this file's own
+recorded "a number stamped in two places drifts when only one is corrected", in
+prose rather than in a total, and nothing reads either copy so nothing failed.
+When a behaviour changes, grep the section for every sentence that states it.
 
 - **IT REUSES THE WORKSPACE PANEL'S MACHINERY RATHER THAN COPYING IT.**
   `MOBILE_OSES`, `MOBILE_LABELS`, `BRAND_MARKS`, `brandMark` and `setMobileOs`
@@ -2003,10 +2010,98 @@ corners and a punch-hole for the Android.
   1100 and 700: card **258/258/383/480** unchanged, the phone within **2px** of
   its thumbnail, the database still exactly 50.0% of the pair and 36px clear of
   the card, the grid's row gap 104px, no page overflow. The proof is one look:
-  two small marks under each phone, pressing the robot squares every phone's
-  corners at once. Renders: `docs/edits/site-cards-phone.png` and `-2across.png`,
+  two small marks under each phone, pressing the robot squares that card's
+  corners. Renders: `docs/edits/site-cards-phone.png` and `-2across.png`,
   refreshed. **And `chat.js` is cached**, so a hard refresh is part of it
   reaching anybody.
+
+### AND THE SWITCH MOVES THE PHONE AND NOTHING ELSE (2026-09-09, owner: *"THE
+SITE SQUARE THING MOVES , WHEN I TAP TO SWICTH ,"*)
+
+The two phones are different SHAPES — 393/852 against 412/915 — and the phone
+took the COLUMN'S WIDTH, so Android came out taller. The pair's second row is
+`1fr` with `align-items: stretch`, so that height went into the tile, into the
+card, **and into every other card in that grid row**. MEASURED before the fix,
+at three column counts: the card grew **3.9px at 1512, 5.8 at 1100, 7.4 at
+700**, and the neighbouring card moved by the same amount.
+
+- **THE ENTRY ABOVE CALLED IT A FEATURE.** Its own bullet said the Android
+  phone *"stands a few pixels taller"* — I measured that difference while
+  building the switch, wrote it down as a description, and never asked what the
+  extra height lands on. **A number measured and not interrogated is not a
+  measurement**; the owner found in one tap what the arithmetic was already
+  saying.
+- **THE FIX IS A BOX WHOSE SHAPE NEVER CHANGES.** `.st-app-screen` takes the
+  column's width at a LITERAL `390 / 844` — the ratio the whole column
+  derivation was built on — and the phone is HEIGHT-LED inside it (`height:
+  100%; width: auto; max-width: 100%`), the workspace panel's own answer to the
+  same problem, so the two phones this app draws are sized the same way. **A
+  taller phone comes out NARROWER rather than taller**, and the row's height is
+  decided once. The box's ratio must stay a literal: a `var(--os-ratio)` there
+  puts the movement straight back, and it is the single edit that would.
+- **AND IT MADE THE COLUMN ARITHMETIC EXACT.** The phone used to sit within
+  **2px** of its thumbnail because its own ratio was doing the sizing; the box
+  is the shape the `1fr .2888fr` column was derived from, so the phone now
+  stands within **1px**. MEASURED after, at 1512/1100/700: card **0**, tile
+  **0**, neighbouring card **0** — nothing moves on a press but the phone's own
+  width (−1.8 to −3.3px).
+- **THE CENTRING IS LOAD-BEARING NOW, AND A SWEEP IS WHAT SAID SO.** The phone
+  changes WIDTH inside a fixed box, so without `justify-content: center` it
+  jumps to the left edge on every press — the owner's own complaint, one axis
+  over. Nothing guarded it: the mutant that removed it SURVIVED the first pass.
+  Guarded and re-run to a kill.
+- **EVERY GUARD ON THIS SCREEN PASSED THROUGH THE DEFECT, and that is the
+  finding.** Thirty-two cases proved the switch changes something visible — a
+  corner, a camera, a ratio, a lit segment — and **not one proved it changes
+  ONLY that**. A control whose side effect is the layout around it is a
+  different failure from a control that does nothing, and this file had a
+  reader for the second and none for the first. The new case asserts the box's
+  shape is a literal, the phone is height-led, the box IS the phone's own
+  fallback shape (so an unswitched card draws a phone that fills its box), the
+  pair still stretches — **beside the reason, so the argument cannot quietly
+  stop being true** — and, DRIVEN, that the box is really drawn with the phone
+  inside it, since every other assertion here is a statement about the
+  STYLESHEET and a rule for an element nobody writes styles nothing at all.
+- **Proven red before green**, twice: restoring `aspect-ratio: var(--os-ratio,
+  …)` on the box fails the new case, removing the centring fails it, and a
+  second guard — "every class the tile writes is a class the stylesheet styles,
+  and back" — catches the wrapper's deletion independently.
+- **Sweep: 56 mutants, 56 killed, none survived, none unapplied, two
+  comment-only controls survived — ONE survived the first pass and it is the
+  centring, above.** The new ones: the box taking the switch's ratio (the defect
+  itself), the box with no shape at all, sized from a px width or from a HEIGHT
+  (which takes the grid row's height and breaks the column derivation), its
+  shape drifting from the phone's own fallback, the phone width-led again,
+  setting a width beside its height, not sized from the box, allowed to overflow
+  sideways, no longer reading the shared ratio, the pair no longer stretching
+  (so the box's fixed shape quietly stops mattering), the box never drawn, and
+  the centring dropped. **Two of the earlier set's anchors had gone stale on the
+  lines this change touched and were re-pointed at the property each always
+  held** — "the phone is told which one it is" (the wrapper now sits around that
+  line) — **and ONE was RE-AIMED rather than re-anchored**: its property, "the
+  card's phone must read the shared ratio rather than spelling its own", became
+  identical to a new mutant's when the declaration split in two, and two mutants
+  for one property prove nothing twice. It is the centring now, which is the
+  property this change MADE load-bearing.
+- **All five mobile sweeps re-run whole on the final tree: switch 56/56, phone
+  69/69, column 30/30, os 27/27, drag 23/23 — 205 mutants, 205 killed, none
+  survived, none unapplied, every control surviving.** The phone sweep's five
+  stale anchors were re-pointed the same way, **one of them RE-AIMED**: "the
+  phone is sized from a height rather than the column" was a defect while the
+  phone WAS the column's item and height-led is the fix now, so re-anchoring it
+  would have shipped a mutant asserting the opposite of the product; it aims at
+  the BOX, which is where that property lives today.
+  Full suite **5,721**.
+- **AND A CONTAINER RESTART LEFT A LIVE MUTANT IN THE TREE.** The five sweeps
+  were mid-run when the session's container went away, so `scripts/mutate.mjs`
+  never reached its `finally` and `public/styles.css` was left carrying the
+  drag sweep's specificity mutant (`.st-mob[data-os] .st-mob-one[data-os]` cut
+  down to `.st-mob-one`). **The recorded killed-sweep trap from a third
+  direction** — not a tool timeout, not a stray `&`, just the machine going
+  away — and the standing answer held: `git diff` found it in one read, before
+  anything else was done. All five sweeps were then re-run WHOLE on the
+  restored tree, because an interrupted sweep proves nothing about the tree it
+  did not finish measuring.
 
 ### A MOBILE APP COLUMN YOU OPEN AND CLOSE (2026-09-08, owner: *"i want to make
 a column in the right hand side"* → *"Is for mobile app"* → *"in a sidebar not

@@ -1602,11 +1602,28 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    what keeps the phone level with the thumbnail while the card stretches to the
    tallest in its row. */
 .st-app { min-width: 0; display: grid; align-content: start; gap: .12rem; }
+/* THE BOX THE PHONE SITS IN, AND ITS RATIO IS FIXED ON PURPOSE (2026-09-09,
+   owner: "THE SITE SQUARE THING MOVES , WHEN I TAP TO SWICTH").
+   The two phones are different SHAPES, so a phone that took the column's width
+   directly came out 4px taller on Android — and the pair's second row is `1fr`
+   with stretched items, so that grew the tile, the card, and every other card in
+   the same grid row. MEASURED before the fix: 3.9px at 1512, 5.8 at 1100, 7.4 at
+   700, with the neighbouring card moving too.
+   This box takes the column's width and NEVER changes shape, so the row's height
+   is decided once. 390/844 is the ratio the column arithmetic was derived from,
+   which is why the phone inside now stands exactly as tall as the thumbnail
+   rather than within a couple of pixels of it. It must stay a literal: a
+   `var(--os-ratio)` here would put the movement straight back. */
+.st-app-screen { width: 100%; aspect-ratio: 390 / 844; display: flex; justify-content: center; }
 .st-app-phone {
-  /* The RATIO comes from the shared `[data-os]` block beside the workspace
-     panel's device, so the two components cannot disagree about what an iPhone
-     is; the fallback is the shape this tile had before the switch existed. */
-  width: 100%; aspect-ratio: var(--os-ratio, 390 / 844); position: relative;
+  /* HEIGHT-LED INSIDE THAT BOX — the workspace panel's own answer for the same
+     problem, so the two phones this app draws are sized the same way. The RATIO
+     comes from the shared `[data-os]` block beside the panel's device, so the
+     two components cannot disagree about what an iPhone is; the fallback is the
+     shape this tile had before the switch existed. A taller phone is NARROWER
+     here rather than taller, which is what keeps the card still. */
+  height: 100%; width: auto; max-width: 100%;
+  aspect-ratio: var(--os-ratio, 390 / 844); position: relative;
   border: 1px solid var(--line-2); border-radius: 16px;
   /* THE CARD'S OWN GROUND, read from the same token rather than restated, so a
      palette change moves both and they cannot drift into two greys. */

@@ -228,9 +228,14 @@ screen reader announces instead.
 
 **It changes something real.** Press the apple and the phone gets rounder corners
 and the wide pill notch; press the robot and it gets squarer corners and a small
-punch-hole, and stands a few pixels taller. That mattered more than it sounds: a
-switch whose two halves look identical is a dead control, and this project has
-now caught that six times in its own screens.
+punch-hole. That mattered more than it sounds: a switch whose two halves look
+identical is a dead control, and this project has now caught that six times in
+its own screens.
+
+*(This paragraph used to end "and stands a few pixels taller", which was true of
+the first version and is the very thing you spotted the next morning — see the
+entry below. Corrected here rather than left, because a note describing a bug as
+a feature is what the next person reads.)*
 
 **Each card remembers its own phone — and I got that wrong first.** The version I
 showed you moved every phone on the screen at once, off one shared setting. My
@@ -276,6 +281,62 @@ by the mutation run rather than by reading.
 
 **Not on the live site yet.** When it is: hard refresh, then look for two small
 marks under each phone.
+
+---
+
+## 2026-09-09 — The square stopped moving when you tap the switch
+
+You said *"THE SITE SQUARE THING MOVES , WHEN I TAP TO SWICTH."* You were right,
+and it was worse than it looked.
+
+**What was happening.** The two phones are genuinely different shapes — an
+iPhone is 393 by 852, an Android 412 by 915 — and the phone was sized from its
+width, so switching to Android made it *taller*. The site card and the phone sit
+in the same row and stretch to match each other, so that extra height pushed the
+card down — **and the card next to it too**. Measured before the fix: the card
+grew about 4 pixels at a normal window, 6 at a narrower one, 7 at the narrowest,
+and its neighbour moved by exactly the same amount.
+
+**What I did.** The phone now sits inside a frame that never changes shape, and
+the phone is sized from that frame's *height* instead of the column's width. So a
+taller phone comes out **narrower** rather than taller, and nothing around it can
+move. Measured after, at three window sizes: card 0, tile 0, neighbouring card 0.
+The only thing that changes is the phone's own width, by two or three pixels —
+which is the switch doing its job.
+
+**A small bonus.** The frame's shape is the one all the original column
+arithmetic was built on, so the phone now lines up with the site thumbnail to
+within a single pixel instead of two.
+
+**And I have to own the way this got in.** The note I wrote yesterday describing
+the switch says the Android phone *"stands a few pixels taller"* — I measured
+that difference while building it, wrote it down as if it were a description, and
+never asked where those pixels go. It was in my own notes the whole time. I have
+corrected that sentence rather than leaving it, because a note describing a bug
+as a feature is what the next person reads.
+
+**The tests all passed through it, which is the part worth telling you.** There
+are thirty-odd checks on that screen and every one of them proves the switch
+*changes something* — a corner, a camera notch, which button lights up. Not one
+of them proved it changes *only* that. So there is a new check now for exactly
+that, and I proved it fails on the old broken version before trusting it.
+
+**One thing the automated tests caught that I had not thought of.** Because the
+phone now changes width inside a fixed frame, if it were not centred it would
+jump to the left edge every time you tapped — the same complaint you made,
+sideways instead of downwards. Nothing was checking the centring. It is checked
+now.
+
+**And an honest note about the machine.** Halfway through, this session's
+container restarted while the mutation tests were running, which left one
+deliberately-broken line sitting in the stylesheet. I found it by reading the
+diff before doing anything else and put it back, then re-ran all five sets from
+scratch — a test run that was interrupted proves nothing about the code it never
+finished checking.
+
+**Not on the live site yet.** When it is: hard refresh, then tap between the
+apple and the robot on any card and watch the square beside it. Nothing should
+move but the phone.
 
 ---
 
