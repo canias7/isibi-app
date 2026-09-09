@@ -1486,7 +1486,17 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    now holds a site and the mobile app beside it, so the count is stated rather
    than derived from a minimum width. The two breakpoints are what stop three
    pairs from putting a card under 200px on a laptop. */
-.st-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+/* THE TWO AXES ARE SET APART, and that is the point rather than a tidy-up
+   (owner, 2026-09-09: "leave more space between every3" -> "i mean like floor
+   one to floor 2"). At one `gap` for both, the space between a phone and the
+   next site was 16px and the space INSIDE a pair was 16.8 — so six columns read
+   as six columns, and a row ran straight into the one under it. The row gap is
+   what says "that was a floor, this is the next one".
+   WRITTEN AS TWO NAMED DECLARATIONS, never the `gap: <row> <column>` shorthand:
+   `row-gap:` CONTAINS `gap:`, so a guard reading the column gap out of this rule
+   would match whichever came first and silently take the wrong number into the
+   card-width arithmetic below. Naming both removes the question. */
+.st-grid { display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 1rem; row-gap: 3.5rem; }
 @media (max-width: 1180px) { .st-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 760px) { .st-grid { grid-template-columns: 1fr; } }
 /* THE PHONE IS THE SITE SQUARE'S HEIGHT BY ARITHMETIC, NOT BY A NUMBER TYPED IN

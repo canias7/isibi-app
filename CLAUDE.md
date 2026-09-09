@@ -1466,6 +1466,22 @@ correction is a property a guard now holds.
   card changes size. The guard derives the card's width from the page's cap, the
   grid's gap, the pair's gap and the column ratio and requires 258, which is
   what a card measured at four across before this.
+- **AND THE TWO AXES ARE SET APART (owner, the same day: *"leave more space
+  between every3"* → *"i mean like floor one to floor 2"*).** At one `gap` for
+  both, the space between a phone and the next site was **16px** and the space
+  INSIDE a pair was **16.8** — so six columns read as six columns, and a row ran
+  straight into the one under it. `column-gap: 1rem; row-gap: 3.5rem` now: 56px
+  between floors, measured. **The first reading of that ask was the wrong axis**
+  — I built the horizontal case, found it fights *"leave the square the size it
+  is"* (the page is capped at 1080, so wider gaps between pairs shrink the card
+  to ~246) and was about to render the tradeoff when the owner said which axis.
+  **The row gap changes no width at all**: card 258 at every option, measured.
+- **THE SHORTHAND IS FORBIDDEN, AND THAT IS A GUARD RATHER THAN A STYLE RULE.**
+  `row-gap:` CONTAINS `gap:`, so the card-width check's `/gap:\s*([\d.]+)rem/`
+  would match `gap: <row> <column>` and take the ROW's number as the column gap —
+  computing the card wrong with nothing failing. Both axes are named
+  declarations, the check reads `column-gap` by name, and a mutant that restores
+  the shorthand is killed.
 - **THE PHONE IS BESIDE THE CARD, NOT INSIDE IT** — two corrections were spent
   on that, so the sibling relationship is COUNTED rather than inferred: the
   guard counts `<div` against `</div>` between the card's opening literal and
@@ -1509,14 +1525,16 @@ correction is a property a guard now holds.
   clip its own overflow. Kept, said out loud in the stylesheet, and NOT claimed
   to be covered — the sweep's mutant for it was RE-AIMED at the pair's gap
   rather than shipped against an inert wall.
-- **Guards**: `test/site-card-phone.test.mjs` (14) — the tile EVALUATED out of
+- **Guards**: `test/site-card-phone.test.mjs` (15) — the tile EVALUATED out of
   chat.js and driven for its two sentences, its inertness and its indifference
   to the site; the one call site COUNTED; the sibling relationship counted; the
   class names DERIVED from the markup and checked at the stylesheet and back;
   the `st-mob` collision; the column recomputed from both ratios; the two
   phones' ratios compared by identity; the phone's ground read off the card's
   own token; `align-content: start`; the card's width derived; the grid and both
-  breakpoints with their ORDER asserted; and the icon's absence beside the two
+  breakpoints with their ORDER asserted; the row gap required to EXCEED the
+  column gap (derived, never a number — the property is the separation, not the
+  millimetre) with the shorthand forbidden; and the icon's absence beside the two
   acts that stay.
   **Four older cases in `test/site-list.test.mjs` were re-anchored, not
   appeased**, and the split between them is the finding. Three went honestly red
@@ -1530,7 +1548,7 @@ correction is a property a guard now holds.
   **INVERTED rather than deleted** — it used to require the button and now
   forbids it, and it still requires the sentence, with a tripwire that the
   feature did not simply go.
-- **Sweep: 26 mutants, 26 killed, none survived, none unapplied, two
+- **Sweep: 30 mutants, 30 killed, none survived, none unapplied, two
   comment-only controls survived — TWO survived the first pass**: the nested
   tile (a real guard gap, above) and `min-width: 0` (inert, above). The killed
   ones: the tile never drawn (the wiring trap, the defect itself), drawn inside
@@ -1541,8 +1559,10 @@ correction is a property a guard now holds.
   gone or inverted; the column a round number, a fixed width, or sized from a
   height; either ratio drifting; the phone centred instead of top-aligned;
   painting its own grey; the stylesheet keying on a class nothing writes; the
-  pair's gap rounded and the page's cap moved, each of which resizes the card.
-  Full suite **5,702**.
+  pair's gap rounded and the page's cap moved, each of which resizes the card;
+  the rows back to the columns' spacing, the row gap shrunk to it, the two axes
+  swapped, and the shorthand restored so the card's width reads the wrong number.
+  Full suite **5,703**.
 - **AND MY OWN GUARD HELPER HIT THE AMBIGUOUS-LANDMARK TRAP.** `rule(css, sel)`
   used a bare `indexOf(sel + " {")` and matched `.st-mob-one .st-mob-device {`
   — a DESCENDANT rule eighteen lines above the real one — because the selector
@@ -7796,9 +7816,9 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,702
+  build and the pre-list payload added sixteen); the unit suite is 5,703
   (2026-09-09, after the mobile app moved beside the site card on the start
-  screen — fourteen in `test/site-card-phone.test.mjs`: the tile EVALUATED out
+  screen — fifteen in `test/site-card-phone.test.mjs`: the tile EVALUATED out
   of chat.js and driven for its two sentences, its inertness and its
   indifference to the site it is never handed; its one call site COUNTED,
   because this same screen shipped `cardActs` uncalled once already; the sibling
@@ -7809,8 +7829,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   alive; the phone column RECOMPUTED from the thumbnail's ratio and the
   handset's rather than pinned; the two phones' ratios compared by identity; the
   card's own width derived from the page cap, both gaps and the column, so the
-  owner's "leave the square the size it is" is arithmetic; and the icon's
-  absence asserted beside the two acts that stay. Four older cases in
+  owner's "leave the square the size it is" is arithmetic; the row gap required
+  to EXCEED the column gap, derived rather than pinned, with the `gap: <row>
+  <column>` shorthand forbidden because `row-gap:` contains `gap:` and the
+  card-width check would silently read the wrong number out of it; and the
+  icon's absence asserted beside the two acts that stay. Four older cases in
   `test/site-list.test.mjs` re-anchored — three honestly red, and one that had
   gone GREEN VACUOUSLY on a window running to `-1`;
   before it 5,688, after the mobile app column became an overlay over the preview —

@@ -207,10 +207,23 @@ from gofarther.dev and they match the tree exactly: three across, the phone
 column, the phone's shape, and **zero** occurrences of the old phone icon.
 Nothing paid ran.
 
-**You still need a hard refresh** to see it, because `chat.js` is about 932 KB
-and your browser caches it. Then: three pairs across, a phone beside each site
-standing exactly as tall as its picture, and no little phone icon in the row
-with the name. Picture: `docs/edits/site-cards-phone.png`.
+**Then you asked for more space between the rows** — "floor one to floor 2".
+Done: **56 pixels** between one row and the next, where before it was 16, the
+same as the gap between columns, which is why a row ran straight into the one
+below it.
+
+I read that wrong the first time and started on the horizontal gap. Worth
+knowing why that one is not free: the page is capped at 1080 pixels wide, so
+more space *between* pairs takes width *off* each pair and shrinks your card
+from 258 to about 246 — which fights what you told me earlier about leaving the
+square alone. The row gap costs nothing: **the card is still 258** at every
+setting, measured.
+
+**You still need a hard refresh** to see any of it, because `chat.js` is about
+932 KB and your browser caches it. Then: three pairs across with clear space
+between the rows, a phone beside each site standing exactly as tall as its
+picture, and no little phone icon in the row with the name. Picture:
+`docs/edits/site-cards-phone.png`.
 
 ---
 

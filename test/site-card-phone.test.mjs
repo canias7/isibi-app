@@ -275,7 +275,12 @@ test("the card is still the width it was — the owner's instruction, as arithme
   const css = read("../public/styles.css");
   const page = /max-width:\s*(\d+)px/.exec(rule(css, ".st-page"));
   assert.ok(page, "the page's cap is gone — re-anchor this");
-  const gridGap = /gap:\s*([\d.]+)rem/.exec(rule(css, ".st-grid"));
+  // READ AS `column-gap` BY NAME. The width arithmetic wants the gap between
+  // COLUMNS, and since 2026-09-09 the grid sets the two axes apart — `row-gap`
+  // is more than three times it. A loose `/gap:/` matches `column-gap:` AND
+  // `row-gap:` and takes whichever comes first, so it would be right only while
+  // nobody reorders the declaration, and wrong silently after.
+  const gridGap = /column-gap:\s*([\d.]+)rem/.exec(rule(css, ".st-grid"));
   const pairRule = rule(css, ".st-pair");
   const pairGap = /gap:\s*([\d.]+)rem/.exec(pairRule);
   const col = /1fr\s+([\d.]+)fr/.exec(pairRule);
@@ -286,6 +291,31 @@ test("the card is still the width it was — the owner's instruction, as arithme
   assert.ok(Math.abs(card - 258) < 1,
     "a card comes out " + card.toFixed(1) + "px where it measured 258 before the phone "
     + "was added beside it — the square changed size");
+});
+
+test("a row is set apart from the next one — more than a pair is from its neighbour", () => {
+  // Owner, 2026-09-09: "leave more space between every3" -> "i mean like floor
+  // one to floor 2". At a single `gap` the rows sat 16px apart, the same as the
+  // columns, so a row ran into the one below it and six columns read as six
+  // columns rather than three pairs.
+  //
+  // DERIVED, not pinned: the row gap must simply be MORE than the column gap.
+  // A number here would go stale the first time either is tuned, and the
+  // property is the separation, not the millimetre.
+  const grid = rule(read("../public/styles.css"), ".st-grid");
+  const rowGap = /row-gap:\s*([\d.]+)rem/.exec(grid);
+  const colGap = /column-gap:\s*([\d.]+)rem/.exec(grid);
+  assert.ok(rowGap && colGap,
+    "the grid sets one `gap` for both axes again, so a row sits as close to the "
+    + "next one as a pair does to its neighbour");
+  assert.ok(Number(rowGap[1]) > Number(colGap[1]) * 2,
+    "the rows are " + rowGap[1] + "rem apart against " + colGap[1] + "rem between "
+    + "columns — not enough to read as separate floors");
+  // AND THE SHORTHAND IS FORBIDDEN, because `row-gap:` contains `gap:`: a
+  // `gap: <row> <column>` here would be read by the card-width check above as a
+  // column gap of the ROW's value, and the card would be computed wrong without
+  // anything failing.
+  assert.ok(!/[;{]\s*gap:/.test(grid), "the grid uses the two-axis `gap` shorthand");
 });
 
 test("three pairs across, and two breakpoints under it", () => {
