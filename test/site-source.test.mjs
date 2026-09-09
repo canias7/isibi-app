@@ -644,7 +644,16 @@ test("the Code PANE is reachable on a built site, and its host is the one the lo
   // The branch's own condition, back to the `:` that introduces it.
   const from = BARE.lastIndexOf(":", BARE.lastIndexOf("(", at));
   const cond = BARE.slice(from, at);
-  assert.ok(/siteView === 'code'/.test(cond), "the Code pane no longer keys on the view");
+  // RE-ANCHORED 2026-09-09: this pinned `siteView === 'code'`. The stage's chain
+  // reads a view resolved ONCE now (`stStageView`), because the mobile app
+  // column had to be gated on what the stage is SHOWING and two readings of that
+  // would drift. The property here is untouched — the pane keys on the view and
+  // on nothing else — so it asks for the resolved name, and asserts that name is
+  // really derived from `siteView` rather than being some other variable that
+  // happens to fit.
+  assert.ok(/stageView === 'code'/.test(cond), "the Code pane no longer keys on the view");
+  assert.match(BARE, /const stageView = stStageView\(siteView,/,
+    "`stageView` is not the resolved `siteView` any more, so the check above proves nothing about the view");
   assert.ok(!/isReact/.test(cond),
     "the Code pane is gated on `isReact` again — it is FALSE on every built site, " +
     "so Code would highlight the tab and render the preview, which is the live defect");

@@ -9754,6 +9754,18 @@ let siteBuildMsg = '';      // live streamed build step ("Designing 3 pages…")
 let siteBuild = null;       // { phase, pages[], done[], tick } — running build activity log
 let siteTicker = null;      // setInterval handle rotating the active "live" line
 let siteView = 'preview';   // workspace stage: preview | code | more | data
+// WHICH VIEW THE STAGE IS ACTUALLY SHOWING, which is not always the one that was
+// asked for. `siteView` is module scope and outlives the site it was set on, and
+// the Data view is only offered to a site that HAS a database — so a site
+// without one can arrive carrying 'data', and the stage's own chain falls
+// through to the preview. Anything that has to AGREE with the stage asks this
+// one function; a second copy of the chain would disagree in exactly that case,
+// which is the one nobody would think to test.
+const stStageView = (view, hasData) =>
+  view === 'code' ? 'code'
+    : (hasData && view === 'data') ? 'data'
+      : view === 'more' ? 'more'
+        : 'preview';
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 let siteDataTable = '';     // Data panel: which table is open
 let siteDataForm = null;    // Data panel: the add/edit row form ({editId, values}) when open
@@ -11480,6 +11492,15 @@ function renderSiteWorkspace(view, site) {
           '<button type="button" class="st-pageitem' + (active && p.path === active.path ? ' on' : '') + '" data-path="' + esc(p.path) + '"><span class="st-pi-name">' + esc(p.name) + '</span><span class="st-pi-path">' + esc(p.path) + '</span></button>').join('') +
         '</div></div>'
     : '<span class="st-tb-page">Homepage</span>';
+  // THE MOBILE APP COLUMN BELONGS TO THE PREVIEW (owner, 2026-09-09: "so i wanna
+  // to tell to only show it in the preview"). It showed on Code and More too,
+  // beside a pane it has nothing to do with.
+  //
+  // The gate asks what the stage is SHOWING, not what was asked for, because
+  // those differ — see `stStageView`. Gated on `siteView === 'preview'` instead,
+  // a site carrying 'data' with no Data tab would show the preview with the
+  // phone hidden beside it, which is the thing being asked against.
+  const stageView = stStageView(siteView, !!(isReact && site.backend));
   view.innerHTML =
     // BOTH HALVES OF THE PANEL'S STATE LAND HERE, and that is the whole reason
     // the width is written at the render rather than left where the drag put
@@ -11491,7 +11512,14 @@ function renderSiteWorkspace(view, site) {
     // The clamp stays the FALLBACK, so an undragged panel is exactly the
     // default it always was and the attribute only ever carries a width a
     // person chose.
-    '<div class="st-ws st-lv' + (siteRailHidden ? ' st-rail-hidden' : '') + (siteMobileOpen ? ' st-mob-open' : '') + '"' +
+    //
+    // AND `st-pv` IS THE THIRD THING THIS ELEMENT CARRIES: whether the stage is
+    // showing the preview. It is here rather than on the panel because three
+    // separate controls read it — the column, the edge tab that opens and
+    // resizes it, and the top bar's toggle — and they sit in two different rows.
+    // Written from `stageView` with no boolean in between, so there is nothing
+    // for a later edit to leave behind when the chain below changes.
+    '<div class="st-ws st-lv' + (siteRailHidden ? ' st-rail-hidden' : '') + (siteMobileOpen ? ' st-mob-open' : '') + (stageView === 'preview' ? ' st-pv' : '') + '"' +
       (Number.isFinite(siteMobileW) ? ' style="--mob-w:' + siteMobileW + 'px"' : '') + '>' +
       '<div class="st-topbar">' +
         '<div class="st-tb-left">' +
@@ -11542,18 +11570,25 @@ function renderSiteWorkspace(view, site) {
             '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">' + ic('phone', 16) + '</button>' +
           '</div>' +
           // THE MOBILE APP PANEL'S OWN DOOR. It sits beside the width buttons
-          // because that is what it is — a view control — and it is always
-          // drawn, on a built site and on a project with nothing yet, because
-          // hiding a control is how a customer never learns it is there (the
-          // card icons settled that). What differs by state is the sentence
-          // inside the panel, which is true in both.
+          // because that is what it is — a view control — and it is drawn on a
+          // built site and on a project with nothing yet alike, because hiding a
+          // control is how a customer never learns it is there (the card icons
+          // settled that). What differs by state is the sentence inside the
+          // panel, which is true in both.
+          //
+          // IT GOES OFF PREVIEW, THOUGH, and that is not the same argument.
+          // "Learn it is there" is about a control whose room exists; a door to
+          // a room the stylesheet has taken away is the dead control this app
+          // has now found five times in its own chrome. `st-mob-btn` is what the
+          // sheet keys on — the id is the handler's, and a stylesheet that
+          // reached for an id would be the only one in the file that does.
           //
           // `on` MEANS "the panel this opens is showing", the same as the chat
           // rail's toggle — note the two variables run opposite ways
           // (`siteRailHidden` versus `siteMobileOpen`), so one reads `!` and
           // this one does not. The meaning of the lit state is the thing that
           // matches, not the polarity of the flag behind it.
-          '<button type="button" class="st-icon' + (siteMobileOpen ? ' on' : '') + '" id="stMobile" title="' + (siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app') + '" aria-label="Show or hide the mobile app">' + ic('sidebar', 17) + '</button>' +
+          '<button type="button" class="st-icon st-mob-btn' + (siteMobileOpen ? ' on' : '') + '" id="stMobile" title="' + (siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app') + '" aria-label="Show or hide the mobile app">' + ic('sidebar', 17) + '</button>' +
           // FORM SUBMISSIONS AND SITE MEMBERS ARE OFF THIS BAR (owner,
           // 2026-09-07: "DELETE THIS 2 THINGS"). Both were SECOND doors to a
           // Cloud card that already exists and describes itself — "Submissions:
@@ -11680,14 +11715,22 @@ function renderSiteWorkspace(view, site) {
               // answers the empty sentence when there is nothing built, so the
               // outer test was redundant with the function's own gate and
               // inverted against it. The condition is the view, and nothing else.
-              : (siteView === 'code')
+              //
+              // AND THE CHAIN ASKS `stageView`, which is this chain written
+              // once as a function. The panel's gate has to agree with what
+              // lands here, and the only way two readings cannot drift is for
+              // there to be one reading.
+              : (stageView === 'code')
                 ? siteCodeView(site)
-                : (isReact && site.backend && siteView === 'data')
+                : (stageView === 'data')
                   ? '<div class="st-datawrap" id="stData"><div class="st-empty">Loading your data…</div></div>'
-                  : siteView === 'more'
+                  : stageView === 'more'
                     ? siteMoreView(site)
                     : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="' + FRAME_SANDBOX + '" title="Site preview"></iframe></div>') +
-          ((hasSite && siteView === 'preview')
+          // The fix bar overlays the preview iframe, so it asks the stage's own
+          // question rather than keeping a second copy of it — found by the
+          // guard that counts copies, which is what that guard is for.
+          ((hasSite && stageView === 'preview')
             ? '<div class="st-fixbar" id="stFixBar" hidden><span class="st-fixbar-ic">' + ic('alert', 15) + '</span><span class="st-fixbar-n"></span><button type="button" class="st-fixbar-btn" id="stFixBtn">Fix with AI</button><button type="button" class="st-fixbar-x" id="stFixX" aria-label="Dismiss">×</button></div>'
             : '') +
           ((siteErr && siteErr.chatId === site.id)

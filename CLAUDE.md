@@ -1888,6 +1888,119 @@ the two layouts one next to each other"*)
   differently on Code than on Preview, where the phones fill the space.
   Renders: `docs/edits/mobile-code-open.png`, `-wide.png`, `-max.png`.
 
+### AND THE WHOLE COLUMN IS THE PREVIEW'S (2026-09-09, owner: *"so i wanna to
+tell to only show it in the preview , so wahtevr you did , i dont think it was
+the right thing"*)
+
+It showed on Code and More alike — a phone frame beside a file tree — and had
+since the day the column shipped, so this is a behaviour change rather than a
+regression in the drag work above it.
+
+- **ALL THREE CONTROLS GO TOGETHER**: the column, the edge tab that opens and
+  resizes it, and the top bar's toggle. A door to a room that is not there is the
+  dead control this app has now found five times in its own chrome, and the rule
+  that kept the toggle always-drawn — *a control earns its place by SAYING
+  something* — is about a control whose room EXISTS.
+- **THE GATE ASKS WHAT THE STAGE IS SHOWING, NOT WHAT WAS ASKED FOR, AND THOSE
+  DIFFER.** `siteView` is module scope and outlives the site it was set on, and
+  the Data tab is drawn only for a site that HAS a database — so a site without
+  one can arrive carrying `'data'`, and the stage's ternary chain falls through
+  to the preview. Gated on `siteView === 'preview'` that site would have shown
+  the preview with the phone hidden beside it, which is the thing being asked
+  against. `stStageView(view, hasData)` is that chain written once as a function
+  and the chain CALLS it, so there is one reading and it cannot drift — the
+  recorded "two lists of the same thing", avoided rather than extended.
+- **AND IT FOUND A THIRD COPY OF THE SAME QUESTION.** The guard counts
+  comparisons against `siteView` inside the stage's own block and reported one
+  left standing: the **"Fix with AI" bar**, which overlays the preview iframe and
+  asked its own way. It reads the resolved view now. That is the guard working in
+  the direction guards rarely do — it found a copy nobody had listed, on a change
+  whose whole subject is that there must be one.
+- **ONE CLASS ON `.st-ws`, THREE RULES, TWO MECHANISMS.** `st-pv` rides the same
+  expression that already carries `st-mob-open` and `--mob-w` — three facts about
+  one panel in one tag, so the next person to touch any of them is looking at the
+  others. The panel and the tab take `display: none`, because they are in
+  `.st-body` and giving their space back to the pane is the point; the button
+  takes `visibility: hidden`, which is `.st-tb-pv-off`'s own recorded reason one
+  row up — the top bar's two side groups split the width between them, so a
+  button that LEFT the flow would move the centred view tabs on every view
+  change. **MEASURED in a real browser**: `.st-vtabs`' left edge is **611px on
+  Preview, Code and More alike**.
+- **THE PANEL STAYS IN THE MARKUP AND THE STATE IS REMEMBERED.** CSS is the gate,
+  so nothing clears `siteMobileOpen` or `siteMobileW` — driven: open it, drag to
+  **643px**, Code, More, back to Preview, and it is still open at 643px. A
+  conditional render would work today (a view switch re-renders anyway) and would
+  be one edit away from making the TOGGLE re-render, which reloads the preview
+  iframe and eats a half-typed message — the two properties this panel has been
+  built around since it shipped.
+- **Guards**: `test/mobile-panel.test.mjs` 43 → 50 — `stStageView` EVALUATED out
+  of chat.js and driven over every view with and without a database, including
+  the fall-through case and eight junk shapes (`String(['code'])` is `'code'`,
+  the recorded coercion trap, on the value that decides which pane a customer is
+  looking at); the stage's own chain required to read it with **zero**
+  comparisons of its own; the class DERIVED from the markup and checked against
+  the stylesheet, and the button's class derived from the STYLESHEET and checked
+  against the markup, so a drift is caught from whichever end moves; every rule's
+  DIRECTION asserted, since the inverted spelling shows the column everywhere but
+  Preview and would satisfy a looser "there is a `display: none` somewhere"
+  check; the button's mechanism held to `visibility` with `.st-tb-pv-off`
+  asserted ALIVE as the reason it is; and the remembered state asserted by
+  counting the writers of both values, each named.
+- **Proven red before green**: each of four properties fails on its own defect
+  restored verbatim — the gate off the root, the column rule deleted, the button
+  hidden with `display`, and the gate asking `siteView` — and passes on the fix.
+- **Sweep: 27 mutants, 27 killed, none survived, none unapplied, two comment-only
+  controls survived** — the gate gone (the state before this change), written on
+  another element, inverted, asking what was asked for, or a literal; the
+  resolver reading the data arm without asking for a database, coercing, reading
+  a databaseless site's Data as Data, or answering something other than the
+  preview for an unknown view; the stage and the fix bar each keeping their own
+  copy; each of the three rules deleted or inverted; the button hidden with
+  `display` so the tabs move; the sheet keying on a class the markup does not
+  write, or reaching for the toggle by id; the button losing that class or its
+  lit state; the panel rendered conditionally; a view switch clearing the open
+  flag or the dragged width; and the tab hidden by its own base rule or by the
+  open panel.
+  **AND THE FIRST RUN'S SUMMARY READ "2 survived", WHICH IS THE SHAPE THIS FILE
+  WARNS ABOUT.** `scripts/mutate.mjs` recognises a control by `m.control === true`
+  and not by its label, so two correctly-surviving comment mutants were counted as
+  ordinary survivors. Nothing was wrong with the sweep; the artifact a later
+  session would read was. Declared and re-run, so the log says what happened.
+- **All six earlier mobile sweeps re-run on this tree, and SIX anchors had gone
+  stale** — every one on a line this change touched (the workspace root's markup
+  and the toggle's). "Never applied" reads exactly like a kill in a summary and
+  proves nothing, so each was re-pointed at the property it always held and
+  re-run. Totals on this tree: **preview-only 27/27, width 13/13, tab 21/21,
+  column 30/30, switch 27/27, marks 17/17, drag 23/23 — 158 mutants, 158 killed,
+  none unapplied, every control surviving.**
+- **Two older guards went red for the change and were re-anchored, not
+  appeased.** `test/mobile-panel.test.mjs` pinned the toggle's class attribute
+  verbatim (it gained the name the sheet hides it on — the property is that the
+  lit state is written INSIDE that attribute, so the window runs from the
+  attribute to the id) and forbade `display: none` on the tab ANYWHERE, which was
+  right while the only reason to hide it was the panel being open; there is a
+  second reason now and a blanket ban cannot tell them apart, so it is narrowed
+  to the spelling that carries the property — the OPEN panel may not hide it —
+  with the tab's own base rule asserted separately. And
+  `test/site-source.test.mjs`'s Code-pane case pinned `siteView === 'code'`; it
+  asks for the resolved name now and asserts that name is really derived from
+  `siteView`, so the check cannot be satisfied by an unrelated variable.
+  Full suite **5,686**, measured on the final tree — the docs last, because ten
+  test files read them.
+- **AND A SWEEP WAS STARTED WHILE THE FULL SUITE WAS STILL RUNNING**, which is a
+  new face of the recorded killed-sweep trap: the sweep WRITES the two files the
+  suite READS, so every unrelated test file imported afterwards would have read a
+  mutated tree and the suite's total would have been noise that looked like a
+  measurement. Caught before either finished; the suite was stopped and the two
+  run in sequence. **A sweep and a suite may never overlap** — one mutates what
+  the other measures.
+- **Not proven live.** `public/` only — no container roll, no 15–20 minute hold.
+  The proof is one look: on **Preview** the tab is on the right edge and the panel
+  opens; on **Code** and **More** the tab, the panel and the top bar's phone
+  button are all gone, with the view tabs in exactly the same place; and coming
+  back to Preview shows the panel exactly as it was left. Render:
+  `docs/edits/mobile-preview-only.png` (both states, the panel dragged to 643px).
+
 ### THE REMOVAL VERB MEETS THE ONE-MARK WORK (2026-09-08, owner: *"Merge"*)
 
 `claude/help-needed-ehlwlj` carried three commits main did not — task #115's
@@ -7335,8 +7448,30 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,676
-  (2026-09-09, after the tab became a drag handle and the panel learned to show
+  build and the pre-list payload added sixteen); the unit suite is 5,686
+  (2026-09-09, after the mobile app column became the preview's — seven more in
+  `test/mobile-panel.test.mjs`: `stStageView` EVALUATED out of chat.js and driven
+  over every view with and without a database, including the fall-through case a
+  gate on `siteView` alone would get wrong and eight junk shapes; the stage's own
+  chain required to read it with ZERO comparisons of its own, which is what found
+  the "Fix with AI" bar keeping a third copy; the class DERIVED from the markup
+  and checked at the stylesheet, and the button's class derived from the
+  STYLESHEET and checked at the markup, so a drift is caught whichever end moves;
+  every rule's DIRECTION asserted; the button's mechanism held to `visibility`
+  with `.st-tb-pv-off` asserted alive as the reason; and the remembered state
+  asserted by counting the writers of both values, each named. Two older cases
+  re-anchored — the toggle's class attribute, and the tab's blanket ban on
+  `display: none`, which was right while the open panel was the only reason to
+  hide it;
+  before it **5,679**, after the dragged width was made to survive a re-render —
+  three in `test/mobile-panel.test.mjs`: the width DERIVED from the open class and
+  read PAST the `Number.isFinite` condition (a sweep survivor: the condition names
+  the variable, so a baked literal satisfied a looser check), the re-clamp driven
+  over three shapes, and the writer's refusal with its order asserted. **This line
+  said 5,676 until now** — that change stamped 5,679 in its own bullet and never
+  carried it here, which is the recorded "a section's total is the section's"
+  drift one file over; corrected rather than quietly overwritten;
+  before it 5,676, after the tab became a drag handle and the panel learned to show
   both phones at once — nine more in `test/mobile-panel.test.mjs`: both phones in
   the markup and counted, the narrow and widening rules with the SPECIFICITY and
   SOURCE ORDER that decide whether the second one can ever appear, the threshold

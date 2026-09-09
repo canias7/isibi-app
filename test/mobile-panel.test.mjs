@@ -245,7 +245,13 @@ test("the state reaches the button's own markup, not only the click handler", ()
   // drives, so the branch is driven from both ends now.
   const btn = BARE.split("\n").find((l) => l.includes('id="stMobile"'));
   assert.ok(btn, "the toggle is gone from the top bar");
-  assert.match(btn, /class="st-icon' \+ \(siteMobileOpen \? ' on' : ''\)/,
+  // RE-ANCHORED 2026-09-09: this pinned `class="st-icon' + (siteMobileOpen …`
+  // verbatim, and the class list gained `st-mob-btn` — the name the stylesheet
+  // hides the button on off Preview. The property was never the list, it is that
+  // the lit state is written INSIDE the class attribute, so the window runs from
+  // the attribute to the id and the rest of the list is not pinned.
+  const cls = span(btn, 'class="', '" id="stMobile"', "the toggle's class attribute");
+  assert.match(cls, /\(siteMobileOpen \? ' on' : ''\)/,
     "the toggle's lit state is not drawn from the flag — it would go dark on the next re-render");
   assert.match(btn, /siteMobileOpen \? 'Hide the mobile app' : 'Show the mobile app'/,
     "the tooltip is not drawn from the flag — it would go stale on the next re-render");
@@ -437,7 +443,11 @@ test("a press that DOES move resizes instead of shutting", () => {
 });
 
 test("the tab wears the panel's own edge, and goes when the panel arrives", () => {
-  const rule = span(CSS_BARE, ".st-mob-tab {", "}", "the tab's rule");
+  // RE-ANCHORED 2026-09-09: this took the FIRST `.st-mob-tab {` in the sheet,
+  // and the Preview-only gate above it now opens with one. The property is the
+  // tab's OWN base rule, so it is anchored on the selector standing alone at the
+  // start of a line — a compound selector cannot satisfy it.
+  const rule = span(CSS_BARE, "\n.st-mob-tab {", "}", "the tab's own rule");
   assert.match(rule, /position: absolute/, "the tab is no longer positioned against the row");
   assert.match(rule, /right: 0/, "the tab left the right edge");
   assert.match(rule, /border-right: none/, "the tab regained its right border and reads as a floating button");
@@ -455,8 +465,15 @@ test("the tab wears the panel's own edge, and goes when the panel arrives", () =
   // rides the panel's left edge by reading the same `--mob-w` the panel's own
   // basis reads, which is what makes it track a drag with nothing in JavaScript
   // moving it.
-  assert.ok(!/\.st-mob-tab \{ display: none|\.st-mob-tab\s*\{[^}]*display:\s*none/.test(CSS_BARE),
-    "the tab is hidden again — it is the drag handle now and must stay reachable");
+  // RE-ANCHORED 2026-09-09: this forbade `display: none` on the tab ANYWHERE,
+  // which was right while the only reason to hide it was the panel being open.
+  // There is a second reason now — the whole feature is the preview's — and a
+  // blanket ban cannot tell the two apart. The property is unchanged and is
+  // narrowed to the spelling that carries it: the OPEN panel may not hide it.
+  assert.ok(!/\.st-ws\.st-mob-open[^{]*\.st-mob-tab\s*\{[^}]*display:\s*none/.test(CSS_BARE),
+    "the tab is hidden once the panel opens — it is the drag handle now and must stay reachable");
+  assert.ok(!/\n\.st-mob-tab\s*\{[^}]*display:\s*none/.test(CSS_BARE),
+    "the tab's own base rule hides it, so it never appears at all");
   assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ right: calc\(var\(--mob-w/,
     "the open tab does not follow the panel's edge, so a drag would leave it behind");
   assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{[^}]*cursor: ew-resize/,
@@ -467,6 +484,164 @@ test("the tab wears the panel's own edge, and goes when the panel arrives", () =
   // once the panel is beside it.
   assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ border-right: 1px solid var\(--line-2\); border-radius: 10px; \}/,
     "the open tab keeps the closed tab's dropped border, so it reads as an edge with a panel behind it");
+});
+
+// ── THE WHOLE COLUMN IS THE PREVIEW'S ───────────────────────────────────────
+//
+// (2026-09-09, owner: "so i wanna to tell to only show it in the preview , so
+// wahtevr you did , i dont think it was the right thing".) It showed on Code and
+// More alike — a phone frame beside a file tree, which is a column about
+// nothing. All THREE controls go together: the panel, the edge tab that opens
+// and resizes it, and the top bar's toggle. A door to a room that is not there
+// is the dead control this app has now found five times in its own chrome.
+
+/** The real `stStageView`, cut out and evaluated — never retyped. */
+function realStageView() {
+  const src = span(BARE, "const stStageView = (view, hasData) =>", ";\n", "stStageView") + ";";
+  return new Function(src + " return stStageView;")();
+}
+
+/** The class the MARKUP writes for "the preview is showing" — derived, never typed. */
+function pvClass() {
+  const m = BARE.match(/\(stageView === 'preview' \? ' ([a-z-]+)' : ''\)/);
+  assert.ok(m, "the workspace root no longer says whether the preview is what the stage is showing");
+  return m[1];
+}
+
+test("the gate reads what the stage is SHOWING, not what was asked for", () => {
+  const stageView = realStageView();
+  assert.equal(stageView("preview", true), "preview");
+  assert.equal(stageView("code", true), "code");
+  assert.equal(stageView("code", false), "code", "Code is offered whether or not the site has a database");
+  assert.equal(stageView("more", true), "more");
+  assert.equal(stageView("data", true), "data");
+
+  // THE CASE THE FUNCTION EXISTS FOR, and the reason the gate is not
+  // `siteView === 'preview'`. `siteView` is module scope and outlives the site
+  // it was set on; the Data tab is only drawn for a site that HAS a database. So
+  // a site without one can arrive carrying 'data' — and the stage's own chain
+  // falls through to the preview. Read as 'data', the phone would be hidden
+  // beside a preview, which is exactly what the owner asked against.
+  assert.equal(stageView("data", false), "preview",
+    "a site with no database that was asked for Data reads as Data, while the stage shows it the preview");
+
+  // Anything unknown is the preview, because the chain's last arm is. And the
+  // comparisons are strict: `String(['code'])` is `'code'`, the recorded
+  // coercion trap, on the value that decides which pane a customer is looking at.
+  for (const junk of ["", null, undefined, "nonsense", ["code"], ["data"], {}, 0])
+    assert.equal(stageView(junk, true), "preview",
+      "an unknown view is not read as the preview: " + JSON.stringify(junk));
+});
+
+test("the stage and the phone ask ONE question, so they cannot disagree", () => {
+  const call = BARE.match(/const stageView = stStageView\(siteView, ([^)]*\)?[^)]*)\);/);
+  assert.ok(call, "the render no longer resolves which view the stage is showing");
+  assert.match(call[1], /site\.backend/,
+    "the data arm is decided without asking whether the site has a database, so the fall-through case is invented rather than read");
+
+  // AND THE STAGE ITSELF ASKS IT. Written twice — a chain here and a gate on the
+  // root — the two would differ in exactly the fall-through case above, which is
+  // the one nobody would think to test. Landmark to landmark, both ends asserted
+  // by `span`.
+  const stage = span(BARE, "'<div class=\"st-stage\"", 'id="stFixBar"', "the stage's own chain");
+  for (const v of ["code", "data", "more"])
+    assert.match(stage, new RegExp("stageView === '" + v + "'"),
+      "the stage's " + v + " arm no longer reads the resolved view");
+  const own = [...stage.matchAll(/siteView ===/g)].length;
+  assert.equal(own, 0,
+    "the stage kept " + own + " comparison(s) of its own against `siteView` — it can now disagree with the phone's gate");
+});
+
+test("the preview's class rides the workspace root, beside the panel's own state", () => {
+  const cls = pvClass();
+  // ON THE SAME ELEMENT AS THE OPEN CLASS AND THE STORED WIDTH — three facts
+  // about one panel, one tag — and found by asking which expression writes the
+  // open class rather than by naming the element. To the `>` that closes the
+  // opening tag, so a class written on some other node cannot satisfy it.
+  const at = BARE.indexOf("(siteMobileOpen ? ' " + openClass() + "' : '')");
+  assert.ok(at >= 0, "the open class is no longer written into the workspace root");
+  const tag = span(BARE.slice(at), "(siteMobileOpen ?", "'>' +", "the workspace root's attributes");
+  assert.match(tag, new RegExp("' " + cls + "'"),
+    "the preview class is on some other element than the one carrying the panel's state, so the CSS cannot reach the panel from it");
+});
+
+test("off Preview the column, its tab and its button all go", () => {
+  const cls = pvClass();
+  // EVERY RULE DERIVED from the class the markup writes: a rename in one file
+  // and not the other would leave the gate keying on a class nothing writes, and
+  // nothing would fail — the panel would simply be gone everywhere.
+  const hides = (sel, how) =>
+    new RegExp("\\.st-ws:not\\(\\." + cls + "\\) " + sel + " \\{[^}]*" + how);
+  assert.match(CSS_BARE, hides("\\.st-mob", "display:\\s*none"),
+    "the column still shows off Preview — the defect this change exists to fix");
+  assert.match(CSS_BARE, hides("\\.st-mob-tab", "display:\\s*none"),
+    "the edge tab still shows off Preview, so it opens a column that is not there");
+  assert.match(CSS_BARE, hides("\\.st-mob-btn", "visibility:\\s*hidden"),
+    "the top bar's toggle still shows off Preview, so it toggles a column that is not there");
+
+  // THE DIRECTION IS THE PROPERTY, as it is for the open class. `:not(...)`
+  // hides, so Preview is where they live; inverted, they would show on every
+  // view BUT Preview, and a looser "there is a display:none somewhere" check
+  // would pass on it happily.
+  for (const sel of ["\\.st-mob", "\\.st-mob-tab", "\\.st-mob-btn"])
+    assert.ok(!new RegExp("\\.st-ws\\." + cls + " " + sel + " \\{[^}]*(display:\\s*none|visibility:\\s*hidden)").test(CSS_BARE),
+      "the gate is inverted — " + sel.replace(/\\/g, "") + " is hidden ON Preview and shown everywhere else");
+});
+
+test("the button keeps its space when it goes, or the view tabs move", () => {
+  const cls = pvClass();
+  // TWO MECHANISMS, AND THE SPLIT IS NOT COSMETIC. The panel and the tab are in
+  // `.st-body` and giving their space back to the pane is the point. The button
+  // is in the top bar, whose two side groups split the width between them — so a
+  // button that LEFT the flow would move the centred view tabs every time you
+  // changed view. Measured: `.st-vtabs` left edge 611px on Preview, Code and
+  // More alike with `visibility`.
+  assert.ok(!new RegExp("\\.st-ws:not\\(\\." + cls + "\\) \\.st-mob-btn \\{[^}]*display:\\s*none").test(CSS_BARE),
+    "the toggle leaves the flow off Preview, so the centred view tabs move on every view change");
+  // The precedent it follows, asserted ALIVE so the reason above is not a claim
+  // about a rule that has been deleted.
+  assert.match(CSS_BARE, /\.st-tb-pv-off \{ visibility: hidden; \}/,
+    "`.st-tb-pv-off` is gone — the reason above names it, so re-anchor on whatever replaced it");
+});
+
+test("the class the stylesheet hides the button on is the class the markup writes", () => {
+  // DERIVED FROM THE SHEET and checked against the markup, which is the
+  // direction that catches the drift: the rule keys on a name, and if the button
+  // stops carrying it the button simply never hides and nothing fails.
+  const m = CSS_BARE.match(/\.st-ws:not\(\.[a-z-]+\) \.([a-z-]+) \{[^}]*visibility:\s*hidden/);
+  assert.ok(m, "the stylesheet no longer hides the toggle off Preview");
+  const btn = BARE.split("\n").find((l) => l.includes('id="stMobile"'));
+  assert.ok(btn, "the toggle is gone from the top bar");
+  const cls = span(btn, 'class="', '" id="stMobile"', "the toggle's class attribute");
+  assert.ok(cls.includes(m[1]),
+    "the stylesheet hides `." + m[1] + "` and the toggle does not carry it, so it shows on every view");
+  // AND NOT BY ID. The sheet keys on classes throughout; an id rule here would
+  // be the only one in the file, and the id belongs to the handler.
+  assert.ok(!/#stMobile/.test(CSS_BARE),
+    "the stylesheet reaches for the toggle by id — the id is the handler's, the class is the sheet's");
+});
+
+test("a trip through Code leaves the panel exactly as it was", () => {
+  // The gate is CSS on a class, so nothing clears the open flag or the stored
+  // width — which is the property that makes coming back to Preview show what
+  // you left. Driven in the scratchpad (open, dragged to 643px, Code, More,
+  // Preview: still open, still 643px); asserted here by counting the writers,
+  // with each named so the observer is proved alive.
+  const opens = [...BARE.matchAll(/siteMobileOpen = /g)].map((m) =>
+    BARE.slice(BARE.lastIndexOf("\n", m.index) + 1, m.index + 20).trim());
+  assert.equal(opens.length, 2,
+    "expected the declaration and `setMobileOpen` to be the only writers of the open flag, found: " + JSON.stringify(opens));
+  assert.match(opens[0], /^let siteMobileOpen = /, "the first writer is no longer the declaration");
+  const widths = [...BARE.matchAll(/siteMobileW = /g)].length;
+  assert.equal(widths, 2,
+    "expected the declaration and `setMobileW` to be the only writers of the stored width, found " + widths);
+
+  // AND THE PANEL IS STILL UNCONDITIONALLY RENDERED. Gating the markup on the
+  // view instead would work — a view switch re-renders anyway — but it would
+  // also make the TOGGLE need a re-render the day somebody folded the two, and
+  // that reloads the preview iframe and eats a half-typed message.
+  assert.ok(!/stageView[^\n]*\?\s*siteMobilePanel/.test(BARE),
+    "the panel is rendered only on the preview — the CSS is the gate, so the markup stays unconditional");
 });
 
 // ── DRAGGED WIDE, AND TWO PHONES AT ONCE ────────────────────────────────────

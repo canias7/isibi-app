@@ -146,6 +146,41 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-09 — The phone column only shows on Preview now
+
+You said the phone thing should only be there on the preview. It was showing on
+Code and More as well — a phone frame sitting next to a file tree, which is a
+column about nothing. It is Preview-only now.
+
+To be clear about what this was: the column has behaved that way since the day it
+shipped, so this is a change you asked for rather than something I broke
+yesterday with the drag work.
+
+**All three parts go together**: the column, the little tab on the right edge that
+opens and drags it, and the phone button in the top bar. A button that opens
+something that is not there is worse than no button at all — that is the same
+problem we have now found five times in this app's own toolbar.
+
+Three things worth knowing:
+
+- **It remembers what you left.** Drag the column wide, press Code, come back to
+  Preview — same width, still open. Nothing is reset.
+- **The top bar does not shift.** The button is hidden but keeps its space, so the
+  Preview / Code / More tabs stay in exactly the same place when you change view.
+  Measured: identical position in all three.
+- **It reads what is actually on screen.** There is a case where the app shows you
+  the preview even though a different tab was the last one picked (a site with no
+  database, last left on Data). The column asks what the screen is really showing
+  rather than what was last asked for, so it can never end up hidden next to a
+  preview.
+
+Nothing else about the panel changed — same phones, same switch, same drag.
+
+`public/` only, so there is no container rebuild and no waiting period after the
+push. Picture: `docs/edits/mobile-preview-only.png`, both states.
+
+---
+
 ## 2026-09-08 — The mobile app column, on the right, opens and closes
 
 You asked for a column down the right-hand side, said it was for the mobile app,

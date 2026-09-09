@@ -1697,6 +1697,25 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    containment it brings has nothing to compute against and changes no layout. */
 .st-mob { flex: 0 0 var(--mob-w, clamp(300px, 26vw, 420px)); container-type: inline-size; display: flex; flex-direction: column; gap: .5rem; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; padding: .7rem; }
 .st-ws:not(.st-mob-open) .st-mob { display: none; }
+/* AND THE WHOLE FEATURE IS THE PREVIEW'S (owner, 2026-09-09: "so i wanna to
+   tell to only show it in the preview"). It showed on Code and More too — a
+   phone frame beside a file tree, which is a column about nothing.
+   THREE CONTROLS GO TOGETHER, because a door to a room that is not there is the
+   dead control this app has now found five times in its own chrome: the column,
+   the edge tab that opens and resizes it, and the top bar's own toggle.
+   TWO MECHANISMS, AND THE SPLIT IS NOT COSMETIC. The panel and the tab take
+   `display: none` — they are in `.st-body` and giving their space back to the
+   pane is the whole point. The button takes `visibility`, which is the
+   `.st-tb-pv-off` rule's own reason a few lines up: the top bar's two side
+   groups split the width between them, so a button that LEFT the flow would
+   move the centred view tabs every time you changed view. `visibility: hidden`
+   also takes it out of the tab order and the accessibility tree, so the hidden
+   control cannot be reached by keyboard either.
+   `siteMobileOpen` and `--mob-w` are untouched by any of this, so a panel
+   dragged wide and left open is exactly that when you come back to Preview. */
+.st-ws:not(.st-pv) .st-mob { display: none; }
+.st-ws:not(.st-pv) .st-mob-tab { display: none; }
+.st-ws:not(.st-pv) .st-mob-btn { visibility: hidden; }
 /* THE TAB ON THE EDGE (owner, 2026-09-09: "it gotta show it like a hidden
    sidebar tho, not like a button opens it"). It is the tucked-away half of
    `.st-mob`, so it takes that panel's border, radius and ground rather than
