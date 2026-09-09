@@ -232,11 +232,19 @@ punch-hole, and stands a few pixels taller. That mattered more than it sounds: a
 switch whose two halves look identical is a dead control, and this project has
 now caught that six times in its own screens.
 
-**One choice for the whole screen, not one per card.** Press it on any card and
-every phone changes, and the workspace opens on the phone you last picked. The
-reasoning: no site has a mobile app yet, so there is nothing about *this* site
-that would make its phone different from the next one's. If you'd rather each
-card remembered its own, say — it's a small change.
+**Each card remembers its own phone — and I got that wrong first.** The version I
+showed you moved every phone on the screen at once, off one shared setting. My
+reasoning was that no site has a mobile app yet, so nothing about *this* site
+makes its phone different from the next one's. You looked at it and said *"MAKE
+SURE IT ONLY SWITCHED THE ONE I TAPPED, NBOT ALL OF THEM"*, which is right: you
+are comparing cards, and a preview you can't set per card isn't a comparison.
+
+Fixed, and driven in a real browser to be sure: six cards, press the second one's
+robot and only it changes, press the fourth's and the second stays put, press the
+second back to apple and the fourth stays on android.
+
+Worth saying why it cost an hour rather than a week — I flagged it as an open
+question when I showed you the work rather than quietly deciding it was settled.
 
 **It costs the card 9 pixels of height** (219 → 229), because the tile gains a
 row and the card grows to match it. The other placement I showed you — the switch
@@ -256,8 +264,15 @@ git, which showed the files untouched. Worth writing down because this project
 has a rule about exactly this — a check that flags correct code is worse than no
 check — and I broke it with my own thirty-second script.
 
-31 guard tests on this screen now, up from 24. 184 mutation tests across five
-sets, all 184 caught, nothing slipping through on the first pass.
+32 guard tests on this screen now, up from 24. 194 mutation tests across five
+sets, all 194 caught.
+
+**One of them found a hole in my own testing, and it is a neat one.** A test
+checks that a card with no name can't be stored. I was checking it with the phone
+that is *already the default* — so the code answers "nothing changed" whether the
+protection is there or not, and removing the protection changed nothing I could
+see. Checking with the other phone is the only way to see it. Fixed, and caught
+by the mutation run rather than by reading.
 
 **Not on the live site yet.** When it is: hard refresh, then look for two small
 marks under each phone.

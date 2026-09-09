@@ -1878,28 +1878,52 @@ corners and a punch-hole for the Android.
   whose halves look identical — the finding this repository has now made six
   times in its own chrome. The pill and the dot are sized to read at the
   smallest column count, which is the one most people look at.
-- **THE CHOICE IS ONE PREFERENCE, NOT FIFTY.** It reads and writes
-  `siteMobileOs`, so an account with fifty sites has ONE answer to "which phone
-  am I looking at", and the workspace opens on the phone a card was set to. A
-  per-card map would be per-card state with nothing per-card behind it — no site
-  has an app, which is the same argument that keeps the tile from taking a site.
-  **The tile takes the PHONE and never the site**, and that is guarded: it is
-  driven with real site shapes, every one of which the phone list refuses.
+- **EVERY CARD REMEMBERS ITS OWN PHONE — AND IT SHIPPED THE OTHER WAY FIRST**
+  (owner, an hour later, on a screenshot of the live screen: *"MAKE SURE IT ONLY
+  SWITCHED THE ONE I TAPPED , NBOT ALL OF THEM"*). The first cut read and wrote
+  `siteMobileOs`, the workspace panel's own variable, reasoning that one answer
+  to "which phone am I looking at" beat fifty and that a per-card map would be
+  per-card state with nothing behind it. **That was a real reading of the ask and
+  it was the wrong one**, and it was offered as an open question in the reply
+  rather than folded in silently, which is why it cost an hour rather than a
+  week. The two switches are separate now: this is what a customer is comparing
+  card by card on the start screen, and the panel's is which phone that panel is
+  showing. Nothing is shared between them but the two phones themselves.
+- **AND THE "IT TAKES NO SITE" RULE EXPIRED WITH IT.** The tile's own comment
+  said no site has a mobile app, so there is nothing per-site to say and a
+  parameter nothing reads is a guess written down as code. The switch gave every
+  card something per-site to say — WHICH PHONE THIS CARD IS PREVIEWING — so the
+  tile takes its card's ID. The recorded "a rule true because of a layer below it
+  expires when that layer moves", inside the comment that stated it. **The other
+  half stands and is what the guard now proves**: it takes the ID, never the
+  SITE, so nothing about the site's content can change what it draws — driven
+  with real site shapes, and with two cards on one phone required to draw the
+  same tile apart from the id they name.
+- **A `Map`, NOT AN OBJECT**, because the keys are site ids off the wire and
+  `({})["constructor"]` is a function — the recorded `X["constructor"]` trap, on
+  a lookup that decides what is drawn. Driven with that key.
+- **`closest('.st-app')` IS WHAT SCOPES THE REPAINT**, and the two
+  `querySelectorAll` calls after it are the TILE's rather than the document's.
+  That one word is the whole difference between the two behaviours, so the guard
+  drives THREE tiles and requires the untouched two to be byte-identical
+  afterwards — an `aria-pressed` written on a card nobody pressed fails it.
 - **IT REPAINTS RATHER THAN RE-RENDERS.** `renderSites()` rebuilds a grid in
   which every card carries an `<iframe>` of that site — 51 on the owner's
   account — so a switch that re-rendered would reload every thumbnail on the
   screen to change a corner radius. The attribute and the lit segment move by
   hand, the panel's own answer one screen over. **DRIVEN, not read**: the
   harness defines `renderSites` so a call would be SEEN.
-- **BOUND ON `.st-app-osbtn`, NOT `[data-sid]`**, because these controls name no
-  site — which is the same reason the database icon is bound the other way.
+- **BOUND ON `.st-app-osbtn`, NOT `[data-sid]`.** `data-sid` means "a control
+  that names a site" and is what the CARD's handler binds to, whose branches open
+  the live site and the Data view; these segments name their TILE (`data-app`)
+  instead, so they cannot be swept into a handler that opens a panel.
 - **THE PLACEMENT IS THE OWNER'S, AND IT COSTS 9px.** Under the phone (A) adds a
   row to the tile, so the card stretches **219.4 → 228.7**; inside the phone (B)
   cost nothing and was offered with that measurement beside it. A third, above
   the phone, was rendered and **dropped without being offered**: it pushes the
   phone down so its top no longer lines up with the card, which is the property
   the owner asked for when the phone went in.
-- **Guards**: `test/site-card-phone.test.mjs` 24 → **31** — every phone's segment
+- **Guards**: `test/site-card-phone.test.mjs` 24 → **32** — every phone's segment
   driven for its own mark, name, tooltip and lit state DERIVED from the product's
   list; a swapped pair of drawings caught by the one structural difference
   (the apple is one solid path, the robot a filled head plus stroked antennae),
@@ -1924,8 +1948,19 @@ corners and a punch-hole for the Android.
   token block, and a **byte-sized window** in `site-list.test.mjs` that the new
   handler outgrew — the recorded trap, in a guard that had one; it ends at the
   next binder now rather than at a byte count.
-- **Sweep: 35 mutants, 35 killed, none survived, none unapplied, two comment-only
-  controls survived — none survived the first pass.** Six never applied on the
+- **Sweep: 45 mutants, 45 killed, none survived, none unapplied, two comment-only
+  controls survived.** **ONE SURVIVED AND IT WAS A GUARD GAP OF THE PUREST
+  KIND**: the store's "a card with no id is never stored" wall, driven with the
+  DEFAULT phone — where `cardOs("") === os` is already true, so a store with the
+  wall REMOVED answers `false` for the same reason the wall does and the mutant
+  is invisible. Only the OTHER phone can see it. Driven with that now, plus
+  `undefined` for a tile with no attribute at all, and re-run to a kill.
+  **AND ONE MUTANT WAS RETIRED RATHER THAN RE-ANCHORED**, which is the honest
+  half: "only the pressed card's phone moves" was a defect for one afternoon and
+  is the feature now, so leaving it would be a mutant asserting the opposite of
+  the product. Its property lives INVERTED as the new S36 — the handler
+  repainting every phone on the screen, which is the state this replaced.
+  Six never applied on the
   first run and every one was an ambiguous or moved anchor: `const on =
   MOBILE_OSES.includes(…)` and `if (!setMobileOs(b.dataset.os))` each appear
   TWICE now — once in the tile, once in the panel — which is the recorded "a
@@ -1945,11 +1980,12 @@ corners and a punch-hole for the Android.
   ratio declared; both phones sharing a corner or a camera on a card, the
   corners as px, the card and the panel disagreeing which is rounder; and the
   lit segment losing its ground, its paint, or its focus ring.
-  **AND THE THREE EARLIER SWEEPS THAT TOUCH THESE LINES WERE RE-ANCHORED AND
-  RE-RUN WHOLE**: sixteen of their anchors had gone stale on the ratio's move
-  and the tile's new opening — "never applied" reads exactly like a kill in a
-  summary and proves nothing. **On this tree: switch 35/35, os 27/27, phone
-  69/69, column 30/30, drag 23/23 — 184 mutants, 184 killed, none survived, none
+  **AND THE EARLIER SWEEPS THAT TOUCH THESE LINES WERE RE-ANCHORED AND RE-RUN
+  WHOLE, TWICE** — once for the ratio's move into the token block and the tile's
+  new opening, and again when the tile grew its card id: twenty-four stale
+  anchors between them, and "never applied" reads exactly like a kill in a
+  summary and proves nothing. **On the final tree: switch 45/45, os 27/27, phone
+  69/69, column 30/30, drag 23/23 — 194 mutants, 194 killed, none survived, none
   unapplied.** Two of the phone sweep's were RE-AIMED rather than re-anchored:
   "the tile grew a parameter nothing reads" was a defect while it took none and
   is the design now, so both aim at a SITE parameter, which is the property that
@@ -8194,8 +8230,8 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,719
-  (2026-09-09, after an Apple/Android switch went under each card's phone — seven
+  build and the pre-list payload added sixteen); the unit suite is 5,720
+  (2026-09-09, after an Apple/Android switch went under each card's phone — eight
   more in `test/site-card-phone.test.mjs`: every phone's segment driven for its
   own mark, name and lit state DERIVED from the product's own list; a swapped
   pair of drawings caught by the one structural difference, since every other

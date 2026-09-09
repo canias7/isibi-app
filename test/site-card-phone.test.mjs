@@ -87,11 +87,14 @@ function loadAppTile() {
   assert.ok(mAt > 0 && mEnd > mAt, "the brand-mark table moved — re-anchor this");
   return new Function(
     line("const MOBILE_OSES = ") + "\n" + line("const MOBILE_LABELS = ") + "\n"
-    + chat.slice(mAt, mEnd + 3) + "\n" + cut("brandMark") + "\n" + cut("siteAppTile")
-    + "\nreturn { tile: siteAppTile, oses: MOBILE_OSES, labels: MOBILE_LABELS, mark: brandMark };")();
+    + chat.slice(mAt, mEnd + 3) + "\n" + cut("esc") + "\n" + cut("brandMark") + "\n"
+    + line("const siteCardOs = ") + "\n" + cut("cardOs") + "\n" + cut("setCardOs") + "\n"
+    + cut("siteAppTile")
+    + "\nreturn { tile: siteAppTile, oses: MOBILE_OSES, labels: MOBILE_LABELS, mark: brandMark,"
+    + " cardOs, setCardOs };")();
 }
-/** The tile alone, on the phone it opens on — what most cases below want. */
-function appTile() { const l = loadAppTile(); return (os) => l.tile(os === undefined ? l.oses[0] : os); }
+/** The tile for one card, on the phone it opens on — what most cases below want. */
+function appTile() { const l = loadAppTile(); return (os) => l.tile("s1", os === undefined ? l.oses[0] : os); }
 
 // ── THE TILE ITSELF ─────────────────────────────────────────────────────────
 
@@ -121,7 +124,7 @@ test("DRIVEN: the PHONE is inert, and the only controls are the switch's two", (
   // sentence is "we have not built this yet". The switch says neither: it
   // reshapes a drawing, and it really does it.
   const l = loadAppTile();
-  const html = l.tile(l.oses[0]);
+  const html = l.tile("s1", l.oses[0]);
   assert.ok(!/<a[ >]/.test(html), "the tile became a link");
   assert.ok(!/data-act=/.test(html), "the tile took a card action");
   assert.ok(!/data-sid=/.test(html), "the tile names a site — its controls are not the card's");
@@ -146,42 +149,77 @@ test("DRIVEN: the PHONE is inert, and the only controls are the switch's two", (
   assert.equal((html.match(/<span/g) || []).length, 2, "the tile's two lines are gone");
 });
 
-test("DRIVEN: the tile takes the PHONE and never a site", () => {
-  // RE-ANCHORED, NOT APPEASED. This required `siteAppTile.length === 0` on the
-  // reasoning that no site has a mobile app, so a parameter nothing reads is a
-  // guess written down as code. It takes one now — the phone — and that
-  // reasoning is untouched: what it must never take is a SITE.
+test("DRIVEN: the tile takes its card's ID and the phone, and no site CONTENT", () => {
+  // RE-ANCHORED 2026-09-09, and HALF OF IT INVERTED, not appeased. This required
+  // the tile to take no site at all, on the reasoning that no site has a mobile
+  // app so there is nothing per-site to say. The owner then asked for the switch
+  // to move only the card it was tapped on ("MAKE SURE IT ONLY SWITCHED THE ONE
+  // I TAPPED , NBOT ALL OF THEM") — which gave every card something per-site to
+  // say, so the tile has to know which card it is. The recorded "a rule true
+  // because of a layer below it expires when that layer moves".
   //
-  // Why it takes the phone rather than reading `siteMobileOs` off module scope
-  // is the same reason `siteMobilePanel` does: a free identifier resolves when
-  // the line RUNS, so a function that reads module scope cannot be driven in a
-  // bare scope at all — which is how four misses reached main in one session.
+  // THE OTHER HALF STANDS AND IS WHAT THIS NOW PROVES: it takes the ID, never
+  // the SITE. Nothing about the site's content — its name, its address, whether
+  // it has a database — may change what this tile draws, because none of that is
+  // about a mobile app.
   const l = loadAppTile();
-  assert.equal(l.tile.length, 1, "the tile takes " + l.tile.length + " things; it may take exactly the phone");
+  assert.equal(l.tile.length, 2,
+    "the tile takes " + l.tile.length + " things; it may take exactly the card and the phone");
 
-  // A SITE CHANGES NOTHING. Driven with real site shapes, because the failure
-  // this forbids is somebody quietly wiring one in: every one of them is refused
-  // by the phone list and falls back, so no site can reach the markup.
-  const base = l.tile(l.oses[0]);
-  for (const site of [{ id: "s1", backend: true, url: "https://x/" }, null, undefined, {}, "s1", ["ios"]]) {
-    assert.equal(l.tile(site), base, "the tile answered differently for something that is not a phone");
+  // TWO CARDS, SAME PHONE, SAME TILE apart from the id they name. Driven with
+  // real site shapes, because the failure this forbids is somebody quietly
+  // wiring a whole site in and drawing from it.
+  const a = l.tile("s1", l.oses[0]);
+  const b = l.tile("s2", l.oses[0]);
+  assert.equal(a.replace(/s1/g, "ID"), b.replace(/s2/g, "ID"),
+    "two cards on the same phone drew different tiles — something other than the id got in");
+  assert.ok(a.includes('data-app="s1"'), "the tile does not name its card, so a press cannot find it");
+
+  // A HOSTILE ID IS ESCAPED, since it lands in an attribute.
+  assert.ok(!l.tile('"><script>x</script>', l.oses[0]).includes("<script>"),
+    "a site id goes into the markup unescaped");
+
+  // THE PHONE IS REFUSED RATHER THAN COERCED: `String(["ios"])` is "ios", the
+  // recorded trap, on the value that decides what a customer is looking at.
+  const base = l.tile("s1", l.oses[0]);
+  for (const junk of [null, undefined, {}, "nope", ["ios"], 0]) {
+    assert.equal(l.tile("s1", junk), base, "something that is not a phone reached the markup");
   }
-  // AND THE COERCION IS REFUSED RATHER THAN RESOLVED: `String(["ios"])` is
-  // "ios", the recorded trap, on the value that decides what a customer is
-  // looking at. `MOBILE_OSES.includes` compares identity, so the array above is
-  // already covered — asserted here so a future `String(os)` fails.
-  assert.equal(l.tile(["ios"]), base, "an array coerced to a phone name");
 
   // EVERY PHONE THE PRODUCT HAS really draws, and they really differ — derived
   // from the list rather than naming the two, so a third phone is covered.
   const seen = new Set();
   for (const os of l.oses) {
-    const html = l.tile(os);
+    const html = l.tile("s1", os);
     assert.match(html, new RegExp('class="st-app-phone" data-os="' + os + '"'),
       "the phone is not told it is a " + os);
     seen.add(html);
   }
   assert.equal(seen.size, l.oses.length, "two phones drew the same tile — the switch changes nothing");
+});
+
+test("DRIVEN: each card's phone is remembered on its own, and defaults to the first", () => {
+  // THE STORE BEHIND "only the one I tapped". A `Map`, not an object: the keys
+  // are site ids off the wire and `({})["constructor"]` is a function — the
+  // recorded `X["constructor"]` trap, on a lookup that decides what is drawn.
+  const l = loadAppTile();
+  const [a, b] = l.oses;
+  assert.equal(l.cardOs("s1"), a, "a card nobody has touched does not open on the first phone");
+  assert.equal(l.cardOs("constructor"), a, "an inherited key answered as a stored phone");
+
+  assert.equal(l.setCardOs("s1", b), true, "storing a new phone did not report a change");
+  assert.equal(l.cardOs("s1"), b, "the card did not remember");
+  assert.equal(l.cardOs("s2"), a, "storing one card's phone moved another card's");
+
+  assert.equal(l.setCardOs("s1", b), false, "a second press of the phone already on reported a change");
+  assert.equal(l.setCardOs("s1", "nope"), false, "a phone that is not one of ours was stored");
+  // DRIVEN WITH THE NON-DEFAULT PHONE, and a sweep is why: with the other one
+  // `cardOs("") === os` is already true, so a store with its id wall REMOVED
+  // still answers false and the mutant survives. Only this input can see the wall.
+  assert.equal(l.setCardOs("", b), false, "a card with no id was stored");
+  assert.equal(l.cardOs(""), a, "an unnamed tile got an entry of its own");
+  assert.equal(l.setCardOs(undefined, b), false, "a tile with no id attribute at all was stored");
+  assert.equal(l.cardOs("s1"), b, "a refused write moved the card anyway");
 });
 
 // ── THE HOP EVERY OTHER GUARD MISSES ────────────────────────────────────────
@@ -202,8 +240,9 @@ test("the card markup actually draws it, exactly once", () => {
   // AND IT IS HANDED THE SHARED CHOICE, not a literal: a hardcoded phone would
   // draw every card on one and the switch would light but change nothing on the
   // next render.
-  assert.match(cell, /siteAppTile\(siteMobileOs\)/,
-    "the tile is not handed the phone the switch writes");
+  assert.match(cell, /siteAppTile\(s\.id, cardOs\(s\.id\)\)/,
+    "the tile is not handed its own card's id and that card's own remembered phone — "
+    + "a literal or a shared variable here is the switch moving every card at once");
 });
 
 test("the phone is BESIDE the card, not inside it — the correction, asserted", () => {
@@ -813,7 +852,7 @@ test("the card's phone ICON is gone, and its two acts are not", () => {
 test("DRIVEN: every phone gets its own segment, its own mark and its own name", () => {
   const l = loadAppTile();
   for (const os of l.oses) {
-    const html = l.tile(os);
+    const html = l.tile("s1", os);
     const segs = html.match(/<button[^>]*class="st-app-osbtn[^"]*"[^>]*>[\s\S]*?<\/button>/g) || [];
     assert.equal(segs.length, l.oses.length, "the switch does not draw one segment per phone");
 
@@ -851,7 +890,7 @@ test("DRIVEN: a swapped pair of drawings would pass every other check here", () 
   // this exact hole. The apple is a single solid path; the robot is a filled
   // head PLUS a stroked pair of antennae.
   const l = loadAppTile();
-  const html = l.tile(l.oses[0]);
+  const html = l.tile("s1", l.oses[0]);
   const seg = (v) => (html.match(/<button[^>]*data-os="[^"]*"[^>]*>[\s\S]*?<\/button>/g) || [])
     .find((s) => s.includes('data-os="' + v + '"'));
   const paths = (s) => (s.match(/<path/g) || []).length;
@@ -923,12 +962,20 @@ test("a lit segment LOOKS lit, and a dimming rule is not enough", () => {
 /**
  * The REAL switch handler, cut out of `renderSites` and driven against a fake
  * document — because `if (false)` leaves a call exactly where a source read
- * looks for it, and this repository has shipped a control that read as wired
- * and was not. `setMobileOs` is carried in whole: it is the product's own
- * writer, shared with the workspace panel, and stubbing it would make "the two
- * switches agree" untestable here.
+ * looks for it, and this repository has shipped a control that read as wired and
+ * was not.
+ *
+ * THE FAKE HAS REAL TILES, and that is the whole point of this harness now: each
+ * button knows its tile through `closest`, and each tile answers
+ * `querySelectorAll` with ITS OWN children. A fake where every lookup returned
+ * everything would pass a handler that repaints the whole screen, which is the
+ * defect the owner found — so the scoping has to be observable here.
+ *
+ * `setCardOs` and `cardOs` are carried in whole rather than stubbed: they are the
+ * product's own store, and a stub would make "one card's press leaves the others
+ * alone" a statement about the harness.
  */
-function driveSwitch(start, tiles = 3) {
+function driveSwitch(tiles = 3) {
   const chat = read("../public/chat.js");
   const bare = blankComments(chat);
   const at = bare.indexOf("  view.querySelectorAll('.st-app-osbtn')");
@@ -936,118 +983,131 @@ function driveSwitch(start, tiles = 3) {
   const to = bare.indexOf("\n  });", at);
   assert.ok(to > at, "the switch handler has no end — re-anchor this");
   const sw = bare.slice(at, to) + "\n  });";
-  const setAt = chat.indexOf("function setMobileOs(os) {");
-  assert.ok(setAt > 0, "setMobileOs is gone");
 
-  const oses = loadAppTile().oses;
-  const btns = [], phones = [];
+  const l = loadAppTile();
+  const oses = l.oses;
+  const all = [];
+  const made = [];
   for (let i = 0; i < tiles; i++) {
-    phones.push({ dataset: { os: start } });
-    for (const os of oses) {
-      const b = { dataset: { os }, cls: new Set(os === start ? ["on"] : []), attrs: {}, onclick: null };
+    const id = "s" + i;
+    const phone = { dataset: { os: oses[0] } };
+    const btns = oses.map((os) => {
+      const b = { dataset: { os }, cls: new Set(os === oses[0] ? ["on"] : []), attrs: {}, onclick: null };
       b.classList = { toggle: (c, on) => (on ? b.cls.add(c) : b.cls.delete(c)) };
       b.setAttribute = (k, v) => { b.attrs[k] = v; };
-      btns.push(b);
-    }
+      return b;
+    });
+    const tile = {
+      dataset: { app: id },
+      querySelector: (q) => (q === ".st-app-phone" ? phone : null),
+      querySelectorAll: (q) => (q === ".st-app-osbtn" ? btns : []),
+    };
+    for (const b of btns) b.closest = (q) => (q === ".st-app" ? tile : null);
+    made.push({ id, phone, btns });
+    all.push(...btns);
   }
-  const view = {
-    querySelectorAll: (s) => (s === ".st-app-osbtn" ? btns : s === ".st-app-phone" ? phones : []),
-  };
   // A RE-RENDER IS OBSERVED, not forbidden by reading: `renderSites` is defined
-  // here so that if the handler calls it we SEE the call, rather than trusting a
-  // scan that `if (false)` would satisfy.
+  // here so that if the handler calls it we SEE the call.
   let rendered = false;
-  const out = new Function("view", "onRender", [
+  const view = { querySelectorAll: (q) => (q === ".st-app-osbtn" ? all : []) };
+  const setAt = chat.indexOf("function setCardOs(id, os) {");
+  const cardAt = chat.indexOf("function cardOs(id) {");
+  assert.ok(setAt > 0 && cardAt > 0, "the per-card store is gone — re-anchor this");
+  new Function("view", "onRender", [
     chat.match(/^const MOBILE_OSES = \[[^\]]+\];$/m)[0],
-    "let siteMobileOs = " + JSON.stringify(start) + ";",
+    chat.match(/^const siteCardOs = .*$/m)[0],
+    chat.slice(cardAt, chat.indexOf("\n}", cardAt)) + "\n}",
     chat.slice(setAt, chat.indexOf("\n}", setAt)) + "\n}",
     "function renderSites() { onRender(); }",
     sw,
-    "return { os: () => siteMobileOs };",
+    "return 0;",
   ].join("\n"))(view, () => { rendered = true; });
   return {
-    press: (os, tile = 0) => btns[tile * oses.length + oses.indexOf(os)].onclick({ stopPropagation() {} }),
-    state: () => ({
-      os: out.os(),
-      phones: phones.map((p) => p.dataset.os),
-      lit: btns.filter((b) => b.cls.has("on")).map((b) => b.dataset.os),
-      pressed: btns.map((b) => b.attrs["aria-pressed"]),
-      rendered,
-    }),
     oses,
+    press: (tile, os, ev) => made[tile].btns[oses.indexOf(os)].onclick(ev || { stopPropagation() {} }),
+    state: () => made.map((t) => ({
+      phone: t.phone.dataset.os,
+      lit: t.btns.filter((b) => b.cls.has("on")).map((b) => b.dataset.os),
+      pressed: t.btns.map((b) => b.attrs["aria-pressed"]),
+    })),
+    rendered: () => rendered,
   };
 }
 
-test("DRIVEN: pressing a segment reshapes EVERY tile, and re-renders nothing", () => {
-  const d = driveSwitch("ios");
+test("DRIVEN: a press moves ONLY the card it was tapped on", () => {
+  // THE OWNER'S CORRECTION, and the case that exists because of it: "MAKE SURE IT
+  // ONLY SWITCHED THE ONE I TAPPED , NBOT ALL OF THEM". This shipped for one
+  // afternoon reading and writing the workspace panel's `siteMobileOs`, so a
+  // press on any card moved every phone on the screen. This case is that
+  // behaviour, inverted.
+  const d = driveSwitch(3);
   const [a, b] = d.oses;
-  assert.deepEqual(d.state().phones, [a, a, a], "the harness did not start with three tiles on " + a);
+  assert.deepEqual(d.state().map((t) => t.phone), [a, a, a], "the harness did not start with three tiles on " + a);
 
-  d.press(b);
-  const s = d.state();
-  assert.equal(s.os, b, "the shared choice did not move");
-  assert.deepEqual(s.phones, [b, b, b],
-    "pressing one card's switch left the other cards on the old phone — the choice is one preference");
-  assert.deepEqual(s.lit, [b, b, b], "the lit segment did not follow on every tile");
-  assert.deepEqual(s.pressed, ["false", "true", "false", "true", "false", "true"],
-    "aria-pressed did not follow the lit class");
+  d.press(1, b);
+  const s1 = d.state();
+  assert.deepEqual(s1.map((t) => t.phone), [a, b, a],
+    "pressing the middle card moved the others — this is the defect the owner found");
+  assert.deepEqual(s1.map((t) => t.lit), [[a], [b], [a]], "the lit segment moved on a card nobody pressed");
+  assert.deepEqual(s1[1].pressed, ["false", "true"], "aria-pressed did not follow the lit class");
+  assert.deepEqual(s1[0].pressed, [undefined, undefined],
+    "an untouched card's segments were rewritten — the repaint is not scoped to the tile");
 
-  // THE PROPERTY THE WHOLE HANDLER IS SHAPED BY: `renderSites()` rebuilds a grid
-  // in which every card carries an <iframe> of that site — fifty-one on the
-  // owner's account — so a switch that re-rendered would reload every thumbnail
-  // on the screen to change a corner radius.
-  assert.equal(s.rendered, false, "the switch re-rendered the whole grid");
+  // THE OTHER CARDS STAY MOVABLE ON THEIR OWN, so the scoping is not an accident
+  // of nothing else being reachable.
+  d.press(2, b);
+  assert.deepEqual(d.state().map((t) => t.phone), [a, b, b], "a second card could not be moved");
+  d.press(1, a);
+  assert.deepEqual(d.state().map((t) => t.phone), [a, a, b], "a card could not be moved back on its own");
 
-  // Pressing the one already on changes nothing, rather than repainting.
-  d.press(b);
-  assert.deepEqual(d.state().phones, [b, b, b], "a second press moved something");
+  // A SECOND PRESS OF THE ONE ALREADY ON is a no-op, not a repaint.
+  d.press(1, a);
+  assert.deepEqual(d.state().map((t) => t.phone), [a, a, b], "a second press changed something");
 
-  d.press(a, 2);
-  assert.deepEqual(d.state().phones, [a, a, a], "the third card's switch does not move the others");
+  // AND NOTHING RE-RENDERS. `renderSites()` rebuilds a grid in which every card
+  // carries an <iframe> of that site — 51 on the owner's account — so a switch
+  // that re-rendered would reload every thumbnail to change a corner radius.
+  assert.equal(d.rendered(), false, "the switch re-rendered the whole grid");
 });
 
 test("DRIVEN: a segment click is not also a click on the card behind it", () => {
   // The card is a `role="button"` that opens the workspace, and the switch sits
-  // inside the pair beside it. Without this the press would light the segment
-  // AND open the site.
-  // DRIVEN, not read: the handler is handed an event that RECORDS whether it was
+  // inside the pair beside it. DRIVEN with an event that RECORDS whether it was
   // stopped, so `if (false) e.stopPropagation()` fails here where a source scan
   // would pass — the recorded trap, and the reason this is a case of its own.
-  const chat = blankComments(read("../public/chat.js"));
-  const at = chat.indexOf("  view.querySelectorAll('.st-app-osbtn')");
-  assert.ok(at > 0, "the switch is never wired — re-anchor this");
-  const sw = chat.slice(at, chat.indexOf("\n  });", at)) + "\n  });";
-  const setAt = read("../public/chat.js").indexOf("function setMobileOs(os) {");
-  const raw = read("../public/chat.js");
-  const oses = loadAppTile().oses;
-  const btn = { dataset: { os: oses[1] }, cls: new Set(), onclick: null };
-  btn.classList = { toggle() {} };
-  btn.setAttribute = () => {};
-  const view = { querySelectorAll: (s) => (s === ".st-app-osbtn" ? [btn] : []) };
-  new Function("view", [
-    raw.match(/^const MOBILE_OSES = \[[^\]]+\];$/m)[0],
-    "let siteMobileOs = " + JSON.stringify(oses[0]) + ";",
-    raw.slice(setAt, raw.indexOf("\n}", setAt)) + "\n}",
-    "function renderSites() {}",
-    sw,
-    "return 0;",
-  ].join("\n"))(view);
+  const d = driveSwitch(1);
   let stopped = false;
-  btn.onclick({ stopPropagation() { stopped = true; } });
+  d.press(0, d.oses[1], { stopPropagation() { stopped = true; } });
   assert.equal(stopped, true, "a press on the switch also opens the site behind it");
 });
 
-test("the choice has ONE writer, and it is the workspace panel's own", () => {
-  // The point of the change: one answer to "which phone am I looking at" for the
-  // whole app. Two writers would let the card and the panel drift apart, which
-  // is the same fact stored twice.
+test("the card's phone has ONE writer, and it is not the workspace panel's", () => {
+  // RE-ANCHORED 2026-09-09, NOT APPEASED, and the property INVERTED with the
+  // owner's correction. This required the card to write `siteMobileOs`, the
+  // panel's own variable, on the reasoning that one answer to "which phone am I
+  // looking at" beat fifty. The owner asked for fifty ("only the one I tapped"),
+  // so the two are separate now — and what must still be true is that each has
+  // exactly ONE writer, or a card and its own repaint can disagree.
   const c = blankComments(read("../public/chat.js"));
-  const writes = [...c.matchAll(/^.*\bsiteMobileOs\s*=(?!=)/gm)].map((m) => m[0].trim());
-  assert.deepEqual(writes.map((w) => (/^let /.test(w) ? "decl" : "set")), ["decl", "set"],
-    "expected the declaration and `setMobileOs` to be the only writers, found: " + JSON.stringify(writes));
-  // And the card's switch really goes through it rather than assigning its own.
+  const writes = [...c.matchAll(/^.*\bsiteCardOs\b.*$/gm)].map((m) => m[0].trim());
+  const setters = writes.filter((w) => /siteCardOs\.set\(/.test(w));
+  assert.equal(setters.length, 1,
+    "expected `setCardOs` to be the only thing that stores a card's phone, found: " + JSON.stringify(setters));
+  assert.match(c, /^const siteCardOs = new Map\(\);$/m,
+    "the per-card store is not a Map — an object would let an inherited key answer as a stored phone");
+
+  // AND THE CARD'S SWITCH GOES THROUGH IT rather than assigning its own.
   const at = c.indexOf("  view.querySelectorAll('.st-app-osbtn')");
   const body = c.slice(at, c.indexOf("\n  });", at));
-  assert.match(body, /setMobileOs\(b\.dataset\.os\)/, "the card's switch does not use the shared writer");
-  assert.match(body, /if \(!setMobileOs\(/, "it repaints even when nothing changed");
+  assert.match(body, /setCardOs\(tile\.dataset\.app, b\.dataset\.os\)/,
+    "the card's switch does not store the phone against the card it was pressed on");
+  assert.match(body, /if \(!tile \|\| !setCardOs\(/, "it repaints even when nothing changed, or with no tile");
+  // THE SCOPING, read where it is decided: the repaint must reach the TILE and
+  // never the document, or every card moves again.
+  assert.match(body, /b\.closest\('\.st-app'\)/, "the handler does not find the tile it was pressed in");
+  assert.ok(!/view\.querySelectorAll\('\.st-app-phone'\)/.test(body),
+    "the handler repaints every phone on the screen — the defect the owner found");
+  // AND THE PANEL'S OWN CHOICE IS NOT TOUCHED, so the two switches stay separate.
+  assert.ok(!/siteMobileOs/.test(body),
+    "the card's switch writes the workspace panel's phone — they are two different questions now");
 });

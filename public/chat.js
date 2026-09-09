@@ -10519,17 +10519,27 @@ function cardActs(s) {
 // can, and dropping the button hands the name back the width it was taking:
 // `hartleys-barbers` stops ellipsising to `hartleys-barb…`.
 //
-// IT TAKES NO SITE, DELIBERATELY. No site has a mobile app, so there is nothing
-// per-site to say, and a parameter nothing reads is a guess written down as
-// code. When the app is real this takes the site and draws its preview where the
-// empty screen is, the way `.st-card-prev` draws the site's.
+// IT TAKES THE CARD'S ID AND THE PHONE — AND THE FIRST OF THOSE IS A RULE THAT
+// EXPIRED (owner, 2026-09-09: "MAKE SURE IT ONLY SWITCHED THE ONE I TAPPED ,
+// NBOT ALL OF THEM").
 //
-// IT TAKES THE PHONE, THOUGH (owner, 2026-09-09: "where the phone thing is , I
-// want like a switch to swtitch from apple to andorid , just as a perview
-// thing"). Same reason `siteMobilePanel` takes one rather than reading the
-// module variable: a free identifier resolves when the line RUNS, so a function
-// that reads module scope cannot be evaluated and driven in a bare scope — the
-// trap that put four misses on main in one session.
+// This said "IT TAKES NO SITE, DELIBERATELY", on the reasoning that no site has
+// a mobile app, so there is nothing per-site to say and a parameter nothing
+// reads is a guess written down as code. That reasoning was true and it is
+// spent: the switch gave every card something per-site to say — WHICH PHONE THIS
+// CARD IS PREVIEWING — so the tile has to know which card it is. The recorded "a
+// rule true because of a layer below it expires when that layer moves", inside
+// the comment that stated it.
+//
+// It takes the ID rather than the SITE, and that half of the old rule stands:
+// nothing about the site's content — its name, its address, whether it has a
+// database — may change what this tile draws, because none of it is about a
+// mobile app. Driven with real site shapes that must all draw the same tile.
+//
+// AND IT TAKES THE PHONE rather than reading module scope, for `siteMobilePanel`'s
+// own reason: a free identifier resolves when the line RUNS, so a function that
+// reads module scope cannot be evaluated and driven in a bare scope — the trap
+// that put four misses on main in one session.
 //
 // THE TILE IS STILL INERT and still a `div`; the switch is the only control on
 // it. A disabled button says "this works and we would rather you did not"; the
@@ -10538,13 +10548,37 @@ function cardActs(s) {
 // `closest('button')` guard to think about, and the segments are real buttons
 // because they really do something.
 //
-// THE CHOICE IS ONE PREFERENCE, NOT FIFTY. It reads and writes `siteMobileOs`,
-// the same variable the workspace panel's own switch uses, so an account with
-// fifty sites has one answer to "which phone am I looking at" rather than fifty
-// — and flipping it on a card is the phone the workspace opens on. A per-card
-// map would be per-card state with nothing per-card behind it: no site has an
-// app, which is the same argument that keeps the tile from taking a site.
-function siteAppTile(os) {
+// EVERY CARD REMEMBERS ITS OWN PHONE (owner, 2026-09-09: "MAKE SURE IT ONLY
+// SWITCHED THE ONE I TAPPED , NBOT ALL OF THEM").
+//
+// It shipped for one afternoon reading and writing `siteMobileOs`, the workspace
+// panel's own variable, so a press on any card moved every phone on the screen.
+// That was a real reading of the ask and it was the wrong one; the owner saw it
+// and said so. The two are separate now: this is what a customer is comparing on
+// the START SCREEN, card by card, and the panel's is which phone that panel is
+// showing. Nothing is shared between them but the two phones themselves.
+//
+// A `Map`, NOT AN OBJECT, and that is the recorded `X["constructor"]` trap: the
+// keys here are site ids, `siteCreate` mints them but a server-listed site's id
+// is whatever came back over the wire, and `({})["constructor"]` is a function.
+// A Map has no prototype to fall through to.
+const siteCardOs = new Map();
+/** This card's phone, or the one every card opens on. */
+function cardOs(id) {
+  const v = siteCardOs.get(id);
+  return MOBILE_OSES.includes(v) ? v : MOBILE_OSES[0];
+}
+/**
+ * Remember one card's phone. Answers whether anything CHANGED, so the caller can
+ * skip a repaint on a second press of the segment already on — `setMobileOs`'s
+ * own shape, one screen over.
+ */
+function setCardOs(id, os) {
+  if (!id || !MOBILE_OSES.includes(os) || cardOs(id) === os) return false;
+  siteCardOs.set(id, os);
+  return true;
+}
+function siteAppTile(id, os) {
   const on = MOBILE_OSES.includes(os) ? os : MOBILE_OSES[0];
   // THE MARK ALONE, no word, and that is a measurement rather than a taste. The
   // tile is 74.5px wide at three across (measured; 110.5 at two, 138.8 at one),
@@ -10557,7 +10591,12 @@ function siteAppTile(os) {
     '<button type="button" class="st-app-osbtn' + (on === v ? ' on' : '') + '" data-os="' + v + '"' +
       ' title="' + MOBILE_LABELS[v] + '" aria-label="Preview as ' + MOBILE_LABELS[v] + '"' +
       ' aria-pressed="' + (on === v ? 'true' : 'false') + '">' + brandMark(v, 13) + '</button>';
-  return '<div class="st-app">' +
+  // THE TILE NAMES ITS CARD, which is what lets the handler repaint THIS one and
+  // leave the other fifty alone. `data-app` rather than `data-sid`: `data-sid`
+  // means "a control that names a site" and is what the CARD's own handler binds
+  // to, and these segments are not card actions — a shared attribute would put
+  // them through a handler that opens the Data view.
+  return '<div class="st-app" data-app="' + esc(id) + '">' +
     '<div class="st-app-phone" data-os="' + on + '"></div>' +
     '<div class="st-app-os" role="group" aria-label="Which phone">' +
       MOBILE_OSES.map(seg).join('') + '</div>' +
@@ -10629,7 +10668,7 @@ function renderSites() {
                 '</div>' +
                 '<button type="button" class="sch-del st-card-del" data-del="' + esc(s.id) + '" title="Delete" aria-label="Delete site">×</button>' +
               '</div>' +
-              siteAppTile(siteMobileOs) +
+              siteAppTile(s.id, cardOs(s.id)) +
             '</div>').join('') + '</div>'
         : '');
   const gen = document.getElementById('stGen');
@@ -10714,16 +10753,24 @@ function renderSites() {
   // radius. Moving the attribute and the lit segment by hand is the workspace
   // panel's own answer one screen over, for the same reason.
   //
-  // BOUND ON `.st-app-osbtn`, NOT `[data-sid]`: these controls name no site,
-  // because the choice is one preference for the whole screen. That is also why
-  // the loop below touches EVERY tile — a press on one card is a press on all
-  // of them, which is the honest reading of one shared variable.
+  // AND IT REPAINTS THE PRESSED TILE ALONE (owner, 2026-09-09: "MAKE SURE IT
+  // ONLY SWITCHED THE ONE I TAPPED , NBOT ALL OF THEM"). The first cut moved
+  // every phone on the screen, off one shared variable. `closest('.st-app')` is
+  // what scopes it — the tile, never the document — so the two `querySelectorAll`
+  // calls below are the TILE's and reach nothing outside it.
+  //
+  // BOUND ON `.st-app-osbtn`, NOT `[data-sid]`: `data-sid` means "a control that
+  // names a site" and is what the CARD's handler binds to, whose branches open
+  // the live site and the Data view. These segments name their TILE instead.
   view.querySelectorAll('.st-app-osbtn').forEach((b) => b.onclick = (e) => {
     e.stopPropagation();
-    if (!setMobileOs(b.dataset.os)) return;        // already on it, or not a phone
-    view.querySelectorAll('.st-app-phone').forEach((p) => { p.dataset.os = siteMobileOs; });
-    view.querySelectorAll('.st-app-osbtn').forEach((o) => {
-      const on = o.dataset.os === siteMobileOs;
+    const tile = b.closest('.st-app');
+    if (!tile || !setCardOs(tile.dataset.app, b.dataset.os)) return;  // no tile, not a phone, or already on it
+    const os = cardOs(tile.dataset.app);
+    const phone = tile.querySelector('.st-app-phone');
+    if (phone) phone.dataset.os = os;
+    tile.querySelectorAll('.st-app-osbtn').forEach((o) => {
+      const on = o.dataset.os === os;
       o.classList.toggle('on', on);
       o.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
