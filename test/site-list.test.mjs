@@ -415,8 +415,15 @@ function loadCardFn(name) {
   assert.ok(iAt > 0, "the icon table is gone");
   const iEnd = chat.indexOf("\n};", iAt);
   assert.ok(iEnd > iAt, "the icon table has no end");
+  // `wireLive` joined the closure when the live wire shipped (2026-09-09), and
+  // this loader went red with `wireLive is not defined` for a `siteDbIcon` that
+  // is perfectly correct — the recorded free-identifier trap, in the loader
+  // whose own comment above predicts it. Carried out of the FILE like every
+  // other name here and never stubbed: a stub answering `{site:false}` would
+  // leave the database-less case passing for the wrong reason.
   return new Function(chat.slice(iAt, iEnd + 3) + "\n" + cut("esc") + "\n" + cut("ic")
-    + "\n" + line("const SITE_X =") + "\n" + line("const DB_X =") + "\n" + cut("siteWires")
+    + "\n" + line("const SITE_X =") + "\n" + line("const DB_X =")
+    + "\n" + cut("wireLive") + "\n" + cut("siteWires")
     + "\n" + cut(name) + "\nreturn " + name + ";")();
 }
 const loadCardActs = () => loadCardFn("cardActs");

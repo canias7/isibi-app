@@ -10482,20 +10482,44 @@ const DB_X = +(((SITE_X + APP_X) / 2).toFixed(2));
 // that stretch from smearing the line: without it the horizontal squash would
 // make these wires thicker than the glyph they leave from. Decoration, so
 // `aria-hidden` and unfocusable — the button beside them is the control.
-function siteWires() {
+// AND A LIVE WIRE IS GREEN (owner, 2026-09-09: "IF THE PROJECT HAS A DATABASE,
+// THE WIRE TURNS GREEN TO THE SITE BOX OR THE MOBILE APP ONE, DEPENDING ON
+// WHICH ONE IS IT"). Four treatments were rendered — the wire alone, the wire
+// and the glyph, the idle wire stepped back, and a node at the landing — and
+// the owner picked the first, then the loudest of five greens.
+// WHICH WIRE, AND WHY THE APP'S IS ANSWERED AT ALL. A site's Neon database is
+// the SITE'S: it is reached through that site's own data API and nothing else
+// can hold one, so `site` is the database's state and `app` is false for every
+// site on the platform. It is ANSWERED rather than left out of the drawing,
+// because the day a mobile app can own a database the second half is a value
+// somebody has to remember to forward — and a value computed and never
+// forwarded is the trap this repository has shipped a dozen features on. The
+// guard pins `app` at false over every shape, so it turns true deliberately.
+function wireLive(hasDb) {
+  return { site: !!hasDb, app: false };
+}
+function siteWires(live) {
   const c = (x) => 'M' + DB_X + ' 1 C' + DB_X + ' 21 ' + x + ' 15 ' + x + ' 35';
+  const on = (k) => (live && live[k]) ? ' class="live"' : '';
   return '<svg class="st-wires" viewBox="0 0 100 36" preserveAspectRatio="none"' +
     ' aria-hidden="true" focusable="false">' +
-    '<path d="' + c(SITE_X) + '"/><path d="' + c(APP_X) + '"/></svg>';
+    '<path' + on('site') + ' d="' + c(SITE_X) + '"/>' +
+    '<path' + on('app') + ' d="' + c(APP_X) + '"/></svg>';
 }
 function siteDbIcon(s) {
+  // ONE EXPRESSION FOR THE CONTROL AND THE WIRE. The button is live when the
+  // Data view is reachable, and the wire says the database is wired to the
+  // site — the same fact, so they are read from the same `hasDb` rather than
+  // each asking its own way. Two tests here would disagree on one card the
+  // first time either moved, and the disagreement is drawn: a dark glyph with
+  // a green wire under it, or the reverse.
   const hasDb = !!(s.react && s.backend);
   return '<div class="st-dbwrap">' +
     '<button type="button" class="st-db" data-act="data" data-sid="' + esc(s.id) + '"' +
     (hasDb ? '' : ' disabled') +
     ' title="' + (hasDb ? 'Data' : 'No database yet — ask for one in the chat') + '"' +
     ' aria-label="' + (hasDb ? 'Open this site’s data' : 'This site has no database yet') + '">' +
-    ic('database', 17) + '</button>' + siteWires() + '</div>';
+    ic('database', 17) + '</button>' + siteWires(wireLive(hasDb)) + '</div>';
 }
 function cardActs(s) {
   const id = esc(s.id);

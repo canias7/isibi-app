@@ -155,6 +155,54 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-09 — The wire goes green when the project has a database
+
+You asked for it: *"if the project has a database, the wire turns green to the
+site box or the mobile app one, depending on which one is it."* I drew four ways
+of doing it, you picked **A** — just the wire, nothing else changes — then asked
+for a livelier green, and picked **G4** out of five.
+
+Done. On the start screen, a card whose project has a database now has a green
+wire running from the database down to the site. A card with no database has the
+same two dark wires it always had — nothing changed on those at all, which is
+most of them, because a first build doesn't make a database.
+
+**The app's wire can't go green yet, and that's not a bug.** A database belongs
+to the SITE — it's reached through that site's own address — and no project on
+the platform has a mobile app at all. So the site's wire is the live one and the
+app's is always dark. I did write the app half into the code rather than leaving
+it out, so that the day a mobile app can own a database it's one word to switch
+on instead of something a future session has to go and find.
+
+**About the green you picked.** It's the most vivid of the five and also the
+faintest line on the page — that's not a contradiction, it's how colour works on
+our cream paper: the brighter a green gets, the less it stands out against the
+background. Measured, the dark wire beside it scores 11.1 for contrast and this
+green scores 1.95. You saw all five with that number under each and chose this
+one, so it's shipped as chosen. If it ever looks too washed out on your screen,
+it's one line to darken — say the word and it's a two-minute change.
+
+**Worth telling you because it nearly misled us both:** my first set of contrast
+numbers was upside down. The tool was measuring each green against black instead
+of against the cream, so it told me the brightest green was the *most* readable,
+which is the exact opposite of the truth. I caught it, fixed the tool, and the
+numbers above are from the corrected one. A measuring tool that's wrong in a
+believable direction is worse than not measuring at all.
+
+**Checks**: two new guards, both driven rather than read; proved they fail on
+four different ways of breaking this before proving they pass; 18 deliberate
+sabotages of the new code, all 18 caught; the older sweep for this screen re-run
+whole after four of its markers went stale on lines I moved (69 more, all
+caught). Whole test suite green at 5,722.
+
+**Not seen live yet.** This is browser-only, so nothing rebuilds and there's no
+wait. One look at your start screen proves it: green wire on the sites with a
+database, dark on the rest. **Hard-refresh first** — `chat.js` is cached, so the
+first load after a push can still be the old file. Renders:
+`docs/edits/site-cards-live-wire.png` and `-2across.png`.
+
+---
+
 ## 2026-09-09 — The phone button is off the top bar; the tab does it all
 
 You said *"OPK YOU CAN DELETE THIS BUTTON SINCE WE HAVE THE DRAG THING."* Done —

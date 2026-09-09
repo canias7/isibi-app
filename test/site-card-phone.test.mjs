@@ -554,8 +554,8 @@ function loadDb() {
   assert.ok(iAt > 0 && iEnd > iAt, "the icon table moved — re-anchor this");
   return new Function(chat.slice(iAt, iEnd + 3) + "\n" + cut("esc") + "\n" + cut("ic")
     + "\n" + line("const SITE_X =") + "\n" + line("const DB_X =")
-    + "\n" + cut("siteWires") + "\n" + cut("siteDbIcon")
-    + "\nreturn { db: siteDbIcon, wires: siteWires, SITE_X, APP_X, DB_X };")();
+    + "\n" + cut("wireLive") + "\n" + cut("siteWires") + "\n" + cut("siteDbIcon")
+    + "\nreturn { db: siteDbIcon, wires: siteWires, wireLive, SITE_X, APP_X, DB_X };")();
 }
 function loadDbIcon() { return loadDb().db; }
 
@@ -678,13 +678,102 @@ test("DRIVEN: two wires, one to the site and one to the app, from the icon's own
   // THE CALL SITE, COUNTED. Cutting it leaves `siteWires` perfect and every
   // assertion above green, with no wire on any card — the wiring trap, which
   // this same screen has already shipped once with `cardActs`.
-  assert.ok(db({ id: "s1", react: true, backend: true }).includes(svg),
+  // RE-ANCHORED for the green wire: the icon draws `siteWires(wireLive(hasDb))`
+  // now, so its output for a database-less site is what `wires()` answers and
+  // this reads that site rather than a live one. The property is unchanged —
+  // the icon really draws the wires — and the live half is driven in its own
+  // case below, where the marker it adds is the subject.
+  assert.ok(db({ id: "s2", react: true, backend: false }).includes(svg),
     "the icon does not draw the wires");
-  // The declaration matches a bare `siteWires()` too, so it is excluded by name
-  // — counting it would let the one real call be deleted and still read as 1.
+  // The declaration matches the call too, so it is excluded by name — counting
+  // it would let the one real call be deleted and still read as 1. It takes an
+  // argument now, so the shape is `siteWires(`, not `siteWires()`.
   const chat = blankComments(read("../public/chat.js"));
-  assert.equal((chat.match(/(?<!function )siteWires\(\)/g) || []).length, 1,
+  assert.equal((chat.match(/(?<!function )siteWires\(/g) || []).length, 1,
     "siteWires is called somewhere other than the icon, or nowhere at all");
+});
+
+test("DRIVEN: the wire to the site is green exactly when the database is", () => {
+  // Owner, 2026-09-09: "IF THE PROJECT HAS A DATABASE, THE WIRE TURNS GREEN TO
+  // THE SITE BOX OR THE MOBILE APP ONE, DEPENDING ON WHICH ONE IS IT" — four
+  // treatments rendered, "A", then "G4" of five greens.
+  const { wires, db, wireLive, SITE_X, APP_X } = loadDb();
+  const marked = (svg) => [...svg.matchAll(/<path([^>]*?) d="([^"]+)"/g)]
+    .map((m) => ({ live: /class="live"/.test(m[1]), to: m[2].slice(m[2].lastIndexOf(" C") + 2) }));
+
+  // THE RULE, DRIVEN OVER EVERY SHAPE. `site` follows the database; `app` is
+  // false for all of them, because nothing on this platform can own a mobile
+  // app — and it is asserted rather than assumed so that turning it on is a
+  // change somebody makes on purpose.
+  for (const v of [true, 1, "yes", {}]) {
+    assert.deepEqual(wireLive(v), { site: true, app: false }, "a database does not light the site wire");
+  }
+  for (const v of [false, 0, "", null, undefined, NaN]) {
+    assert.deepEqual(wireLive(v), { site: false, app: false }, "no database still lights the site wire");
+  }
+
+  // AND THE MARKER LANDS ON THE RIGHT PATH. A guard that only counted markers
+  // would pass with the two swapped, which is the claim nothing can back: an
+  // app wire green on a site with no app.
+  const on = marked(wires({ site: true, app: false }));
+  assert.equal(on.filter((p) => p.live).length, 1, "a live database marks " + on.filter((p) => p.live).length + " wires");
+  assert.ok(on.find((p) => p.live).to.endsWith(SITE_X + " 35"), "the green wire does not land on the site");
+  assert.ok(!on.find((p) => p.to.endsWith(APP_X + " 35")).live, "the app's wire is green");
+
+  // AN IDLE PAIR IS UNMARKED, so a site with no database draws exactly what it
+  // drew before this existed — the base rule paints it, and nothing else.
+  assert.ok(!marked(wires({ site: false, app: false })).some((p) => p.live), "an idle wire is marked live");
+  assert.ok(!marked(wires()).some((p) => p.live), "a wire with nothing to say defaults to live");
+
+  // ONE EXPRESSION FOR THE CONTROL AND THE WIRE. The button's live state and
+  // the wire's are the same fact, so they are read from one `hasDb` — two tests
+  // would disagree on a card the first time either moved, and the disagreement
+  // is drawn: a dark glyph over a green wire, or the reverse.
+  for (const [site, want] of [
+    [{ id: "a", react: true, backend: true }, true],
+    [{ id: "b", react: true, backend: false }, false],
+    [{ id: "c", react: false, backend: true }, false],   // Data unreachable: no claim to make
+  ]) {
+    const html = db(site);
+    assert.equal(/class="live"/.test(html), want,
+      "the wire and the button disagree about " + site.id);
+    assert.equal(!/ disabled/.test(html), want,
+      "the button and the wire disagree about " + site.id);
+  }
+});
+
+test("green is a token, and only a marked wire takes it", () => {
+  const css = read("../public/styles.css");
+
+  // DECLARED, not a literal at the use site. The palette carries no other
+  // green, so this is the one place the value lives and the one place to tune
+  // it — and `landing-models`' token scan requires every `var()` to resolve.
+  const decl = /--wire-live:\s*(#[0-9a-fA-F]{3,8}|[a-z][\w(),.\s%/-]*);/.exec(css);
+  assert.ok(decl, "--wire-live is not declared, so the live wire resolves to nothing");
+  const live = rule(css, ".st-wires .live");
+  assert.match(live, /stroke:\s*var\(--wire-live\)/,
+    "the live wire paints a literal instead of the token");
+
+  // AND THE IDLE WIRE IS UNTOUCHED. `currentColor` on the base rule is what
+  // makes this change invisible on a site with no database; a green that
+  // replaced it there would say every site has one.
+  assert.match(rule(css, ".st-wires"), /stroke:\s*currentColor/,
+    "the wires no longer inherit the icon's ink, so an idle wire is not graphite");
+
+  // THE SELECTOR MUST OUT-WEIGH THE INHERIT AND STAY SCOPED. `.st-wires .live`
+  // is (0,2,0); a bare `.live` would paint anything anywhere that class lands.
+  assert.ok(/(^|\})\s*\.st-wires\s+\.live\s*\{/.test(css.replace(/\/\*[\s\S]*?\*\//g, "")),
+    "the live rule is not scoped to the wires");
+  assert.ok(!/(^|\})\s*\.live\s*\{/.test(css.replace(/\/\*[\s\S]*?\*\//g, "")),
+    "there is a bare .live rule, which paints every element that class reaches");
+
+  // The class the markup writes IS the class the sheet paints. Two spellings
+  // here is the drift that leaves a database wired and the wire grey.
+  const { wires } = loadDb();
+  const cls = /<path class="([^"]+)"/.exec(wires({ site: true, app: false }));
+  assert.ok(cls, "the live wire carries no class at all");
+  assert.ok(rule(css, ".st-wires ." + cls[1]).length > 0,
+    "the markup marks the wire `" + cls[1] + "` and the stylesheet paints something else");
 });
 
 test("the wires hang off the icon and fill exactly the gap it was raised by", () => {

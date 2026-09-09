@@ -45,6 +45,17 @@
       --split: linear-gradient(120deg, var(--purple), var(--neon));
       --split-dim: linear-gradient(120deg, var(--purple-dim), var(--neon-dim));
       --on-accent: var(--paper);   /* paper-coloured ink on graphite */
+      /* THE ONE GREEN IN THIS PALETTE, and it is a signal rather than a colour
+         of the app: a start-screen wire is green exactly when the database at
+         the top of the pair is wired to the thing that wire lands on.
+         MEASURED, because the owner chose it against the alternative and the
+         cost should not be a surprise later: on this cream, contrast falls as a
+         green gets brighter — the graphite wire beside it scores 11.09, a muted
+         forest 4.27, and this 1.95. It is the most vivid green the palette can
+         take and the faintest 1.3px line on the page. Owner's call, from five
+         rendered side by side (2026-09-09: "A, but the green color more live" →
+         "G4"). */
+      --wire-live: #00c853;
       --halo: linear-gradient(120deg, rgb(255,121,198), rgb(255,184,77)); /* kept brand gradient — chatbox only */
     }
     * { box-sizing: border-box; margin: 0; }
@@ -1583,6 +1594,15 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   pointer-events: none; overflow: visible;
 }
 .st-wires path { vector-effect: non-scaling-stroke; }
+/* A LIVE WIRE IS GREEN, AND AN IDLE ONE IS EXACTLY WHAT IT WAS. The base rule
+   above keeps `currentColor`, so a site with no database draws the same two
+   graphite curves it drew yesterday and this change is invisible on it. Only
+   the marked path takes the token, which is what makes green mean one thing:
+   the database at the top of this pair is wired to the thing this wire lands
+   on. `.st-wires .live` (0,2,0) beats `.st-wires` inheriting to the path, so
+   the stroke really moves — a bare `.live` would too, and is not used, because
+   a class that loose is one somebody else's rule collides with. */
+.st-wires .live { stroke: var(--wire-live); }
 /* THE LINES ARE DARK IN BOTH STATES, ON THE OWNER'S OWN INSTRUCTION (2026-09-09:
    "ALSO PUT IT DARK THE LINES , NO MATTER IF ITSD ON IR OFF"). `--text` is
    `--graphite`, the palette's darkest lead.

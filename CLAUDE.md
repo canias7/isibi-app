@@ -746,6 +746,96 @@ the next platform-wide republish is the measurement).
 
 ---
 
+### A LIVE WIRE IS GREEN (2026-09-09, owner: *"IF THE PROJECT HAS A DATABASE,
+THE WIRE TURNS GREEN TO THE SITE BOX OR THE MOBILE APP ONE, DEPENDING ON WHICH
+ONE IS IT"* → four treatments rendered → *"A"* → *"but the green color more
+live"* → five greens rendered → *"G4"*)
+
+On the start screen a card's database hangs above the pair with two curved wires
+down to the site and the phone. The wire to the thing the database actually
+serves is green now; the other is the graphite it has always been.
+
+- **THE SITE'S WIRE IS THE DATABASE'S STATE AND THE APP'S IS ALWAYS FALSE, AND
+  IT IS ANSWERED RATHER THAN LEFT OUT.** A site's Neon database is the SITE's —
+  reached through that site's own data API, and nothing else on this platform
+  can hold one — so `wireLive(hasDb)` is `{site: !!hasDb, app: false}` and the
+  app half cannot be true today. Writing it as a value rather than omitting the
+  marker is the deliberate half: the day a mobile app can own a database the
+  second wire is a thing somebody has to remember to forward, and **a value
+  computed and never forwarded is this repository's most-shipped trap**. The
+  guard pins `app` at false over every shape, so turning it on is a change made
+  on purpose rather than a hop nobody listed.
+- **ONE EXPRESSION FOR THE CONTROL AND THE WIRE.** The button is live when the
+  Data view is reachable (`s.react && s.backend`) and the wire says the database
+  is wired to the site — the same fact, so both read the one `hasDb` rather than
+  each asking its own way. Two tests would disagree on a card the first time
+  either moved, and **the disagreement is drawn**: a dark glyph over a green
+  wire, or the reverse. A mutant that gives the wire its own `s.backend` test is
+  killed.
+- **AN IDLE WIRE IS EXACTLY WHAT IT WAS.** `.st-wires` keeps `stroke:
+  currentColor` and only the marked path takes the token, so a site with no
+  database — the ORDINARY card, since a first build provisions none — draws the
+  same two graphite curves it drew yesterday and this change is invisible on it.
+  The base rule going green is its own mutant.
+- **`--wire-live: #00c853`, THE ONE GREEN IN THIS PALETTE, AND THE OWNER PICKED
+  IT AGAINST THE MEASUREMENT.** Everything here is graphite on cream, so this is
+  a new token either way; it is declared in `:root` and the use site takes
+  `var()`, never a literal. **MEASURED against the paper before it was chosen**:
+  contrast on this cream FALLS as a green gets brighter — the graphite wire
+  beside it scores 11.09, a muted forest 4.27, and this **1.95**. So it is the
+  most vivid green the palette can take and the faintest 1.3px line on the page.
+  Five were rendered side by side with that number under each and the owner
+  chose the loudest; the trade is recorded here and in the token's own comment
+  so it is not rediscovered as a defect.
+  **AND THE FIRST CONTRAST NUMBERS I RAN WERE BACKWARDS**, which is worth more
+  than the numbers: the harness read the page background off `body`, which is
+  transparent — `rgba(0,0,0,0)`, whose digits parse as BLACK — so it measured
+  every green against black and answered that the brightest was the most
+  legible, the exact opposite of the truth on cream. The paper is on `html`.
+  An instrument that reports a real tradeoff inverted is worse than none.
+- **Guards**: `test/site-card-phone.test.mjs` 33 → 35 — `wireLive` EVALUATED out
+  of chat.js and driven over every truthy and falsy shape with `app` pinned
+  false; the marker required to land on the SITE's path by its own coordinate
+  (a guard that only COUNTED markers passes with the two swapped, which is the
+  claim nothing can back); an idle pair asserted unmarked, and `siteWires()`
+  with nothing to say asserted to default to idle rather than live; the control
+  and the wire driven together over three sites including the react-less one, so
+  they cannot drift; and the token asserted DECLARED, taken by `var()` at the
+  use site, scoped to `.st-wires` (a bare `.live` would paint anything that
+  class reaches), with the base rule's `currentColor` still there and the class
+  the markup writes proved to be the class the sheet paints.
+- **Proven red before green four ways**: the wire never marked, the app wire
+  green, the green as a literal, and every wire green.
+- **Sweep: 18 mutants, 18 killed, none survived, none unapplied, two
+  comment-only controls survived** — nothing marked (the state before this),
+  everything marked, the app wire green with the site's, the app wire green
+  always, the site's never, the two swapped, the marker on the wrong path, the
+  wire asking its own question, the icon drawing no wires at all, the wires
+  drawn but never told, the state read by truthiness, the class spelled two ways,
+  the green a literal, the token renamed, the live rule deleted, the base rule
+  taking the green, the base rule losing its colour, and the live rule unscoped.
+  **The earlier phone sweep was re-run whole and FOUR of its anchors had gone
+  stale** — every one on a line this change touched (the icon's tail grew its
+  argument, the two paths each grew a marker). "Never applied" reads exactly
+  like a kill in a summary and proves nothing, so each was re-pointed at the
+  property it always held and the whole set re-run: **phone 69/69, green 18/18 —
+  87 mutants, 87 killed, none unapplied.**
+- **AND THE FREE-IDENTIFIER TRAP FIRED AGAIN, IN THE LOADER WHOSE OWN COMMENT
+  PREDICTS IT.** `siteDbIcon` closes over `wireLive` now, so
+  `site-list.test.mjs`'s `loadCardFn` — which builds a bare scope — went red
+  with `wireLive is not defined` for a function that is perfectly correct.
+  Carried out of the FILE like every other name there and never stubbed: a stub
+  answering `{site: false}` would leave the database-less case passing for the
+  wrong reason. Full suite **5,722**.
+- **Not proven live.** `public/` only — no container roll, no 15–20 minute hold.
+  The proof is one look at the signed-in start screen: the wire from the
+  database down to the site is green on a site that has one, and both wires are
+  graphite on a site that does not. Renders:
+  `docs/edits/site-cards-live-wire.png` and `-2across.png`. **And `chat.js` is
+  cached**, so a hard refresh is part of a `public/` fix reaching anybody.
+
+---
+
 ### AND ALL FIFTEEN CAN BE TAKEN OFF, NOT NINE (2026-09-08, owner: *"IT SHOULD
 BE ABLE TO DELETE THE 15"*)
 
