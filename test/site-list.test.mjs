@@ -581,8 +581,17 @@ test("each button that ACTS goes somewhere that exists, and nothing else acts", 
   assert.ok(at > 0,
     "the card controls are selected by something other than `data-sid` — a control "
     + "that moves out of the card would be drawn and never wired");
-  const body = c.slice(at, c.indexOf("view.querySelectorAll('[data-del]')", at));
-  assert.ok(body.length > 200 && body.length < 1400, "the handler block was not found whole");
+  // ENDED AT THE NEXT `querySelectorAll`, NOT AT `[data-del]`, and re-anchored
+  // 2026-09-09 rather than appeased. The window ran to the delete's loop and was
+  // bounded `< 1400` bytes; the phone switch's own loop landed between the two
+  // and the window outgrew the bound, reporting a handler that had not changed
+  // as "not found whole". That is this repository's recorded byte-sized-window
+  // trap, in a guard that had one. The property is what this block does, so it
+  // ends where this block ends: the next binder, whichever one that is.
+  const nextBinder = c.indexOf("view.querySelectorAll(", at + 10);
+  assert.ok(nextBinder > at, "this is the last binder in renderSites — re-anchor this");
+  const body = c.slice(at, nextBinder);
+  assert.ok(body.length > 200, "the handler block was not found whole");
   // ADOPTED FIRST, like the open and the delete: a card the server listed and
   // this browser has never seen has no local record to act on.
   assert.ok(/siteAdopt\(cardEntry\(b\.dataset\.sid\)\)/.test(body), "adopts");

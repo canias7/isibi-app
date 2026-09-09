@@ -1839,6 +1839,139 @@ half. MEASURED on the real tree at 1920, 1512, 1100 and 700: pair 349, site
   is part of a `public/` fix reaching anybody, as the Code pane's own entry
   records.
 
+### AND THE CARD'S PHONE SWITCHES BETWEEN APPLE AND ANDROID (2026-09-09, owner:
+*"NOW HERE WHERE THE PHONE THING IS , I WANT LIKE A SWICTH TO SWTITH FROM APPLE
+TO ANDORID , JUST AS A PERVIEW THING"* → two placements rendered → *"A"*)
+
+Two mark-only segments under the tile's phone. Pressing one reshapes **every**
+phone on the screen: rounder corners and a wide pill for the iPhone, squarer
+corners and a punch-hole for the Android.
+
+- **IT REUSES THE WORKSPACE PANEL'S MACHINERY RATHER THAN COPYING IT.**
+  `MOBILE_OSES`, `MOBILE_LABELS`, `BRAND_MARKS`, `brandMark` and `setMobileOs`
+  are all the panel's own, so there is no second list of the two phones, of what
+  they are called, or of how they are drawn — and no second writer of the
+  choice. This app draws two phone switches now and they are one feature.
+- **THE MARKS ONLY, NO WORDS, AND THAT IS ARITHMETIC RATHER THAN TASTE.**
+  MEASURED: the tile is **74.5px wide at three across** (110.5 at two, 138.8 at
+  one) and the panel's own segments — mark plus word — need **248px** of
+  content. So the word cannot come; `MOBILE_LABELS` still supplies the name
+  through `title` and `aria-label`, which is what keeps a mark-only control
+  legible to a screen reader.
+- **THE RATIO IS DECLARED ONCE AND READ TWICE; THE CORNERS AND THE CAMERA ARE
+  NOT, DELIBERATELY.** A phone's aspect ratio is the one fact about it that is
+  SCALE-FREE, so `[data-os="ios"] { --os-ratio: 393 / 852 }` sits beside the
+  panel's block and `.st-mob-device` and `.st-app-phone` both read it — two
+  copies would be two lists of the same thing, and the drift would put a
+  different iPhone on a card from the one in the panel. The corners and the
+  camera are SIZES, and the two components draw at ~340px and at 74.5px, so the
+  panel's 46px radius is a pill on a card. The tile's are percentages **derived
+  from the same numbers** (46/393 across, 46/852 down — a pair, because one
+  percentage resolves per axis and would make an ellipse of a corner on a
+  0.46-ratio box), which is also what makes them right at all three column
+  counts. **What ties the two sets together is a guard that they ORDER the same
+  way**: the card and the panel must agree which of the two phones is the
+  rounder.
+- **THE CAMERA IS px AND NOT SCALED, WHICH IS THE ONE PLACE FIDELITY LOSES ON
+  PURPOSE.** At 74px a faithful Android punch-hole is a 2px dot and the corners
+  differ by 3.6px, so a strictly-scaled mark would make the switch a control
+  whose halves look identical — the finding this repository has now made six
+  times in its own chrome. The pill and the dot are sized to read at the
+  smallest column count, which is the one most people look at.
+- **THE CHOICE IS ONE PREFERENCE, NOT FIFTY.** It reads and writes
+  `siteMobileOs`, so an account with fifty sites has ONE answer to "which phone
+  am I looking at", and the workspace opens on the phone a card was set to. A
+  per-card map would be per-card state with nothing per-card behind it — no site
+  has an app, which is the same argument that keeps the tile from taking a site.
+  **The tile takes the PHONE and never the site**, and that is guarded: it is
+  driven with real site shapes, every one of which the phone list refuses.
+- **IT REPAINTS RATHER THAN RE-RENDERS.** `renderSites()` rebuilds a grid in
+  which every card carries an `<iframe>` of that site — 51 on the owner's
+  account — so a switch that re-rendered would reload every thumbnail on the
+  screen to change a corner radius. The attribute and the lit segment move by
+  hand, the panel's own answer one screen over. **DRIVEN, not read**: the
+  harness defines `renderSites` so a call would be SEEN.
+- **BOUND ON `.st-app-osbtn`, NOT `[data-sid]`**, because these controls name no
+  site — which is the same reason the database icon is bound the other way.
+- **THE PLACEMENT IS THE OWNER'S, AND IT COSTS 9px.** Under the phone (A) adds a
+  row to the tile, so the card stretches **219.4 → 228.7**; inside the phone (B)
+  cost nothing and was offered with that measurement beside it. A third, above
+  the phone, was rendered and **dropped without being offered**: it pushes the
+  phone down so its top no longer lines up with the card, which is the property
+  the owner asked for when the phone went in.
+- **Guards**: `test/site-card-phone.test.mjs` 24 → **31** — every phone's segment
+  driven for its own mark, name, tooltip and lit state DERIVED from the product's
+  list; a swapped pair of drawings caught by the one structural difference
+  (the apple is one solid path, the robot a filled head plus stroked antennae),
+  since every other assertion derives what it expects FROM the table and a swap
+  satisfies all of them; the two states required to differ **at tile size**,
+  because the panel's own guard proves the panel and nothing else; the corners
+  held to a percentage pair; the card and the panel required to order the two
+  phones the same way; the lit segment's paint read out of the stylesheet; and
+  the handler CUT OUT and driven across three tiles — every phone moves, the lit
+  state and `aria-pressed` follow, a second press is a no-op, and `renderSites`
+  is never called. `stopPropagation` is driven with an event that records
+  whether it was stopped, since `if (false)` leaves a call exactly where a
+  source read looks for it.
+  **TWELVE OLDER GUARDS WENT RED AND WERE RE-ANCHORED, NOT APPEASED**, and one
+  was INVERTED: "the tile is INERT — drawn, and not a control" forbade every
+  `<button>` in it, which was right while the tile was a picture. Buttons that
+  DO something are correct here now, and the property it always held survives
+  whole — nothing on this tile may PROMISE the app — so it counts the buttons
+  against the phone list and requires every one to be a segment. The other
+  eleven: the free-identifier trap in the loader (the tile closes over four of
+  the panel's names), the tile's arity, its call site, the ratio's move into the
+  token block, and a **byte-sized window** in `site-list.test.mjs` that the new
+  handler outgrew — the recorded trap, in a guard that had one; it ends at the
+  next binder now rather than at a byte count.
+- **Sweep: 35 mutants, 35 killed, none survived, none unapplied, two comment-only
+  controls survived — none survived the first pass.** Six never applied on the
+  first run and every one was an ambiguous or moved anchor: `const on =
+  MOBILE_OSES.includes(…)` and `if (!setMobileOs(b.dataset.os))` each appear
+  TWICE now — once in the tile, once in the panel — which is the recorded "a
+  mutant whose anchor is a substring of another's", so each carries its
+  neighbour. The killed ones: the switch never drawn (the state before this),
+  drawing one segment rather than the list, the tile ignoring the phone it is
+  handed, a phone name coerced rather than refused, the phone never told which
+  it is, every segment wearing one mark, the lit segment frozen, nothing lit,
+  the accessible name or the tooltip gone, `aria-pressed` drifting from the lit
+  class, the names spelled as a second list, the segments taking a card action;
+  the tile handed a literal phone so the switch lights and changes nothing, the
+  tile never drawn; the switch drawn and never wired, the handler re-rendering,
+  only the pressed card moving, the lit segment never moving, the choice written
+  without the shared writer, repainting when nothing changed, the press also
+  opening the site; the panel or the tile spelling its own ratio again, both
+  phones sharing one, the token block gone, a phone the tile draws having no
+  ratio declared; both phones sharing a corner or a camera on a card, the
+  corners as px, the card and the panel disagreeing which is rounder; and the
+  lit segment losing its ground, its paint, or its focus ring.
+  **AND THE THREE EARLIER SWEEPS THAT TOUCH THESE LINES WERE RE-ANCHORED AND
+  RE-RUN WHOLE**: sixteen of their anchors had gone stale on the ratio's move
+  and the tile's new opening — "never applied" reads exactly like a kill in a
+  summary and proves nothing. **On this tree: switch 35/35, os 27/27, phone
+  69/69, column 30/30, drag 23/23 — 184 mutants, 184 killed, none survived, none
+  unapplied.** Two of the phone sweep's were RE-AIMED rather than re-anchored:
+  "the tile grew a parameter nothing reads" was a defect while it took none and
+  is the design now, so both aim at a SITE parameter, which is the property that
+  pair always held between them.
+- **AND MY OWN LIVE-MUTANT CHECK WAS A FALSE ALARM MACHINE.** After the sweeps I
+  searched the tree for each mutant's replacement text and it named fifteen
+  "live mutants", none of which existed: a mutant that DELETES something has a
+  `to` which is a SUBSTRING of the correct code, so it always matches. The
+  honest reader is `git diff` — the two product files were byte-identical to the
+  commit — and this repository's own rule applies to a check written in thirty
+  seconds as much as to a shipped one: **a check that flags correct code is worse
+  than no check.**
+- **Not proven live.** The push touches `public/`, `test/` and `docs/` only — no
+  container roll, no 15–20 minute hold. MEASURED after the change, at 1920, 1512,
+  1100 and 700: card **258/258/383/480** unchanged, the phone within **2px** of
+  its thumbnail, the database still exactly 50.0% of the pair and 36px clear of
+  the card, the grid's row gap 104px, no page overflow. The proof is one look:
+  two small marks under each phone, pressing the robot squares every phone's
+  corners at once. Renders: `docs/edits/site-cards-phone.png` and `-2across.png`,
+  refreshed. **And `chat.js` is cached**, so a hard refresh is part of it
+  reaching anybody.
+
 ### A MOBILE APP COLUMN YOU OPEN AND CLOSE (2026-09-08, owner: *"i want to make
 a column in the right hand side"* → *"Is for mobile app"* → *"in a sidebar not
 free like that"* → *"something you open and close, not just something there"*)
@@ -8061,8 +8194,25 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,712
-  (2026-09-09, after two wires were run from the database to the site and to the
+  build and the pre-list payload added sixteen); the unit suite is 5,719
+  (2026-09-09, after an Apple/Android switch went under each card's phone — seven
+  more in `test/site-card-phone.test.mjs`: every phone's segment driven for its
+  own mark, name and lit state DERIVED from the product's own list; a swapped
+  pair of drawings caught by the one structural difference, since every other
+  assertion derives what it expects FROM the table and a swap satisfies all of
+  them; the two states required to differ AT TILE SIZE, because the workspace
+  panel's own guard proves the panel and says nothing about a 74px thumbnail; the
+  corners held to a percentage pair and the card and the panel required to ORDER
+  the two phones the same way, which is what ties two necessarily-different sets
+  of numbers to one pair of phones; the lit segment's paint read out of the
+  stylesheet, the `.st-card-act:disabled { opacity }` finding for the third time
+  on this screen; and the handler CUT OUT and driven across three tiles, with
+  `renderSites` defined in the harness so a re-render would be SEEN rather than
+  forbidden by a scan. Twelve older guards re-anchored, one INVERTED — "the tile
+  is INERT" forbade every button in it, which was right while the tile was a
+  picture — and a byte-sized window in `site-list.test.mjs` that the new handler
+  outgrew, the recorded trap in a guard that had one;
+  before it 5,712, after two wires were run from the database to the site and to the
   phone — three in `test/site-card-phone.test.mjs`: `siteWires` EVALUATED out of
   chat.js and driven, with each wire required to leave the icon's own centre and
   land on its own target and the midpoint between them DERIVED rather than

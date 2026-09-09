@@ -52,20 +52,51 @@ function rule(css, selector) {
   return css.slice(at + selector.length, end);
 }
 
-/** The real `siteAppTile`, evaluated out of chat.js — it cannot be imported. */
+/**
+ * The real `siteAppTile`, evaluated out of chat.js — it cannot be imported.
+ *
+ * EVERY FREE NAME IS CARRIED OUT OF THE FILE, NEVER STUBBED. The tile draws the
+ * phone switch now, so it closes over `MOBILE_OSES`, `MOBILE_LABELS`,
+ * `BRAND_MARKS` and `brandMark` — all four the workspace panel's own, which is
+ * the point of the change — and a scope built without them throws
+ * `ReferenceError` for a function that is perfectly correct. That is this
+ * repository's recorded free-identifier trap, and it fired here the moment the
+ * switch went in, exactly as `loadDb`'s comment below predicted in writing.
+ *
+ * Stubs would be worse than the throw: a `brandMark` answering `''` would leave
+ * every "which mark is on which segment" assertion in this file blind, and a
+ * two-name `MOBILE_OSES` invented here rather than read would stop being the
+ * product's list the day somebody adds a third phone.
+ */
 function loadAppTile() {
   const chat = read("../public/chat.js");
-  const at = chat.indexOf("function siteAppTile(");
-  assert.ok(at > 0, "siteAppTile is gone from chat.js");
-  const end = chat.indexOf("\n}", at);
-  assert.ok(end > at, "siteAppTile has no end");
-  return new Function(chat.slice(at, end + 2) + "\nreturn siteAppTile;")();
+  const cut = (fn) => {
+    const at = chat.indexOf("function " + fn + "(");
+    assert.ok(at > 0, fn + " is gone from chat.js");
+    const end = chat.indexOf("\n}", at);
+    assert.ok(end > at, fn + " has no end");
+    return chat.slice(at, end + 2);
+  };
+  const line = (decl) => {
+    const at = chat.indexOf(decl);
+    assert.ok(at > 0, decl + " is gone from chat.js");
+    return chat.slice(at, chat.indexOf("\n", at));
+  };
+  const mAt = chat.indexOf("const BRAND_MARKS = {");
+  const mEnd = chat.indexOf("\n};", mAt);
+  assert.ok(mAt > 0 && mEnd > mAt, "the brand-mark table moved — re-anchor this");
+  return new Function(
+    line("const MOBILE_OSES = ") + "\n" + line("const MOBILE_LABELS = ") + "\n"
+    + chat.slice(mAt, mEnd + 3) + "\n" + cut("brandMark") + "\n" + cut("siteAppTile")
+    + "\nreturn { tile: siteAppTile, oses: MOBILE_OSES, labels: MOBILE_LABELS, mark: brandMark };")();
 }
+/** The tile alone, on the phone it opens on — what most cases below want. */
+function appTile() { const l = loadAppTile(); return (os) => l.tile(os === undefined ? l.oses[0] : os); }
 
 // ── THE TILE ITSELF ─────────────────────────────────────────────────────────
 
 test("DRIVEN: the tile says what it is and that it does not exist yet", () => {
-  const html = loadAppTile()();
+  const html = appTile()();
   assert.match(html, /Mobile app/, "it does not name itself");
   assert.match(html, /not built yet/, "it does not say the thing that makes it honest");
   // Both halves of the sentence, each on its own element, so a sweep that blanks
@@ -75,35 +106,82 @@ test("DRIVEN: the tile says what it is and that it does not exist yet", () => {
   assert.match(html, /class="st-app-s"[^>]*>not built yet</);
 });
 
-test("DRIVEN: the tile is INERT — drawn, and not a control", () => {
-  // A disabled button says "this works and we would rather you did not"; this
-  // says "we have not built this yet". The icon it replaced was a disabled
-  // button and was kept under exactly this rule since 2026-09-07: no handler,
-  // because what it will DO is not designed and a branch would be a guess
-  // written down as code.
-  const html = loadAppTile()();
-  assert.ok(!/<button/.test(html), "the tile became a button");
+test("DRIVEN: the PHONE is inert, and the only controls are the switch's two", () => {
+  // RE-ANCHORED 2026-09-09, NOT APPEASED, and which spelling moved matters. This
+  // read "the tile is INERT — drawn, and not a control" and forbade every
+  // `<button>` in it, which was right while the whole tile was a picture. The
+  // owner then asked for a switch ("a swictch to swtitch from apple to
+  // andorid"), so buttons that DO something are now correct here.
+  //
+  // THE PROPERTY IT ALWAYS HELD SURVIVES WHOLE: the mobile app itself is not
+  // built, so nothing on this tile may offer to open, build or preview one. What
+  // is forbidden is a control that PROMISES the app — the "Build the mobile app"
+  // button the owner ruled out when the workspace panel shipped — and a disabled
+  // one, which says "this works and we would rather you did not" where the true
+  // sentence is "we have not built this yet". The switch says neither: it
+  // reshapes a drawing, and it really does it.
+  const l = loadAppTile();
+  const html = l.tile(l.oses[0]);
   assert.ok(!/<a[ >]/.test(html), "the tile became a link");
   assert.ok(!/data-act=/.test(html), "the tile took a card action");
+  assert.ok(!/data-sid=/.test(html), "the tile names a site — its controls are not the card's");
   assert.ok(!/on[a-z]+=/.test(html), "the tile has an inline handler");
   assert.ok(!/disabled/.test(html), "a disabled control is a different sentence from an absent one");
+  // THE PHONE ITSELF is still a div: it is the picture, not a control, and a
+  // click on it has nothing designed to do.
+  assert.match(html, /<div class="st-app-phone"/, "the phone stopped being a plain drawing");
+  // EXACTLY THE SWITCH, AND NOTHING ELSE. Counted against the product's own
+  // list, so a third phone moves this number and a "Build the app" button fails
+  // it — which is the control this has forbidden since the tile shipped.
+  const buttons = html.match(/<button/g) || [];
+  assert.equal(buttons.length, l.oses.length,
+    "the tile has " + buttons.length + " buttons and " + l.oses.length + " phones — "
+    + "every button here must be a phone segment");
+  for (const b of html.match(/<button[^>]*>/g) || []) {
+    assert.match(b, /class="st-app-osbtn/, "a button on the tile that is not a phone segment");
+  }
   // THE OBSERVER IS AWAKE: the same read finds the elements it is reading —
-  // asserted by SHAPE (one screen, two lines of words) rather than by a total,
-  // so it says what it is looking at rather than counting to a number.
+  // asserted by SHAPE (one screen, two lines of words) rather than by a total.
   assert.equal((html.match(/class="st-app-phone"/g) || []).length, 1, "there is no phone to be inert");
   assert.equal((html.match(/<span/g) || []).length, 2, "the tile's two lines are gone");
 });
 
-test("DRIVEN: the tile takes no site, and says the same thing for every one", () => {
-  // NO site has a mobile app, so there is nothing per-site to say and a
-  // parameter nothing reads is a guess written as code. Driven with arguments
-  // anyway, since the failure this forbids is somebody wiring one in silently.
-  const tile = loadAppTile();
-  assert.equal(tile.length, 0, "it grew a parameter — is it read, or is it a guess?");
-  const plain = tile();
-  for (const site of [{ id: "s1", backend: true, url: "https://x/" }, null, undefined, {}]) {
-    assert.equal(tile(site), plain, "the tile answered differently for a site it must ignore");
+test("DRIVEN: the tile takes the PHONE and never a site", () => {
+  // RE-ANCHORED, NOT APPEASED. This required `siteAppTile.length === 0` on the
+  // reasoning that no site has a mobile app, so a parameter nothing reads is a
+  // guess written down as code. It takes one now — the phone — and that
+  // reasoning is untouched: what it must never take is a SITE.
+  //
+  // Why it takes the phone rather than reading `siteMobileOs` off module scope
+  // is the same reason `siteMobilePanel` does: a free identifier resolves when
+  // the line RUNS, so a function that reads module scope cannot be driven in a
+  // bare scope at all — which is how four misses reached main in one session.
+  const l = loadAppTile();
+  assert.equal(l.tile.length, 1, "the tile takes " + l.tile.length + " things; it may take exactly the phone");
+
+  // A SITE CHANGES NOTHING. Driven with real site shapes, because the failure
+  // this forbids is somebody quietly wiring one in: every one of them is refused
+  // by the phone list and falls back, so no site can reach the markup.
+  const base = l.tile(l.oses[0]);
+  for (const site of [{ id: "s1", backend: true, url: "https://x/" }, null, undefined, {}, "s1", ["ios"]]) {
+    assert.equal(l.tile(site), base, "the tile answered differently for something that is not a phone");
   }
+  // AND THE COERCION IS REFUSED RATHER THAN RESOLVED: `String(["ios"])` is
+  // "ios", the recorded trap, on the value that decides what a customer is
+  // looking at. `MOBILE_OSES.includes` compares identity, so the array above is
+  // already covered — asserted here so a future `String(os)` fails.
+  assert.equal(l.tile(["ios"]), base, "an array coerced to a phone name");
+
+  // EVERY PHONE THE PRODUCT HAS really draws, and they really differ — derived
+  // from the list rather than naming the two, so a third phone is covered.
+  const seen = new Set();
+  for (const os of l.oses) {
+    const html = l.tile(os);
+    assert.match(html, new RegExp('class="st-app-phone" data-os="' + os + '"'),
+      "the phone is not told it is a " + os);
+    seen.add(html);
+  }
+  assert.equal(seen.size, l.oses.length, "two phones drew the same tile — the switch changes nothing");
 });
 
 // ── THE HOP EVERY OTHER GUARD MISSES ────────────────────────────────────────
@@ -119,8 +197,13 @@ test("the card markup actually draws it, exactly once", () => {
   const to = c.indexOf(".join('')", at);
   assert.ok(to > at, "the map's join is gone — re-anchor this window");
   const cell = c.slice(at, to);
-  assert.equal((cell.match(/siteAppTile\(\)/g) || []).length, 1,
+  assert.equal((cell.match(/siteAppTile\(/g) || []).length, 1,
     "the grid cell must call siteAppTile exactly once");
+  // AND IT IS HANDED THE SHARED CHOICE, not a literal: a hardcoded phone would
+  // draw every card on one and the switch would light but change nothing on the
+  // next render.
+  assert.match(cell, /siteAppTile\(siteMobileOs\)/,
+    "the tile is not handed the phone the switch writes");
 });
 
 test("the phone is BESIDE the card, not inside it — the correction, asserted", () => {
@@ -133,7 +216,7 @@ test("the phone is BESIDE the card, not inside it — the correction, asserted",
   assert.ok(at > 0 && to > at, "the grid cell's landmarks moved — re-anchor this");
   const cell = c.slice(at, to);
   const card = cell.indexOf('<div class="st-card"');
-  const tile = cell.indexOf("siteAppTile()");
+  const tile = cell.indexOf("siteAppTile(");
   assert.ok(card > 0 && tile > card, "the card or the tile moved — re-anchor this");
   // And the pair really opens before the card, so the card is inside the pair.
   assert.ok(cell.indexOf("st-pair") < card, "the card is not inside the pair");
@@ -165,7 +248,7 @@ test("the phone is BESIDE the card, not inside it — the correction, asserted",
 // ── THE NAMES, DERIVED BOTH WAYS ────────────────────────────────────────────
 
 test("every class the tile writes is a class the stylesheet styles, and back", () => {
-  const html = loadAppTile()();
+  const html = appTile()();
   const css = read("../public/styles.css");
   const written = [...html.matchAll(/class="([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/));
   assert.ok(written.length >= 3, "the tile writes no classes — re-anchor this");
@@ -188,7 +271,7 @@ test("the tile's classes do not collide with the workspace's mobile panel", () =
   // so the card's phone inherited it and rendered 842px tall. Caught by
   // measuring the rendered box, not by reading the CSS, because a collision
   // between two files' class names is invisible to both of them.
-  const html = loadAppTile()();
+  const html = appTile()();
   const written = [...html.matchAll(/class="([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/));
   for (const cls of written) {
     assert.ok(!/^st-mob/.test(cls),
@@ -203,9 +286,19 @@ test("the tile's classes do not collide with the workspace's mobile panel", () =
 
 /** `a / b`, `a/b` or a bare decimal, as a number. */
 function ratio(decl, what) {
-  const m = /aspect-ratio:\s*([\d.]+)\s*(?:\/\s*([\d.]+))?/.exec(decl);
+  const m = /aspect-ratio:\s*(?:var\(--os-ratio,\s*)?([\d.]+)\s*(?:\/\s*([\d.]+))?/.exec(decl);
   assert.ok(m, what + " has no aspect-ratio");
   return m[2] ? Number(m[1]) / Number(m[2]) : Number(m[1]);
+}
+/** Every phone's ratio, off the shared token block both components read. */
+function osRatios(css) {
+  const out = {};
+  for (const m of css.matchAll(/^\[data-os="([a-z]+)"\] \{\s*--os-ratio:\s*([\d.]+)\s*\/\s*([\d.]+)/gm)) {
+    out[m[1]] = Number(m[2]) / Number(m[3]);
+  }
+  assert.ok(Object.keys(out).length >= 2,
+    "the shared `[data-os]` ratio block is gone — re-anchor this; found " + JSON.stringify(out));
+  return out;
 }
 
 test("the phone column IS the two ratios multiplied — derived, not pinned", () => {
@@ -234,15 +327,55 @@ test("the phone column IS the two ratios multiplied — derived, not pinned", ()
   // breakpoints, where the card widens to 382 and then 480.
   assert.match(rule(css, ".st-app-phone"), /width:\s*100%/,
     "the phone must take the column's width, so its height follows the card's");
+
+  // AND EVERY REAL PHONE STAYS NEAR THAT COLUMN (added 2026-09-09 with the
+  // switch). The column above is derived from the FALLBACK ratio, which is the
+  // shape the tile had before a phone could be picked; the switch now puts a
+  // real iPhone or a real Android in that column instead, and neither is exactly
+  // 390/844. The alignment the owner asked for — "the phone same height as the
+  // square" — survives because both are close to it, and that is a fact about
+  // today's two phones rather than a guarantee: MEASURED at three across, the
+  // thumbnail is 161.2px, the iPhone 161.5 and the Android 165.5. So a phone
+  // whose proportions are far from the column fails HERE, loudly, instead of
+  // shipping as a handset that towers over the card it sits beside.
+  for (const [os, r] of Object.entries(osRatios(css))) {
+    const tall = (1 / r) / (1 / phone);       // its height against the column's
+    assert.ok(tall > 0.9 && tall < 1.1,
+      "the " + os + " phone stands " + Math.round(tall * 100) + "% of the column's height — "
+      + "it no longer lines up with the card, so the column must be re-derived");
+  }
 });
 
-test("the handset is the same shape as the workspace panel's, not a near-miss", () => {
-  // Two phones drawn by one app should be one shape. Asserted by identity
-  // against the panel's own base device rather than by both spelling a number.
+test("both phones this app draws read ONE ratio, rather than spelling their own", () => {
+  // RE-ANCHORED 2026-09-09, NOT APPEASED. This compared the card phone's own
+  // `aspect-ratio` number with the workspace device's and required them equal —
+  // right while each spelled a literal. The switch made that a real hazard
+  // rather than a tidiness point: two components draw these phones now, and a
+  // phone's ratio is the one fact about it that is SCALE-FREE, so two copies
+  // would be two lists of the same thing and a drift would put a different
+  // iPhone on a card from the one in the panel.
+  //
+  // So the property is stronger than it was: not "the two numbers agree" but
+  // "there is only one number". Both must READ the shared token.
   const css = read("../public/styles.css");
+  for (const sel of [".st-app-phone", ".st-mob-device"]) {
+    assert.match(rule(css, sel), /aspect-ratio:\s*var\(--os-ratio\s*,/,
+      sel + " spells its own ratio instead of reading the shared one");
+  }
+  // The two fallbacks are still one shape, which is what an element with no
+  // phone chosen draws.
   assert.equal(ratio(rule(css, ".st-app-phone"), "the card's phone"),
     ratio(rule(css, ".st-mob-device"), "the workspace panel's phone"),
-    "the two phones this app draws are different shapes");
+    "the two phones fall back to different shapes");
+  // AND THE TOKEN REALLY RESOLVES: a `var()` naming a property nothing declares
+  // silently leaves both on the fallback, so the switch would light and change
+  // nothing. Every phone the product lists must declare one.
+  const declared = osRatios(css);
+  const l = loadAppTile();
+  for (const os of l.oses) {
+    assert.ok(declared[os] !== undefined,
+      "`" + os + "` is a phone the tile draws and the stylesheet gives it no --os-ratio");
+  }
 });
 
 test("the phone's ground is the card's own token, read rather than restated", () => {
@@ -662,4 +795,259 @@ test("the card's phone ICON is gone, and its two acts are not", () => {
   // it; deleting an icon because one of its callers went quiet is how a feature
   // becomes expensive to put back.
   assert.match(c, /\n\s*phone:/, "the phone glyph left ST_ICONS with its last card caller");
+});
+
+// ── THE APPLE / ANDROID SWITCH ──────────────────────────────────────────────
+//
+// Owner, 2026-09-09, on a screenshot of the pair: "NOW HERE WHERE THE PHONE
+// THING IS , I WANT LIKE A SWICTH TO SWTITH FROM APPLE TO ANDORID , JUST AS A
+// PERVIEW THING" → three placements rendered → "A".
+//
+// The thing this whole group exists to stop is the one this repository has now
+// found six times in its own chrome: a control that is drawn, hoverable,
+// correctly labelled, and changes nothing. So it is asserted at three separate
+// layers — the markup draws it, the stylesheet makes the two states differ, and
+// the handler is DRIVEN — because any one of the three alone has passed while
+// the feature was dead.
+
+test("DRIVEN: every phone gets its own segment, its own mark and its own name", () => {
+  const l = loadAppTile();
+  for (const os of l.oses) {
+    const html = l.tile(os);
+    const segs = html.match(/<button[^>]*class="st-app-osbtn[^"]*"[^>]*>[\s\S]*?<\/button>/g) || [];
+    assert.equal(segs.length, l.oses.length, "the switch does not draw one segment per phone");
+
+    for (const v of l.oses) {
+      const seg = segs.find((s) => s.includes('data-os="' + v + '"'));
+      assert.ok(seg, "no segment for " + v);
+      // THE MARK IS THE PANEL'S OWN, asked with the value that keys the segment,
+      // so a mark cannot land on the wrong platform. Compared against
+      // `brandMark`'s real output rather than a shape typed in here.
+      assert.ok(seg.includes(l.mark(v, 13)),
+        "the " + v + " segment does not carry the " + v + " mark");
+      // THE NAME COMES FROM `MOBILE_LABELS`, the panel's list, so the two
+      // switches this app draws cannot end up calling the same phone two things.
+      assert.ok(seg.includes('title="' + l.labels[v] + '"'), "the " + v + " segment has no tooltip");
+      assert.ok(seg.includes("aria-label=\"Preview as " + l.labels[v] + '"'),
+        "the " + v + " segment has no accessible name — the mark alone says nothing to a screen reader");
+      // EXACTLY ONE IS LIT, and it is the one the tile was asked for. `on` is
+      // the class, `aria-pressed` the fact; both, because a sighted customer
+      // reads one and a screen reader the other.
+      const lit = v === os;
+      assert.equal(/class="st-app-osbtn on"/.test(seg), lit, "the lit segment is wrong for " + os);
+      assert.equal(seg.includes('aria-pressed="' + (lit ? "true" : "false") + '"'), true,
+        "aria-pressed disagrees with the lit class on " + v);
+    }
+    assert.equal((html.match(/st-app-osbtn on/g) || []).length, 1,
+      "exactly one segment is lit at a time");
+  }
+});
+
+test("DRIVEN: a swapped pair of drawings would pass every other check here", () => {
+  // THE ONE STRUCTURAL DIFFERENCE, and the reason this case exists: every
+  // assertion above derives what it expects FROM the table, so exchanging the
+  // apple and the robot satisfies all of them — the iPhone segment would wear
+  // the robot and nothing would fail. The workspace panel's own guard records
+  // this exact hole. The apple is a single solid path; the robot is a filled
+  // head PLUS a stroked pair of antennae.
+  const l = loadAppTile();
+  const html = l.tile(l.oses[0]);
+  const seg = (v) => (html.match(/<button[^>]*data-os="[^"]*"[^>]*>[\s\S]*?<\/button>/g) || [])
+    .find((s) => s.includes('data-os="' + v + '"'));
+  const paths = (s) => (s.match(/<path/g) || []).length;
+  assert.ok(paths(seg("android")) > paths(seg("ios")),
+    "the two marks no longer differ in structure — a swap of the drawings would go unnoticed");
+});
+
+test("the switch's two phones really look different ON A CARD, not only in the panel", () => {
+  // THE PANEL'S OWN GUARD PROVES THE PANEL, and that is not this. The tile draws
+  // at 74.5px where the device mock draws at ~340, so it carries its own corner
+  // and camera rules — and a switch whose halves look identical at 74px is a
+  // dead control however different they are at 340.
+  const css = read("../public/styles.css");
+  const l = loadAppTile();
+  const per = {};
+  for (const os of l.oses) {
+    per[os] = {
+      box: rule(css, '.st-app-phone[data-os="' + os + '"]'),
+      cam: rule(css, '.st-app-phone[data-os="' + os + '"]:before'),
+    };
+  }
+  const [a, b] = l.oses;
+  const num = (s, prop) => {
+    const m = s.match(new RegExp(prop + ":\\s*([^;]+)"));
+    assert.ok(m, "the " + prop + " is gone from a phone's own rule");
+    return m[1].trim();
+  };
+  assert.notEqual(num(per[a].box, "border-radius"), num(per[b].box, "border-radius"),
+    "both phones have the same corners on a card");
+  assert.notEqual(per[a].cam.trim(), per[b].cam.trim(),
+    "both phones wear the same camera on a card — the pill and the punch-hole are the tell at this size");
+
+  // THE CORNERS ARE A PERCENTAGE PAIR, not px, or the switch is right at one
+  // column count and wrong at the other two — measured 74.5 / 110.5 / 138.8.
+  for (const os of l.oses) {
+    assert.match(num(per[os].box, "border-radius"), /^[\d.]+%\s*\/\s*[\d.]+%$/,
+      "the " + os + " corner is not a percentage pair, so it cannot scale with the column");
+  }
+
+  // AND THE TILE AND THE PANEL AGREE WHICH PHONE IS THE ROUNDER, derived from
+  // each rather than pinned. They are two sets of numbers by necessity — one is
+  // px at 340, one is a percentage at 74 — so what stops them describing
+  // different phones is that they order the same way.
+  const pct = (os) => Number(/^([\d.]+)%/.exec(num(per[os].box, "border-radius"))[1]);
+  const px = (os) => Number(/^([\d.]+)px/.exec(
+    num(rule(css, '.st-mob-device[data-os="' + os + '"]'), "border-radius"))[1]);
+  assert.equal(pct(a) > pct(b), px(a) > px(b),
+    "the card and the panel disagree about which of these two phones is the rounder one");
+});
+
+test("a lit segment LOOKS lit, and a dimming rule is not enough", () => {
+  // THE `.st-card-act:disabled { opacity }` FINDING, one control over and for
+  // the third time on this screen: state that lives only in the markup is
+  // invisible to every markup assertion, and a sweep has twice taken the paint
+  // off with all of them staying green.
+  const css = read("../public/styles.css");
+  const base = rule(css, ".st-app-osbtn");
+  const on = rule(css, ".st-app-osbtn.on");
+  assert.match(base, /color:/, "the segment has no ink of its own to differ from");
+  assert.ok(/background:/.test(on) && /color:/.test(on),
+    "the lit segment paints neither a ground nor an ink — the two halves look the same");
+  assert.notEqual(/background:\s*([^;]+)/.exec(on)[1].trim(), "none",
+    "the lit segment's ground is `none`, which is what the unlit one has");
+  // AND IT IS REACHABLE BY KEYBOARD, since it is a real button and the mark
+  // carries no text of its own to show focus on.
+  assert.ok(css.includes(".st-app-osbtn:focus-visible"), "the segment has no visible focus state");
+});
+
+/**
+ * The REAL switch handler, cut out of `renderSites` and driven against a fake
+ * document — because `if (false)` leaves a call exactly where a source read
+ * looks for it, and this repository has shipped a control that read as wired
+ * and was not. `setMobileOs` is carried in whole: it is the product's own
+ * writer, shared with the workspace panel, and stubbing it would make "the two
+ * switches agree" untestable here.
+ */
+function driveSwitch(start, tiles = 3) {
+  const chat = read("../public/chat.js");
+  const bare = blankComments(chat);
+  const at = bare.indexOf("  view.querySelectorAll('.st-app-osbtn')");
+  assert.ok(at > 0, "the phone switch is never wired up in renderSites");
+  const to = bare.indexOf("\n  });", at);
+  assert.ok(to > at, "the switch handler has no end — re-anchor this");
+  const sw = bare.slice(at, to) + "\n  });";
+  const setAt = chat.indexOf("function setMobileOs(os) {");
+  assert.ok(setAt > 0, "setMobileOs is gone");
+
+  const oses = loadAppTile().oses;
+  const btns = [], phones = [];
+  for (let i = 0; i < tiles; i++) {
+    phones.push({ dataset: { os: start } });
+    for (const os of oses) {
+      const b = { dataset: { os }, cls: new Set(os === start ? ["on"] : []), attrs: {}, onclick: null };
+      b.classList = { toggle: (c, on) => (on ? b.cls.add(c) : b.cls.delete(c)) };
+      b.setAttribute = (k, v) => { b.attrs[k] = v; };
+      btns.push(b);
+    }
+  }
+  const view = {
+    querySelectorAll: (s) => (s === ".st-app-osbtn" ? btns : s === ".st-app-phone" ? phones : []),
+  };
+  // A RE-RENDER IS OBSERVED, not forbidden by reading: `renderSites` is defined
+  // here so that if the handler calls it we SEE the call, rather than trusting a
+  // scan that `if (false)` would satisfy.
+  let rendered = false;
+  const out = new Function("view", "onRender", [
+    chat.match(/^const MOBILE_OSES = \[[^\]]+\];$/m)[0],
+    "let siteMobileOs = " + JSON.stringify(start) + ";",
+    chat.slice(setAt, chat.indexOf("\n}", setAt)) + "\n}",
+    "function renderSites() { onRender(); }",
+    sw,
+    "return { os: () => siteMobileOs };",
+  ].join("\n"))(view, () => { rendered = true; });
+  return {
+    press: (os, tile = 0) => btns[tile * oses.length + oses.indexOf(os)].onclick({ stopPropagation() {} }),
+    state: () => ({
+      os: out.os(),
+      phones: phones.map((p) => p.dataset.os),
+      lit: btns.filter((b) => b.cls.has("on")).map((b) => b.dataset.os),
+      pressed: btns.map((b) => b.attrs["aria-pressed"]),
+      rendered,
+    }),
+    oses,
+  };
+}
+
+test("DRIVEN: pressing a segment reshapes EVERY tile, and re-renders nothing", () => {
+  const d = driveSwitch("ios");
+  const [a, b] = d.oses;
+  assert.deepEqual(d.state().phones, [a, a, a], "the harness did not start with three tiles on " + a);
+
+  d.press(b);
+  const s = d.state();
+  assert.equal(s.os, b, "the shared choice did not move");
+  assert.deepEqual(s.phones, [b, b, b],
+    "pressing one card's switch left the other cards on the old phone — the choice is one preference");
+  assert.deepEqual(s.lit, [b, b, b], "the lit segment did not follow on every tile");
+  assert.deepEqual(s.pressed, ["false", "true", "false", "true", "false", "true"],
+    "aria-pressed did not follow the lit class");
+
+  // THE PROPERTY THE WHOLE HANDLER IS SHAPED BY: `renderSites()` rebuilds a grid
+  // in which every card carries an <iframe> of that site — fifty-one on the
+  // owner's account — so a switch that re-rendered would reload every thumbnail
+  // on the screen to change a corner radius.
+  assert.equal(s.rendered, false, "the switch re-rendered the whole grid");
+
+  // Pressing the one already on changes nothing, rather than repainting.
+  d.press(b);
+  assert.deepEqual(d.state().phones, [b, b, b], "a second press moved something");
+
+  d.press(a, 2);
+  assert.deepEqual(d.state().phones, [a, a, a], "the third card's switch does not move the others");
+});
+
+test("DRIVEN: a segment click is not also a click on the card behind it", () => {
+  // The card is a `role="button"` that opens the workspace, and the switch sits
+  // inside the pair beside it. Without this the press would light the segment
+  // AND open the site.
+  // DRIVEN, not read: the handler is handed an event that RECORDS whether it was
+  // stopped, so `if (false) e.stopPropagation()` fails here where a source scan
+  // would pass — the recorded trap, and the reason this is a case of its own.
+  const chat = blankComments(read("../public/chat.js"));
+  const at = chat.indexOf("  view.querySelectorAll('.st-app-osbtn')");
+  assert.ok(at > 0, "the switch is never wired — re-anchor this");
+  const sw = chat.slice(at, chat.indexOf("\n  });", at)) + "\n  });";
+  const setAt = read("../public/chat.js").indexOf("function setMobileOs(os) {");
+  const raw = read("../public/chat.js");
+  const oses = loadAppTile().oses;
+  const btn = { dataset: { os: oses[1] }, cls: new Set(), onclick: null };
+  btn.classList = { toggle() {} };
+  btn.setAttribute = () => {};
+  const view = { querySelectorAll: (s) => (s === ".st-app-osbtn" ? [btn] : []) };
+  new Function("view", [
+    raw.match(/^const MOBILE_OSES = \[[^\]]+\];$/m)[0],
+    "let siteMobileOs = " + JSON.stringify(oses[0]) + ";",
+    raw.slice(setAt, raw.indexOf("\n}", setAt)) + "\n}",
+    "function renderSites() {}",
+    sw,
+    "return 0;",
+  ].join("\n"))(view);
+  let stopped = false;
+  btn.onclick({ stopPropagation() { stopped = true; } });
+  assert.equal(stopped, true, "a press on the switch also opens the site behind it");
+});
+
+test("the choice has ONE writer, and it is the workspace panel's own", () => {
+  // The point of the change: one answer to "which phone am I looking at" for the
+  // whole app. Two writers would let the card and the panel drift apart, which
+  // is the same fact stored twice.
+  const c = blankComments(read("../public/chat.js"));
+  const writes = [...c.matchAll(/^.*\bsiteMobileOs\s*=(?!=)/gm)].map((m) => m[0].trim());
+  assert.deepEqual(writes.map((w) => (/^let /.test(w) ? "decl" : "set")), ["decl", "set"],
+    "expected the declaration and `setMobileOs` to be the only writers, found: " + JSON.stringify(writes));
+  // And the card's switch really goes through it rather than assigning its own.
+  const at = c.indexOf("  view.querySelectorAll('.st-app-osbtn')");
+  const body = c.slice(at, c.indexOf("\n  });", at));
+  assert.match(body, /setMobileOs\(b\.dataset\.os\)/, "the card's switch does not use the shared writer");
+  assert.match(body, /if \(!setMobileOs\(/, "it repaints even when nothing changed");
 });

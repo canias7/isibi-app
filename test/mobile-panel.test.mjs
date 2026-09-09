@@ -1004,8 +1004,38 @@ test("the switch changes something a person can see, and the two are not one pho
     assert.ok(m, "the " + prop + " is gone from a phone's block");
     return m[1].trim();
   };
-  assert.notEqual(num(per[a].box, "aspect-ratio"), num(per[b].box, "aspect-ratio"),
+  // THE RATIO IS READ OFF THE SHARED TOKEN BLOCK NOW — re-anchored 2026-09-09,
+  // not appeased. It used to sit in each device block beside the radius, and the
+  // start screen's card tile started drawing these same two phones, so it moved
+  // into `[data-os="…"] { --os-ratio }` which BOTH components read: a phone's
+  // ratio is scale-free, so a second copy would be two lists of the same thing.
+  // THE PROPERTY IS EXACTLY WHAT IT WAS — the two phones are not one shape — and
+  // it is asserted from wherever the number lives.
+  const CSS_ALL = CSS_BARE;
+  const tok = {};
+  for (const m of CSS_ALL.matchAll(/^\[data-os="([a-z]+)"\] \{\s*--os-ratio:\s*([^;}]+)/gm)) {
+    tok[m[1]] = m[2].trim();
+  }
+  assert.deepEqual(Object.keys(tok).sort(), oses().slice().sort(),
+    "the shared ratio block does not declare exactly the phones the module lists: " + JSON.stringify(tok));
+  assert.notEqual(tok[a], tok[b],
     "both phones are the same shape — the switch changes nothing");
+  // AND THE DEVICE READS IT rather than spelling one, or the token is inert and
+  // both phones fall back to the base shape.
+  // ANCHORED AT THE START OF A LINE. `.st-mob-device {` also ends
+  // `.st-mob-one .st-mob-device {` eighteen lines above the real rule, so a bare
+  // find reads a DESCENDANT rule and reports the device as having no ratio —
+  // the recorded ambiguous-landmark trap, which this repository already hit in
+  // this exact selector on 2026-09-09.
+  const devStarts = [...CSS_ALL.matchAll(/^\.st-mob-device \{/gm)];
+  assert.equal(devStarts.length, 1, "expected one `.st-mob-device {` rule, found " + devStarts.length);
+  const devBody = CSS_ALL.slice(devStarts[0].index, CSS_ALL.indexOf("}", devStarts[0].index));
+  assert.match(devBody, /aspect-ratio:\s*var\(--os-ratio\s*,/,
+    "the panel's phone no longer reads the shared ratio");
+  for (const os of oses()) {
+    assert.ok(!/aspect-ratio/.test(per[os].box),
+      "the " + os + " device block spells its own ratio again — that is the second copy this moved to remove");
+  }
   assert.notEqual(num(per[a].box, "border-radius"), num(per[b].box, "border-radius"),
     "both phones have the same corners");
   assert.notEqual(per[a].mark.trim(), per[b].mark.trim(),
@@ -1225,7 +1255,12 @@ test("the phone is bounded on both axes, so it can never overflow its column", (
   assert.match(dev, /width:\s*auto/, "the width no longer follows the ratio");
   assert.match(dev, /max-width:\s*100%/, "nothing walls the width — a very tall window would push it out sideways");
   assert.ok(!/max-height:\s*100%/.test(dev), "the height cap is back, and it is what made both phones the same box");
-  assert.match(dev, /aspect-ratio:\s*390\s*\/\s*844/, "the base frame is no longer phone-shaped");
+  // RE-ANCHORED 2026-09-09: the base ratio is the FALLBACK of the shared
+  // `--os-ratio` now, because the start screen's tile draws these same phones
+  // and one scale-free number may not be written twice. The property is
+  // unchanged — with no phone chosen the frame is still handset-shaped.
+  assert.match(dev, /aspect-ratio:\s*var\(--os-ratio,\s*390\s*\/\s*844\)/,
+    "the base frame is no longer phone-shaped, or stopped reading the shared ratio");
   assert.match(dev, /position:\s*relative/, "the camera mark has nothing to position against");
 
   // The bezel takes the palette's own darkest lead, never a literal: this app is

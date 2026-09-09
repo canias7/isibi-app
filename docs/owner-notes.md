@@ -214,6 +214,56 @@ rather than quietly becoming the new normal.
 
 ---
 
+## 2026-09-09 — An Apple/Android switch on each card's phone
+
+You asked for *"a swictch to swtitch from apple to andorid, just as a perview
+thing"* where the phone sits. I built it, drew two placements into the real
+screen, and you picked **A** — the switch under the phone.
+
+**Two little logos, no words, and that was measured rather than chosen.** The
+phone on a card is **74.5 pixels wide** when three fit across. The switch in the
+workspace panel — the one with "iPhone" and "Android" written out — needs 248
+pixels. So the words don't fit, and the names live in the tooltip and in what a
+screen reader announces instead.
+
+**It changes something real.** Press the apple and the phone gets rounder corners
+and the wide pill notch; press the robot and it gets squarer corners and a small
+punch-hole, and stands a few pixels taller. That mattered more than it sounds: a
+switch whose two halves look identical is a dead control, and this project has
+now caught that six times in its own screens.
+
+**One choice for the whole screen, not one per card.** Press it on any card and
+every phone changes, and the workspace opens on the phone you last picked. The
+reasoning: no site has a mobile app yet, so there is nothing about *this* site
+that would make its phone different from the next one's. If you'd rather each
+card remembered its own, say — it's a small change.
+
+**It costs the card 9 pixels of height** (219 → 229), because the tile gains a
+row and the card grows to match it. The other placement I showed you — the switch
+inside the phone — cost nothing, which is why I measured both and put the number
+in front of you rather than picking for you.
+
+**And the phone's shape is now written down once instead of twice.** Two parts of
+the app draw these phones — the card and the workspace panel — so I made them
+read one definition. Otherwise they drift, and you end up with a card showing a
+different iPhone from the panel showing an iPhone.
+
+**One honest note about my own checking.** After the mutation tests I ran a quick
+search of my own to confirm nothing was left behind, and it reported fifteen
+problems — none of which were real. The search was simply wrong: a test that
+deletes a line leaves text that still *looks* present. I checked properly against
+git, which showed the files untouched. Worth writing down because this project
+has a rule about exactly this — a check that flags correct code is worse than no
+check — and I broke it with my own thirty-second script.
+
+31 guard tests on this screen now, up from 24. 184 mutation tests across five
+sets, all 184 caught, nothing slipping through on the first pass.
+
+**Not on the live site yet.** When it is: hard refresh, then look for two small
+marks under each phone.
+
+---
+
 ## 2026-09-09 — Two wires from the database to the site and the app
 
 You asked for *"TWO WIRES COMING FROM THE STABASE, ONE THAT GOES TO THE SITE AND
