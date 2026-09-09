@@ -2175,6 +2175,29 @@ site at all.
   panel's own background, which it names. Fixing the comment instead would have
   left the guard ready to false-alarm on the next comment that quotes a rule.
   Full suite **5,688**.
+- **MERGED AND DEPLOYED (owner, 2026-09-09: *"merge it"*).** Main fast-forwarded
+  `ef7a5063` → `d23069c8` at 04:53Z — one commit, main having nothing of its own.
+  **Deploy run 2056 green in 44 SECONDS**, the shortest this repository has
+  measured and the reused-image shape at its cleanest: the gate set in 1 s; the
+  image step **1 second**, both images `reused` on a registry 200, so **NO
+  container roll and no 15–20 minute hold**; the drain found no live leases and
+  returned in the same second; Wrangler 21 s uploading `/styles.css` and
+  `/chat.js`; the gate left to expire on success. `unit tests` run 2358 green.
+  **The served bytes are the tree's, byte for byte** (sha256 of both files off
+  gofarther.dev equal to `public/`), and read back off the served stylesheet:
+  `.st-mob` carries `position: absolute` with all three edges pinned, the
+  composited `linear-gradient(var(--panel-2), var(--panel-2)), var(--paper)`
+  ground and the left-leaning shadow; the open tab's offset is `right:
+  var(--mob-w, …)` with no gap term; and the squares-up rule is **absent** — zero
+  occurrences, which is the deletion proven on the deployed file rather than in
+  the diff.
+  **AND `build smoke` SKIPPED**, as it must: a fast-forward writes no merge
+  commit, so the message is this change's own, and it does not carry the smoke
+  opt-in marker. `frame policy` and `payments smoke` green, both free. **And all
+  three probe workflows passed together** — `build flight` 317, `gen probe` 314,
+  `container reach` 325 — which is worth recording against task #120: the
+  magic-link race is a race, so a green trio is one draw of the dice and not
+  evidence the cause is gone.
 - **Not proven live.** `public/` only — no container roll, no 15–20 minute hold.
   The proof is one drag: open a site, pull the tab left, and the site behind the
   panel should stay exactly the size it was, with the panel floating over it and

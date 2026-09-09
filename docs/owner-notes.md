@@ -5524,9 +5524,21 @@ the site inside redraw itself.
    address bar showing straight through the panel's heading. Fixed — same
    colour, just solid now.
 
-**Not live yet.** Browser files only, so nothing rebuilds and there's no waiting
-after a deploy. The proof is one drag: open a site, pull the handle left, and the
-site behind should stay exactly the size it was. Pictures in `docs/edits/`:
+**Merged and deployed** (you said "merge it"). Main moved straight onto it at
+04:53Z and the deploy was green in **44 seconds** — the fastest one this project
+has had. Nothing rebuilt: the container image was reused, so there's no waiting
+period before you can use it. I checked the two files that actually went out
+against what's in the repository and they're identical, and I read the new rules
+back off the live stylesheet rather than trusting the diff — the panel floats,
+the handle sits flush, and the old rule that squared the handle off is gone.
+
+Nothing paid ran, which is how it should be: a straight fast-forward writes no
+merge message, so the message on the commit is my own and it doesn't ask for the
+paid checks.
+
+**Not proven live yet** — that part is you. The proof is one drag: open a site,
+pull the handle left, and the site behind should stay exactly the size it was.
+Pictures in `docs/edits/`:
 `mobile-overlay-open.png`, `mobile-overlay-wide.png`, and
 `mobile-overlay-before-wide.png` for what it replaced.
 
