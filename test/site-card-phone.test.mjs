@@ -443,6 +443,18 @@ test("the pair keeps a row for it, and the card still stretches", () => {
   // was doing for free while the pair had one row.
   assert.match(rows[1].trim(), /^auto\s+1fr$/,
     "row 2 must absorb the pair's spare height, or a short card stops stretching");
+  // AND THE DATABASE SITS CLEAR OF THE CARD. The owner has asked for that
+  // distance twice ("a bit more higher up", then "a BIT HIGHER"), and this row
+  // gap is the ONLY thing that can give it: row 1 starts at the pair's own top
+  // edge, so the icon is already as high as it can go and "higher" can only mean
+  // more air below it. The AMOUNT is deliberately not pinned — the same reason
+  // the grid's own row gap is not, since the owner tunes it and a tuning must
+  // never be a test edit — so this asserts the property that survives every
+  // tuning: there IS a gap. Delete the declaration and the icon sits flush on
+  // the card, which no other assertion here would notice.
+  const rowGap = /row-gap:\s*([\d.]+)rem/.exec(pair);
+  assert.ok(rowGap && Number(rowGap[1]) > 0,
+    "the pair declares no row gap, so the database sits flush on the card");
 });
 
 test("the database control is WIRED wherever it sits", () => {

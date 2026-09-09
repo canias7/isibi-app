@@ -1615,10 +1615,21 @@ half. MEASURED on the real tree at 1920, 1512, 1100 and 700: pair 349, site
 
 - **JUST THE ICON, AND THE 50% IS STILL REAL.** Three treatments were rendered —
   a pill of the card's own family, a tab sitting on the card, and the bare glyph
-  — and the owner picked the third, then asked for it higher. So there is no
-  box and no label; the half-width is the HIT AREA, which is what makes a
-  17px glyph easy to press without drawing a frame around it. Raised by the
-  pair's own row gap (`.5rem` → `1.25rem`), measured 8px → 20px above the card.
+  — and the owner picked the third, then asked for it higher twice. So there is
+  no box and no label; the half-width is the HIT AREA, which is what makes a
+  17px glyph easy to press without drawing a frame around it.
+- **AND THE ROW GAP IS THE ONLY THING THAT CAN RAISE IT — a property of the
+  layout, not a preference.** Row 1 starts at the pair's OWN top edge, so the
+  icon is already as high as it can go inside the pair; "higher" can only mean
+  more air between it and the card. `.5rem` → `1.25rem` → `1.75rem` across two
+  *"a bit higher"* asks, MEASURED at 8px, 20px and **28px** above the card, and
+  the second raise moved nothing else: card 258/383/480 at the three column
+  counts, phone within a pixel of its thumbnail, database still exactly 50.0% and
+  centred to the pixel, the grid's own row gap still 104px, no page overflow.
+  **The AMOUNT is deliberately unguarded** — the grid row gap's own rule, for its
+  reason: the owner tunes it and a tuning must never be a test edit. What IS
+  guarded is that a gap exists, since deleting the declaration sits the icon
+  flush on the card and no other assertion here would notice.
 - **`grid-template-rows: auto 1fr`, AND THE SECOND HALF IS LOAD-BEARING.**
   `auto auto` reads correctly and leaves a short card floating in a tall grid
   row — the cards stretch to the tallest in their row, and a row sized to its

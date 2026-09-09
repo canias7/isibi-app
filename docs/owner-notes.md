@@ -161,9 +161,17 @@ off — and **20 pixels clear** of the top of the card.
 
 **Just the icon.** I drew three versions first — a rounded pill matching the
 card, a little tab sitting on top of the card, and the bare icon — and you picked
-the bare one, then asked for it higher. So there is no box and no word next to
-it. The half-width is still doing something, though: it is the area you can
-click, so a small icon is easy to hit without a box drawn round it.
+the bare one, then asked for it higher twice. It sits **28 pixels** above the
+card now (it was 8, then 20). So there is no box and no word next to it. The
+half-width is still doing something, though: it is the area you can click, so a
+small icon is easy to hit without a box drawn round it.
+
+**Nothing else moved when I raised it**, and I measured that rather than assuming
+it: the card is still 258 pixels wide, the phone still exactly as tall as the
+site picture, the icon still dead centre at half the width, and the space between
+the rows is unchanged. Worth knowing why: the icon is already sitting at the very
+top of its own block, so the only way to put it "higher" is to add space between
+it and the card — which is one number, and it touches nothing else.
 
 **Both states came with it.** A site with a database gets the normal icon and
 opens your Data view. A site without one keeps the icon, dimmed, and hovering it

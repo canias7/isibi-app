@@ -1526,8 +1526,16 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    would leave a short card floating in a tall row. The two axes are named
    separately here for the same reason they are on `.st-grid`: `row-gap:`
    contains `gap:`, and the card-width check reads the COLUMN gap out of this
-   rule. */
-.st-pair { display: grid; grid-template-columns: 1fr .2888fr; grid-template-rows: auto 1fr; column-gap: 1.05rem; row-gap: 1.25rem; align-items: stretch; }
+   rule.
+   THE ROW GAP IS THE ONE THING THAT CAN RAISE THE DATABASE, and that is a
+   property of the layout rather than a preference: row 1 starts at the pair's
+   own top edge, so the icon is ALREADY as high as it can go inside the pair —
+   "higher" can only mean more air between it and the card, which is this
+   number. .5rem when it shipped, then 1.25, and 1.75rem on a second "a bit
+   higher": measured 8px, 20px and 28px above the card. It moves NOTHING else —
+   not the card's width, not the phone, not the columns, not the space between
+   the rows of the grid. */
+.st-pair { display: grid; grid-template-columns: 1fr .2888fr; grid-template-rows: auto 1fr; column-gap: 1.05rem; row-gap: 1.75rem; align-items: stretch; }
 /* THE DATABASE IS HALF THE PAIR AND CENTRED OVER BOTH OF THEM (owner: "the
    width of the site and the mobile app together is 100 … the database has to be
    50 … outside the square but in the middle on top of each of them"). Spanning
