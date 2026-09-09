@@ -381,14 +381,21 @@ test("either side saying there is a database is a yes", () => {
     + "the merge would say yes for every site and the control would never dim");
 });
 
-/** The real `cardActs`, evaluated out of chat.js — it cannot be imported. */
-function loadCardActs() {
+/**
+ * A real card function, evaluated out of chat.js — none of them can be imported.
+ *
+ * ONE LOADER FOR BOTH, because they need the identical bare scope (`ST_ICONS`,
+ * `esc`, `ic`) and two copies would drift the first time one of them reaches a
+ * new free identifier — the recorded free-identifier trap, which this file's own
+ * harnesses have hit before.
+ */
+function loadCardFn(name) {
   const chat = read("../public/chat.js");
-  const cut = (name) => {
-    const at = chat.indexOf("function " + name + "(");
-    assert.ok(at > 0, name + " is gone from chat.js");
+  const cut = (fn) => {
+    const at = chat.indexOf("function " + fn + "(");
+    assert.ok(at > 0, fn + " is gone from chat.js");
     const end = chat.indexOf("\n}", at);
-    assert.ok(end > at, name + " has no end");
+    assert.ok(end > at, fn + " has no end");
     return chat.slice(at, end + 2);
   };
   const iAt = chat.indexOf("const ST_ICONS = {");
@@ -396,8 +403,10 @@ function loadCardActs() {
   const iEnd = chat.indexOf("\n};", iAt);
   assert.ok(iEnd > iAt, "the icon table has no end");
   return new Function(chat.slice(iAt, iEnd + 3) + "\n" + cut("esc") + "\n" + cut("ic")
-    + "\n" + cut("cardActs") + "\nreturn cardActs;")();
+    + "\n" + cut(name) + "\nreturn " + name + ";")();
 }
+const loadCardActs = () => loadCardFn("cardActs");
+const loadDbIcon = () => loadCardFn("siteDbIcon");
 
 /**
  * ONE BUTTON, CUT BY ITS OWN TAGS.
@@ -423,10 +432,11 @@ function btn(html, act) {
 test("DRIVEN: one button per thing, each named on the element", () => {
   const cardActs = loadCardActs();
   const html = cardActs({ id: "s1", react: true, backend: true, url: "https://x.gofarther.app/" });
-  // TWO SINCE 2026-09-09 — the mobile-app icon came off when the phone moved
-  // beside the card. Everything below is derived from this list, so a third act
-  // is one edit here rather than several numbers that can disagree.
-  const ACTS = ["data", "live"];
+  // ONE, SINCE 2026-09-09 — and the count has moved twice, so it is DERIVED
+  // from the list rather than typed. The mobile-app icon came off when the
+  // phone moved beside the card; the database came off when it moved ABOVE the
+  // pair. What is left on the meta row is the live-site button.
+  const ACTS = ["live"];
   for (const act of ACTS) {
     assert.equal((html.match(new RegExp('data-act="' + act + '"', "g")) || []).length, 1,
       "exactly one " + act + " button");
@@ -434,12 +444,17 @@ test("DRIVEN: one button per thing, each named on the element", () => {
   assert.equal((html.match(/<button/g) || []).length, ACTS.length, "and no others");
   // ONE SET, drawn through the app's own icon helper rather than pasted: a
   // hand-written <svg> here would drift from the 1.85 stroke every other glyph
-  // in the chrome uses, and the pair would read as imported.
+  // in the chrome uses, and it would read as imported.
   assert.equal((html.match(/class="st-svg"/g) || []).length, ACTS.length);
   assert.equal((html.match(/stroke-width="1\.85"/g) || []).length, ACTS.length);
-  // Both are live on a published site with a database — asserted here so the
-  // disabled-state cases below have a demonstrably awake observer.
+  // Live on a published site with a database — asserted here so the disabled
+  // cases below have a demonstrably awake observer.
   for (const act of ACTS) assert.ok(!/ disabled/.test(btn(html, act)), "the " + act + " button is live");
+  // AND THE DATABASE IS SOMEWHERE, not simply gone. Without this the case
+  // passes on a tree where the control was deleted rather than moved, which is
+  // the difference between a decision and a regression.
+  assert.match(read("../public/chat.js"), /function siteDbIcon\(/,
+    "the database control left the card and nothing else draws it");
 });
 
 test("DRIVEN: the mobile app moved off the card, and still says it does not exist", () => {
@@ -461,7 +476,7 @@ test("DRIVEN: the mobile app moved off the card, and still says it does not exis
     assert.ok(!/phone/.test(html), "the card draws a mobile-app control again");
     // THE OBSERVER IS AWAKE: this same read still finds the acts that stayed,
     // so the absence above is an absence rather than an empty string.
-    assert.ok(/data-act="data"/.test(html) && /data-act="live"/.test(html),
+    assert.ok(/data-act="live"/.test(html),
       "the card draws no actions at all — re-anchor this");
   }
   // AND THE SENTENCE SURVIVED THE MOVE. Without this line the case passes on a
@@ -488,18 +503,21 @@ test("a disabled card action LOOKS disabled", () => {
   assert.ok(/\.st-card-act\s*\{/.test(css), "the base rule is gone — re-anchor this");
 });
 
-test("DRIVEN: a site with no database keeps the button and says why", () => {
-  const cardActs = loadCardActs();
-  const html = cardActs({ id: "s1", react: true, backend: false, url: "https://x/" });
-  const dataBtn = btn(html, "data");
+test("DRIVEN: a site with no database keeps the control and says why", () => {
+  // THE CONTROL MOVED ABOVE THE PAIR ON 2026-09-09 and this case moved with it,
+  // because the property was never "the card draws a data button" — it is that
+  // a site with no database still gets the control, dimmed, saying what to do.
+  // A first build provisions none, so that is the ORDINARY card.
+  // `test/site-card-phone.test.mjs` drives where it now sits; this drives what
+  // it says, which is what this file has always been about.
+  const dataBtn = loadDbIcon()({ id: "s1", react: true, backend: false, url: "https://x/" });
   assert.ok(/ disabled/.test(dataBtn), "a site with no database must not offer a live data button");
   // HIDING IT IS HOW A CUSTOMER NEVER LEARNS THE FEATURE IS THERE TO ASK FOR.
   assert.match(dataBtn, /No database yet/, "the tooltip says what to do about it");
-  // The live-site button beside it is unaffected — and this read USED to window
-  // from `live` to `phone`, so when the phone came off it became `slice(n, -1)`,
-  // still contained the right button, and passed for the wrong reason. It is cut
-  // from its own tags now and cannot be fooled by a neighbour going.
-  assert.ok(!/ disabled/.test(btn(html, "live")), "the live-site button beside it is unaffected");
+  // The live-site button ON the card is unaffected — the observer is awake, and
+  // it is cut from its own tags rather than windowed to a neighbour that may go.
+  const card = loadCardActs()({ id: "s1", react: true, backend: false, url: "https://x/" });
+  assert.ok(!/ disabled/.test(btn(card, "live")), "the live-site button is unaffected");
 });
 
 test("DRIVEN: an unpublished site cannot be opened, and says so", () => {
@@ -513,8 +531,10 @@ test("DRIVEN: an unpublished site cannot be opened, and says so", () => {
   const live = btn(html, "live");
   assert.ok(/ disabled/.test(live), "there is no address to open");
   assert.match(live, /Not published yet/);
-  // And the data button beside it is untouched — the observer is alive.
-  assert.ok(!/ disabled/.test(btn(html, "data")));
+  // And the observer is alive: the same read finds the button it is reading,
+  // with its own tooltip. (The data button used to be the witness here; it left
+  // the card on 2026-09-09, so this leans on the one act that stayed.)
+  assert.match(live, /title="/, "the live-site button has no tooltip — re-anchor this");
 });
 
 test("DRIVEN: the id is escaped into the attribute, never concatenated raw", () => {
@@ -526,8 +546,17 @@ test("DRIVEN: the id is escaped into the attribute, never concatenated raw", () 
 
 test("each button that ACTS goes somewhere that exists, and nothing else acts", () => {
   const c = blankComments(read("../public/chat.js"));
-  const at = c.indexOf("view.querySelectorAll('.st-card-act')");
-  assert.ok(at > 0, "the handlers are gone");
+  // SELECTED BY `data-sid`, NOT BY A CLASS — and that is the property, not a
+  // spelling. When the database moved off the card on 2026-09-09 it stopped
+  // being a `.st-card-act`, and a class selector would have left it drawn and
+  // dead: the wiring trap, which this screen has already shipped once. The
+  // handler reads `b.dataset.sid` and `b.dataset.act`, so selecting on the
+  // attribute it reads wires any card control that names a site, wherever it
+  // sits. Asserted here so a narrowing back to a class fails.
+  const at = c.indexOf("view.querySelectorAll('[data-sid]')");
+  assert.ok(at > 0,
+    "the card controls are selected by something other than `data-sid` — a control "
+    + "that moves out of the card would be drawn and never wired");
   const body = c.slice(at, c.indexOf("view.querySelectorAll('[data-del]')", at));
   assert.ok(body.length > 200 && body.length < 1400, "the handler block was not found whole");
   // ADOPTED FIRST, like the open and the delete: a card the server listed and

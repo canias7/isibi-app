@@ -1597,6 +1597,92 @@ correction is a property a guard now holds.
   **And `chat.js` is ~932 KB and cached**, so a hard refresh is part of a
   `public/` fix reaching anybody, as the Code pane's entry records.
 
+### AND THE DATABASE SITS ABOVE THE PAIR (2026-09-09, owner: *"the database thing
+on top of the card but in the middle … the width of the site and the mobile app
+together is 100 , but the size of the site is 70 and the mobile app 30 , the
+database has to be 50 , and make sure is outside the square but in the middle on
+top of each of them"* → *"just the icon ,"* → *"but just the icon without the box
+is in , and a bit more higher up"*)
+
+The database control came off the card's meta row and became a third thing in
+the pair, above both halves. **The owner gave the geometry as arithmetic and it
+is implemented as arithmetic**: `grid-column: 1 / -1` spans both columns —
+which is what makes "the middle" the middle of the PAIR rather than of the card
+— and `width: 50%` is the owner's own number, of the pair rather than of either
+half. MEASURED on the real tree at 1920, 1512, 1100 and 700: pair 349, site
+**73.9%**, phone **21.3%**, database **exactly 50.0%**, centre offset **0px**,
+**20px** clear of the card, at every width.
+
+- **JUST THE ICON, AND THE 50% IS STILL REAL.** Three treatments were rendered —
+  a pill of the card's own family, a tab sitting on the card, and the bare glyph
+  — and the owner picked the third, then asked for it higher. So there is no
+  box and no label; the half-width is the HIT AREA, which is what makes a
+  17px glyph easy to press without drawing a frame around it. Raised by the
+  pair's own row gap (`.5rem` → `1.25rem`), measured 8px → 20px above the card.
+- **`grid-template-rows: auto 1fr`, AND THE SECOND HALF IS LOAD-BEARING.**
+  `auto auto` reads correctly and leaves a short card floating in a tall grid
+  row — the cards stretch to the tallest in their row, and a row sized to its
+  content stops them. The guard pins the `1fr`; the mutant that makes it `auto`
+  is killed.
+- **THE HANDLER SELECTS ON `data-sid` NOW, NOT ON A CLASS — and that is the
+  wiring trap answered before it fired.** The card's controls were bound with
+  `view.querySelectorAll('.st-card-act')`; the moment this control moved out of
+  the card it stopped being one, and a class selector would have left it drawn,
+  hoverable, correctly tooltipped and **dead**. `data-sid` is the attribute the
+  handler itself reads (`cardEntry(b.dataset.sid)`), it is on exactly these
+  controls, and `CLICK_ACTIONS` carries no `data` or `live` key so the global
+  delegated binder never doubles up on them. So any card control that NAMES a
+  site is wired wherever it sits. A guard drives the wiring rather than reading
+  it; a mutant that puts the class selector back is killed.
+- **BOTH STATES CAME WITH IT UNCHANGED.** A first build provisions no database,
+  so *"No database yet — ask for one in the chat"* is the ORDINARY card, and the
+  control stays visible and says what to do about it — the 2026-09-07 rule, kept
+  verbatim rather than re-argued.
+- **Guards**: `test/site-card-phone.test.mjs` 15 → **21** — `siteDbIcon`
+  EVALUATED out of chat.js and driven for both states (the glyph through `ic`, no
+  label, a hostile id escaped); drawn above the pair exactly once, with the call
+  site COUNTED and its position inside `.st-pair` derived; the geometry read as
+  the three declarations that produce it (`grid-column: 1 / -1`, `justify-self:
+  center`, `width: 50%`) with `border: 0` and `background: none` asserted so the
+  box cannot come back; the pair's `auto 1fr`; and the wiring read at its
+  selector with `.st-card-act` forbidden there.
+  **Five older cases in `test/site-list.test.mjs` were re-anchored, not
+  appeased**, each naming the spelling that moved: "one button per thing" derives
+  from `ACTS = ["live"]` now and asserts `siteDbIcon` exists ELSEWHERE (so the
+  control is proved to have moved rather than gone); "a site with no database
+  keeps the control" drives `siteDbIcon` instead of `cardActs`; and the
+  handler-reachability case anchors on `[data-sid]`. One shared loader
+  (`loadCardFn`) serves both functions, since two copies of the eval harness is
+  the recorded "two lists of the same thing".
+- **Sweep: 43 mutants, 43 killed, none survived, none unapplied, two comment-only
+  controls survived — ONE survived the first pass and it repeats a finding this
+  file already carries.** `.st-db:disabled { opacity: .38 }` deleted: every
+  markup assertion stayed green, because `disabled` is on the element and the
+  guards all read the element. **A control that is inert and does not LOOK inert
+  is the `.st-card-act:disabled` finding of 2026-09-07, one control over**, and
+  it survived here for exactly the reason it survived there — a dimming rule is
+  invisible to a markup check. Guarded (the rule read out of the stylesheet, with
+  the base rule asserted alive so the check cannot pass on a deleted selector)
+  and re-run to a kill. **Three of the earlier sweep's anchors had gone stale**
+  (the pair's own declaration and the card-markup line this change edits);
+  "never applied" reads exactly like a kill in a summary and proves nothing, so
+  each was re-pointed at the property it always held and the whole set re-run.
+  The killed ones: the control gone (the state before this), left on the card,
+  drawn twice, drawn outside the pair, not spanning both columns (so "the middle"
+  becomes the card's middle), not centred, sized to a half rather than to the
+  pair, wearing a box or a ground again, growing a label, losing either state or
+  either sentence, the id unescaped, the glyph off `ic`, the row `auto auto`, the
+  row gap back to the columns', the handler back on the class (the trap itself),
+  and the dimming above.
+  Full suite **5,709**.
+- **Not proven live.** The push touches `public/`, `test/` and `docs/` only — no
+  container roll, no 15–20 minute hold. The proof is one look at the signed-in
+  start screen: a database icon floating above each pair, centred over the site
+  and its phone, dim on a site that has no database and opening the Data view on
+  one that does. Renders: `docs/edits/site-cards-phone.png` and `-2across.png`,
+  refreshed for this. **And `chat.js` is cached**, so a hard refresh is part of
+  it reaching anybody.
+
 ### A MOBILE APP COLUMN YOU OPEN AND CLOSE (2026-09-08, owner: *"i want to make
 a column in the right hand side"* → *"Is for mobile app"* → *"in a sidebar not
 free like that"* → *"something you open and close, not just something there"*)
@@ -7819,8 +7905,22 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,703
-  (2026-09-09, after the mobile app moved beside the site card on the start
+  build and the pre-list payload added sixteen); the unit suite is 5,709
+  (2026-09-09, after the database control moved off the card and above the pair
+  — six more in `test/site-card-phone.test.mjs`: `siteDbIcon` EVALUATED out of
+  chat.js and driven for both its states, drawn above the pair exactly once with
+  its call site COUNTED and its position derived, the owner's own geometry read
+  as the three declarations that produce it with the box forbidden, the pair's
+  `auto 1fr` so a short card cannot float in a tall row, and the control asserted
+  WIRED at the handler's `[data-sid]` selector with `.st-card-act` forbidden
+  there — which is the wiring trap answered before it fired, since a control that
+  leaves the card stops being that class. Five older cases in
+  `test/site-list.test.mjs` re-anchored, one of them inverted to prove the
+  control MOVED rather than went. And the sweep's one first-pass survivor was the
+  disabled control's dimming, which is the `.st-card-act:disabled` finding of two
+  days earlier one control over: a dimming rule is invisible to every markup
+  check;
+  before it 5,703, after the mobile app moved beside the site card on the start
   screen — fifteen in `test/site-card-phone.test.mjs`: the tile EVALUATED out
   of chat.js and driven for its two sentences, its inertness and its
   indifference to the site it is never handed; its one call site COUNTED,

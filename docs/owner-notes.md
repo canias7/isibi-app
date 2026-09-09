@@ -146,6 +146,55 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-09 — The database icon sits above the pair now
+
+You said: *"the database thing on top of the card but in the middle … the width
+of the site and the mobile app together is 100, but the size of the site is 70
+and the mobile app 30, the database has to be 50, and make sure is outside the
+square but in the middle on top of each of them."* Then *"just the icon"*, and
+then *"just the icon without the box is in, and a bit more higher up."*
+
+**All of it is in, and your numbers are the numbers.** I measured it at four
+window sizes and it comes out the same every time: the site is 73.9% of the pair,
+the phone 21.3%, and the database is **exactly 50%**, dead centre — nought pixels
+off — and **20 pixels clear** of the top of the card.
+
+**Just the icon.** I drew three versions first — a rounded pill matching the
+card, a little tab sitting on top of the card, and the bare icon — and you picked
+the bare one, then asked for it higher. So there is no box and no word next to
+it. The half-width is still doing something, though: it is the area you can
+click, so a small icon is easy to hit without a box drawn round it.
+
+**Both states came with it.** A site with a database gets the normal icon and
+opens your Data view. A site without one keeps the icon, dimmed, and hovering it
+says *"No database yet — ask for one in the chat"*. Most sites are that second
+one — a first build doesn't make a database — so the greyed icon is the ordinary
+card, and it is how you'd ever find out you can ask for one.
+
+**One thing I nearly shipped broken, and it is worth knowing because this project
+has done it before.** The buttons on a card are wired up by finding everything
+with the card's own class name. The moment the database icon moved *off* the
+card, it stopped being that class — so it would have been drawn, hoverable, with
+the right tooltip, and **completely dead when you pressed it**. Nothing would
+have failed, nothing would have logged. It is now wired by "anything that names
+a site", which is what the click handler actually reads, so any control on a card
+works wherever it ends up sitting. There is a test that presses it.
+
+**And one real gap the mutation sweep found.** I deleted the rule that dims a
+disabled database icon, and every test still passed — because they all check the
+markup, and "disabled" is in the markup. The icon would have been inert while
+looking perfectly live. That is the same thing that got past us two days ago on
+the card's own icons, one control over. Guarded now.
+
+43 mutation tests, all 43 caught. Full suite 5,709, all green.
+
+**Not on the live site yet.** When it is: hard refresh, and you should see a
+small database icon floating above each pair, centred over the site and its
+phone, dim on the sites that have no database. Pictures:
+`docs/edits/site-cards-phone.png` and `site-cards-phone-2across.png`.
+
+---
+
 ## 2026-09-09 — The mobile app sits next to each site on the start screen
 
 You asked for three across instead of four, with the site in one square and the
@@ -198,7 +247,10 @@ phone icon went, that stretch became "to the end", which happened to still
 contain the right thing. It passed while reading something else entirely. Fixed
 so it reads each button on its own.
 
-26 mutation tests, all 26 caught. Full suite 5,702, all green.
+30 mutation tests, all 30 caught. Full suite 5,703, all green. (This entry said
+26 and 5,702 when I first wrote it, which was true then — the extra four and the
+extra one came with the row-spacing work further down, which is part of the same
+entry. Corrected here rather than left to drift.)
 
 **Merged and deployed** (you said "merge it"). Main moved straight onto it at
 06:48Z and the deploy was green in **58 seconds** — nothing rebuilt, no

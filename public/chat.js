@@ -10441,14 +10441,31 @@ function switchSitePage(path) {
 // that lands on Preview without explanation: a first build provisions none, so
 // this is the ordinary case and not an edge, and the tooltip is the only place
 // a customer would ever learn the feature is there to ask for.
+// THE DATABASE SITS ABOVE THE PAIR, NOT ON THE CARD (owner, 2026-09-09: "the
+// database thing on top of the card but in the middle … the width of the site
+// and the mobile app together is 100 … the database has to be 50 … outside the
+// square but in the middle on top of each of them").
+//
+// It is centred over BOTH the site and the phone and is half the pair's width,
+// which is arithmetic the stylesheet does — this only draws the control. JUST
+// THE ICON, no box and no label: the owner looked at a pill and a labelled bar
+// and picked the bare glyph.
+//
+// ITS TWO STATES COME WITH IT UNCHANGED. A first build provisions no database,
+// so "no database yet" is the ORDINARY card, and the control stays visible and
+// says what to do about it — hiding it is how a customer never learns the
+// feature is there to ask for.
+function siteDbIcon(s) {
+  const hasDb = !!(s.react && s.backend);
+  return '<button type="button" class="st-db" data-act="data" data-sid="' + esc(s.id) + '"' +
+    (hasDb ? '' : ' disabled') +
+    ' title="' + (hasDb ? 'Data' : 'No database yet — ask for one in the chat') + '"' +
+    ' aria-label="' + (hasDb ? 'Open this site’s data' : 'This site has no database yet') + '">' +
+    ic('database', 17) + '</button>';
+}
 function cardActs(s) {
   const id = esc(s.id);
-  const hasDb = !!(s.react && s.backend);
   return '<div class="st-card-acts">' +
-    '<button type="button" class="st-card-act" data-act="data" data-sid="' + id + '"' +
-      (hasDb ? '' : ' disabled') +
-      ' title="' + (hasDb ? 'Data' : 'No database yet — ask for one in the chat') + '"' +
-      ' aria-label="' + (hasDb ? 'Open this site’s data' : 'This site has no database yet') + '">' + ic('database', 15) + '</button>' +
     '<button type="button" class="st-card-act" data-act="live" data-sid="' + id + '"' +
       (s.url ? '' : ' disabled') +
       ' title="' + (s.url ? 'Open the live site' : 'Not published yet') + '"' +
@@ -10539,6 +10556,7 @@ function renderSites() {
         // arithmetic; `.st-pair` in styles.css carries the derivation.
         ? '<div class="st-grid-h">Your sites</div><div class="st-grid">' + sites.map((s) =>
             '<div class="st-pair">' +
+              siteDbIcon(s) +
               '<div class="st-card" data-open="' + esc(s.id) + '" role="button" tabindex="0">' +
                 '<div class="st-card-prev"><iframe sandbox="' + (s.react && s.url ? 'allow-scripts' : '') + '" loading="lazy" title="' + esc(s.name) + '"></iframe></div>' +
                 '<div class="st-card-meta">' +
@@ -10600,7 +10618,13 @@ function renderSites() {
   // The card's actions. Each ADOPTS first, for the same reason the open and the
   // delete do: a card the server listed and this browser has never seen has no
   // local record, and every one of these needs one to work on.
-  view.querySelectorAll('.st-card-act').forEach((b) => b.onclick = (e) => {
+  // SELECTED BY `data-sid` — "a control that names a site" — rather than by a
+  // class. When the database moved off the card on 2026-09-09 it stopped being a
+  // `.st-card-act` and a class selector would have left it drawn and dead: the
+  // wiring trap, which this screen has already shipped once. `data-sid` is on
+  // exactly these controls and is what the handler below reads, so any card
+  // control that names a site is wired wherever it sits.
+  view.querySelectorAll('[data-sid]').forEach((b) => b.onclick = (e) => {
     e.stopPropagation();
     const rec = siteAdopt(cardEntry(b.dataset.sid));
     if (!rec) return;

@@ -282,7 +282,10 @@ test("the card is still the width it was — the owner's instruction, as arithme
   // nobody reorders the declaration, and wrong silently after.
   const gridGap = /column-gap:\s*([\d.]+)rem/.exec(rule(css, ".st-grid"));
   const pairRule = rule(css, ".st-pair");
-  const pairGap = /gap:\s*([\d.]+)rem/.exec(pairRule);
+  // BY NAME here too. The pair gained a row when the database moved above it, so
+  // it sets both axes, and `row-gap:` contains `gap:` — a loose match would take
+  // whichever came first.
+  const pairGap = /column-gap:\s*([\d.]+)rem/.exec(pairRule);
   const col = /1fr\s+([\d.]+)fr/.exec(pairRule);
   assert.ok(gridGap && pairGap && col, "the grid's or the pair's spacing moved — re-anchor this");
 
@@ -331,6 +334,129 @@ test("three pairs across, and two breakpoints under it", () => {
   assert.ok(bps[0].at > bps[1].at, "the breakpoints are out of order, so the wider one never applies");
   assert.match(bps[0].cols, /repeat\(2,\s*1fr\)/, "two across on a laptop");
   assert.match(bps[1].cols, /^1fr$/, "one across on a phone");
+});
+
+// ── THE DATABASE, ABOVE THE PAIR ────────────────────────────────────────────
+//
+// Owner, 2026-09-09: "the database thing on top of the card but in the middle …
+// the width of the site and the mobile app together is 100, the site is 70 and
+// the mobile app 30, the database has to be 50 … outside the square but in the
+// middle on top of each of them" → "just the icon" → "without the box".
+
+/** The real `siteDbIcon`, evaluated out of chat.js — it cannot be imported. */
+function loadDbIcon() {
+  const chat = read("../public/chat.js");
+  const cut = (fn) => {
+    const at = chat.indexOf("function " + fn + "(");
+    assert.ok(at > 0, fn + " is gone from chat.js");
+    const end = chat.indexOf("\n}", at);
+    assert.ok(end > at, fn + " has no end");
+    return chat.slice(at, end + 2);
+  };
+  const iAt = chat.indexOf("const ST_ICONS = {");
+  const iEnd = chat.indexOf("\n};", iAt);
+  assert.ok(iAt > 0 && iEnd > iAt, "the icon table moved — re-anchor this");
+  return new Function(chat.slice(iAt, iEnd + 3) + "\n" + cut("esc") + "\n" + cut("ic")
+    + "\n" + cut("siteDbIcon") + "\nreturn siteDbIcon;")();
+}
+
+test("DRIVEN: the database control is just the icon, and keeps both its states", () => {
+  const db = loadDbIcon();
+  const on = db({ id: "s1", react: true, backend: true, url: "https://x/" });
+  const off = db({ id: "s2", react: true, backend: false, url: "https://x/" });
+
+  // JUST THE ICON. The owner was shown a pill and a labelled bar and picked the
+  // bare glyph, so a label creeping back in is a change to be made deliberately.
+  assert.ok(!/<span/.test(on), "the control grew a label again");
+  assert.ok(/class="st-svg"/.test(on) && /stroke-width="1\.85"/.test(on),
+    "drawn through the app's own icon helper, not pasted");
+  assert.equal((on.match(/<button/g) || []).length, 1, "one control, not several");
+
+  // BOTH STATES, and the disabled one SAYS WHICH KIND OF OFF IT IS — a first
+  // build provisions no database, so that is the ordinary card and hiding the
+  // control is how a customer never learns to ask for it.
+  assert.ok(!/ disabled/.test(on), "a site with a database must offer a live control");
+  assert.ok(/ disabled/.test(off), "a site with none must not");
+  assert.match(/title="([^"]*)"/.exec(off)[1], /No database yet/,
+    "the TOOLTIP says what to do about it");
+  assert.match(/aria-label="([^"]*)"/.exec(off)[1], /no database yet/i,
+    "and so does the name a screen reader announces");
+  // A hostile id is escaped into the attribute rather than concatenated raw.
+  assert.ok(!db({ id: 'x" onclick="steal()', react: true, backend: true }).includes('onclick="steal()'));
+});
+
+test("the database is drawn ABOVE the pair, exactly once", () => {
+  // THE WIRING TRAP AGAIN: cutting this one call leaves `siteDbIcon` perfect and
+  // the control off every card. And its POSITION is the owner's instruction —
+  // "on top of" — so it is asserted to come before the card opens, not merely to
+  // exist somewhere in the cell.
+  const c = blankComments(read("../public/chat.js"));
+  const at = c.indexOf("'<div class=\"st-pair\">'");
+  const to = c.indexOf(".join('')", at);
+  assert.ok(at > 0 && to > at, "the grid cell's landmarks moved — re-anchor this");
+  const cell = c.slice(at, to);
+  assert.equal((cell.match(/siteDbIcon\(s\)/g) || []).length, 1,
+    "the grid cell must call siteDbIcon exactly once");
+  assert.ok(cell.indexOf("siteDbIcon(s)") < cell.indexOf('<div class="st-card"'),
+    "the database is drawn after the card — it must come first, so it sits on top");
+  // OUTSIDE THE SQUARE: it is a child of the pair, never of the card.
+  const card = cell.indexOf('<div class="st-card"');
+  assert.ok(cell.indexOf("siteDbIcon(s)") < card, "the database is inside the card");
+});
+
+test("it is half the pair and centred over BOTH of them", () => {
+  // The owner's own arithmetic: site + phone = 100, database = 50. Spanning both
+  // columns is what makes "the middle" the middle of the PAIR rather than of the
+  // card — centred over the card alone would sit visibly left of centre.
+  const db = rule(read("../public/styles.css"), ".st-db");
+  assert.match(db, /grid-column:\s*1\s*\/\s*-1/,
+    "the control sits in one column, so its centre is that column's, not the pair's");
+  assert.match(db, /justify-self:\s*center/, "it is not centred");
+  assert.match(db, /width:\s*50%/, "it is not half the pair's width");
+  // NO BOX — the owner looked at a pill and chose the bare glyph.
+  assert.match(db, /border:\s*0/, "the box came back");
+  assert.match(db, /background:\s*none/, "the ground came back");
+});
+
+test("a database control with nothing behind it LOOKS disabled", () => {
+  // A SWEEP FOUND THIS. The markup case above proves the `disabled` attribute
+  // and the tooltip, and every one of those assertions stays green with the
+  // dimming removed — so the control would sit on a databaseless card looking
+  // exactly like a live one and doing nothing when pressed. That is this
+  // screen's own recorded finding, made once already on `.st-card-act:disabled`
+  // and repeated here because the new control is a different rule.
+  const css = read("../public/styles.css");
+  const off = rule(css, ".st-db:disabled");
+  const op = /opacity:\s*([\d.]+)/.exec(off);
+  assert.ok(op, "a disabled control must be visibly dimmed, not merely inert");
+  assert.ok(Number(op[1]) < 0.7, "dimmed enough to read as off: " + op[1]);
+  // The observer is alive: the base rule this overrides is still here.
+  assert.ok(/^\.st-db \{/m.test(css), "the base rule is gone — re-anchor this");
+});
+
+test("the pair keeps a row for it, and the card still stretches", () => {
+  const pair = rule(read("../public/styles.css"), ".st-pair");
+  const rows = /grid-template-rows:\s*([^;]+)/.exec(pair);
+  assert.ok(rows, "the pair has no row track for the database");
+  // ROW 2 IS `1fr`, DELIBERATELY: `auto auto` leaves a short card floating in a
+  // grid row sized by a taller neighbour, which is what `align-items: stretch`
+  // was doing for free while the pair had one row.
+  assert.match(rows[1].trim(), /^auto\s+1fr$/,
+    "row 2 must absorb the pair's spare height, or a short card stops stretching");
+});
+
+test("the database control is WIRED wherever it sits", () => {
+  // It is no longer a `.st-card-act`, so a class selector would have left it
+  // drawn and dead — this screen's own recorded wiring trap. The handler reads
+  // `b.dataset.sid`, so selecting on that attribute is what makes the hop
+  // survive the control moving.
+  const c = blankComments(read("../public/chat.js"));
+  assert.ok(c.includes("view.querySelectorAll('[data-sid]')"),
+    "the card controls are selected by something other than the attribute the "
+    + "handler reads — a control that moves out of the card is drawn and never wired");
+  // And the control really carries it, or the selector above matches nothing.
+  assert.match(loadDbIcon()({ id: "s1", react: true, backend: true }), /data-sid="s1"/);
+  assert.match(loadDbIcon()({ id: "s1", react: true, backend: true }), /data-act="data"/);
 });
 
 // ── WHAT CAME OFF WITH IT ───────────────────────────────────────────────────

@@ -1521,7 +1521,36 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    AND THE GAP IS WHAT HOLDS THE CARD AT THE WIDTH IT HAS TODAY: a pair is 349.3
    at three across, and 258 + 258 x .2888 leaves 16.8 for it — `1.05rem`. The card
    measures 258, which is what it measured at four across before this. */
-.st-pair { display: grid; grid-template-columns: 1fr .2888fr; gap: 1.05rem; align-items: stretch; }
+/* TWO ROWS: the database above, the site and its phone below. Row 2 is `1fr` so
+   the card still stretches to the tallest pair in its grid row — `auto auto`
+   would leave a short card floating in a tall row. The two axes are named
+   separately here for the same reason they are on `.st-grid`: `row-gap:`
+   contains `gap:`, and the card-width check reads the COLUMN gap out of this
+   rule. */
+.st-pair { display: grid; grid-template-columns: 1fr .2888fr; grid-template-rows: auto 1fr; column-gap: 1.05rem; row-gap: 1.25rem; align-items: stretch; }
+/* THE DATABASE IS HALF THE PAIR AND CENTRED OVER BOTH OF THEM (owner: "the
+   width of the site and the mobile app together is 100 … the database has to be
+   50 … outside the square but in the middle on top of each of them"). Spanning
+   both columns is what makes "the middle" the middle of the PAIR rather than of
+   the card, and `width: 50%` is the owner's own number, of the pair rather than
+   of either half. MEASURED: pair 349, site 73.9%, phone 21.3%, database 50.0%,
+   centred to the pixel.
+   JUST THE ICON — no box, no label. The owner was shown a pill and a labelled
+   bar and picked the bare glyph. The 50% is still real: it is the hit area, so
+   the control is easy to hit without drawing a box around it. */
+.st-db {
+  grid-column: 1 / -1; justify-self: center; width: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; background: none; padding: 0;
+  color: var(--muted); cursor: pointer;
+  transition: color .15s ease;
+}
+.st-db:hover:not(:disabled) { color: var(--text); }
+/* A site with no database keeps its control, dimmed and explained by its own
+   tooltip — the same rule the card's actions are under, and the reason is the
+   same: a first build provisions none, so this is the ORDINARY card. */
+.st-db:disabled { opacity: .38; cursor: default; }
+.st-db:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; border-radius: 6px; }
 /* The mobile app, beside the site and not inside it. `align-content: start` is
    what keeps the phone level with the thumbnail while the card stretches to the
    tallest in its row. */
