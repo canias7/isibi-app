@@ -1603,17 +1603,63 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    tallest in its row. */
 .st-app { min-width: 0; display: grid; align-content: start; gap: .12rem; }
 .st-app-phone {
-  width: 100%; aspect-ratio: 390 / 844; position: relative;
+  /* The RATIO comes from the shared `[data-os]` block beside the workspace
+     panel's device, so the two components cannot disagree about what an iPhone
+     is; the fallback is the shape this tile had before the switch existed. */
+  width: 100%; aspect-ratio: var(--os-ratio, 390 / 844); position: relative;
   border: 1px solid var(--line-2); border-radius: 16px;
   /* THE CARD'S OWN GROUND, read from the same token rather than restated, so a
      palette change moves both and they cannot drift into two greys. */
   background: var(--panel-2);
 }
-/* The earpiece slot — the one mark that says handset rather than tall box. */
+/* THE CORNERS ARE A PERCENTAGE, NOT A PIXEL COUNT, and that is what makes the
+   switch work at every column count. MEASURED: this phone is 74.5px wide at
+   three across, 110.5 at two and 138.8 at one, so one px radius cannot be right
+   at all three — where the panel's device, which is ~340px and only ever one
+   size, can use px. The pair is `<horizontal> / <vertical>`, because a single
+   percentage resolves against each axis in turn and a corner on a 0.46-ratio box
+   would come out an ellipse: 46/393 across and 46/852 down is the same 46px
+   corner the panel draws, said as fractions so it scales. Android: 28/412 and
+   28/915. So the two radii are DERIVED from the panel's two numbers rather than
+   invented, and a guard requires the tile and the panel to agree on which phone
+   is the rounder of the two. */
+.st-app-phone[data-os="ios"] { border-radius: 11.7% / 5.4%; }
+.st-app-phone[data-os="android"] { border-radius: 6.8% / 3.06%; }
+/* The camera — the tell everyone recognises, and at this size the ONLY one that
+   reads: the two radii differ by about 3.6px on a 74px phone, which is real but
+   quiet. Apple's Dynamic Island is a wide pill, Android's is a punch-hole. Sized
+   in px rather than scaled, deliberately: at 74px a faithful 2px dot is invisible
+   and the mark has to stay legible at the smallest column count, which is the one
+   most people will look at. */
 .st-app-phone:before {
-  content: ""; position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
+  content: ""; position: absolute; top: 6%; left: 50%; transform: translateX(-50%);
   width: 22px; height: 3px; border-radius: 2px; background: var(--graphite); opacity: .3;
 }
+.st-app-phone[data-os="ios"]:before { width: 30%; height: 4px; border-radius: 999px; opacity: .34; }
+.st-app-phone[data-os="android"]:before { width: 5px; height: 5px; border-radius: 50%; opacity: .34; }
+/* THE SWITCH. Marks only, no words — the panel's own segments need 248px of
+   content and this tile is 74.5px wide, measured. `MOBILE_LABELS` still supplies
+   the name through `title` and `aria-label`, so there is one list of what these
+   phones are called and a screen reader is told which is which. */
+.st-app-os {
+  justify-self: center; margin-top: .3rem;
+  display: flex; gap: 1px; padding: 2px;
+  border: 1px solid var(--line-2); border-radius: 999px;
+}
+.st-app-osbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 18px; padding: 0;
+  border: none; border-radius: 999px; background: none;
+  color: var(--muted); cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+/* A LIT SEGMENT LOOKS LIT, which is the `.st-card-act:disabled { opacity }`
+   finding one control over: this screen has twice shipped a control whose state
+   was in the markup and not in the paint, and every markup assertion stayed
+   green both times. */
+.st-app-osbtn.on { background: var(--split); color: var(--on-accent); }
+.st-app-osbtn:hover:not(.on) { color: var(--text); }
+.st-app-osbtn:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 /* The words sit where the card's name and date sit, so the pair reads as one
    row. One deliberate margin above the pair of them; the grid's own small gap
    holds the two lines together. */
@@ -1988,7 +2034,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    `width: auto` the ratio computes the width instead, and `max-width: 100%` is
    the wall for a window tall enough to make even that too wide — which needs a
    stage over ~800px and is where the ratio goes back to being approximate. */
-.st-mob-device { position: relative; height: 100%; width: auto; max-width: 100%; aspect-ratio: 390 / 844; border: 9px solid var(--graphite); border-radius: 34px; background: var(--panel); box-shadow: 0 18px 40px rgba(0, 0, 0, .16); overflow: hidden; display: flex; flex-direction: column; }
+.st-mob-device { position: relative; height: 100%; width: auto; max-width: 100%; aspect-ratio: var(--os-ratio, 390 / 844); border: 9px solid var(--graphite); border-radius: 34px; background: var(--panel); box-shadow: 0 18px 40px rgba(0, 0, 0, .16); overflow: hidden; display: flex; flex-direction: column; }
 /* THE TWO PHONES ARE NOT THE SAME PHONE, and that is what earns the switch its
    place beside a panel with no app in it. These are the real numbers: an iPhone
    15 Pro is 393x852 with corners that read much rounder than an Android's, and a
@@ -1999,8 +2045,20 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    A guard asserts the two blocks DIFFER on ratio, radius and the mark: a switch
    whose halves look identical is a dead control wearing a coat, and this
    repository has now found that five times in its own chrome. */
-.st-mob-device[data-os="ios"] { aspect-ratio: 393 / 852; border-radius: 46px; }
-.st-mob-device[data-os="android"] { aspect-ratio: 412 / 915; border-radius: 28px; }
+/* THE PROPORTIONS ARE DECLARED ONCE AND READ TWICE (2026-09-09). Two components
+   draw these phones now — this panel's device mock and the start screen's card
+   tile — and a phone's aspect ratio is the one fact about it that is SCALE-FREE,
+   so two copies of it would be two lists of the same thing with a silent drift:
+   let them disagree and a card and the panel show different iPhones.
+   The corners and the camera are NOT here, and that is deliberate rather than an
+   omission — they are sizes, and these two draw at 340px and at 74.5px, so a
+   46px radius that is right in the panel is a pill on a card. Each component
+   carries its own, derived from the same source numbers, with a guard that they
+   still describe the same two phones (rounder/squarer, pill/dot). */
+[data-os="ios"] { --os-ratio: 393 / 852; }
+[data-os="android"] { --os-ratio: 412 / 915; }
+.st-mob-device[data-os="ios"] { border-radius: 46px; }
+.st-mob-device[data-os="android"] { border-radius: 28px; }
 .st-mob-device::before { content: ""; position: absolute; top: 9px; left: 50%; transform: translateX(-50%); background: var(--graphite); }
 .st-mob-device[data-os="ios"]::before { width: 30%; height: 16px; border-radius: 999px; }
 .st-mob-device[data-os="android"]::before { width: 11px; height: 11px; border-radius: 50%; }

@@ -10524,14 +10524,43 @@ function cardActs(s) {
 // code. When the app is real this takes the site and draws its preview where the
 // empty screen is, the way `.st-card-prev` draws the site's.
 //
-// DRAWN AND INERT, and a `div` rather than a disabled `<button>`. A disabled
-// button says "this works and we would rather you did not"; this says "we have
-// not built this yet", which is a different sentence and the true one. A div
-// also has no click for the card's own `closest('button')` guard to think about
-// and no handler to gain by accident — the rule the phone icon was kept under
-// since 2026-09-07, unchanged, on a bigger square.
-function siteAppTile() {
-  return '<div class="st-app"><div class="st-app-phone"></div>' +
+// IT TAKES THE PHONE, THOUGH (owner, 2026-09-09: "where the phone thing is , I
+// want like a switch to swtitch from apple to andorid , just as a perview
+// thing"). Same reason `siteMobilePanel` takes one rather than reading the
+// module variable: a free identifier resolves when the line RUNS, so a function
+// that reads module scope cannot be evaluated and driven in a bare scope — the
+// trap that put four misses on main in one session.
+//
+// THE TILE IS STILL INERT and still a `div`; the switch is the only control on
+// it. A disabled button says "this works and we would rather you did not"; the
+// tile says "we have not built this yet", which is a different sentence and the
+// true one — so the phone stays a div with no click for the card's own
+// `closest('button')` guard to think about, and the segments are real buttons
+// because they really do something.
+//
+// THE CHOICE IS ONE PREFERENCE, NOT FIFTY. It reads and writes `siteMobileOs`,
+// the same variable the workspace panel's own switch uses, so an account with
+// fifty sites has one answer to "which phone am I looking at" rather than fifty
+// — and flipping it on a card is the phone the workspace opens on. A per-card
+// map would be per-card state with nothing per-card behind it: no site has an
+// app, which is the same argument that keeps the tile from taking a site.
+function siteAppTile(os) {
+  const on = MOBILE_OSES.includes(os) ? os : MOBILE_OSES[0];
+  // THE MARK ALONE, no word, and that is a measurement rather than a taste. The
+  // tile is 74.5px wide at three across (measured; 110.5 at two, 138.8 at one),
+  // and the workspace panel's own segments — mark plus word — need 248px of
+  // content. So the word cannot come, and `aria-label` carries the name instead
+  // of a visible one. `MOBILE_LABELS` is still what supplies it, so there is one
+  // list of what these two phones are called and this cannot drift from the
+  // panel's segments.
+  const seg = (v) =>
+    '<button type="button" class="st-app-osbtn' + (on === v ? ' on' : '') + '" data-os="' + v + '"' +
+      ' title="' + MOBILE_LABELS[v] + '" aria-label="Preview as ' + MOBILE_LABELS[v] + '"' +
+      ' aria-pressed="' + (on === v ? 'true' : 'false') + '">' + brandMark(v, 13) + '</button>';
+  return '<div class="st-app">' +
+    '<div class="st-app-phone" data-os="' + on + '"></div>' +
+    '<div class="st-app-os" role="group" aria-label="Which phone">' +
+      MOBILE_OSES.map(seg).join('') + '</div>' +
     '<span class="st-app-t">Mobile app</span>' +
     '<span class="st-app-s">not built yet</span></div>';
 }
@@ -10600,7 +10629,7 @@ function renderSites() {
                 '</div>' +
                 '<button type="button" class="sch-del st-card-del" data-del="' + esc(s.id) + '" title="Delete" aria-label="Delete site">×</button>' +
               '</div>' +
-              siteAppTile() +
+              siteAppTile(siteMobileOs) +
             '</div>').join('') + '</div>'
         : '');
   const gen = document.getElementById('stGen');
@@ -10677,6 +10706,27 @@ function renderSites() {
     siteOpenId = rec.id;
     siteView = 'data';
     renderSites();
+  });
+  // THE PHONE SWITCH, AND IT REPAINTS RATHER THAN RE-RENDERS. `renderSites()`
+  // rebuilds the grid, and every card in it carries an `<iframe>` showing that
+  // site — fifty-one of them on the owner's account — so a switch that
+  // re-rendered would reload every thumbnail on the screen to change a corner
+  // radius. Moving the attribute and the lit segment by hand is the workspace
+  // panel's own answer one screen over, for the same reason.
+  //
+  // BOUND ON `.st-app-osbtn`, NOT `[data-sid]`: these controls name no site,
+  // because the choice is one preference for the whole screen. That is also why
+  // the loop below touches EVERY tile — a press on one card is a press on all
+  // of them, which is the honest reading of one shared variable.
+  view.querySelectorAll('.st-app-osbtn').forEach((b) => b.onclick = (e) => {
+    e.stopPropagation();
+    if (!setMobileOs(b.dataset.os)) return;        // already on it, or not a phone
+    view.querySelectorAll('.st-app-phone').forEach((p) => { p.dataset.os = siteMobileOs; });
+    view.querySelectorAll('.st-app-osbtn').forEach((o) => {
+      const on = o.dataset.os === siteMobileOs;
+      o.classList.toggle('on', on);
+      o.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
   });
   view.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
     const id = b.dataset.del;
