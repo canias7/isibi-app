@@ -208,9 +208,9 @@ column, the phone's shape, and **zero** occurrences of the old phone icon.
 Nothing paid ran.
 
 **Then you asked for more space between the rows** — "floor one to floor 2".
-Done: **56 pixels** between one row and the next, where before it was 16, the
-same as the gap between columns, which is why a row ran straight into the one
-below it.
+Done, then more when you asked again: **80 pixels** between one row and the
+next, where before it was 16 — the same as the gap between columns, which is why
+a row ran straight into the one below it.
 
 I read that wrong the first time and started on the horizontal gap. Worth
 knowing why that one is not free: the page is capped at 1080 pixels wide, so

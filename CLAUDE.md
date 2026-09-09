@@ -1470,8 +1470,8 @@ correction is a property a guard now holds.
   between every3"* → *"i mean like floor one to floor 2"*).** At one `gap` for
   both, the space between a phone and the next site was **16px** and the space
   INSIDE a pair was **16.8** — so six columns read as six columns, and a row ran
-  straight into the one under it. `column-gap: 1rem; row-gap: 3.5rem` now: 56px
-  between floors, measured. **The first reading of that ask was the wrong axis**
+  straight into the one under it. `column-gap: 1rem; row-gap: 5rem` now — 56px on the first cut,
+  then **80px** on a second *"more space"*, both measured. **The first reading of that ask was the wrong axis**
   — I built the horizontal case, found it fights *"leave the square the size it
   is"* (the page is capped at 1080, so wider gaps between pairs shrink the card
   to ~246) and was about to render the tradeoff when the owner said which axis.
