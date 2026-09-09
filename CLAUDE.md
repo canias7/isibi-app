@@ -2199,7 +2199,7 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   reading the added pages / charging / without the sentence / without the
   trace / comparing the new page with itself, the sentence without the
   page or the words, the harness ignoring a loss / never finding one /
-  not naming it. **PROVEN LIVE by run 36, below.**
+  not naming it. **PROVEN LIVE by run 36** (in git).
 
 - **A SECOND ONE COPIES THE FIRST'S DESIGN (#82; owner, 2026-09-04: *"Yes,
   new components should copy existing design"*).** Run 36's second band was
@@ -2272,7 +2272,7 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   agreeing on nothing, layout or slot ignored, items counted, no new section
   passing, `newSections` empty, the note unnamed, the case ignoring the
   verdict or its note, the kind matched by any section, a nested section
-  read twice. Full suite 5,018 green. **PROVEN LIVE by run 37, below.**
+  read twice. Full suite 5,018 green. **PROVEN LIVE by run 37** (in git).
 
 **DELETE deferred** (owner's call).
 
