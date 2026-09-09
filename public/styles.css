@@ -1670,7 +1670,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-devs { display: flex; gap: .3rem; }
 .st-dev { font: inherit; font-size: .85rem; width: 34px; height: 30px; border-radius: 9px; border: 1px solid var(--line-2); background: none; color: var(--muted); cursor: pointer; }
 .st-dev.on { color: var(--text); background: linear-gradient(rgba(28, 21, 35, .92), rgba(28, 21, 35, .92)) padding-box, var(--split) border-box; border: 1px solid transparent; }
-.st-body { display: flex; gap: .8rem; flex: 1; min-height: 0; }
+/* `position: relative` is the mobile tab's containing block — it is absolutely
+   positioned against THIS row's right edge, which with the panel closed is the
+   stage's edge and with it open is the panel's. Nothing else here positions. */
+.st-body { display: flex; gap: .8rem; flex: 1; min-height: 0; position: relative; }
 .st-rail { flex: 0 0 450px; display: flex; flex-direction: column; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; }
 /* Collapsible chat rail — hide it and let the preview stage take the full width. */
 .st-ws.st-rail-hidden .st-rail { display: none; }
@@ -1684,6 +1687,22 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    between a 450px rail and a fixed column. */
 .st-mob { flex: 0 0 clamp(300px, 26vw, 420px); display: flex; flex-direction: column; gap: .5rem; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; padding: .7rem; }
 .st-ws:not(.st-mob-open) .st-mob { display: none; }
+/* THE TAB ON THE EDGE (owner, 2026-09-09: "it gotta show it like a hidden
+   sidebar tho, not like a button opens it"). It is the tucked-away half of
+   `.st-mob`, so it takes that panel's border, radius and ground rather than
+   inventing a second look — and DROPS the right border with the right half of
+   the radius, which is the whole of what makes it read as something sticking
+   out of the edge rather than a button parked near it.
+   Hidden the moment the panel opens, because the panel is then its own
+   affordance and a tab overlapping it would point at what is already on screen.
+   That is also why its handler only ever OPENS: the closing branch would be one
+   nothing could reach. */
+.st-mob-tab { position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 6;
+  width: 18px; height: 66px; padding: 0; border: 1px solid var(--line-2); border-right: none;
+  border-radius: 10px 0 0 10px; background: var(--panel-2); color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; box-shadow: -2px 0 6px rgba(0, 0, 0, .05); }
+.st-mob-tab:hover { color: var(--text); }
+.st-ws.st-mob-open .st-mob-tab { display: none; }
 .st-mob-head { display: flex; align-items: center; justify-content: space-between; padding: .1rem .2rem .1rem .35rem; }
 .st-mob-title { font-weight: 700; font-size: .82rem; letter-spacing: .01em; }
 /* iPhone / Android, a segmented control in the panel's own header. Its active

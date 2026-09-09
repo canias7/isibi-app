@@ -1649,13 +1649,85 @@ open dead-control finding avoided rather than added to for the fifth time.
   earlier sweeps were re-run whole on this tree** — the switch's 27 and the
   column's 30 — all killed, none unapplied, every control surviving. Full suite
   **5,660**.
+- **AND THE CLOSED PANEL HAS AN EDGE NOW (2026-09-09, owner: *"it gotta show it
+  like a hidden sidebar tho, not like a button opens it"*).** Four treatments of
+  the collapsed state were drawn into the real workspace — an edge tab, a 40px
+  rail, a 46px rail carrying its own name, and a peek at the phone's bezel — and
+  the owner picked **A**, the tab. `#stMobileTab`: 18×66 on the right border of
+  `.st-body`, vertically centred, a real `<button>` with `title` and
+  `aria-label`. **Until this the feature was reachable only through an
+  unlabelled icon in the top bar**, which is the discovery problem the card
+  icons already settled once — a control earns its place by SAYING something,
+  and an invisible one says nothing at all.
+- **IT WEARS THE PANEL'S OWN EDGE.** `.st-mob`'s border, radius and `--panel-2`
+  ground, with the right border and the right half of the radius DROPPED — which
+  is the whole of what makes it read as something sticking out of the edge
+  rather than a button parked near it. `.st-body` gains `position: relative` as
+  its containing block; nothing else in that row positions.
+- **IT ONLY OPENS, AND THAT IS WHY ITS HANDLER IS NOT A TOGGLE.** The stylesheet
+  hides it the moment the panel opens (`.st-ws.st-mob-open .st-mob-tab`), so a
+  tab that closed as well would carry a branch nothing could ever drive — and
+  the recorded rule is that such a branch is one nobody guards. The guard
+  asserts the rule's DIRECTION, and asserts no `:not(.st-mob-open)` rule exists,
+  because the inverted spelling is the invisible panel again and would satisfy a
+  looser "there is a display:none somewhere" check.
+- **ONE SETTER, TWO CONTROLS.** `setMobileOpen(open)` — the top bar's toggle and
+  the tab both go through it, and `classList.toggle('st-mob-open'` appears
+  **exactly once** in the file, asserted by count. Two copies of "flip the
+  class, then move the lit state and the tooltip" is the recorded "two lists of
+  the same thing", and the copy that went stale would be the tab's: the control
+  a customer meets first and nobody is testing. Driven: pressing the TAB lights
+  the top bar's button and flips its tooltip.
+- **THE CHEVRON IS ITS OWN GLYPH.** `ST_ICONS.back` carries a shaft (`M19 12H5`)
+  which is right at 16px and reads as a strikethrough across an 18px tab, so
+  `chevronleft` is a new entry — named for its DIRECTION, because direction is
+  the whole of what it means, so the day something wants the other one it is a
+  second entry rather than an argument. The guard compares the two paths and
+  forbids the shaft.
+- **Guards**: `test/mobile-panel.test.mjs` 24 → 31. The tab found by its id and
+  held to being a real named button; its place DERIVED (between
+  `siteMobilePanel(...)` and the close of `.st-body`, which is what makes
+  `right: 0` land on that row's edge); the glyph compared against `back`; the
+  one-writer count; and the setter and BOTH wire-ups cut out and DRIVEN — press
+  the tab from closed and from open, since `if (false)` leaves a call exactly
+  where a source read looks for it. **Two older cases were re-anchored, not
+  appeased**: the toggle's body moved into the setter, so their window ran to a
+  `\n  };` that no longer exists; the property (press it, the class moves, the
+  button lights and renames) is exactly what it was.
+  **AND THE WINDOW'S END LANDMARK IS THE NEXT STATEMENT, NOT EITHER WIRE-UP.**
+  The first draft ended it on the tab's own line — so every mutant aimed at the
+  tab would have died by collapsing the window rather than by failing the
+  property it was aimed at, and a sweep whose mutants all kill for one
+  incidental reason proves nothing about the assertions underneath.
+- **Sweep: 21 mutants, 21 killed, none survived, none unapplied, two
+  comment-only controls survived** — the tab gone (the defect itself), drawn as
+  a div, stripped of its name or its tooltip, drawing `back` or a chevron with
+  the shaft, the glyph gone from the set, drawn and never wired, toggling
+  instead of opening, the setter leaving the top button unlit or unrenamed, the
+  top bar keeping its own copy of the flip, the setter re-rendering, the hide
+  rule inverted or deleted, `.st-body` not a containing block, the tab off the
+  right edge or not positioned at all, its right border back, fully rounded, or
+  painting its own ground.
+  **THE EARLIER SWEEP WENT STALE AND WAS RE-ANCHORED RATHER THAN LEFT**: five of
+  the column's thirty named the inline toggle body and reported "anchor not
+  found", which reads exactly like a killed mutant in a summary and proves
+  nothing. Re-pointed at the setter and re-run whole: **column 30/30, switch
+  27/27, marks 17/17**, all on this tree. Full suite **5,667**.
 - **Not proven live.** The push touches `public/` only — no container roll, no
-  15–20 minute hold. The proof is one look: open a site, press the panel button
-  right of the phone-width buttons, and the column appears with an iPhone in it;
+  15–20 minute hold. The proof is one look: open a site and the right edge
+  carries a small tab; press it and the column appears with an iPhone in it;
   press Android and the frame changes shape and the robot lights up. Renders:
-  `docs/edits/mobile-panel-closed.png`, `mobile-panel-iphone.png`,
-  `mobile-panel-android.png`, and `mobile-panel-new-project.png` (the other
+  `docs/edits/mobile-tab-closed.png`, `mobile-tab-edge.png` (4× on the border),
+  `mobile-tab-open.png`, plus `mobile-panel-iphone.png`,
+  `mobile-panel-android.png` and `mobile-panel-new-project.png` (the other
   sentence).
+- **OPEN, THE OWNER'S CALL: whether the tab is loud enough.** At 4× it reads
+  clearly; at full size it is panel-grey on paper-grey, 18px wide, and quiet.
+  The complaint this change answers was that nobody would find the feature, so
+  "quiet" may be moving the problem rather than fixing it. Three ways out, none
+  taken: leave it (the app's whole language is quiet), strengthen the border and
+  ink, or give it the panel's darker ground so it reads as an object rather than
+  a seam.
 
 ### THE REMOVAL VERB MEETS THE ONE-MARK WORK (2026-09-08, owner: *"Merge"*)
 
@@ -7104,8 +7176,17 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,660
-  (2026-09-08, after the mobile app column, its iPhone/Android switch and the two
+  build and the pre-list payload added sixteen); the unit suite is 5,667
+  (2026-09-09, after the closed panel got its own edge — a tab on the right
+  border, `#stMobileTab` — added seven in `test/mobile-panel.test.mjs`: the tab
+  held to being a real named button, its place DERIVED between the panel's own
+  render and the close of `.st-body`, the chevron compared against `back` and
+  forbidden its shaft, the one-writer count on `classList.toggle('st-mob-open'`,
+  and the setter with BOTH wire-ups cut out and DRIVEN from closed and from open
+  — plus the hide rule's DIRECTION, since the inverted spelling is the invisible
+  panel again and would satisfy a looser check; two older cases re-anchored where
+  the toggle's body moved into the setter;
+  before it 5,660, after the mobile app column, its iPhone/Android switch and the two
   platform marks added twenty-five in `test/mobile-panel.test.mjs` — the chain
   DERIVED from the value's
   own route rather than from the hops that were on my mind, the hiding rule's

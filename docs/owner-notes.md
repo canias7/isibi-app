@@ -235,6 +235,41 @@ they could never come out equal and the check was empty. Fixed. The other two
 were real: nothing checked that the panel opens on a phone that exists, and
 nothing checked that the lit half of the switch actually looks lit.
 
+**A tab on the edge** — *"it gotta show it like a hidden sidebar tho, not like a
+button opens it"*. Fair point: until today the mobile app panel could only be
+found by pressing a small unlabelled icon in the top bar, so if nobody told you
+it was there, it wasn't.
+
+I drew four versions of the closed state into the real screen and you picked the
+first — a small tab on the right-hand edge with an arrow on it. Press it and the
+panel slides in; the tab disappears, because once the panel is open the panel
+itself is the obvious thing to look at.
+
+**It borrows the panel's own skin.** Same border, same background, same rounded
+corners — except the right-hand side, where I took the border off and squared the
+corners. That's the whole trick that makes it look like the edge of something
+tucked away rather than a button sitting near the edge.
+
+**Both ways in now run through the same piece of code.** The top-bar icon and the
+tab were going to be two copies of the same three lines, and two copies always
+drift apart eventually — and the one that would have gone quietly wrong is the
+tab, which is the one your customers will actually use. So there's one function
+and both press it. I checked by pressing the tab and watching the top-bar icon
+light up on its own.
+
+**And I checked the two things that matter when it opens**: the website preview
+does not reload, and a half-typed message in the chat box is still there
+afterwards. Both measured in a real browser, not assumed.
+
+**One thing I'd like your eye on.** Close up it reads clearly as a tab. At normal
+size it's very quiet — grey on grey, about as wide as a pencil line. Your
+complaint was that nobody would find it, and I'm not certain this version fixes
+that so much as moves it. I can leave it, darken it slightly, or give it a
+stronger background so it looks like an object rather than a seam. Say the word
+and it's a one-line change.
+
+---
+
 **And then the logos** — *"instead of the names, the names plus their logo"*. The
 two buttons still say **iPhone** and **Android**, and each now has its logo in
 front of the word.

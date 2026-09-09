@@ -18,7 +18,15 @@
 //        → the class on `.st-ws`            (the markup writes it)
 //        → `.st-ws:not(.st-mob-open)`       (the stylesheet consumes it)
 //        → `siteMobilePanel()`              (the room, rendered unconditionally)
-//        → `#stMobile`.onclick              (the only writer)
+//        → `setMobileOpen()`                (the ONE writer, since 2026-09-09)
+//             ↑ `#stMobile`.onclick         (the top bar's toggle)
+//             ↑ `#stMobileTab`.onclick      (the edge tab — opens only)
+//
+// The edge tab arrived 2026-09-09 (owner: "it gotta show it like a hidden
+// sidebar tho, not like a button opens it") and is the reason there is a setter
+// at all: two controls doing the same thing by two copies of the same lines is
+// the recorded "two lists of the same thing", and the copy that would go stale
+// is the tab's — the one a customer meets first.
 //
 // And the class name itself is TWO LISTS OF THE SAME THING — chat.js writes it,
 // styles.css keys on it — so it is derived from the markup and checked against
@@ -247,33 +255,56 @@ test("the toggle's glyph is not the phone-WIDTH button's", () => {
   assert.match(sidebar[1], /M15 4v16/, "the divider moved off the right — this reads as the chat rail's toggle");
 });
 
-/** The real toggle handler, cut out and driven against a fake document. */
-function driveToggle(startOpen) {
-  const src = span(BARE, "const mobTog = document.getElementById('stMobile');", "\n  };", "the toggle handler") + "\n  };";
+/**
+ * The end landmark of the block that holds the setter and both wire-ups.
+ *
+ * It is the NEXT STATEMENT, not either wire-up's own text, deliberately: a
+ * window that ends on the line under test collapses the moment that line is
+ * edited, so every mutant aimed at the tab would die by breaking the window
+ * rather than by failing the property it was aimed at — and a sweep whose
+ * mutants all kill for the same incidental reason proves nothing about the
+ * assertions underneath.
+ */
+const WIRE_END = "view.querySelectorAll('.st-mob-osbtn')";
+const TAB_WIRE = "if (mobTab) mobTab.onclick = () => setMobileOpen(true);";
+
+/**
+ * The real setter and BOTH controls, cut out and driven against a fake document.
+ *
+ * RE-ANCHORED 2026-09-09, not appeased. The top bar's handler used to hold the
+ * whole body inline and this window ran to its own `\n  };`. The body moved into
+ * `setMobileOpen` when the edge tab arrived and needed the identical code — the
+ * property asserted below (press it, the class moves, the button lights and
+ * renames itself) is exactly what it always was; only where the lines live
+ * moved. The window now spans the setter and both wire-ups, so a control that
+ * stopped being wired is still caught.
+ */
+function driveMobile(startOpen, which) {
+  const src = span(BARE, "const setMobileOpen = (open) => {", WIRE_END,
+                   "the mobile setter and its two controls");
   const ws = { cls: new Set(startOpen ? ["st-ws", "st-mob-open"] : ["st-ws"]) };
   ws.classList = { toggle: (c, on) => (on ? ws.cls.add(c) : ws.cls.delete(c)) };
   const btn = { cls: new Set(startOpen ? ["on"] : []), title: "" };
   btn.classList = { toggle: (c, on) => (on ? btn.cls.add(c) : btn.cls.delete(c)) };
-  const scope = {
-    document: { getElementById: (id) => (id === "stMobile" ? btn : null) },
-    view: { querySelector: (s) => (s === ".st-ws" ? ws : null) },
-    siteMobileOpen: startOpen,
-  };
+  const tab = {};
+  const doc = { getElementById: (id) => (id === "stMobile" ? btn : id === "stMobileTab" ? tab : null) };
+  const view = { querySelector: (s) => (s === ".st-ws" ? ws : null) };
   // `if (false)` leaves a call exactly where a source read looks for it — the
-  // recorded trap — so the handler is RUN rather than read.
-  const run = new Function("document", "view", "siteMobileOpen", src + "; mobTog.onclick(); return siteMobileOpen;");
-  const after = run(scope.document, scope.view, scope.siteMobileOpen);
+  // recorded trap — so the handlers are RUN rather than read.
+  const run = new Function("document", "view", "siteMobileOpen", "which",
+    src + "; (which === 'tab' ? mobTab : mobTog).onclick(); return siteMobileOpen;");
+  const after = run(doc, view, startOpen, which);
   return { open: after, wsHas: ws.cls.has("st-mob-open"), lit: btn.cls.has("on"), title: btn.title };
 }
 
 test("pressing the toggle opens the column, lights the button and renames itself", () => {
-  const opened = driveToggle(false);
+  const opened = driveMobile(false, "btn");
   assert.equal(opened.open, true, "the flag did not flip");
   assert.equal(opened.wsHas, true, "the workspace did not gain the open class — the column stays hidden");
   assert.equal(opened.lit, true, "the button did not light");
   assert.equal(opened.title, "Hide the mobile app", "the tooltip still offers to show an open panel");
 
-  const closed = driveToggle(true);
+  const closed = driveMobile(true, "btn");
   assert.equal(closed.open, false, "the flag did not flip back");
   assert.equal(closed.wsHas, false, "the column stayed open");
   assert.equal(closed.lit, false, "the button stayed lit over a closed panel");
@@ -281,11 +312,95 @@ test("pressing the toggle opens the column, lights the button and renames itself
 });
 
 test("the toggle changes a class and never re-renders", () => {
-  const fn = span(BARE, "const mobTog = document.getElementById('stMobile');", "\n  };", "the toggle handler");
+  const fn = span(BARE, "const setMobileOpen = (open) => {", WIRE_END, "the setter and its controls");
   // The reason the class exists at all: a re-render reloads the preview iframe
   // and eats a half-typed message. Both are driven live in the scratchpad; what
-  // this holds is that the handler cannot start doing it.
-  assert.ok(!/renderSites\(\)/.test(fn), "the toggle re-renders the workspace, which reloads the preview");
+  // this holds is that neither control can start doing it.
+  assert.ok(!/renderSites\(\)/.test(fn), "opening the panel re-renders the workspace, which reloads the preview");
+});
+
+// ── THE EDGE TAB ────────────────────────────────────────────────────────────
+//
+// (2026-09-09, owner: "it gotta show it like a hidden sidebar tho, not like a
+// button opens it".) Before this the panel was reachable only through an
+// unlabelled icon in the top bar — invisible to anybody who had not been told.
+// The tab is the closed panel's own edge, so the feature is on screen.
+
+test("the closed panel has a visible edge, and it is a real named button", () => {
+  const line = BARE.split("\n").find((l) => l.includes('id="stMobileTab"'));
+  assert.ok(line, "the edge tab is gone — the panel is invisible again until you find the top bar's icon");
+  assert.match(line, /<button type="button"/, "the tab is not a button, so it is not reachable by keyboard");
+  assert.match(line, /title="Show the mobile app"/, "the tab lost its tooltip");
+  assert.match(line, /aria-label="Show the mobile app"/, "the tab lost its accessible name");
+  assert.match(line, /ic\('chevronleft', 13\)/, "the tab's glyph moved");
+});
+
+test("the tab is the panel's sibling in the row, not a stray in the top bar", () => {
+  // Derived from where the panel itself is rendered: the tab must sit between
+  // `siteMobilePanel(...)` and the close of `.st-body`, which is what makes the
+  // stylesheet's `right: 0` land on that row's edge rather than the page's.
+  const tail = span(BARE, "siteMobilePanel(hasSite, siteMobileOs)", "\n    '</div>';", "the end of .st-body");
+  assert.ok(tail.includes('id="stMobileTab"'),
+    "the tab left .st-body, so it no longer positions against the row it belongs to");
+});
+
+test("the chevron is its own glyph, because `back` carries a shaft", () => {
+  const icons = span(BARE, "const ST_ICONS = {", "\n};", "the icon set");
+  const chev = icons.match(/chevronleft: '([^']+)'/);
+  assert.ok(chev, "chevronleft is gone from the icon set — the tab draws nothing");
+  const back = icons.match(/\n  back: '([^']+)'/);
+  assert.ok(back, "the back glyph is gone, so this comparison proves nothing");
+  assert.notEqual(chev[1], back[1], "the tab reuses `back`, whose shaft reads as a strikethrough at 18px");
+  assert.ok(!/M19 12H5/.test(chev[1]), "the chevron grew the shaft this entry exists to avoid");
+});
+
+test("ONE setter drives both controls, so they cannot disagree", () => {
+  assert.match(BARE, /const setMobileOpen = \(open\) => \{/, "the shared setter is gone");
+  // The class is written in exactly one place. A second copy is the recorded
+  // "two lists of the same thing", and the copy that went stale would be the
+  // tab's — the control a customer finds first and nobody is testing.
+  const writes = [...BARE.matchAll(/classList\.toggle\('st-mob-open'/g)].length;
+  assert.equal(writes, 1, "the open class is written in " + writes + " places, not one");
+  assert.match(BARE, /if \(mobTog\) mobTog\.onclick = \(\) => setMobileOpen\(!siteMobileOpen\);/,
+    "the top bar button stopped going through the setter");
+  const wire = span(BARE, "const setMobileOpen = (open) => {", WIRE_END, "the setter and its controls");
+  assert.ok(wire.includes(TAB_WIRE), "the edge tab stopped going through the setter");
+});
+
+test("pressing the tab opens the panel AND lights the top bar's button", () => {
+  const r = driveMobile(false, "tab");
+  assert.equal(r.open, true, "the tab did not open the panel");
+  assert.equal(r.wsHas, true, "the workspace did not gain the open class");
+  assert.equal(r.lit, true, "the tab opened the panel and left the top bar's button unlit — the two disagree");
+  assert.equal(r.title, "Hide the mobile app", "the top bar's tooltip still offers to show an open panel");
+});
+
+test("the tab only ever opens, because its closing branch is unreachable", () => {
+  // The stylesheet hides it while the panel is open, so a tab that toggled
+  // would carry a branch nothing could drive — and the recorded rule is that
+  // such a branch is one nobody guards. Driven from the open state: it must
+  // still be open afterwards.
+  const r = driveMobile(true, "tab");
+  assert.equal(r.open, true, "the tab closed the panel — it is a toggle, and that branch cannot be reached");
+});
+
+test("the tab wears the panel's own edge, and goes when the panel arrives", () => {
+  const rule = span(CSS_BARE, ".st-mob-tab {", "}", "the tab's rule");
+  assert.match(rule, /position: absolute/, "the tab is no longer positioned against the row");
+  assert.match(rule, /right: 0/, "the tab left the right edge");
+  assert.match(rule, /border-right: none/, "the tab regained its right border and reads as a floating button");
+  assert.match(rule, /border-radius: 10px 0 0 10px/, "the tab is rounded on all four corners, so it stops reading as an edge");
+  assert.match(rule, /background: var\(--panel-2\)/, "the tab stopped taking the panel's ground");
+  assert.match(CSS_BARE, /\.st-body \{[^}]*position: relative/,
+    "`.st-body` is not a containing block, so the tab positions against the page instead of the row");
+
+  // THE DIRECTION IS THE PROPERTY. Hidden when OPEN; a rule hiding it when
+  // CLOSED is the defect this whole change exists to fix, and it would still
+  // match a looser "there is a display:none somewhere" check.
+  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ display: none; \}/,
+    "the tab no longer hides behind the open panel");
+  assert.ok(!/:not\(\.st-mob-open\)[^\n]*\.st-mob-tab/.test(CSS_BARE),
+    "the tab is hidden while the panel is CLOSED — inverted, which is the invisible panel again");
 });
 
 // ── THE PHONE SWITCH ────────────────────────────────────────────────────────

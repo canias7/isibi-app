@@ -10682,6 +10682,14 @@ function stStamp(ts) {
 // the workspace chrome, so every glyph inherits the UI's own colour.
 const ST_ICONS = {
   back: '<path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>',
+  // A BARE CHEVRON, and it is not `back` at a smaller size. That one carries a
+  // shaft (`M19 12H5`) which is right for a 16px button and reads as a
+  // strikethrough inside the 18px-wide edge tab, where the shaft would span the
+  // whole width. Named for its DIRECTION because direction is the whole of what
+  // it means — a tab on the right border pointing left, "the panel comes out
+  // this way" — so the day something needs the other one, it is a second entry
+  // rather than an argument.
+  chevronleft: '<path d="M15 5l-7 7 7 7"/>',
   history: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/>',
   reload: '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/>',
   desktop: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/>',
@@ -11640,6 +11648,24 @@ function renderSiteWorkspace(view, site) {
             : '') +
         '</div>' +
         siteMobilePanel(hasSite, siteMobileOs) +
+        // THE PANEL'S OWN EDGE (owner, 2026-09-09: "it gotta show it like a
+        // hidden sidebar tho, not like a button opens it"). A tab on the
+        // workspace's right border, so a closed panel is VISIBLY there — before
+        // this the only way to learn the feature existed was to press an
+        // unlabelled icon in the top bar, which is the discovery problem the
+        // card icons already settled once: a control earns its place by SAYING
+        // something, and an invisible one says nothing at all.
+        //
+        // IT ONLY OPENS, and that is why its handler is not a toggle. The
+        // stylesheet hides it the moment the panel is open, so a tab that
+        // closed as well would be a control whose second behaviour nobody can
+        // ever reach — and the recorded rule is that a branch nothing can drive
+        // is a branch nobody guards.
+        //
+        // Inside `.st-body` because that is the row it belongs to; it is
+        // positioned against that row's right edge, which when the panel is
+        // closed is the stage's edge.
+        '<button type="button" class="st-mob-tab" id="stMobileTab" title="Show the mobile app" aria-label="Show the mobile app">' + ic('chevronleft', 13) + '</button>' +
       '</div>' +
     '</div>';
   bindSiteNav();
@@ -11761,14 +11787,28 @@ function renderSiteWorkspace(view, site) {
   // Open/close the mobile app column, the same way and for the same reason: a
   // class on `.st-ws`, never a re-render, so the preview iframe does not reload
   // and a half-typed message survives.
-  const mobTog = document.getElementById('stMobile');
-  if (mobTog) mobTog.onclick = () => {
-    siteMobileOpen = !siteMobileOpen;
+  //
+  // ONE SETTER, TWO CONTROLS — the top bar's button and the edge tab. A second
+  // copy of "flip the class, then move the lit state and the tooltip" is the
+  // recorded "two lists of the same thing", and it would drift the first time
+  // either gained a step; worse, the tab is the one a customer finds first, so
+  // the copy that went stale would be the one nobody was testing. The tab needs
+  // no state of its own — the stylesheet hides it while the panel is open — so
+  // this only ever has the button to update.
+  const setMobileOpen = (open) => {
+    siteMobileOpen = !!open;
     const ws = view.querySelector('.st-ws');
     if (ws) ws.classList.toggle('st-mob-open', siteMobileOpen);
-    mobTog.classList.toggle('on', siteMobileOpen);
-    mobTog.title = siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app';
+    const tog = document.getElementById('stMobile');
+    if (tog) {
+      tog.classList.toggle('on', siteMobileOpen);
+      tog.title = siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app';
+    }
   };
+  const mobTog = document.getElementById('stMobile');
+  if (mobTog) mobTog.onclick = () => setMobileOpen(!siteMobileOpen);
+  const mobTab = document.getElementById('stMobileTab');
+  if (mobTab) mobTab.onclick = () => setMobileOpen(true);
   // iPhone / Android. Same rule as the toggle above: move the attribute and the
   // lit segment BY HAND rather than re-rendering, so the preview iframe beside
   // it never reloads and a half-typed message survives switching phone.
