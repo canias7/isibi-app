@@ -200,10 +200,17 @@ so it reads each button on its own.
 
 26 mutation tests, all 26 caught. Full suite 5,702, all green.
 
-**Not live yet.** This touches only browser files, so nothing rebuilds and there
-is no waiting period — but you will need a hard refresh, because `chat.js` is
-about 932 KB and your browser caches it. The proof is one look at the start
-screen. Picture: `docs/edits/site-cards-phone.png`.
+**Merged and deployed** (you said "merge it"). Main moved straight onto it at
+06:48Z and the deploy was green in **58 seconds** — nothing rebuilt, no
+container roll, no waiting period. I checked the files actually being served
+from gofarther.dev and they match the tree exactly: three across, the phone
+column, the phone's shape, and **zero** occurrences of the old phone icon.
+Nothing paid ran.
+
+**You still need a hard refresh** to see it, because `chat.js` is about 932 KB
+and your browser caches it. Then: three pairs across, a phone beside each site
+standing exactly as tall as its picture, and no little phone icon in the row
+with the name. Picture: `docs/edits/site-cards-phone.png`.
 
 ---
 

@@ -1550,6 +1550,22 @@ correction is a property a guard now holds.
   having no aspect-ratio, which is the trap wearing a plausible failure message.
   Anchored at the start of a line now, and a selector that starts two rules is
   REFUSED rather than resolved by guessing which was meant.
+- **MERGED AND DEPLOYED (owner, 2026-09-09: *"merge it"*).** Main fast-forwarded
+  `b037d290` → `2f014537` at 06:48Z — one commit, main having nothing of its own.
+  **Deploy run 2057 green in 58 SECONDS**, the reused-image shape: the gate set
+  in 1 s; the image step **1 second**, so **NO container roll and no 15–20 minute
+  hold**; the drain returned in 1 s; Wrangler 20 s; the gate left to expire on
+  success. `unit tests` run 2361 green on the branch before the merge.
+  **The served bytes are the tree's, byte for byte** (sha256 of `/chat.js` and
+  `/styles.css` off gofarther.dev equal to `public/`), and read back off the
+  served files: `.st-pair` is `1fr .2888fr` with `gap: 1.05rem`, `.st-app-phone`
+  carries `aspect-ratio: 390 / 844`, `.st-grid` is `repeat(3, 1fr)`,
+  `siteAppTile` is defined once and called once, and `data-act="phone"` has
+  **zero occurrences** — the icon's removal proven on the deployed file rather
+  than in the diff.
+  **AND `build smoke` SKIPPED** (run 878), as a fast-forward's must: no merge
+  commit is written, so the message is this change's own and it carries no smoke
+  opt-in marker. Nothing paid.
 - **Not proven live.** The push touches `public/`, `test/` and `docs/` only — no
   container roll, no 15–20 minute hold. The proof is one look at the signed-in
   start screen: three pairs across, a phone beside each site standing exactly as
