@@ -6679,6 +6679,19 @@ function enterApp() {
   // fresh session or anything unknown).
   let lastView = 'home';
   try { lastView = localStorage.getItem(VIEW_KEY) || 'home'; } catch {}
+  // A PROJECT ADDRESS BEATS THE REMEMBERED VIEW, and that order is the whole
+  // point of having addresses. `/projects/<id>` is a link somebody followed or
+  // a tab they reloaded; localStorage is a preference this browser happened to
+  // store on some earlier visit. Read the other way round, every pasted link
+  // would land wherever that browser was last — which is exactly what an
+  // address must not do, and would make the feature look broken to the one
+  // person it was built for: whoever opened the link.
+  //
+  // `siteOpenId` is set BEFORE showView because showView('sites') renders
+  // immediately and reads it; setting it after would paint the list first and
+  // the project a frame later, or not at all.
+  const bootProject = projectFromPath();
+  if (bootProject !== undefined) { siteOpenId = bootProject; lastView = 'sites'; }
   const KNOWN_VIEWS = ['home', 'gallery', 'avatar', 'mediaAgent', 'sites', 'games', 'integrations', 'settings'];
   showView(KNOWN_VIEWS.includes(lastView) ? lastView : 'home');
   // Staged attachments from before the refresh — re-apply the active chat's,
@@ -9747,6 +9760,85 @@ function initMktReveal() {
 const SITES_KEY = 'zephyr_sites_v1';
 let sitesCache = null;
 let siteOpenId = null;      // project open in the workspace (null → project list)
+
+// ── A PROJECT HAS AN ADDRESS ────────────────────────────────────────────────
+//
+// Owner, 2026-09-09, holding up `lovable.dev/projects/<uuid>`: "or something
+// with id, look at lovable for example" → "build it".
+//
+// Until this, the app had NO router: zero pushState, zero popstate, and the two
+// `history` calls in the file only scrubbed `?q=` and `?credits=added` off the
+// URL after reading them. Every screen was a div inside the one page and the
+// address bar never moved, so a site's workspace could not be linked,
+// bookmarked, opened in a second tab, or backed out of — Back left the app.
+//
+// THE ID ALREADY EXISTED. `siteCreate` mints `site_<epoch-ms>_<5 base36>` per
+// project the moment a brief is typed, and it is the `origin` threaded through
+// every call. Nothing new is invented here; a value that was already the
+// project's identity is simply put where a person can see and copy it.
+//
+// WHY THE ID AND NOT THE SLUG, since `/hartleys-barbers` reads better: the slug
+// is RENAMEABLE (the `slug`→`rename` lane, `site_aliases`, the one-current-name
+// index), so a slug URL would move under the customer on a rename and need the
+// alias machinery a second time — for the app instead of the site. And a slug
+// does not exist until the build finishes, which is the eight-minute window
+// where a stable address is worth the most. The id has neither problem.
+const PROJECT_PATH = /^\/projects(?:\/([A-Za-z0-9_-]{1,120}))?\/?$/;
+
+/**
+ * Which project the current URL names.
+ *
+ * THREE ANSWERS, AND THE THIRD IS WHY THIS RETURNS `undefined` RATHER THAN
+ * FALLING BACK: `undefined` means the URL is not a project address at all (the
+ * landing, `/privacy`, anything else), and the caller must then leave the view
+ * alone. Collapsing that into `null` — the project LIST — would make every
+ * ordinary page load navigate to the sites screen.
+ */
+function projectFromPath() {
+  const m = PROJECT_PATH.exec(location.pathname);
+  return m ? (m[1] || null) : undefined;
+}
+
+/**
+ * Open a project (or the list, with `null`) — the ONE way either happens.
+ *
+ * State and URL move together here and nowhere else. Four call sites navigate
+ * (a card, the Data button, a new build, the Back arrow) and pushing from each
+ * of them is the recorded "two lists of the same thing": the fifth one added
+ * later is the one that forgets, and a forgotten push is invisible — the screen
+ * is right and only the address is stale. One function cannot drift.
+ *
+ * `mode` says what to do with history: "push" for a navigation a person made,
+ * "replace" for a correction (an id that resolves to nothing), and "none" when
+ * the browser moved us and the entry already exists — pushing on popstate is
+ * how Back becomes a trap you cannot get out of.
+ */
+function openProject(id, mode) {
+  siteOpenId = id || null;
+  const path = siteOpenId ? '/projects/' + siteOpenId : '/projects';
+  // A PUSH TO THE PATH WE ARE ALREADY ON IS A REPLACE. Re-opening the site that
+  // is already open (the Data button on the open project, a re-render) would
+  // otherwise stack identical entries and Back would appear to do nothing for
+  // as many presses as the screen was re-entered. Every branch below is
+  // reachable: push moves, replace corrects, "none" leaves history alone.
+  try {
+    if (mode === 'push' && location.pathname !== path) history.pushState({ project: siteOpenId }, '', path);
+    else if (mode === 'push' || mode === 'replace') history.replaceState({ project: siteOpenId }, '', path);
+  } catch (e) {}
+  renderSites();
+}
+
+// BACK AND FORWARD MOVE A SCREEN. Re-read the path and re-render with mode
+// "none" — the entry the browser just moved to is already in history, so
+// pushing here would add a second copy of it and Back would never escape.
+// A pop to a non-project URL is left alone: that is the landing or another
+// view, and this router owns the sites screen only.
+window.addEventListener('popstate', () => {
+  const id = projectFromPath();
+  if (id === undefined) return;
+  if (typeof showView === 'function') showView('sites');
+  openProject(id, 'none');
+});
 let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
 let siteAbort = null;       // AbortController for the in-flight build/revise (Stop)
@@ -10645,6 +10737,15 @@ function renderSites() {
   // Idempotent — a job already watched is refused inside — so this is safe on
   // the render every reply triggers.
   if (open) { resumeOpenSite(open); renderSiteWorkspace(view, open); return; }
+  // AN ID THAT NAMES NOTHING FALLS BACK TO THE LIST, AND THE URL STOPS LYING.
+  // A pasted link to a deleted project, or one belonging to another account,
+  // lands here. `replaceState` and not a push, and not `openProject` either:
+  // this is a correction rather than a navigation, so it must not add an entry
+  // Back would have to walk through — and openProject calls this very function,
+  // which would recurse.
+  if (siteOpenId && PROJECT_PATH.test(location.pathname)) {
+    try { history.replaceState({ project: null }, '', '/projects'); } catch (e) {}
+  }
   siteOpenId = null;
   // EVERY SITE THIS ACCOUNT OWNS, not only the ones this browser built. The
   // fetch is fire-and-forget and re-renders when it lands, so the first paint
@@ -10730,8 +10831,7 @@ function renderSites() {
   const cardOpen = (id) => {
     const rec = siteAdopt(cardEntry(id));
     if (!rec) return;
-    siteOpenId = rec.id;
-    renderSites();
+    openProject(rec.id, 'push');
   };
   // thumbnails: srcdoc set via property (attribute-escaping-proof), inert
   view.querySelectorAll('.st-card').forEach((card) => {
@@ -10774,9 +10874,8 @@ function renderSites() {
     // answer is still nothing. Written for a change that had not happened yet
     // and paid off when it did, which is the argument for keeping it positive.
     if (b.dataset.act !== 'data') return;
-    siteOpenId = rec.id;
     siteView = 'data';
-    renderSites();
+    openProject(rec.id, 'push');
   });
   // THE PHONE SWITCH, AND IT REPAINTS RATHER THAN RE-RENDERS. `renderSites()`
   // rebuilds the grid, and every card in it carries an `<iframe>` showing that
@@ -10921,8 +11020,11 @@ function siteCreate(prompt) {
   const name = prompt.split(/\s+/).slice(0, 4).join(' ').slice(0, 30) || 'New site';
   sitesLoad().unshift({ id, name, createdAt: Date.now(), updatedAt: Date.now(), html: '', msgs: [] });
   sitesSave();
-  siteOpenId = id;
-  renderSites();
+  // THE ADDRESS EXISTS BEFORE THE SITE DOES, which is the case the id was
+  // chosen over the slug for: this fires the moment a brief is typed, minutes
+  // before there is a slug to name, and the customer can copy or reload that
+  // URL for the whole build.
+  openProject(id, 'push');
   siteSend(prompt);
 }
 // "Jul 18 at 9:58 PM" — the thread's session stamp (Lovable-style).
@@ -12258,7 +12360,7 @@ function renderSiteWorkspace(view, site) {
   const errLogs = document.getElementById('stErrLogs');
   if (errLogs) errLogs.onclick = () => { siteErr = null; renderSites(); };
   const back = document.getElementById('stBack');
-  if (back) back.onclick = () => { siteOpenId = null; renderSites(); };
+  if (back) back.onclick = () => openProject(null, 'push');
   const rl = document.getElementById('stReload');
   if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && curHtml) loadSitePreview(f, curHtml, site.slug); };
   // Page picker: toggle the menu; clicking a page switches the active page.

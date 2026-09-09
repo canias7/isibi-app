@@ -1440,6 +1440,22 @@ function upstreamKind(detail, status) {
   };
 }
 
+// WHICH ADDRESSES ARE A PROJECT'S (2026-09-09). `/projects` is the list and
+// `/projects/<id>` is one project's workspace; both are screens inside the app's
+// single page, so the fetch handler serves the app shell for either and the
+// browser opens the right one off the path.
+//
+// KEPT IN STEP WITH THE BROWSER'S COPY BY A GUARD, not by anybody remembering:
+// `public/chat.js` has the same pattern, and `test/project-url.test.mjs` reads
+// both out of their files and requires the two sources to be identical. Two
+// hand-maintained copies of one rule is the recorded "two lists of the same
+// thing", and here the drift would be silent in the worst way — the browser
+// would push an address the server then 404s, so it works until a reload.
+//
+// The id charset admits no slash and no dot, so no path here can climb out of
+// /projects/ toward another asset.
+const PROJECT_PATH = /^\/projects(?:\/([A-Za-z0-9_-]{1,120}))?\/?$/;
+
 function harden(res, request) {
   // A REFUSAL WE COULD NOT MAKE IS NOT A REFUSAL. If `authUser` never got an
   // answer out of the provider (see `authDown`), the 401 below it means "we
@@ -27952,6 +27968,24 @@ Return just the line to be voiced — keep it to what should actually come out o
     // read as a confusing 200/asset-404 to any API caller (2026-07-18).
     if (url.pathname.startsWith("/api/")) {
       return Response.json({ error: "not found" }, { status: 404 });
+    }
+
+    // A PROJECT HAS AN ADDRESS (2026-09-09, owner: "or something with id, look
+    // at lovable for example" → "build it"). The workspace is a SCREEN inside
+    // the one page, so there is no file at /projects/<id> and the asset handler
+    // below would 404 it. Handing back the app's own shell is what makes the
+    // address real: the browser boots, reads the path, and opens that project.
+    //
+    // THE ID IS NOT VALIDATED HERE, deliberately, and that is a decision rather
+    // than an omission. This chooses which HTML to serve, not who may see what:
+    // the project list and every site behind it are fetched by the app under the
+    // caller's own token, and an id naming nothing lands on the project list.
+    // A check here would be a second, weaker copy of an authorization the API
+    // already does — and the shell it serves is the same bytes as `/`, which is
+    // public anyway. What the pattern DOES exclude is a path with a slash or a
+    // dot in the id, so nothing here can reach for another asset.
+    if (PROJECT_PATH.test(url.pathname)) {
+      return env.ASSETS.fetch(new URL("/", request.url));
     }
 
     return env.ASSETS.fetch(request);

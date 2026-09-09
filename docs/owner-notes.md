@@ -155,6 +155,66 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-09 — Every project has its own web address now
+
+You held up Lovable's `lovable.dev/projects/a752aa91-…` and said *"or something
+with id, look at lovable for example"* → *"build it"*. Done.
+
+Open a site and the address bar now reads
+`gofarther.dev/projects/site_1784380035480_w53jb`. The project list is
+`gofarther.dev/projects`. Both are real addresses — paste one into another tab,
+bookmark it, send it to someone with an account, and it opens that project.
+
+**What it was before.** The whole app was one page. Every screen — the start
+screen, a project's workspace, the gallery, settings — was a hidden block inside
+it that got shown or hidden, and the address never changed from plain
+`gofarther.dev`. So there was no way to link to a project, no way to have two of
+them open in two tabs, and the browser's Back button took you out of the app
+altogether instead of back a screen.
+
+**We already had the id, we just weren't showing it.** The moment you type a
+brief, the app makes a project id — `site_`, the time, and five random
+characters — and it has been sending that id to the server on every call since
+yesterday. This change puts it in the address bar.
+
+**Why the id and not the site's name.** `gofarther.dev/projects/hartleys-barbers`
+would read better, and I'd argue against it for two reasons. A site's name can
+be changed — you have a rename lane for exactly that — so the address would move
+under you and under anyone you'd already sent the link to. And the name doesn't
+exist until the build finishes, which is the eight-minute stretch where being
+able to send someone the link is worth the most. The id never changes and exists
+from the first keystroke.
+
+**Back and Forward work properly now.** Back goes from a project to the list, and
+from the list out to wherever you were before. Forward returns. Re-opening the
+project you already have open doesn't quietly add a step you'd then have to press
+Back through twice.
+
+**A link to a project that's gone lands on the list**, and the address corrects
+itself rather than sitting there naming something that isn't there.
+
+**Checks**: 13 new guards. Two of them exist only because the sabotage run found
+holes in my first set — I'd checked that opening a project moves the state and
+moves the address, and never that the screen actually redraws, so deleting the
+redraw passed every test I had. That's the address bar changing while the screen
+sits still, which is the exact opposite of the point of this. Fixed, then re-run:
+23 deliberate breakages, all 23 caught. Whole suite green at 5,745.
+
+**Also proved in a real browser**, not just in tests — real Chromium, real
+server, real Back button. 11 checks, all passed, including that a pasted link
+boots straight into that project and a reload stays on it.
+
+**No screenshot this time, and that's not me skipping it** — nothing on the page
+changed. What moved is the address bar, which is the browser's own chrome rather
+than anything we draw.
+
+**Not seen live yet.** This one touches the Worker, so the container rebuilds:
+**wait 15–20 minutes after the deploy** before judging it. And **hard-refresh** —
+`chat.js` is cached. Then: open a site, look at the address bar, and paste it
+into a new tab.
+
+---
+
 ## 2026-09-09 — The wire goes green when the project has a database
 
 You asked for it: *"if the project has a database, the wire turns green to the

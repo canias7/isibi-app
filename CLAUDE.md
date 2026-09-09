@@ -767,6 +767,126 @@ the next platform-wide republish is the measurement).
 
 ---
 
+### A PROJECT HAS AN ADDRESS (2026-09-09, owner, holding up
+`lovable.dev/projects/a752aa91-…`: *"or something with id, look at lovable for
+example"* → *"build it"*)
+
+`<slug>.gofarther.app` is the customer's SITE. This is about the app they build
+it in, which until today had **no router at all** — zero `pushState`, zero
+`popstate`; the only two `history` calls in `chat.js` scrubbed `?q=` and
+`?credits=added` off the URL after reading them. Every screen was a div inside
+one page at bare `gofarther.dev` and the address bar never moved, so a project's
+workspace could not be linked, bookmarked, opened in a second tab or backed out
+of, and Back left the app. Now it is `gofarther.dev/projects/<id>`, with
+`/projects` the list.
+
+- **THE ID ALREADY EXISTED AND NOTHING NEW IS INVENTED.** `siteCreate` mints
+  `site_<epoch-ms>_<5 base36>` the moment a brief is typed; that value is already
+  the `origin` threaded through every call and already goes to the server as
+  `chat`. This puts it where a person can see and copy it.
+- **WHY THE ID AND NOT THE SLUG**, since `/hartleys-barbers` reads better: the
+  slug is RENAMEABLE — the `slug`→`rename` lane, `site_aliases`, the
+  one-current-name index — so a slug address would move under the customer on a
+  rename and need the alias machinery a second time, for the app instead of the
+  site. And a slug does not exist until the build finishes, which is the
+  eight-minute window where a stable address is worth the most. The id has
+  neither problem.
+- **`openProject(id, mode)` IS THE ONE WAY EITHER SCREEN OPENS.** State and URL
+  move together there and nowhere else. Four call sites navigate — a card, the
+  Data button, a new build, the Back arrow — and pushing from each of them is
+  the recorded "two lists of the same thing": the fifth one added later is the
+  one that forgets, and **a forgotten push is invisible**, because the screen is
+  right and only the address is stale. The guard COUNTS assignments to
+  `siteOpenId` rather than listing call sites — four, and a fifth fails.
+- **THREE ANSWERS FROM THE PATH, AND THE THIRD IS THE POINT.**
+  `projectFromPath()` answers `undefined` (not a project address at all — the
+  landing, `/privacy`, anything else), `null` (the LIST) or an id. Folding the
+  first into the second sends every ordinary page load to the sites screen: the
+  recorded "cannot-tell must never read as nothing-there", one layer over.
+- **THREE HISTORY MODES**: `push` for a navigation a person made, `replace` for
+  a correction, `none` for a move the BROWSER made. **A push to the path we are
+  already on is a replace** — re-opening the open project (the Data button, a
+  re-render) would otherwise stack identical entries and Back would appear dead
+  for as many presses as the screen was re-entered. And **the pop must not
+  push**: that entry is already in history, so pushing there is how Back becomes
+  a trap with no way out.
+- **THE BOOT READS THE ADDRESS BEFORE THE REMEMBERED VIEW**, and the order is
+  the feature. `/projects/<id>` is a link somebody followed; `localStorage` is a
+  preference this browser happened to store on an earlier visit. Read the other
+  way round, every pasted link lands wherever that browser was last — exactly
+  what an address must not do, and the one person it fails is whoever opened the
+  link. `siteOpenId` is set BEFORE `showView`, because `showView('sites')`
+  renders at once and reads it.
+- **AN ID THAT NAMES NOTHING CORRECTS THE ADDRESS RATHER THAN LYING.** A link to
+  a deleted project, or one belonging to another account, lands on the list —
+  through `replaceState`, not a push and not `openProject`, which calls the very
+  function doing the correcting and would recurse.
+- **THE WORKER SERVES THE APP'S OWN SHELL FOR A PROJECT ADDRESS**, placed after
+  the `/api/` miss and BEFORE the asset fallthrough, which would 404 a path with
+  no file behind it. **The id is NOT validated there, deliberately**: that route
+  chooses which HTML to serve, not who may see what — the project list and every
+  site behind it are fetched by the app under the caller's own token, an id
+  naming nothing lands on the list, and the shell is the same bytes as `/`,
+  which is public. A check there would be a second, weaker copy of an
+  authorization the API already does.
+- **ONE RULE IN TWO FILES, HELD IN STEP BY A GUARD.** `PROJECT_PATH` is written
+  in `public/chat.js` and in `worker.js`, and `test/project-url.test.mjs`
+  compares the two as SOURCE TEXT. The drift would be silent in the worst way —
+  the browser pushing an address the server then 404s, which works until
+  somebody reloads or shares it. The id charset admits no slash and no dot, so
+  nothing under `/projects/` can climb toward another asset or name a file.
+- **Guards**: `test/project-url.test.mjs` (13) — the two patterns compared, the
+  pattern DRIVEN over four addresses it must admit and six it must refuse, the
+  reader's three answers, the URL moving in both directions, the same-path
+  replace, the neutral mode, the re-draw and what was on screen at each one, the
+  four call sites counted AND named, the pop's four properties, the boot DRIVEN
+  with a stubbed `projectFromPath` and `localStorage`, the dead-id repair, and
+  the Worker's route with its position asserted against both neighbours.
+- **PROVEN IN A REAL BROWSER, 11/11**, because a fake `history` that differs
+  from the real one by a single behaviour is the recorded "a fixture in a
+  different shape from reality". A local server applying the Worker's own rule,
+  the REAL router cut out of `chat.js`, and Chromium: a pasted link boots into
+  the project, the server 200s the shell, the address bar really moves, the REAL
+  Back button fires popstate and the screen follows it, Back again reaches the
+  list, Forward works, re-opening the open project added no entry
+  (`history.length` 5 → 5), and a reload lands on the same project.
+- **TWO GUARD GAPS THE SWEEP FOUND, BOTH MINE RATHER THAN THE PRODUCT'S, AND
+  BOTH THE SAME SHAPE.** The re-draw was never asserted — every case checked the
+  state and the address, and both move perfectly with `renderSites()` deleted,
+  leaving an address bar that changes while the screen does not, the exact
+  inverse of the defect this exists to fix. And the boot was checked by the
+  ORDER OF LANDMARKS, which `if (false) { … }` leaves entirely in place. Both
+  are driven now: the re-draw records the id the router held AT each draw (so
+  "drew the project" is told from "drew, then set the project"), and the boot
+  block is cut out and RUN against a stubbed path and store.
+- **Sweep: 23 mutants, 23 killed, none survived, none unapplied, two
+  comment-only controls survived** — the two patterns drifting, the id charset
+  admitting a slash or a dot, a non-project URL read as the list, `/projects`
+  read as a project named empty, a navigation that moves the screen and not the
+  address, the same-path push stacking an entry, the neutral mode pushing, the
+  URL moving without the state, the state moving without a re-draw, each of the
+  four call sites skipping the router in turn, nothing listening for popstate,
+  the pop pushing, a pop away from `/projects` acted on, the boot ignoring the
+  address or naming the view without opening the project, the dead-id repair
+  deleted or pushing, and the Worker's route deleted or serving the request path.
+- **AND THE GUARD'S OWN FIRST DRAFT MET A RECORDED TRAP.** The boot block's
+  comment explains that the id is set before `showView` and spells
+  `showView('sites')` while doing so, three lines ABOVE the assignment — so a
+  raw scan found the draw first and reported correct code as broken. "Prose
+  contains the thing it forbids", in a guard written for this change. Blanked
+  before the scan.
+- Full suite **5,745**.
+- **Not proven live, and there is no screenshot: nothing on the page changed.**
+  What moved is the address bar, which is browser chrome. The proof is one look
+  after the deploy — opening a site should put `gofarther.dev/projects/site_…`
+  in the bar, that link should open the same project in a new tab, and Back
+  should return to the list instead of leaving the app. The push touches
+  `public/` and `worker.js`, and **`worker.js` is a container image input since
+  2026-09-05, so the container rolls and the 15–20 minute hold applies.** And
+  `chat.js` is cached, so a hard refresh is part of it reaching anybody.
+
+---
+
 ### A LIVE WIRE IS GREEN (2026-09-09, owner: *"IF THE PROJECT HAS A DATABASE,
 THE WIRE TURNS GREEN TO THE SITE BOX OR THE MOBILE APP ONE, DEPENDING ON WHICH
 ONE IS IT"* → four treatments rendered → *"A"* → *"but the green color more
@@ -2706,7 +2826,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   that number since the cap moved to 35 minutes**: runs 1065 and 1066 both
   printed `373 passed, 0 failed`, where stage 5b/5c's own run had been killed
   at the 25-minute wall and the count stood on a local run alone;
-  the unit suite is 5,720.
+  the unit suite is 5,745.
+  **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
+  `package.json` runs. `node --test test/` reads the directory as a MODULE path
+  on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
+  red run that looks like a broken suite and is a wrong command.
   **In this sandbox the
   harness needs `playwright-core` at the root the way `site-build.yml`
   installs it** (`npm i --no-save playwright-core@<the template's playwright
@@ -3669,6 +3793,20 @@ address the same complaint, one of them is dead; find out which.
 
 **Vacuous ordering.** `indexOf(a) < indexOf(b)` passes when `a` is the thing
 deleted (-1 < anything). Prove both anchors exist first.
+
+**AND ITS MIRROR: A POSITIONAL GUARD CANNOT SEE A DEAD BRANCH (2026-09-09,
+found by the sweep on the project router).** Vacuous ordering is a landmark that
+went AWAY; this is a landmark that stayed exactly where it was while the code
+around it stopped running. `if (bootProject !== undefined) { … }` mutated to
+`if (false) { … }` leaves every landmark in the file at the same offset, so a
+guard reading their order passes over a boot that ignores the address entirely.
+The same shape kills a check on a call site: `if (false) foo()` leaves `foo(` in
+the file, which is why the addon work already records reading a call's own
+`if (` rather than its position. **A position is not a behaviour** — when what
+you mean to assert is "this runs", cut the block out and RUN it (both the boot
+and `openProject`'s re-draw are driven now); keep the positional check only for
+what a drive genuinely cannot see, like an ordering inside the block whose
+consequence is in code the drive stubs out.
 
 **One prompt written for two jobs, where the second has to argue with the first.**
 `design_schema` was shared by the build and the `look` edit, so a customer's
