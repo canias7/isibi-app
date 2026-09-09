@@ -11908,6 +11908,15 @@ function renderSiteWorkspace(view, site) {
   // hidden the ceiling is simply larger, which falls out of measuring rather
   // than needing a second rule — and a number typed here would be wrong at
   // every window size but the one it was typed at.
+  //
+  // THE ARITHMETIC IS UNCHANGED BY THE OVERLAY AND THAT IS WORTH SAYING, since
+  // it now holds for a different reason. It used to be flex space: the panel was
+  // an item in the row, so the widest it could get was whatever was left after
+  // the rail and the two gaps, with the stage squeezed to nothing. The panel is
+  // absolute now and takes no space at all, so what this bounds is its LEFT
+  // EDGE — anchored right, a width of `body - rail - gaps` puts that edge just
+  // past the rail's gap, which is the same place the flex sum used to leave it.
+  // Both readings give one formula; only one of them is still the mechanism.
   const mobRoom = () => {
     const body = view.querySelector('.st-body');
     if (!body) return MOBILE_MIN_W;

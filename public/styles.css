@@ -1693,9 +1693,35 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    what lets a drag move everything without a re-render — and therefore without
    reloading the preview beside it.
    `container-type: inline-size` makes the panel the query container for the
-   one-phone / two-phone rule below. Its basis is set explicitly, so the size
-   containment it brings has nothing to compute against and changes no layout. */
-.st-mob { flex: 0 0 var(--mob-w, clamp(300px, 26vw, 420px)); container-type: inline-size; display: flex; flex-direction: column; gap: .5rem; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; padding: .7rem; }
+   one-phone / two-phone rule below. Its width is set explicitly, so the size
+   containment it brings has nothing to compute against and changes no layout.
+
+   AND IT OVERLAYS THE STAGE RATHER THAN TAKING ITS SPACE (2026-09-09, owner:
+   "the stuff in the site shouldnt shrink"). It was `flex: 0 0 var(--mob-w)` —
+   a real item in `.st-body` — so every pixel it gained came off `.st-stage`
+   (`flex: 1`) and the site being previewed re-laid-out under the drag: at a
+   wide panel the empty state was one word per line. Absolute against
+   `.st-body` (already the containing block, for the tab) it floats over the
+   preview instead, so the site keeps the width it had when the panel was shut
+   and the drag changes nothing about it.
+   THE IFRAME NEVER REFLOWS NOW, which is the half worth having beyond the
+   look: a drag used to resize the frame continuously, so the site inside it
+   re-rendered at every intermediate width. `right/top/bottom: 0` with the
+   width the one dragged property; the shadow is what says it is ABOVE the
+   stage rather than cut into it, biased left because that is the edge it
+   floats over. `z-index` below the tab's 6, so the handle stays on top.
+
+   AND THE GROUND HAD TO BECOME OPAQUE, which is not a colour change: the tint
+   is composited over the paper it always sat on, so the panel resolves to the
+   same colour it did as a flex item. `--panel-2` is `rgba(51,49,61,.10)` — a
+   SMUDGE, meant to be laid on the sheet — and a smudge over a live website is
+   a window: the first render of this overlay showed the preview's address bar
+   straight through the panel's own heading. As an item in the row it only ever
+   had the app's paper behind it and nobody could tell it was translucent; the
+   moment it floats, what is behind it is the customer's site. Layering the
+   same tint over `--paper` keeps the look and closes the window. The grain on
+   `html` is the one thing lost, and it was never legible under a 10% wash. */
+.st-mob { position: absolute; right: 0; top: 0; bottom: 0; z-index: 5; width: var(--mob-w, clamp(300px, 26vw, 420px)); container-type: inline-size; display: flex; flex-direction: column; gap: .5rem; border: 1px solid var(--line-2); border-radius: 16px; background: linear-gradient(var(--panel-2), var(--panel-2)), var(--paper); box-shadow: -18px 0 46px rgba(0, 0, 0, .14); overflow: hidden; padding: .7rem; }
 .st-ws:not(.st-mob-open) .st-mob { display: none; }
 /* AND THE WHOLE FEATURE IS THE PREVIEW'S (owner, 2026-09-09: "so i wanna to
    tell to only show it in the preview"). It showed on Code and More too — a
@@ -1737,12 +1763,20 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   touch-action: none; display: flex; align-items: center; justify-content: center;
   box-shadow: -2px 0 6px rgba(0, 0, 0, .05); }
 .st-mob-tab:hover { color: var(--text); }
-.st-ws.st-mob-open .st-mob-tab { right: calc(var(--mob-w, clamp(300px, 26vw, 420px)) + .8rem); cursor: ew-resize; }
-/* Open, it is a seam between two panels rather than an edge on one, so it takes
-   its border back and squares up — the closed tab's dropped right border is
-   what made it read as sticking OUT, and there is nothing to stick out of once
-   the panel is beside it. */
-.st-ws.st-mob-open .st-mob-tab { border-right: 1px solid var(--line-2); border-radius: 10px; }
+/* The offset is the panel's width and NOTHING ELSE. It was `+ .8rem` for the
+   flex gap that used to sit between the stage and the panel; the panel overlays
+   the stage now, so there is no gap and the tab sits flush on its left edge. */
+.st-ws.st-mob-open .st-mob-tab { right: var(--mob-w, clamp(300px, 26vw, 420px)); cursor: ew-resize; }
+/* AND IT KEEPS ITS STICKING-OUT EDGE WHEN OPEN (2026-09-09). It used to take
+   its right border back and square up, on the argument that an open panel makes
+   it "a seam between two panels rather than an edge on one" — which was true
+   while a .8rem gap separated the two and false the moment the panel became an
+   overlay the tab is flush against. Squared up it would draw its own right
+   border against the panel's left one: a 2px double line where there is one
+   edge. The recorded "a rule true because of a layer below it expires when that
+   layer moves", so the rule goes rather than being adjusted — open and closed
+   are now one look, the panel's own edge protruding left, which is what the tab
+   has always been. */
 .st-mob-head { display: flex; align-items: center; justify-content: space-between; padding: .1rem .2rem .1rem .35rem; }
 .st-mob-title { font-weight: 700; font-size: .82rem; letter-spacing: .01em; }
 /* iPhone / Android, a segmented control in the panel's own header. Its active

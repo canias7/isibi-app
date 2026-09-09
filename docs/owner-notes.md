@@ -5484,3 +5484,62 @@ hidden the chat since.
 **Not live yet.** This only touches the browser files, so nothing rebuilds and
 there's no waiting after the deploy. The proof is one drag: pull the panel wide,
 send the builder a message, and the panel should stay where you put it.
+
+---
+
+## 2026-09-09 — The phone column floats over the site instead of squashing it
+
+You sent a screenshot of the panel dragged wide with the site's own text crushed
+to one word a line, and said the panel should **overlay** — the stuff in the site
+shouldn't shrink. It does now.
+
+**What was wrong.** The panel was a column *in* the row, sitting next to the
+preview, so the two shared the space: every pixel the panel gained came straight
+off the site. I measured it before the change — as you drag, the preview goes
+1017 pixels wide, then 491, 351, 191, and finally **zero**. The site was being
+re-laid-out live under your hand, which is why the text stacked up.
+
+**What it does now.** The panel is lifted out of the row and floats on top, with
+a soft shadow down its left edge so it reads as sitting *above* the site rather
+than cut into it. Measured after: the preview holds **1017 pixels the whole way
+through the drag** and never moves. The panel still stops in exactly the same
+place as before — 26 pixels past the chat box, to the pixel — so "open until the
+chatbox" is unchanged.
+
+**A bonus worth knowing about.** Because the site's frame is no longer being
+resized as you drag, it stops re-rendering. Before, every intermediate width made
+the site inside redraw itself.
+
+**Three small things came with it, and one was a real bug I caught by looking.**
+
+1. The little handle used to sit a gap away from the panel, because there *was* a
+   gap between the two columns. There isn't one any more, so it sits flush on the
+   panel's edge.
+2. The handle used to square itself off when the panel opened. Flush against the
+   panel that would have drawn two borders on top of each other — a visible
+   double line — so it keeps its rounded sticking-out edge now, open or shut.
+3. **The panel's background was slightly see-through**, which nobody could tell
+   while it had nothing but our own paper behind it. The moment it floats over
+   your live site, that matters: the first version I rendered showed the site's
+   address bar showing straight through the panel's heading. Fixed — same
+   colour, just solid now.
+
+**Not live yet.** Browser files only, so nothing rebuilds and there's no waiting
+after a deploy. The proof is one drag: open a site, pull the handle left, and the
+site behind should stay exactly the size it was. Pictures in `docs/edits/`:
+`mobile-overlay-open.png`, `mobile-overlay-wide.png`, and
+`mobile-overlay-before-wide.png` for what it replaced.
+
+**One thing to remember when you look:** `chat.js` is about 930 KB and your
+browser caches it, so the first load after a deploy can still be the old file. A
+hard refresh is part of any browser-side fix reaching you.
+
+**One more thing worth telling you, because it is the same mistake this codebase
+keeps making.** A check went red while I was finishing, and it was reading my own
+comment. I had written a note in the stylesheet explaining what the panel used to
+be — quoting the old line — and a checker that scans for stylesheet variables read
+that quote as if it were live code and reported a problem that does not exist. The
+codebase already has a rule for this ("ignore comments before scanning") and this
+one check had never been given it. Fixed in the check, not in my comment: the
+comment is fine, and had I quietly reworded it, the next person to explain a rule
+in a comment would have hit the same thing.

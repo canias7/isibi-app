@@ -205,11 +205,21 @@ test("the landing's CSS uses only tokens this theme actually defines", () => {
   // 600 lines of the games UI, reporting its `--faint` as a landing bug. The
   // anchor has to be unique as well as durable, so it is the token that only
   // this block declares. Hence the vacuity floor below.
-  const defined = new Set([...CSS.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
-  const at = CSS.indexOf("--paper:");
+  // AND IT READS CODE, NOT PROSE (2026-09-09). Comments are blanked
+  // length-preserving before the scan, which is this repo's standing rule for
+  // every scanner and was missing here. It fired the day a comment explaining
+  // the mobile panel's overlay quoted the declaration it replaced — the panel's
+  // old flex basis, written without the fallback the real rules carry — and the
+  // check reported a token that no rule uses. "Prose contains the thing it
+  // forbids", for the tenth recorded time, and a check that flags correct code
+  // is worse than no check. Blanking cannot hide a real use: a token is only
+  // ever declared or read in code.
+  const BARE = CSS.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+  const defined = new Set([...BARE.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
+  const at = BARE.indexOf("--paper:");
   assert.ok(at > 0, "the landing's pencil palette must be findable by its own first token");
-  assert.equal(CSS.indexOf("--paper:", at + 1), -1, "the anchor must be unique to be a window edge");
-  const block = CSS.slice(at);
+  assert.equal(BARE.indexOf("--paper:", at + 1), -1, "the anchor must be unique to be a window edge");
+  const block = BARE.slice(at);
   const used = new Set([...block.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]));
   const missing = [...used].filter((v) => !defined.has(v));
   assert.deepEqual(missing, [], "undefined CSS variables in the landing block: " + missing.join(", "));

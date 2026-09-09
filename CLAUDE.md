@@ -2039,6 +2039,150 @@ regression in the drag work above it.
   still be the old file — a hard refresh is part of a `public/` fix reaching
   anybody, exactly as the Code pane's own entry records.
 
+### AND IT FLOATS OVER THE PREVIEW RATHER THAN TAKING ITS SPACE (2026-09-09,
+owner, on a screenshot of the panel dragged wide with the site's own text crushed
+to one word a line: *"when the thing moves that moves is has to be like an
+overlaying thing, so the stuff in the site shouldnt shrink"*)
+
+The panel was `flex: 0 0 var(--mob-w)` — a real item in `.st-body` — so every
+pixel it gained came off `.st-stage` (`flex: 1`) and the site being previewed
+re-laid-out under the drag. **MEASURED before, at 1512×950: the stage went 1017 →
+491 → 351 → 191 → 0 across the drag** and the iframe with it, so at full drag the
+preview was gone and on the way there its empty state was one word per line.
+Absolute against `.st-body` it overlays instead: **the stage holds 1017px and the
+iframe 1015px through the whole drag**, and the drag changes nothing about the
+site at all.
+
+- **`mobRoom()` IS UNCHANGED, AND IT HOLDS FOR A DIFFERENT REASON NOW** — worth
+  saying, because the arithmetic surviving a change like this usually means
+  nobody re-derived it. It used to be FLEX SPACE: the panel was an item in the
+  row, so the widest it could get was what was left after the rail and the two
+  gaps. The panel takes no space at all now, so what `body − rail − gaps` bounds
+  is its LEFT EDGE — anchored right, that width puts the edge exactly where the
+  flex sum used to leave it. **Measured both ways: `panel.x` 492 and 26px past
+  the rail, before and after**, so "open until the chatbox" is preserved to the
+  pixel. Both readings give one formula; only one of them is still the mechanism.
+- **THE IFRAME NEVER REFLOWS**, which is the half worth having beyond the look. A
+  drag used to resize the frame continuously, so the site inside it re-rendered
+  at every intermediate width — the panel has been built since the day it shipped
+  around not reloading that frame, and the drag was quietly doing the next worst
+  thing to it.
+- **THE TAB'S `+ .8rem` WAS THE FLEX GAP AND HAD TO GO WITH IT.** The offset is
+  `right: var(--mob-w…)` now, the width and nothing else, so the handle sits
+  flush on the panel's edge — measured 0px. A term left there would have left it
+  floating in the middle of the preview with the panel's edge beside it.
+- **AND THE "SQUARES UP WHEN OPEN" RULE IS DELETED, NOT ADJUSTED.** It took its
+  right border back and rounded all four corners on the argument that an open
+  panel makes it *"a seam between two panels rather than an edge on one"* — true
+  while a .8rem gap separated the two, and false the moment the tab became flush
+  against an overlay, where it would draw its own right border directly against
+  the panel's left one: 2px of double line where there is a single edge. The
+  recorded *"a rule true because of a layer below it expires when that layer
+  moves"*, inside the rule that layer belonged to. Open and closed are one look
+  now — the panel's own edge protruding left, which is what the tab has always
+  been.
+- **THE GROUND HAD TO BECOME OPAQUE, AND THAT WAS FOUND BY LOOKING RATHER THAN
+  BY READING.** `--panel-2` is `rgba(51,49,61,.10)` — a SMUDGE, and the palette
+  says so in as many words. As an item in the row it only ever had the app's own
+  paper behind it, so nobody could tell it was translucent; the moment it floats,
+  what is behind it is the customer's live website. The first render of the
+  overlay showed **the preview's own address bar straight through the panel's
+  heading** — and `elementFromPoint` said the panel was on top, which is what
+  named the cause instead of sending me after a stacking bug. It is `linear-
+  gradient(var(--panel-2), var(--panel-2)), var(--paper)` now: the same tint
+  composited over the paper it always sat on, so the panel resolves to the colour
+  it has always been and only its opacity changed. The grain on `html` is the one
+  thing lost, and it was never legible under a 10% wash.
+- **WHAT IT COVERS AND WHAT STAYS ABOVE IT ARE BOTH REAL.** `.st-fixbar` — the
+  "Fix with AI" bar — is absolute INSIDE the stage, and `.st-stage` creates no
+  stacking context (`position: relative` with `z-index: auto` does not), so that
+  bar's `z-index: 5` competes directly with the panel's in `.st-body`. Equal, and
+  the panel is later in the DOM, so the panel wins; below it the bar would show
+  through a phone frame at a wide drag. The tab is the other way round: flush on
+  the panel's left edge is exactly where the panel's `-18px` shadow is painted,
+  so a handle below the panel is a handle in shadow.
+- **Guards**: `test/mobile-panel.test.mjs` 50 → 52 — the panel held to `position:
+  absolute` pinned on three edges (the width is the one property a drag may
+  move), `.st-body` asserted as its containing block, the shadow required and
+  required to lean LEFT (it is what says the panel is above the preview rather
+  than cut into it), the two z-orders DERIVED from the rules they belong to
+  rather than pinned as numbers, and — the one that matters most — **the stage
+  asserted never to learn the panel opened**, beside its own `flex: 1` so the
+  check cannot pass by the stage having been deleted. That forbids the obvious
+  "fix" if this is ever revisited: a rule narrowing the stage for an open panel
+  puts the shrinking back by another route. The opaque-ground guard is DERIVED
+  both ways — it reads `--panel-2`'s own declaration and asserts it is still
+  translucent (or it is observing nothing), then requires some token in the
+  panel's background to be opaque, judged by that token's declaration and never
+  by its name.
+- **Proven red before green**: each of five properties fails on its own defect
+  restored verbatim — the panel a flex item, the bare tint back, a rule narrowing
+  the stage, the gap term back on the tab, the squares-up rule back — and passes
+  on the fix.
+- **AND ONE ASSERTION WAS RE-AIMED BEFORE IT SHIPPED, which is the inert-mutant
+  trap caught in a guard rather than in a sweep.** The "flush" check forbade
+  `calc(` in the tab's offset — and a `calc` wrapper never reaches it, because
+  the assertion one line above already requires `right: var(`. A wall behind a
+  wall proves nothing. It is aimed at what actually survives that match: a SECOND
+  declaration shifting the tab beside the offset, which is exactly how the .8rem
+  would be restored by someone who saw the offset was already right. Driven with
+  a `margin-right` mutant.
+- **Three older guards went red for the change and were re-anchored, not
+  appeased**, each naming which spelling moved. Two pinned `right: calc(var(--mob-w`
+  — the `calc` existed only to add the gap, and the property was never the
+  arithmetic but that the tab reads the SAME dragged value the panel's width
+  reads. The third pinned `flex: 0 0 var(--mob-w, clamp(…))` and its case was
+  called *"the column is bounded so it cannot squeeze the preview"* — **its
+  REASON moved further than its spelling**: an overlay cannot squeeze the preview
+  at all, so the bound now earns its place for the other half, deciding how much
+  of the preview an undragged panel COVERS. Renamed to say which of the two it
+  guards, with `flex:` forbidden beside it.
+- **Sweep: 17 mutants, 17 killed, none survived, none unapplied, two comment-only
+  controls survived** — the panel a flex item again (the defect itself),
+  positioned relative, unpinned on each of its three edges in turn, `.st-body` no
+  longer a containing block, a rule narrowing the stage, the stage no longer
+  taking the row's spare width, the ground back to the bare tint, the ground
+  opaque but losing the tint, the panel below the fix bar, the tab below the
+  panel, the offset's gap back, a second declaration shifting the tab, the
+  squares-up rule back, the clamp fallback dropped, and the shadow gone. **One of
+  the two controls is this change's WHOLE `chat.js` edit** — a comment on
+  `mobRoom` explaining why its arithmetic survived — so the sweep is also the
+  proof that nothing in the browser's behaviour moved.
+- **All seven earlier mobile sweeps re-run on this tree, and SEVEN anchors had
+  gone stale** — every one on a line this change touched (the panel's own
+  declaration and the open tab's offset). "Never applied" reads exactly like a
+  kill in a summary and proves nothing, so six were re-pointed at the property
+  they always held: the panel's size must read the dragged value and never a
+  literal (`flex: 0 0 …` → `width: …`, twice), the open tab's rule must key on
+  the panel being OPEN, its offset must follow the panel, it must say it
+  resizes, and an open panel must not hide it. **The seventh was RETIRED rather
+  than re-anchored**, and that is the honest half: it deleted the squares-up
+  rule, and that rule is deliberately gone now, so the property survives
+  INVERTED as O15 of the new sweep — the rule coming back. Totals on this tree:
+  **overlay 17/17, column 30/30, switch 27/27, marks 17/17, tab 20/20, drag
+  23/23, width 13/13, preview-only 27/27 — 174 mutants, 174 killed, none
+  unapplied, every control surviving.**
+- **AND THE SUITE FOUND A GUARD READING PROSE AS CODE — this change's own
+  comment tripped it.** `test/landing-models.test.mjs`'s "the landing's CSS uses
+  only tokens this theme actually defines" scans `styles.css` for every
+  `var(--x)` and requires each to be declared. It went red on `--mob-w`, which
+  no rule uses bare — every real use carries the `clamp(…)` fallback, because
+  the value is set at runtime by JavaScript and there is nothing to declare. The
+  use it found was **in my comment**, quoting the flex basis the overlay
+  replaced. The recorded *"prose contains the thing it forbids"*, for the tenth
+  time, and the standing answer applies: **blank comments before any scan.** The
+  guard does now, and it is proved still alive by a real undefined token in the
+  panel's own background, which it names. Fixing the comment instead would have
+  left the guard ready to false-alarm on the next comment that quotes a rule.
+  Full suite **5,688**.
+- **Not proven live.** `public/` only — no container roll, no 15–20 minute hold.
+  The proof is one drag: open a site, pull the tab left, and the site behind the
+  panel should stay exactly the size it was, with the panel floating over it and
+  a shadow down its left edge. Renders: `docs/edits/mobile-overlay-open.png`,
+  `mobile-overlay-wide.png`, and `mobile-overlay-before-wide.png` for what it
+  replaced. **And `chat.js` is ~931 KB and cached**, so a hard refresh is part of
+  a `public/` fix reaching anybody.
+
 ### THE REMOVAL VERB MEETS THE ONE-MARK WORK (2026-09-08, owner: *"Merge"*)
 
 `claude/help-needed-ehlwlj` carried three commits main did not — task #115's
@@ -7486,8 +7630,23 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,686
-  (2026-09-09, after the mobile app column became the preview's — seven more in
+  build and the pre-list payload added sixteen); the unit suite is 5,688
+  (2026-09-09, after the mobile app column became an overlay over the preview —
+  two more in `test/mobile-panel.test.mjs`: the panel held to `position:
+  absolute` pinned on three edges with the stage asserted never to learn it
+  opened (beside the stage's own `flex: 1`, so the check cannot pass by the
+  stage having been deleted), the shadow required to lean left, and the two
+  z-orders DERIVED from the rules they belong to; and the opaque ground derived
+  both ways — `--panel-2`'s own declaration read and asserted still translucent,
+  then some token in the panel's background required to be opaque by ITS
+  declaration and never by its name. Three older cases re-anchored, one of them
+  with its REASON moved further than its spelling: "the column is bounded so it
+  cannot squeeze the preview" now guards how much of the preview an undragged
+  panel COVERS, since an overlay cannot squeeze it at all. And a guard in
+  `test/landing-models.test.mjs` was reading PROSE as code — it went red on a
+  token this change's own comment quoted — and blanks comments before scanning
+  now, like every other scanner here;
+  before it **5,686**, after the mobile app column became the preview's — seven more in
   `test/mobile-panel.test.mjs`: `stStageView` EVALUATED out of chat.js and driven
   over every view with and without a database, including the fall-through case a
   gate on `siteView` alone would get wrong and eight junk shapes; the stage's own

@@ -474,16 +474,43 @@ test("the tab wears the panel's own edge, and goes when the panel arrives", () =
     "the tab is hidden once the panel opens — it is the drag handle now and must stay reachable");
   assert.ok(!/\n\.st-mob-tab\s*\{[^}]*display:\s*none/.test(CSS_BARE),
     "the tab's own base rule hides it, so it never appears at all");
-  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ right: calc\(var\(--mob-w/,
+  // RE-ANCHORED 2026-09-09: this pinned `right: calc(var(--mob-w` — the `calc`
+  // was there to add the flex gap that used to sit between the stage and the
+  // panel. The panel OVERLAYS the stage now, so there is no gap and the offset
+  // is the width alone. The property was never the arithmetic: it is that the
+  // open tab's offset reads the SAME dragged value the panel's width reads, so
+  // the two track each other with nothing in JavaScript moving the tab.
+  const openTab = span(CSS_BARE, "\n.st-ws.st-mob-open .st-mob-tab {", "}", "the open tab's offset");
+  assert.match(openTab, /right: var\(--mob-w/,
     "the open tab does not follow the panel's edge, so a drag would leave it behind");
-  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{[^}]*cursor: ew-resize/,
+  // AND IT SITS FLUSH, which is the half the overlay added — measured 0px.
+  // RE-AIMED at the way a gap can actually come back: a `calc` wrapper is
+  // already caught by the match above (it is not `right: var(`), so a check for
+  // one is a wall behind a wall and this repo's own inert-mutant trap. What
+  // survives that match is a SECOND declaration shifting the tab beside the
+  // offset, which is exactly how the .8rem would be restored by anyone who saw
+  // the offset was already right.
+  for (const shift of ["margin-right", "margin-left", "translate", "transform"]) {
+    assert.ok(!new RegExp(shift + ":").test(openTab),
+      "the open tab is shifted off the panel's edge by `" + shift + "`, so it no longer sits on it");
+  }
+  assert.match(openTab, /cursor: ew-resize/,
     "the open tab does not say it resizes — the pointer is the only hint before you try");
-  // Open, it is a SEAM between two panels rather than an edge on one, so it
-  // takes its right border back and squares up. The dropped border is what made
-  // the closed tab read as sticking out, and there is nothing to stick out of
-  // once the panel is beside it.
-  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ border-right: 1px solid var\(--line-2\); border-radius: 10px; \}/,
-    "the open tab keeps the closed tab's dropped border, so it reads as an edge with a panel behind it");
+  // INVERTED 2026-09-09, and the inversion is the point. This required the open
+  // tab to take its right border back and square up, on the argument that an
+  // open panel makes it "a seam between two panels rather than an edge on one".
+  // That was true while a .8rem flex gap separated the two; against an overlay
+  // the tab is FLUSH, so squaring up draws its own right border directly against
+  // the panel's left one — 2px of double line where there is a single edge. The
+  // recorded "a rule true because of a layer below it expires when that layer
+  // moves", so the rule goes rather than being adjusted: open and closed are one
+  // look now, the panel's own edge protruding left, which is what the tab has
+  // always been. The base rule's dropped border is asserted above, and it is the
+  // thing this must not undo.
+  assert.ok(!/\.st-mob-open \.st-mob-tab \{[^}]*border-right: 1px/.test(CSS_BARE),
+    "the open tab squares up against the panel it is flush with, drawing a double border on one edge");
+  assert.ok(!/\.st-mob-open \.st-mob-tab \{[^}]*border-radius: 10px;/.test(CSS_BARE),
+    "the open tab rounds all four corners again, so it stops reading as the panel's own edge");
 });
 
 // ── THE WHOLE COLUMN IS THE PREVIEW'S ───────────────────────────────────────
@@ -740,7 +767,10 @@ test("the width is ONE property, and everything reads it", () => {
   // they would drift, and the tab would be left behind by the panel it sizes.
   const col = span(CSS_BARE, "\n.st-mob {", "}", "the column");
   assert.match(col, /var\(--mob-w/, "the panel's width no longer reads the dragged property");
-  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ right: calc\(var\(--mob-w/,
+  // RE-ANCHORED 2026-09-09: the offset lost its `calc` when the panel became an
+  // overlay and the flex gap it added went with it. The property here is only
+  // that the tab reads the SAME value; the tab's own case above owns the shape.
+  assert.match(CSS_BARE, /\.st-ws\.st-mob-open \.st-mob-tab \{ right: var\(--mob-w/,
     "the tab does not read the dragged property, so it will not follow the panel");
   const writes = [...BARE.matchAll(/setProperty\('--mob-w'/g)].length;
   assert.equal(writes, 1, "expected exactly one writer of --mob-w, found " + writes);
@@ -1203,12 +1233,108 @@ test("the phone is bounded on both axes, so it can never overflow its column", (
   assert.match(dev, /border:\s*9px solid var\(--graphite\)/, "the bezel is not drawn in the palette's own ink");
 });
 
-test("the column is bounded so it cannot squeeze the preview on a narrow window", () => {
+test("the column is bounded so it cannot cover the preview on a narrow window", () => {
   const col = span(CSS_BARE, "\n.st-mob {", "}", "the column");
   // RE-ANCHORED 2026-09-09: the width is a custom property now so a drag can
   // move it, and the clamp is its FALLBACK. The property is unchanged and is
   // what this asserts — a panel nobody has dragged is still bounded, so at
   // 1200px it does not leave the preview ~300px between a 450px rail and it.
-  assert.match(col, /flex:\s*0 0 var\(--mob-w, clamp\(300px, 26vw, 420px\)\)/,
+  // RE-ANCHORED AGAIN 2026-09-09, and the REASON moved further than the
+  // spelling. `flex: 0 0 …` became `width: …` when the panel stopped being an
+  // item in the row, so an undragged panel can no longer SQUEEZE the preview at
+  // all — that is what the overlay bought. The bound still earns its place for
+  // the other half: it decides how much of the preview the panel COVERS, and an
+  // unbounded default at 1200px would open over most of the site. The case is
+  // renamed to say which of the two it now guards.
+  assert.match(col, /width:\s*var\(--mob-w, clamp\(300px, 26vw, 420px\)\)/,
     "the column has a fixed width again, or lost the clamp it falls back to");
+  assert.ok(!/(^|;)\s*flex:/.test(col),
+    "the column is a flex item again, so every pixel it gains comes off the preview");
+});
+
+// ── IT FLOATS OVER THE PREVIEW, IT DOES NOT TAKE ITS SPACE ──────────────────
+//
+// (2026-09-09, owner, on a screenshot of the panel dragged wide with the site's
+// own text crushed to one word a line: "when the thing moves that moves is has
+// to be like an overlaying thing, so the stuff in the site shouldnt shrink".)
+// The panel was `flex: 0 0 var(--mob-w)` in `.st-body`, so every pixel it
+// gained came off `.st-stage` (`flex: 1`) and the site being previewed
+// re-laid-out under the drag — at full drag the stage reached ZERO. Measured
+// after: the stage and the iframe hold 1017px and 1015px through the entire
+// drag, and the panel's left edge lands in exactly the same place it did.
+
+/** A token's value, read out of `:root` — never a copy of it typed here. */
+function token(name) {
+  const m = CSS_BARE.match(new RegExp("--" + name + ":\\s*([^;]+);"));
+  assert.ok(m, "the palette no longer declares --" + name + ", so this guard observes nothing");
+  return m[1].trim();
+}
+const translucent = (v) => /rgba\([^)]*,\s*(0?\.\d+|0)\s*\)/.test(v);
+
+test("the panel is positioned over the stage, and the stage never learns it opened", () => {
+  const col = span(CSS_BARE, "\n.st-mob {", "}", "the column");
+  assert.match(col, /position: absolute/, "the panel is back in the flow, so it takes the preview's space");
+  // Anchored on THREE edges, because the width is the one property a drag may
+  // move: pinned top and bottom it is as tall as the row whatever it is doing,
+  // and pinned right it grows leftwards over the stage rather than off-screen.
+  for (const edge of ["right", "top", "bottom"]) {
+    assert.match(col, new RegExp(edge + ": 0"), "the panel is not pinned to the row's " + edge + " edge");
+  }
+  // Its containing block. `.st-body` was already made one for the tab, so this
+  // is a dependency rather than an addition — and the panel would position
+  // against the PAGE if it went, which is a phone frame over the whole app.
+  assert.match(CSS_BARE, /\.st-body \{[^}]*position: relative/,
+    "`.st-body` is not a containing block, so the panel positions against the page instead of the row");
+  // The shadow is what SAYS it is above the stage rather than cut into it, and
+  // it is biased left because that is the only edge it floats over. Without it
+  // the panel reads as a hole in the preview.
+  assert.match(col, /box-shadow: -\d+px 0 /,
+    "the panel casts no shadow leftward, so nothing says it is above the preview rather than cut into it");
+
+  // THE STAGE MUST NOT KNOW. The whole ask is that the site keeps the width it
+  // had when the panel was shut, so a rule that narrowed the stage for an open
+  // panel — the obvious "fix" if this is ever revisited — puts the shrinking
+  // back by another route. Asserted BESIDE the stage's own rule, so the check
+  // cannot pass by the stage having been deleted.
+  assert.match(CSS_BARE, /\.st-stage \{[^}]*flex: 1/, "the stage no longer takes the row's spare width");
+  assert.ok(!/\.st-mob-open[^{]*\.st-stage\s*\{/.test(CSS_BARE),
+    "a rule resizes the stage when the panel opens, so the site shrinks under the drag after all");
+
+  // WHAT IT HAS TO COVER, and what has to stay above it — both DERIVED from
+  // the rules they belong to, because the numbers are only meaningful against
+  // each other. `.st-fixbar` is the "Fix with AI" bar, absolute INSIDE the
+  // stage and therefore in this same stacking context: below the panel it
+  // would show through a phone frame at a wide drag. The tab is the other way
+  // round — it sits flush on the panel's left edge, where the panel's own
+  // shadow is painted, so a handle below the panel is a handle in shadow.
+  const zOf = (sel) => {
+    const m = span(CSS_BARE, "\n" + sel + " {", "}", sel).match(/z-index:\s*(-?\d+)/);
+    assert.ok(m, sel + " no longer sets a z-index, so the order below is decided by nothing");
+    return Number(m[1]);
+  };
+  assert.ok(zOf(".st-mob") >= zOf(".st-fixbar"),
+    "the panel sits below the Fix with AI bar, which then shows through it");
+  assert.ok(zOf(".st-mob-tab") > zOf(".st-mob"),
+    "the drag handle sits below the panel it is flush against, so the panel's shadow falls over it");
+});
+
+test("the panel's ground is opaque, or the site shows through it", () => {
+  // FOUND BY LOOKING, not by reading: the first render of this overlay showed
+  // the preview's own address bar straight through the panel's heading.
+  // `--panel-2` is a SMUDGE — a tint meant to be laid on the app's paper — and
+  // as an item in the row it never had anything but paper behind it, so nobody
+  // could tell it was translucent. The moment it floats, what is behind it is
+  // the customer's live website.
+  const tint = token("panel-2");
+  assert.ok(translucent(tint),
+    "--panel-2 is opaque now, so this guard is observing nothing — check what the panel's ground rests on");
+  const col = span(CSS_BARE, "\n.st-mob {", "}", "the column");
+  const bg = (col.match(/background:\s*([^;]+);/) || [])[1] || "";
+  assert.match(bg, /--panel-2/, "the panel stopped wearing the app's own tint");
+  // The opaque half, DERIVED: some token in the background must itself be
+  // opaque, judged by that token's own declaration rather than by its name.
+  const solid = [...bg.matchAll(/var\(--([a-z0-9-]+)/g)]
+    .map((m) => m[1]).filter((n) => !translucent(token(n)));
+  assert.ok(solid.length > 0,
+    "every layer of the panel's ground is translucent, so the previewed site shows through it: " + bg);
 });
