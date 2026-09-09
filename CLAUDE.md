@@ -2878,6 +2878,53 @@ site at all.
   replaced. **And `chat.js` is ~931 KB and cached**, so a hard refresh is part of
   a `public/` fix reaching anybody.
 
+### THE MOBILE COLUMN HAS ONE DOOR: THE EDGE TAB (2026-09-09, owner: *"OPK YOU
+CAN DELETE THIS BUTTON SINCE WE HAVE THE DRAG THING"*)
+
+The top bar's `#stMobile` toggle is gone. The tab (`#stMobileTab`) opens, closes
+and resizes the panel, and is the only control that reaches it.
+
+- **ITS REASON EXPIRED WHEN THE TAB LEARNED TO CLOSE.** The tab shipped able only
+  to OPEN — the stylesheet hid it behind the open panel, so the button was
+  genuinely the only way back. The drag work ended that hours later: the tab stays
+  on screen either way, and a press that does not MOVE is a click, which shuts an
+  open panel. **The recorded "a rule true because of a layer below it expires when
+  that layer moves", and here the rule was a whole control.**
+- **THE TAB'S NAME IS A STATE NOW, WRITTEN IN BOTH PLACES.** The deleted button
+  was the only thing that ever said *"Hide the mobile app"*. Both `title` and
+  `aria-label` are expressions over `siteMobileOpen`, in the MARKUP as well as in
+  the setter — the workspace re-renders on every builder reply, so a name written
+  only by the handler goes stale on the next answer. That exact mutant SURVIVED a
+  first pass when this panel shipped; both halves are guarded.
+- **The glyph stays in `ST_ICONS` with no caller** (the card phone's precedent),
+  and **`.st-tb-pv-off` is untouched** — the button hid off Preview on
+  `visibility` for that rule's reason (the bar's two side groups split the width,
+  so a control leaving the flow moves the centred view tabs); the panel and tab
+  use `display` because giving their space back to the pane is the point. With no
+  third control there is no third rule, and the guard asserts `.st-tb-pv-off`
+  ALIVE so the deletion cannot take the reasoning's other half with it.
+- **`end()`'s click-to-close is not a convenience any more** — it is the ONLY way
+  to shut the panel. Its comment said the opposite, and is corrected.
+- **Guards**: `test/mobile-panel.test.mjs`, 52 → 51 — three cases INVERTED or
+  RE-AIMED rather than deleted (the absence asserted beside two live observers in
+  the same bar AND beside the tab, so it cannot pass on a deleted top bar or a
+  panel with no door; the state case re-aimed at the tab; the sheet-derived class
+  case re-aimed at the tab, its "never key on an id" half now covering both ids).
+  **One assertion was a number written ahead of its count — mine**: "at least
+  three call sites" off a list where the drag's open-first and the pointerdown are
+  ONE line. There are two; each direction is asserted by its own condition now.
+  Proven red before green four ways. **Sweep: 15 mutants, 15 killed, two controls
+  survived.** Full suite **5,720** — one below the switch's tree, which is
+  the three cases inverted or re-aimed rather than added.
+  The eight earlier panel sweeps re-run whole — **20 stale anchors**,
+  every one naming the deleted button: 3 re-anchored, 3 re-aimed at the tab, and
+  **14 RETIRED**, because a mutant asserting the opposite of the product is worse
+  than none. Totals on this tree: **toggle 15, column 24, tab 17, preview-only 22,
+  drag 23, width 13, overlay 17, os 27, marks 17 — 175 mutants, 175 killed.**
+- **Not proven live.** `public/` only — no container roll, no hold. The proof is
+  one look: no sidebar glyph beside the download button, the tab still opening,
+  closing and dragging. `chat.js` is cached, so a hard refresh is part of it.
+
 ### THE REMOVAL VERB MEETS THE ONE-MARK WORK (2026-09-08, owner: *"Merge"*)
 
 `claude/help-needed-ehlwlj` carried three commits main did not — task #115's
@@ -8325,8 +8372,18 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   no `-parts` route, and the `hydrate-diff` page — builds, the browser
   reports the mismatch as a throw on `/`, the finding names both texts, as
   a hydration mismatch by name; 326 on 2026-09-03 after the QR list's two-code
-  build and the pre-list payload added sixteen); the unit suite is 5,721
-  (2026-09-09, after the switch was made to move the phone and NOTHING ELSE —
+  build and the pre-list payload added sixteen); the unit suite is 5,720
+  (2026-09-09, after the top bar's mobile-app toggle was deleted and the edge tab
+  became the panel's one door — `test/mobile-panel.test.mjs` 52 → 51, three cases
+  INVERTED or RE-AIMED rather than deleted: the toggle's absence asserted beside
+  two live observers in the same bar AND beside the tab still being drawn, so it
+  cannot pass on a top bar that was deleted outright or on a panel left with no
+  door; the state case re-aimed at the TAB, whose tooltip and accessible name are
+  expressions over the open flag now in the markup as well as in the setter; and
+  the sheet-derived class case re-aimed at the tab, its "never key on an id" half
+  kept and now covering both ids. One assertion of mine was a number written
+  ahead of its count and reported a working feature as broken;
+  before it 5,721, after the switch was made to move the phone and NOTHING ELSE —
   one more in `test/site-card-phone.test.mjs`: the phone's fixed-shape box held
   to a LITERAL ratio (a `var(--os-ratio)` there is the defect itself), the phone
   held height-led inside it, the box's shape asserted EQUAL to the phone's own

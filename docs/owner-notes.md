@@ -146,6 +146,64 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-09 — The phone button is off the top bar; the tab does it all
+
+You said *"OPK YOU CAN DELETE THIS BUTTON SINCE WE HAVE THE DRAG THING."* Done —
+the little sidebar icon in the workspace's top row is gone.
+
+**You were right that it had stopped earning its place, and here is exactly
+when.** When the tab first appeared on the right edge this morning, it could only
+*open* the phone column — the moment the column opened, the tab hid behind it, so
+the button in the top bar genuinely was the only way to close it again. Then the
+drag work changed that: the tab stays on screen whether the column is open or
+shut, and a press that doesn't drag counts as a click, which closes it. From that
+point the button was a second door to a room that already had one. Nothing
+announced it — this app keeps finding rules that quietly stopped being true when
+the thing underneath them moved.
+
+**One thing had to change with it.** That button was the only control that ever
+said *"Hide the mobile app"*; the tab said *"Show the mobile app"* and nothing
+else, which was honest while it only opened and becomes a small lie the moment
+it's also how you close. The tab now says whichever is true.
+
+**And a detail I want on the record because it has bitten this screen before.**
+The name is written in two places — into the page when the workspace is drawn,
+and again by hand when you press. Both are needed: the workspace redraws itself
+every time the builder replies, so a name written only by the press handler goes
+stale on the next answer. That exact bug survived a round of testing on this same
+panel a few days ago, so both halves are checked now.
+
+**What I deliberately kept.** The sidebar drawing itself stays in the icon set
+even though nothing uses it — deleting an icon because its one user went quiet is
+how a feature gets expensive to put back. And the top bar's spacing rule stays
+untouched: it's what stops the centred Preview/Code/More tabs sliding sideways
+when the picker and reload button come and go.
+
+**A mistake of mine, caught by running the checks rather than reading them.** In
+rewriting the tests I asserted the panel gets opened "from at least three places"
+— and there are two. I'd listed the drag's open-on-press and the press itself as
+separate things, and they're the same line of code. A number written before
+counting, which is the thing I'm supposed to be careful about. It reported a
+working feature as broken, which is how I found it. It counts properly now, and
+names each of the two directions so if either ever goes, the failure says which.
+
+**Everything was proved broken before it was proved fixed.** I put the button
+back and watched two checks fail, restored its old styling rule and watched a
+third, froze the tab's name to one word and watched two more, and cut the
+close-on-click and watched three. Then fifteen deliberate breakages, all fifteen
+caught. I also re-ran all eight of the older test sets for this panel, because
+twenty of their deliberate breakages pointed at lines that no longer exist —
+"couldn't find it" looks exactly like "caught it" in a summary and proves nothing
+either way. Six of those I retired outright, with a note saying so: they described
+a button that is now deliberately gone, and a test asserting the opposite of what
+you asked for is worse than no test.
+
+**Not on the live site yet.** When it is: hard refresh, open a site, and the top
+row should have no sidebar icon next to the download arrow. The tab on the right
+edge still opens, closes and drags exactly as it does now.
+
+---
+
 ## 2026-09-09 — The database icon sits above the pair now
 
 You said: *"the database thing on top of the card but in the middle … the width

@@ -11055,7 +11055,8 @@ function stSrcFiles(src) {
 // that opens onto nothing is the dead control this app has now found four times
 // in its own chrome; a sentence naming what is missing is not.
 // THE MOBILE APP COLUMN (owner, 2026-09-08). A third column on the right of the
-// workspace, opened and closed from the top bar's `#stMobile`.
+// workspace, opened, closed and resized from the edge tab `#stMobileTab` — the
+// only control it has, since the top bar's toggle went on 2026-09-09.
 //
 // ALWAYS RENDERED, HIDDEN BY CSS — the chat rail's own pattern, one column over,
 // and for its reason: the toggle then flips a class instead of re-rendering, so
@@ -11770,26 +11771,25 @@ function renderSiteWorkspace(view, site) {
             '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">' + ic('tablet', 16) + '</button>' +
             '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">' + ic('phone', 16) + '</button>' +
           '</div>' +
-          // THE MOBILE APP PANEL'S OWN DOOR. It sits beside the width buttons
-          // because that is what it is — a view control — and it is drawn on a
-          // built site and on a project with nothing yet alike, because hiding a
-          // control is how a customer never learns it is there (the card icons
-          // settled that). What differs by state is the sentence inside the
-          // panel, which is true in both.
+          // THE MOBILE APP PANEL'S DOOR IS THE EDGE TAB, AND ONLY THE EDGE TAB
+          // (owner, 2026-09-09, on a screenshot of the button that used to sit
+          // here: "OPK YOU CAN DELETE THIS BUTTON SINCE WE HAVE THE DRAG
+          // THING"). A `#stMobile` toggle stood here beside the width buttons,
+          // drawn `ic('sidebar', 17)`, and it opened and closed the column.
           //
-          // IT GOES OFF PREVIEW, THOUGH, and that is not the same argument.
-          // "Learn it is there" is about a control whose room exists; a door to
-          // a room the stylesheet has taken away is the dead control this app
-          // has now found five times in its own chrome. `st-mob-btn` is what the
-          // sheet keys on — the id is the handler's, and a stylesheet that
-          // reached for an id would be the only one in the file that does.
+          // WHAT MADE IT REDUNDANT WAS THE DRAG, not this deletion. The tab
+          // opened only, once, and could not shut — which is why a second
+          // control had to exist at all. Since the drag work a press that does
+          // NOT move is a click, and a click on an open panel closes it, so the
+          // tab is a door that swings both ways and this was the second one to
+          // the same room. The recorded "a rule true because of a layer below
+          // it expires when that layer moves": the button's whole reason went
+          // when the tab learned to close, and nothing announced it.
           //
-          // `on` MEANS "the panel this opens is showing", the same as the chat
-          // rail's toggle — note the two variables run opposite ways
-          // (`siteRailHidden` versus `siteMobileOpen`), so one reads `!` and
-          // this one does not. The meaning of the lit state is the thing that
-          // matches, not the polarity of the flag behind it.
-          '<button type="button" class="st-icon st-mob-btn' + (siteMobileOpen ? ' on' : '') + '" id="stMobile" title="' + (siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app') + '" aria-label="Show or hide the mobile app">' + ic('sidebar', 17) + '</button>' +
+          // The glyph STAYS in `ST_ICONS`. `sidebar` has no other caller now,
+          // and deleting an icon because its one caller went quiet is how a
+          // feature becomes expensive to put back — the card phone's own
+          // precedent, kept for its reason rather than by habit.
           // FORM SUBMISSIONS AND SITE MEMBERS ARE OFF THIS BAR (owner,
           // 2026-09-07: "DELETE THIS 2 THINGS"). Both were SECOND doors to a
           // Cloud card that already exists and describes itself — "Submissions:
@@ -11948,16 +11948,28 @@ function renderSiteWorkspace(view, site) {
         // card icons already settled once: a control earns its place by SAYING
         // something, and an invisible one says nothing at all.
         //
-        // IT ONLY OPENS, and that is why its handler is not a toggle. The
-        // stylesheet hides it the moment the panel is open, so a tab that
-        // closed as well would be a control whose second behaviour nobody can
-        // ever reach — and the recorded rule is that a branch nothing can drive
-        // is a branch nobody guards.
+        // IT OPENS, CLOSES AND RESIZES — it is the panel's ONLY control since
+        // 2026-09-09. The comment here used to say "it only opens, and that is
+        // why its handler is not a toggle: the stylesheet hides it the moment
+        // the panel is open". Both halves stopped being true when the tab
+        // became the drag handle: it stays on screen and rides out to
+        // `right: var(--mob-w)`, and a press that does not move is a click that
+        // closes. The sentence outlived its layer by a day before the top bar's
+        // toggle went and made it load-bearing.
+        //
+        // SO ITS NAME FOLLOWS THE STATE, and that is this deletion's own
+        // consequence rather than a flourish. The button that went was the only
+        // control that said "Hide the mobile app"; with it gone, a fixed "Show
+        // the mobile app" would be the single name a screen reader ever gets
+        // for a control that also hides. Drawn from the flag HERE as well as
+        // moved by the setter, because the workspace re-renders on every
+        // builder reply and a name written only by the handler goes stale on
+        // the next one — the recorded sweep survivor, one control over.
         //
         // Inside `.st-body` because that is the row it belongs to; it is
         // positioned against that row's right edge, which when the panel is
         // closed is the stage's edge.
-        '<button type="button" class="st-mob-tab" id="stMobileTab" title="Show the mobile app" aria-label="Show the mobile app">' + ic('chevronleft', 13) + '</button>' +
+        '<button type="button" class="st-mob-tab" id="stMobileTab" title="' + (siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app') + '" aria-label="' + (siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app') + '">' + ic('chevronleft', 13) + '</button>' +
       '</div>' +
     '</div>';
   bindSiteNav();
@@ -12080,25 +12092,31 @@ function renderSiteWorkspace(view, site) {
   // class on `.st-ws`, never a re-render, so the preview iframe does not reload
   // and a half-typed message survives.
   //
-  // ONE SETTER, TWO CONTROLS — the top bar's button and the edge tab. A second
-  // copy of "flip the class, then move the lit state and the tooltip" is the
-  // recorded "two lists of the same thing", and it would drift the first time
-  // either gained a step; worse, the tab is the one a customer finds first, so
-  // the copy that went stale would be the one nobody was testing. The tab needs
-  // no state of its own — the stylesheet hides it while the panel is open — so
-  // this only ever has the button to update.
+  // ONE SETTER, ONE CONTROL — the edge tab, since the top bar's toggle went on
+  // 2026-09-09. It was two, and the setter is kept as a setter rather than
+  // folded back into the tab's handler because the panel is opened from THREE
+  // places in this function (the tab's pointerdown, its click-to-close, and the
+  // drag's own open-first), and three copies of "flip the class, then move the
+  // control's name" is the recorded "two lists of the same thing" with an extra
+  // copy.
+  //
+  // WHAT IT UPDATES MOVED WITH THE DELETION rather than being dropped. The
+  // button carried the lit state and the tooltip; the tab carries the NAME, and
+  // it is the only thing that ever says "Hide the mobile app" now. It gets no
+  // lit class: the tab is not a state indicator, it is an edge that slides out
+  // to the panel's border, and `.st-ws.st-mob-open .st-mob-tab` already says
+  // where it is by moving it.
   const setMobileOpen = (open) => {
     siteMobileOpen = !!open;
     const ws = view.querySelector('.st-ws');
     if (ws) ws.classList.toggle('st-mob-open', siteMobileOpen);
-    const tog = document.getElementById('stMobile');
-    if (tog) {
-      tog.classList.toggle('on', siteMobileOpen);
-      tog.title = siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app';
+    const tab = document.getElementById('stMobileTab');
+    if (tab) {
+      const name = siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app';
+      tab.title = name;
+      tab.setAttribute('aria-label', name);
     }
   };
-  const mobTog = document.getElementById('stMobile');
-  if (mobTog) mobTog.onclick = () => setMobileOpen(!siteMobileOpen);
 
   // THE TAB IS A DRAG HANDLE (owner, 2026-09-09: "that tab can be dragaable and
   // open until the chatbox in the left"). Pull it left and the panel widens;
@@ -12179,8 +12197,12 @@ function renderSiteWorkspace(view, site) {
     };
     const end = () => {
       // A PRESS THAT DID NOT MOVE IS A CLICK, and a click on an open panel
-      // closes it. Without this the tab would be a handle that can open and
-      // never shut, since the top bar's button would be the only way back.
+      // closes it. This used to be argued as "otherwise the top bar's button
+      // would be the only way back"; that button is gone (owner, 2026-09-09),
+      // so the branch is not a convenience any more — it is the ONLY way to
+      // shut the panel, and deleting it would strand every customer who opened
+      // one. Stated the strong way round because the weak way was true for a
+      // day and would have read as optional.
       //
       // IT ASKS WHAT THE PANEL WAS AT POINTERDOWN, NOT WHAT IT IS NOW. A press
       // on a CLOSED tab has already opened it two lines up, so reading the live

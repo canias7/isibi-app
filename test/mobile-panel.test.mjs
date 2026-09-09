@@ -225,52 +225,59 @@ test("nothing in the panel promises an app, and that is the decision", () => {
 
 // ── THE DOOR ────────────────────────────────────────────────────────────────
 
-test("the toggle is drawn on every workspace, built or not", () => {
-  assert.match(BARE, /id="stMobile"/, "the mobile app toggle is gone from the top bar");
-  // NOT gated on having built. Hiding a control is how a customer never learns
-  // it is there — the rule the site cards' three icons settled. What differs by
-  // state is the sentence inside, which is true either way.
+test("the top bar has no mobile-app toggle, and the tab is the one door", () => {
+  // INVERTED 2026-09-09 (owner, on a screenshot of the button: "OPK YOU CAN
+  // DELETE THIS BUTTON SINCE WE HAVE THE DRAG THING"). This required
+  // `id="stMobile"` in the top bar's right group, and argued it from the card
+  // icons' rule — a control earns its place by being findable. That rule is
+  // about the FIRST door to a room; this was the second, and it only ever
+  // existed because the tab could not close. The drag work ended that, so the
+  // button was a duplicate for a day before it went.
+  //
+  // THE OBSERVER IS PROVED ALIVE, or this passes on a deleted top bar. Two ids
+  // that stay in the same group are asserted beside the absence, which is the
+  // recorded "a negative assertion must prove its observer is alive".
   const bar = span(BARE, "'<div class=\"st-tb-right\">'", "id=\"stShare\"", "the top bar's right group");
-  assert.ok(bar.includes('id="stMobile"'), "the toggle left the top bar's right group");
-  assert.ok(!/isReact[^\n]*id="stMobile"|id="stMobile"[^\n]*isReact/.test(BARE),
-    "the toggle is gated on the site having built — the Code tab's own defect, one bar over");
+  assert.ok(bar.includes('id="stReload"'), "the reload button went too — this check is reading nothing");
+  assert.ok(bar.includes('class="st-devs"'), "the width buttons went too — this check is reading nothing");
+  assert.ok(!/id="stMobile"/.test(BARE), "the mobile app toggle is back in the top bar");
+  assert.ok(!/st-mob-btn/.test(BARE), "the toggle's class is back, so something still draws it");
+  assert.ok(!/mobTog/.test(BARE), "the toggle's wire-up is back");
+  // AND THE PANEL STILL HAS A DOOR. Deleting the second one must not leave zero
+  // — the failure this whole file exists to catch, one control over.
+  assert.match(BARE, /id="stMobileTab"/, "the toggle went and took the panel's only remaining door with it");
 });
 
-test("the state reaches the button's own markup, not only the click handler", () => {
-  // ADDED AFTER A SWEEP SURVIVOR, and the gap is worth naming: every assertion
-  // about the lit button read the HANDLER, which lights it on click. The markup
-  // redraws that button on every builder reply, so with `(siteMobileOpen ? ' on'
-  // : '')` cut, the panel would be open and its control unlit from the next
-  // reply onward — and no case here could see it. A guard proves the branch it
-  // drives, so the branch is driven from both ends now.
-  const btn = BARE.split("\n").find((l) => l.includes('id="stMobile"'));
-  assert.ok(btn, "the toggle is gone from the top bar");
-  // RE-ANCHORED 2026-09-09: this pinned `class="st-icon' + (siteMobileOpen …`
-  // verbatim, and the class list gained `st-mob-btn` — the name the stylesheet
-  // hides the button on off Preview. The property was never the list, it is that
-  // the lit state is written INSIDE the class attribute, so the window runs from
-  // the attribute to the id and the rest of the list is not pinned.
-  const cls = span(btn, 'class="', '" id="stMobile"', "the toggle's class attribute");
-  assert.match(cls, /\(siteMobileOpen \? ' on' : ''\)/,
-    "the toggle's lit state is not drawn from the flag — it would go dark on the next re-render");
-  assert.match(btn, /siteMobileOpen \? 'Hide the mobile app' : 'Show the mobile app'/,
-    "the tooltip is not drawn from the flag — it would go stale on the next re-render");
+test("the state reaches the TAB's own markup, not only the handler", () => {
+  // RE-AIMED 2026-09-09, and the property is exactly the one it always held.
+  // It was added after a sweep survivor on the BUTTON: every assertion about
+  // the lit state read the HANDLER, which sets it on click, while the markup
+  // redraws the control on every builder reply — so a name written only by the
+  // handler goes stale from the next reply onward and no case could see it.
+  // The button is gone; the tab is the control that carries a name now, so the
+  // same gap moves with it rather than being deleted.
+  const tab = BARE.split("\n").find((l) => l.includes('id="stMobileTab"'));
+  assert.ok(tab, "the edge tab is gone from the markup");
+  assert.match(tab, /title="' \+ \(siteMobileOpen \? 'Hide the mobile app' : 'Show the mobile app'\)/,
+    "the tab's tooltip is not drawn from the flag — it would go stale on the next builder reply");
+  assert.match(tab, /aria-label="' \+ \(siteMobileOpen \? 'Hide the mobile app' : 'Show the mobile app'\)/,
+    "the tab's accessible name is not drawn from the flag — a screen reader would be told the wrong thing");
 });
 
-test("the toggle's glyph is not the phone-WIDTH button's", () => {
-  // `phone` is already `.st-dev[data-dev="phone"]`, two positions along the same
-  // bar. Two phone icons in one row meaning different things is a control
-  // nobody can read, so this draws a panel with a divider on the right — the
-  // mirror of the chat rail's toggle, whose divider is at x=9.
-  assert.match(BARE, /id="stMobile"[^\n]*ic\('sidebar', 17\)/,
-    "the mobile toggle no longer draws the `sidebar` glyph");
+test("the `sidebar` glyph stays in the set, with no caller", () => {
+  // THE KEPT-GLYPH PRECEDENT, deliberately. `sidebar` had exactly one caller —
+  // the deleted button — and deleting an icon because its one caller went quiet
+  // is how a feature becomes expensive to put back; the card phone's glyph was
+  // kept on the same argument when its button went.
   const icons = span(BARE, "const ST_ICONS = {", "\n};", "the icon table");
   const sidebar = icons.match(/^\s*sidebar: '(.+)',$/m);
-  const phone = icons.match(/^\s*phone: '(.+)',$/m);
-  assert.ok(sidebar, "the `sidebar` glyph is gone from ST_ICONS");
-  assert.ok(phone, "the `phone` glyph is gone — re-anchor this comparison");
-  assert.notEqual(sidebar[1], phone[1], "the mobile toggle and the phone-width button draw the same glyph");
-  assert.match(sidebar[1], /M15 4v16/, "the divider moved off the right — this reads as the chat rail's toggle");
+  assert.ok(sidebar, "the `sidebar` glyph was deleted with its caller — putting the toggle back now costs a redraw");
+  assert.match(sidebar[1], /M15 4v16/, "the divider moved off the right, so what is kept is no longer the glyph that went");
+  // AND NOTHING DRAWS IT. If a caller appears this case should be re-read
+  // rather than quietly satisfied — a second door to this panel is what was
+  // just removed.
+  const code = BARE.split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
+  assert.ok(!/ic\('sidebar'/.test(code), "something draws `sidebar` again — is this the deleted toggle coming back?");
 });
 
 /**
@@ -290,25 +297,31 @@ const WIRE_END = "view.querySelectorAll('.st-mob-osbtn')";
 const TAB_WIRE = "mobTab.onpointerdown";
 
 /**
- * The real setter and BOTH controls, cut out and driven against a fake document.
+ * The real setter and the tab's wire-up, cut out and driven against a fake
+ * document.
  *
- * RE-ANCHORED 2026-09-09, not appeased. The top bar's handler used to hold the
- * whole body inline and this window ran to its own `\n  };`. The body moved into
- * `setMobileOpen` when the edge tab arrived and needed the identical code — the
- * property asserted below (press it, the class moves, the button lights and
- * renames itself) is exactly what it always was; only where the lines live
- * moved. The window now spans the setter and both wire-ups, so a control that
- * stopped being wired is still caught.
+ * RE-ANCHORED TWICE, and the second time is the interesting one. It first ran
+ * to the top bar handler's own `\n  };` when that handler held the body inline;
+ * the body moved into `setMobileOpen` when the edge tab arrived and needed the
+ * identical code. Now the top bar's control is GONE (owner, 2026-09-09), so the
+ * `btn` fake and the `"btn"` press are gone with it — driving a control that
+ * does not exist is a case that proves nothing while looking like coverage.
+ *
+ * WHAT SURVIVES IS THE PROPERTY, on the control that is left: press it, the
+ * class moves, and the thing a person reads renames itself. That used to be the
+ * button's lit state and tooltip; it is the tab's name now, which is the only
+ * name this feature has.
  */
-function driveMobile(startOpen, which, dragTo, startW) {
+function driveMobile(startOpen, dragTo, startW) {
   const src = span(BARE, "const setMobileOpen = (open) => {", WIRE_END,
-                   "the mobile setter and its two controls");
+                   "the mobile setter and its one control");
   const ws = { cls: new Set(startOpen ? ["st-ws", "st-mob-open"] : ["st-ws"]), css: {} };
   ws.classList = { toggle: (c, on) => (on ? ws.cls.add(c) : ws.cls.delete(c)) };
   ws.style = { setProperty: (k, v) => { ws.css[k] = v; } };
-  const btn = { cls: new Set(startOpen ? ["on"] : []), title: "" };
-  btn.classList = { toggle: (c, on) => (on ? btn.cls.add(c) : btn.cls.delete(c)) };
-  const tab = {};
+  // The tab records BOTH names it is given. `title` is what a pointer shows and
+  // `aria-label` is what a screen reader reads; a setter that moved one and not
+  // the other would leave the two disagreeing, which no single read can see.
+  const tab = { title: "", attrs: {}, setAttribute: (k, v) => { tab.attrs[k] = v; } };
   // A row 1000 wide holding a 450 rail, so the measured ceiling is a real
   // number rather than a constant this file typed — the ceiling is "until the
   // chatbox", which is a place on screen.
@@ -316,43 +329,50 @@ function driveMobile(startOpen, which, dragTo, startW) {
   const panel = Object.assign(box(startOpen ? 393 : 0), {});
   const rail = Object.assign(box(450), { offsetParent: {} });
   const body = box(1000);
-  const doc = { getElementById: (id) => (id === "stMobile" ? btn : id === "stMobileTab" ? tab : null) };
+  // ONLY THE TAB ANSWERS. A document that still handed back a `#stMobile` would
+  // let a re-added button's wire-up pass unnoticed; `null` is what the browser
+  // gives for an id nothing draws, which is the honest fake.
+  const doc = { getElementById: (id) => (id === "stMobileTab" ? tab : null) };
   const view = { querySelector: (sel) => ({ ".st-ws": ws, ".st-mob": panel, ".st-rail": rail, ".st-body": body }[sel] || null) };
   // `if (false)` leaves a call exactly where a source read looks for it — the
   // recorded trap — so the handlers are RUN rather than read. The tab is
   // pointer-driven since it became a drag handle, so a click on it is a press
   // that did not move: down, then up, at the same place.
-  const press = which === "tab"
-    ? "mobTab.onpointerdown({ clientX: 900, pointerId: 1, preventDefault() {} });"
-      + (dragTo == null ? "" : "mobTab.onpointermove({ clientX: " + dragTo + " });")
-      + "mobTab.onpointerup();"
-    : "mobTog.onclick();";
+  const press = "mobTab.onpointerdown({ clientX: 900, pointerId: 1, preventDefault() {} });"
+    + (dragTo == null ? "" : "mobTab.onpointermove({ clientX: " + dragTo + " });")
+    + "mobTab.onpointerup();";
   const run = new Function("document", "view", "siteMobileOpen", "siteMobileW", "MOBILE_MIN_W",
     src + "; " + press + " return siteMobileOpen;");
   const after = run(doc, view, startOpen, startW === undefined ? null : startW, 300);
-  return { open: after, wsHas: ws.cls.has("st-mob-open"), lit: btn.cls.has("on"),
-           title: btn.title, width: ws.css["--mob-w"] || null };
+  return { open: after, wsHas: ws.cls.has("st-mob-open"),
+           title: tab.title, label: tab.attrs["aria-label"], width: ws.css["--mob-w"] || null };
 }
 
 /** The room this harness's fake row leaves: 1000 wide, a 450 rail, one gap. */
 const FAKE_ROOM = 1000 - 450 - 26;
 
-test("pressing the toggle opens the column, lights the button and renames itself", () => {
-  const opened = driveMobile(false, "btn");
+test("pressing the tab opens the column and renames itself, both names together", () => {
+  // RE-AIMED 2026-09-09 from the deleted top bar button. The property is the
+  // one that case always held — a press flips the flag, moves the class, and
+  // changes what the control SAYS — and it is asserted on the tab because the
+  // tab is what is left. Both names are read, because the setter writes them
+  // through two different APIs (`.title` and `setAttribute`) and one of them
+  // going stale is invisible to a check that reads the other.
+  const opened = driveMobile(false);
   assert.equal(opened.open, true, "the flag did not flip");
   assert.equal(opened.wsHas, true, "the workspace did not gain the open class — the column stays hidden");
-  assert.equal(opened.lit, true, "the button did not light");
   assert.equal(opened.title, "Hide the mobile app", "the tooltip still offers to show an open panel");
+  assert.equal(opened.label, "Hide the mobile app", "the accessible name still offers to show an open panel");
 
-  const closed = driveMobile(true, "btn");
+  const closed = driveMobile(true);
   assert.equal(closed.open, false, "the flag did not flip back");
   assert.equal(closed.wsHas, false, "the column stayed open");
-  assert.equal(closed.lit, false, "the button stayed lit over a closed panel");
   assert.equal(closed.title, "Show the mobile app", "the tooltip still offers to hide a closed panel");
+  assert.equal(closed.label, "Show the mobile app", "the accessible name still offers to hide a closed panel");
 });
 
-test("the toggle changes a class and never re-renders", () => {
-  const fn = span(BARE, "const setMobileOpen = (open) => {", WIRE_END, "the setter and its controls");
+test("the tab changes a class and never re-renders", () => {
+  const fn = span(BARE, "const setMobileOpen = (open) => {", WIRE_END, "the setter and its control");
   // The reason the class exists at all: a re-render reloads the preview iframe
   // and eats a half-typed message. Both are driven live in the scratchpad; what
   // this holds is that neither control can start doing it.
@@ -368,10 +388,17 @@ test("the toggle changes a class and never re-renders", () => {
 
 test("the closed panel has a visible edge, and it is a real named button", () => {
   const line = BARE.split("\n").find((l) => l.includes('id="stMobileTab"'));
-  assert.ok(line, "the edge tab is gone — the panel is invisible again until you find the top bar's icon");
+  assert.ok(line, "the edge tab is gone — with the top bar's toggle deleted there is no door to the panel at all");
   assert.match(line, /<button type="button"/, "the tab is not a button, so it is not reachable by keyboard");
-  assert.match(line, /title="Show the mobile app"/, "the tab lost its tooltip");
-  assert.match(line, /aria-label="Show the mobile app"/, "the tab lost its accessible name");
+  // RE-ANCHORED 2026-09-09, and only the spelling moved. Both names were pinned
+  // as literals — right while the tab only ever opened and "Show the mobile app"
+  // was the whole truth. It closes as well now, so each name is an expression
+  // over the open flag and a literal match reports a correct tab as unnamed.
+  // The property was never the words: it is that the tab carries a tooltip AND
+  // an accessible name, and that neither is empty. The names' own contents are
+  // driven two cases down, where the setter is run in both directions.
+  assert.match(line, /title="' \+ \(siteMobileOpen \?/, "the tab lost its tooltip");
+  assert.match(line, /aria-label="' \+ \(siteMobileOpen \?/, "the tab lost its accessible name");
   assert.match(line, /ic\('chevronleft', 13\)/, "the tab's glyph moved");
 });
 
@@ -394,25 +421,30 @@ test("the chevron is its own glyph, because `back` carries a shaft", () => {
   assert.ok(!/M19 12H5/.test(chev[1]), "the chevron grew the shaft this entry exists to avoid");
 });
 
-test("ONE setter drives both controls, so they cannot disagree", () => {
+test("ONE setter, and it is called from both of the tab's two directions", () => {
   assert.match(BARE, /const setMobileOpen = \(open\) => \{/, "the shared setter is gone");
   // The class is written in exactly one place. A second copy is the recorded
-  // "two lists of the same thing", and the copy that went stale would be the
-  // tab's — the control a customer finds first and nobody is testing.
+  // "two lists of the same thing" — and it stays worth guarding with the top
+  // bar's button gone, because the panel still moves in two directions from one
+  // control, and inlining the body at either is the same drift with the same
+  // silence.
   const writes = [...BARE.matchAll(/classList\.toggle\('st-mob-open'/g)].length;
   assert.equal(writes, 1, "the open class is written in " + writes + " places, not one");
-  assert.match(BARE, /if \(mobTog\) mobTog\.onclick = \(\) => setMobileOpen\(!siteMobileOpen\);/,
-    "the top bar button stopped going through the setter");
-  const wire = span(BARE, "const setMobileOpen = (open) => {", WIRE_END, "the setter and its controls");
+  const wire = span(BARE, "const setMobileOpen = (open) => {", WIRE_END, "the setter and its control");
   assert.ok(wire.includes(TAB_WIRE), "the edge tab stopped going through the setter");
-});
-
-test("pressing the tab opens the panel AND lights the top bar's button", () => {
-  const r = driveMobile(false, "tab");
-  assert.equal(r.open, true, "the tab did not open the panel");
-  assert.equal(r.wsHas, true, "the workspace did not gain the open class");
-  assert.equal(r.lit, true, "the tab opened the panel and left the top bar's button unlit — the two disagree");
-  assert.equal(r.title, "Hide the mobile app", "the top bar's tooltip still offers to show an open panel");
+  // COUNTED, NOT ESTIMATED — this assertion was first written as ">= 3" from a
+  // list that named the drag's open-first and the pointerdown as two things,
+  // and they are ONE line. A number written ahead of the count is exactly what
+  // this repository's "stamp measured numbers only after the run" rule is about,
+  // and a floor set too high reads as a deleted feature. There are two, and each
+  // is asserted by the direction it moves the panel rather than by the total, so
+  // losing either names which one went.
+  assert.match(wire, /if \(!wasOpen\) setMobileOpen\(true\)/,
+    "a press on a shut tab no longer opens the panel");
+  assert.match(wire, /!from\.moved && from\.wasOpen\) setMobileOpen\(false\)/,
+    "a click on an open panel no longer shuts it — with the top bar's button gone there is no other way back");
+  const calls = [...wire.matchAll(/setMobileOpen\(/g)].length;
+  assert.equal(calls, 2, "expected the setter to be called from the tab's two directions, found " + calls);
 });
 
 test("a press that does not move opens a shut panel and shuts an open one", () => {
@@ -423,21 +455,21 @@ test("a press that does not move opens a shut panel and shuts an open one", () =
   // nothing could reach, and an unreachable branch is one nobody guards. The
   // tab is a DRAG HANDLE now and stays on screen while the panel is open, so
   // the branch is reachable and the tab must close.
-  assert.equal(driveMobile(false, "tab").open, true, "a press on the shut tab did not open the panel");
-  assert.equal(driveMobile(true, "tab").open, false, "a press on the open tab did not shut the panel");
+  assert.equal(driveMobile(false).open, true, "a press on the shut tab did not open the panel");
+  assert.equal(driveMobile(true).open, false, "a press on the open tab did not shut the panel");
 });
 
 test("a press that DOES move resizes instead of shutting", () => {
   // The same gesture, with the pointer moved: the panel must stay open and take
   // a width. Without this the drag would end in `end()`'s click branch and shut
   // the panel the moment you let go of it.
-  const r = driveMobile(true, "tab", 600);
+  const r = driveMobile(true, 600);
   assert.equal(r.open, true, "dragging the tab shut the panel when the pointer was released");
   assert.ok(r.width, "the drag set no width");
   assert.ok(parseInt(r.width, 10) > 300, "the drag did not widen the panel: " + r.width);
   // THE CEILING IS MEASURED. A 1000-wide row holding a 450 rail leaves ~537,
   // so a drag past it is clamped rather than running under the chat.
-  const far = driveMobile(true, "tab", -5000);
+  const far = driveMobile(true, -5000);
   assert.ok(parseInt(far.width, 10) <= 550,
     "the panel dragged past the chat rail: " + far.width);
 });
@@ -592,60 +624,74 @@ test("the preview's class rides the workspace root, beside the panel's own state
     "the preview class is on some other element than the one carrying the panel's state, so the CSS cannot reach the panel from it");
 });
 
-test("off Preview the column, its tab and its button all go", () => {
+test("off Preview the column and its tab both go", () => {
   const cls = pvClass();
   // EVERY RULE DERIVED from the class the markup writes: a rename in one file
   // and not the other would leave the gate keying on a class nothing writes, and
   // nothing would fail — the panel would simply be gone everywhere.
+  //
+  // IT WAS THREE RULES. The top bar's toggle hid here too, on `visibility`; the
+  // button went on 2026-09-09 and its rule went with it. A gate for a control
+  // nobody draws is the dead rule beside the dead control.
   const hides = (sel, how) =>
     new RegExp("\\.st-ws:not\\(\\." + cls + "\\) " + sel + " \\{[^}]*" + how);
   assert.match(CSS_BARE, hides("\\.st-mob", "display:\\s*none"),
     "the column still shows off Preview — the defect this change exists to fix");
   assert.match(CSS_BARE, hides("\\.st-mob-tab", "display:\\s*none"),
     "the edge tab still shows off Preview, so it opens a column that is not there");
-  assert.match(CSS_BARE, hides("\\.st-mob-btn", "visibility:\\s*hidden"),
-    "the top bar's toggle still shows off Preview, so it toggles a column that is not there");
+  assert.ok(!/st-mob-btn/.test(CSS_BARE),
+    "the deleted toggle's rule is back in the stylesheet, keying on a class nothing writes");
 
   // THE DIRECTION IS THE PROPERTY, as it is for the open class. `:not(...)`
   // hides, so Preview is where they live; inverted, they would show on every
   // view BUT Preview, and a looser "there is a display:none somewhere" check
   // would pass on it happily.
-  for (const sel of ["\\.st-mob", "\\.st-mob-tab", "\\.st-mob-btn"])
+  for (const sel of ["\\.st-mob", "\\.st-mob-tab"])
     assert.ok(!new RegExp("\\.st-ws\\." + cls + " " + sel + " \\{[^}]*(display:\\s*none|visibility:\\s*hidden)").test(CSS_BARE),
       "the gate is inverted — " + sel.replace(/\\/g, "") + " is hidden ON Preview and shown everywhere else");
 });
 
-test("the button keeps its space when it goes, or the view tabs move", () => {
-  const cls = pvClass();
-  // TWO MECHANISMS, AND THE SPLIT IS NOT COSMETIC. The panel and the tab are in
-  // `.st-body` and giving their space back to the pane is the point. The button
-  // is in the top bar, whose two side groups split the width between them — so a
-  // button that LEFT the flow would move the centred view tabs every time you
-  // changed view. Measured: `.st-vtabs` left edge 611px on Preview, Code and
-  // More alike with `visibility`.
-  assert.ok(!new RegExp("\\.st-ws:not\\(\\." + cls + "\\) \\.st-mob-btn \\{[^}]*display:\\s*none").test(CSS_BARE),
-    "the toggle leaves the flow off Preview, so the centred view tabs move on every view change");
-  // The precedent it follows, asserted ALIVE so the reason above is not a claim
-  // about a rule that has been deleted.
+test("the top bar's own reserved-space rule is untouched by the deletion", () => {
+  // RE-AIMED 2026-09-09. This asserted that the mobile toggle hid with
+  // `visibility` rather than `display`, so that leaving the flow could not
+  // shift the centred view tabs — the two side groups split the bar between
+  // them. That button is gone, so the assertion has no subject.
+  //
+  // WHAT THE DELETION MUST NOT HAVE DONE is take the rule that argument rested
+  // on with it: `.st-tb-pv-off` governs the picker and the reload button on
+  // exactly the same reasoning, and they are still there. Measured when the
+  // reasoning was written: `.st-vtabs` left edge 611px on Preview, Code and
+  // More alike.
   assert.match(CSS_BARE, /\.st-tb-pv-off \{ visibility: hidden; \}/,
-    "`.st-tb-pv-off` is gone — the reason above names it, so re-anchor on whatever replaced it");
+    "`.st-tb-pv-off` went with the toggle — the picker and reload now move the centred view tabs");
+  assert.match(BARE, /st-tb-pv' \+ \(siteView === 'preview' \? '' : ' st-tb-pv-off'\)/,
+    "nothing writes `st-tb-pv-off` any more, so the rule above governs nothing");
 });
 
-test("the class the stylesheet hides the button on is the class the markup writes", () => {
+test("the class the stylesheet hides the tab on is the class the markup writes", () => {
+  // RE-AIMED 2026-09-09, because its subject was deleted and its property was
+  // not. It read the sheet's `visibility: hidden` rule for the top bar's toggle
+  // and checked the button carried that class; both the rule and the button are
+  // gone, so the first assertion had nothing to find and reported the deletion
+  // as a defect. The PROPERTY — the sheet keys on a name, and a control that
+  // stops carrying it simply never hides, with nothing failing — belongs to the
+  // tab now: it is the one control this feature still hides off Preview.
+  //
   // DERIVED FROM THE SHEET and checked against the markup, which is the
-  // direction that catches the drift: the rule keys on a name, and if the button
-  // stops carrying it the button simply never hides and nothing fails.
-  const m = CSS_BARE.match(/\.st-ws:not\(\.[a-z-]+\) \.([a-z-]+) \{[^}]*visibility:\s*hidden/);
-  assert.ok(m, "the stylesheet no longer hides the toggle off Preview");
-  const btn = BARE.split("\n").find((l) => l.includes('id="stMobile"'));
-  assert.ok(btn, "the toggle is gone from the top bar");
-  const cls = span(btn, 'class="', '" id="stMobile"', "the toggle's class attribute");
+  // direction that catches that drift.
+  const m = CSS_BARE.match(/\.st-ws:not\(\.[a-z-]+\) \.(st-mob-tab) \{[^}]*display:\s*none/);
+  assert.ok(m, "the stylesheet no longer hides the edge tab off Preview");
+  const tab = BARE.split("\n").find((l) => l.includes('id="stMobileTab"'));
+  assert.ok(tab, "the tab is gone from the markup, so this proves nothing about it");
+  const cls = span(tab, 'class="', '" id="stMobileTab"', "the tab's class attribute");
   assert.ok(cls.includes(m[1]),
-    "the stylesheet hides `." + m[1] + "` and the toggle does not carry it, so it shows on every view");
-  // AND NOT BY ID. The sheet keys on classes throughout; an id rule here would
-  // be the only one in the file, and the id belongs to the handler.
+    "the stylesheet hides `." + m[1] + "` and the tab does not carry it, so it shows on every view");
+  // AND NOT BY ID, which is the half that survives the deletion unchanged. The
+  // sheet keys on classes throughout; an id rule here would be the only one in
+  // the file, and the id belongs to the handler. The prefix covers the deleted
+  // `#stMobile` as well as `#stMobileTab`, so a rule for either fails it.
   assert.ok(!/#stMobile/.test(CSS_BARE),
-    "the stylesheet reaches for the toggle by id — the id is the handler's, the class is the sheet's");
+    "the stylesheet reaches for this feature by id — the id is the handler's, the class is the sheet's");
 });
 
 test("a trip through Code leaves the panel exactly as it was", () => {
@@ -822,17 +868,17 @@ test("a stored width is re-clamped on render, because the room can have changed"
   // The markup bakes whatever was last stored; the room it was clamped against
   // can have shrunk since (the window resized, the chat rail shown). Driven with
   // a stored width far past this fake row's room.
-  const wide = driveMobile(true, "btn", null, 900);
+  const wide = driveMobile(true, null, 900);
   assert.equal(wide.width, FAKE_ROOM + "px",
     "a stored width wider than the room was not narrowed to it on render, so the panel overflows the row");
 
   // ...and a width that still fits is left exactly as it is.
-  const fits = driveMobile(true, "btn", null, 400);
+  const fits = driveMobile(true, null, 400);
   assert.equal(fits.width, "400px", "a width that fits was moved anyway");
 
   // The no-op case, which is every undragged panel: nothing stored, nothing
   // written, and the stylesheet's clamp is what sizes the column.
-  const none = driveMobile(true, "btn");
+  const none = driveMobile(true);
   assert.equal(none.width, null,
     "an undragged panel had a width written for it, so the clamp is no longer the default");
 });
