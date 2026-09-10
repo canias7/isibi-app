@@ -1096,14 +1096,71 @@ down rather than remembered. **The remaining hops are named at the bottom.**
   `));` and now anchors on the single call by name, plus a new assertion that a
   fan-out must NOT carry `onPartial`. `test/dockerfile.test.mjs` needed the new
   module on the COPY line.
-- **WHAT IS LEFT, and none of it is written**: the band prompt (what one agent
-  is actually asked for), the Worker side building N requests out of `shape` and
-  handing the answers to `assembleBands`, the flag that chooses between this and
-  today's one-call path, and a `site build` container case — **which is the only
-  instrument that can prove the container really runs eight calls at once.**
-  Until that case exists, the fan-out is asserted by a driven module and a
-  source read, and the container has never done it.
-- Full suite **5,778**.
+- **WHAT ONE AGENT IS ASKED (`bandRequest`, the third piece).** A band gets the
+  composed brief, the site's name, the schema clause, the page's own plan top to
+  bottom with its band marked, and four rules. **The cached system block is
+  `pageRulesFor(spec, kind)` BYTE FOR BYTE — the page call's own**, which is the
+  most valuable decision in the request: those ~14,000 characters are rules a
+  band obeys exactly as a page does, so a band-specific block would be a second
+  copy of every one of them AND a cold prefix per build. Shared, the eight calls
+  of a fan-out read a prefix every ordinary build has already made warm, and a
+  rule fixed for the page call is fixed for the bands in the same edit. The
+  guard asserts it **by identity** over all four spec/kind combinations, because
+  a fragment match passes a copy that starts the same and drifts later — which
+  is a second cache entry from the first byte that differs.
+- **A BAND IS TOLD ABOUT ITS NEIGHBOURS AND NEVER SHOWN THEM.** It has to know
+  they exist, or band 3 writes its own hero, band 5 repeats the prices and every
+  agent closes with a call to action — which is what "one page is one job" spent
+  four builds teaching the single-call path not to do. It cannot be shown their
+  SOURCE, because there is none: they are being written at the same moment,
+  which is the point. `bandPlan` numbers the design's own lines and marks one;
+  an index nothing matches marks NOTHING rather than the first, since a band
+  told "yours is the hero" when it is band 4 writes the hero and so does band 1.
+- **`max_tokens` IS THE PAGE CALL'S, not a smaller number sized to one band** —
+  `SITE_PAGES_MAX_TOKENS`'s own comment settles it: a ceiling is not a
+  reservation, so a tight one buys only a cheaper failure, and a truncated
+  tool_use block is a whole band lost after being paid for. No number invented.
+  `BAND_TOOL` has ONE property for the standing reason: a band writer that could
+  answer its own `name` would eventually answer one, and the assembler would be
+  arbitrating between that and the name we assigned — on eight calls at once,
+  where the two that disagree are the two that collide.
+- **THE PROMPT'S RULE AND THE CHECKER'S RULE ARE TIED BY A GUARD.** The prompt
+  says *exactly one top-level declaration, a helper goes inside, no export* and
+  `bandProblems` refuses exactly those three shapes; one case drives both. A
+  prompt asking for something the checker refuses stubs every band, and a checker
+  refusing something the prompt allows does the same.
+- **Sweep on the request: 24 mutants, 24 killed, none unapplied, the
+  comment-only control survived — TWO survived the first pass and one of them
+  was a LIST rather than a defect.** The other was an ordinary gap: nothing
+  asserted the BRIEF reaches the message, so dropping it left every case passing
+  on a prompt that named the band, the plan and all three rules while writing a
+  section for no business at all — the guard tested what the change added and
+  not what it carried.
+- **AND THE LIST IS THE ONE WORTH KEEPING. `test/build-models.test.mjs`'s
+  "no small call pins its own model" IS A CENSUS NOW.** The mutant hardcoded
+  `"grok-4.6"` where the fallback asks `modelsFor()`, and survived because that
+  literal EQUALS today's default — inert now, a real defect the day the default
+  moves, silently. That guard exists because run 93 put the whole cheap ladder
+  behind one provider; it scanned a hand-written list of eight modules.
+  **MEASURED: eleven builder modules call `modelsFor` and the list named eight**
+  — `page-gen`, `site-add` and `page-bands` were never scanned at all. None of
+  the three pins an id today, so nothing was broken; what was broken is that
+  nothing was watching, and it fails in the safe-looking direction because a
+  module nobody scans produces no red run. The subject set is DERIVED from the
+  signal now (a module that asks `modelsFor` for a model must not carry one), so
+  a caller added next month is scanned by existing; `build-models` is the single
+  exemption, NAMED rather than pattern-matched because it is the table and
+  exempting a second module should be a decision somebody makes. The floor keeps
+  the old eight by name, since a derivation that answers nothing scans nothing
+  and passes.
+- **WHAT IS LEFT, and none of it is written**: the Worker side building N
+  requests out of `shape` and handing the answers to `assembleBands`, the flag
+  that chooses between this and today's one-call path, and a `site build`
+  container case — **which is the only instrument that can prove the container
+  really runs eight calls at once.** Until that case exists, the fan-out is
+  asserted by a driven module and a source read, and the container has never
+  done it.
+- Full suite **5,787**.
 
 ---
 
@@ -2956,7 +3013,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   that number since the cap moved to 35 minutes**: runs 1065 and 1066 both
   printed `373 passed, 0 failed`, where stage 5b/5c's own run had been killed
   at the 25-minute wall and the count stood on a local run alone;
-  the unit suite is 5,778.
+  the unit suite is 5,787.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

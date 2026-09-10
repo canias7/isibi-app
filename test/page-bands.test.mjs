@@ -28,8 +28,11 @@ import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import {
   MAX_BANDS, MIN_BAND_CHARS, bandsOf, bandName, splitBand, bandProblems,
   bandStub, pageShell, assembleBands, SHELL_IMPORTS,
+  BAND_TOOL, bandPlan, bandPrompt, bandRequest,
 } from "../builder/page-bands.mjs";
 import { MAX_SECTIONS } from "../builder/site-plan.mjs";
+import { pageRulesFor, SITE_PAGES_MAX_TOKENS } from "../builder/page-gen.mjs";
+import { modelsFor } from "../builder/build-models.mjs";
 
 const CHROME = { name: "Hartley & Voss", tagline: "Chartered accountants", action: { label: "Book", href: "#book" } };
 const band = (name, extra = "") =>
@@ -358,4 +361,144 @@ test("THE CORPUS: bands cut from real generated pages assemble into TSX that PAR
   }
   assert.ok(built >= 80, "only " + built + " pages were assembled — the scan is not exercising the assembler");
   assert.deepEqual(broke.slice(0, 5), [], built + " groups assembled, " + broke.length + " produced TSX that does not parse");
+});
+
+// ── WHAT ONE AGENT IS ASKED ─────────────────────────────────────────────────
+
+const SPEC_NONE = { tables: [] };
+const SPEC_DB = { tables: [{ name: "bookings", access: "collect", columns: [{ name: "email", type: "text" }] }] };
+const LINES = ["Hero: book a lesson", "What we teach", "Prices", "Where to find us"];
+const ask = (over = {}) => bandRequest({
+  brief: "A guitar school in Sheffield.", spec: SPEC_NONE, brand: "Crookes Guitar School",
+  lines: LINES, index: 1, name: "Band2What", kind: "shopfront", ...over,
+});
+const textOf = (req) => (typeof req.messages[0].content === "string"
+  ? req.messages[0].content
+  : req.messages[0].content.find((b) => b.type === "text").text);
+
+test("DRIVEN: the tool has ONE property — there is nowhere to put a name or a route", () => {
+  // THE WALL RATHER THAN THE RULE. A band writer that could answer its own name
+  // would eventually answer one, and the assembler would be arbitrating between
+  // that and the name we assigned — on eight calls at once, where the two that
+  // disagree are the two that collide.
+  assert.equal(BAND_TOOL.name, "write_band");
+  assert.deepEqual(Object.keys(BAND_TOOL.input_schema.properties), ["source"]);
+  assert.deepEqual(BAND_TOOL.input_schema.required, ["source"]);
+  for (const forbidden of ["name", "path", "route", "pages", "parts"]) {
+    assert.ok(!Object.hasOwn(BAND_TOOL.input_schema.properties, forbidden),
+      "the band tool answers `" + forbidden + "` — the assembler would have to arbitrate");
+  }
+});
+
+test("DRIVEN: the plan marks the band being written, and only that one", () => {
+  const marked = bandPlan(LINES, 2).split("\n");
+  assert.equal(marked.length, 4);
+  assert.equal(marked.filter((l) => l.includes("YOURS")).length, 1, "more than one band is marked as ours");
+  assert.ok(marked[2].includes("YOURS"), "the mark is on the wrong band: " + marked[2]);
+  assert.ok(marked[2].startsWith("3. Prices"), "the plan is not numbered in the design's order");
+  // An index nothing matches marks NOTHING rather than the first — a band told
+  // "yours is the hero" when it is band 4 writes the hero, and so does band 1.
+  assert.equal(bandPlan(LINES, -1).includes("YOURS"), false);
+  assert.equal(bandPlan(LINES, 99).includes("YOURS"), false);
+});
+
+test("DRIVEN: the prompt names THIS band, shows the whole page, and shows no source", () => {
+  const t = textOf(ask());
+  // THE BRIEF, which nothing asserted until a sweep dropped it and every case
+  // here still passed — a band writing for no business at all, from a prompt
+  // that still named the band, the plan and every rule. The most ordinary gap
+  // there is: the guard tested what the change added and not what it carried.
+  assert.match(t, /\nBRIEF\nA guitar school in Sheffield\./);
+  assert.ok(textOf(ask({ brief: "A laundrette in Hull." })).includes("A laundrette in Hull."),
+    "the brief is not the caller's — the band is writing for a fixture");
+  assert.match(t, /THE SITE IS CALLED\nCrookes Guitar School/);
+  assert.match(t, /YOURS IS Band2What/);
+  assert.match(t, /function Band2What\(\)/);
+  for (const line of LINES) assert.ok(t.includes(line), "the plan is missing the band `" + line + "`");
+  assert.match(t, /at the same time by someone else/,
+    "the prompt does not say the neighbours are being written now — band 3 will write its own hero");
+  assert.match(t, /do not close the page/);
+  // A NEIGHBOUR'S SOURCE CANNOT BE SHOWN AND MUST NOT BE PROMISED: there is none
+  // yet. The plan lines are the whole of what a band knows about its neighbours.
+  assert.doesNotMatch(t, /the other bands' (source|code)/i);
+});
+
+test("DRIVEN: the schema clause tells the truth about a site with no database", () => {
+  // The page call's own wording, and the reason it is that wording: "a schema
+  // that came out empty" reads as an omission to fill.
+  assert.match(textOf(ask()), /There is none, and that is the design/);
+  const withDb = textOf(ask({ spec: SPEC_DB }));
+  assert.match(withDb, /THE SCHEMA THAT EXISTS/);
+  assert.ok(withDb.includes("bookings"), "a site WITH a database is not shown its own tables");
+  assert.doesNotMatch(withDb, /There is none, and that is the design/);
+});
+
+test("DRIVEN: the rule the prompt states is the rule bandProblems enforces", () => {
+  // TIED, rather than described twice. The prompt is what a model reads and
+  // `bandProblems` is what refuses the answer — so a prompt that asked for
+  // something the checker refuses would stub every band, and a checker that
+  // refused something the prompt allows would do the same. The three shapes the
+  // prompt forbids are each driven through the checker here.
+  const t = textOf(ask());
+  assert.match(t, /EXACTLY ONE top-level declaration/);
+  assert.match(t, /No `export` of any kind, and no `createFileRoute`/);
+  assert.match(t, /A helper goes INSIDE Band2What/);
+
+  const one = "function Band2What() {\n  const fmt = (n) => n;\n  return <section>{fmt(1)}</section>;\n}";
+  assert.deepEqual(bandProblems("Band2What", one), [], "the shape the prompt ASKS for is refused");
+  const helperOutside = "function fmt(n) { return n; }\n" + one;
+  assert.ok(bandProblems("Band2What", helperOutside).length, "a top-level helper is allowed after all");
+  assert.ok(bandProblems("Band2What", "export " + one).length, "an export is allowed after all");
+});
+
+test("DRIVEN: the cached system block IS the page call's own, by identity", () => {
+  // THE SINGLE MOST VALUABLE DECISION IN THIS REQUEST. A band-specific rules
+  // block would be a second copy of ~27,000 tokens of rules AND a cold prefix
+  // per build; sharing it means eight calls read one that every ordinary build
+  // has already made warm.
+  //
+  // Asserted by IDENTITY against the real function rather than by matching a
+  // fragment: a copy that starts the same and drifts later would pass a
+  // fragment match and be a second cache entry from the first byte that differs.
+  for (const [spec, kind] of [[SPEC_NONE, "shopfront"], [SPEC_NONE, "tool"], [SPEC_DB, "shopfront"], [SPEC_DB, "tool"]]) {
+    const req = bandRequest({ brief: "b", spec, brand: "B", lines: LINES, index: 0, name: "Band1Hero", kind });
+    assert.equal(req.system.length, 1);
+    assert.equal(req.system[0].text, pageRulesFor(spec, kind),
+      "the band's rules are not the page call's for spec/kind — a second cached prefix");
+    assert.deepEqual(req.system[0].cache_control, { type: "ephemeral" }, "the rules block is not cached");
+  }
+});
+
+test("DRIVEN: the ceiling is the page call's, and the tool is forced", () => {
+  const req = ask();
+  // Not a smaller number sized to one band: max_tokens is a CEILING, not a
+  // reservation, so a tight one buys only a cheaper failure — and a truncated
+  // tool_use block is a whole band lost after being paid for.
+  assert.equal(req.max_tokens, SITE_PAGES_MAX_TOKENS);
+  assert.deepEqual(req.tools, [BAND_TOOL]);
+  assert.deepEqual(req.tool_choice, { type: "tool", name: "write_band" });
+});
+
+test("DRIVEN: the model is the picker's, and the fallback is the shared table's", () => {
+  assert.equal(ask({ model: "grok-4.6-fast" }).model, "grok-4.6-fast");
+  // Never a bare string here — a fourth copy of a model id is a fourth place
+  // for it to go stale, which is `pagesRequest`'s own rule.
+  assert.equal(ask({ model: undefined }).model, modelsFor().pages);
+  assert.equal(ask({ model: "" }).model, modelsFor().pages);
+});
+
+test("DRIVEN: attachments ride the user message, before the text", () => {
+  const img = { type: "image", source: { type: "base64", media_type: "image/png", data: "x" } };
+  // With none the content stays a plain STRING — the shape every caller and
+  // every existing test already sees, so the feature changes no request that
+  // does not use it.
+  assert.equal(typeof ask().messages[0].content, "string");
+  const req = ask({ attachments: [img, null, undefined] });
+  assert.ok(Array.isArray(req.messages[0].content));
+  assert.equal(req.messages[0].content.length, 2, "a falsy attachment was not filtered out");
+  assert.equal(req.messages[0].content[0], img, "the attachment is not first — the prompt says 'above this text'");
+  assert.equal(req.messages[0].content[1].type, "text");
+  // The cached prefix must be untouched by an attachment, or every build with a
+  // picture is a cache miss on the whole rules block.
+  assert.equal(req.system[0].text, ask().system[0].text);
 });

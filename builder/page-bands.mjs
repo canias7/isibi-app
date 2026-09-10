@@ -12,8 +12,8 @@
 // carries the band, what goes in it, and how it sits.
 //
 // So the unit of the split already exists and nothing new had to be designed.
-// This module owns the two halves the split needs: which bands there are, and
-// how the answers become one file.
+// This module owns the three parts the split needs: which bands there are, what
+// ONE agent is asked for, and how the answers become one file.
 //
 // ── A BAND IS A COMPONENT, NOT A FRAGMENT, AND THAT IS THE WHOLE DESIGN ──────
 //
@@ -52,7 +52,15 @@
 // The band NAMES are assigned here rather than chosen by the model, which
 // removes a whole class of collision by construction: two agents cannot pick
 // the same name for different bands because neither picks at all.
-import { importSpans, dedupeImports } from "./page-gen.mjs";
+import {
+  importSpans,
+  dedupeImports,
+  pageRulesFor,
+  siteHasTables,
+  schemaDigest,
+  SITE_PAGES_MAX_TOKENS,
+} from "./page-gen.mjs";
+import { modelsFor } from "./build-models.mjs";
 import { MAX_SECTIONS } from "./site-plan.mjs";
 
 /**
@@ -242,6 +250,126 @@ export const SHELL_IMPORTS = [
   'import { createFileRoute } from "@tanstack/react-router";',
   'import { SiteChrome } from "@/components/ui/site-chrome";',
 ];
+
+/**
+ * The tool ONE agent answers: a band's source, and nothing else.
+ *
+ * ONE PROPERTY IS THE WALL RATHER THAN THE RULE, which is this repository's
+ * standing preference and is worth more here than anywhere. A band writer that
+ * could answer a `path`, a `name` or a list of `pages` would eventually answer
+ * one, and the assembler would then be arbitrating between a name we assigned
+ * and a name the model preferred — on eight calls at once, where the two that
+ * disagree are the two that collide. There is nowhere to put any of it.
+ */
+export const BAND_TOOL = {
+  name: "write_band",
+  description: "Return the source of ONE band component for this page.",
+  input_schema: {
+    type: "object",
+    properties: {
+      source: {
+        type: "string",
+        description:
+          "The band's source: its imports, then exactly one top-level `function` declaration " +
+          "— the component named in the instructions — and nothing else. No route, no export.",
+      },
+    },
+    required: ["source"],
+  },
+};
+
+/**
+ * The page, top to bottom, with the band being written marked.
+ *
+ * A BAND IS TOLD ABOUT ITS NEIGHBOURS AND NEVER SHOWN THEM. It has to know they
+ * exist — otherwise band 3 writes its own hero, band 5 repeats the prices, and
+ * every agent closes with a call to action, which is what "one page, one job"
+ * has spent four builds teaching the single-call path not to do. It cannot be
+ * shown their SOURCE, because there is none: they are being written at the same
+ * moment, and that is the whole point of the split.
+ *
+ * The design's own lines are the answer. They were written to describe the page
+ * as a whole, they are the same lines every other agent is reading, and they
+ * cost nothing to send.
+ */
+export function bandPlan(lines, index) {
+  const list = Array.isArray(lines) ? lines : [];
+  return list
+    .map((l, i) => (i + 1) + ". " + String(l == null ? "" : l) + (i === index ? "   ← YOURS" : ""))
+    .join("\n");
+}
+
+/**
+ * What one agent is asked, as the user message.
+ *
+ * THE BRIEF ARRIVES ALREADY COMPOSED, exactly as `pagesRequest` takes it — the
+ * caller runs `briefWithLayout`, so the layout, the images, the QR bindings and
+ * the 3D scene reach a band through the ONE composer the single-call path uses.
+ * A second composer here would be "two lists of the same thing" pointed at the
+ * directives, and the half that drifted would be the half that tells a band a
+ * canvas was asked for.
+ *
+ * THE SCHEMA CLAUSE IS `pagesPrompt`'s, WORD FOR WORD, for the reason that one
+ * gives: on a site with no database "there is none, and that is the design" is
+ * the fact of the matter, and a heading promising a schema that came out empty
+ * reads as an omission the model should fill.
+ */
+export function bandPrompt({ brief, spec, brand, lines, index, name } = {}) {
+  const label = String(brand || "").trim();
+  const plan = bandPlan(lines, index);
+  return "Write ONE band of this page.\n\nBRIEF\n" + String(brief || "").trim() +
+    (label ? "\n\nTHE SITE IS CALLED\n" + label + " — it is already the page title." : "") +
+    (siteHasTables(spec)
+      ? "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec)
+      : "\n\nTHIS SITE'S DATA\nThere is none, and that is the design. Write the content into the band.") +
+    (plan ? "\n\nTHE PAGE, TOP TO BOTTOM\n" + plan : "") +
+    "\n\nYOURS IS " + name + "\nWrite that band and no other. The bands above and below yours are being " +
+    "written at the same time by someone else — do not write them, do not repeat them, and do not " +
+    "close the page.\n\nHOW A BAND IS WRITTEN\n" +
+    "- Imports at the top, then EXACTLY ONE top-level declaration: `function " + name + "() { … }`.\n" +
+    "- A helper goes INSIDE " + name + ". A second top-level name collides with another band and the page does not compile.\n" +
+    "- No `export` of any kind, and no `createFileRoute`: the page's route, its header, its navigation and its footer are already written.\n" +
+    "- Return one `<section>`, styled the way the rest of this site is styled.";
+}
+
+/**
+ * The exact body sent for one band.
+ *
+ * THE CACHED SYSTEM BLOCK IS THE PAGE CALL'S OWN, BYTE FOR BYTE, and that is
+ * the single most valuable decision here. `pageRulesFor` is ~27,000 tokens of
+ * rules that a band has to obey exactly as a page does — which components exist,
+ * what a chart may do, what may never be imported — so a band-specific rules
+ * block would be both a second copy of every one of those rules AND a cold cache
+ * prefix. Sharing it means the eight calls of a fan-out read a prefix that every
+ * ordinary build has already made warm, and a rule fixed for the page call is
+ * fixed for the bands in the same edit.
+ *
+ * `max_tokens` IS THE PAGE CALL'S TOO, and deliberately not a smaller number
+ * sized to one band. That constant's own comment settles it: max_tokens is a
+ * CEILING, not a reservation — a band that finishes in 3,000 is billed for
+ * 3,000 either way — so the only thing a tight ceiling buys is a cheaper
+ * failure, and a truncated tool_use block is a whole band lost after being paid
+ * for.
+ *
+ * THE ATTACHMENTS ARE THE CALLER'S CALL, and the trade is real either way: sent
+ * to every band they are paid for N times, and sent to none a band cannot write
+ * the picture the customer attached for it. They ride the user message, after
+ * both cached blocks, for `pagesRequest`'s own reason.
+ */
+export function bandRequest({
+  brief, spec, brand, lines, index, name, model, kind = "", attachments,
+} = {}) {
+  const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
+  const text = bandPrompt({ brief, spec, brand, lines, index, name });
+  return {
+    model: model || modelsFor().pages,
+    max_tokens: SITE_PAGES_MAX_TOKENS,
+    tools: [BAND_TOOL],
+    tool_choice: { type: "tool", name: "write_band" },
+    system: [{ type: "text", text: pageRulesFor(spec, kind), cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
+  };
+}
 
 /**
  * Every band's answer, as one page file.

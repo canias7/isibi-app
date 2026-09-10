@@ -214,12 +214,43 @@ Also: two of my own tests were using real clocks and became unreliable under
 load — they reported correct code as broken, which is worse than missing a
 fault. Rewritten so they do not depend on timing.
 
-**What is left before this does anything.** Four things: what exactly we ask
-one agent to write for a single band; the code that builds the eight requests
-and puts the answers back together; a switch that chooses between this and
-today's single-call path; and a real container test, which is the only thing
-that can prove the container truly runs eight at once. **Until that last one
-exists, no container has ever actually done this.**
+**What one agent is now asked.** This is the third piece, and it is written. An
+agent gets the brief, the site's name, and the whole page as a numbered list
+with its own band marked — then four rules about how to write it. It is told
+its neighbours are being written *right now by someone else*, so it does not
+write the hero, does not repeat the prices and does not close the page. It is
+never shown their code, because there isn't any yet: that is the whole point.
+
+**The most valuable decision in it is one you would not see.** The long block of
+rules that tells the model which components exist and what it may do — about
+14,000 characters — is the *same block, character for character*, that the
+normal one-call path already sends. That block is cached at the model provider,
+so sharing it means eight agents read something that is already warm rather than
+paying for it eight times. Writing a separate set of rules for bands would have
+cost twice: a second copy of every rule to keep in step, and a cold start on
+every build.
+
+**Two things the mutation testing caught, and one of them was bigger than this
+work.** The first was ordinary: nothing checked that the *brief* actually
+reaches the agent. Delete it and every test still passed — an agent writing a
+section for no business at all, from a prompt that still looked complete.
+
+The second was a list. There is an old check here that makes sure no cheap step
+quietly hardcodes which AI model it uses — it exists because one day last month
+every cheap step on the platform was pinned to one provider, that provider
+refused a bill, and the whole thing went down at once. **That check reads a
+hand-written list of eight files. I measured it: there are eleven files it
+should be reading.** Three had never been checked. None of them was actually
+broken — but nothing was watching them, and that kind of gap is invisible,
+because a check that isn't running produces nothing to notice. It works itself
+out now: it finds the files by looking for the thing they do, so a file added
+next month is covered without anyone remembering.
+
+**What is left before this does anything.** Three things: the code that builds
+the eight requests and puts the answers back together; a switch that chooses
+between this and today's single-call path; and a real container test, which is
+the only thing that can prove the container truly runs eight at once. **Until
+that last one exists, no container has ever actually done this.**
 
 ---
 

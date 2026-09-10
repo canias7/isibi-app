@@ -558,8 +558,27 @@ test("NO SMALL CALL PINS ITS OWN MODEL — the edit path follows the picker", ()
   // Nothing asserted that, and nothing would have: each module's constant read
   // perfectly sensibly on its own, and the coupling was only visible by looking
   // at all eight at once. That is what this does.
-  const MODULES = ["site-ask", "site-lanes", "site-apply", "site-nav",
-    "site-picture", "site-rules", "site-tweak", "site-seed"];
+  // A CENSUS, NOT A LIST — re-anchored 2026-09-09, and the list is what moved.
+  //
+  // This named eight modules by hand, which is the recorded "two lists of the
+  // same thing": the producer grows and the scanner does not. MEASURED when the
+  // band split added a twelfth caller — ELEVEN builder modules call `modelsFor`
+  // and this named eight, so `page-gen`, `site-add` and `page-bands` were never
+  // scanned at all. None of the three pins an id today, so nothing was broken;
+  // what was broken is that nothing was watching, and it fails in the
+  // safe-looking direction because a module nobody scans produces no red run.
+  //
+  // The subject set is derived from the signal itself now: a module that asks
+  // `modelsFor` for a model is a module that must not carry one. A caller added
+  // next month is scanned by existing.
+  //
+  // `build-models` IS THE TABLE and is the one exemption — the three ids live
+  // there by design, and it is named rather than pattern-matched so that
+  // exempting a second module is a decision somebody makes on purpose.
+  const MODULES = fs.readdirSync(new URL("../builder/", import.meta.url))
+    .filter((f) => f.endsWith(".mjs"))
+    .map((f) => f.slice(0, -4))
+    .filter((n) => n !== "build-models" && /\bmodelsFor\b/.test(code(read("builder/" + n + ".mjs"))));
   // A MODEL ID AS A STRING LITERAL. Deliberately both families — pinning Grok
   // here would be the same mistake wearing the other provider's name, and the
   // point is that these follow the picker rather than that they avoid Anthropic.
@@ -579,8 +598,15 @@ test("NO SMALL CALL PINS ITS OWN MODEL — the edit path follows the picker", ()
       offenders.push(name + ": " + m[0] + " at line " + body.slice(0, m.index).split("\n").length);
     }
   }
-  // THE OBSERVER IS ALIVE. A typo'd path would read eight empty strings and
-  // report a clean sweep over nothing.
+  // THE OBSERVER IS ALIVE, and the floor is what a DERIVED set needs that a
+  // hand-written one did not: a derivation that answers nothing scans nothing
+  // and passes, which is this repo's "a negative assertion must prove its
+  // observer is alive" pointed at the list itself. Eleven today; the floor is
+  // the eight this case named before, so the census can only ever grow.
+  assert.ok(MODULES.length >= 8, "the census found only " + MODULES.length + " callers — the derivation has broken");
+  for (const was of ["site-ask", "site-lanes", "site-apply", "site-nav", "site-picture", "site-rules", "site-tweak", "site-seed"])
+    assert.ok(MODULES.includes(was), was + " dropped out of the census — it was scanned by name before this was derived");
+  assert.ok(MODULES.includes("page-bands"), "the band request is not scanned — it picks a model like every rung here");
   assert.equal(scanned, MODULES.length);
   for (const name of MODULES) {
     assert.ok(read("builder/" + name + ".mjs").length > 1000, name + " read as almost nothing — this scan proves nothing");
