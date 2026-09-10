@@ -2435,11 +2435,41 @@ stored row.
   now; re-run to a kill. Without that case the wall reads as dead code and the
   next session deletes it.
 - Full suite **5,907**.
-- **Not proven live**, and the proof is one ordinary build: the design step's row
-  should carry four numbers beside `agentMs`/`waveMs`, and the largest of them
-  should equal `waveMs` for its own wave. The push changes `builder/design-waves.mjs`,
-  which is in the Worker's module graph and therefore a container image input, so
-  the container ROLLS and the 15–20 minute hold applies.
+- **PROVEN LIVE ON THE FIRST BUILD AFTER THE DEPLOY, AND IT NAMED THE WALL:
+  `look`.** `ravenscroft-and-fyne` (2026-09-10 23:10:41Z → 23:17:29Z, grok, ok,
+  total **350,197 ms**) carries the four numbers the bullet above predicted, and
+  the answer to the owner's question is one of them:
+
+  | agent | ms |
+  |---|---|
+  | `identity` | 21,906 |
+  | `plan` | 78,560 |
+  | **`look`** | **132,394** |
+  | `detail` | 83,386 |
+
+  Wave 2 is `plan` ∥ `look`, so `plan` answers and **waits 53,834 ms** at the
+  owner's barrier. **THE ARITHMETIC CLOSES THREE WAYS, which is the instrument
+  checking itself rather than a claim about it**: the four parts sum to
+  **316,246 = `agentMs` exactly**; `identity` + max(`plan`, `look`) + `detail` =
+  **237,686 = `waveMs` exactly**, which is the barrier as arithmetic on a real
+  row; and the overlap (316,246 − 237,686) is **78,560 = `planMs` exactly** —
+  **the whole saving the design split buys is `plan` running underneath `look`,
+  and nothing else.** Halving `plan` buys ZERO; bringing `look` down to `plan`'s
+  length would take ~54 s off the wave. That is the lever the sum could never
+  point at, and it took one ordinary build to find it.
+  **`look` DRAWS**, which is why: it answers `wordmark` and `favicon` — both SVG
+  — beside `theme` and `css`, and a drawn answer is the slow kind (run 41
+  measured 292,336 ms for one mark alone on the edit lane). The prediction on the
+  record before the run was `look`, said as a guess; the row is what settles it.
+  **Whether to split `look` further — the two marks apart from the theme and the
+  stylesheet — is the owner's call and is unexplored**; the waves are 1-2-1
+  today, so it is also the only thing that would widen wave 2.
+  Two other readings off the same build, both free: **`bands:door`**, so the page
+  was written in ONE call with the band canary off, exactly as expected — and
+  that single call took **`genMs` 294,300**, well above `marlow-and-tide`'s
+  180,456, so the single-call page spread is wide and a one-run comparison
+  against it would prove nothing. `img` carried `viaContainer: 1`, the corrected
+  reading, and `container` was 94,414 ms.
 - **MERGED AND DEPLOYED** (owner: *"MERGE"*). `unit tests` run 2421 green, the
   suite step **84 s** on the exact tree; main fast-forwarded `c35cda52` →
   `97d69615` at 22:56Z; **deploy run 2082 green in 3m21s**. The gate set in 1 s;

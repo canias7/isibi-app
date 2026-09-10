@@ -4322,3 +4322,48 @@ once.
 the slow one, whether the split page really is half the single one on a matched
 pair, and what the whole build costs with both splits on now the four-minute
 dead wait is gone.
+
+## 2026-09-10 — you fired a build, and it named the wall: **look**
+
+`ravenscroft-and-fyne`, 23:10:41 to 23:17:29. It worked, and the design step now
+carries one number per agent — which is what your drawing asked for.
+
+| agent | how long it took |
+|---|---|
+| identity | 21.9s |
+| plan | 78.6s |
+| **look** | **132.4s** |
+| detail | 83.4s |
+
+**`plan` and `look` run side by side, and `look` takes 54 seconds longer.** So
+`plan` finishes its work and then stands at the barrier doing nothing for 54
+seconds, waiting for `look`. That is exactly the picture you drew.
+
+**Why this matters more than the total.** The whole design step took 237.7s. If
+we made `plan` twice as fast, the design step would still take 237.7s — not one
+second saved, because `plan` isn't what anyone is waiting for. If we made `look`
+as fast as `plan`, we'd get about **54 seconds** back. Before today the row only
+stored the four added together, so there was no way to tell those two apart.
+
+**The numbers check out against each other three ways**, which is how I know the
+instrument is telling the truth and not just producing plausible figures:
+the four agents add up to exactly the total work; the longest agent in each wave
+adds up to exactly the wall clock; and the "time saved by running them together"
+comes out to exactly `plan`'s own time. Nothing rounded, nothing approximate.
+
+**What `look` actually does**, so the number makes sense: it draws your logo, it
+draws your tab icon, and it writes the stylesheet. Drawing is slow — we measured
+one logo alone at nearly five minutes on the edit path once. The other three
+agents answer in words and lists, which is quick.
+
+**So the obvious next question is whether to split `look` in two** — the two
+drawings in one agent, the theme and the stylesheet in another. That would make
+the middle wave three-wide instead of two and could take a real chunk off. I
+haven't started it. **It's your call**, and it isn't free — it's another agent,
+so another call to pay for.
+
+**Two other things off the same build, both free.** The page was written in one
+call, as expected, since your band secret is still switched off — the trace says
+so in a word. And that single call took **294s**, where the last one took 180s.
+So single-call page times swing a lot, which is worth knowing before we try to
+compare a split page against one.
