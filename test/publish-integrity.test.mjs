@@ -775,11 +775,21 @@ test("the diagnostic answers the two effective eligibilities and the deploy iden
     },
   });
   assert.equal(r.status, 200, JSON.stringify(r.body));
+  // THE EQUALITY IS THE POINT, NOT A SPELLING PIN. This route exists to answer
+  // booleans about the caller's OWN site and nothing else, so a field arriving
+  // here has to be a decision somebody made — an exact set is what makes adding
+  // one a line in this file rather than a thing nobody notices. The case below
+  // holds the type; this one holds the roster.
+  //
+  // `bands` / `bandsEveryone` arrived 2026-09-09 with the band split: two more
+  // deploy secrets with a workflow fallback, which is the class of fact this
+  // route was written for.
   assert.deepEqual(r.body, {
     ok: true, slug: "diag-on", deploy: "abc1234def",
     async: true, runner: true,
     asyncOn: true, asyncEveryone: true, runnerOn: true, runnerEveryone: false,
     runnerBindings: true, runnerKeyed: true,
+    bands: false, bandsEveryone: false,
   });
 });
 

@@ -926,8 +926,20 @@ test("THE FIRE MINTS A NAME FOR THE ANSWER AND TELLS BOTH SIDES", () => {
   // stage 2c (2026-09-05) grew the object a job id and a beat address —
   // reporting that the container is no longer told where to leave the answer,
   // about a fire that tells it more. The property is the URL and whose it is.
-  const reportAt = fire.indexOf("body: JSON.stringify({ req, callMs, report: {");
+  //
+  // RE-ANCHORED AGAIN 2026-09-09, and for exactly the reason the paragraph
+  // above records: this pinned the payload's own opening as
+  // `{ req, callMs, report: {`, and the band split made the first field a
+  // choice — `reqs` for a fan-out, `req` for one call — so it went red for a
+  // fire that carries strictly more. The property is the same one: the report
+  // object exists, its url is OURS, and it carries the token.
+  const reportAt = fire.indexOf("callMs, report: {");
   assert.ok(reportAt > 0, "the fire no longer tells the container where to leave the answer");
+  // AND THE REQUEST STILL RIDES ON IT, one field or the other and never both —
+  // the shape is what tells the container which kind of job this is, and a
+  // payload carrying neither is a fire with nothing to generate.
+  assert.match(fire, /\.\.\.\(Array\.isArray\(req\) \? \{ reqs: req \} : \{ req \}\)/,
+    "the fire no longer sends the request as `reqs` for a list and `req` for one");
   const reportObj = fire.slice(reportAt, close(fire, fire.indexOf("report: {", reportAt) + "report: ".length));
   const url = /url: `([^`]+)`/.exec(reportObj);
   assert.ok(url, "the report object carries no url");

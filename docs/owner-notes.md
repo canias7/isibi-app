@@ -254,6 +254,87 @@ that last one exists, no container has ever actually done this.**
 
 ---
 
+## 2026-09-10 — The rest of it is built, and the switch is off
+
+You said *"ok go build it"*, so the three things from the note above are done.
+All of it is wired end to end and **nothing on the platform behaves differently
+today**, because the switch that turns it on names nobody. That is deliberate,
+and I will explain the switch last.
+
+**The container really does run several calls at once — proven, not argued.**
+This was the one thing I could not claim without an actual container, so the
+container test suite got nine new checks and now reads **382 passing, 0
+failing**. The check that settles it is a small trick: I sent three requests
+that were all guaranteed to fail, and asked what came back. The naive way of
+running things in parallel would have come back with **one** failure and thrown
+the other two away. It came back with **three separate answers**, each knowing
+which band it belonged to and carrying its own error message. That is a shape
+the broken version cannot produce, so it is proof rather than a reading of the
+code.
+
+**The page is assembled and it compiles.** The end-to-end test runs four bands
+where the answers deliberately arrive in the wrong order — third, first, second,
+fourth — and one of the four fails outright. What comes out is a page with the
+bands **in the order the design planned**, not the order they finished; the
+failed band replaced by a placeholder; two bands that both wanted the same
+component sharing one import instead of declaring it twice (that duplicate is
+what broke a real build back in run 90); and the finished file handed to the
+project's own TypeScript, which accepts it. That last part matters most — up to
+here everything was a claim about text.
+
+**The money did not change shape.** The split path hands back exactly the same
+object the single call hands back, so the compiler step, the publish step and
+the billing all see something they cannot tell apart. Eight calls' worth of
+usage is added into one figure and rounded once, the way one call is rounded
+once. Rounding eight times would have charged a minimum per band.
+
+**One decision worth reading twice, because it protects a build in flight.** A
+build fires the generation and walks away; another invocation picks the answer
+up eight minutes later. In between, a deploy can happen — deploys take about
+three minutes. So if the second invocation asked *the switch* which path to
+take, it could get a different answer from the one that started the work. And
+neither wrong answer would fail loudly: it would just quietly produce nothing,
+or quietly replace every band with a placeholder. **So the second invocation
+asks what it is actually holding** — a list of eight answers, or one answer —
+and takes the path that matches. The switch is only ever asked at the start.
+
+**If the container cannot take the split, the build writes the page the old
+way.** Right after a deploy, the new container image rolls out over a minute or
+two, and for that minute the old image is still answering. It does not know how
+to take eight requests. Rather than fail those builds, the code notices that
+particular refusal by name and quietly falls back to the single call — which is
+exactly what every build does today anyway.
+
+**Now the switch.** It works like the one for the job runner: name a site's slug
+in a GitHub secret called `BAND_SPLIT_CANARY` and that site's next build splits;
+a second secret can turn it on for everybody. **The default is `-`, which means
+nobody.** The job runner's equivalent names your test site by default, because
+it had been proven on it. This one has never written a live page, so it names
+nobody until you say otherwise.
+
+**And you can check the switch for free before spending anything.** The
+diagnostic at `/api/site/runtime?slug=` now answers `bands: true/false` for your
+own sites. That is worth having because a GitHub secret is a thing the code
+cannot see: reading the workflow file tells you the default, not what is
+actually deployed. So the order is: set the secret, redeploy, read that
+endpoint, and only then buy a build.
+
+**What is proven and what is not.** The container running several calls at once
+is proven, on the real service. The assembly, the ordering, the failure handling
+and the billing are proven by running them. **A real site built this way is
+not** — nothing has been through it end to end, and it cannot be until you turn
+the switch on. That is one build's worth of credits, and it is your call.
+
+**One more thing on testing.** Four existing checks went red for this change and
+every one of them was pointing at correct code — they were pinned to how a line
+was *spelled* rather than what it had to be *true* about. One of them has now
+been re-pointed three separate times for the same reason: it insists on the
+exact shape of a message the builder sends to the container, so it complains
+every time that message grows. Each was re-pointed at the actual property, with
+a note saying which spelling moved, so the next session does not pin it back.
+
+---
+
 ## 2026-09-09 — Every project has its own web address now
 
 You held up Lovable's `lovable.dev/projects/a752aa91-…` and said *"or something
@@ -1650,6 +1731,30 @@ rolls the container, so leave 15–20 minutes after it deploys.
 ---
 
 ## Open — waiting on you
+
+**0y. TURN ON THE BAND SPLIT, OR DON'T (2026-09-10, your "ok go build it").**
+Writing a page eight bands at a time is built, tested and deployed, and the
+switch names nobody, so nothing on the platform does it. Two steps, in this
+order:
+
+1. **Free.** Set the GitHub secret `BAND_SPLIT_CANARY` to one slug — `fretwork-1`
+   is the obvious one — and redeploy. Then open
+   `/api/site/runtime?slug=fretwork-1` while signed in and check it says
+   `bands: true`. That proves the secret actually reached the Worker, which
+   reading the workflow file cannot tell you.
+2. **One build's credits.** Build a site on that slug. The page comes out
+   assembled from its bands; a band that fails is a placeholder and the rest of
+   the page still publishes.
+
+**What it should buy: wall clock.** The page call is the long step of a build —
+measured between five and a half and ten minutes — and eight bands run at once
+instead of one after another. **I have not measured the saving and will not
+guess at one.** The first split build is the measurement.
+
+**What it risks:** a page whose bands read like eight strangers wrote them. Each
+agent is told the whole page plan with its own band marked and is told not to
+write the hero, repeat the prices or close the page — but that is a rule, and
+rules get read past. One build tells you whether the page hangs together.
 
 **0z. THREE ICONS ON EVERY SITE CARD (2026-09-07, your "A,B,A" then "LEAVE IT
 THERE BUT OFF SINCE WE HAVENT DONE THE MOBILE APP THING YET").** What ships:

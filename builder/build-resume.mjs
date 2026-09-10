@@ -206,6 +206,34 @@ export function firedError(resume) {
   return e;
 }
 
+/**
+ * A FAN-OUT THAT COULD NOT BE FIRED, said by name rather than fallen through.
+ *
+ * The single call's fallback when a fire does not land is to make the call HERE
+ * (`/model`, one request, one reply). A fan-out cannot take that fallback —
+ * that endpoint has always taken one request — so it needs its own answer, and
+ * the caller's answer is to generate the page the ordinary way.
+ *
+ * ITS OWN NAME, NEVER A RETURN VALUE, for the reason `firedError` gives one line
+ * up: `generateSiteBands` is handed to a generator whose contract is "answer
+ * with a model response or not at all", and a second shape there is a second set
+ * of branches through the money path. A caller that does not know this name
+ * treats it as an ordinary failure and refuses the build, which is safe — it
+ * spends nothing and says the generation did not happen.
+ */
+export const NO_FANOUT_NAME = "NoFanout";
+
+export function noFanoutError() {
+  const e = new Error("the container would not take a fan-out; write the page in one call instead");
+  e.name = NO_FANOUT_NAME;
+  return e;
+}
+
+/** The one reader, so a caller cannot answer this question a second way. */
+export function isNoFanout(e) {
+  return !!e && e.name === NO_FANOUT_NAME;
+}
+
 /** The one reader. Answers the resume details, or null for any other throw —
  *  so a caller cannot mistake an ordinary failure for a fire by checking the
  *  name and forgetting the payload. */
@@ -319,6 +347,22 @@ export function codeKey(id) {
  */
 export function readGenReport(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  // A FAN-OUT REPORTS `answers`, A SINGLE CALL REPORTS `answer`, and they are
+  // never both present — the container's own `/model/result` keeps them apart
+  // for the same reason. Carried through under `answer` because that is the ONE
+  // field `resumeDecision` and the resume's `call` already speak, and the
+  // generator that receives it is the one that asked: `generateSiteBands` sent a
+  // list and reads a list back, `generateSitePages` sent one and reads one. A
+  // second field here would be a second set of branches, one of which nobody
+  // drives.
+  //
+  // AN EMPTY LIST IS NOT AN ANSWER. `[]` would read as a generation that
+  // finished with nothing, and the resume would settle a build that never
+  // produced a page; unreadable reads as still-pending instead, which is
+  // bounded by the deadline and is what stops a blip becoming a lost build.
+  if (raw.state === "done" && Array.isArray(raw.answers)) {
+    return raw.answers.length ? { state: "done", answer: raw.answers } : null;
+  }
   if (raw.state === "done") return raw.answer && typeof raw.answer === "object" ? { state: "done", answer: raw.answer } : null;
   if (raw.state !== "failed") return null;
   return {
@@ -620,7 +664,19 @@ export function resumeDecision({ poll, record, now }) {
   // stops "we could not read it" becoming an infinite poll.
   const state = poll && typeof poll.state === "string" ? poll.state : "";
 
-  if (state === "done") return { act: "finish", answer: poll.answer };
+  // THE SAME TWO SHAPES `readGenReport` FOLDS, and folded the same way, because
+  // this reads the LIVE poll where that reads the stored report and the two must
+  // not disagree about what a finished fan-out looks like. `answers` is the
+  // list of band outcomes; `answer` is one model reply. Never both, and the
+  // generator that receives it is the one that asked for it.
+  //
+  // AN EMPTY LIST IS NOT FINISHED, for the reason given there: it would settle a
+  // build that produced no page. Falling through to the pending branches leaves
+  // it bounded by the deadline, which is the safe reading of "cannot tell".
+  if (state === "done" && Array.isArray(poll.answers) && poll.answers.length) {
+    return { act: "finish", answer: poll.answers };
+  }
+  if (state === "done" && !Array.isArray(poll.answers)) return { act: "finish", answer: poll.answer };
 
   if (state === "failed") {
     const message = typeof poll.message === "string" ? poll.message : "";

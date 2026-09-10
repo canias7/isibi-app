@@ -68,9 +68,13 @@ import {
   // read (deferred once), and the window after which a queued row nobody
   // picked up is sent again.
   deployIdOf, unreadClaim, deferredClaim, CLAIM_RETRY_MAX, STALE_QUEUED_S,
+  // A PAGE WRITTEN A BAND AT A TIME (2026-09-09): the same two doors the job
+  // runner has, and asked THERE rather than here for the same reason the
+  // diagnostic gives above — the list stays out of this file.
+  bandSplitFor, bandSplitEveryone,
 } from "./builder/edit-job.mjs";
 import { tailOf, clipWithLine, CODE_TAIL_MAX } from "./builder/gen-code.mjs";
-import { RESUME_FIRST_SECONDS, resumeKey, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf } from "./builder/build-resume.mjs";
+import { RESUME_FIRST_SECONDS, resumeKey, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf, noFanoutError, isNoFanout } from "./builder/build-resume.mjs";
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
@@ -97,6 +101,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, lift
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
+import { splitPlan, generateSiteBands } from "./builder/page-bands.mjs";
 // ALIASED, because worker.js already has an `IMAGE_USD` — the per-model price
 // map for the image GENERATOR the customer drives directly. Imported under its
 // own name the two collide, and the collision is invisible to `node --check` and
@@ -6126,7 +6131,14 @@ function containerPagesFire(env, slug, out, jobId = null) {
         // notion of our origin. `APP_ZONE` is the one place that is written
         // down; a value threaded from a request would be whatever host the
         // customer happened to arrive on, including a custom domain.
-        body: JSON.stringify({ req, callMs, report: {
+        // ONE REQUEST OR A LIST OF THEM, and the shape of what the caller
+        // handed us decides — never a flag beside it, which is a second answer
+        // to a question this value already answers. `generateSiteBands` hands an
+        // ARRAY (one entry per band of the page) and everything else hands one
+        // request; the container reads `reqs` and `req` as the same job either
+        // way, so the report, the lease, the beat and the sentinel below are
+        // untouched by the difference.
+        body: JSON.stringify({ ...(Array.isArray(req) ? { reqs: req } : { req }), callMs, report: {
           url: `https://${APP_ZONE}/api/site/genresult`, token: report,
           // THE ROW'S HALF (stage 2c): which job this generation belongs to,
           // and where to beat while it runs. The container echoes `job` and
@@ -6160,6 +6172,16 @@ function containerPagesFire(env, slug, out, jobId = null) {
     } catch (e) {
       console.error("build: could not reach the container to fire the generation —", String((e && e.name) || "Error"), String((e && e.message) || e));
     }
+    // THE FALLBACK IS THE ONE CALL, AND A FAN-OUT CANNOT TAKE IT. `sync` posts
+    // to `/model`, which has always taken exactly one request and answers one
+    // reply — handing it an array would send a JSON array where a request
+    // object belongs and fail somewhere far from here. So a fan-out that could
+    // not be fired says so BY NAME, and the caller falls back to the ordinary
+    // single page call, which is the behaviour every build had before the split
+    // existed. (An older container image with no `/model/start` is exactly this
+    // case, and it is a real one: an image rollout is asynchronous, so for a
+    // minute after a deploy the previous image can still be serving.)
+    if (!genId && Array.isArray(req)) throw noFanoutError();
     if (!genId) return sync(keys, req, budget);
     // FIRED. `firedAt` is stamped HERE rather than by the container, because
     // the deadline is measured against our own clock on the resume and two
@@ -6172,6 +6194,52 @@ function containerPagesFire(env, slug, out, jobId = null) {
     // in ONE instance's memory, and a recomputed lane would ask a container
     // that never had the work and be told `unknown`.
     throw firedError({ genId, lane: laneName(slug), report, firedAt: Date.now() });
+  };
+}
+
+/**
+ * WHICH PAGE A SPLIT BUILD SPLITS, as a route.
+ *
+ * THE FIRST PAGE THE PLAN NAMES, and on a first build that is the only one —
+ * `MAX_PAGES` in the plan is 1, so "the front page is the site". Taking the
+ * first rather than searching for `"/"` is deliberate: a plan that named one
+ * page and did not call it `/` would otherwise fall back to the single call for
+ * a reason nobody could see, where this splits the page it planned.
+ *
+ * A PLAN WITH SEVERAL PAGES IS NOT SPLIT AT ALL — see the caller. This answers
+ * the first so the DECISION has something to refuse, rather than answering
+ * nothing and making "no plan" and "several pages" the same silence.
+ */
+function planRoutes(plan) {
+  const pages = plan && Array.isArray(plan.pages) ? plan.pages : [];
+  return pages.map((p) => (p && typeof p.path === "string" ? p.path : "")).filter(Boolean);
+}
+
+/**
+ * The shell's own props, off the design.
+ *
+ * COMPOSED HERE RATHER THAN GENERATED, which is the whole reason the shell can
+ * be a template: `SiteChrome` takes the site's identity and navigation, and the
+ * design step has answered every one of them by the time a band is written.
+ * Asking a model to decide them again would be a second opinion about the
+ * site's own name.
+ */
+function chromeFor(plan, brand, tagline) {
+  const links = planRoutes(plan).map((path, i) => {
+    const p = plan.pages[i];
+    return { label: (p && typeof p.name === "string" && p.name) || path, to: path };
+  });
+  const action = plan && plan.action && typeof plan.action === "object" && typeof plan.action.label === "string"
+    ? { label: plan.action.label, ...(typeof plan.action.href === "string" ? { href: plan.action.href } : {}) }
+    : null;
+  return {
+    name: String(brand || ""),
+    ...(tagline ? { tagline: String(tagline) } : {}),
+    // ONE PAGE MEANS NO NAV. A single link pointing at the page you are on is a
+    // control that goes nowhere, which is this repository's own open
+    // dead-control finding drawn in the header of every split build.
+    ...(links.length > 1 ? { links } : {}),
+    ...(action ? { action } : {}),
   };
 }
 
@@ -11605,7 +11673,7 @@ async function siteOgImage(env, slug, dist) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, picker = null, models = null, billRef = null, jobId = null, assertLease = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null }) {
   // THE PICKER'S MODELS FOR THE TRANSLATION LOOP BELOW (run 38, 2026-09-04):
   // `models` when the caller resolved them, else resolved here from the
   // `picker` the build route stores beside `model` in the design — a job
@@ -11820,7 +11888,77 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // otherwise     hold the hop for the whole generation, as before.
       const call = resumeCall
         || (canFire ? containerPagesFire(env, slug, genPath, jobId) : containerPagesCall(env, slug, genPath));
+      // ── ONE CALL, OR ONE PER BAND (2026-09-09, the band split) ────────────
+      //
+      // `splitPlan` answers the band lines or NOTHING, and nothing means today's
+      // single call — so every reason it refuses (a `tsx` declaration, a revise,
+      // a page planned as one band, a route that is not a file) is a fallback to
+      // a path that already works rather than a failure. It reads the stored
+      // design args and NOTHING else, so it is deterministic: the fire and every
+      // later resume derive the same lines from the same record.
+      //
+      // ONE PAGE ONLY, and it is a refusal rather than a loop. A plan naming two
+      // pages is two generations, two assemblies and two ways for a fan-out to
+      // half-succeed; `MAX_PAGES` in the plan is 1, so this is not a limitation
+      // anybody meets on a first build, and doing it for several pages is a
+      // change to make on purpose rather than a `for` loop nobody measured.
+      const planned = planRoutes(plan);
+      const bandLines = planned.length === 1
+        ? splitPlan({ shape: plan && plan.shape, route: planned[0], tsx, priorPages, mode: revise ? "revise" : "build" })
+        : [];
+      // ── WHO DECIDES, AND IT IS NOT THE SAME ANSWERER ON BOTH INVOCATIONS ──
+      //
+      // A FIRE asks the FLAG. The fan-out is a list of requests and `/model` —
+      // the synchronous endpoint, and the fallback when a fire does not land —
+      // has always taken exactly one, so `canFire` is part of the question
+      // rather than a thing checked later.
+      //
+      // A RESUME ASKS THE STORE, because the flag can move underneath a build in
+      // flight: a deploy between the fire and the collector flips
+      // `BAND_SPLIT_CANARY`, and a resume that re-asked it would hand a list of
+      // band answers to the single-call reader, or one page answer to the
+      // assembler. Neither fails loudly — the first parses an array as an answer
+      // object and writes nothing, the second stubs every band. `resumeFanout`
+      // is the shape the collector is actually holding, which is the same rule
+      // `/model/result` follows one layer down: the SHAPE says which kind of job
+      // it was, rather than leaving it to be inferred.
+      const useBands = resumeCall
+        ? resumeFanout
+        : (canFire && bandLines.length > 0 && bandSplitFor(env, { uid: (auth && auth.id) || "", slug }));
+      // AND A STORE THAT DISAGREES WITH THE PLAN IS SAID, NOT PAPERED OVER.
+      // Deterministic args make this unreachable today; it becomes reachable the
+      // day `splitPlan` grows a condition somebody forgets is load-bearing on a
+      // resume, and the failure it would otherwise cause is a silently empty
+      // page rather than a red build.
+      if (useBands && !bandLines.length) {
+        throw new Error("the stored answer is a fan-out and the plan splits into no bands — the split rule moved under a build in flight");
+      }
       try {
+        if (useBands) {
+          try {
+            // THE SAME `call`. A fan-out is one job holding N requests, so the
+            // fire, the report, the lease and the sentinel are the ones the
+            // single call already uses — the only difference is that what is
+            // handed over is a list.
+            return await generateSiteBands({
+              // THE SAME COMPOSED BRIEF THE ONE CALL GETS, off the one composer,
+              // so the layout, the images, the QR bindings and the 3D scene
+              // reach a band through the hop the single path already uses.
+              brief: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief }),
+              spec, brand, attachments, model, kind: plan && plan.kind,
+              route: planned[0], chrome: chromeFor(plan, brand, siteDescription), lines: bandLines,
+            }, env, call, budget);
+          } catch (e) {
+            // A CONTAINER THAT WOULD NOT TAKE THE FAN-OUT IS NOT A FAILED
+            // BUILD. An older image has no `/model/start` at all, and a rollout
+            // is asynchronous — so for a minute after a deploy the previous
+            // image can still be serving. Fall through to the one call, which
+            // is what every build did before the split existed. Every OTHER
+            // throw, the sentinel included, is re-thrown untouched.
+            if (!isNoFanout(e)) throw e;
+            console.log("build: the container would not take a fan-out; writing", slug, "in one call");
+          }
+        }
         // `plan.kind` RIDES ALONG so the page prompt can drop the chart
         // catalogue for a shopfront — 13,329 characters, 42% of the prompt, and
         // zero imports across the 100-site corpus. Only this call site knows it;
@@ -14312,6 +14450,14 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
       // forgets.
       canFire: decision.act === "refire",
       resumeCall,
+      // WHAT KIND OF ANSWER IS BEING FINISHED (2026-09-09, the band split). A
+      // list is a fan-out and one object is a single call; the build re-derives
+      // the band LINES from the same stored args, but which path to take is the
+      // store's answer and never the flag's — see the decision in
+      // `buildAndPublishPages` for the deploy-under-a-build window this closes.
+      // A refire hands nothing over and fires afresh, so it asks the flag again,
+      // which is right: it is a new generation.
+      resumeFanout: Array.isArray(decision.answer),
     });
     // ── A REFIRE HAS NOT FINISHED ANYTHING; IT HAS STARTED SOMETHING ─────────
     //
@@ -19836,6 +19982,15 @@ async function handleRequest(request, env, ctx) {
         // The two bindings and the key a fire needs after the flags say yes.
         runnerBindings: bindings,
         runnerKeyed: keyed,
+        // WOULD THIS SITE'S NEXT BUILD WRITE ITS PAGE A BAND AT A TIME
+        // (2026-09-09)? Two more deploy secrets with a workflow fallback, so
+        // exactly the fact the paragraph above says the repository cannot know
+        // — and the one flag on this platform whose effect is invisible from
+        // outside: a split build and a single-call build publish the same page
+        // to the same address, so without this the only way to tell them apart
+        // is a stored trace nobody but us can read.
+        bands: bandSplitFor(env, who),
+        bandsEveryone: bandSplitEveryone(env),
       });
     }
 

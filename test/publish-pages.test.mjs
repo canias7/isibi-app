@@ -1176,17 +1176,43 @@ test("and the WORKER really produces that shape — the fake above is not proof"
   // so the container can make the call; this read worker.js and would have gone
   // vacuously green the moment the capture came with it.
   const w = buildPathFn("generateSitePages").body;
-  assert.match(w, /const shape = use \? null : \{/,
+  // RE-ANCHORED 2026-09-09: this pinned the capture as an object literal inline
+  // in `generateSitePages`, and the band split lifted it to `shapeOf_` beside
+  // the function so a fan-out could answer the same shape — one reader, not two
+  // copies of the four fields. The PROPERTY is unchanged: the capture happens
+  // only when there was no tool call, and it carries the stop reason and the
+  // block TYPES.
+  assert.match(w, /const shape = use \? null : (\{|shapeOf_\(j\))/,
     "generateSitePages no longer captures why there was no tool call");
-  assert.match(w, /stopReason: String\(j\.stop_reason \|\| ""\)/,
+  // The reader, wherever it lives — followed by name off the same file, so a
+  // capture that stopped answering either field goes red here.
+  const gen = fs.readFileSync(new URL("../builder/page-gen.mjs", import.meta.url), "utf8");
+  const capture = /shapeOf_\(j\)/.test(w) ? gen.slice(gen.indexOf("function shapeOf_("), gen.indexOf("function shapeOf_(") + 400) : w;
+  assert.match(capture, /stopReason: String\(\(?j(?: &&)? ?\.?\.?.{0,4}stop_reason\)? \|\| ""\)/,
     "the stop reason is the first thing to look at and it is not captured");
-  assert.match(w, /blocks: \(Array\.isArray\(j\.content\) \? j\.content : \[\]\)\.map\(\(b\) => String\(b && b\.type\)\)/,
+  assert.match(capture, /blocks: \(Array\.isArray\(j(?: &&)? ?\.?\.?.{0,4}content\) \? j(?: &&)? ?\.?\.?.{0,4}content : \[\]\)\.map\(\(b\) => String\(b && b\.type\)\)/,
     "which block types came back is what says whether the model answered in prose");
   // NEVER THE TEXT. It is model-written prose about a customer's brief, and this
   // value is returned to the caller and logged.
-  const at = w.indexOf("const shape = use ? null : {");
-  assert.ok(!/b\.text/.test(w.slice(at, at + 400)), "the model's prose is being returned to the caller");
+  assert.ok(!/b\.text/.test(capture), "the model's prose is being returned to the caller");
+  // AND THE READER IS DRIVEN, because everything above is now a claim about
+  // text in a function the window no longer contains: a `shapeOf_` that ignored
+  // its argument would satisfy every match and report nothing about any build.
+  const shaped = generateShapeOf(gen)({ stop_reason: "max_tokens", content: [{ type: "text", text: "sorry about that" }] });
+  assert.equal(shaped.stopReason, "max_tokens");
+  assert.deepEqual(shaped.blocks, ["text"]);
+  assert.ok(!JSON.stringify(shaped).includes("sorry about that"), "the model's prose reached the answer");
 });
+
+/** `shapeOf_` cut out of page-gen.mjs and evaluated — it is module-private, and
+ *  exporting a thing only a test wants is how a module grows a surface. */
+function generateShapeOf(src) {
+  const at = src.indexOf("function shapeOf_(");
+  assert.ok(at > 0, "shapeOf_ is gone from page-gen.mjs");
+  const end = src.indexOf("\n}", at) + 2;
+  // eslint-disable-next-line no-new-func
+  return new Function(src.slice(at, end) + "\nreturn shapeOf_;")();
+}
 
 test("a published site IS billed, and billed AFTER it is live", async () => {
   // THE OTHER HALF OF THE RULE, and without it "don't charge for a placeholder"

@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { BUILD_MODELS, DEFAULT_PICKER, modelsFor } from "../builder/build-models.mjs";
 import { MODEL_RATES, buildFloor, MIN_CREDITS, SCHEMA_PROFILE, SEED_PROFILE, pageCredits } from "../builder/publish-pages.mjs";
-import { pagesRequest } from "../builder/page-gen.mjs";
+import { pagesRequest, usageOf } from "../builder/page-gen.mjs";
 import { buildPathFn } from "./fixtures/build-path.mjs";
 
 // What `use_credits` grants an account on first touch — the Postgres RPC's
@@ -234,8 +234,22 @@ test("the model reaches the API, and the same one reaches the meter", () => {
       : found.body;
     assert.ok(body.length > 500 && body.length < 20000, fn + ": the window is not one function");
     assert.ok(!/model:\s*"claude-/.test(body), fn + " hardcodes a model again");
-    assert.match(body, /model:\s*req\.model/, fn + " does not price what it sent");
+    // RE-ANCHORED 2026-09-09: this pinned the spelling `model: req.model`, and
+    // the page call's usage reader moved into `usageOf(j, model)` so the band
+    // fan-out could price N answers off the same row without a second copy of
+    // the four token kinds. The PROPERTY is unchanged and is what this asserts:
+    // the rate column is the model of the request that was sent, never a
+    // literal — written inline, or handed to the one reader as its argument.
+    assert.match(body, /model:\s*req\.model|usageOf\([^)]*\breq\.model\b[^)]*\)/,
+      fn + " does not price what it sent");
   }
+  // AND THE READER REALLY PUTS ITS ARGUMENT IN `model`, driven — because the
+  // text above now certifies a HANDOFF, and a reader that ignored its second
+  // argument would satisfy every one of those matches while pricing every build
+  // off `undefined`. The chain asserted at the layer below the break, which is
+  // this repository's most expensive recorded shape.
+  assert.equal(usageOf({ usage: { input_tokens: 3 } }, "grok-4.6").model, "grok-4.6");
+  assert.equal(usageOf(null, "claude-sonnet-5").model, "claude-sonnet-5");
 });
 
 const nextResearchFn = (from) => {

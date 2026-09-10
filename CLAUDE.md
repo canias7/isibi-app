@@ -977,19 +977,22 @@ serves is green now; the other is the graphite it has always been.
 
 ---
 
-### A PAGE IS WRITTEN A BAND AT A TIME — STAGED, NOT SHIPPED (2026-09-09, owner:
-*"im sure that one step doesn't have necessary wait for the other one to finish
-to start, so figure out if we can send different agents to do tasks at the same
-time for the design and the generate"* → four options rendered → *"A"* → *"Ok
-ho"*)
+### A PAGE IS WRITTEN A BAND AT A TIME — WIRED, BEHIND A DOOR NOBODY IS THROUGH
+(2026-09-09, owner: *"im sure that one step doesn't have necessary wait for the
+other one to finish to start, so figure out if we can send different agents to do
+tasks at the same time for the design and the generate"* → four options rendered
+→ *"A"* → *"Ok ho"* → *"ok go build it"*)
 
-**NOTHING GENERATES A BAND YET, AND SAYING SO IS THE POINT OF THIS SECTION.**
-Two pieces are in the tree and neither is reachable from a build: the splitter
-and assembler (`builder/page-bands.mjs`) and the container's fan-out
-(`/model/start` taking `reqs`). A module nobody calls is this repository's
-most-shipped failure — `three`, `parts`, `resumeEditJob`, the Code tab's host —
-so what stops this becoming the next one is that the unwired half is written
-down rather than remembered. **The remaining hops are named at the bottom.**
+**IT IS REACHABLE FROM A BUILD NOW, AND NOBODY REACHES IT.** The splitter and
+assembler (`builder/page-bands.mjs`), the container's fan-out (`/model/start`
+taking `reqs`) and the Worker's own decision are all wired end to end — and
+`BAND_SPLIT_CANARY` defaults to `-`, which `readCanaryList` drops, so **a fresh
+deploy splits nothing and every build writes its page in one call exactly as it
+does today.** The two states are different and both are worth saying: a module
+nobody calls is this repository's most-shipped failure (`three`, `parts`,
+`resumeEditJob`, the Code tab's host) and that one is closed; a flag nobody has
+turned on is a decision waiting for the owner, and turning it on is naming a slug
+in a GitHub secret and redeploying.
 
 - **WHY THE PAGE AND NOT THE DESIGN**, since the owner asked about both. The
   design's dependency graph really is shallow — the 23 fields collapse to about
@@ -1153,14 +1156,139 @@ down rather than remembered. **The remaining hops are named at the bottom.**
   exempting a second module should be a decision somebody makes. The floor keeps
   the old eight by name, since a derivation that answers nothing scans nothing
   and passes.
-- **WHAT IS LEFT, and none of it is written**: the Worker side building N
-  requests out of `shape` and handing the answers to `assembleBands`, the flag
-  that chooses between this and today's one-call path, and a `site build`
-  container case — **which is the only instrument that can prove the container
-  really runs eight calls at once.** Until that case exists, the fan-out is
-  asserted by a driven module and a source read, and the container has never
-  done it.
-- Full suite **5,787**.
+- **THE CONTAINER REALLY RUNS N CALLS AT ONCE, PROVEN THROUGH THE REAL SERVICE.**
+  `site build` gained nine fan-out checks and reads **382/382** — the shape
+  `Promise.all` cannot produce is the one that settles it: three calls that all
+  failed came back as a `done` job holding three ENTRIES, each with its own index
+  and its own provider message, rather than one rejection. A driven module and a
+  source read could not have said that; this is what the container harness is
+  for. **382 is a LOCAL run** — the next CI run of that workflow is what
+  re-reads it.
+
+#### THE WORKER SIDE (2026-09-09, owner: *"ok go build it"*)
+
+The decision sits in `buildAndPublishPages`' generate dep, beside the one that
+picks the caller, and hands `generateSiteBands` the SAME `call`, budget, brief
+and sentinel the single path uses.
+
+- **THE RETURN SHAPE IS `generateSitePages`', EXACTLY**, so `validatePages`, the
+  compile, the publish and `pageCredits` cannot tell which generator ran and none
+  of them needed changing. The usage is ONE object summed across the calls —
+  sound here and nowhere else, because every band goes to the same model, so one
+  rate column prices all of them; the rule it must not break is that a build's
+  design usage (Opus under `auto`) and its page usage (Sonnet) come from two rows
+  and must never be merged. One object also means ONE rounding, where N would
+  charge a floor per band.
+- **A FIRE ASKS THE FLAG; A RESUME ASKS THE STORE.** This is the decision worth
+  reading twice. `splitPlan` is deterministic in the stored design args, so both
+  invocations derive the same LINES — but the flag is a deploy secret, a deploy
+  takes ~3 minutes and a generation takes eight, so a collector that re-asked it
+  could take the other path from the fire that started the work. **Neither wrong
+  answer fails loudly**: a list handed to the single-call reader parses as one
+  answer object and finds no `tool_use`, and one object handed to the assembler
+  pairs against no index and stubs every band. So `resumeFanout` — `Array.isArray`
+  of what the collector is holding — decides, which is the rule `/model/result`
+  already follows one layer down: **the shape says which kind of job it was,
+  rather than leaving it to be inferred.** A store that says fan-out while the
+  plan splits into no bands is a named throw, not a silently empty page.
+- **THE DOOR IS `bandSplitFor`, AND IT LIVES IN `edit-job.mjs` FOR ONE REASON.**
+  `readCanaryList` is deliberately not imported into `worker.js` — the runtime
+  diagnostic's own comment says a route one edit away from the list is a route
+  one edit away from handing one customer another's slugs — so a build flag asked
+  in `worker.js` would either get a second copy of that reader (the
+  widening-by-typo failure the reader exists to prevent) or be asked where the
+  reader is. It is asked there and answers a boolean, exactly as `jobRunnerFor`
+  does. **No master switch**: the async fork has one because it changed how every
+  edit is DELIVERED and wanted a one-flip rollback; this changes how one page is
+  WRITTEN and both doors already default to nobody, so a third variable would be
+  a switch whose only state is "on".
+- **AND THE DEPLOY DEFAULTS TO NOBODY, unlike the runner's canary one block
+  over.** That one names `fretwork-1` because the runtime had been proved on it.
+  This has never written a live page, so `BAND_SPLIT_CANARY` is `-` and
+  `BAND_SPLIT_EVERYONE` is `off`. Both carry a `|| fallback`, because listing a
+  name with no value fails the WHOLE deploy — three merges have shipped nothing
+  that way.
+- **`/api/site/runtime` ANSWERS `bands` AND `bandsEveryone`.** Two more deploy
+  secrets with a workflow fallback, which is the class of fact that route exists
+  for — and this is the one flag on the platform whose effect is invisible from
+  outside, since a split build and a single-call build publish the same page to
+  the same address. Booleans only; the canary list is never returned.
+- **A CONTAINER THAT WILL NOT TAKE A FAN-OUT IS NOT A FAILED BUILD.** `/model`,
+  the synchronous fallback, has always taken exactly one request, and an older
+  image has no `reqs` at all — an image rollout is asynchronous, so for a minute
+  after a deploy the previous image can still be serving. The fire refuses a list
+  it could not start BY NAME (`noFanoutError`, `isNoFanout`) and the caller falls
+  through to the one call. Every other throw, the fired sentinel included, is
+  re-thrown untouched — swallowing that one would hang every async build.
+- **`usageOf` and `shapeOf_` were lifted out of `generateSitePages`** so the band
+  path prices and reports identically rather than carrying a second copy of the
+  four token kinds and the two capture fields. Two older guards pinned to the
+  inline spellings went red and were re-anchored on the property — and both are
+  now DRIVEN as well as read, because a text check that certifies a HANDOFF is
+  the recorded "chain asserted at the layer below the break": a reader ignoring
+  its argument would satisfy every match while pricing every build off nothing.
+- **Guards**: `test/band-build.test.mjs` (17). The one that matters runs the real
+  orchestration against a fake container — four bands, answers arriving 2,0,1,3,
+  one call failed — and asserts the page is composed in the DESIGN'S order, the
+  failed band is stubbed rather than dropped, the two bands that both imported
+  `Hero` produce one import (the repeat that killed run 90's build in the
+  bundler), the usage sums, and the assembled file PARSES with the template's own
+  TypeScript, including a band whose JSX text carries an apostrophe. Beside it:
+  the door driven over every shape including the coercion refusals,
+  `readCanaryList` proved absent from `worker.js`, `splitPlan` driven through
+  every refusal, the fire/resume split read by SIDE of its own ternary, the three
+  `resumeFanout` hops COUNTED, both report readers driven over the list and the
+  single shapes, the empty list proved not to be an answer, and the deploy's two
+  fallbacks.
+- **Four older guards went red for the change and were re-anchored, not
+  appeased**, each naming the spelling that moved: the two lifted readers above;
+  `build-resume-wiring`'s fire, pinned to the payload's opening
+  `{ req, callMs, report: {` — which the `reqs`/`req` choice moved, reporting that
+  the container is no longer told where to leave the answer, about a fire that
+  carries strictly more (**the third time that same guard has been re-anchored for
+  a fire that grew**); and `deploy-gate`'s import assertion, which pinned the
+  gate's five names as the LAST line of the edit-job import, `\s+\}` and all, so
+  it went red because something unrelated arrived below them — read as a block
+  now, since being last was never the property.
+- **Sweep: 49 mutants, 49 killed, none survived, none unapplied, three
+  comment-only controls survived** — the resume asking the flag again, the
+  collector never forwarding the answer's shape or reading it by truthiness, the
+  default flipped to the fan-out, a fire splitting without asking the door, the
+  synchronous path handed a list, the lines derived from `env`, a many-page plan
+  split, the store/plan disagreement swallowed, the no-fan-out fallback deleted
+  or widened to swallow the fired sentinel, the fire refusing a single call or
+  sending a list under `req`, the fan-out given its own brief, budget or caller,
+  the door spelled inline in `worker.js`, the diagnostic losing the split or
+  handing back the list, the image dropping the module, both deploy defaults
+  flipped, a flag set but never uploaded, the door coercing a non-string,
+  admitting an identity-less call, spelling the list, taking any truthy word,
+  defaulting on, or matching the slug alone; the report reading an empty fan-out
+  as finished or dropping the list, `resumeDecision` finishing an empty one or
+  reading a stored list as one answer, both sentinel misreadings, a page of
+  nothing but stubs, the usage taken from one call or priced off no model, the
+  bands paired by finishing order, a cut-off band assembled whole, an indexless
+  entry landed on band 0, `usageOf` ignoring its model, and `shapeOf_` losing
+  the stop reason or returning the model's prose.
+- **THREE MORE WERE WRITTEN AND WITHDRAWN, and two of them are the recorded
+  "two redundant defences" trap.** `Number.isInteger(a.i)` and
+  `a.state !== "done"` both survived a first pass, and neither was a test gap:
+  a non-integer key is stored where `got.get(i)` never asks, and every failure
+  `runFanout` produces today carries no `answer` at all, so the `if (src)` guard
+  one line down drops it. **Measured rather than assumed**, then each replaced by
+  a mutant that does change behaviour — pairing by finishing order, and a
+  failure carrying a HALF-WRITTEN tool_use, which is the shape a cut-off
+  streamed transcript is one change away from producing. Both died, the
+  redundancy is now stated in the code so the next session does not delete a
+  second wall, and the third withdrawal was an anchor naming a one-liner the
+  source does not have.
+- Full suite **5,806**.
+- **Not proven live, and there is nothing to see until somebody opens the door.**
+  The proof is two steps, in order: set `BAND_SPLIT_CANARY` to one slug in GitHub
+  and redeploy, then read `/api/site/runtime?slug=` for that site and check
+  `bands: true` — free, and it settles that the secret reached the Worker before
+  any build is bought. The build after that is the real proof and costs a build.
+  The push changes `worker.js` and the Dockerfile's COPY line, so **the container
+  rolls and the 15–20 minute hold applies.**
 
 ---
 
@@ -3016,7 +3144,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,787.
+  The unit suite is 5,806.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
@@ -3083,6 +3211,12 @@ dead.** `three` was in none of the three; `behavior` is on `EDIT_FIELDS`.
 **Assert the property, not the spelling.** The single most repeated own-goal here.
 A guard pinned to `foo(a, b)` goes red the moment an honest third argument
 arrives, reporting that the feature is gone. Anchor on what must be TRUE.
+**AND ITS QUIETEST FORM IS PINNING A LIST BY ITS LAST ELEMENT (2026-09-09).**
+`deploy-gate` asserted its five names as `…STALE_QUEUED_S,\s+\} from
+"./builder/edit-job.mjs";` — the closing brace and all — so it went red because
+an unrelated name arrived BELOW them, reporting the deploy gate as unwired by a
+change that did not touch it. Being last in a list is almost never the property;
+membership is. Read the block and assert each name in it.
 
 **Never size a source-read window in bytes.** Ten-plus instances. This repo puts
 its reasoning in comments, so any byte window is outrun by the next comment.

@@ -199,6 +199,8 @@ jobs:
             EDIT_ASYNC_EVERYONE
             JOB_RUNNER_CANARY
             JOB_RUNNER_EVERYONE
+            BAND_SPLIT_CANARY
+            BAND_SPLIT_EVERYONE
         env:
           DEPLOY_ID: ${{ github.sha }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
@@ -383,6 +385,23 @@ jobs:
           # (stage 5e) is the owner's, after the canary's live proof.
           JOB_RUNNER_CANARY: ${{ secrets.JOB_RUNNER_CANARY || 'fretwork-1' }}
           JOB_RUNNER_EVERYONE: ${{ secrets.JOB_RUNNER_EVERYONE || 'off' }}
+          # ── A PAGE WRITTEN A BAND AT A TIME (2026-09-09) ───────────────────
+          #
+          # The page call is the long step of a build — 334,000 to 620,000 ms
+          # measured against a design step of ~170 s — so it is the one that was
+          # split: `shape` already plans a page as an ordered list of bands, and
+          # for the identities these two name each band is written by its own
+          # model call, all of them in flight at once inside the site's own
+          # container, and the answers are assembled into one page.
+          #
+          # NOBODY BY DEFAULT, unlike the runner's canary one block up, and the
+          # difference is evidence: that one names a site because the runtime had
+          # been proved on it. This has never written a live page. `-` is a value
+          # `readCanaryList` drops, so a fresh deploy with no secrets splits
+          # nothing and every build writes its page in one call exactly as it
+          # does today. Name a slug here and redeploy to try it on one site.
+          BAND_SPLIT_CANARY: ${{ secrets.BAND_SPLIT_CANARY || '-' }}
+          BAND_SPLIT_EVERYONE: ${{ secrets.BAND_SPLIT_EVERYONE || 'off' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

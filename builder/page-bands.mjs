@@ -58,9 +58,11 @@ import {
   pageRulesFor,
   siteHasTables,
   schemaDigest,
+  usageOf,
   SITE_PAGES_MAX_TOKENS,
 } from "./page-gen.mjs";
 import { modelsFor } from "./build-models.mjs";
+import { routeOf } from "./site-addon.mjs";
 import { MAX_SECTIONS } from "./site-plan.mjs";
 
 /**
@@ -368,6 +370,178 @@ export function bandRequest({
     tool_choice: { type: "tool", name: "write_band" },
     system: [{ type: "text", text: pageRulesFor(spec, kind), cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
+  };
+}
+
+/**
+ * The SOURCE FILE a planned route's page is written to.
+ *
+ * THE PLAN SPEAKS IN ROUTES AND THE PAGE LIST SPEAKS IN FILES, and getting the
+ * direction wrong here is not a cosmetic defect — it mounts the site's home page
+ * at an address no visitor asks for. `plan.pages[].path` is a ROUTE (`"/"`; the
+ * field's own description says so) and `shape[].path` is validated against that
+ * same set, so what `bandsOf` is asked for is a route. What `validatePages`
+ * stores, and what the container writes, is a FILE (`index.tsx`).
+ *
+ * WRITTEN AS `routeOf`'s INVERSE AND CHECKED AGAINST IT. `site-addon.mjs` owns
+ * file→route and its own comment records a bug from a FIFTH private copy of
+ * that mapping — so this does not re-implement the reading, it produces a
+ * candidate and asks the real reader whether it round-trips. A route that does
+ * not survive the trip answers `""`, which `splitPlan` reads as "do not split
+ * this page" and the caller reads as today's single call: a refusal, never a
+ * guess at a file name the rest of the pipeline would not recognise.
+ */
+export function bandFile(route) {
+  const r = typeof route === "string" ? route.trim() : "";
+  if (!r.startsWith("/")) return "";
+  const file = r === "/" ? "index.tsx" : r.replace(/^\//, "") + ".tsx";
+  return routeOf(file) === r ? file : "";
+}
+
+/**
+ * A page split into fewer than two bands is not a split.
+ *
+ * ONE band is the whole page with extra steps — a second request shape, a
+ * fan-out, an assembler — for exactly the wall clock the single call already
+ * takes. The gain is real from two upward, because the calls run together.
+ */
+export const MIN_BANDS = 2;
+
+/**
+ * WHETHER TO SPLIT THIS GENERATION AT ALL, and every reason not to.
+ *
+ * Answers the band lines, or `[]` meaning "use the one call". The caller reads
+ * an empty answer as today's behaviour, so every refusal here is a fallback to
+ * something that already works rather than a failure.
+ *
+ * `tsx` IS THE ONE THAT WOULD SHIP BROKEN PAGES, and it is worth naming. The
+ * design's `tsx` field declares components the PAGE CALL writes into `parts`;
+ * a band writes one section and cannot write a part, so a split build of a site
+ * whose design declared `tsx` would produce a page importing a file nothing
+ * generated — which does not compile. It is optional and absent on nearly every
+ * site, so the cost of refusing is small and the cost of not refusing is a dead
+ * build. A band step that writes parts is a later change, not a smaller one.
+ *
+ * A REVISE IS NOT SPLIT EITHER. It hands the model the site's existing pages to
+ * work from (`priorPages`), and a band is written against a plan rather than
+ * against a page that exists — so the two are different jobs, and doing the
+ * second one under the first one's name would quietly rewrite a live site from
+ * its plan.
+ */
+export function splitPlan({ shape, route, tsx, priorPages, mode } = {}) {
+  if (Array.isArray(tsx) && tsx.length) return [];
+  if (priorPages || (mode && mode !== "build")) return [];
+  // A ROUTE THIS PIPELINE CANNOT NAME A FILE FOR IS NOT SPLIT. `bandFile`
+  // answers "" rather than guessing, and a guess here writes the page to a name
+  // nothing downstream recognises.
+  if (!bandFile(route)) return [];
+  const lines = bandsOf(shape, route);
+  return lines.length >= MIN_BANDS ? lines : [];
+}
+
+/**
+ * One fan-out answer per band, paired BY POSITION with the band it was asked
+ * for.
+ *
+ * THE INDEX IS THE PAIRING AND IT COMES OFF THE ENTRY, never off the loop:
+ * `runFanout` stamps `i` on every entry precisely because the calls finish out
+ * of order, and reading the list's own order here would undo that at the last
+ * hop. An entry naming a position nothing planned is dropped rather than guessed
+ * at.
+ *
+ * A CALL THAT FAILED BECOMES A BAND WITH NO SOURCE, which `bandProblems` reads
+ * as "wrote nothing" and `assembleBands` stubs. So a failure arrives as a page
+ * missing one section, not as a lost page — and the caller never has to know
+ * which of the two happened to keep going.
+ *
+ * ── TWO OF THE THREE CHECKS BELOW ARE REDUNDANT TODAY, DELIBERATELY ────────
+ *
+ * MEASURED, not assumed, because a sweep cannot tell a second wall from a
+ * missing test and the next session deletes what nothing appears to need.
+ *
+ * `Number.isInteger(a.i)` is redundant against `Map` itself: a non-integer key
+ * is stored under a key `got.get(i)` never asks for, so the band comes out
+ * empty either way. It stays because it says what `i` MEANS — a position in the
+ * plan — where the Map's silence says nothing, and because a reader that later
+ * keys by something else would have no wall at all.
+ *
+ * `a.state !== "done"` is redundant against `if (src)` for every entry
+ * `runFanout` produces today: its failure branch carries `status`, `detail`,
+ * `message` and `kind` and no `answer` at all, so `src` is `""` and the entry is
+ * dropped one line later. It is NOT redundant against the shape this path is
+ * one change away from: every band call rides `stream: true`, and a streamed
+ * transcript folded back after a cut-off can carry a HALF-WRITTEN tool_use
+ * beside its failure. Assembled, that is a band that compiles to something
+ * nobody wrote — the one outcome worse than a missing section. The state is the
+ * only thing that says the answer is whole.
+ */
+export function bandsFromAnswers(answers, lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  const got = new Map();
+  for (const a of Array.isArray(answers) ? answers : []) {
+    if (!a || typeof a !== "object" || !Number.isInteger(a.i)) continue;
+    if (a.state !== "done") continue;
+    const use = (Array.isArray(a.answer && a.answer.content) ? a.answer.content : [])
+      .find((b) => b && b.type === "tool_use");
+    const src = use && use.input && typeof use.input.source === "string" ? use.input.source : "";
+    if (src) got.set(a.i, src);
+  }
+  return list.map((line, i) => ({ name: bandName(line, i), line, source: got.get(i) || "" }));
+}
+
+/**
+ * Write one page as N bands at once, and hand back what the ONE-CALL generator
+ * hands back.
+ *
+ * THE RETURN SHAPE IS `generateSitePages`', deliberately and exactly:
+ * `{ input: { pages: [...] }, usage }`. Everything downstream — `validatePages`,
+ * the compile, the publish, `pageCredits` — then cannot tell which generator
+ * ran, so none of it needed changing and none of it can drift. A second shape
+ * here would be a second set of branches through the money path.
+ *
+ * THE USAGE IS SUMMED ACROSS THE CALLS AND THAT IS SOUND HERE for a reason that
+ * does NOT generalise: every band is sent to the SAME model, so one rate column
+ * prices all of them. The rule it must not break is `usageOf`'s own — a build's
+ * design usage (Opus under `auto`) and its page usage (Sonnet) are priced from
+ * two different rows and must never be merged. These are N readings of one row.
+ *
+ * ONE ROUNDING STILL. This answers a single usage object, so `pageCredits`
+ * rounds once across the build exactly as it does for one call — N roundings
+ * would charge a floor per band.
+ */
+export async function generateSiteBands({
+  brief, spec, brand, attachments, model, kind = "", route, chrome, lines,
+} = {}, keys, call, budget = null) {
+  const file = bandFile(route);
+  const bandLines = Array.isArray(lines) ? lines : [];
+  const reqs = bandLines.map((line, i) => bandRequest({
+    brief, spec, brand, lines: bandLines, index: i, name: bandName(line, i), model, kind, attachments,
+  }));
+  // ONE CALL WITH N REQUESTS, not N calls: the container serialises separate
+  // jobs, so a list is the only way they run together (see `model-fanout.mjs`).
+  const answers = await call(keys, reqs, budget);
+  const list = Array.isArray(answers) ? answers : [];
+  const usage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model: reqs.length ? reqs[0].model : model };
+  for (const a of list) {
+    const u = usageOf(a && a.answer, usage.model);
+    usage.in += u.in; usage.out += u.out; usage.cacheRead += u.cacheRead; usage.cacheWrite += u.cacheWrite;
+  }
+  const bands = bandsFromAnswers(list, bandLines);
+  // EVERY BAND EMPTY IS NOT A PAGE. `assembleBands` would answer a shell
+  // composing N stubs — a page that compiles and says nothing — and the build
+  // would publish it as a success. `input: null` is the same answer the one-call
+  // generator gives when the model produced nothing usable, so `publishPages`
+  // reports it the way it already reports that.
+  if (!bands.some((b) => b.source)) {
+    return { input: null, usage, bands: bands.length, wrote: 0, shape: { stopReason: "no-bands", blocks: [] } };
+  }
+  const { source, refused } = assembleBands({ route, chrome, bands });
+  return {
+    input: { pages: [{ path: file, source }] },
+    usage,
+    bands: bands.length,
+    wrote: bands.filter((b) => b.source).length,
+    ...(refused.length ? { refused } : {}),
   };
 }
 

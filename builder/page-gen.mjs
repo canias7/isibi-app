@@ -3871,34 +3871,7 @@ export async function generateSitePages(keys, brief, spec, brand, attachments, m
   // argument rather than set on `req`, which is shared with the eval AND is what
   // gets stringified onto the wire.
   const j = await call(keys, req, budget);
-  const usage = j.usage || {};
-  // CACHED TOKENS ARE REPORTED SEPARATELY AND WERE NOT BEING COUNTED. The
-  // Anthropic API excludes cache hits from `input_tokens` and returns them as
-  // `cache_read_input_tokens` / `cache_creation_input_tokens` — and PAGE_RULES,
-  // the thing cache_control exists for, is ~18,300 tokens. So the meter saw a few
-  // hundred input tokens on a call that really carried nineteen thousand, and on
-  // a COLD cache the creation tokens bill at 1.25x and were invisible.
-  //
-  // Counted at face value rather than reweighted: a credit is 1/8000 of a dollar
-  // of MODEL spend, and pretending a cache read costs a tenth would mean the
-  // ledger tracks a different number from the invoice. Reweighting belongs in the
-  // rate, not in the token count, and today the rate is one number.
-  // THE FOUR KINDS, KEPT APART. Summing them into one `usedIn` is what made
-  // pageCredits price a cache read at the fresh rate — ten times over, on the
-  // largest input component — and overcharge a warm build by 35%. They are
-  // priced 1x / 5x / 0.1x / 1.25x and only the caller can tell them apart.
-  const used = {
-    usage: {
-      in: usage.input_tokens || 0,
-      out: usage.output_tokens || 0,
-      cacheRead: usage.cache_read_input_tokens || 0,
-      cacheWrite: usage.cache_creation_input_tokens || 0,
-      // The rate column, off the request that was sent. Under `auto` this call
-      // is Sonnet while the designer above it is Opus, so a build's two usage
-      // objects are priced from two different rows and must never be merged.
-      model: req.model,
-    },
-  };
+  const used = { usage: usageOf(j, req.model) };
   // A tool_use block cut off at max_tokens carries half-written JSON, which parses
   // into a page whose last file is truncated. Treat it as a failed generation
   // rather than shipping a file that ends mid-expression.
@@ -3914,9 +3887,54 @@ export async function generateSitePages(keys, brief, spec, brand, attachments, m
   //
   // `stop_reason` and the block TYPES only — never the text, which is
   // model-written prose about a customer's brief.
-  const shape = use ? null : {
-    stopReason: String(j.stop_reason || "").slice(0, 40),
-    blocks: (Array.isArray(j.content) ? j.content : []).map((b) => String(b && b.type)).slice(0, 6),
-  };
+  const shape = use ? null : shapeOf_(j);
   return { input: (use && use.input) || null, ...(shape ? { shape } : {}), ...used };
+}
+
+/**
+ * The four token kinds off ONE model response, stamped with the model that was
+ * sent.
+ *
+ * SPLIT OUT 2026-09-09 so the band path prices identically. It was inline in
+ * `generateSitePages`, and a second copy in the band generator would be two
+ * readings of what a call COST — on the money path, drifting silently, with the
+ * drift invisible until a bill is wrong. One reading, two callers.
+ *
+ * CACHED TOKENS ARE REPORTED SEPARATELY AND WERE NOT BEING COUNTED. The
+ * Anthropic API excludes cache hits from `input_tokens` and returns them as
+ * `cache_read_input_tokens` / `cache_creation_input_tokens` — and PAGE_RULES,
+ * the thing cache_control exists for, is ~18,300 tokens. So the meter saw a few
+ * hundred input tokens on a call that really carried nineteen thousand, and on
+ * a COLD cache the creation tokens bill at 1.25x and were invisible.
+ *
+ * Counted at face value rather than reweighted: a credit is 1/8000 of a dollar
+ * of MODEL spend, and pretending a cache read costs a tenth would mean the
+ * ledger tracks a different number from the invoice. Reweighting belongs in the
+ * rate, not in the token count, and today the rate is one number.
+ *
+ * THE FOUR KINDS, KEPT APART. Summing them into one `usedIn` is what made
+ * pageCredits price a cache read at the fresh rate — ten times over, on the
+ * largest input component — and overcharge a warm build by 35%. They are
+ * priced 1x / 5x / 0.1x / 1.25x and only the caller can tell them apart.
+ */
+export function usageOf(j, model) {
+  const usage = (j && j.usage) || {};
+  return {
+    in: usage.input_tokens || 0,
+    out: usage.output_tokens || 0,
+    cacheRead: usage.cache_read_input_tokens || 0,
+    cacheWrite: usage.cache_creation_input_tokens || 0,
+    // The rate column, off the request that was sent. Under `auto` the page call
+    // is Sonnet while the designer above it is Opus, so a build's two usage
+    // objects are priced from two different rows and must never be merged.
+    model,
+  };
+}
+
+/** Why there are no pages, when there are none: the stop reason and block types. */
+function shapeOf_(j) {
+  return {
+    stopReason: String((j && j.stop_reason) || "").slice(0, 40),
+    blocks: (Array.isArray(j && j.content) ? j.content : []).map((b) => String(b && b.type)).slice(0, 6),
+  };
 }

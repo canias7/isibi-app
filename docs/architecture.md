@@ -350,6 +350,15 @@ later edit of that route is one line from handing back other customers' slugs.
  16  GENERATE                            write_pages — ONE call, no repair pass.
                                          Runs IN THE CONTAINER and STREAMS: an
                                          idle wire is hung up at ~270 s
+                                         ── OR ONE CALL PER BAND (2026-09-09),
+                                         behind BAND_SPLIT_CANARY, which names
+                                         NOBODY by default: `shape`'s bands are
+                                         written at once, one agent each, and
+                                         assembled into the same page. Every
+                                         refusal — a `tsx` declaration, a
+                                         revise, a plan of one band, an image
+                                         that cannot take a fan-out — falls
+                                         back to the one call above
  17  keep the answer                     source/<slug>/answer.json, before
                                          anything can refuse it. Run 90 is why
  18  ─────────────────────────► buildAndPublishPages → THE SPINE (below)

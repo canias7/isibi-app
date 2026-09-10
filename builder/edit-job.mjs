@@ -777,6 +777,53 @@ export function jobRunnerFor(env, { uid = "", slug = "" } = {}) {
 }
 
 /**
+ * IS THIS SITE'S PAGE WRITTEN A BAND AT A TIME?
+ *
+ * ── OFF UNLESS SWITCHED ON, THROUGH THE SAME TWO DOORS AS THE RUNNER ───────
+ *
+ * One slug first (`BAND_SPLIT_CANARY`), the whole platform only once somebody
+ * decides (`BAND_SPLIT_EVERYONE`). Nothing set means nobody, and the build
+ * writes its page in one call exactly as it always has — which is what makes
+ * this a flag rather than a rewrite: the old path is not a fallback bolted on
+ * for safety, it is what every build does until this says otherwise.
+ *
+ * ── IT LIVES HERE, WITH THE OTHER DOORS, FOR ONE REASON ───────────────────
+ *
+ * `readCanaryList` is deliberately NOT imported into `worker.js` (the runtime
+ * diagnostic's own comment says so: a route one edit away from the list is a
+ * route one edit away from handing one customer another's slugs). So a build
+ * flag asked in `worker.js` either gets its own copy of that reader — "two
+ * lists of the same thing", with the widening-by-typo failure mode the reader
+ * exists to prevent — or it is asked HERE and answers a boolean. It answers a
+ * boolean.
+ *
+ * ── AND IT DOES NOT NEED THE MASTER SWITCH THE EDIT FORK HAS ──────────────
+ *
+ * `editAsyncFor` asks `editAsyncOn` first because the async fork was a change
+ * to how every edit is DELIVERED and wanted a one-flip rollback. This changes
+ * how one page is WRITTEN, and both doors already default to nobody, so a
+ * third variable would be a switch whose only state is "on".
+ */
+export function bandSplitEveryone(env) {
+  const v = env && env.BAND_SPLIT_EVERYONE;
+  if (typeof v !== "string") return false;
+  return ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
+}
+
+export function bandSplitFor(env, { uid = "", slug = "" } = {}) {
+  // NON-STRINGS ARE REFUSED, NOT COERCED — `String(["fretwork-1"])` is
+  // `"fretwork-1"`, and this repository has shipped that coercion as a real bug
+  // three times.
+  const u = typeof uid === "string" ? uid.toLowerCase() : "";
+  const s = typeof slug === "string" ? slug.toLowerCase() : "";
+  if (!u && !s) return false;
+  if (bandSplitEveryone(env)) return true;
+  const list = readCanaryList(env && env.BAND_SPLIT_CANARY);
+  if (!list.length) return false;
+  return (!!u && list.includes(u)) || (!!s && list.includes(s));
+}
+
+/**
  * THE STRING BINDINGS A JOB CARRIES INTO THE CONTAINER, by name.
  *
  * An explicit list rather than "every string on `env`", because the Worker's

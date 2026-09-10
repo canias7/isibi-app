@@ -684,7 +684,22 @@ test("the hops: every claim goes through claimArgs, the collector's gate precede
   const sweep = lost.indexOf('editRpc(env, "edit_sweep_lost"');
   const stale = lost.indexOf("await runStaleEditJobs(env);");
   assert.ok(sweep > 0 && stale > sweep, "the stale sweep does not follow the lost sweep on the tick");
-  assert.match(RAW, /deployIdOf, unreadClaim, deferredClaim, CLAIM_RETRY_MAX, STALE_QUEUED_S,\s+\} from "\.\/builder\/edit-job\.mjs";/);
+  // RE-ANCHORED 2026-09-09: this pinned the gate's five names as the LAST line
+  // of the edit-job import, `\s+\}` and all — so it went red the day the band
+  // split added a name after them, reporting the deploy gate as unwired because
+  // something unrelated arrived below it. The property is that all five come
+  // from edit-job.mjs, which is what the block read asserts; being last in the
+  // list was never the property.
+  const editJobImport = (() => {
+    const at = RAW.indexOf('} from "./builder/edit-job.mjs";');
+    assert.ok(at > 0, "the edit-job import block is gone");
+    const open = RAW.lastIndexOf("import {", at);
+    assert.ok(open >= 0 && open < at, "the edit-job import has no opening brace above it");
+    return RAW.slice(open, at);
+  })();
+  for (const name of ["deployIdOf", "unreadClaim", "deferredClaim", "CLAIM_RETRY_MAX", "STALE_QUEUED_S"]) {
+    assert.match(editJobImport, new RegExp("\\b" + name + "\\b"), name + " is no longer imported from edit-job.mjs");
+  }
   assert.match(RAW, /BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG \} from "\.\/builder\/build-lease\.mjs";/);
 });
 
