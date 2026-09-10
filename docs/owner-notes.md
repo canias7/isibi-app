@@ -209,6 +209,36 @@ the same way.
 `design: true` and `bands: true`. That needs your session; there is no key in
 this environment to sign in with.
 
+**And I cannot fire the test build either — you have to.** GitHub refuses this
+session permission to start a workflow (403), which is the same wall recorded a
+week ago. **Easiest path: just build a site in the app the way a customer
+would** — type a brief on the start screen and send it. That runs on your
+account, so both splits are on. (The other way is the `build as owner` workflow
+with mode `build`.)
+
+**I pulled the "before" numbers first, free, so the run actually means
+something.** Your last five first builds, all of them single-call:
+
+| build | design step | compile + page |
+|---|---|---|
+| hartleys-barbers | 197s | 74s |
+| hearth-paper | 131s | 74s |
+| plyhouse | 192s | 210s |
+| fretwork-1 | 170s | 355s |
+| coalhole-2 | 175s | 94s |
+
+So **the design step is 131–197 seconds today** — that is the number the split
+has to beat, and it is now measured rather than quoted.
+
+**One honest warning about reading the result.** The design half should show
+plainly: it is one number against a fairly tight band. **The page half will
+not.** That column above runs 74s to 355s across five builds of the same kind —
+nearly five times — so a single fast run proves nothing about the band split,
+and I will say so rather than claim a win. What I *can* confirm from one run,
+exactly, is whether each split actually ran: the build's own trace records the
+design step as four agents in three rounds when it splits, and records nothing
+when it does not. I will read that first and the stopwatch second.
+
 ---
 
 ## 2026-09-10 — The design step is split too, and that switch is also off

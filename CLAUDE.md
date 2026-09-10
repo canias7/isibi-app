@@ -1624,6 +1624,37 @@ single design call and the single page call, exactly as they have for months.
   evidence available here. **The real proof is one build**, and what it should
   show in the trace is a `design` mark carrying `waves`/`agents` and a page
   written as a fan-out. Nothing about the finished site should look different.
+- **AND THE SESSION CANNOT FIRE IT: `workflow_dispatch` answers 403** ("Resource
+  not accessible by integration"), the same scope wall recorded on 2026-09-03 for
+  re-runs. So the build is the owner's button — `build as owner` with
+  `mode: build`, or simply a brief typed into the app, which is the same path
+  through the real UI. **What a session CAN do is read the answer**, and both
+  readers are the platform's own database rather than the workflow log.
+- **THE BASELINE IS MEASURED, FREE, AND IT IS WHAT MAKES THE PAID RUN MEAN
+  ANYTHING (2026-09-10).** `site_builds.steps` is a per-phase timeline
+  (`{s, ms}`), and the five most recent first builds on the building account —
+  every one of them a SINGLE-CALL design and a single-call page — read:
+
+  | build | design | container | total |
+  |---|---|---|---|
+  | `hartleys-barbers` (grok) | **197,248** | 74,276 | 289,747 |
+  | `hearth-paper` | **130,863** | 73,795 | 221,594 |
+  | `plyhouse` | **191,596** | 209,576 | 418,277 |
+  | `fretwork-1` | **169,903** | 354,899 | 584,194 |
+  | `coalhole-2` (grok) | **175,259** | 93,719 | 290,942 |
+
+  **So the design step is 131–197 s, median ~175 s** — which is the first time
+  this file's repeated "~170 s" has had runs under it rather than being an
+  unsourced number, and it is now five. `container` (the compile, and the page
+  call inside it) is **74–355 s**, a five-fold spread on five builds, which is
+  the warning the band half comes with: **one run cannot separate a split from
+  that variance**, and a single fast `container` would prove nothing.
+- **THE TELL IS A FLAG, NOT A CLOCK, AND IT IS EXACT.** `edit_traces.events` is
+  `{p, s, ms, d}` per phase, and `tr.at("design", …)` writes `waves` and
+  `agents` into `d` **only when the split ran** (worker.js, the `useWaves`
+  ternary). So `d->>'waves' = '3'` and `d->>'agents' = '4'` on the design event
+  is a yes/no answer that no amount of timing variance can muddy — read it
+  first, and read the clock second.
 
 ---
 
