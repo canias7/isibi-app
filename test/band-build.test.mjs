@@ -513,6 +513,118 @@ test("both flags are uploaded with a fallback, and the canary names ONE identity
   assert.equal(bandSplitFor({ BAND_SPLIT_CANARY: "-", BAND_SPLIT_EVERYONE: "off" }, { uid: named[0], slug: named[0] }), false);
 });
 
+test("the door is asked with the account, and the account is the one the caller has", () => {
+  // ── THE CASE THE FIRST LIVE SPLIT BUILD NEEDED (2026-09-10) ────────────────
+  //
+  // `thornbury-kiln` recorded `bands:door` and the door was shut by a BUG: the
+  // decision read `uid: (auth && auth.id) || ""`, and `auth` inside
+  // `buildAndPublishPages` is the raw Authorization HEADER STRING that
+  // `runSiteBuild` was handed — it goes to `readCredits`/`collectCredits`, which
+  // want exactly that. A string is truthy and a string has no `.id`, so the door
+  // was asked `uid: ""` on every build, the canary is a uid, and an empty uid
+  // matches nothing. The band split was unreachable for every account from the
+  // day it shipped, and nothing failed or logged: a wrong identity and a
+  // customer genuinely outside the canary are the same `false`.
+  //
+  // TWO GUARDS WATCHED THIS AND NEITHER COULD SEE IT, both the recorded wiring
+  // trap. `band-refusal` pinned the buggy literal as a requirement. And the
+  // cases above DRIVE `bandSplitFor` with a uid handed in — which proves the
+  // door READS one and says nothing about whether anybody SUPPLIES one. That is
+  // `picked-model`'s lesson word for word: the chain asserted at the layer below
+  // the break.
+  //
+  // So this drives the CHAIN. Both hops are cut out of worker.js and RUN: what
+  // the caller computes for `uid`, fed into what the door does with it. Neither
+  // is a text match, so a hop that exists in the file and answers the wrong
+  // thing cannot pass — which is the whole defect.
+  const dep = read(".github/workflows/deploy.yml");
+  const canary = /BAND_SPLIT_CANARY: \$\{\{ secrets\.BAND_SPLIT_CANARY \|\| '([^']*)' \}\}/.exec(dep);
+  assert.ok(canary, "the band canary is uploaded without a fallback");
+  const named = readCanaryList(canary[1]);
+  assert.equal(named.length, 1, "the shipped canary names " + named.length + " identities, not one");
+  const env = { BAND_SPLIT_CANARY: canary[1], BAND_SPLIT_EVERYONE: "off" };
+
+  // HOP 1 — what the BUILD ROUTE hands down as the account. Windowed from the
+  // bearer token beside it, because the pair is the point: two fields, two
+  // different facts, and reading one for the other is the defect.
+  const pair = between(WCODE, "auth: auth,", "mark: (n, x) => tr.at(n, x)", "buildArgs' identity pair");
+  const argExpr = /\buid:\s*([^\n,]+),/.exec(pair);
+  assert.ok(argExpr, "buildArgs no longer carries a uid beside the bearer token — the door has nothing to ask with");
+  const uidOf = new Function("bu", "return (" + argExpr[1] + ");");
+
+  // HOP 2 — what the DECISION does with it.
+  const doorWin = between(WCODE, "const bandDoor =", "const bandWhy =", "the band door");
+  const doorExpr = doorWin.slice(doorWin.indexOf("=") + 1).trim().replace(/;[\s\S]*$/, "");
+  const doorOf = new Function("resumeCall", "canFire", "bandSplitFor", "env", "uid", "slug",
+    "return (" + doorExpr + ");");
+
+  // THE CHAIN, END TO END: the canary account's own build really opens the door.
+  const bu = { id: named[0] };
+  assert.equal(doorOf(null, true, bandSplitFor, env, uidOf(bu), "a-brand-new-site-1"), true,
+    "the canary account's own build does not open the band door — the identity is lost between the route and the decision");
+  // AND THE CONTROL, without which "always true" would pass: a stranger is still
+  // refused, and so is a call whose caller could not be identified at all.
+  assert.equal(doorOf(null, true, bandSplitFor, env, uidOf({ id: "99999999-8888-7777-6666-555555555555" }), "somebody-else-1"), false,
+    "the shipped default opens the door for a stranger");
+  assert.equal(doorOf(null, true, bandSplitFor, env, uidOf(null), "a-brand-new-site-1"), false,
+    "a build with no identifiable account opens the door");
+  // AND "NO ACCOUNT" MUST BE FALSY, NEVER A PLACEHOLDER. `bandSplitFor` tests
+  // its list against the uid AND the slug, so a junk uid changes no answer while
+  // the canary holds real uids — which is why a sweep mutant writing
+  // `String(bu && bu.id)` (`"null"` for an unauthenticated caller) and one
+  // defaulting the parameter to `"-"` both survived: MEASURED inert, in both
+  // flag states, and unreachable besides (`runSiteBuild` answers UNAUTHED before
+  // `buildArgs` is built, and every caller passes a uid).
+  //
+  // What is NOT inert is the value itself. A truthy placeholder is a string
+  // somebody can put in a canary — `-` is the very word this platform spells
+  // "nobody" with — so an absent account has to be absent, at both hops, and
+  // that is a property a driven check can hold whatever the flags say.
+  assert.ok(!uidOf(null), "the caller turns an unidentifiable build into a truthy placeholder account");
+  // The SIGNATURE's own default, DRIVEN — the destructure is cut out and RUN
+  // with nothing, rather than its spelling matched. That is what a resume record
+  // written before this change gets on a refire.
+  const sigAt = WCODE.indexOf("async function buildAndPublishPages(env, {");
+  assert.ok(sigAt > 0, "buildAndPublishPages is not declared the way this scan expects");
+  const braceAt = WCODE.indexOf("{", sigAt + "async function buildAndPublishPages(env,".length);
+  const sigEnd = WCODE.indexOf("}", braceAt);
+  assert.ok(sigEnd > braceAt, "the parameter object is not closed on one line");
+  const defaultUid = new Function("o", "const {" + WCODE.slice(braceAt + 1, sigEnd) + "} = o; return uid;")({});
+  assert.ok(!defaultUid, "an absent account defaults to a truthy placeholder: " + JSON.stringify(defaultUid));
+  // The two conditions this file owns are still asked, driven rather than read.
+  assert.equal(doorOf({}, true, bandSplitFor, env, uidOf(bu), "a-brand-new-site-1"), false, "a resume asks the flag");
+  assert.equal(doorOf(null, false, bandSplitFor, env, uidOf(bu), "a-brand-new-site-1"), false, "a synchronous build asks the flag");
+
+  // AND THE CENSUS THAT MAKES THE CLASS UNREPEATABLE. `auth` is a bearer header
+  // string everywhere in worker.js — `packResume` has stored `auth` and `uid`
+  // side by side since the day it was written, which was the tell — so NO
+  // property may ever be read off a bare `auth`. The lookbehind lets
+  // `info.auth.url` through, which is a different object entirely.
+  const AUTH_READ = "(?<![.\\w$])auth\\s*\\.\\s*[A-Za-z_$][\\w$]*";
+  const reads = [...WCODE.matchAll(new RegExp(AUTH_READ, "g"))].map((m) => m[0]);
+  assert.deepEqual(reads, [], "a property is read off the bearer header, which is always undefined: " + reads.join(", "));
+  // AND THE OBSERVER IS PROVED ALIVE, because `[].every` is true and a negative
+  // assertion with no subjects reports a clean file whatever the code says — the
+  // recorded trap, and a sweep mutant that simply misspelled the pattern
+  // SURVIVED this case until these three lines existed. Two floors: the scan has
+  // real `auth` tokens to look at, and the pattern still matches the exact shape
+  // it forbids while still letting a different object's `auth` field through.
+  const bare = (WCODE.match(/(?<![.\w$])auth\b/g) || []).length;
+  assert.ok(bare >= 3, `the scan found ${bare} bare \`auth\` tokens — it has nothing to look at`);
+  assert.equal(new RegExp(AUTH_READ).test('uid: (auth && auth.id) || ""'), true,
+    "the census pattern no longer matches the defect it exists to forbid");
+  assert.equal(new RegExp(AUTH_READ).test("info.auth.url"), false,
+    "the census pattern eats a different object's auth field");
+
+  // AND THE REFIRE — the one resumed path that asks the flag again — must keep
+  // it. `design` is `buildArgs` minus a named few, so the account rides along by
+  // derivation; naming `uid` in that destructure would strip it silently and put
+  // the refire straight back where the fire was.
+  const drop = /const \{ attachments: _drop,[^}]*\} = buildArgs \|\| \{\};/.exec(WCODE);
+  assert.ok(drop, "the resume record's design is no longer derived from buildArgs");
+  assert.doesNotMatch(drop[0], /\buid\b/, "the resume's design drops the account, so a refire asks the door with nothing");
+});
+
 test("the image carries the band module, because worker.js imports it", () => {
   // The container runs the Worker's own module as the job runtime, so an
   // import worker.js gained is a name the image's COPY line needs — and a

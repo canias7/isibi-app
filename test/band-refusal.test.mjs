@@ -218,7 +218,21 @@ test("the refusal mark is wired: the reason rides in the name, and useBands is d
   const door = WCODE.slice(WCODE.indexOf("const bandDoor ="), WCODE.indexOf("const bandWhy ="));
   assert.ok(door.length > 20, "the bandDoor line is gone");
   assert.doesNotMatch(door, /bandLines/, "the door is gated on the plan again — a refused plan never asks it");
-  assert.match(door, /bandSplitFor\(env, \{ uid: \(auth && auth\.id\) \|\| "", slug \}\)/);
+  // RE-ANCHORED 2026-09-10, and this one was not a spelling that moved — it was
+  // THE DEFECT WRITTEN DOWN AS A REQUIREMENT. The line read
+  // `uid: (auth && auth.id) || ""`, and `auth` in that scope is the raw
+  // Authorization HEADER STRING: a string is truthy, a string has no `.id`, so
+  // the door was asked `uid: ""` on every build ever made and the band split was
+  // unreachable for every account from the day it shipped. Pinning the literal
+  // meant the one guard looking straight at the line certified it.
+  //
+  // Being that spelling was never the property. The property is that the door is
+  // asked with the CALLER'S IDENTITY, and that is proved by RUNNING the chain —
+  // `test/band-build.test.mjs`, "the door is asked with the account…" — not by
+  // matching text here. What is left here is the shape this case owns: it is
+  // asked, and it is asked with something that is not the bearer token.
+  assert.match(door, /bandSplitFor\(env, \{ uid, slug \}\)/, "the door no longer asks with the caller's uid");
+  assert.doesNotMatch(door, /\bauth\b/, "the door reads the bearer header for an identity again");
 });
 
 test("the reason never reaches the trace as a field, only as the name", () => {

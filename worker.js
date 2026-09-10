@@ -11730,7 +11730,15 @@ async function siteOgImage(env, slug, dist) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null }) {
+// `auth` AND `uid` ARE TWO DIFFERENT THINGS AND BOTH ARE NEEDED (2026-09-10).
+// `auth` is the raw `Authorization` HEADER — the string `runSiteBuild` was handed
+// by the route (`request.headers.get("Authorization")`) — and it goes to
+// `readCredits` / `collectCredits` / `debitCredits`, which want exactly that.
+// `uid` is the ACCOUNT, `authUser(request).id`, which is what a canary is keyed
+// on. `packResume` has stored the two side by side since the day it was written,
+// which is the tell: a bearer token has no `.id`, so anything that asks `auth`
+// for one gets `undefined` and never says so. See the band door below.
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null }) {
   // THE PICKER'S MODELS FOR THE TRANSLATION LOOP BELOW (run 38, 2026-09-04):
   // `models` when the caller resolved them, else resolved here from the
   // `picker` the build route stores beside `model` in the design — a job
@@ -11986,7 +11994,25 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // flag is off for this account" were the same nothing. It is a pure read
       // of an environment variable: no network, no side effect, and it buys the
       // one distinction the first live split build could not make.
-      const bandDoor = !resumeCall && canFire && bandSplitFor(env, { uid: (auth && auth.id) || "", slug });
+      //
+      // AND IT IS ASKED WITH THE ACCOUNT, NOT WITH A BEARER TOKEN (2026-09-10,
+      // found by the refusal instrument's FIRST live answer). This read
+      // `uid: (auth && auth.id) || ""`, and `auth` here is the Authorization
+      // HEADER STRING — see the note on the signature. A string is truthy and a
+      // string has no `.id`, so the door was asked `uid: ""` on every build ever
+      // made, the canary is a uid, and an empty uid matches nothing: THE BAND
+      // SPLIT WAS UNREACHABLE FOR EVERY ACCOUNT FROM THE DAY IT SHIPPED.
+      // `thornbury-kiln` recorded `bands:door` and that is what it meant — a
+      // shut door, shut by this line rather than by anybody's decision.
+      //
+      // Nothing failed and nothing logged: a wrong identity and a customer who
+      // is genuinely not in the canary are the same `false`, which is why the
+      // one instrument that could tell them apart had to be built first.
+      // The guard that watched this DROVE THE DOOR with a uid handed in, which
+      // proves the door reads one and says nothing about whether anybody
+      // supplies one — this repository's own wiring trap, and `picked-model`'s
+      // lesson word for word. So the guard now drives what the CALLER passes.
+      const bandDoor = !resumeCall && canFire && bandSplitFor(env, { uid, slug });
       // ── AND WHY, WHEN IT DOES NOT (2026-09-10, owner: "OK GO") ────────────
       //
       // `bandRefusal` is the whole ladder in one word — the two conditions this
@@ -16525,6 +16551,24 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // path that does not carry the stored verification publishes none.
             verify: priorVerify,
             auth: auth,
+            // AND THE ACCOUNT BESIDE IT, because `auth` is the bearer header and
+            // the canary is keyed on a uid — the two are not interchangeable and
+            // reading one for the other is what made the band split unreachable
+            // (see the door in `buildAndPublishPages`). `bu` is this route's own
+            // `authUser(request)` and the spelling is the one already used a few
+            // lines down where the resume record is packed, deliberately: one
+            // shape for one fact, so the record and the build agree by
+            // construction. It rides into `design` there too — `design` is
+            // `buildArgs` minus a named few — so a REFIRE, which is the one
+            // resumed path that asks the flag again, asks it with the same
+            // account rather than with nothing. DERIVED rather than restated at
+            // that call site on purpose: a second explicit pass is a second home
+            // for one fact, and a path added later that spreads `...design`
+            // would be the one that forgets. A record written before this
+            // carries no `uid` and its refire falls back to `""`, which is
+            // exactly today's behaviour — the safe side, and empty within
+            // minutes of the deploy.
+            uid: (bu && bu.id) || "",
             // THE SECOND ARGUMENT IS FORWARDED — see the collector's copy of
             // this hook for what it cost to leave it off.
             mark: (n, x) => tr.at(n, x),

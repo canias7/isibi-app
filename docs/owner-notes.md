@@ -3711,3 +3711,81 @@ were actually meant to check rather than loosening them.
 proves it either way now — either the page gets split, or the record names which
 wall stopped it. This one touches the Worker, so the container rolls again and the
 usual 15–20 minute wait applies before firing anything.
+
+---
+
+## 2026-09-10 — the page split has never once run, and now we know why
+
+You switched both splits on this morning. The design one has been working — two
+builds show it. The page one has **never run, for you or anyone, since the day it
+shipped**. Here's the whole story, because the interesting part is how we found
+out rather than the bug itself.
+
+**What we could see this morning.** `ridgeway-cycle-works` built fine and the
+record said the design had been split into waves. It said nothing at all about
+the page — so "the page was split" and "the page was not split" looked identical
+from outside.
+
+**So the first thing we built was the thing that tells you.** Seven different
+walls can stop a page being split, and every one of them was silently doing
+nothing. Now the build writes down which one it hit. That went out this
+afternoon.
+
+**Then you fired a build and it told us straight away.** `thornbury-kiln`
+recorded **`bands:door`** — meaning "the split is switched off for this account".
+Which was wrong: you'd switched it on hours earlier, and the same build's record
+proves the *design* half of that same switch was working.
+
+**The bug, in plain terms.** When a build asks "is the split on for this
+customer", it needs the customer's **account**. It was handed the **login token**
+instead — the long random string a browser sends to prove who it is. Those are
+two different things: the token proves you're you, the account *is* who you are.
+Ask a token which account it belongs to and you get nothing, so the answer was
+always blank, and a blank account matches nobody. Every build on the platform
+failed that check, every time, for the entire life of the feature.
+
+**Nothing broke, and that's exactly the problem.** A blank account and a customer
+who genuinely isn't in the test group give the same answer: no split, page
+written the old way, site publishes normally. No error, no log, no slow build,
+nothing on any invoice. It could have sat there for months. The only reason it
+surfaced today is that we spent the morning building the one instrument that
+could tell those two apart — and it caught the feature it was written to watch,
+on its first live run.
+
+**Two of our own tests were watching this and neither could see it.** One had the
+buggy line written into it as if it were the rule, so the single check staring
+straight at the problem was confirming it. The other tested the door by handing
+it an account directly — which proves the door can *read* an account and says
+nothing about whether anyone ever *gives* it one. That's the same mistake we made
+with the model picker a few days ago; it's now written down in the rules file for
+the third time.
+
+The test runs the whole chain end to end now instead of reading it: it takes the
+real code that works out the account, feeds it into the real code that checks the
+door, and requires your own account to open it — with checks that a stranger and
+an unidentifiable build still don't. It was proved to fail three different ways
+before it was allowed to pass.
+
+**One more thing worth knowing.** A test went red at me over my own comment. It
+reads the list of things handed to the build step and splits that list on commas
+— including commas inside comments. A comment I'd written had "…packed,
+deliberately: one shape…" in it, and the word `deliberately` got read as a real
+setting. That's a test calling correct code broken, which we treat as worse than
+missing a bug, so the test got fixed rather than the sentence.
+
+**Checked.** Seventeen deliberate breakages — the token put back, the account
+dropped at each hop in turn, the door thrown open to everyone, and the test's own
+safety checks disabled — all seventeen caught, with two harmless comment edits
+confirming the tests aren't just failing at everything. Three more breakages were
+corrected rather than counted: two turned out to change nothing at all when I
+measured them, and two could never have been caught because they break a *test*,
+and nothing tests the tests. Full suite green at 5,863.
+
+**What this means for you.** Nothing a customer sees changes. Once this deploys,
+the next build should finally write its page in pieces — and if it still doesn't,
+the record will name the wall. This touches the Worker, so the container rolls
+again and the usual 15–20 minute wait applies before firing anything.
+
+**Still unknown, said plainly:** we don't yet know whether splitting the page is
+actually faster. Nobody has ever measured it, because it has never run. That's
+what one build will finally tell us.

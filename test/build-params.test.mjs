@@ -76,7 +76,36 @@ function topKeys(body) {
  * and a scan that only reads an inline literal describes a call site that no
  * longer exists.
  */
-function passed(src, fn) {
+function passed(rawSrc, fn) {
+  // ── WHOLE-LINE COMMENTS BLANKED FIRST, LENGTH PRESERVED (2026-09-10) ────────
+  //
+  // `topKeys` splits an object literal on top-level commas and reads the first
+  // `name:` in each segment — and a COMMA INSIDE A COMMENT splits it too. A
+  // comment reading "…the resume record is packed, deliberately: one shape for
+  // one fact…" therefore started a fresh segment whose first token before a
+  // colon was `deliberately`, which this scan then reported as a key the
+  // function fails to destructure: correct code called broken, which this
+  // repository rates worse than a miss.
+  //
+  // "Prose contains the thing it forbids" — nine-plus recorded instances, and
+  // the standing answer is to blank whole-line comments before any scan. WHOLE
+  // LINES ONLY, never the general `//` blanker: this scan counts brackets to
+  // find the end of the literal, and blanking from a `//` inside a string
+  // ("https://…") would eat the `)` after it and swallow the rest of the file.
+  // A line whose first non-space is `//` is entirely a comment and is safe.
+  //
+  // It also closes the same hole for BRACKETS: a comment carrying an unbalanced
+  // `(` or `{` would have thrown `objectBody`'s depth count off in exactly the
+  // same silent way.
+  //
+  // LENGTH PRESERVATION IS DELIBERATE AND MEASURED INERT TODAY — 28 keys either
+  // way, so deleting the lines outright would read exactly the same set, because
+  // every offset below is taken against this same string and nothing here
+  // cross-references the raw source. It is kept because a scan added later that
+  // windows between a landmark found here and one found in `worker` gets it for
+  // free, and because a sweep cannot say "this wall is for the next reader" —
+  // said out loud so nobody deletes what nothing appears to need.
+  const src = rawSrc.replace(/^[ \t]*\/\/[^\n]*$/gm, (m) => " ".repeat(m.length));
   const keys = new Set();
   let sites = 0;
   for (const m of src.matchAll(new RegExp(`await ${fn}\\(env,\\s*`, "g"))) {

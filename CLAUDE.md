@@ -1962,11 +1962,146 @@ the instrument written that same morning to make the split readable.
   the prefix `build-budget` reads or growing past the 40 characters `tr.at`
   stores, which would truncate every reason to one name.
 - Full suite **5,862**.
-- **Not proven live.** The next build is the proof, and it is now a build that
-  can answer the question either way: a `bands` step means the fan-out ran, and
-  `bands:<reason>` names which of the five walls stopped it. `worker.js` is a
-  container image input, so the container rolls and the 15–20 minute hold
-  applies.
+- **PROVEN LIVE ON THE VERY FIRST BUILD AFTER THE DEPLOY, AND IT NAMED A DEFECT
+  IN THE FEATURE IT WAS WRITTEN TO WATCH.** `thornbury-kiln` (2026-09-10 17:18Z,
+  grok, deploy 2074, container rolled 17:10:39Z) recorded **`bands:door`** — one
+  step, one word, and the two-day question closed. The wall it named was not
+  anybody's decision: the door was being asked with a bearer token instead of an
+  account and could never have opened, for any account, since the day the split
+  shipped. The section below is that fix. **The instrument was worth building
+  before buying another run**, which is the whole argument for having built it:
+  a wrong identity and a customer genuinely outside the canary are the same
+  `false`, and nothing else on the platform could have told them apart.
+  The rest of that build read normally — design 190,859 ms with `waves: 3,
+  agents: 4, agentMs 256,050, waveMs 190,859` (an overlap of **65,191 ms**,
+  against ridgeway's 66,008: two builds now agree on what the design split is
+  worth), `img` carrying `viaContainer: 1`, container 97,763 ms, total
+  **308,830 ms** — just above the two single-call grok baselines (289,747 /
+  290,942), so inside the ordinary spread and saying nothing either way about
+  the clock. **The flag was the answer, exactly as the entry above predicted.**
+
+---
+
+### THE BAND DOOR WAS ASKED WITH A BEARER TOKEN, SO IT COULD NEVER OPEN
+(2026-09-10, found by the refusal instrument's FIRST live answer)
+
+`thornbury-kiln` recorded `bands:door`. The mark named the wall correctly and the
+wall was a DEFECT, not a decision: the door had been asked with an identity that
+does not exist.
+
+    const bandDoor = !resumeCall && canFire
+      && bandSplitFor(env, { uid: (auth && auth.id) || "", slug });
+
+**`auth` inside `buildAndPublishPages` is the raw `Authorization` HEADER
+STRING.** `runSiteBuild` takes it as a parameter, the route binds it
+`request.headers.get("Authorization") || ""`, and it goes to `readCredits` /
+`collectCredits` / `debitCredits`, which want exactly that. A string is truthy
+and a string has no `.id`, so `(auth && auth.id) || ""` is `""` — **the door was
+asked `uid: ""` on every build ever made.** `BAND_SPLIT_CANARY` is a uid, an
+empty uid matches nothing, and a slug can never match a uid either: **the band
+split was unreachable for every account, from the day it shipped.** Proven by
+evaluating both doors with the shipped deploy defaults: band `false` with
+`uid: ""`, `true` with the real uid; design `true`.
+
+- **THE DESIGN DOOR WAS FINE, AND THAT IS WHY ONE SPLIT RAN AND THE OTHER DID
+  NOT ON THE SAME BUILD.** `designSplitFor(env, { uid: bu.id, … })` asks the
+  route's own `authUser(request)`. Two doors, one canary value, opposite
+  answers — and the difference was a variable name.
+- **NOTHING FAILED AND NOTHING LOGGED, WHICH IS THE ARGUMENT FOR THE
+  INSTRUMENT.** A wrong identity and a customer genuinely outside the canary are
+  the same `false`. Before `bands:<reason>` existed there was no `bands` step
+  either way, so this was invisible from every angle; one build after it existed,
+  it named itself. **The instrument found a defect in the feature it was written
+  to observe, on its first live run**, which is why it was worth building before
+  buying another paid build.
+- **THE FIX IS THE ACCOUNT, CARRIED BESIDE THE TOKEN RATHER THAN READ OUT OF
+  IT.** `buildArgs` gains `uid: (bu && bu.id) || ""` — the spelling already used
+  a few lines down where the resume record is packed — and
+  `buildAndPublishPages` destructures `uid = ""`. **`packResume` has stored
+  `auth` and `uid` SIDE BY SIDE since the day it was written**, which is the tell
+  that was there the whole time: the record already knew they were two facts.
+- **THE REFIRE GETS IT BY DERIVATION, NOT BY A SECOND PASS.** `design` is
+  `buildArgs` minus a named few, so the account rides into the resume record
+  automatically and a refire — the one resumed path that asks the flag again —
+  asks it with the same account. Restating it at that call site would be a second
+  home for one fact, and a path added later that spreads `...design` is the one
+  that forgets. A record written before this carries no `uid` and its refire
+  falls back to `""`, which is exactly today's behaviour and empties within
+  minutes of the deploy.
+- **TWO GUARDS WATCHED THIS AND NEITHER COULD SEE IT — BOTH THE RECORDED WIRING
+  TRAP, AND ONE OF THEM PINNED THE DEFECT AS A REQUIREMENT.**
+  `test/band-refusal.test.mjs` asserted the literal
+  `uid: (auth && auth.id) || ""`, so the one guard looking straight at the line
+  was certifying it. And `test/band-build.test.mjs` DRIVES `bandSplitFor` with a
+  uid handed in — which proves the door READS one and says nothing about whether
+  anybody SUPPLIES one. **That is `picked-model`'s lesson word for word**: that
+  guard exists because `routeMessage` took a `model` and never passed it on, and
+  it was itself written to drive the module with a model passed in. Same shape,
+  one door over.
+- **SO THE GUARD DRIVES THE CHAIN NOW.** Both hops are cut out of `worker.js`
+  and RUN — what the caller computes for `uid`, fed into what the door does with
+  it, against the shipped canary — and the account's own build must open the
+  door, with the controls that stop it passing for the wrong reason: a stranger
+  and a caller with no identity are both refused, and a resume and a synchronous
+  build still never ask the flag. **Proven red three ways before green** (the
+  defect restored, the field dropped from `buildArgs`, `uid` named in the
+  resume's destructure). And an "absent is falsy" pair at both hops, driven —
+  including the SIGNATURE's own default, evaluated rather than matched.
+- **AND A CENSUS MAKES THE CLASS UNREPEATABLE.** `auth` is a bearer header
+  string everywhere in `worker.js`, so NO property may ever be read off a bare
+  `auth`; `auth.id` was the only one in the file, and `info.auth.url` is admitted
+  through a lookbehind as a different object. **Its first draft had no floor and
+  a sweep mutant that merely misspelled the pattern SURVIVED it** — the recorded
+  "a negative assertion must prove its observer is alive", caught by the sweep
+  and closed with two floors (the scan has real `auth` tokens to look at, and the
+  pattern still matches the exact shape it forbids).
+- **A GUARD WENT RED FOR MY OWN PROSE, AND THE GAP WAS THE GUARD'S.**
+  `test/build-params.test.mjs` reads `buildArgs`' keys off the RAW source and
+  splits them on top-level commas — and **a comma inside a comment splits them
+  too**. A new comment reading "…the resume record is packed, deliberately: one
+  shape for one fact…" started a fresh segment whose first token before a colon
+  was `deliberately`, reported as a key the function fails to destructure:
+  correct code called broken, which this file rates worse than a miss. "Prose
+  contains the thing it forbids", tenth-ish instance. It blanks **whole-line**
+  comments first now — never the general `//` blanker, which would eat the `)`
+  after a `"https://…"` and swallow the rest of the file — and that closes the
+  bracket half of the same hole, where a comment carrying an unbalanced `(` would
+  have thrown `objectBody`'s depth count off just as silently. The comment was
+  kept as written: fixing only the prose would have been appeasing the scan.
+  **Length preservation there is MEASURED INERT today** (28 keys either way,
+  since nothing cross-references the raw source) and is kept deliberately, said
+  out loud in the code so the next session does not delete a wall nothing appears
+  to need.
+- **Sweep: 17 mutants, 17 killed, none survived, none unapplied, two
+  comment-only controls survived** — the door back on the bearer token (the
+  defect), asked with no identity, with an empty uid, with the two columns
+  swapped, or opened for everyone; `buildArgs` dropping the account, hardcoding
+  one, handing the bearer token, or coercing an unauthenticated caller to
+  `"undefined"`; the signature not destructuring it or defaulting it to a truthy
+  placeholder; the resume's design stripping it; and on the guards — the chain
+  check reduced to a constant, the census disarmed, `build-params` not blanking,
+  blanking the whole file, or blanking only zero-indent comments.
+  **Three earlier mutants were corrected rather than counted, and each is a
+  recorded shape.** Two SURVIVED a first pass and were PROVED INERT rather than
+  assumed — `String(bu && bu.id)` and a `"-"` default both produce a junk uid
+  that changes no answer in either flag state, and are unreachable besides
+  (`runSiteBuild` answers UNAUTHED before `buildArgs` exists); each was replaced
+  by the property that IS true, that an absent account must be FALSY, since a
+  truthy placeholder is a string somebody can put in a canary. And two were
+  WITHDRAWN AS UNKILLABLE because they mutate a TEST and nothing tests the tests:
+  removing my own stranger control, and weakening `band-refusal`'s text
+  assertion — the latter being genuinely redundant with the driven chain guard,
+  which is the deliberate half. What proves the stranger control load-bearing is
+  the PRODUCT mutant that opens the door for everyone, and it dies. (A third,
+  my own, was simply written wrong: `assert.equal(…) || assert.equal(…)` still
+  runs the second call, so it removed nothing.)
+- Full suite **5,863**.
+- **Not proven live.** The next build after the deploy is the proof, and it is
+  now a build that can answer either way: a `bands` step means the fan-out ran at
+  last, and `bands:<reason>` still names the wall. **Nothing about the page a
+  customer gets should look different** — this decides how it is written, not
+  what it says. `worker.js` is a container image input, so the container rolls
+  and the 15–20 minute hold applies.
 
 ---
 
@@ -3822,7 +3957,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,862.
+  The unit suite is 5,863.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
