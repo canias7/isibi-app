@@ -3963,3 +3963,19 @@ something sat rather than what it did; both re-pointed.
 **What's left.** Your next ordinary build proves it — no special run, no extra
 spend, just read the record afterwards. This touches the worker, so the container
 rolls and the usual 15–20 minute wait after the deploy applies.
+
+**Merged and deployed.** Run 2077, green in 3m03s. The container rolled at
+19:30:10Z, so the usual wait after a deploy ended around 19:45–19:50.
+
+**And this deploy is the first one where that wait can actually be measured.**
+Yesterday's change gave the container a way to say which build of itself it's
+running. Until now both sides of the comparison didn't exist — the outgoing
+container had no name for itself. Now it does: before the roll the address
+answers one id, after it answers another, and the moment it flips is the real
+end of the wait. That's the number that replaces "15 to 20 minutes, probably".
+
+It needs you signed in — the address is `/api/site/build-health` and it only
+answers to the account that owns the sites, so I can't take the reading from
+here. If you open it a few times over the twenty minutes after a deploy, the id
+changing is the answer. Free, and it's the last piece of the "why does the
+container take 20 minutes" question you asked this afternoon.

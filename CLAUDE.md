@@ -2082,6 +2082,25 @@ thing that would change the arithmetic, and is unexplored.**
   costs>`, the same arithmetic the table above applies to the design split.
   `worker.js` is a container image input, so the container rolls and the 15–20
   minute hold applies.
+- **MERGED AND DEPLOYED** (owner: *"MERGE"*). `unit tests` run 2410 green, the
+  suite step 84 s on the exact tree; main fast-forwarded `cae84f8a` →
+  `c61008b5` at 19:27:21Z; **deploy run 2077 green in 3m03s**. The gate set in
+  1 s; the **image step 2m03s** — a BUILD, since a reuse is one second — and the
+  container **ROLLED** (`EDIT isibi-app-sitebuildcontainer`, `cecbe424…3bbd` →
+  `…96d24f96356bf95`, applied **19:30:10Z**; the log masks the digits that also
+  appear in other secrets); `deploy drain` 1 s; Wrangler 34 s; the gate left to
+  expire on success. **The 15–20 minute hold ended ~19:45–19:50Z.** The image
+  step lands inside the Deploy section's stated band (2m05s best case, ~3m
+  ordinary) for a push that changes the worker tree and nothing above it.
+- **AND THIS IS THE FIRST DEPLOY WHOSE HOLD CAN BE MEASURED, which is task
+  #147 and is free.** Deploy 2076 built the first STAMPED image, so both the
+  outgoing image and this one carry an id: `GET /api/site/build-health`
+  answering `cecbe424…3bbd` means the previous image is still serving, and the
+  flip to `…96d24f96356bf95` is the moment the hold really ends — the first
+  time that question has had an instrument rather than a rounded-up guess. **It
+  is owner-gated and needs the owner signed in**, so this session cannot take
+  the number; nothing else on the platform leaves a trace a session could read
+  (an instance that is still on the old image logs nothing to say so).
 
 ---
 
