@@ -793,11 +793,79 @@ export function looksDue(elapsedMs) {
  * that ever shapes one — a route reaching into the record itself is one edit
  * from returning the token with it.
  */
+/**
+ * HOW LONG THIS GENERATION HAS BEEN GOING — the one reader for everything that
+ * REPORTS the number.
+ *
+ * `flightOf` computed it inline and `genMarks` needs the same number, and two
+ * copies of `now - firedAt` is "two lists of the same thing" over a subtraction
+ * that has three ways to be wrong (an absent stamp, a non-finite `now`, a clock
+ * that went backwards). Zero means CANNOT TELL, and every caller has to decide
+ * what to do about that rather than being handed a plausible-looking 0.
+ *
+ * `resumeDecision` KEEPS ITS OWN, DELIBERATELY, and that is why this says
+ * "reports" rather than "the one reader of that arithmetic" — which is what an
+ * earlier draft of this comment claimed and is not true. Its `elapsed` is the
+ * SIGNED raw difference and it rides out on the `stop` and `wait` answers, so
+ * folding it in here would round it, floor it at zero, and change what those
+ * decisions carry on a backwards or fractional clock. MEASURED: the `late`
+ * verdict itself is identical over 112 record/clock combinations, so the two
+ * agree about the only thing that decides anything — they differ in what they
+ * hand back, which is the half worth keeping apart.
+ *
+ * A REFIRE RESETS `firedAt` (see `packResume` — "a re-fire IS a new generation,
+ * so `firedAt` and `looks` reset"), so this is the time of the generation that
+ * is actually running, never the sum of the attempts.
+ *
+ * THE `|| 0` IS A SECOND WALL AND IS MEASURED INERT TODAY — said out loud so
+ * the next session does not delete a wall nothing appears to need. `firedAt > 0`
+ * already refuses every shape it catches (`NaN > 0` is false), so cutting it
+ * changes no answer over any record or clock, and a sweep mutant that cut it
+ * SURVIVED for exactly that reason rather than for a missing check. It is kept
+ * because the two say different things: one is "coerce to a number", the other
+ * "and only a real stamp counts", and the day either side of the pair moves —
+ * a stamp read as an ISO string, a `>=` written by mistake — the one that is
+ * inert today is what stops the other's slip becoming a 56-year page.
+ * `Number.isFinite(now)` is NOT redundant: `genMarks` swallows a non-finite
+ * answer at its own `> 0` test, but `flightOf` puts this straight on the wire.
+ */
+export function firedElapsed(record, now) {
+  const firedAt = Number(record && record.firedAt) || 0;
+  return Number.isFinite(now) && firedAt > 0 ? Math.max(0, Math.trunc(now - firedAt)) : 0;
+}
+
+/**
+ * WHAT THE PAGE COST TO WRITE, for a trace, and it is honest ONLY since the
+ * answer started waking its own collector (2026-09-10).
+ *
+ * WHY IT IS FIRE-TO-COLLECTION AND NOT SOMETHING NARROWER. Nothing times the
+ * generation itself: the split path records `waveMs` on the `bands` step and
+ * the SINGLE call records nothing anywhere, so "is splitting faster" could not
+ * be asked of a stored row at all. Fire-to-collection is the one measurement
+ * available on BOTH paths, from numbers both already carry.
+ *
+ * AND IT WAS WORTHLESS UNTIL THE WAKE. With the collector arriving on a 240 s
+ * timer, this subtraction answered ~253 s whether the page took 93 s or six
+ * minutes — it measured the timer, not the work. Now the answer wakes the
+ * collector the moment it is safe in R2, so what is left is the generation plus
+ * a second or two of queue. **That dependency is the thing to re-ask if the
+ * wake ever stops firing**: this number silently becomes a measure of
+ * `RESUME_FIRST_SECONDS` again, and reads exactly as plausible.
+ *
+ * PRESENCE IS THE SIGNAL, so a record we cannot read records NOTHING rather
+ * than `genMs: 0`. A zero here would read as "the page took no time", which is
+ * a worse answer than silence — the same rule `waveMarks` follows one file over.
+ */
+export function genMarks(record, now) {
+  const ms = firedElapsed(record, now);
+  return ms > 0 ? { genMs: ms } : {};
+}
+
 export function flightOf(record, now) {
   if (!record || typeof record !== "object" || Array.isArray(record)) return null;
   const firedAt = Number(record.firedAt) || 0;
   const looks = Number.isFinite(record.looks) && record.looks > 0 ? Math.trunc(record.looks) : 0;
-  const elapsedMs = Number.isFinite(now) && firedAt > 0 ? Math.max(0, Math.trunc(now - firedAt)) : 0;
+  const elapsedMs = firedElapsed(record, now);
   return {
     slug: typeof record.slug === "string" ? record.slug : "",
     firedAt,

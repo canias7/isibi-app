@@ -4043,3 +4043,57 @@ there's nothing to compare against. That's the next free thing, and it's small.
 **Not proven live yet.** Your next ordinary build proves it — no special run, no
 extra spend. This touches the worker, so the container rolls and the usual 15–20
 minute wait applies after the deploy.
+
+---
+
+## 2026-09-10 — Now we can actually time it
+
+**You asked whether it'll tell us how long each one takes. It will now — it
+couldn't before, and that's worth saying plainly.**
+
+Here's the hole. When we split a page into pieces, we record how long the pieces
+took. When we *don't* split it, we record nothing at all. So the question "is
+splitting faster?" had no second number to compare against. That's not "we
+haven't measured it yet" — there was nothing to measure it against, and buying
+more builds would never have produced one.
+
+**The fix is one number on both.** When a page is sent off to be written, we
+already stamp the time. When the answer comes back, we already know the time.
+Subtract, and that's how long writing the page took — the same number whether it
+was split into seven pieces or written in one go. It goes on the record every
+build already keeps.
+
+**And this only works because of what I merged an hour ago.** Before the answer
+started knocking on the door, this subtraction came out at about four minutes no
+matter what — because it was measuring the four-minute timer, not the work.
+Same sum, useless answer. I've written that dependency down next to the code:
+if the knock ever stops working, this number quietly goes back to measuring the
+timer, and it'll look perfectly reasonable while doing it. That's the trap that
+cost us four builds, so it's on the record this time before it happens.
+
+**A couple of small decisions.** If we can't work the number out — no stamp, a
+clock that disagrees with itself — we record *nothing* rather than zero. Zero
+would read as "the page took no time", which is a worse lie than silence. And we
+only record it when the page actually arrived: recording it when we gave up
+would store the age of a failed attempt, which looks exactly like the cost of a
+page and isn't one.
+
+**Checked.** Sixteen deliberate breakages, all sixteen caught, two harmless
+comment edits confirming the tests aren't just failing at everything. Full suite
+green at 5,890.
+
+**Three of those breakages survived the first pass, and that's the interesting
+part.** Two were genuine holes in my own tests. One of them is the mistake this
+codebase makes more than any other — I worked the number out correctly and then
+didn't hand it over, and every test I'd written checked that it was *calculated*,
+not that it *arrived*. Fixed by running the real code end to end instead of
+reading it. The third breakage turned out to change nothing at all: a
+belt-and-braces check that's genuinely redundant today. I measured that rather
+than assuming it, kept it, and wrote a note saying it's deliberate — otherwise
+the next person deletes a safety check that looks like dead code.
+
+**What it answers, and when.** Your next ordinary build carries the number. The
+comparison that settles your original question is that number on a split build
+against the same number with splitting switched off — one flag, no code change.
+This touches the worker, so the container rolls and the usual 15–20 minute wait
+applies after the deploy.

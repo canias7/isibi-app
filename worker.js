@@ -77,7 +77,7 @@ import {
   designSplitFor, designSplitEveryone,
 } from "./builder/edit-job.mjs";
 import { tailOf, clipWithLine, CODE_TAIL_MAX } from "./builder/gen-code.mjs";
-import { RESUME_FIRST_SECONDS, resumeKey, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf, noFanoutError, isNoFanout } from "./builder/build-resume.mjs";
+import { RESUME_FIRST_SECONDS, genMarks, resumeKey, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf, noFanoutError, isNoFanout } from "./builder/build-resume.mjs";
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
@@ -14391,7 +14391,12 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   // which is exactly what every build did before this existed.
   let poll = await readGenResult(env, stored.report);
   if (!poll) poll = await askContainerResult(env, stored.lane, stored.genId);
-  const decision = resumeDecision({ poll, record: stored, now: Date.now() });
+  // ONE CLOCK READ, SHARED WITH THE MARK BELOW. The decision and "how long the
+  // page took" are two readings of the same instant, and taking `Date.now()`
+  // twice makes them two readings of two — the same argument `designInWaves`
+  // makes for handing `runFanout` its own `now`.
+  const lookAt = Date.now();
+  const decision = resumeDecision({ poll, record: stored, now: lookAt });
 
   // THE CLAIM SAYS WHAT THIS LOOK IS ABOUT TO DO. A terminal one is about to
   // spend, so it is marked here — before the money moves — and a redelivery
@@ -14557,7 +14562,21 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   // which is the same guarantee `makeTrace` gets from taking only numbers as
   // extras. `budgetStage` reads a `resume:` PREFIX, so a longer name still maps
   // to the stage it always did.
-  try { tr.at("resume:" + decision.act + (decision.was || decision.why ? ":" + (decision.was || decision.why) : "")); } catch { /* a trace must never break a build */ }
+  //
+  // AND WHAT THE PAGE COST TO WRITE RIDES ON IT (2026-09-10). `genMarks` is
+  // fire-to-collection, which is the ONE measurement available on both the
+  // split path and the single-call one — `bands` carries `waveMs` and a single
+  // call carries nothing, so "is splitting faster" could not be asked of a
+  // stored row. It goes on the branch's own mark rather than a step of its own:
+  // this step exists only on a collector run, so there is no name to collide
+  // with and no second thing to remember to fire.
+  //
+  // ONLY ON A FINISH. `wait` has not collected anything, `refire` is about to
+  // start the clock again, and a give-up never got an answer — a number on any
+  // of those is the age of an attempt, which reads exactly like the cost of a
+  // page and is not one.
+  const genAt = decision.act === "finish" ? genMarks(stored, lookAt) : {};
+  try { tr.at("resume:" + decision.act + (decision.was || decision.why ? ":" + (decision.was || decision.why) : ""), genAt); } catch { /* a trace must never break a build */ }
   const budget = makeBudget();
   const genPath = {};
   // WHAT THIS INVOCATION ALREADY KNOWS ABOUT WHO GENERATED (2026-09-10).

@@ -21,7 +21,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { hit, loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { RESUME_FIRST_SECONDS, packResume, packResumeMessage, resumeKey, genKey } from "../builder/build-resume.mjs";
+import { RESUME_FIRST_SECONDS, RESUME_DEADLINE_MS, packResume, packResumeMessage, resumeKey, genKey, genMarks, flightOf, firedElapsed, resumeDecision } from "../builder/build-resume.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const RESUME_SRC = fs.readFileSync(new URL("../builder/build-resume.mjs", import.meta.url), "utf8");
@@ -212,4 +212,159 @@ test("…and a record whose paid half already ran is refused and cleared, never 
   const r = await collect({ [resumeKey(JOB)]: JSON.stringify(spent) });
   assert.equal(r.acked, 1);
   assert.ok(!r.store.has(resumeKey(JOB)), "a record whose paid half ran was left for a third look to find");
+});
+
+// ── WHAT THE PAGE COST TO WRITE ──────────────────────────────────────────────
+//
+// The wake is what makes this number mean anything, which is why it lives in
+// this file. With the collector arriving on a 240 s timer, fire-to-collection
+// answered ~253 s whether the page took 93 s or six minutes — it measured the
+// timer. A guard that only checked the arithmetic would have passed on that.
+
+test("genMarks answers a number only when it can tell, and never a plausible zero", () => {
+  const now = 1_000_000;
+  assert.deepEqual(genMarks({ firedAt: now - 93_375 }, now), { genMs: 93375 });
+  // PRESENCE IS THE SIGNAL. `genMs: 0` reads as "the page took no time", which
+  // is a worse answer than silence — every cannot-tell records nothing.
+  for (const [why, rec, at] of [
+    ["no stamp", {}, now],
+    ["a stamp that is not a number", { firedAt: "x" }, now],
+    ["a clock that went backwards", { firedAt: now + 5 }, now],
+    ["no record at all", null, now],
+    ["a record that is an array", [], now],
+    ["the same instant", { firedAt: now }, now],
+    // A NON-FINITE CLOCK TAKES BOTH SIGNS, and the sweep is why. The first
+    // draft drove `NaN` alone, which the `firedAt > 0` test neutralises on its
+    // own — so a mutant deleting the `Number.isFinite(now)` wall SURVIVED. It
+    // is `Infinity` that separates them: without the wall that answers
+    // `genMs: Infinity`, a number `tr.at` then drops in silence, which reads
+    // from the stored row exactly like a build that never collected.
+    ["a `now` that is not a number at all", { firedAt: 1 }, NaN],
+    ["a `now` of Infinity", { firedAt: 1 }, Infinity],
+    ["a `now` of -Infinity", { firedAt: 1 }, -Infinity],
+  ]) {
+    assert.deepEqual(genMarks(rec, at), {}, `${why} recorded something`);
+  }
+});
+
+test("everything that REPORTS the number reads it in one place", () => {
+  // Two copies of `now - firedAt` is two lists of the same thing over a
+  // subtraction with three ways to be wrong. `flightOf` and `genMarks` must
+  // agree by construction rather than by both being written correctly.
+  //
+  // `resumeDecision` is the deliberate exception, and the note beside
+  // `firedElapsed` says so: its `elapsed` is the SIGNED raw difference and
+  // rides out on the `stop` and `wait` answers. The two agree about the only
+  // thing that decides anything, which is asserted here rather than asserted
+  // in prose — a third copy that drifts on the LATE verdict is a build given
+  // up on, or not, for the wrong reason.
+  const now = 2_000_000;
+  const rec = { firedAt: now - 4242, looks: 2, slug: "s" };
+  assert.equal(flightOf(rec, now).elapsedMs, 4242);
+  assert.equal(genMarks(rec, now).genMs, flightOf(rec, now).elapsedMs, "the two readings of one clock disagree");
+
+  // AND THE SHARED READER'S WALLS ARE LOAD-BEARING THROUGH THIS SIDE TOO.
+  // `genMarks` swallows a non-finite answer at its own `> 0` test, so the
+  // `Number.isFinite(now)` wall is only observable here — the poll route puts
+  // `elapsedMs` straight on the wire, where `Infinity` serialises to `null`.
+  for (const at of [NaN, Infinity, -Infinity]) {
+    assert.equal(flightOf(rec, at).elapsedMs, 0, `a \`now\` of ${at} reached the diagnostic`);
+  }
+
+  // The third site agrees where it counts: the deadline verdict.
+  for (const firedAt of [0, 1, now - RESUME_DEADLINE_MS - 1, now - RESUME_DEADLINE_MS + 1, now + 5, now]) {
+    const r = { ...rec, firedAt, looks: 1, refires: 1 };
+    const mine = firedElapsed(r, now) > RESUME_DEADLINE_MS;
+    const theirs = resumeDecision({ poll: { state: "pending" }, record: r, now }).why === "deadline";
+    assert.equal(theirs, mine, `the deadline verdict differs for a stamp of ${firedAt}`);
+  }
+
+  const src = RESUME_SRC.slice(RESUME_SRC.indexOf("export function flightOf"));
+  assert.match(src, /const elapsedMs = firedElapsed\(record, now\);/, "flightOf computes the elapsed itself again");
+
+  // AND THE INERT HALF OF THE PAIR SAYS IT IS DELIBERATE. `|| 0` changes no
+  // answer today because `firedAt > 0` already refuses everything it catches —
+  // measured, and a sweep mutant cutting it SURVIVED for that reason. A sweep
+  // cannot tell "second wall" from "dead code", so the note is what stops the
+  // next session deleting it; pinned here for the same reason the falsified
+  // 240 s claim one section up is pinned.
+  const note = RESUME_SRC.slice(RESUME_SRC.indexOf("export function firedElapsed") - 1400, RESUME_SRC.indexOf("export function firedElapsed"));
+  assert.match(note, /MEASURED INERT TODAY/, "the note saying the second wall is deliberate is gone");
+  assert.match(note, /`Number\.isFinite\(now\)` is NOT redundant/, "the note no longer tells the inert wall from the load-bearing one");
+});
+
+test("the mark rides the collector's own branch step, and ONLY on a finish", () => {
+  // A number on `wait` is the age of an attempt; on `refire` it is the age of
+  // the one being abandoned; on a give-up there was never an answer. Each reads
+  // exactly like the cost of a page and is not one.
+  const line = WORKER.match(/const genAt = [^;]+;/);
+  assert.ok(line, "the mark's own line is gone");
+  const decide = new Function("decision", "stored", "lookAt", "genMarks", `${line[0]} return genAt;`);
+  const now = 3_000_000;
+  const stored = { firedAt: now - 7777 };
+  assert.deepEqual(decide({ act: "finish" }, stored, now, genMarks), { genMs: 7777 }, "a collected page recorded no cost");
+  for (const act of ["wait", "refire", "stop", "lost", ""]) {
+    assert.deepEqual(decide({ act }, stored, now, genMarks), {}, `\`${act}\` recorded a cost it did not have`);
+  }
+});
+
+test("…and the collector really HANDS it to the trace, computed and forwarded", () => {
+  // THE SWEEP FOUND THIS GAP AND IT IS THE RECORDED WIRING TRAP: a mutant that
+  // dropped the second argument — `tr.at(name)` instead of `tr.at(name, genAt)`
+  // — SURVIVED every case above, because each of them proved the projection is
+  // built and none of them proved it arrives. A value computed and never
+  // forwarded is this repository's most-shipped failure, so both lines are cut
+  // out and RUN together, from the decision to what the trace was handed.
+  const at = WORKER.indexOf("  const genAt = ");
+  const end = WORKER.indexOf("a trace must never break a build */ }", at);
+  assert.ok(at > 0 && end > at, "the mark's own block is gone");
+  const block = WORKER.slice(at, end + "a trace must never break a build */ }".length);
+  const run = new Function("tr", "decision", "stored", "lookAt", "genMarks", block);
+
+  const seen = [];
+  const tr = { at: (name, extra) => seen.push([name, extra]) };
+  const now = 5_000_000;
+  run(tr, { act: "finish" }, { firedAt: now - 314_159 }, now, genMarks);
+  run(tr, { act: "wait" }, { firedAt: now - 314_159 }, now, genMarks);
+  run(tr, { act: "refire", was: "silent" }, { firedAt: now - 9 }, now, genMarks);
+
+  assert.deepEqual(seen[0], ["resume:finish", { genMs: 314159 }], "the finished page's cost never reached the trace");
+  assert.deepEqual(seen[1], ["resume:wait", {}], "a wait was handed something");
+  assert.deepEqual(seen[2], ["resume:refire:silent", {}], "a refire was handed the abandoned attempt's age");
+});
+
+test("…and both readings come off ONE clock read", () => {
+  // Two `Date.now()` calls make the decision and the cost two readings of two
+  // instants — the argument `designInWaves` makes for handing `runFanout` its
+  // own `now`, one layer over.
+  assert.match(WORKER, /const lookAt = Date\.now\(\);/, "the shared clock read is gone");
+  assert.match(WORKER, /resumeDecision\(\{ poll, record: stored, now: lookAt \}\)/, "the decision reads its own clock again");
+  assert.match(WORKER, /genMarks\(stored, lookAt\)/, "the mark reads its own clock again");
+});
+
+test("the mark is carried on the branch step and survives tr.at's numbers-only wall", async () => {
+  // `tr.at` keeps FINITE NUMBERS ONLY and drops everything else silently — the
+  // deliberate wall that stops a connection string reaching a trace. A guard
+  // that only drove `genMarks` would pass on a projection the trace discards.
+  const { makeTrace } = await import("../builder/trace.mjs");
+  let t = 0;
+  const tr = makeTrace(() => (t += 10));
+  tr.at("resume:finish", genMarks({ firedAt: 500 }, 4_000));
+  const step = tr.done().steps.find((s) => s.s === "resume:finish");
+  assert.ok(step, "the branch step is not in the trace");
+  assert.equal(step.genMs, 3500, "the cost did not survive the trace's wall");
+
+  // AND THE CANNOT-TELL CASE LEAVES THE STEP THERE WITH NO NUMBER, rather than
+  // no step: which branch ran is a fact worth keeping either way.
+  const tr2 = makeTrace(() => (t += 10));
+  tr2.at("resume:finish", genMarks({}, 4_000));
+  const step2 = tr2.done().steps.find((s) => s.s === "resume:finish");
+  assert.ok(step2 && step2.genMs === undefined, "an unreadable record wrote a number or lost its step");
+});
+
+test("the collector imports the projection rather than spelling the subtraction", () => {
+  assert.match(WORKER, /import \{[^}]*\bgenMarks\b[^}]*\} from "\.\/builder\/build-resume\.mjs";/s, "genMarks is not imported");
+  const at = WORKER.indexOf("const genAt = ");
+  const block = WORKER.slice(at - 1200, at);
+  assert.doesNotMatch(block, /Date\.now\(\) - stored\.firedAt|lookAt - stored\.firedAt/, "the collector does the subtraction itself");
 });

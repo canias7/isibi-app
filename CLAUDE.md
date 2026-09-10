@@ -2194,7 +2194,101 @@ had no way to know the layer under it had moved.
   the split beats a single call is still unmeasured for the separate reason that
   **nothing times the un-split page call at all** — the `bands` step times the
   fan-out and no step times the one call, so the comparison is impossible from
-  stored rows rather than merely unmeasured. That is the next free instrument.
+  stored rows rather than merely unmeasured. **That instrument is the section
+  below**, built straight after this one and only honest because of it.
+
+---
+
+### THE PAGE CALL IS TIMED ON BOTH PATHS, AND ONLY THE WAKE MAKES THE NUMBER
+HONEST (2026-09-10, owner: *"SO IT WILL TELL US NOW WHAT MUCH EACH TAKES , TIME
+WISE"* → *"O KGO"*)
+
+**"IS SPLITTING THE PAGE FASTER" COULD NOT BE ASKED OF A STORED ROW — not
+"was unmeasured", could not be asked.** The split records `agentMs`/`waveMs` on
+its own `bands` step; **a single call records nothing anywhere**, so there was
+never a number on the other side of the comparison. Four paid builds went by
+without settling it, and no number of further builds would have: the thing to
+compare against did not exist. `genMs` on the collector's own step is that
+number, for both kinds, off values both paths already carried.
+
+- **IT IS FIRE-TO-COLLECTION, AND THAT IS A CHOICE RATHER THAN A CONVENIENCE.**
+  The record stamps `firedAt` when the page is sent to the container; the
+  collector knows when it collected. Nothing narrower is available on BOTH paths
+  without a second instrument inside the container, and a measurement that
+  exists on one path is exactly the hole this closes. What rides in it besides
+  the generation, said plainly: the wake's queue hop and the collector's own two
+  R2 reads — seconds, against a page call measured at 93,000–620,000 ms.
+- **AND IT WAS WORTHLESS UNTIL THE MERGE ONE SECTION UP, which is why the guards
+  live in `test/gen-wake.test.mjs` rather than a file of their own.** With the
+  collector arriving on `RESUME_FIRST_SECONDS`, this same subtraction answered
+  ~253 s whether the page took 93 s or six minutes — **it measured the timer**.
+  So the dependency is named where the code is: **if the wake ever stops firing,
+  `genMs` silently goes back to measuring `RESUME_FIRST_SECONDS`, and it reads
+  exactly as plausible.** That is the recorded layer-below trap pointed at an
+  instrument, written down before it fires rather than after.
+- **PRESENCE IS THE SIGNAL — a cannot-tell records NOTHING, never `genMs: 0`.**
+  A zero reads as "the page took no time", which is worse than silence, and
+  `tr.at` keeps the key either way so the row still says which branch ran. The
+  same rule `waveMarks` follows one file over.
+- **ONE CLOCK READ, SHARED.** `const lookAt = Date.now()` is hoisted and handed
+  to both `resumeDecision` and the mark. Two `Date.now()` calls make the decision
+  and the cost two readings of two instants — the argument `designInWaves` makes
+  for handing `runFanout` its own `now`, one layer over — and a sweep mutant that
+  splits them dies.
+- **ONLY ON A FINISH.** A number on `wait` is the age of an attempt, on `refire`
+  the age of the one being abandoned, and a give-up never got an answer. Each of
+  those reads exactly like the cost of a page and is not one. It rides the
+  collector's EXISTING `resume:<act>` step rather than a step of its own: that
+  step exists only on a collector run, so there is no name to collide with and no
+  second thing to remember to fire.
+- **ONE READER FOR THE SUBTRACTION — `firedElapsed`, and the exception is named
+  rather than overlooked.** `flightOf` computed `now - firedAt` inline and
+  `genMarks` needs the same number; two copies is "two lists of the same thing"
+  over an expression with three ways to be wrong. **`resumeDecision` KEEPS ITS
+  OWN, deliberately**: its `elapsed` is the SIGNED raw difference and rides out
+  on the `stop` and `wait` answers, so folding it in would round it and floor it
+  at zero. **MEASURED: the `late` verdict is identical over 112 record/clock
+  combinations**, so the two agree about the only thing that decides anything —
+  and the guard asserts that agreement rather than asserting it in prose. An
+  earlier draft of the comment claimed `firedElapsed` was "the ONE reader of that
+  arithmetic", which was false the moment it was written; corrected in place.
+- **Guards**: `test/gen-wake.test.mjs` 8 → 15. The projection driven over eight
+  shapes; the two reporting readers proved to agree and the third proved to agree
+  on the verdict; the mark's own line CUT OUT and RUN over `finish` / `wait` /
+  `refire` / `stop` / `lost` / `""`; the shared clock read; `tr.at`'s
+  numbers-only wall driven with the real `makeTrace`, including the cannot-tell
+  case keeping its step and losing only its number.
+- **Sweep: 16 mutants, 16 killed, none survived, none unapplied, two comment-only
+  controls survived — THREE SURVIVED THE FIRST PASS and the split between them is
+  the part worth keeping.** Two were real guard gaps. **The first is this
+  repository's own wiring trap, in a change written the same afternoon as an entry
+  about it**: `tr.at(name)` instead of `tr.at(name, genAt)` survived every case,
+  because each proved the projection is BUILT and none proved it ARRIVES — a
+  value computed and never forwarded. Both lines are cut out and run together
+  now, from the decision to what the trace was handed. The second was a driver
+  gap: the only non-finite clock in the table was `NaN`, which the `firedAt > 0`
+  test neutralises on its own, so deleting the `Number.isFinite(now)` wall changed
+  no answer there; **`Infinity` is the shape that separates them**, and it is
+  observable through `flightOf`, which puts the value straight on the wire.
+  **The third was PROVED INERT rather than assumed**, over every record/clock
+  combination: `Number(...) || 0` changes no answer, because `firedAt > 0` already
+  refuses everything it catches. It is kept — the two say different things and the
+  inert one is what catches the other's slip — and the code now SAYS the
+  redundancy is deliberate, since a sweep cannot tell a second wall from dead
+  code and the next session deletes what nothing appears to need. The replacement
+  mutant that does change behaviour (`firedAt >= 0`, which reads an absent stamp
+  as the epoch and makes every page cost 56 years) dies, and so does deleting the
+  note. The rest: the mark gone, fired on every branch, fired on a refire, reading
+  its own clock, spelling the subtraction inline; the projection answering a
+  plausible zero, a string the trace drops in silence, a renamed key nothing
+  reads, the look count instead of the stamp, a negative cost; and `flightOf`
+  carrying its own copy again.
+- Full suite **5,890**.
+- **Not proven live, and it needs no special run.** The next ordinary build's
+  `resume:finish` step carries `genMs`, and the comparison that answers the
+  owner's question is that number on a split build against the same number on one
+  with `BAND_SPLIT_CANARY` set to `-`. `worker.js` is a container image input, so
+  the container rolls and the 15–20 minute hold applies.
 
 ---
 
@@ -4303,7 +4397,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,883.
+  The unit suite is 5,890.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
