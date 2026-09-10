@@ -2464,7 +2464,28 @@ stored row.
   **Whether to split `look` further — the two marks apart from the theme and the
   stylesheet — is the owner's call and is unexplored**; the waves are 1-2-1
   today, so it is also the only thing that would widen wave 2.
-  Two other readings off the same build, both free: **`bands:door`**, so the page
+- **AND THE OVERLAP IS `min(plan, look)` — ALGEBRA OFF THE WAVE SHAPE, NOT A
+  MEASUREMENT NEEDING MORE RUNS, and it explains a spread this file has been
+  reporting as unexplained for two days.** With waves 1-2-1, `agentMs` is
+  `i + p + l + d` and `waveMs` is `i + max(p, l) + d`, so the difference is
+  `p + l − max(p, l)` = **`min(p, l)`**: whichever of the two finishes FIRST is
+  the whole saving, because that is exactly the time spent waiting at the
+  barrier. Confirmed on the row — min(78,560, 132,394) = 78,560, the measured
+  overlap to the millisecond. **So the four earlier overlaps (51,865 · 65,191 ·
+  66,008 · 66,181) were each that build's own `min(plan, look)`**, and the
+  spread was never noise: it is one agent's time, varying as any generation
+  does. Nothing further needs buying to know that.
+- **THE FLOOR FOLLOWS, AND IT IS THE REASON CUTTING `look` HAS A CEILING.**
+  Three of the four agents run ALONE (`identity` in wave 1, `detail` in wave 3,
+  and whichever of wave 2 is slower), so no matter how fast `look` becomes the
+  design step cannot go below `identity + plan + detail` = **183,852 ms, about
+  three minutes**. Today's 237,686 is 53,834 above that floor, which is the
+  whole of what cutting `look` can ever buy. **To go below the floor the WAVES
+  have to widen**, not the agents get faster — which is the same conclusion the
+  design-split section reached from the other direction ("never more than two
+  running at once… widening the waves is the only thing that would change the
+  arithmetic"), now with a number under it.
+- Two other readings off the same build, both free: **`bands:door`**, so the page
   was written in ONE call with the band canary off, exactly as expected — and
   that single call took **`genMs` 294,300**, well above `marlow-and-tide`'s
   180,456, so the single-call page spread is wide and a one-run comparison

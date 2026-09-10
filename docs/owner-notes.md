@@ -4367,3 +4367,31 @@ call, as expected, since your band secret is still switched off — the trace sa
 so in a word. And that single call took **294s**, where the last one took 180s.
 So single-call page times swing a lot, which is worth knowing before we try to
 compare a split page against one.
+
+## 2026-09-10 — and the same row tells us the ceiling, for free
+
+I did the arithmetic on your barrier picture and it gives a cleaner answer than
+one build's numbers.
+
+**The time you save is always whichever of the two finishes first.** `plan` and
+`look` run side by side; the one that finishes early stands and waits. So the
+saving is exactly that one's own time — 78.6s on this build, which is `plan` to
+the millisecond. That also explains something I've been reporting as unexplained
+for two days: the four earlier builds saved 51.9s, 65.2s, 66.0s and 66.2s, and I
+had no reason for the spread. There isn't one. **Each of those was just that
+build's `plan`**, and generations vary. Nothing more needs buying to know that.
+
+**And here's the ceiling, which is the part worth your attention.** Three of the
+four agents run *alone* — `identity` on its own, then the pair, then `detail` on
+its own. So however fast we make `look`, the design step can never go below
+**identity + plan + detail = 183.9s, about three minutes.** Today it's 237.7s.
+That means:
+
+- cutting `look` is worth up to **~54 seconds**, and not a second more;
+- after that, the only way down is **more agents running at the same time** —
+  widening the middle, not making anyone faster.
+
+So there are really two separate decisions here, and they're different sizes.
+The small one is splitting `look` in two, worth about 54s. The big one is
+reshaping the waves so more than two things ever run at once, which is where the
+remaining three minutes are. **Both are your call and I haven't started either.**
