@@ -72,6 +72,9 @@ import {
   // runner has, and asked THERE rather than here for the same reason the
   // diagnostic gives above — the list stays out of this file.
   bandSplitFor, bandSplitEveryone,
+  // A DESIGN ANSWERED BY SEVERAL AGENTS (2026-09-10): the same two doors again,
+  // asked in the same module for the same reason.
+  designSplitFor, designSplitEveryone,
 } from "./builder/edit-job.mjs";
 import { tailOf, clipWithLine, CODE_TAIL_MAX } from "./builder/gen-code.mjs";
 import { RESUME_FIRST_SECONDS, resumeKey, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf, noFanoutError, isNoFanout } from "./builder/build-resume.mjs";
@@ -102,6 +105,12 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, lift
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { splitPlan, generateSiteBands } from "./builder/page-bands.mjs";
+// THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
+// outside the Worker: it takes the design tool and the CALLER as arguments
+// rather than importing either, so a guard can run the whole orchestration
+// against the real `FRONTEND_SCHEMA_TOOL` and a fake caller — answers arriving
+// out of order, one agent failed — and read the design that comes out.
+import { splitDesign, designInWaves } from "./builder/design-waves.mjs";
 // ALIASED, because worker.js already has an `IMAGE_USD` — the per-model price
 // map for the image GENERATOR the customer drives directly. Imported under its
 // own name the two collide, and the collision is invisible to `node --check` and
@@ -5483,6 +5492,22 @@ async function anthropicMessages(env, body) {
 // backend in it — silently, on the one path where the customer is asking for a
 // change to what the site stores. Cannot-tell must never read as nothing-there;
 // see `loadConfig`, which refuses for the same reason one layer down.
+// WHICH TOOL AND WHICH SYSTEM TEXT A DESIGN CALL CARRIES, ASKED IN ONE PLACE
+// (2026-09-10).
+//
+// It was one ternary each, inline in the request below, which was right while
+// one function built every design request. `designSiteWaves` builds them too,
+// and the module it hands them to claims — in its own comment — that a wave's
+// system block is the design call's own BYTE FOR BYTE, because that is what
+// keeps four agents reading a cached prefix every ordinary build has already
+// made warm. A second pair of ternaries would make that claim true by
+// coincidence and false the first time either variant moved: "two lists of the
+// same thing", with a cache miss per agent as the failure nobody sees.
+const designKit = (frontendOnly) => ({
+  tool: frontendOnly ? FRONTEND_SCHEMA_TOOL : SITE_SCHEMA_TOOL,
+  system: frontendOnly ? FRONTEND_SCHEMA_SYSTEM : SITE_SCHEMA_SYSTEM,
+});
+
 async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null, frontendOnly = false) {
   // The request is built FIRST and the usage below is stamped from `req.model`,
   // so what we bill and what we sent cannot disagree — the same by-construction
@@ -5496,14 +5521,14 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
       // while the PAGE call, three and a half times bigger, was a cache read.
       // The small call was the expensive one. cache_control on the LAST tool
       // covers the tool block; the system block carries its own.
-      tools: [{ ...(frontendOnly ? FRONTEND_SCHEMA_TOOL : SITE_SCHEMA_TOOL), cache_control: { type: "ephemeral" } }],
+      tools: [{ ...designKit(frontendOnly).tool, cache_control: { type: "ephemeral" } }],
       tool_choice: { type: "tool", name: "design_schema" },
       // TWO CACHED PREFIXES NOW, one per variant, and that is a cost worth
       // naming: each is cold the first time it is used after a change to either.
       // It is affordable because the split is by LANE rather than by chance —
       // every first build reads one and every edit reads the other, so both stay
       // warm rather than one of them being an occasional miss.
-      system: [{ type: "text", cache_control: { type: "ephemeral" }, text: frontendOnly ? FRONTEND_SCHEMA_SYSTEM : SITE_SCHEMA_SYSTEM }],
+      system: [{ type: "text", cache_control: { type: "ephemeral" }, text: designKit(frontendOnly).system }],
       // THE STATE AND THE RULE RIDE IN THE USER MESSAGE, never the cached blocks
       // above: both vary per site, and a per-site byte in the cached prefix
       // misses the ~10,800-token cache on every build. Same reasoning as the
@@ -5646,6 +5671,38 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
     },
   };
 }
+
+
+/**
+ * THE SAME DESIGN, ANSWERED BY SEVERAL AGENTS AT ONCE (2026-09-10, owner:
+ * "split the design step too" → "ok go").
+ *
+ * A WRAPPER AND NOTHING ELSE, and that is the decision worth reading. The whole
+ * orchestration — the waves, the fan-out, the merge, the usage, the three
+ * failures — lives in `design-waves.mjs`, where it can be DRIVEN: run against a
+ * fake caller with answers arriving out of order and one call failed, and the
+ * design it produces read. Left inline here it would be provable only by
+ * reading text, and this repository has recorded twice what that certifies —
+ * the layer below the break. `generateSiteBands` is the same shape one step
+ * over, for the same reason.
+ *
+ * WHAT THIS SUPPLIES IS THE THREE THINGS THE MODULE MUST NOT KNOW: which tool
+ * and system text a design carries (`designKit`, so a wave's cached prefix IS
+ * the single call's by construction), the ceiling, and the caller.
+ */
+const designSiteWaves = (env, brief, model, files, budget, waves, frontendOnly) => designInWaves(
+  {
+    ...designKit(frontendOnly),
+    brief, model, files, waves,
+    // THE SINGLE CALL'S OWN CEILING, PER AGENT, and no number invented. A
+    // ceiling is not a reservation — `SITE_PAGES_MAX_TOKENS`' comment settles
+    // this one layer over — so a tighter one sized to "an agent only answers a
+    // few fields" buys nothing but a cheaper failure, and a cut-off tool_use is
+    // a whole wave lost after being paid for.
+    maxTokens: SITE_SCHEMA_MAX_TOKENS,
+  },
+  (req) => callBuilderModel(env, req, budget),
+);
 
 
 // Bytes read from a page a user linked in their brief. Generous — a marketing
@@ -15229,10 +15286,35 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         }
 
         try {
+          // ── ONE DESIGNER, OR SEVERAL AT ONCE (2026-09-10, the design split) ──
+          //
+          // `splitDesign` answers the waves or NOTHING, and nothing means the one
+          // call this route has always made — so every reason it refuses (a
+          // revise, a tool carrying a field no wave claims, a wave wider than the
+          // socket bound) is a fallback to a path that already works rather than
+          // a failure. Same shape as `splitPlan` one step over.
+          //
+          // `mode` IS PASSED RATHER THAN INFERRED FROM `editState`. That value is
+          // also null when the config read BLIPS — `designSiteSchema`'s own
+          // comment says so, at length — so a revise whose state could not be
+          // read would otherwise be split just because we could not tell it was a
+          // revise. Cannot-tell must never read as nothing-there.
+          const designWaves = splitDesign({
+            tool: designKit(firstBuild).tool,
+            current: editState,
+            mode: firstBuild ? "build" : "revise",
+          });
+          // THE DOOR IS ASKED ON THE UID, because on a first build the slug is one
+          // of the things the design call is about to ANSWER — a canary naming a
+          // slug can never match here. `namedSlug` rides along for the revise
+          // case, where there is one and where the split refuses anyway.
+          const useWaves = designWaves.length > 0 && designSplitFor(env, { uid: bu.id, slug: namedSlug || "" });
           // `firstBuild` IS THE SEVENTH ARGUMENT AND IT IS THE ONLY CALLER THAT
           // EVER PASSES IT — see `designSiteSchema`, where the default is false
           // so the two edit lanes keep the whole tool by saying nothing.
-          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget, firstBuild);
+          const dz = useWaves
+            ? await designSiteWaves(env, briefWithLinks, models.design, attached.blocks, budget, designWaves, firstBuild)
+            : await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget, firstBuild);
           // LIFTED AT THE DOOR, before anything reads it. The tool asks for the
           // five backend fields nested under `backend`; every reader below —
           // `designed.tables`, `designed.seed`, the addon lane's filter, the
@@ -15242,7 +15324,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           designed = liftBackend(dz && dz.input);
           schemaUsage = (dz && dz.usage) || null;
           designedShape = (dz && dz.shape) || null;
-          tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
+          // WHICH DESIGNER RAN, ON THE ROW THAT SURVIVES. A split design and a
+          // single-call design produce the same site at the same address, so
+          // without this the trace cannot tell them apart afterwards — and a
+          // canary whose effect is invisible is a canary nobody can read.
+          tr.at("design", schemaUsage
+            ? { out: schemaUsage.out, in: schemaUsage.in, ...(useWaves ? { waves: designWaves.length, agents: designWaves.flat().length } : {}) }
+            : undefined);
           // STARTER ROWS THE DESIGNER DID NOT WRITE. `seed` is a required field
           // on its tool and the model omits it anyway — measured on two
           // consecutive builds — and nothing noticed, so the site published with
@@ -19991,6 +20079,16 @@ async function handleRequest(request, env, ctx) {
         // is a stored trace nobody but us can read.
         bands: bandSplitFor(env, who),
         bandsEveryone: bandSplitEveryone(env),
+        // WOULD THIS OWNER'S NEXT BUILD HAVE ITS DESIGN ANSWERED BY SEVERAL
+        // AGENTS AT ONCE (2026-09-10)? Invisible from outside for the same
+        // reason the band flag is — a split design and a single-call design
+        // publish the same site to the same address.
+        //
+        // ASKED ON THE UID, and the answer is about the OWNER rather than about
+        // this site: the design door is asked before a first build has a slug,
+        // so `who.slug` can only ever match on a revise, which is never split.
+        design: designSplitFor(env, { uid: tu.id }),
+        designEveryone: designSplitEveryone(env),
       });
     }
 

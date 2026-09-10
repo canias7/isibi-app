@@ -781,15 +781,23 @@ test("the diagnostic answers the two effective eligibilities and the deploy iden
   // one a line in this file rather than a thing nobody notices. The case below
   // holds the type; this one holds the roster.
   //
-  // `bands` / `bandsEveryone` arrived 2026-09-09 with the band split: two more
+  // `bands` / `bandsEveryone` arrived 2026-09-09 with the band split, and
+  // `design` / `designEveryone` 2026-09-10 with the design split: four more
   // deploy secrets with a workflow fallback, which is the class of fact this
-  // route was written for.
+  // route was written for. Each arriving here is the roster working as
+  // designed, not a spelling pin going red.
+  //
+  // `design` READS FALSE HERE EVEN THOUGH THE RUNNER CANARY NAMES THIS SLUG,
+  // and that is the right answer rather than a fixture oversight: the design
+  // door is asked before a first build has a slug, so it is keyed on the UID
+  // and a canary naming a slug can never match it.
   assert.deepEqual(r.body, {
     ok: true, slug: "diag-on", deploy: "abc1234def",
     async: true, runner: true,
     asyncOn: true, asyncEveryone: true, runnerOn: true, runnerEveryone: false,
     runnerBindings: true, runnerKeyed: true,
     bands: false, bandsEveryone: false,
+    design: false, designEveryone: false,
   });
 });
 

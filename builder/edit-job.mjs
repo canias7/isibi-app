@@ -824,6 +824,39 @@ export function bandSplitFor(env, { uid = "", slug = "" } = {}) {
 }
 
 /**
+ * IS THIS BUILD'S DESIGN ANSWERED BY SEVERAL AGENTS AT ONCE (2026-09-10)?
+ *
+ * The band door one field over, and it is here for exactly the reason that one
+ * is: `readCanaryList` stays out of `worker.js`, so a build flag asked there
+ * either gets a second copy of that reader or is asked in this module and
+ * answers a boolean. It answers a boolean.
+ *
+ * ── AND THE KEY IS THE UID, NOT THE SLUG ──────────────────────────────────
+ *
+ * `bandSplitFor` is asked when a page is about to be written, by which point
+ * the site HAS a slug. This is asked before the design call, and on a first
+ * build the slug is one of the things the design call ANSWERS — so a canary
+ * naming a slug can never match here. The `slug` half is kept anyway (the
+ * signature is the other door's, and a named revise really does have one), but
+ * the uid is the half a canary has to name to turn this on for anybody.
+ */
+export function designSplitEveryone(env) {
+  const v = env && env.DESIGN_SPLIT_EVERYONE;
+  if (typeof v !== "string") return false;
+  return ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
+}
+
+export function designSplitFor(env, { uid = "", slug = "" } = {}) {
+  const u = typeof uid === "string" ? uid.toLowerCase() : "";
+  const s = typeof slug === "string" ? slug.toLowerCase() : "";
+  if (!u && !s) return false;
+  if (designSplitEveryone(env)) return true;
+  const list = readCanaryList(env && env.DESIGN_SPLIT_CANARY);
+  if (!list.length) return false;
+  return (!!u && list.includes(u)) || (!!s && list.includes(s));
+}
+
+/**
  * THE STRING BINDINGS A JOB CARRIES INTO THE CONTAINER, by name.
  *
  * An explicit list rather than "every string on `env`", because the Worker's

@@ -233,15 +233,29 @@ test("the DESIGN call is cached, like the page call", () => {
   const tools = (call.match(/tools: \[[^\n]+/) || [""])[0];
   assert.match(tools, /cache_control: \{ type: "ephemeral" \}/,
     "the tool block is no longer cached — every build pays full price for ~6,800 tokens");
-  assert.match(tools, /SITE_SCHEMA_TOOL/, "the full tool is unreachable from the design call");
-  assert.match(tools, /FRONTEND_SCHEMA_TOOL/, "the frontend tool is unreachable — a first build gets the backend back");
+  // SECOND TIME THIS WENT RED FOR A CORRECT CHANGE, and the same class as the
+  // first: the ternary that named both tools moved into `designKit` on
+  // 2026-09-10, when a second DESIGNER arrived (`designInWaves`) and the choice
+  // had to be asked in one place so a wave's cached prefix IS the single call's
+  // byte for byte. Nothing about the caching moved. So the property is asked
+  // where the choice now lives — both tools and both system texts reachable
+  // through ONE chooser, and this call really asking it.
+  assert.match(tools, /designKit\(frontendOnly\)\.tool/, "the design call no longer takes its tool from the chooser");
+  const kit = (worker.match(/const designKit = \(frontendOnly\) => \(\{[\s\S]*?\n\}\);/) || [""])[0];
+  assert.ok(kit, "designKit is gone — retarget this case");
+  assert.match(kit, /SITE_SCHEMA_TOOL/, "the full tool is unreachable from the design call");
+  assert.match(kit, /FRONTEND_SCHEMA_TOOL/, "the frontend tool is unreachable — a first build gets the backend back");
   assert.match(call, /system: \[\{ type: "text", cache_control: \{ type: "ephemeral" \}/,
     "the system block must be a block array, or cache_control has nowhere to live");
   // And the system text follows the SAME switch, or a first build reads a tool
-  // with no backend under a prompt that spends eleven sentences on tables.
+  // with no backend under a prompt that spends eleven sentences on tables —
+  // which is now a property of the chooser answering both halves off one
+  // argument, rather than of two ternaries agreeing.
   const sys = (call.match(/system: \[\{[^\n]+/) || [""])[0];
-  assert.match(sys, /frontendOnly \? FRONTEND_SCHEMA_SYSTEM : SITE_SCHEMA_SYSTEM/,
+  assert.match(sys, /designKit\(frontendOnly\)\.system/,
     "the tool and the system prompt no longer agree about which lane this is");
+  assert.match(kit, /frontendOnly \? FRONTEND_SCHEMA_SYSTEM : SITE_SCHEMA_SYSTEM/,
+    "the chooser must pick the system text off the same argument as the tool");
 });
 
 test("the PLAN reaches the PAGE prompt as a directive, not as fields", () => {

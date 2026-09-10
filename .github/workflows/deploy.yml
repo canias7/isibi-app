@@ -201,6 +201,8 @@ jobs:
             JOB_RUNNER_EVERYONE
             BAND_SPLIT_CANARY
             BAND_SPLIT_EVERYONE
+            DESIGN_SPLIT_CANARY
+            DESIGN_SPLIT_EVERYONE
         env:
           DEPLOY_ID: ${{ github.sha }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
@@ -402,6 +404,22 @@ jobs:
           # does today. Name a slug here and redeploy to try it on one site.
           BAND_SPLIT_CANARY: ${{ secrets.BAND_SPLIT_CANARY || '-' }}
           BAND_SPLIT_EVERYONE: ${{ secrets.BAND_SPLIT_EVERYONE || 'off' }}
+          # ── A DESIGN ANSWERED BY SEVERAL AGENTS AT ONCE (2026-09-10) ───────
+          #
+          # The other half of the same ask. The design step answers 23 fields in
+          # ONE call, in property order, so it is one long sequential write; for
+          # the identities these two name it is cut into three waves of agents
+          # that run side by side, each carrying only its own part of the tool.
+          #
+          # THE CANARY NAMES A UID, NOT A SLUG. This door is asked BEFORE the
+          # design call, and on a first build the slug is one of the things that
+          # call answers — so a slug named here can never match. Put the account
+          # id of whoever is testing it.
+          #
+          # NOBODY BY DEFAULT, for the same reason as the block above: this has
+          # never designed a live site. `-` is a value `readCanaryList` drops.
+          DESIGN_SPLIT_CANARY: ${{ secrets.DESIGN_SPLIT_CANARY || '-' }}
+          DESIGN_SPLIT_EVERYONE: ${{ secrets.DESIGN_SPLIT_EVERYONE || 'off' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.
