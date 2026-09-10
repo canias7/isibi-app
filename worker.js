@@ -104,7 +104,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, lift
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
-import { splitPlan, generateSiteBands } from "./builder/page-bands.mjs";
+import { splitPlan, bandRefusal, BAND_MARK, generateSiteBands } from "./builder/page-bands.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
 // rather than importing either, so a guard can run the whole orchestration
@@ -11979,9 +11979,39 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // is the shape the collector is actually holding, which is the same rule
       // `/model/result` follows one layer down: the SHAPE says which kind of job
       // it was, rather than leaving it to be inferred.
-      const useBands = resumeCall
-        ? resumeFanout
-        : (canFire && bandLines.length > 0 && bandSplitFor(env, { uid: (auth && auth.id) || "", slug }));
+      //
+      // THE DOOR IS ASKED ON EVERY FIRE NOW, not only once the plan has already
+      // split. It was the last term of a `&&` chain, so a build whose plan
+      // refused never asked it — and from outside "the plan refused" and "the
+      // flag is off for this account" were the same nothing. It is a pure read
+      // of an environment variable: no network, no side effect, and it buys the
+      // one distinction the first live split build could not make.
+      const bandDoor = !resumeCall && canFire && bandSplitFor(env, { uid: (auth && auth.id) || "", slug });
+      // ── AND WHY, WHEN IT DOES NOT (2026-09-10, owner: "OK GO") ────────────
+      //
+      // `bandRefusal` is the whole ladder in one word — the two conditions this
+      // file owns (a synchronous build, a shut door) above the four `planRefusal`
+      // owns — and `useBands` is now DERIVED FROM IT rather than computed beside
+      // it. That is the point: a separate condition here and a separate reason
+      // there is two lists of the same thing, and the failure is a build that
+      // reports a reason it did not act on. The answer is `""` exactly when the
+      // old three-term chain was true.
+      const bandWhy = resumeCall ? "" : bandRefusal({
+        pages: planned.length, canFire, door: bandDoor,
+        shape: plan && plan.shape, route: planned[0], tsx, priorPages,
+        mode: revise ? "revise" : "build",
+      });
+      const useBands = resumeCall ? resumeFanout : !bandWhy;
+      // THE REASON RIDES IN THE STEP'S NAME, and it has to: `tr.at` keeps FINITE
+      // NUMBERS ONLY and drops everything else silently — the deliberate wall
+      // that stops a connection string or a model's prose reaching a trace — so
+      // a `why: "tsx"` field would record exactly nothing and read, from the
+      // stored row, precisely like the silence this exists to end. A name is
+      // stored verbatim, and `bands:` is a prefix `budgetStage` already reads
+      // the way it reads `prov:` and `resume:`.
+      if (bandWhy) {
+        try { mark?.(BAND_MARK + bandWhy); } catch { /* a trace must never break a build */ }
+      }
       // AND A STORE THAT DISAGREES WITH THE PLAN IS SAID, NOT PAPERED OVER.
       // Deterministic args make this unreachable today; it becomes reachable the
       // day `splitPlan` grows a condition somebody forgets is load-bearing on a
@@ -12030,6 +12060,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
             // is what every build did before the split existed. Every OTHER
             // throw, the sentinel included, is re-thrown untouched.
             if (!isNoFanout(e)) throw e;
+            // AND THIS ONE WAS THE ORIGINAL SILENCE. A `console.log` on the
+            // path nobody takes is what the band split shipped with, and it is
+            // the reason the first live split build could not say whether the
+            // fan-out had been refused by the container or never attempted at
+            // all. It is a REFUSAL like the other six and wears the same prefix.
+            try { mark?.(BAND_MARK + "nofanout"); } catch { /* a trace must never break a build */ }
             console.log("build: the container would not take a fan-out; writing", slug, "in one call");
           }
         }

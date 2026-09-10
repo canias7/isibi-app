@@ -288,6 +288,20 @@ export function budgetStage(steps) {
     // not been written yet. The mark is the FIRST thing a resume writes, so a
     // deadline landing on it is a build whose second half had barely begun.
     if (name.startsWith("resume:")) return "generate";
+    // `bands:tsx` / `bands:door` / `bands:thin` … — WHY a page was not written
+    // band by band. Named by `bandRefusal` rather than by this file, so the
+    // prefix is again the only reading that cannot go stale, and every one of
+    // them means what the bare `bands` mark means to a CUSTOMER: the generation
+    // has come back and the pages are not published yet. A refusal is a
+    // FALLBACK to the single call, never a failure, so it must never read as a
+    // later stage than the split it declined.
+    //
+    // THE LITERAL, NOT AN IMPORT, and that is the same trade `prov:` and
+    // `resume:` already make two rules up: this module has NO imports at all
+    // and taking `BAND_MARK` from `page-bands.mjs` would pull five modules into
+    // a file kept deliberately free of them. The two spellings are held in step
+    // by a guard that reads both instead, which is where that tie belongs.
+    if (name.startsWith("bands:")) return "generate";
     if (Object.hasOwn(STAGE, name)) return STAGE[name];
   }
   // Nothing recognised — including an empty trace, which is a build that died

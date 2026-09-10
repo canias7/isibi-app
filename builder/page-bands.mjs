@@ -408,11 +408,15 @@ export function bandFile(route) {
 export const MIN_BANDS = 2;
 
 /**
- * WHETHER TO SPLIT THIS GENERATION AT ALL, and every reason not to.
+ * WHY THIS GENERATION IS NOT SPLIT — one word, or `""` when nothing refuses.
  *
- * Answers the band lines, or `[]` meaning "use the one call". The caller reads
- * an empty answer as today's behaviour, so every refusal here is a fallback to
- * something that already works rather than a failure.
+ * THE REASONS USED TO BE A SHRUG. `splitPlan` collapsed all four into `[]`, and
+ * the caller collapsed that further into "the page was written in one call", so
+ * the first live split build could say the fan-out had not run and could not say
+ * WHY — four causes needing four different moves, wearing one silence. That is
+ * this repository's own "a failure that cannot name itself", found on
+ * `ridgeway-cycle-works` (2026-09-10) in the instrument written the same morning
+ * to make the split readable.
  *
  * `tsx` IS THE ONE THAT WOULD SHIP BROKEN PAGES, and it is worth naming. The
  * design's `tsx` field declares components the PAGE CALL writes into `parts`;
@@ -427,17 +431,80 @@ export const MIN_BANDS = 2;
  * against a page that exists — so the two are different jobs, and doing the
  * second one under the first one's name would quietly rewrite a live site from
  * its plan.
+ *
+ * THE ORDER IS THE CODE'S ORDER, and that is a real limitation rather than a
+ * ranking: a plan that declares `tsx` on a build whose door is also shut answers
+ * `tsx`, because that is the condition that actually decided it. The reason
+ * names the first wall met, never the only one standing.
  */
-export function splitPlan({ shape, route, tsx, priorPages, mode } = {}) {
-  if (Array.isArray(tsx) && tsx.length) return [];
-  if (priorPages || (mode && mode !== "build")) return [];
+export function planRefusal({ shape, route, tsx, priorPages, mode } = {}) {
+  if (Array.isArray(tsx) && tsx.length) return "tsx";
+  if (priorPages || (mode && mode !== "build")) return "revise";
   // A ROUTE THIS PIPELINE CANNOT NAME A FILE FOR IS NOT SPLIT. `bandFile`
   // answers "" rather than guessing, and a guess here writes the page to a name
   // nothing downstream recognises.
-  if (!bandFile(route)) return [];
-  const lines = bandsOf(shape, route);
-  return lines.length >= MIN_BANDS ? lines : [];
+  if (!bandFile(route)) return "route";
+  if (bandsOf(shape, route).length < MIN_BANDS) return "thin";
+  return "";
 }
+
+/**
+ * WHETHER TO SPLIT THIS GENERATION AT ALL.
+ *
+ * Answers the band lines, or `[]` meaning "use the one call". The caller reads
+ * an empty answer as today's behaviour, so every refusal is a fallback to
+ * something that already works rather than a failure.
+ *
+ * DERIVED FROM `planRefusal`, NEVER A SECOND COPY OF ITS CONDITIONS. Two lists
+ * of the same thing is this repository's most-recorded silent drift, and the
+ * subject here is the worst possible one: a refusal the lines disagree with is a
+ * build that reports a reason it did not act on. The behaviour is byte-identical
+ * to the four `return []`s this replaced.
+ */
+export function splitPlan(args = {}) {
+  if (planRefusal(args)) return [];
+  return bandsOf(args.shape, args.route);
+}
+
+/**
+ * THE WHOLE DECISION, in one word, for a build that is about to fire.
+ *
+ * `planRefusal` knows the four reasons a PLAN cannot be split; two more live
+ * above it in the caller and were just as silent — a synchronous build, which
+ * cannot fan out at all because `/model` has only ever taken one request, and a
+ * canary door that is shut. Answering them here rather than in `worker.js` is
+ * what makes the whole ladder RUNNABLE: a decision spelled inline is provable
+ * only by reading text, which this repository has recorded twice as certifying
+ * the layer below the break.
+ *
+ * `door` IS A BOOLEAN AND NOT A THUNK, so this can be driven with its inputs
+ * handed in. The cost, stated: the caller now asks the door on every fire rather
+ * than only when the plan already split. It is a pure read of an environment
+ * variable with no network and no side effect, and it buys the one distinction
+ * that could not be made before — "the plan refused" told apart from "the flag
+ * is off for this account".
+ */
+export function bandRefusal({ pages, canFire, door, shape, route, tsx, priorPages, mode } = {}) {
+  if (!canFire) return "sync";
+  if (pages !== 1) return "pages";
+  const why = planRefusal({ shape, route, tsx, priorPages, mode });
+  if (why) return why;
+  if (!door) return "door";
+  return "";
+}
+
+/**
+ * Every word `bandRefusal` can answer, and the step name each becomes.
+ *
+ * A CENSUS DERIVES ITS SUBJECTS FROM HERE rather than listing them again, so a
+ * seventh reason added next month is scanned by existing — which is the shape
+ * that would have caught this whole class a day earlier. `bands:` is a PREFIX
+ * the stage reader already recognises the way it recognises `prov:` and
+ * `resume:`; the names stay short because `tr.at` truncates at 40 characters and
+ * a truncated reason is a reason nobody can match on.
+ */
+export const BAND_REFUSALS = ["sync", "pages", "tsx", "revise", "route", "thin", "door", "nofanout"];
+export const BAND_MARK = "bands:";
 
 /**
  * One fan-out answer per band, paired BY POSITION with the band it was asked

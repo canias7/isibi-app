@@ -3653,3 +3653,61 @@ YAML parser over all thirty-three of them: no disagreements.
 
 **Not proven live yet** — that part is the next merge. What you should see: the
 Actions list showing one run, "Deploy to Cloudflare", and nothing underneath it.
+
+---
+
+## 2026-09-10 — when the page doesn't get split, it now tells you why
+
+**What the test build showed.** `ridgeway-cycle-works` published fine and gave us
+two of the three things I was watching for. The design step really did run as four
+agents side by side, and the trace now carries the number that proves it: the
+agents spent 251.6 seconds of work between them and the step took 185.6, so
+**66 seconds of it happened simultaneously**. That's measured from your one build
+— no comparing against older builds, which was the whole point of adding it. The
+other thing that landed correctly is the "who generated this page" flag, which was
+reading the wrong answer for a few hours this morning and now reads right.
+
+**The third thing didn't happen at all.** The page was written in one call, not
+band by band. And when I went to find out why, I couldn't — because nothing
+recorded it.
+
+**Why I couldn't tell.** There are five separate reasons the page won't get split,
+and all five looked identical from outside: silence. A build that declined to split
+and a build that was never asked to split left exactly the same empty space. So I
+could tell you it hadn't split and not one thing more.
+
+**What I built today.** Each of those five reasons now writes its own line into the
+build's record, named after the reason. So the next build will say one of:
+
+- *sync* — this build ran in a way that can't fan out at all
+- *pages* — the plan had more than one page, which we deliberately don't split
+- *tsx* — the design asked for a custom component, and a band can't write one
+- *revise* — it's an edit of an existing site, not a fresh build
+- *thin* — the plan only had one band, so splitting buys nothing
+- *door* — the feature is switched off for this account
+- *nofanout* — the container refused it
+
+**One thing worth knowing about how it's stored.** The build's record only accepts
+numbers — that's on purpose, so nothing sensitive can accidentally end up in it.
+So I couldn't just write the reason in as a value; it would have been silently
+thrown away and we'd be back to silence. The reason goes in the *name* of the
+line instead, which is stored as-is.
+
+**And I found something while doing it.** One of the five checks — whether the
+feature is switched on for your account — was the last in a chain, so on any build
+where an earlier check had already said no, **it was never even asked**. That
+means "the plan refused" and "it's switched off for you" were genuinely the same
+nothing, not just hard to tell apart. It's asked properly now.
+
+**Checked.** Twenty-two deliberate breakages — the reason deleted, all seven
+reasons collapsed onto one name, the reason stored in the way that gets thrown
+away, the switch put back inside the chain, each of the five walls disabled in
+turn — all twenty-two caught, with two harmless comment edits confirming the tests
+aren't just failing at everything. Full suite green at 5,862. Two older tests went
+red because I'd moved the lines they were watching; I re-pointed them at what they
+were actually meant to check rather than loosening them.
+
+**Not proven live yet.** The next build proves it, and the useful part is that it
+proves it either way now — either the page gets split, or the record names which
+wall stopped it. This one touches the Worker, so the container rolls again and the
+usual 15–20 minute wait applies before firing anything.

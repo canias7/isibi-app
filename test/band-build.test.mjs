@@ -153,20 +153,47 @@ test("a fire asks the flag; a resume asks the store, and never the flag", () => 
   // a list handed to `generateSitePages` parses as one answer object and finds
   // no tool_use, one object handed to `generateSiteBands` pairs against no
   // index and stubs every band. So the resume reads the SHAPE it is holding.
-  const dec = between(WCODE, "const useBands = resumeCall", "if (useBands && !bandLines.length)", "the split decision");
+  // RE-ANCHORED 2026-09-10 (the refusal mark), and the spelling that moved is
+  // named: the fire's three conditions were ONE expression,
+  // `canFire && bandLines.length > 0 && bandSplitFor(…)`, and they are now the
+  // inputs to `bandRefusal` across three lines — because the decision had to
+  // start saying WHICH of them refused. Being one expression was never the
+  // property; asking all three, and asking none of them on a resume, is.
+  const dec = between(WCODE, "const bandDoor =", "if (useBands && !bandLines.length)", "the split decision");
   assert.ok(/\?\s*resumeFanout/.test(dec), "the resume no longer asks the store");
-  assert.ok(/canFire && bandLines\.length > 0 && bandSplitFor\(/.test(dec),
-    "the fire branch no longer asks canFire, the lines and the flag together");
-  // The flag must not be asked on the resume branch. The whole expression is
-  // one ternary, so this is read by SIDE: everything before the `:` is the
-  // resume's answer.
-  const resumeSide = dec.slice(0, dec.indexOf(":"));
-  assert.ok(!/bandSplitFor/.test(resumeSide), "the resume branch asks the flag — a deploy can then flip a build in flight");
-  assert.ok(!/splitPlan/.test(resumeSide), "the resume branch re-runs the splitter to DECIDE rather than to derive lines");
+  // All three of the fire's conditions still reach the decision.
+  assert.ok(/bandSplitFor\(/.test(dec), "the fire branch no longer asks the flag");
+  assert.ok(/canFire/.test(dec), "the fire branch no longer asks canFire");
+  assert.ok(/shape: plan && plan\.shape, route: planned\[0\], tsx, priorPages/.test(dec),
+    "the fire branch no longer asks the stored plan args");
+  assert.ok(/const useBands = resumeCall \? resumeFanout : !bandWhy;/.test(dec),
+    "useBands is no longer derived from the one reason — a separate condition is two lists of the same thing");
+  // The flag must not be asked on the resume branch, and there are TWO ternaries
+  // to hold to that now. Each is read by SIDE: everything before the `:` is the
+  // resume's answer, and neither may reach `env`.
+  for (const [name, line] of [["bandWhy", /const bandWhy = [^;]*;/], ["useBands", /const useBands = [^;]*;/]]) {
+    const m = dec.match(line);
+    assert.ok(m, `the ${name} line is gone`);
+    const resumeSide = m[0].slice(0, m[0].indexOf(":"));
+    assert.ok(/resumeCall/.test(resumeSide), `${name} no longer asks whether this is a resume`);
+    assert.ok(!/bandSplitFor/.test(resumeSide), `${name}'s resume branch asks the flag — a deploy can then flip a build in flight`);
+    assert.ok(!/splitPlan|bandRefusal/.test(resumeSide), `${name}'s resume branch re-decides rather than reading the store`);
+  }
+  // AND THE DOOR ITSELF IS FENCED OFF THE RESUME, which the old single
+  // expression got for free by living inside the ternary and this does not.
+  const doorLine = dec.match(/const bandDoor = [^;]*;/);
+  assert.ok(doorLine, "the bandDoor line is gone");
+  assert.ok(/!resumeCall &&/.test(doorLine[0]), "a resume now reads the flag — the exact race this case exists for");
 
   // AND THE LINES ARE DERIVED EITHER WAY, above the decision, from the stored
   // design args — never from `env`.
-  const lines = between(WCODE, "const bandLines = planned.length === 1", "const useBands", "the band lines");
+  // THE CLOSING LANDMARK IS THE TRUE NEXT SIBLING, and it moved: this window
+  // ran to `const useBands`, and `const bandDoor` — which reads `env`, exactly
+  // as it must — was inserted between the two. So the window swallowed it and
+  // reported the LINES as env-dependent when they are not. The recorded
+  // overlapping-window trap: a window that runs to a named neighbour swallows
+  // whatever is inserted between them. The property below is unchanged.
+  const lines = between(WCODE, "const bandLines = planned.length === 1", "const bandDoor", "the band lines");
   assert.ok(/splitPlan\(\{ shape: plan && plan\.shape, route: planned\[0\], tsx, priorPages, mode: revise \? "revise" : "build" \}\)/.test(lines),
     "the lines are no longer derived from the stored design args");
   assert.ok(!/\benv\b/.test(lines), "the lines now depend on env, so a resume can derive different ones");

@@ -1864,11 +1864,109 @@ skeptics each failed to refute it.
   refire; the false tell restored and its correction deleted; the byte window
   restored; and the census forgetting `genVia`.
 - Full suite **5,854**.
-- **Not proven live.** The proof is one build, and the list is now: the design
-  event carries `agentMs` and `waveMs` beside `waves`/`agents`; a `bands` step
-  exists with `bands` and `wrote`; and the `img` step carries `viaContainer`
-  reading **container** on a queued build — which is the reading that was wrong
-  for the few hours between the two merges.
+- **PROVEN LIVE, and the entry below is what the same build found missing.**
+  `ridgeway-cycle-works` (2026-09-10 16:27Z, grok, the owner's own build) read
+  `waves: 3, agents: 4, agentMs 251,615, waveMs 185,607` — **an overlap of
+  66,008 ms measured from ONE build with no baseline**, which is exactly what
+  these two numbers were added for — and `img` carried `viaContainer: 1` on a
+  queued build, the corrected reading, where the few hours between the two
+  merges would have written 0. **The design step still took 185,607 ms**, inside
+  the single-call grok spread (197,248 / 175,259), so the split is not visibly
+  faster from outside: the four agents spent 251.6 s of work where one call
+  spends ~175 s, and the overlap gave 66 s of it back. **The estimate written
+  before the run — design 175 s → ~125 s, total ~230 s — was wrong**; the total
+  was **392,551 ms**, ~100 s SLOWER than the two grok builds it was measured
+  against, because the `container` step ran 189,149 ms against their 74/94 s on
+  a deliberately richer brief. And the third proof did not arrive at all: there
+  was **no `bands` step**, because the fan-out never ran.
+
+---
+
+### A BAND SPLIT THAT DOES NOT HAPPEN SAYS WHY (2026-09-10, owner: *"OK GO"*)
+
+The instrument one section up records the fan-out when it RUNS and nothing when
+it does not, so `ridgeway-cycle-works` could say the page had been written in one
+call and could not say which of **five** walls stopped it. Four live in
+`splitPlan`, which collapsed every one into `[]`; the fifth is the canary door,
+which was the last term of a `&&` chain and was therefore **never even asked** on
+a build whose plan had already refused. Five causes needing five different moves,
+wearing one silence — the recorded *"a failure that cannot name itself"*, inside
+the instrument written that same morning to make the split readable.
+
+- **THE REASON RIDES IN THE STEP'S NAME, AND IT HAS TO.** `tr.at` keeps FINITE
+  NUMBERS ONLY and drops everything else silently — the deliberate wall that
+  stops a connection string or a model's prose reaching a trace — so a
+  `why: "tsx"` field records exactly nothing and reads, from the stored row,
+  precisely like the silence this exists to end. A NAME is stored verbatim
+  (`String(name).slice(0, 40)`), so the step is `bands:tsx`, `bands:door`,
+  `bands:thin`. This is the same "presence is the signal" convention the `bands`
+  step already used, one level finer.
+- **`bands:` IS A PREFIX `budgetStage` ALREADY KNOWS HOW TO READ**, exactly as it
+  reads `prov:` and `resume:` — one rule, not eight table entries, so a seventh
+  reason is covered by existing. **The literal is written twice and NOT imported**:
+  `build-budget.mjs` has no imports at all, deliberately, and taking `BAND_MARK`
+  from `page-bands.mjs` would pull five modules into it. A guard reads both
+  spellings instead, which is where that tie belongs — the same trade `prov:` and
+  `resume:` already make.
+- **`splitPlan` IS NOW DERIVED FROM `planRefusal`, never a second copy of its
+  conditions.** Two lists of the same thing is this repository's most-recorded
+  silent drift and the subject here is the worst available: a refusal the lines
+  disagree with is a build that records a reason it did not act on. The behaviour
+  is byte-identical to the four `return []`s it replaced.
+- **THE DOOR IS ASKED ON EVERY FIRE NOW.** Inside the `&&` chain it was never
+  consulted on a build whose plan refused, so "the plan refused" and "the flag is
+  off for this account" were the same nothing — the exact blindness this change
+  exists to end. The cost, stated: one extra read of an environment variable per
+  fire, with no network and no side effect.
+- **THE ORDER IS THE CODE'S ORDER, AND THAT IS A LIMITATION RATHER THAN A
+  RANKING.** A plan declaring `tsx` on a build whose door is also shut answers
+  `tsx`, because that is the wall it actually met. A guard pins it so nobody
+  "fixes" it into a ranking later — a ranking would report a wall the build never
+  reached.
+- **`useBands` IS DERIVED FROM THE REASON** rather than computed beside it, which
+  is the property that keeps the two from ever disagreeing; the answer is `""`
+  exactly when the old three-term chain was true.
+- **Guards**: `test/band-refusal.test.mjs` (8). The census is the one that
+  matters — every reason word read out of the PRODUCERS' own source and required
+  to be on `BAND_REFUSALS`, both directions, so a seventh reason arriving with no
+  stage fails by existing. **Its own floor caught my first draft**: I scanned
+  `bandRefusal` alone, which spells only the three walls IT owns and returns
+  `planRefusal`'s answer through a variable — three words read, and the assertion
+  `words.length >= 4` is what said the scan was not alive. Beside it: the mark's
+  block CUT OUT and RUN over every reason (a text match cannot tell
+  `mark(BAND_MARK + bandWhy)` from `mark(BAND_MARK)`, and the second records
+  seven refusals under one name), `splitPlan` proved to agree with `planRefusal`
+  over ten shapes, the order pinned, and `tr.at` DRIVEN to prove the name
+  survives where a field would not.
+- **Two older cases in `test/band-build.test.mjs` went red and were re-anchored,
+  not appeased**, each naming the spelling that moved. The fire's three
+  conditions were ONE expression and are now the inputs to `bandRefusal` across
+  three lines — being one expression was never the property; asking all three,
+  and asking none of them on a resume, is. And the band-lines window ran to
+  `const useBands`, so it **swallowed the new `bandDoor` line** — which reads
+  `env`, exactly as it must — and reported the LINES as env-dependent when they
+  are not: the recorded overlapping-window trap, closing landmark re-pointed at
+  the true next sibling.
+- **Sweep: 22 mutants, 22 killed, none survived, none unapplied, two
+  comment-only controls survived** — the mark deleted (the defect the live build
+  hit), the mark dropping the reason so seven refusals share one name, the reason
+  passed as a FIELD `tr.at` drops, the mark firing on a build that DID split,
+  `useBands` computed beside the reason instead of derived, the door back inside
+  the `&&` chain, the door asked on a resume, the `nofanout` refusal back to a
+  `console.log`; `bandRefusal`'s order inverted, falling to the permissive side,
+  never asking the plan, never asking the door; `splitPlan` carrying its own
+  drifted copy of the conditions, `planRefusal` no longer refusing `tsx`, its
+  band floor inverted, answering a truthy word where it means no refusal;
+  `budgetStage` losing the prefix, misspelling it, or reading a refusal as a
+  later stage; `BAND_REFUSALS` forgetting a reason; and `BAND_MARK` drifting from
+  the prefix `build-budget` reads or growing past the 40 characters `tr.at`
+  stores, which would truncate every reason to one name.
+- Full suite **5,862**.
+- **Not proven live.** The next build is the proof, and it is now a build that
+  can answer the question either way: a `bands` step means the fan-out ran, and
+  `bands:<reason>` names which of the five walls stopped it. `worker.js` is a
+  container image input, so the container rolls and the 15–20 minute hold
+  applies.
 
 ---
 
@@ -3724,7 +3822,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,854.
+  The unit suite is 5,862.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
