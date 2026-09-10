@@ -557,9 +557,25 @@ test("the report route releases the lease after the answer is safe, and the beat
   const put = rep.indexOf("SITES_BUCKET.put(genKey(token)");
   const bind = rep.indexOf("await genBindingFor(env, token, body)");
   const rel = rep.indexOf("await releaseBuildRow(env, bind)");
+  const wake = rep.indexOf("await env.BUILD_QUEUE.send(packResumeMessage(bind.id))");
   const ok = rep.indexOf("return Response.json({ ok: true });");
-  assert.ok(put > 0 && bind > put && rel > bind && ok > rel, "the release is not after the answer's write and before the ok");
-  assert.match(rep, /if \(bind\) \{ try \{ await releaseBuildRow\(env, bind\); \} catch \{/, "a release that throws could fail a delivered answer");
+  // THE WAKE JOINED THIS CHAIN ON 2026-09-10 and its position is the safety
+  // argument: after the put (a collector woken before the answer is stored
+  // reads a finished generation as pending) and after the release (so the woken
+  // collector can claim the row rather than take it over by name).
+  assert.ok(put > 0 && bind > put && rel > bind && wake > rel && ok > wake,
+    "the release and the wake are not both after the answer's write, in that order, before the ok");
+  // RE-ANCHORED, NOT APPEASED (2026-09-10). This pinned the release as one
+  // line — `if (bind) { try { await releaseBuildRow(env, bind); } catch {` —
+  // and the wake made the block multi-line, so it reported a release that is
+  // exactly as guarded as it was. Being written on one line was never the
+  // property; being inside a try whose catch swallows is. Asked by position,
+  // with nothing but whitespace between the `try {` and the call, which is what
+  // "the throw cannot escape this call" means.
+  const relTry = rep.lastIndexOf("try {", rel);
+  const relCatch = rep.indexOf("catch", rel);
+  assert.ok(relTry > 0 && relCatch > rel, "the release is not wrapped at all — a throw could fail a delivered answer");
+  assert.equal(rep.slice(relTry + "try {".length, rel).trim(), "", "the release rides inside somebody else's try — a wrap it does not own");
   const beat = routeBlock('if (url.pathname === "/api/site/genbeat" && request.method === "POST")');
   assert.match(beat, /if \(!isReportToken\(token\) \|\| !env\.SITES_BUCKET\) return Response\.json\(\{ ok: false \}, \{ status: 404 \}\);/, "the beat is not token-gated with a 404");
   assert.match(beat, /tooLargeBody\(request, 4096\)/, "the beat body is unbounded");

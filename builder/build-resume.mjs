@@ -107,10 +107,28 @@ export const MAX_DELAY_SECONDS = 86_400;
 // stopped with the answer in its memory.
 export const RESUME_POLL_SECONDS = 60;
 
-// THE FIRST LOOK IS LATER THAN THE REST, because the answer cannot possibly be
-// ready sooner. The five measured samples of one brief are 333,716 · 340,277 ·
-// 595,900 · 608,372 · 619,822 ms, so nothing has ever come back inside four
-// minutes. Looking at 60s would spend five invocations to be told `pending`.
+// THE FIRST LOOK IS LATER THAN THE REST, and since 2026-09-10 it is a FALLBACK
+// rather than the path an ordinary build takes.
+//
+// It was written as "the answer cannot possibly be ready sooner", against five
+// measured samples of one brief — 333,716 · 340,277 · 595,900 · 608,372 ·
+// 619,822 ms — so nothing had ever come back inside four minutes and looking at
+// 60s would have spent five invocations to be told `pending`. **THAT CLAIM IS
+// NO LONGER TRUE**: the band split writes a page as N calls at once and
+// `kestrel-bindery`'s seven came back in 93,375 ms, so a build finished its
+// generation and then sat idle for ~147 seconds — measured as ~253 s of
+// unaccounted wall clock on four consecutive builds. The recorded "a rule true
+// because of a layer below it expires when that layer moves", and nothing
+// announced it.
+//
+// SO THE ANSWER WAKES ITS OWN COLLECTOR NOW (`/api/site/genresult`), the moment
+// it is safe in R2, and this number stops being the thing that decides when an
+// ordinary build is collected. **It is deliberately NOT lowered to match the
+// split**: a smaller guess would be a guess about today's generation and would
+// go stale the same way the next time the split gets faster. What it covers is
+// the case the wake cannot — a container that dies after generating and before
+// posting, and a report that arrives with no binding — and for those, four
+// minutes is still the right first look for the reason the samples give.
 export const RESUME_FIRST_SECONDS = 240;
 
 // PAST THIS, NO ANSWER IS COMING. The container caps the call at

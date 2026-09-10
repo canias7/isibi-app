@@ -2104,6 +2104,100 @@ thing that would change the arithmetic, and is unexplored.**
 
 ---
 
+### THE FINISHED ANSWER WAKES ITS OWN COLLECTOR (2026-09-10, owner: *"SO WHAT
+DO WE DO ?"* → *"OK"*)
+
+**~253 SECONDS OF EVERY BUILD WERE SPENT IDLE, AND IT IS THE RECORDED
+LAYER-BELOW TRAP WORD FOR WORD.** Reading `kestrel-bindery` against four earlier
+builds, the elapsed clock exceeded the route's own accounted steps by
+**253,290 / 252,403 / 256,150 / 260,826 ms** — a spread of eight seconds across
+four builds whose pages were written seven ways, five ways and one way. A cost
+that ignores what the work cost is not the work.
+
+`RESUME_FIRST_SECONDS` is 240 and the fire schedules the collector's first look
+that far out. Its own comment gave the reason and the evidence: five measured
+samples of one brief, **333,716 · 340,277 · 595,900 · 608,372 · 619,822 ms**, so
+*"nothing has ever come back inside four minutes"* and looking at 60 s would
+spend five invocations to be told `pending`. **True when written. The band split
+falsified it** — kestrel's seven bands answered in **93,375 ms**, under a third
+of the shortest sample — so the page was finished at 93 s and sat there, done,
+until 240 s. **147 seconds of nothing, on every split build**, and the constant
+had no way to know the layer under it had moved.
+
+- **THE FIX IS ONE ENQUEUE, AND THREE QUARTERS OF IT ALREADY EXISTED.**
+  `/api/site/genresult` stores the answer in R2 and calls `genBindingFor` to
+  resolve the job — it must, to release the lease — then answers `{ok: true}`
+  and tells nobody. It sends `packResumeMessage(bind.id)` now, with no delay.
+- **EVENT-DRIVEN RATHER THAN A SMALLER NUMBER, and that is the half that
+  matters.** Lowering 240 to match today's split is a fresh guess about today's
+  generation and goes stale the next time the split gets faster — which is
+  precisely how this was reached. The container knows the exact moment; the
+  wake is that moment.
+- **THE BELT STAYS AT 240.** It covers what a wake cannot: a container that
+  dies after generating and before posting, and a report that arrives with no
+  binding (an older image, the inline path). Deleting it trades four minutes for
+  a lost build. **And the constant's comment is CORRECTED IN PLACE** rather than
+  left standing — a comment still asserting "the answer cannot possibly be ready
+  sooner" is what sends the next session hunting the delay somewhere else. Two
+  sweep mutants defend that correction, including one that merely drops the
+  93,375 measurement and leaves the prose.
+- **ONLY A BOUND REPORT WAKES ANYTHING.** `genBindingFor` has already proved the
+  job id against the record's own token AND generation id, so the id enqueued is
+  one we minted rather than one a caller named. A mutant that stops `genBound`
+  proving it dies.
+- **AFTER THE PUT, AFTER THE RELEASE.** A collector woken before the answer is
+  stored looks, finds nothing, and reads a finished generation as PENDING; and
+  the release is what lets the woken collector claim the row rather than take it
+  over by name. The route's ordering chain in `build-jobs` asserts all four.
+- **TWO MESSAGES PER JOB IS NOW THE ORDINARY CASE, said out loud so nobody
+  "fixes" the belt away.** It is safe on walls that already existed rather than
+  anything added here: the loser finds either no record (the winner deletes its
+  own) or `alreadyCharged(stored, "pages")`, which refuses to charge twice and
+  clears it. Neither had a driver; both do now, because a redelivery edge case
+  became something every build produces on purpose.
+- **BEST-EFFORT, AND THE REPORT STILL ANSWERS 200.** The answer is already safe
+  and the belt is already queued, so a send that throws costs exactly the four
+  minutes yesterday's build cost. Answering non-200 would tell the container its
+  answer did not land, which is the one lie this route must never tell — driven
+  with a throwing queue AND with no binding at all.
+- **Guards**: `test/gen-wake.test.mjs` (8), every one DRIVEN through the real
+  route with a recording queue rather than read — the wake fires once with no
+  delay and carries the message the consumer can dispatch on; a failed store
+  answers 503 and wakes nobody; four unbound shapes store their answer and wake
+  nothing; a throwing queue and an absent binding both still answer 200; and the
+  two collector walls driven through `worker.queue`. **Proven red before green**:
+  with the wake removed the first case fails, restored it passes.
+- **One older guard went red and was re-anchored, not appeased.**
+  `build-jobs`' report case pinned the release as ONE LINE — `if (bind) { try {
+  await releaseBuildRow(env, bind); } catch {` — so the wake making that block
+  multi-line reported a release that is exactly as guarded as it was. Being
+  written on one line was never the property; being inside a `try` it OWNS is,
+  asked by position with nothing but whitespace between the `try {` and the
+  call. The ordering chain gained the wake with its reason.
+- **Sweep: 11 mutants, 11 killed, none survived, none unapplied, two
+  comment-only controls survived** — the wake deleted (the defect, ~253 s back on
+  every build), scheduled instead of immediate (the timer wearing a new name),
+  sent as a bare id the consumer drops, unwrapped so a queue throw fails a
+  delivered answer, fired after a failed store, fired for a report the binding
+  never proved; the belt deleted from the fire, the fallback lowered to a guess,
+  the falsified claim restored as fact, the measurement dropped from the
+  correction, and the collector's double-charge wall removed.
+- Full suite **5,883**.
+- **Not proven live.** The next ordinary build is the proof and it needs no
+  special run: the gap between the job's `created_at` and the build row's
+  `updated_at`, minus `total_ms`, should fall from ~253 s to seconds. `worker.js`
+  is a container image input, so the container rolls and the 15–20 minute hold
+  applies.
+- **AND IT MAKES THE BAND SPLIT'S SAVING REAL FOR THE FIRST TIME.** The split cut
+  generation from 333k–620k ms to 93,375 and the whole gain was being handed back
+  to this timer, which is why four builds could not show it from outside. Whether
+  the split beats a single call is still unmeasured for the separate reason that
+  **nothing times the un-split page call at all** — the `bands` step times the
+  fan-out and no step times the one call, so the comparison is impossible from
+  stored rows rather than merely unmeasured. That is the next free instrument.
+
+---
+
 ### THE CONTAINER SAYS WHICH IMAGE IT IS RUNNING (2026-09-10, owner: *"WHY DO
 THE CONTAINER ALWAYS TAKES 20 MINUTES , GEEZ"* → *"YEA WE NEED TO SEE"*)
 
@@ -4209,7 +4303,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,875.
+  The unit suite is 5,883.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

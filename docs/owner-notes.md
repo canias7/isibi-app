@@ -3979,3 +3979,67 @@ answers to the account that owns the sites, so I can't take the reading from
 here. If you open it a few times over the twenty minutes after a deploy, the id
 changing is the answer. Free, and it's the last piece of the "why does the
 container take 20 minutes" question you asked this afternoon.
+
+---
+
+## 2026-09-10 — four minutes of every build were spent waiting for nothing
+
+You asked what we do. I went looking for the four minutes, and it's one number
+written down eleven days ago that stopped being true this week.
+
+**What it is.** When a build sends the page off to be written, it also books a
+time to come back and collect the answer — four minutes later. That was measured
+and correct: five real builds took between five and a half and ten minutes to
+write a page, so coming back sooner would just have been asking "is it ready?"
+five times and being told no.
+
+**Then the splitting changed it.** Your Kestrel build wrote its page in **ninety
+three seconds**. But nobody was coming back for it until the four minutes were
+up. So the page sat there, finished, for two and a half minutes, waiting for an
+appointment made when the answer couldn't possibly have existed yet.
+
+**It's the same trap this project keeps writing down**: a rule that was true
+because of how something underneath worked, and the thing underneath moved, and
+nothing announced it. The number was right. The world changed around it.
+
+**The arithmetic is exact, which is how I know it's this and not something else.**
+Four builds spent 253,290 / 252,403 / 256,150 / 260,826 milliseconds outside
+anything they could account for. Eight seconds apart from each other, on builds
+whose pages were written seven ways, five ways and one way. A cost that doesn't
+care what the work cost isn't the work — it's a wait.
+
+**The fix is small and most of it was already built.** When the page is finished,
+it gets handed back and filed away safely — and at that moment the system already
+works out which build it belongs to, because it has to. It just never told
+anyone. Now it does: the answer knocks on the door itself instead of leaving
+someone to turn up later.
+
+**I deliberately didn't just lower the four minutes.** That would be a new guess
+about how fast things are today, and it would go stale the same way the moment
+splitting gets faster again — which is exactly how we got here. The four minutes
+stays as a backstop for the case the knock can't cover: a container that dies
+after writing the page but before handing it over. And the note explaining the
+number now records that its own reasoning was overtaken, with the measurement
+that overtook it, so nobody spends an afternoon hunting the delay somewhere else.
+
+**One consequence worth knowing.** Every build now produces two collection
+attempts — the knock and the backstop. The second one finding nothing to do was
+already handled; it just used to be a rare accident and is now deliberate, so I
+wrote that down and put tests on it. Nothing can get charged twice.
+
+**Checked.** Eleven deliberate breakages, all eleven caught, two harmless comment
+edits confirming the tests aren't just failing at everything. Eight new tests,
+every one driving the real thing rather than reading it. Full suite green at
+5,883. One older test went red because it was pinned to the code being on one
+line rather than to what it does; re-pointed.
+
+**And it makes the page splitting worth something for the first time.** The split
+really did cut writing a page from six-ish minutes to ninety seconds — the whole
+gain was being handed straight back to this timer, which is why four builds
+couldn't show it. Whether splitting beats not splitting is still open for a
+different reason: we time the split version and don't time the un-split one, so
+there's nothing to compare against. That's the next free thing, and it's small.
+
+**Not proven live yet.** Your next ordinary build proves it — no special run, no
+extra spend. This touches the worker, so the container rolls and the usual 15–20
+minute wait applies after the deploy.

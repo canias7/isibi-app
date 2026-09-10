@@ -19858,7 +19858,54 @@ async function handleRequest(request, env, ctx) {
       // answer above was stored under a token nobody minted either way.
       // Best-effort, after the answer is safe: the row is an instrument.
       const bind = await genBindingFor(env, token, body);
-      if (bind) { try { await releaseBuildRow(env, bind); } catch { /* never worth the answer */ } }
+      if (bind) {
+        try { await releaseBuildRow(env, bind); } catch { /* never worth the answer */ }
+        // ── AND THE ANSWER WAKES ITS OWN COLLECTOR (2026-09-10) ─────────────
+        //
+        // MEASURED: ~253 s of every build was spent idle here. The fire
+        // schedules the first look `RESUME_FIRST_SECONDS` (240 s) out, and
+        // `kestrel-bindery`'s seven bands came back in 93,375 ms — so the page
+        // sat finished for ~147 seconds waiting for a look that was scheduled
+        // when nothing could come back inside four minutes. The constant was
+        // right and the band split made it wrong; this is the recorded "a rule
+        // true because of a layer below it expires when that layer moves".
+        //
+        // EVENT-DRIVEN RATHER THAN A SMALLER NUMBER, deliberately. Lowering the
+        // constant buys one generation's worth of guess and goes stale again
+        // the next time the split gets faster; the container already knows the
+        // exact moment, and this is it.
+        //
+        // ONLY A BOUND REPORT WAKES ANYTHING. `genBindingFor` has already
+        // proved the job id against the record's own token AND generation id,
+        // so the id enqueued here is one we minted rather than one a caller
+        // named. An unbound report (an older image, the inline path) stores its
+        // answer and wakes nobody, exactly as before.
+        //
+        // AFTER THE PUT, AFTER THE RELEASE. Waking before the answer is stored
+        // is the one ordering that loses — the collector would look, find
+        // nothing, and read a finished generation as pending; and the release
+        // is what lets the woken collector claim the row rather than take it
+        // over by name.
+        //
+        // TWO MESSAGES PER JOB IS NOW THE ORDINARY CASE, and it is safe on
+        // walls that already existed rather than on anything added here: the
+        // 240 s look arrives later and finds either no record (the first look
+        // deletes its own) or `alreadyCharged(stored, "pages")`, which refuses
+        // to charge twice and deletes it. Said out loud because the race is
+        // deliberate now — a future session must not read the second message
+        // as a defect and "fix" the belt away.
+        //
+        // BEST-EFFORT, AND THE REPORT STILL ANSWERS 200. The answer is already
+        // safe in R2 and the scheduled look is already queued, so a send that
+        // throws costs exactly the four minutes this build would have cost
+        // yesterday. Answering non-200 would tell the container its answer did
+        // not land, which is the one lie this route must never tell.
+        try {
+          await env.BUILD_QUEUE.send(packResumeMessage(bind.id));
+        } catch (e) {
+          console.error("gen result: could not wake the collector for", bind.id, "— the scheduled look still covers it:", String((e && e.message) || e));
+        }
+      }
       // NO JOB ID, NO SLUG, NOTHING ABOUT THE BUILD comes back. The caller is
       // the container and it needs one bit: did this land.
       return Response.json({ ok: true });
