@@ -4107,3 +4107,21 @@ whole snapshot was stale rather than half of it. I've corrected the note: the
 thing that actually catches it is knowing how long the step normally takes, and
 waiting. I didn't report it as stuck, and I didn't report it as passed until it
 really had.
+
+**Merged and deployed.** Main moved to `50f2ff19` at 20:56Z, deploy went green in
+3m19s. The container rolled at 20:59:44Z, so the usual 15–20 minute wait runs to
+about 21:15–21:20Z. After that, **your next ordinary build carries the number** —
+no special run, nothing extra to spend.
+
+**What to look for.** On that build's record, the collector's step now carries
+`genMs`: how long writing the page actually took. Then, when you want the answer
+to your original question, run one more with splitting switched off — that's one
+GitHub secret (`BAND_SPLIT_CANARY` set to `-`) and a redeploy, no code change.
+Two numbers, same measurement, and you'll know.
+
+**One free thing this deploy also made possible.** Both container images now
+carry an id, so the 15–20 minute wait can be measured for the first time instead
+of guessed. If you're signed in, `/api/site/build-health` answering
+`0976b2e45f397667` means the old image is still serving, and the flip to
+`9b2b2483f6c968c…` is the moment the wait genuinely ends. I can't read that one —
+it needs your login.

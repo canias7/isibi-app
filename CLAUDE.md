@@ -2289,6 +2289,20 @@ number, for both kinds, off values both paths already carried.
   owner's question is that number on a split build against the same number on one
   with `BAND_SPLIT_CANARY` set to `-`. `worker.js` is a container image input, so
   the container rolls and the 15–20 minute hold applies.
+- **MERGED AND DEPLOYED** (owner: *"MEERGE"*). `unit tests` runs 2413 and 2414
+  both green; main fast-forwarded `0bd81ea0` → `50f2ff19` at 20:56:38Z, carrying
+  BOTH this and the stale-API correction below it. **Deploy run 2079 green in
+  3m19s**: the gate set in 1 s; the **image step 2m24s** — a BUILD, since a reuse
+  is one second — and the container **ROLLED** (`EDIT
+  isibi-app-sitebuildcontainer`, `0976b2e45f397667` → `9b2b2483f6c968c…`,
+  `SUCCESS Modified application`, applied **20:59:44Z**); `deploy gate (drain)`
+  1 s; Wrangler 23 s; the gate left to expire on success. **The 15–20 minute hold
+  ends ~21:15–21:20Z.** The image step lands inside the Deploy section's stated
+  band for a push that changes the worker tree and nothing above it.
+- **AND BOTH IMAGE IDS ARE STAMPED, so this deploy's hold is measurable** —
+  task #147. `/api/site/build-health` answering `0976b2e45f397667` means the
+  previous image is still serving; the flip to `9b2b2483f6c968c…` is the moment
+  the hold really ends. Owner-gated, so this session cannot take the number.
 
 ---
 
