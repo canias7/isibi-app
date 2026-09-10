@@ -252,6 +252,15 @@ export function budgetStage(steps) {
     normalize: "provision", provision: "provision",
     schema: "generate", jobs: "generate", seed: "generate", look: "generate",
     merge: "generate", research: "generate", fonts: "generate", gen: "generate",
+    // `bands` is a SUB-STEP of `gen` — the page's fan-out has come back and the
+    // band sources are in hand. It stays "generate" rather than moving to
+    // "publish" the way `img` does, and the case that settles it is the fan-out
+    // where every band failed: the mark still fires, carrying `wrote: 0`, and
+    // there is no page. "Generate" is true then and briefly understated
+    // otherwise, which is the direction that costs nothing — `img` corrects it
+    // a moment later. Added 2026-09-10; the census in `build-budget.test.mjs`
+    // is what required it, by existing.
+    bands: "generate",
     // `fired` is `gen` on the two-phase path: the generation call was handed to
     // the container and this invocation is about to return. Everything up to it
     // survives — the database is live, the schema applied, the look merged — and

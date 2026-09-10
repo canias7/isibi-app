@@ -110,7 +110,7 @@ import { splitPlan, generateSiteBands } from "./builder/page-bands.mjs";
 // rather than importing either, so a guard can run the whole orchestration
 // against the real `FRONTEND_SCHEMA_TOOL` and a fake caller — answers arriving
 // out of order, one agent failed — and read the design that comes out.
-import { splitDesign, designInWaves } from "./builder/design-waves.mjs";
+import { splitDesign, designInWaves, waveMarks } from "./builder/design-waves.mjs";
 // ALIASED, because worker.js already has an `IMAGE_USD` — the per-model price
 // map for the image GENERATOR the customer drives directly. Imported under its
 // own name the two collide, and the collision is invisible to `node --check` and
@@ -11997,7 +11997,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
             // fire, the report, the lease and the sentinel are the ones the
             // single call already uses — the only difference is that what is
             // handed over is a list.
-            return await generateSiteBands({
+            const fan = await generateSiteBands({
               // THE SAME COMPOSED BRIEF THE ONE CALL GETS, off the one composer,
               // so the layout, the images, the QR bindings and the 3D scene
               // reach a band through the hop the single path already uses.
@@ -12005,6 +12005,23 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
               spec, brand, attachments, model, kind: plan && plan.kind,
               route: planned[0], chrome: chromeFor(plan, brand, siteDescription), lines: bandLines,
             }, env, call, budget);
+            // THE ONE MARK THAT SAYS A PAGE WAS WRITTEN IN PIECES (2026-09-10,
+            // owner: "lets fix that"). The design step has recorded which
+            // designer ran since the day it shipped; this side recorded NOTHING,
+            // so "the fan-out ran" and "it silently fell through to the one
+            // call" were the same stored row — and the only band-related line in
+            // the file was a `console.log` in the branch where the fan-out is
+            // REFUSED, which is a log nobody reads on the path nobody takes.
+            //
+            // THE STEP'S PRESENCE IS THE FLAG. A single-call build never reaches
+            // this line, so it has no `bands` step at all, exactly as a
+            // single-call design carries no `waves` on its own. `wrote` beside
+            // `bands` is the second half worth having: a band that answered
+            // nothing is STUBBED rather than dropped, so `wrote < bands` is a
+            // page missing a section and reads as such rather than as a clean
+            // build. Numbers only — `tr.at` drops everything else.
+            try { mark?.("bands", { bands: Number(fan && fan.bands) || 0, wrote: Number(fan && fan.wrote) || 0 }); } catch { /* a trace must never break a build */ }
+            return fan;
           } catch (e) {
             // A CONTAINER THAT WOULD NOT TAKE THE FAN-OUT IS NOT A FAILED
             // BUILD. An older image has no `/model/start` at all, and a rollout
@@ -14485,7 +14502,17 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
       // an activation minutes after its claim was refused, and the etag alone
       // does not see that.
       assertLease,
-      mark: (n) => { try { tr.at(n); } catch { /* a trace must never break a build */ } },
+      // THE NUMBERS TOO, AND THIS TOOK A LIVE READ TO FIND (2026-09-10). Both
+      // suppliers of this hook were written `(n) => tr.at(n)` and DROPPED the
+      // second argument, so every `mark?.("img", { viaContainer })` since the
+      // day it was written recorded the step and none of the number — measured
+      // on eight stored builds, every `img` step reading `{s, ms}` and nothing
+      // else. Nothing failed: the mark lands, so `viaContainer` was asserted by
+      // three source reads in `container-model` and by no stored row, which is
+      // this repository's own "a chain asserted by reading is asserted at the
+      // layer below the break". `tr.at` already swallows and already keeps
+      // finite numbers only, so forwarding is the whole fix.
+      mark: (n, x) => { try { tr.at(n, x); } catch { /* a trace must never break a build */ } },
       budget,
       // THE PICKER'S MODELS, for the build's own translation loop (run 38,
       // 2026-09-04): the picker rides in the stored design; a job stored
@@ -15328,8 +15355,17 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // single-call design produce the same site at the same address, so
           // without this the trace cannot tell them apart afterwards — and a
           // canary whose effect is invisible is a canary nobody can read.
+          // AND HOW MUCH THE SPLIT SAVED, which the first split build could not
+          // answer (2026-09-10). `waveMarks` carries `agents` — how many agents
+          // RAN, off the loop's own count rather than the plan's, which differ
+          // whenever a required field goes missing and the design stops early —
+          // plus `agentMs` and `waveMs`, whose difference is the overlap. Two
+          // numbers on one row settle it with no second build to compare
+          // against, which matters because the between-build spread is wider
+          // than any saving a split can produce. `waves` stays the PLANNED
+          // count, so a design that broke reads as fewer agents than waves.
           tr.at("design", schemaUsage
-            ? { out: schemaUsage.out, in: schemaUsage.in, ...(useWaves ? { waves: designWaves.length, agents: designWaves.flat().length } : {}) }
+            ? { out: schemaUsage.out, in: schemaUsage.in, ...(useWaves ? { waves: designWaves.length, ...waveMarks(designedShape) } : {}) }
             : undefined);
           // STARTER ROWS THE DESIGNER DID NOT WRITE. `seed` is a required field
           // on its tool and the model omits it anyway — measured on two
@@ -16412,7 +16448,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // path that does not carry the stored verification publishes none.
             verify: priorVerify,
             auth: auth,
-            mark: (n) => tr.at(n),
+            // THE SECOND ARGUMENT IS FORWARDED — see the collector's copy of
+            // this hook for what it cost to leave it off.
+            mark: (n, x) => tr.at(n, x),
             // WHAT IS LEFT OF THE FIFTEEN MINUTES, not a fresh ten. The pages
             // call is the long one and by the time it starts the design call and
             // provisioning have already spent from the same budget — so it gets

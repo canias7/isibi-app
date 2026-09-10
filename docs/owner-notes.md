@@ -155,6 +155,75 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-10 — The build now records enough to answer the question you asked
+
+You said **"lets fix that"** about the two things I could not tell you after the
+Millbrook build. Both are fixed. Nothing a customer sees changes; what changes is
+what the build writes down about itself.
+
+**The first problem: the page half left no trace at all.** The design step has
+always stamped "I split this" into the record. The page step stamped nothing — so
+a page written in eight pieces at once and a page written in one go looked
+*identical* afterwards. There was one line in the code that mentioned it, and it
+only ran in the case where the split was *refused*, which is the case nobody
+hits. So I genuinely could not tell you whether your page had been written in
+pieces. Now the build writes a `bands` step, and it carries two numbers: how many
+pieces were asked for, and how many came back. **The step only exists on a split
+build**, so its presence is the answer. And if the two numbers differ, that is a
+page missing a section — which used to look exactly like a clean build.
+
+**The second problem: one number cannot answer "did it overlap".** The design
+step recorded how long it took, and nothing else. The whole point of running four
+agents side by side is that they overlap — but the only way to see that from one
+number is to compare it against other builds, and I now have seven of those,
+running from 131 seconds to 252. The gap between ordinary builds is *bigger than
+any saving the split could produce*, so that comparison can never settle
+anything. That is not a measurement problem I can fix by doing more runs.
+
+**What I did instead: two numbers that answer it from a single build.** One adds
+up how long each agent's own call took. The other adds up how long each *wave*
+took on the wall clock. If four agents really run side by side, the first number
+is much bigger than the second, and **the difference is the overlap, in
+milliseconds.** If they're equal, nothing overlapped. No second build needed, no
+comparison, nothing to explain away. The stopwatch for the agent half was already
+being taken — the code was throwing it away.
+
+**A third thing turned up while I was doing it, and it is older than either
+split.** Every one of these little notes the build writes goes through one small
+piece of plumbing, and that plumbing was **dropping the numbers and keeping only
+the name.** It has done that since the day it was written. I found it by reading
+the actual database rather than the code: eight stored builds, and the step that
+is supposed to record how the pictures were made carries no such number on a
+single one of them. Nothing ever failed, nothing was logged — three tests
+confirmed the code *asked* for the number, and no test ever confirmed it
+*arrived*. My new `bands` numbers would have vanished the same way. Fixed, and it
+brings the older one back to life at the same time.
+
+**Something I want to flag because it went right.** There is a check in this
+project that walks every note a build writes and demands each one have a stage
+attached — so that if a build times out, you get told the truthful thing about
+how far it got. My new `bands` note had no stage, and that check went red *just
+by the note existing*. Nobody had to remember to add it. It reads as "generate"
+now — deliberately the cautious side, because the note also fires on a build
+where every piece failed and there is no page at all.
+
+**And three older tests went red for this change.** All three were pinned to
+exactly how a line was written rather than to what it has to do. One of them was
+the same trap this project has hit twice before: a test that reads a fixed number
+of characters of the code, which my new explanatory comment pushed past — so it
+reported a working thing as broken. Re-anchored properly, all three, with a note
+saying which spelling moved and why.
+
+31 mutation tests, all 31 caught, three do-nothing controls untouched. Full test
+suite 5,850, green.
+
+**Not live yet, and this one rolls the container** — so give it 15–20 minutes
+after the deploy before firing a build that needs it. The proof is one build:
+the design step should carry both new numbers, there should be a `bands` step,
+and the pictures step should carry its number for the first time ever.
+
+---
+
 ## 2026-09-10 — Both splits are switched on, for your account only
 
 You said **"switch it on"**. Both are on now — the design step answered by

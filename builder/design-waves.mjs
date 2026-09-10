@@ -443,6 +443,31 @@ export function wavesMissing(tool, input, asked) {
 }
 
 /**
+ * The wave design's numbers, as the trace can store them — ONE projection.
+ *
+ * `tr.at` keeps FINITE NUMBERS ONLY and drops everything else silently, which is
+ * a deliberate wall (a connection string or a model's prose can never reach a
+ * trace by accident) and a trap for exactly this: `shape.waves` is a BOOLEAN,
+ * so handing the shape straight to the mark records nothing at all and reads,
+ * from the stored row, precisely like a build that never split.
+ *
+ * AND `agents` IS READ HERE RATHER THAN COUNTED AT THE ROUTE. The route knows
+ * how many agents were PLANNED; only the loop knows how many RAN, and those
+ * differ the moment a required field goes missing mid-way and the design stops
+ * early. The first split build's trace said four agents because the route
+ * counted the plan — true that time, and a lie on any build that breaks.
+ *
+ * A shape it cannot read answers ZEROS rather than nothing, so the three keys
+ * are on the row either way: a missing key and a key reading 0 are the same
+ * from the stored trace, and inventing a number would be worse than both.
+ */
+export function waveMarks(shape) {
+  const s = shape && typeof shape === "object" ? shape : {};
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return { agents: num(s.agents), agentMs: num(s.agentMs), waveMs: num(s.waveMs) };
+}
+
+/**
  * THE WHOLE DESIGN, RUN AS WAVES OF AGENTS.
  *
  * ── THE RETURN SHAPE IS `designSiteSchema`'S, EXACTLY ─────────────────────
@@ -478,7 +503,7 @@ export function wavesMissing(tool, input, asked) {
  * is free and has been since long before this. A design that IS usable bills
  * for every agent, including the ones that failed beside the ones that worked.
  */
-export async function designInWaves({ tool, system, brief, model, files = [], maxTokens, waves } = {}, call) {
+export async function designInWaves({ tool, system, brief, model, files = [], maxTokens, waves } = {}, call, now = () => Date.now()) {
   const usage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model };
   const known = {};
   const asked = [];
@@ -486,6 +511,27 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
   const strayed = [];
   const faults = [];
   let ran = 0;
+  // WHAT THE SPLIT ACTUALLY SAVED, AND IT IS ANSWERABLE FROM ONE BUILD
+  // (2026-09-10, owner: "lets fix that", after the first split build measured
+  // 203 s against a single-call spread of 131–252 s and settled nothing).
+  //
+  // The design step stored ONE number, so "did the agents of a wave really run
+  // side by side" could only ever be asked by comparing whole builds — and the
+  // spread between builds is wider than any saving a split could produce, so
+  // that comparison can never answer it. These two can, on their own, with no
+  // baseline at all:
+  //
+  //   agentMs  every agent's OWN call time, summed — what the work would have
+  //            cost end to end if the waves had run one call after another
+  //   waveMs   each wave's WALL time, summed — what it actually cost
+  //
+  // `agentMs - waveMs` IS the overlap, in milliseconds, and it needs no other
+  // run to be read. Equal means nothing overlapped. It is stored as the two
+  // numbers rather than the difference for the standing reason: a derived value
+  // beside the values it derives from is "two lists of the same thing", and the
+  // subtraction is free wherever it is read.
+  let agentMs = 0;
+  let waveMs = 0;
   for (const wave of Array.isArray(waves) ? waves : []) {
     // NOT SLICED TO `MAX_WAVE_AGENTS` HERE. `splitDesign` refuses to split at
     // all when a wave is wider than the socket bound, so a second, quieter
@@ -500,7 +546,12 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
     // which is the only thing tying an answer back to the agent it was asked
     // of once they finish out of order. Neither is expressible as a claim about
     // text, which is why that module exists.
-    const out = await runFanout(reqs, (r) => call(r));
+    // THE WAVE'S OWN WALL CLOCK, and `runFanout` is handed the SAME clock so the
+    // two numbers can never be read off two different ones — which is what would
+    // make `agentMs - waveMs` a subtraction between incomparable things.
+    const waveAt = now();
+    const out = await runFanout(reqs, (r) => call(r), now);
+    waveMs += now() - waveAt;
     ran += out.length;
     for (const a of out) {
       // ONE READING OF WHAT A CALL COST, shared with every other paid step —
@@ -508,6 +559,11 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
       // token kinds.
       const u = usageOf(a && a.answer, model);
       usage.in += u.in; usage.out += u.out; usage.cacheRead += u.cacheRead; usage.cacheWrite += u.cacheWrite;
+      // `runFanout` HAS ALWAYS MEASURED THIS AND THIS LOOP THREW IT AWAY — the
+      // per-call elapsed is on every entry, done or failed, and reading it is
+      // the whole of the agent half of the instrument. A failed agent's time
+      // counts: it was spent.
+      if (a && Number.isFinite(a.ms)) agentMs += a.ms;
       if (a && a.state === "failed") faults.push(a);
     }
     const merged = mergeWaves(wave, out);
@@ -535,6 +591,9 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
     // is the one property a canary this invisible cannot do without.
     waves: true,
     agents: ran,
+    // THE OVERLAP, AS TWO NUMBERS — see the comment where they are summed.
+    agentMs,
+    waveMs,
     lost: usable.lostAgents,
     missing: usable.missing,
     ...(strayed.length ? { strayed: strayed.map((s) => s.agent + ":" + s.field).slice(0, 8) } : {}),

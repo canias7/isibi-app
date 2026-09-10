@@ -170,7 +170,16 @@ test("the build route actually uses it", () => {
     "the trace starts after the auth round trip, so totalMs understates the build");
   // Fonts are DOWNLOADED inside what looks like setup; the mark has to reach the
   // function that does it.
-  assert.match(w, /mark: \(n\) => tr\.at\(n\)/, "buildAndPublishPages is given no way to report its own steps");
+  // RE-ANCHORED 2026-09-10, and the spelling that moved is the point. This
+  // pinned `mark: (n) => tr.at(n)` — a hook taking ONE argument, which is what
+  // it was, and which meant every `mark?.("img", { viaContainer })` recorded the
+  // step and none of the number: measured on eight stored builds, every `img`
+  // step reading `{s, ms}` and nothing else. Taking one argument was never the
+  // property; reaching `buildAndPublishPages` is, and forwarding what it is
+  // handed is the other half. `test/split-timing.test.mjs` cuts both suppliers
+  // out and RUNS them, because a hook that takes two and passes one satisfies
+  // every text match there is.
+  assert.match(w, /mark: \(n, x\) => tr\.at\(n, x\)/, "buildAndPublishPages is given no way to report its own steps");
   assert.match(w, /mark\?\.\("fonts"[,)]/, "the font download is untimed again");
   assert.match(w, /mark\?\.\("og"[,)]/, "the link-preview lookup is untimed again");
   // AND IT IS RESOLVED WHERE IT IS TIMED. The image must come from inside the

@@ -623,9 +623,18 @@ test("one chooser for the tool and the system text, asked by both designers", ()
 });
 
 test("the trace records which designer ran", () => {
+  // RE-ANCHORED 2026-09-10, and the spelling that moved is worth naming: this
+  // pinned `agents: designWaves.flat().length` — the PLANNED agent count, read
+  // off the wave table at the route. `agents` is now what RAN, read off the
+  // loop's own counter through `waveMarks`, because the two differ the moment a
+  // required field goes missing mid-way and the design stops early. Being the
+  // plan's count was never the property; carrying a count at all is.
+  // `test/split-timing.test.mjs` drives that difference.
   const block = between(WCODE, 'tr.at("design"', "knownTables", "the design trace mark");
-  assert.ok(/useWaves \? \{ waves: designWaves\.length, agents: designWaves\.flat\(\)\.length \}/.test(block),
+  assert.ok(/useWaves \? \{ waves: designWaves\.length, \.\.\.waveMarks\(designedShape\) \}/.test(block),
     "a split build and a single-call build publish the same site to the same address — the trace is the only thing that can tell them apart");
+  assert.ok(!/designWaves\.flat\(\)\.length/.test(WCODE),
+    "the route counts the PLAN again — a design that broke mid-way then reports every agent it meant to run");
 });
 
 test("the image carries the module and the fan-out it imports", () => {

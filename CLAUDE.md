@@ -1655,6 +1655,133 @@ single design call and the single page call, exactly as they have for months.
   ternary). So `d->>'waves' = '3'` and `d->>'agents' = '4'` on the design event
   is a yes/no answer that no amount of timing variance can muddy — read it
   first, and read the clock second.
+- **AND THE FIRST SPLIT BUILD RAN AND SETTLED NOTHING**, which is why the
+  section below exists. `millbrook-pottery-studio` (2026-09-10 05:09Z) read
+  `waves: 3, agents: 4` — so both splits really ran — and its design step took
+  **202,977 ms**, against a single-call spread now measured at 131,000–252,000
+  over seven builds. Inside that spread, so the clock said nothing either way;
+  and the band half left NO mark at all, so the trace could not even say the
+  page had been written in pieces. The instruments, not the split, were what
+  the run measured.
+
+---
+
+### BOTH SPLITS LEAVE A MARK A STORED ROW CAN BE READ FOR (2026-09-10, owner:
+*"lets fix that"*)
+
+Two instruments were missing and they failed in opposite directions. Neither is
+a defect the splits introduced; both are what made the first split build
+unreadable.
+
+- **THE BAND SPLIT LEFT NOTHING AT ALL.** The design step has recorded which
+  designer ran since the day it shipped; the page side recorded nothing, so *the
+  fan-out ran* and *it silently fell through to the one call* were the same
+  stored row. The only band-related line in `worker.js` was a `console.log` in
+  the branch where the fan-out is REFUSED — a log nobody reads on the path
+  nobody takes. Now `mark?.("bands", { bands, wrote })` inside the fan-out
+  branch. **THE STEP'S PRESENCE IS THE FLAG**: a single-call build never reaches
+  that line, so it has no `bands` step at all, exactly as a single-call design
+  carries no `waves`. `wrote` beside `bands` is the second half worth having — a
+  band that answered nothing is STUBBED rather than dropped, so `wrote < bands`
+  is a page missing a section and reads as such rather than as a clean build.
+- **THE DESIGN STEP STORED ONE NUMBER**, so whether the agents of a wave really
+  overlapped could only be asked by comparing whole builds — and the spread
+  BETWEEN builds (131–252 s over seven) is wider than any saving a split can
+  produce, so that comparison can never answer it. Two numbers now, and they
+  answer it from ONE build with no baseline at all: **`agentMs`** (every agent's
+  own call time, summed — what the work would have cost run one call after
+  another) and **`waveMs`** (each wave's WALL time, summed — what it actually
+  cost). **`agentMs − waveMs` IS the overlap**, in milliseconds; equal means
+  nothing overlapped. Stored as the two numbers rather than the difference for
+  the standing reason — a derived value beside the values it derives from is
+  "two lists of the same thing", and the subtraction is free wherever it is
+  read. **`runFanout` HAS ALWAYS MEASURED THE AGENT HALF AND THE LOOP THREW IT
+  AWAY**: the per-call elapsed is on every entry, done or failed, and a failed
+  agent's time counts because it was spent.
+- **BOTH NUMBERS COME OFF ONE CLOCK, and that is a property of the code rather
+  than a claim in a comment.** `designInWaves` takes an injectable `now` and
+  hands the SAME one to `runFanout`; on two clocks the subtraction is between
+  incomparable things and nothing about the stored row would say so. The mutant
+  that drops the argument dies.
+- **`agents` MOVED OFF THE PLAN AND ONTO THE LOOP.** The route counted
+  `designWaves.flat().length` — how many agents were PLANNED — and only the loop
+  knows how many RAN. They differ the moment a required field goes missing
+  mid-way and `wavesMissing` ends the design early. The first split build's
+  trace said four agents because four were planned: true that time, and a lie on
+  any build that breaks.
+- **`waveMarks` IS THE ONE PROJECTION, AND THE WALL IT EXISTS FOR IS `tr.at`'s.**
+  That function keeps FINITE NUMBERS ONLY and drops everything else silently — a
+  deliberate wall, so a connection string or a model's prose can never reach a
+  trace — and `shape.waves` is a BOOLEAN. Handing the shape straight to the mark
+  records nothing at all and reads, from the stored row, precisely like a build
+  that never split. A shape it cannot read answers ZEROS rather than nothing, so
+  the three keys are on the row either way; nothing is ever coerced.
+- **AND THE HOOK ITSELF WAS DROPPING ITS NUMBERS — FOUND BY READING THE LIVE
+  DATABASE, NOT THE CODE.** Both suppliers of the build's `mark` hook were
+  written `(n) => …`, so `mark?.("img", { viaContainer })` has recorded the step
+  and none of the number **since the day it was written**. MEASURED on eight
+  stored builds: every `img` step reads `{s, ms}` and nothing else. Nothing
+  failed — `viaContainer` was asserted by three SOURCE READS in
+  `container-model` and by no stored row, which is the recorded "a chain
+  asserted by reading is asserted at the layer below the break". The new `bands`
+  mark would have inherited it in silence. Both suppliers forward now, which
+  revives `viaContainer` as a side effect. `test/split-timing.test.mjs` CUTS
+  BOTH OUT OF `worker.js` AND RUNS THEM against a real trace, because a hook
+  that takes two arguments and forwards one satisfies every text match there is.
+- **AND THE CENSUS IN `build-budget.test.mjs` EARNED ITS KEEP BY EXISTING.** A
+  new mark with no stage falls to a default that can tell a customer with a live
+  database that nothing was set up, and that guard walks the marks rather than a
+  list — so `bands` failed by ARRIVING. It is `"generate"`, and the case that
+  settles it is the fan-out where every band failed: the mark still fires,
+  carrying `wrote: 0`, and there is no page. "Publish" would tell that customer
+  their pages exist. "Generate" is true then and briefly understated otherwise,
+  which is the direction that costs nothing — `img` corrects it a moment later.
+- **Guards**: `test/split-timing.test.mjs` (12). The two that matter are a
+  driven PAIR: one wave of two agents on a clock the test drives and gates the
+  test opens, proving `agentMs` 260 against `waveMs` 160 and an overlap of 100 —
+  and its CONTROL, two waves of one agent each, the same total work with none of
+  it shared, proving the two come out EQUAL. Without the second, a single case
+  cannot tell "measures the overlap" from "always reports one". **No timers**:
+  two concurrency guards one file over used `setTimeout`, drifted under sweep
+  load and came back with the comment-only control KILLED, which is a guard
+  reporting correct code as broken. Beside them: the projection driven over
+  every junk shape including the `String(["4"])` coercion, a failed agent's time
+  proved to count, `agents` driven against a design that breaks mid-way, the
+  design mark read, the band mark read with its position asserted against BOTH
+  neighbours, `generateSiteBands` driven on both of its return paths (the early
+  one — every band lost — has its own copy of both fields), the stage, and
+  `tr.at`'s wall driven both ways.
+- **Three older guards went red for the change and were re-anchored, not
+  appeased**, each naming the spelling that moved. `design-waves`' trace case
+  pinned `agents: designWaves.flat().length`, the plan's count — being the
+  plan's count was never the property, carrying a count at all is. `trace`'s
+  case pinned `mark: (n) => tr.at(n)`, which is the defect written down as a
+  requirement. And `wiring`'s build-call-site scan used a **1,400-byte window**
+  that the new comment on the collector's hook outran, so it reported a call
+  site that carries `models` as carrying none — **the third time a byte window
+  in that file has been outrun by this repository's own comments**; it walks by
+  brace depth now, with a floor on what it scanned, because `[].every` is true.
+- **Sweep: 31 mutants, 31 killed, none survived, none unapplied, three
+  comment-only controls survived** — the agent times never summed or dropping a
+  failed agent, the wave's wall never measured or taken as the SUM of its agents
+  (the overlap then zero always) or read from an absolute origin (which only the
+  sequential control catches), `runFanout` handed no clock, `agents` counting
+  the waves or the last wave only, the two timings never reaching the shape, the
+  projection handing the shape through or answering nothing or coercing or
+  reading `waveMs` into `agentMs`; the design mark handed the shape, counting
+  the plan again, losing the planned wave count, or gone entirely; the bands
+  mark deleted, carrying no numbers, dropping `wrote`, reading `bands` into
+  `wrote`, unwrapped, or eating the fan-out's answer; each hook dropping its
+  second argument, each taking two and forwarding one, the route's hook gone;
+  the stage missing or reading as `publish`; and `tr.at` keeping a boolean after
+  all, which would make the whole projection dead code.
+- Full suite **5,850**.
+- **Not proven live.** The push changes `worker.js`, which is a container image
+  input, so the container ROLLS and the 15–20 minute hold applies. The proof is
+  one build: the design event should carry `agentMs` and `waveMs` beside
+  `waves`/`agents`, there should be a `bands` step carrying `bands` and `wrote`,
+  and the `img` step should carry `viaContainer` for the first time since it was
+  written.
 
 ---
 
@@ -3510,7 +3637,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,838.
+  The unit suite is 5,850.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

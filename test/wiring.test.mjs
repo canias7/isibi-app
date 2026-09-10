@@ -1727,8 +1727,28 @@ test("the translation runs on the picked model like every other small call (owne
   // is what found the picker arriving undestructured.
   assert.match(w, /\n  models = models && typeof models\.quick === "string" \? models : modelsFor\(picker\);\n/, "the builder does not resolve the picker's models when a caller hands none");
   assert.match(w, /model: models\.pages,\n(?:\s*\/\/[^\n]*\n)*\s*picker: models\.picker,/, "the build route does not store the picker beside the pages model in the design");
-  for (const m of [...w.matchAll(/buildAndPublishPages\(env, \{[\s\S]{0,1400}?\}\)/g)]) {
-    assert.match(m[0], /\bmodels\b/, "a build call site hands the page builder no models: " + m[0].slice(0, 80));
+  // WALKED BY BRACE DEPTH, like the addon's call above it. A 1,400-byte window
+  // from the call's head was outrun on 2026-09-10 by a comment on the
+  // collector's `mark:` hook, so `models:` fell outside it and the guard
+  // reported a call site that carries models as carrying none — the THIRD time
+  // a byte window in this file has been outrun by this repository's own
+  // comments, and the recorded trap says never to size one in bytes.
+  const head = "buildAndPublishPages(env, {";
+  const sites = [];
+  for (let at = w.indexOf(head); at >= 0; at = w.indexOf(head, at + head.length)) {
+    const open = at + head.length - 1;
+    let d = 0;
+    for (let i = open; i < w.length; i++) {
+      if (w[i] === "{") d++;
+      else if (w[i] === "}") { d--; if (d === 0) { sites.push(w.slice(at, i + 1)); break; } }
+    }
+  }
+  // A FLOOR ON WHAT WAS SCANNED, because `[].every` is true and a walk that
+  // finds nothing passes silently — there are two call sites, the route's and
+  // the collector's, and a guard that sees one of them proves half of this.
+  assert.ok(sites.length >= 2, "expected both build call sites; found " + sites.length);
+  for (const site of sites) {
+    assert.match(site, /\bmodels\b/, "a build call site hands the page builder no models: " + site.slice(0, 80));
   }
 });
 
