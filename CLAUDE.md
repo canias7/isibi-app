@@ -2428,6 +2428,43 @@ race: a deterministic ordering, true on every build since the panel shipped.
   start. `public/` only — no image input moves, so **no container roll and no
   15–20 minute hold** — and `chat.js` is cached, so a hard refresh is part of it
   reaching anybody. Render: `docs/edits/build-stage-create.png`.
+- **MERGED AND DEPLOYED** (owner: *"MERGE"*). `unit tests` run 2416 green, the
+  suite step 83 s on the exact tree; main fast-forwarded `50f2ff19` →
+  `c35cda52` at 21:56:12Z; **deploy run 2081 green in 54 SECONDS**, the
+  no-image-input shape the Deploy section predicts: the gate set in 1 s, the
+  **image step 1 s** with both images reused, the drain 1 s, Wrangler 21 s, and
+  the gate left to expire on success. **The container did NOT roll**, read off
+  the log rather than inferred from the image step's duration: `no changes
+  isibi-app-sitebuildcontainer` AND `no changes isibi-app-gamebuildcontainer`,
+  the site container still on `9b2b2483f6c968c…` (the image deploy 2079 rolled
+  to). **Wrangler uploaded exactly ONE asset — `/chat.js`** (212 read, 211
+  already uploaded), which is the tightest confirmation available that the delta
+  really is the one browser file.
+- **AND THE MERGE'S OWN DIFFSTAT NAMED FILES THAT WERE ALREADY ON MAIN.** The
+  fast-forward printed `Updating 0bd81ea0..c35cda52` and listed `worker.js` and
+  `builder/build-resume.mjs` — because the LOCAL `main` was three commits stale,
+  so git's summary spanned commits `origin/main` already had. `git diff
+  50f2ff19..c35cda52` is the real delta and names eight files, none of them an
+  image input. **A merge summary is a diff against wherever your local branch
+  happened to be**, so the container-roll question is answered by diffing against
+  the REMOTE, and then by the deploy log — never by that summary.
+- **THE STALE-SNAPSHOT TRAP FIRED A THIRD TIME, and this time its own tell
+  worked.** The job read `in_progress` for ~9 minutes after finishing at
+  21:57:06Z, and the run's `updated_at` sat at **21:56:17Z beside step stamps at
+  21:56:39Z** — `updated_at` BEHIND the steps, which is the original 2026-09-10
+  rule and the direction in which it does prove staleness. Waited and re-polled;
+  reported neither a hang nor a pass until the poll came back completed.
+- **AND THE BAND SPLIT IS STILL OFF, which the secret upload says and the
+  workflow file cannot.** `BAND_SPLIT_CANARY` printed as `***` — fully masked —
+  where `DESIGN_SPLIT_CANARY` printed `22…75f4…`, in the same upload. GitHub
+  masks a registered REPOSITORY SECRET's value in full and a workflow default
+  only where its digits collide with another secret, so the difference says the
+  owner's 21:19Z secret is in place and beats the `|| fallback`. **That is
+  exactly the class of fact `/api/site/runtime` exists for**, and the reason
+  reading `deploy.yml` is not an answer — the code default names the account and
+  the deployment does not use it. To run the matched comparison build, delete
+  that secret (it falls back to the account uid) or set it to the uid, then
+  redeploy.
 
 ---
 

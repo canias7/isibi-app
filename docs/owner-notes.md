@@ -4206,3 +4206,38 @@ working.
 **No wait after this one.** This is browser code only, so nothing rebuilds and
 there's no 15–20 minute hold. You will need a hard refresh for it to reach you,
 though — the browser caches that file.
+
+## 2026-09-10 — merged, and it's live
+
+Deploy went green in **54 seconds** — the fast shape, because nothing this push
+touched goes into the container. **Nothing rebuilt, nothing rolled, no 15–20
+minute wait.** I read that off the deploy's own log rather than guessing from how
+long it took: it says "no changes" for both containers, in as many words.
+
+The neatest confirmation is in the upload: Wrangler read 212 files and uploaded
+**exactly one — `chat.js`**. That's the fix and nothing else.
+
+**So it's live now. Hard refresh** (the browser caches that file) and the big
+screen will fill in as soon as your next build starts.
+
+**One thing for when you want the comparison build.** The deploy log shows
+`BAND_SPLIT_CANARY` as fully hidden while the design one shows its value —
+side by side, same upload. That means the secret you set at 21:19pm to switch
+splitting off is still there, and a secret you set always beats the default in
+the code. **So splitting is still off.** To turn it back on: delete that secret
+in GitHub (it falls back to your account automatically) or set it to your
+account id, then run the deploy once. After that, one ordinary build gives the
+clean comparison.
+
+**A footnote on our own tooling, third day running.** GitHub told me the deploy
+was still going for about nine minutes after it had actually finished. This time
+the tell I wrote down yesterday did work — the run's own "last updated" stamp was
+sitting behind its step stamps, which is the giveaway — so I waited and re-asked
+instead of reporting anything. It came back green.
+
+**And a small thing worth knowing.** When I merged, git's own summary listed some
+worker files as changed. They weren't — my local copy of main was three commits
+behind, so the summary was measuring from the wrong place. The real comparison is
+against what's actually on the server, and that's eight files, none of them
+container ones. I've written that down, because reading the wrong summary is
+exactly how someone concludes "the container rolled" when it didn't.
