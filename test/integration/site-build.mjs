@@ -975,6 +975,96 @@ try {
       busyAfter && busyAfter.busy === false && busyAfter.jobs === 0, JSON.stringify(busyAfter));
   }
 
+  // ── A FAN-OUT: N CALLS IN ONE JOB, DRIVEN ───────────────────────────────────
+  //
+  // The band split writes a page a band at a time, so `/model/start` takes
+  // `reqs` as well as `req` and answers a LIST. Nothing else here can say
+  // whether that is routed — the recorded layer twelve dead features shipped in.
+  //
+  // WHAT THIS PROVES THAT A SOURCE READ CANNOT, and it is the property the whole
+  // split rests on: THREE CALLS THAT ALL FAIL COME BACK AS THREE ENTRIES IN A
+  // JOB THAT SETTLED `done`. Under `Promise.all` — which rejects on the first
+  // failure — three failing calls produce ONE failed job and nothing else, so
+  // this shape cannot be reached by the code the fan-out replaced. It is the
+  // per-call catch, on the real service, rather than a `catch (e) {` matched in
+  // a file (a rethrowing catch contains that text too, which is exactly how it
+  // survived a source-read sweep).
+  //
+  // FREE, for the same reason the block above is: with no key every call refuses
+  // by name before a request is made, and the refusal is the assertion.
+  //
+  // WHAT IT CANNOT SHOW, STATED: that the three calls OVERLAP. Each fails in
+  // about two milliseconds here, so wall clock says nothing — the same limit the
+  // fire-and-store block above declares. The concurrency itself is driven in
+  // `test/model-fanout.test.mjs` against deterministic gates; what is proven
+  // HERE is the route, the shape, the index and the isolation.
+  {
+    const reqs = [0, 1, 2].map((i) => ({ model: "grok-4.6", messages: [], metadata: { band: i } }));
+    const started = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reqs, callMs: 5000 }),
+    }).then((r) => r.json()).catch(() => ({}));
+    ok("POST /model/start takes a LIST of requests and answers one job id",
+      started && started.ok === true && typeof started.id === "string" && started.id.length > 8,
+      JSON.stringify(started).slice(0, 200));
+
+    let out = null;
+    for (let i = 0; i < 50; i++) {
+      out = await fetch(`http://127.0.0.1:${PORT}/model/result?id=${encodeURIComponent(started.id || "")}`)
+        .then((r) => r.json()).catch(() => null);
+      if (out && out.state !== "pending") break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // THE SHAPE SAYS WHICH KIND OF JOB IT WAS. `answers` and `answer` are never
+    // both present: reading a list into `answer` hands every existing caller an
+    // array where it expects a message, and the parse fails somewhere far away.
+    ok("…and reads back as `answers`, a list, never as a single `answer`",
+      out && out.state === "done" && Array.isArray(out.answers) && !("answer" in out),
+      JSON.stringify(out).slice(0, 200));
+    ok("…one entry per request, in the order they were sent, each carrying its index",
+      out && out.answers && out.answers.length === 3 && out.answers.every((a, i) => a && a.i === i),
+      JSON.stringify(out && out.answers && out.answers.map((a) => a && a.i)));
+    // THE ONE THAT MATTERS. Every call failed and the job is `done` with three
+    // entries — so no failure destroyed its neighbours, and a fan-out that lost
+    // the work is still distinguishable from one whose calls refused.
+    ok("…every call failed on its own, and none of them took the others down",
+      out && out.answers && out.answers.length === 3 &&
+        out.answers.every((a) => a && a.state === "failed" && /XAI_API_KEY is not set/.test(String(a.message))),
+      JSON.stringify(out && out.answers && out.answers.map((a) => a && a.state)));
+    // No synthesised status, the same rule the single call keeps: `retryHere`
+    // reads this to decide whether tokens are already spent, so a key we forgot
+    // to set must never arrive looking like a provider that answered.
+    ok("…and no entry invents a provider status, because no provider answered",
+      out && out.answers && out.answers.every((a) => a && a.status === null),
+      JSON.stringify(out && out.answers && out.answers.map((a) => a && a.status)));
+
+    // THE THREE REFUSALS, each a 400 rather than a queued job. An over-long list
+    // truncated instead of refused is a page missing a section with nothing
+    // anywhere saying so; an empty one is a job holding no calls that never
+    // answers; junk inside it is a silent drop.
+    const tooMany = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reqs: Array.from({ length: 9 }, () => ({ model: "grok-4.6", messages: [] })), callMs: 5000 }),
+    });
+    ok("a fan-out over the container's own ceiling is refused, never truncated", tooMany.status === 400);
+    const empty = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reqs: [], callMs: 5000 }),
+    });
+    ok("an empty fan-out is refused rather than queued as a job with nothing to do", empty.status === 400);
+    const junk = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reqs: [{ model: "grok-4.6", messages: [] }, null], callMs: 5000 }),
+    });
+    ok("junk inside the list is refused by name, never silently dropped", junk.status === 400);
+
+    // ONE SLOT FOR THE WHOLE FAN-OUT, and it is released. Three calls held under
+    // one `oneAtATime` is the whole reason a fan-out is one job rather than N —
+    // a leak here would leave the container claiming to be busy for life.
+    const busyOut = await fetch(`http://127.0.0.1:${PORT}/busy`).then((r) => r.json()).catch(() => null);
+    ok("…and the fan-out released its one queue slot when it settled",
+      busyOut && busyOut.busy === false && busyOut.jobs === 0, JSON.stringify(busyOut));
+  }
+
   // ── THE ANSWER LEAVES THE CONTAINER'S MEMORY, DRIVEN ────────────────────────
   //
   // `MODEL_JOBS` is a Map in ONE instance's memory. Cloudflare does not promise
