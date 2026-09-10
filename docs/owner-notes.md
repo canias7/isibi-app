@@ -4241,3 +4241,50 @@ behind, so the summary was measuring from the wrong place. The real comparison i
 against what's actually on the server, and that's eight files, none of them
 container ones. I've written that down, because reading the wrong summary is
 exactly how someone concludes "the container rolled" when it didn't.
+
+## 2026-09-10 — your drawing, built
+
+You drew four lines of different lengths hitting one wall, with WAIT written
+twice. That's exactly right, and it's the whole thing: **when you fire four
+agents at once, the wave costs whatever the slowest one costs.** The other three
+finish early and then sit there waiting. So splitting turns "add them all up"
+into "just the longest one" — which is why it's faster — and the only way to make
+it faster *again* is to find the slow one and cut it down.
+
+**Here's the problem I had to fix first.** We were storing the total. Four agents,
+one number. It told us the split saved about a minute, and it could not tell us
+*which* agent was making everyone wait. Cutting a fast agent in half buys nothing
+at all, so without that, any next step is a guess.
+
+**So now each agent's own time is stored, under its own name.** Four numbers on
+the same row you already have: identity, plan, look, detail. One build and you
+can see which one is the wall.
+
+**Nothing else changed.** No new calls, nothing rearranged, nothing split. It's
+four extra numbers on a row we were already writing. The design step behaves
+exactly as it did this afternoon.
+
+**What I expect it to show, and I want to be honest that this is a guess.** My
+money is on **look** — it's the agent that draws your logo and your tab icon and
+writes the stylesheet, and drawing is slow. **plan** sends the biggest question
+by a mile (the whole component menu, 32,000 characters of it) but its answers are
+short lists, and time follows what a model *writes*, not what we send it. I've
+been wrong about this once already today, so it's a guess until the build says.
+
+**Checked.** Twenty-three deliberate breakages, twenty-three caught, three
+harmless comment edits confirming the tests aren't just failing at everything.
+Full suite green at 5,907.
+
+**One of the twenty-three survived my first pass**, and it was worth chasing. A
+safety check looked like it did nothing — so I measured it against nineteen
+different kinds of bad input and it made no difference on eighteen of them. But
+on the nineteenth it did. I wrote the missing test rather than deleting the
+check, and then it failed properly. The rule here is that a check that *appears*
+useless gets measured before anyone removes it.
+
+**This one does rebuild the container**, so after it deploys there's the usual
+**15–20 minute wait** before a build picks it up.
+
+**To read the answer you need one ordinary build** — nothing special, just a
+normal one. Then I can tell you which agent is the wall, and we can talk about
+whether it's worth cutting.

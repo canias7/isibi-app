@@ -443,6 +443,33 @@ export function wavesMissing(tool, input, asked) {
 }
 
 /**
+ * The trace key ONE agent's own time is stored under, or `""` for a name that
+ * cannot have one.
+ *
+ * `<name>Ms`, because the row it lands on is all milliseconds and a bare
+ * `identity: 12000` says nothing about what the number is.
+ *
+ * `tr.at` TRUNCATES A KEY AT 16 CHARACTERS, and a truncated key is where the
+ * collisions live: two long names that agree far enough in are cut down to ONE
+ * key and the later agent silently overwrites the earlier — a wrong number
+ * wearing a right one's name, which is the only way this instrument can lie
+ * rather than merely go quiet. So the rule is not that short names are tidier;
+ * it is that a key reaching the trace WHOLE cannot merge with anything, and one
+ * that is cut might.
+ *
+ * The charset is refused for the reason a slug's is: a key with a space or a dot
+ * in it is one nobody can read back, and repairing it invents a name the waves
+ * do not use. Presence is the signal, so recording NOTHING is the honest answer
+ * to a name we cannot key — and `waveMarks` is where a key that WOULD be legal
+ * but is already taken is refused, because that question is about the row.
+ */
+export function agentMark(name) {
+  if (typeof name !== "string" || !/^[a-z][a-z0-9]*$/i.test(name)) return "";
+  const key = name + "Ms";
+  return key.length > 16 ? "" : key;
+}
+
+/**
  * The wave design's numbers, as the trace can store them — ONE projection.
  *
  * `tr.at` keeps FINITE NUMBERS ONLY and drops everything else silently, which is
@@ -460,11 +487,38 @@ export function wavesMissing(tool, input, asked) {
  * A shape it cannot read answers ZEROS rather than nothing, so the three keys
  * are on the row either way: a missing key and a key reading 0 are the same
  * from the stored trace, and inventing a number would be worse than both.
+ *
+ * ── AND ONE NUMBER PER AGENT BESIDE THEM (2026-09-10, owner, having drawn the
+ *    barrier: "THATS WHY I TOLD YOU ABOUT SEPARATING IT , SO ITS FASTER") ─────
+ *
+ * `agentMs - waveMs` says what the wave saved and cannot say WHERE. A wave costs
+ * its SLOWEST agent — the others reach the barrier and wait — so the only lever
+ * on a wave's wall time is which agent is the wall, and the sum hides exactly
+ * that. `identityMs`, `planMs`, `lookMs`, `detailMs` name it off one build.
+ *
+ * THESE ARE ABSENT WHEN THE AGENT DID NOT RUN, which is the opposite rule from
+ * the three above and deliberately so. A design that broke in wave 2 never ran
+ * `detail`, and `detailMs: 0` would read as an agent that answered instantly;
+ * the three fixed numbers can afford a zero because a missing one and a zero one
+ * mean the same thing there, and a per-agent key does not.
  */
 export function waveMarks(shape) {
   const s = shape && typeof shape === "object" ? shape : {};
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-  return { agents: num(s.agents), agentMs: num(s.agentMs), waveMs: num(s.waveMs) };
+  const marks = { agents: num(s.agents), agentMs: num(s.agentMs), waveMs: num(s.waveMs) };
+  const each = s.eachMs && typeof s.eachMs === "object" ? s.eachMs : {};
+  for (const [name, ms] of Object.entries(each)) {
+    const key = agentMark(name);
+    // NEVER OVER ONE OF THE THREE ABOVE, and the test is DERIVED from the row
+    // being built rather than written out as a list of their names beside them
+    // — which would be "two lists of the same thing" with the row itself as the
+    // other list. An agent called `agent` or `wave` makes exactly the key the
+    // sum or the wall clock is stored under, and one agent's time standing
+    // where the whole wave's belongs is a lie rather than a silence.
+    if (!key || Object.hasOwn(marks, key)) continue;
+    if (typeof ms === "number" && Number.isFinite(ms)) marks[key] = ms;
+  }
+  return marks;
 }
 
 /**
@@ -532,6 +586,15 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
   // subtraction is free wherever it is read.
   let agentMs = 0;
   let waveMs = 0;
+  // AND ONE NUMBER PER AGENT, keyed by the agent's own name.
+  //
+  // A WAVE COSTS ITS SLOWEST AGENT. The others answer and then wait at the
+  // barrier for it, so the sum above says what running side by side SAVED and
+  // has no way of saying which agent set the price — and that is the only thing
+  // anybody can act on: cutting a fast agent in half buys nothing at all.
+  // `identity`, `plan`, `look` and `detail` under their own names answer it off
+  // one build, exactly as the pair above answers the overlap off one build.
+  const eachMs = {};
   for (const wave of Array.isArray(waves) ? waves : []) {
     // NOT SLICED TO `MAX_WAVE_AGENTS` HERE. `splitDesign` refuses to split at
     // all when a wave is wider than the socket bound, so a second, quieter
@@ -563,7 +626,24 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
       // per-call elapsed is on every entry, done or failed, and reading it is
       // the whole of the agent half of the instrument. A failed agent's time
       // counts: it was spent.
-      if (a && Number.isFinite(a.ms)) agentMs += a.ms;
+      if (a && Number.isFinite(a.ms)) {
+        agentMs += a.ms;
+        // THE SAME NUMBER FILED UNDER THE AGENT THAT SPENT IT, off ONE reading
+        // of `a.ms` and one test — a second test here is a second way for the
+        // sum and the parts to disagree about which entries counted.
+        //
+        // THE ENTRY'S INDEX IS WHAT NAMES IT. `reqs` is `wave.map(...)`, so
+        // entry `i` is agent `i`; the calls finish out of order, which is the
+        // point, so nothing but the index ties an answer to who was asked.
+        //
+        // `+=` AND NOT `=`, so the parts ALWAYS sum to `agentMs`. Two agents of
+        // one name in the same design is a mistake a census catches, but this
+        // function takes its waves as an argument and `=` would answer a wrong
+        // number for one rather than a caught mistake for the design.
+        const agent = wave[a.i];
+        const name = agent && typeof agent.name === "string" ? agent.name : "";
+        if (name) eachMs[name] = (eachMs[name] || 0) + a.ms;
+      }
       if (a && a.state === "failed") faults.push(a);
     }
     const merged = mergeWaves(wave, out);
@@ -594,6 +674,12 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
     // THE OVERLAP, AS TWO NUMBERS — see the comment where they are summed.
     agentMs,
     waveMs,
+    // AND WHERE THE WALL IS, one number per agent that ran. Nested rather than
+    // flattened here because `waveMarks` owns everything about what a trace key
+    // may be — the 16-character truncation and the two names that would collide
+    // with the pair above — and that knowledge belongs in the one place that
+    // knows about `tr.at`, not in the loop that measures.
+    eachMs,
     lost: usable.lostAgents,
     missing: usable.missing,
     ...(strayed.length ? { strayed: strayed.map((s) => s.agent + ":" + s.field).slice(0, 8) } : {}),

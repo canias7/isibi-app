@@ -39,7 +39,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { designInWaves, waveMarks, DESIGN_WAVES } from "../builder/design-waves.mjs";
+import { designInWaves, waveMarks, agentMark, DESIGN_WAVES } from "../builder/design-waves.mjs";
 import { generateSiteBands, splitPlan } from "../builder/page-bands.mjs";
 import { makeTrace } from "../builder/trace.mjs";
 import { budgetStage } from "../builder/build-budget.mjs";
@@ -172,7 +172,13 @@ test("THE OVERLAP IS MEASURED: two agents side by side cost less wall than they 
   // BOTH NUMBERS OFF ONE CLOCK. `runFanout` takes an injectable `now` and it is
   // handed THIS one; on two clocks the subtraction is between incomparable
   // things and nothing about the stored row says so.
-  assert.deepEqual(waveMarks(out.shape), { agents: 2, agentMs: 260, waveMs: 160 });
+  //
+  // RE-ANCHORED 2026-09-10 (the per-agent numbers). This was an exact
+  // `deepEqual` against the three, so it went red the moment the projection
+  // started carrying a number per agent — reporting a feature as gone for a
+  // change that adds to it. Being exactly three was never the property; the
+  // three being right is, and now so is each agent's own.
+  assert.deepEqual(waveMarks(out.shape), { agents: 2, agentMs: 260, waveMs: 160, aMs: 100, bMs: 160 });
 });
 
 test("…and a design that really ran one call after another says so: no overlap", async () => {
@@ -675,4 +681,336 @@ test("generateSiteBands carries the pair out, on both of its returns", async () 
     async (keys, reqs) => reqs.map((r, i) => { const e = entry(i, band("Band" + i), 100); delete e.waveMs; return e; }));
   assert.equal(old.waveMs, 0, "an unstamped fan-out invented a wall time");
   assert.equal(old.agentMs, 300, "an unstamped fan-out lost the per-call times as well");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WHICH AGENT IS THE WAVE'S WALL (2026-09-10, owner, having drawn four lines of
+// different lengths meeting one barrier: "THATS WHY I TOLD YOU ABOUT SEPARATING
+// IT , SO ITS FASTER")
+//
+// The drawing IS the arithmetic. Fire N agents together and the wave costs its
+// SLOWEST one; every other agent answers and then waits at the barrier. So
+// separating turns a SUM into a MAX — which `agentMs - waveMs` already measures
+// — and the only lever left on a wave's wall time is which agent is the max.
+// Halving a fast agent buys exactly nothing.
+//
+// `agentMs` cannot say. It is the sum, and three of these four builds' agents
+// are invisible inside it. One number per agent is what makes the owner's next
+// question askable off one build.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("an agent's name becomes its trace key, and the names that cannot are refused", () => {
+  // THE ORDINARY ANSWER, for the four agents that really run.
+  assert.equal(agentMark("identity"), "identityMs");
+  assert.equal(agentMark("plan"), "planMs");
+  assert.equal(agentMark("look"), "lookMs");
+  assert.equal(agentMark("detail"), "detailMs");
+
+  // A NAME THAT COLLIDES IS STILL KEYED HERE, and that is the split of
+  // responsibility rather than a hole: `agent` and `wave` make perfectly legal
+  // keys, and whether one is already TAKEN is a question about the row being
+  // built — asked in `waveMarks`, derived from that row, so the three fixed
+  // names are never written out a second time beside it.
+  assert.equal(agentMark("agent"), "agentMs", "the collision rule migrated back here as a hand-written list");
+  assert.equal(agentMark("wave"), "waveMs");
+
+  // `tr.at` TRUNCATES A KEY AT 16 CHARACTERS, and a truncated key is where the
+  // collisions live: two long names that agree far enough in are cut down to ONE
+  // key, and the later agent silently overwrites the earlier. So the rule is not
+  // "short names are tidier" — it is that a key which reaches the trace WHOLE
+  // cannot merge with anything, and one that is cut might.
+  assert.equal(agentMark("a".repeat(14)), "a".repeat(14) + "Ms", "14 characters keys exactly, whole, and must be kept");
+  assert.equal(agentMark("a".repeat(15)), "", "a name whose key outruns the trace's 16-character key was kept");
+  // AND THE TRUNCATION IS REAL, driven against the trace itself rather than read
+  // off its source — without this the number 16 is a claim in two places. Two
+  // keys that differ only past the cut arrive as one.
+  const tr = makeTrace(() => 0);
+  tr.at("x", { ["a".repeat(16) + "X"]: 1, ["a".repeat(16) + "Y"]: 2 });
+  const keys = Object.keys(tr.done().steps.at(-1)).filter((k) => k.startsWith("a"));
+  assert.equal(keys.length, 1, "two keys differing past the 16th character stayed apart — the refusal above guards nothing");
+
+  // EVERY CANNOT-TELL IS A REFUSAL, never a repaired name: a key nobody can read
+  // back is worse than no key, and repairing invents a name the waves do not use.
+  for (const junk of ["", " ", "a b", "a-b", "a.b", "1st", "_x", null, undefined, 7, {}, ["plan"], ["a"]]) {
+    assert.equal(agentMark(junk), "", "a name that cannot be keyed was keyed: " + JSON.stringify(junk));
+  }
+  // `String(["plan"])` is `"plan"` — the recorded coercion trap. A one-element
+  // array must not read as the string it stringifies to.
+  assert.equal(agentMark(["plan"]), "", "a one-element array coerced into an agent name");
+});
+
+test("the projection carries one number per agent, and an agent that did not run has no key", () => {
+  const m = waveMarks({
+    waves: true, agents: 3, agentMs: 300, waveMs: 200,
+    eachMs: { identity: 40, plan: 110, look: 150 },
+  });
+  assert.deepEqual(m, { agents: 3, agentMs: 300, waveMs: 200, identityMs: 40, planMs: 110, lookMs: 150 });
+
+  // ABSENT MEANS ABSENT — the opposite rule from the three fixed numbers, and
+  // deliberately so. A design that broke in wave 2 never ran `detail`, and
+  // `detailMs: 0` reads as an agent that answered instantly. The three can
+  // afford a zero because a missing one and a zero one mean the same thing
+  // there; a per-agent key cannot.
+  assert.ok(!("detailMs" in m), "an agent that never ran was recorded as having taken no time");
+
+  // A SHAPE WITH NOTHING PER-AGENT IS EXACTLY WHAT IT WAS. Every existing
+  // reading of this projection has to keep working.
+  assert.deepEqual(waveMarks({ agents: 4, agentMs: 300000, waveMs: 200000 }),
+    { agents: 4, agentMs: 300000, waveMs: 200000 });
+
+  // AND NOTHING BUT A FINITE NUMBER GETS A KEY. `tr.at` would drop these
+  // silently, so a projection that passed them through would read from the
+  // stored row exactly like a projection that refused them — and the refusal
+  // here is what makes the rule visible to a guard at all.
+  const junky = waveMarks({
+    agents: 1, agentMs: 1, waveMs: 1,
+    eachMs: { plan: "110", look: NaN, detail: Infinity, three: null, tsx: ["9"], [" x"]: 5 },
+  });
+  assert.deepEqual(junky, { agents: 1, agentMs: 1, waveMs: 1 },
+    "something that is not a finite number under a keyable name reached the projection");
+
+  // NO AGENT MAY STAND WHERE THE THREE STAND. `agent` and `wave` make exactly
+  // the keys the SUM and the WALL CLOCK are stored under, and one agent's time
+  // in either place is the one way this instrument LIES rather than going quiet:
+  // the row still reads as a wave that cost 9, and nothing about it says which
+  // number it really is. The neighbours are admitted, so this is a collision
+  // test and not a ban on words beginning with `a` or `w`.
+  const taken = waveMarks({
+    agents: 2, agentMs: 300, waveMs: 200,
+    eachMs: { agent: 9, wave: 9, agents: 9, look: 150, waves: 9 },
+  });
+  assert.equal(taken.agentMs, 300, "an agent's own time was written over the sum of every agent's");
+  assert.equal(taken.waveMs, 200, "an agent's own time was written over the wave's wall clock");
+  assert.equal(taken.agents, 2, "an agent's own time was written over the count");
+  assert.deepEqual(taken, { agents: 2, agentMs: 300, waveMs: 200, agentsMs: 9, lookMs: 150, wavesMs: 9 },
+    "the keys that do NOT collide were refused too — the test is not a collision test");
+
+  // AND A NON-OBJECT `eachMs` IS NOT AN ERROR, it is nothing — the same rule the
+  // shape itself follows one line up.
+  for (const junk of [null, undefined, "plan", 7, true]) {
+    assert.deepEqual(waveMarks({ agents: 1, agentMs: 2, waveMs: 3, eachMs: junk }),
+      { agents: 1, agentMs: 2, waveMs: 3 }, "eachMs = " + JSON.stringify(junk));
+  }
+  // An ARRAY has entries, and its keys are "0", "1" — which `agentMark` refuses
+  // because a name must start with a letter. Driven, not reasoned about.
+  assert.deepEqual(waveMarks({ agents: 1, agentMs: 2, waveMs: 3, eachMs: [10, 20] }),
+    { agents: 1, agentMs: 2, waveMs: 3 }, "an array's indices became agent names");
+
+  // AND A FUNCTION IS THE ONE SHAPE THAT MAKES `typeof === "object"` DO ANY
+  // WORK, which is why it is driven rather than assumed. MEASURED against the
+  // looser `s.eachMs || {}` over nineteen shapes: they agree on every one but
+  // this — a string's, an array's and a number's own keys are all indices, and
+  // `agentMark` refuses those anyway because a name must start with a letter.
+  // A function is truthy, is not an object, and its own enumerable properties
+  // are real names. Without this case the wall reads as dead code and the next
+  // session deletes it.
+  const carrier = function () {};
+  carrier.plan = 5;
+  assert.deepEqual(waveMarks({ agents: 1, agentMs: 2, waveMs: 3, eachMs: carrier }),
+    { agents: 1, agentMs: 2, waveMs: 3 }, "a function's own properties became agent times");
+});
+
+test("THE WALL NAMES ITSELF: the wave costs its slowest agent, and the row says which", async () => {
+  // THE OWNER'S DRAWING, DRIVEN. Three agents at once, one of them much slower
+  // than the other two: the wave's wall time IS that agent's time, and the two
+  // fast ones spent their last 130 and 100 ms waiting at the barrier.
+  const d = driven(
+    [[{ name: "identity", fields: ["brand"] }, { name: "plan", fields: ["slug"] }, { name: "look", fields: ["theme"] }]],
+    { brand: { type: "string" }, slug: { type: "string" }, theme: { type: "string" } },
+  );
+  assert.equal(d.gates.length, 3, "the three agents did not all start");
+  await d.finish(0, 20);    // identity: fast
+  await d.finish(1, 50);    // plan:     middling
+  await d.finish(2, 150);   // look:     the wall
+  const out = await d.p;
+
+  const m = waveMarks(out.shape);
+  assert.deepEqual(m, { agents: 3, agentMs: 220, waveMs: 150, identityMs: 20, planMs: 50, lookMs: 150 });
+  // THE PROPERTY THE OWNER ASKED FOR, stated as arithmetic rather than as
+  // prose: on simultaneous starts the wave costs its slowest agent, so the
+  // largest per-agent number IS the wall time — and cutting any of the others
+  // in half moves the wall by nothing at all.
+  const per = [m.identityMs, m.planMs, m.lookMs];
+  assert.equal(Math.max(...per), m.waveMs, "the wave did not cost its slowest agent — re-derive what these numbers mean");
+  assert.ok(per.filter((x) => x < m.waveMs).length === 2, "only one agent should be at the wall");
+  // AND THE SUM ALONE CANNOT SAY IT. This is why the parts exist: the same
+  // 220/150 would come out of three agents at 73 each, where there is no wall
+  // to cut and the split has already bought everything it can.
+  assert.deepEqual(waveMarks({ agents: 3, agentMs: 220, waveMs: 150 }), { agents: 3, agentMs: 220, waveMs: 150 });
+});
+
+test("the parts always sum to the whole, and a repeated name adds rather than replaces", async () => {
+  // THE TIE THAT KEEPS THEM HONEST. `agentMs` and the per-agent numbers are
+  // read off ONE `a.ms` under ONE test, so a row whose parts do not add up to
+  // its sum is a row that has lost an agent.
+  //
+  // AND A NAME USED TWICE IS WHAT DRIVES IT. `DESIGN_WAVES` names its four
+  // agents distinctly (a census below), but this function takes its waves as an
+  // ARGUMENT — so `=` instead of `+=` answers a wrong number for one agent
+  // rather than a caught mistake for the design.
+  const d = driven(
+    [[{ name: "look", fields: ["brand"] }], [{ name: "look", fields: ["slug"] }]],
+    { brand: { type: "string" }, slug: { type: "string" } },
+  );
+  await d.finish(0, 90);
+  await d.finish(1, 250);
+  const out = await d.p;
+
+  assert.equal(out.shape.agentMs, 250, "90 of work in wave 1 and 160 in wave 2");
+  assert.equal(out.shape.eachMs.look, 250, "the second wave's `look` replaced the first's instead of adding to it");
+  const parts = Object.values(out.shape.eachMs).reduce((a, b) => a + b, 0);
+  assert.equal(parts, out.shape.agentMs, "the per-agent numbers no longer add up to the sum");
+});
+
+test("an agent with no readable name is filed nowhere, and never under a coerced one", async () => {
+  // `String(["plan"])` IS `"plan"` — shipped as a real bug three times in this
+  // repository — so a name read with `String(...)` rather than by type would
+  // file a one-element array's time under a real agent's key. The sum still
+  // counts it (the call was made and paid for); only the NAME is refused.
+  const d = driven(
+    [[{ name: ["plan"], fields: ["brand"] }, { name: null, fields: ["slug"] }]],
+    { brand: { type: "string" }, slug: { type: "string" } },
+  );
+  await d.finish(0, 40);
+  await d.finish(1, 90);
+  const out = await d.p;
+
+  assert.deepEqual(out.shape.eachMs, {}, "an agent with no readable name was filed under one anyway");
+  assert.equal(out.shape.agentMs, 130, "the calls were still made and still cost what they cost");
+  assert.deepEqual(waveMarks(out.shape), { agents: 2, agentMs: 130, waveMs: 90 });
+});
+
+test("a failed agent is filed under its own name — it was spent", async () => {
+  // `agentMs` has counted a failed agent since the pair shipped; the parts must
+  // agree, or the one row worth reading — the wave where an agent died holding
+  // the wall — under-reports exactly the agent that cost the most.
+  let t = 0;
+  const gates = [];
+  const call = () => new Promise((res, rej) => gates.push({ res, rej }));
+  const p = designInWaves(
+    {
+      tool: toyTool({ brand: { type: "string" }, slug: { type: "string" } }, []),
+      system: "s", brief: "b", model: "m", maxTokens: 1,
+      waves: [[{ name: "identity", fields: ["brand"] }, { name: "look", fields: ["slug"] }]],
+    },
+    call,
+    () => t,
+  );
+  t = 210;
+  gates[0].rej(Object.assign(new Error("upstream said no"), { status: 429 }));
+  await flush();
+  t = 240;
+  gates[1].res(answer({ slug: "slug" }));
+  await flush();
+  const out = await p;
+
+  assert.equal(out.shape.eachMs.identity, 210, "the agent that failed lost the time it spent");
+  assert.equal(out.shape.eachMs.look, 240);
+  assert.equal(out.shape.agentMs, 450, "the sum and the parts disagree about a failed agent");
+  assert.equal(waveMarks(out.shape).identityMs, 210, "…and it never reached the projection");
+});
+
+test("a design that stops early records the agents that RAN and no others", async () => {
+  // PRESENCE IS THE SIGNAL, end to end. A required field lost in wave 1 ends the
+  // design there, so wave 2 never runs and never costs anything — and the row
+  // must say that rather than claim two agents took no time.
+  const d = driven(
+    [[{ name: "identity", fields: ["brand"] }], [{ name: "plan", fields: ["slug"] }, { name: "look", fields: ["theme"] }]],
+    { brand: { type: "string" }, slug: { type: "string" }, theme: { type: "string" } },
+    ["brand"],
+  );
+  await d.declineNothing(0, 120);
+  const out = await d.p;
+
+  assert.equal(d.gates.length, 1, "wave 2 ran on a design that had already lost a required field");
+  const m = waveMarks(out.shape);
+  assert.equal(m.identityMs, 120, "the agent that ran was not recorded");
+  assert.ok(!("planMs" in m) && !("lookMs" in m),
+    "an agent whose wave never ran was recorded as having taken no time");
+  assert.equal(m.agents, 1);
+});
+
+test("THE CHAIN: a driven design's per-agent numbers reach a real trace, through worker.js's own mark", async () => {
+  // A VALUE BUILT IS NOT A VALUE THAT ARRIVES — this repository's most-shipped
+  // failure, and the one the hook fix above found on the live database. Every
+  // case before this proves the numbers are COMPUTED; this one proves they land
+  // on a stored step, and it proves it by RUNNING the Worker's own line rather
+  // than by matching text, because `tr.at(name)` instead of `tr.at(name, marks)`
+  // satisfies every text match there is.
+  const at = WORKER.indexOf('tr.at("design"');
+  assert.ok(at > 0, "the design trace mark is gone");
+  const close = ": undefined);";
+  const end = WORKER.indexOf(close, at);
+  assert.ok(end > at, "the design mark's closing landmark is gone — re-derive this window");
+  const stmt = WORKER.slice(at, end + close.length);
+  assert.ok(/waveMarks/.test(stmt), "the statement cut out is not the one that asks the projection");
+
+  // A REAL DESIGN, RUN. Not a hand-typed shape: a fixture in a different shape
+  // from the real producer is a recorded trap, and the whole question here is
+  // whether what `designInWaves` really returns survives the hop.
+  const d = driven(
+    [[{ name: "identity", fields: ["brand"] }], [{ name: "plan", fields: ["slug"] }, { name: "look", fields: ["theme"] }]],
+    { brand: { type: "string" }, slug: { type: "string" }, theme: { type: "string" } },
+  );
+  // Wave 1 runs 0 → 30. Wave 2 STARTS AT 30, so `plan` costs 60 and `look` 170
+  // — the numbers are per agent, never from the build's own origin, which is
+  // exactly the difference a wave boundary makes and the reason this fixture has
+  // two waves rather than one.
+  await d.finish(0, 30);
+  await d.finish(1, 90);
+  await d.finish(2, 200);
+  const out = await d.p;
+
+  // The REAL trace module, whose numbers-only wall is the reason the projection
+  // exists at all.
+  const tr = makeTrace(() => 0);
+  new Function("tr", "waveMarks", "schemaUsage", "useWaves", "designWaves", "designedShape", stmt)(
+    tr, waveMarks, { in: 5, out: 7 }, true, [[1], [1, 1]], out.shape,
+  );
+  const step = tr.done().steps.at(-1);
+  assert.equal(step.s, "design", "the mark did not record a step at all");
+  assert.equal(step.identityMs, 30, "the per-agent numbers never reached the trace");
+  assert.equal(step.planMs, 60);
+  assert.equal(step.lookMs, 170);
+  assert.equal(step.agentMs, 260, "the sum stopped arriving");
+  assert.equal(step.waveMs, 200, "the wall time stopped arriving");
+  assert.equal(step.agents, 3);
+  assert.equal(step.waves, 2, "the PLANNED wave count is what the route contributes, and it stopped arriving");
+  assert.equal(step.out, 7);
+  assert.ok(!("eachMs" in step), "the nested object reached the trace — then the projection is dead code");
+
+  // AND A SINGLE-CALL DESIGN CARRIES NONE OF IT, which is what makes the step's
+  // own shape the flag: `useWaves` false must leave a row that says nothing
+  // about waves at all.
+  const one = makeTrace(() => 0);
+  new Function("tr", "waveMarks", "schemaUsage", "useWaves", "designWaves", "designedShape", stmt)(
+    one, waveMarks, { in: 5, out: 7 }, false, [[1], [1, 1]], out.shape,
+  );
+  const plain = one.done().steps.at(-1);
+  assert.deepEqual(plain, { s: "design", ms: 0, out: 7, in: 5 },
+    "a single-call design left wave numbers on its row");
+});
+
+test("THE CENSUS: every agent the waves really plan can be keyed, and no two share a key", () => {
+  const names = DESIGN_WAVES.flat().map((a) => a.name);
+  assert.ok(names.length >= 4, "only " + names.length + " agents found — the census is not reading the waves");
+
+  const keys = names.map((n) => {
+    const k = agentMark(n);
+    assert.ok(k, "the agent `" + n + "` cannot be keyed, so its time is recorded nowhere at all");
+    return k;
+  });
+  // DISTINCT AFTER THE TRACE'S OWN TRUNCATION, not merely distinct as written —
+  // which is the whole reason `agentMark` has a length rule. Asked of the real
+  // `tr.at`, so the number 16 is never a claim in two places.
+  const tr = makeTrace(() => 0);
+  tr.at("design", Object.fromEntries(keys.map((k, i) => [k, i + 1])));
+  const step = tr.done().steps.at(-1);
+  for (let i = 0; i < keys.length; i++) {
+    assert.equal(step[keys[i]], i + 1,
+      "the agent `" + names[i] + "` lost its number to another agent's key once the trace truncated it");
+  }
+  // …and the names are distinct in the first place, which is what makes the
+  // per-agent numbers readable as agents rather than as totals.
+  assert.equal(new Set(names).size, names.length, "two agents share a name: " + names.join(","));
 });

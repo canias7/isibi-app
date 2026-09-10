@@ -2345,6 +2345,104 @@ number, for both kinds, off values both paths already carried.
 
 ---
 
+### A WAVE COSTS ITS SLOWEST AGENT, AND THE ROW SAYS WHICH ONE (2026-09-10,
+owner, having drawn four lines of different lengths meeting one vertical barrier
+with "WAIT" twice beside it: *"YES , YOU GOT IT , THATS WHY I TOLD YOU ABOUT
+SEPARATING IT , SO ITS FASTER"* → *"O KGO"*)
+
+**THE DRAWING IS THE ARITHMETIC AND IT IS THE OWNER'S, NOT THIS FILE'S.** Fire N
+agents together and the wave costs its SLOWEST one; every other agent answers and
+then waits at the barrier. So separating turns a SUM into a MAX — which is
+exactly what `agentMs - waveMs` has measured since it shipped — and the lever
+that is left is **which agent is the max**. Halving a fast agent buys nothing at
+all. `agentMs` is a sum and cannot say: three of the four agents are invisible
+inside it, so every question after "did the split pay" was unanswerable from a
+stored row.
+
+- **`runFanout` HAS ALWAYS MEASURED THE PARTS AND THE LOOP KEPT ONLY THE TOTAL** —
+  the third time on this instrument: the design loop threw the per-call elapsed
+  away until 2026-09-10, the band path threw it away until the entry above, and
+  this is the same `a.ms` again, now filed under the agent that spent it.
+  `shape.eachMs` is `{identity, plan, look, detail}` → ms, and `waveMarks`
+  projects it as `identityMs` / `planMs` / `lookMs` / `detailMs`.
+- **NO WORKER CHANGE AT ALL, and that is a property of the earlier design rather
+  than luck.** The design mark already spreads `...waveMarks(designedShape)`, so
+  a projection that answers more lands on the row by existing. **The guard does
+  not take that on trust**: it cuts the mark statement out of `worker.js` and
+  RUNS it against a real `makeTrace` and a real driven design, because
+  `tr.at(name)` instead of `tr.at(name, marks)` satisfies every text match there
+  is — a value BUILT is not a value that ARRIVES, which is this repository's
+  most-shipped failure and what the hook fix found on the live database.
+- **ABSENT MEANS ABSENT, AND IT IS THE OPPOSITE RULE FROM THE THREE BESIDE IT.**
+  A design that broke in wave 2 never ran `detail`, and `detailMs: 0` reads as an
+  agent that answered instantly. The three fixed numbers can afford a zero
+  because a missing key and a zero key mean the same thing there; a per-agent key
+  cannot, so an agent that did not run has no key.
+- **THE PARTS ALWAYS SUM TO `agentMs`**, which is the tie that keeps the two from
+  drifting, and `+=` rather than `=` is what makes it unconditional. Two agents
+  of one name is a mistake the census catches in `DESIGN_WAVES` — but
+  `designInWaves` takes its waves as an ARGUMENT, so `=` would answer a wrong
+  number for one agent rather than a caught mistake for the design. The mutant
+  dies against a driven two-wave design that names both agents `look`.
+- **THE KEY IS REFUSED, NEVER REPAIRED, AND THE 16 IS THE TRACE'S OWN.** `tr.at`
+  truncates a key at 16 characters, and a truncated key is where the collisions
+  live: two long names that agree far enough in are cut down to ONE key and the
+  later agent silently overwrites the earlier — a wrong number wearing a right
+  one's name, which is the only way this instrument can LIE rather than go quiet.
+  So a name whose `<name>Ms` would not arrive whole gets no key, and the guard
+  drives the truncation against the real `makeTrace` so the number 16 is never a
+  claim in two places.
+- **AND THE "ALREADY TAKEN" TEST IS DERIVED FROM THE ROW, not written out beside
+  it.** An agent called `agent` or `wave` makes exactly the key the sum or the
+  wall clock is stored under. The first draft refused those two BY NAME inside
+  `agentMark` — which is a hand-copy of the three fixed keys, "two lists of the
+  same thing" with the row itself as the other list, and it left the spread order
+  as a second wall nothing could kill. `Object.hasOwn(marks, key)` in `waveMarks`
+  is one wall, derived, and its mutant dies.
+- **Guards**: `test/split-timing.test.mjs` 18 → 27, every new one DRIVEN. The one
+  that settles the owner's question is three agents at once where one is much
+  slower: the row reads `identityMs 20, planMs 50, lookMs 150` against
+  `waveMs 150`, and the guard asserts `max(per-agent) === waveMs` — the barrier,
+  as arithmetic rather than as prose — with the same 220/150 shown to be
+  producible by three equal agents where there is no wall to cut. Beside it:
+  `agentMark` driven over every name shape including `String(["plan"])`; the
+  projection driven over junk, arrays and collisions; a failed agent proved to be
+  filed under its name; an agent with no readable name proved to be filed
+  nowhere; a design that stops early proved to record only what ran; the parts
+  proved to sum to the whole; and a census requiring every real agent's key to
+  survive the trace's truncation distinctly.
+- **ONE OLDER CASE WENT RED AND WAS RE-ANCHORED, NOT APPEASED.** The overlap
+  case's `deepEqual` against exactly the three numbers reported a feature as gone
+  for a change that adds to it. Being exactly three was never the property.
+- **Sweep: 23 mutants, 23 killed, none survived, none unapplied, three
+  comment-only controls survived** — the record deleted (the state before this),
+  every agent under one name, filed by index, `=` for `+=`, the agent read from
+  the wave's first slot, the name coerced, the number taken from the wave's wall
+  so every agent reads the same, a failed agent unfiled, `eachMs` computed and
+  never put on the shape, the projection's loop deleted, the key without its
+  unit, the truncation refusal dropped, the charset refusal dropped, `agentMark`
+  coercing, a taken key written over, the taken-key test spelled as a list that
+  names one of the three, a non-finite number reaching the row, an agent that
+  never ran recorded as zero, `eachMs` read out of the wrong field, the mark no
+  longer spreading the projection, and the mark handing the shape straight in.
+- **ONE SURVIVED THE FIRST PASS AND IT WAS A DRIVER GAP, MEASURED RATHER THAN
+  ASSUMED.** Reading `s.eachMs || {}` instead of testing `typeof === "object"`
+  survived, and the measurement is the useful half: over nineteen shapes the two
+  readings agree on **eighteen**, because a string's, an array's and a number's
+  own keys are all INDICES and `agentMark` refuses those anyway (a name must
+  start with a letter). **A function is the one shape that separates them** —
+  truthy, not an object, and its own enumerable properties are real names. Driven
+  now; re-run to a kill. Without that case the wall reads as dead code and the
+  next session deletes it.
+- Full suite **5,907**.
+- **Not proven live**, and the proof is one ordinary build: the design step's row
+  should carry four numbers beside `agentMs`/`waveMs`, and the largest of them
+  should equal `waveMs` for its own wave. The push changes `builder/design-waves.mjs`,
+  which is in the Worker's module graph and therefore a container image input, so
+  the container ROLLS and the 15–20 minute hold applies.
+
+---
+
 ### THE LIVE PAINTER COULD UPDATE THE STAGE AND NEVER CREATE IT (2026-09-10,
 owner, watching a first build run: *"WHEN IT STARTS NOTHING APPEARS IN THE BIG
 SCREEN, IT WOULD ONLY APPEAR IF I CLICK A BUTTON AND THEN PRESS PREVIEW AGAIN"*)
@@ -4573,7 +4671,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,898.
+  The unit suite is 5,907.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
