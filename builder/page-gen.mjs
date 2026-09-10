@@ -2423,8 +2423,14 @@ function importEnd(src, i) {
  *
  * `import(` and `import.meta` are EXPRESSIONS. Neither can appear before the
  * first statement of a module, so meeting one means the header is over.
+ *
+ * EXPORTED FOR `page-bands.mjs` (2026-09-09), which lifts each band's imports
+ * to the top of the assembled page. A second reader of an import header is the
+ * recorded "two lists of the same thing" with the worst possible subject — the
+ * two would disagree about where the header ENDS, and the loser writes a page
+ * whose first band is silently swallowed into an import span.
  */
-function importSpans(src) {
+export function importSpans(src) {
   const spans = [];
   let i = 0;
   while (i < src.length) {
