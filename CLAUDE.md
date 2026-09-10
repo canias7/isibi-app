@@ -977,6 +977,136 @@ serves is green now; the other is the graphite it has always been.
 
 ---
 
+### A PAGE IS WRITTEN A BAND AT A TIME — STAGED, NOT SHIPPED (2026-09-09, owner:
+*"im sure that one step doesn't have necessary wait for the other one to finish
+to start, so figure out if we can send different agents to do tasks at the same
+time for the design and the generate"* → four options rendered → *"A"* → *"Ok
+ho"*)
+
+**NOTHING GENERATES A BAND YET, AND SAYING SO IS THE POINT OF THIS SECTION.**
+Two pieces are in the tree and neither is reachable from a build: the splitter
+and assembler (`builder/page-bands.mjs`) and the container's fan-out
+(`/model/start` taking `reqs`). A module nobody calls is this repository's
+most-shipped failure — `three`, `parts`, `resumeEditJob`, the Code tab's host —
+so what stops this becoming the next one is that the unwired half is written
+down rather than remembered. **The remaining hops are named at the bottom.**
+
+- **WHY THE PAGE AND NOT THE DESIGN**, since the owner asked about both. The
+  design's dependency graph really is shallow — the 23 fields collapse to about
+  five levels — and splitting it still LOSES: its 93,598 characters are the
+  QUESTION, they are in the cached block, and the answer is short, so there is
+  little wall clock to win and five prompt-processings to pay for it. The page
+  call is the long one. Its own header says seven to twelve minutes on a real
+  brief, and the container has measured **334,000–620,000 ms** against a design
+  step of ~170 s. **That is where the time is, so that is what was split.**
+- **THE SPLIT UNIT ALREADY EXISTED.** `shape` plans a page as an ordered list of
+  bands (`{path, sections[]}`, `MAX_SECTIONS` 8), so nothing had to invent a way
+  to cut a page up — the design step has been answering one for months and the
+  page call was collapsing it back into one prompt.
+- **A BAND IS A COMPONENT, NEVER A JSX FRAGMENT.** Read across the 324-page
+  corpus, state sits at PAGE scope in real generated pages, and which band will
+  want `useState` cannot be known before it is written. Fragments would force
+  every band to agree in advance about a hook that lives above all of them;
+  components give each band its own scope by construction, and the page function
+  becomes a pure composition — which is also why the shell is COMPOSED rather
+  than generated (`pageShell`, `SHELL_IMPORTS`): `SiteChrome` takes name,
+  tagline, links and action, and the design step answers all four.
+- **THE ASSEMBLER REUSES `importSpans` RATHER THAN COPYING IT.** `page-gen.mjs`
+  measured its import reader at **0 false alarms over 3,736 real files**; a
+  second copy in the assembler would be "two lists of the same thing" with the
+  worst possible subject, so the function was exported and its comment says why.
+  `assembleBands` refuses a band per band (`bandProblems`) and STUBS the refused
+  one (`bandStub`), so one bad band is a page missing a section rather than no
+  page — salvage's own argument, one layer down.
+- **THE FAN-OUT IS ONE JOB HOLDING N CALLS, and it has to be.** N separate
+  `/model/start` calls cannot run at once: `oneAtATime` in the container
+  serialises them, and its own comment calls that harmless *precisely because
+  until today nothing needed two calls in flight* — the recorded "a rule true
+  because of a layer below it expires when that layer moves", found before it
+  cost anything. One job keeps every property the single path has: one slot, so
+  `_busy` is right and the container is not stopped mid-generation; one id, so
+  the store stays bounded; one report, so the lease chain is unchanged.
+- **`Promise.all` REJECTS ON THE FIRST FAILURE**, which here would throw away
+  every band that succeeded because one did not — nine sections lost to one,
+  after paying for all ten. `builder/model-fanout.mjs` catches per call, so a
+  failure is an ENTRY, and **every entry carries its index**: calls finish out
+  of order, which is the point, so the position is the only thing tying an
+  answer back to the band it was asked for.
+- **AND THAT MODULE EXISTS BECAUSE A SOURCE-READ SWEEP COULD NOT KILL EITHER OF
+  THOSE TWO.** A `catch` that rethrows still contains `catch (e) {`; an entry
+  that drops its index still leaves `{ i,` on a line nearby. Both survived while
+  the code lived inline in `build-server.mjs` and both die in one line once the
+  thing can be RUN — the recorded "a chain asserted by reading is asserted at
+  the layer below the break", and the reason a 60-line helper is its own file.
+  It is dependency-free because the container imports it, **and the Dockerfile
+  has to COPY it**: `test/dockerfile.test.mjs`'s import walk went red for it in
+  the same suite run, which is the third time that guard has caught this class.
+- **NO `onPartial` ON A FAN-OUT, deliberately.** The code stream shows the
+  customer one file being written; eight bands interleaving into it is not a
+  file. `stream: true` still rides on every call — that is what keeps the wire
+  from going idle, which is what streaming is FOR here, not what the customer
+  sees.
+- **`MAX_MODEL_FANOUT` IS 8 AND IS NOT `MAX_SECTIONS`.** They agree today by
+  coincidence. One answers *how many bands may a page have* — a product
+  question — and the other *how many calls may one container hold open* — a
+  question about this process's memory and sockets. Derived, the day the plan
+  allows twelve bands is the day the container quietly gets twelve sockets
+  without anybody deciding to. A mutant ties them and dies.
+- **A FAN-OUT SETTLES `done` EVEN WHEN EVERY CALL FAILED**, and the caller reads
+  the list. Reported `failed`, it would be indistinguishable from a container
+  that LOST the work, and those need opposite moves — stub and publish, versus
+  buy it again. `/model/result` answers `answers` for a fan-out and `answer` for
+  a single call, never both, so the shape says which kind of job it was instead
+  of leaving it to be inferred.
+- **Guards**: `test/page-bands.test.mjs` (19) — the corpus case is the one worth
+  having: 324 real pages, split into 107 groups of three, reassembled and PARSED
+  with the template's own TypeScript, because a writer that emits source is
+  proven by parsing what it emits (the `action` lane's own lesson). Plus
+  `test/model-fanout.test.mjs` (14): nine source reads and **five driven**, the
+  concurrency and ordering cases on deterministic gates rather than timers.
+- **THE TIMER-BASED FIRST DRAFT KILLED ITS OWN CONTROL.** Two concurrency guards
+  used `setTimeout` and drifted under sweep load, so the comment-only control
+  came back KILLED — a guard that reports correct code as broken, which this
+  file rates worse than a miss. Rewritten with gates the test opens itself.
+- **Sweep: 20 mutants, 20 killed, none survived, none unapplied, two
+  comment-only controls survived** — the fan-out outside the slot, settling
+  `failed`, the beat left running when the report throws, an over-long list
+  truncated instead of refused, an empty list accepted, junk silently dropped,
+  the socket bound tied to the band cap, a body with neither shape accepted, the
+  single call losing its partial stream, a fan-out call not streaming, a fan-out
+  sending partial code, `/model/result` reading a list back as one answer or
+  serving it as `answer`, one failed call throwing away the rest, either entry
+  losing its index, the calls run one after another, the call made outside the
+  try, an empty fan-out reading as everything failed, and the failure losing the
+  provider's status. **Three survived a first pass and two were real** (the
+  rethrowing catch and the dropped index, which is what produced the module);
+  **three others were proved INERT rather than assumed** — a `.sort()` that
+  cannot reorder index-first names under a cap of 8, a `word[0]` test identical
+  to `word`, and `await x` versus `await Promise.resolve(x)`, both of which
+  invoke inside the try. Each was replaced by a mutant that does change
+  behaviour, and all three died.
+- **Four older guards went red for the change and were re-anchored, not
+  appeased**, each naming the spelling that moved: `test/build-jobs.test.mjs`
+  and `test/build-resume-wiring.test.mjs` both pinned the container's reports at
+  exactly `["done", "failed"]` — a COUNT, true while the handler held two and
+  wrong the moment an honest third arrived; they read the SET now, and
+  build-jobs' rewrite closed a hole its old shape had (a report added with no
+  `genTag` did not appear in the list at all, so the list still read
+  `["done","failed"]` and passed). `test/gen-code.test.mjs` sliced to the first
+  `));` and now anchors on the single call by name, plus a new assertion that a
+  fan-out must NOT carry `onPartial`. `test/dockerfile.test.mjs` needed the new
+  module on the COPY line.
+- **WHAT IS LEFT, and none of it is written**: the band prompt (what one agent
+  is actually asked for), the Worker side building N requests out of `shape` and
+  handing the answers to `assembleBands`, the flag that chooses between this and
+  today's one-call path, and a `site build` container case — **which is the only
+  instrument that can prove the container really runs eight calls at once.**
+  Until that case exists, the fan-out is asserted by a driven module and a
+  source read, and the container has never done it.
+- Full suite **5,778**.
+
+---
+
 ### AND ALL FIFTEEN CAN BE TAKEN OFF, NOT NINE (2026-09-08, owner: *"IT SHOULD
 BE ABLE TO DELETE THE 15"*)
 
@@ -2826,7 +2956,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   that number since the cap moved to 35 minutes**: runs 1065 and 1066 both
   printed `373 passed, 0 failed`, where stage 5b/5c's own run had been killed
   at the 25-minute wall and the count stood on a local run alone;
-  the unit suite is 5,745.
+  the unit suite is 5,778.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

@@ -429,10 +429,26 @@ test("the container asks for the partial only when it has somewhere to send it, 
   // so a flat scan stops at that `)` and reports the wiring gone — the recorded
   // depth trap, met inside a guard written to catch a wiring bug.
   const gen = src.slice(src.indexOf("const code = codeSender(report, id);"));
-  const upToCall = gen.slice(0, gen.indexOf("));") + 3);
-  assert.match(upToCall, /callBuilderModel\(/, "the sender is built and no model call follows it");
-  assert.match(upToCall, /code \? \{ stream: true, onPartial: code \} : \{ stream: true \}/,
+  assert.match(gen, /callBuilderModel\(/, "the sender is built and no model call follows it");
+  // RE-ANCHORED 2026-09-09 FOR THE BAND FAN-OUT. This used to window from the
+  // sender to the next `));` — and the fan-out's own call now sits between the
+  // two, so the window closed on ITS closing parens and reported the wiring
+  // gone while it was perfectly intact. The recorded overlapping-window trap:
+  // a window that ends at a SHAPE rather than at a landmark swallows whatever
+  // is inserted before that shape next appears.
+  //
+  // The property is about the SINGLE-call path, which is the only one that
+  // streams code to the customer, so it is anchored on that call by the
+  // argument only it passes — `mReq`, where the fan-out passes `r`.
+  const oneCall = gen.indexOf("callBuilderModel(keysFrom(BUILD_KEYS), mReq,");
+  assert.ok(oneCall > 0, "the single-call path no longer makes its own model call");
+  assert.match(gen.slice(oneCall, oneCall + 200), /code \? \{ stream: true, onPartial: code \} : \{ stream: true \}/,
     "the generation call no longer hands the sender to the model call");
+  // AND THE FAN-OUT MUST NOT HAVE IT. Eight bands interleaving into one code
+  // stream is not a file, and the customer would watch it scramble.
+  const fan = gen.indexOf("callBuilderModel(keysFrom(BUILD_KEYS), r,");
+  if (fan > 0) assert.ok(!/onPartial/.test(gen.slice(fan, fan + 200)),
+    "the fan-out hands the code sender to every band at once");
   assert.equal((src.match(/codeSender\(/g) || []).length, 2, "the sender is built somewhere new, or nowhere");
   assert.match(src, /import \{ codeUpdate \} from "\.\/gen-code\.mjs"/, "the container no longer imports the reader");
 });

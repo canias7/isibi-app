@@ -155,6 +155,74 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-10 — Writing a page in pieces, at the same time (half built, nothing live)
+
+You asked whether the design step and the generate step really have to wait for
+each other, and whether we could send several agents off at once. I looked at
+both and came back with four options; you picked **A — split the page by band**.
+Two pieces of it are now built. **Neither is switched on, and no build uses
+them yet.** I am writing that down plainly because a piece of code nobody calls
+is the mistake this project has made more than any other.
+
+**Why the page and not the design.** The design step is one call that asks a
+very long question — about 93,000 characters — and gets a short answer back.
+That long question is cached, so asking it costs little time; splitting it into
+five smaller calls would mean paying to send a question five times to save
+almost nothing. The generate step is the opposite: a short question and a very
+long answer, and it is the one that takes the time. We have measured it at
+between five and a half and ten minutes, against the design step's under three.
+**So the time is in the page, and the page is what I split.**
+
+**How a page gets cut up.** It already is. The design step answers a field
+called `shape`, which lists the page as an ordered set of bands — a hero, then
+what you offer, then the prices, then the contact strip. Up to eight. Nobody
+had to invent a way to divide a page; the plan has been describing one all
+along and the generate step was gluing it back into a single request.
+
+**Each band is written as its own small component.** I checked all 324 real
+pages we have generated before deciding that, and the reason is boring and
+important: real pages keep their moving parts at the top of the file, and there
+is no way to know in advance which band will need one. Give each band its own
+file and the question never comes up. The page itself then becomes a short list
+of the bands in order, which is a thing we can write ourselves rather than ask
+a model for.
+
+**One bad band is not eight bad bands.** If we fired eight requests the obvious
+way, the first one to fail would throw away the seven that worked — after we
+had already paid for all eight. Each one now catches its own trouble, and a
+band that fails is replaced with a placeholder while the rest of the page
+publishes. That is the same rule the builder already follows elsewhere: a page
+missing one strip beats no page at all.
+
+**The container had to learn to hold several calls at once.** It was built to
+do one thing at a time — deliberately, and it was right until today, because
+nothing had ever needed two. So a split page is now **one job holding eight
+calls**, which keeps every safety property the old single call had: the
+container knows it is busy, so it is not shut down halfway; there is one id, so
+memory stays bounded; there is one report at the end, so nothing downstream
+changed.
+
+**Something worth telling you about the testing.** Two of my checks passed on
+code that was actually broken, because they were reading the code as text
+rather than running it. A piece of error handling that quietly re-throws still
+*looks* like error handling on the page. I moved that logic into its own small
+file so the tests could genuinely run it, and both faults died immediately. It
+is the same lesson this project keeps relearning: reading code proves less than
+running it.
+
+Also: two of my own tests were using real clocks and became unreliable under
+load — they reported correct code as broken, which is worse than missing a
+fault. Rewritten so they do not depend on timing.
+
+**What is left before this does anything.** Four things: what exactly we ask
+one agent to write for a single band; the code that builds the eight requests
+and puts the answers back together; a switch that chooses between this and
+today's single-call path; and a real container test, which is the only thing
+that can prove the container truly runs eight at once. **Until that last one
+exists, no container has ever actually done this.**
+
+---
+
 ## 2026-09-09 — Every project has its own web address now
 
 You held up Lovable's `lovable.dev/projects/a752aa91-…` and said *"or something

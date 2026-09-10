@@ -840,10 +840,28 @@ test("the container beats while it generates — the Worker's cadence, the token
   const timer = start.indexOf("const beat = ");
   const call = start.indexOf("await callBuilderModel(");
   assert.ok(timer > 0 && call > timer, "the timer starts after the call — a long generation would not beat until it ended");
-  // BOTH REPORTS CARRY THE ROW'S HALF, after `state`, so the report's own
+  // EVERY REPORT CARRIES THE ROW'S HALF, after `state`, so the report's own
   // guard (state first) still reads them.
-  const tags = [...start.matchAll(/await sendModelReport\(report, \{\s*\n?\s*state: "(\w+)"[\s\S]*?\.\.\.genTag\(report, id\)/g)].map((m) => m[1]).sort();
-  assert.deepEqual(tags, ["done", "failed"], "a report does not name the job and the generation");
+  //
+  // RE-ANCHORED 2026-09-09 FOR THE BAND FAN-OUT, and the count is not the
+  // property. This asserted the matches were exactly ["done", "failed"] — true
+  // while the block held two reports, and the fan-out adds a third, legitimate
+  // one that carries its tag correctly. A guard that goes red because an honest
+  // report was added is reporting something nobody did.
+  //
+  // AND THE OLD SHAPE HAD A HOLE THE NEW ONE CLOSES. It only ever looked at
+  // reports that ALREADY matched the genTag pattern, so a report added WITHOUT
+  // a tag simply did not appear in the list — and the list would still read
+  // ["done", "failed"] and pass. Counting every `sendModelReport` in the block
+  // and requiring the tagged count to equal it is what makes an untagged report
+  // visible at all.
+  const allReports = [...start.matchAll(/await sendModelReport\(report, \{/g)].length;
+  const tagged = [...start.matchAll(/await sendModelReport\(report, \{\s*\n?\s*state: "(\w+)"[\s\S]*?\.\.\.genTag\(report, id\)/g)].map((m) => m[1]);
+  assert.ok(allReports >= 2, "only " + allReports + " reports found — the scan has drifted off the block");
+  assert.equal(tagged.length, allReports,
+    allReports - tagged.length + " report(s) do not name the job and the generation, or do not put `state` first");
+  assert.deepEqual([...new Set(tagged)].sort(), ["done", "failed"],
+    "a report settles in a state that is neither done nor failed");
   assert.match(SERVER, /function genTag\(report, gen\) \{\s+return report && typeof report\.job === "string" && report\.job \? \{ job: report\.job, gen \} : \{\};/);
   assert.match(SERVER, /function beatEvery\(report\) \{[\s\S]*?Math\.max\(GEN_BEAT_FLOOR_MS,/, "the cadence has no floor");
 });

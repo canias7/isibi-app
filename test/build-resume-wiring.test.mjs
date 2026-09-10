@@ -1074,8 +1074,17 @@ test("THE CONTAINER REPORTS A FAILURE AS WELL AS AN ANSWER", () => {
   // `if (false) await sendModelReport(…)` — the call is still there and reaches
   // nothing. A presence standing in for a property, in the guard written for
   // it, which is this repo's most repeated own-goal.
+  //
+  // AND THE SET IS THE PROPERTY, NOT THE COUNT — re-anchored 2026-09-09 for the
+  // band fan-out. This asserted the matches were exactly ["done", "failed"],
+  // which was true while the handler held two reports and went red the moment
+  // the fan-out added a third, legitimate one. A guard that reports an honest
+  // new report as a regression is describing something nobody did. What this
+  // case is called — a failure is reported AS WELL AS an answer — is a claim
+  // about which states exist, and a third `done` does not weaken it.
   const calls = [...srv.matchAll(/\n\s+await sendModelReport\(report, \{\s*\n?\s*state: "(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(calls.sort(), ["done", "failed"],
+  assert.ok(calls.length >= 2, "only " + calls.length + " report(s) found — the scan has drifted off the handler");
+  assert.deepEqual([...new Set(calls)].sort(), ["done", "failed"],
     `the container reports ${JSON.stringify(calls)} — a generation that failed and was recycled is indistinguishable from one that was lost`);
 
   // IT IS BOUNDED, and by its own ceiling rather than the generation's. This

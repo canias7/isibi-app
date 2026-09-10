@@ -66,6 +66,7 @@ import { checkRender, screenshotHtml } from "./render-check.mjs";
 import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
 import { readCss, plainSelectors, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
+import { runFanout, fanoutTally } from "./model-fanout.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -143,6 +144,19 @@ const MODEL_JOBS = new Map();
 // refusing is better than holding whole model answers — megabytes each — for a
 // caller that has stopped listening.
 const MAX_MODEL_JOBS = 8;
+/**
+ * How many model calls ONE job may hold open at once (2026-09-09, the band
+ * split).
+ *
+ * A RESOURCE BOUND, AND DELIBERATELY NOT DERIVED FROM `MAX_SECTIONS`. It is
+ * tempting to tie this to the design's band cap, and it would be the wrong
+ * list: that one answers "how many bands may a page have", a question about
+ * the product, and this one answers "how many calls may a single container
+ * hold open", a question about this process's memory and its sockets. They
+ * agree at 8 today by coincidence, and the day the plan allows twelve bands is
+ * the day this has to be re-decided ON ITS OWN TERMS rather than dragged along.
+ */
+const MAX_MODEL_FANOUT = 8;
 // LONGER THAN THE HOLD, ON PURPOSE. `MAX_BUSY_HOLD_MS` is thirty minutes, so a
 // container is stopped before an answer can age out from under a caller that is
 // still entitled to it; anything still here past this belongs to a build that
@@ -2011,7 +2025,31 @@ const server = http.createServer((req, res) => {
       if (sTooBig) return send(res, 413, { ok: false, error: "request too large" });
       let payload; try { payload = JSON.parse(sBody); } catch { return send(res, 400, { ok: false, error: "invalid json" }); }
       const mReq = payload && payload.req;
-      if (!mReq || typeof mReq !== "object") return send(res, 400, { ok: false, error: "no req" });
+      // ── ONE CALL, OR A FAN-OUT OF THEM (2026-09-09, the band split) ────────
+      //
+      // A page is written a band at a time now, and the bands are independent —
+      // `shape` planned them, `page-bands.mjs` assembles them, and the whole
+      // point is that they run AT ONCE. They cannot run at once as separate
+      // `/model/start` calls: `oneAtATime` below would serialise them, and that
+      // serialisation is called harmless in its own comment precisely because
+      // until today nothing needed two calls in flight.
+      //
+      // So a fan-out is ONE job holding N calls, which keeps every property the
+      // single path already has: one slot held for the whole thing, so `_busy`
+      // is right and this container is not stopped mid-generation; one id, so
+      // the store stays bounded; one report, so the lease chain is unchanged.
+      //
+      // A CALLER THAT SENDS `req` IS UNTOUCHED, and every existing caller does.
+      const mReqs = Array.isArray(payload && payload.reqs)
+        ? payload.reqs.filter((r) => r && typeof r === "object")
+        : null;
+      if (mReqs && mReqs.length !== payload.reqs.length) return send(res, 400, { ok: false, error: "a req in reqs is not an object" });
+      // REFUSED RATHER THAN TRUNCATED. Silently dropping the ninth band is a
+      // page missing a section with nothing anywhere saying so, and whoever
+      // planned that band planned it for a reason.
+      if (mReqs && mReqs.length > MAX_MODEL_FANOUT) return send(res, 400, { ok: false, error: "too many reqs: " + mReqs.length + " over " + MAX_MODEL_FANOUT });
+      if (mReqs && !mReqs.length) return send(res, 400, { ok: false, error: "reqs is empty" });
+      if (!mReqs && (!mReq || typeof mReq !== "object")) return send(res, 400, { ok: false, error: "no req" });
       // The ceiling is ours, not the caller's — the same rule `/model` states.
       // A caller may ask for LESS (the composed build budget) and never more.
       const want = Number(payload.callMs);
@@ -2051,6 +2089,49 @@ const server = http.createServer((req, res) => {
         // the fire named no address — an older Worker, or the harness — and a
         // null hook means `callBuilderModel` never asks for a partial at all.
         const code = codeSender(report, id);
+        // ── THE FAN-OUT: N CALLS, ONE SLOT, AND ONE BAD BAND IS NOT NINE ─────
+        //
+        // `Promise.all` REJECTS ON THE FIRST FAILURE, which here would throw
+        // away every band that succeeded because one did not — nine good
+        // sections lost to one, after paying for all ten. Each call catches its
+        // own instead, so the answer is a LIST of outcomes and the assembler
+        // stubs the ones that failed. Salvage's precedent: a page missing one
+        // band beats no page.
+        //
+        // NO `onPartial` ON A FAN-OUT, deliberately. The code stream shows the
+        // customer one file being written; eight bands interleaving into it is
+        // not a file. `stream: true` still rides on every call, because that is
+        // what keeps the wire from being idle — which is the reason streaming
+        // exists here at all, not the reason the customer sees anything.
+        if (mReqs) {
+          // `runFanout` OWNS THE PER-CALL CATCH AND THE INDEX, in its own module,
+          // because neither is expressible as a claim about this file's text — a
+          // rethrowing catch still reads as a catch, and a dropped index still
+          // leaves `{ i,` on the line above. Both survived a source-read sweep
+          // here; both die against a driven one there.
+          const results = await runFanout(mReqs, (r) =>
+            callBuilderModel(keysFrom(BUILD_KEYS), r, budget, longPost, { stream: true }));
+          const tally = fanoutTally(results);
+          console.log("fan-out", tally.done + "/" + tally.of, "answered in", Date.now() - at, "ms");
+          // THE JOB IS `done` EVEN WHEN EVERY CALL FAILED, and the caller reads
+          // the list. A fan-out that reported `failed` would be indistinguishable
+          // from a container that lost the work, and those need opposite moves:
+          // one is "stub what is missing and publish", the other is "buy it
+          // again". The states stay apart, so the sentences can.
+          MODEL_JOBS.set(id, { state: "done", answers: results, ms: Date.now() - at, touchedAt: Date.now() });
+          // THE STORE IS WRITTEN BEFORE THE REPORT AND THE BEAT IS CLEARED
+          // WHATEVER THE REPORT DOES. A report that throws would otherwise leave
+          // the heartbeat running for a job that has finished — a container kept
+          // alive renewing a lease on work nobody is waiting for — and the
+          // single-call path below has exactly this shape in a `finally` for
+          // exactly this reason.
+          try {
+            await sendModelReport(report, { state: "done", answers: results, ...genTag(report, id) });
+          } finally {
+            if (beat) clearInterval(beat);
+          }
+          return;
+        }
         try {
           const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost,
             code ? { stream: true, onPartial: code } : { stream: true });
@@ -2130,6 +2211,12 @@ const server = http.createServer((req, res) => {
     if (!job) return send(res, 200, { ok: true, state: "unknown" });
     job.touchedAt = Date.now();
     if (job.state === "pending") return send(res, 200, { ok: true, state: "pending", waitingMs: Date.now() - job.startedAt });
+    // A FAN-OUT ANSWERS `answers` AND A SINGLE CALL ANSWERS `answer`, and the
+    // two are never both present. Reading the list into `answer` would hand
+    // every existing caller an array where it expects a message, and the parse
+    // that follows would fail somewhere far from here — so the shape says which
+    // kind of job this was rather than leaving it to be inferred.
+    if (job.state === "done" && job.answers) return send(res, 200, { ok: true, state: "done", answers: job.answers, ms: job.ms });
     if (job.state === "done") return send(res, 200, { ok: true, state: "done", answer: job.answer, ms: job.ms });
     return send(res, 200, { ok: true, state: "failed", ...job.fail, ms: job.ms });
   }
