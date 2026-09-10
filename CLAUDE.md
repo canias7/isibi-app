@@ -1776,12 +1776,99 @@ unreadable.
   the stage missing or reading as `publish`; and `tr.at` keeping a boolean after
   all, which would make the whole projection dead code.
 - Full suite **5,850**.
+- **AND THE HOOK FIX SHIPPED A REGRESSION, FOUND BY REVIEWING THE MERGE AND
+  FIXED IN THE FOLLOW-UP BELOW.** The line above promising `viaContainer` "for
+  the first time" was going to be satisfied by a WRONG value. See the next
+  section; the honest proof list for a test build is the design event's two
+  numbers and the `bands` step, and `viaContainer` only since that fix.
 - **Not proven live.** The push changes `worker.js`, which is a container image
-  input, so the container ROLLS and the 15–20 minute hold applies. The proof is
-  one build: the design event should carry `agentMs` and `waveMs` beside
-  `waves`/`agents`, there should be a `bands` step carrying `bands` and `wrote`,
-  and the `img` step should carry `viaContainer` for the first time since it was
-  written.
+  input, so the container ROLLS and the 15–20 minute hold applies.
+
+---
+
+### AN INERT EXPRESSION IS NOT A CORRECT ONE, AND FIXING THE HOOK PROVED IT
+(2026-09-10, owner: *"now go check your work"* → *"double check and fix"*)
+
+The hook fix one section up revived `mark?.("img", { viaContainer })`, which had
+been evaluated and discarded on every build since the day it was written. **It
+started landing, and on an ordinary queued build it landed WRONG.** Found by a
+seven-lens review of the merge; two independent lenses reached it and three
+skeptics each failed to refute it.
+
+- **THE THREE STATES WERE ALWAYS THREE, AND THIS ONE LINE COLLAPSED THEM.**
+  `out.via` is written only inside `containerPagesCall` (`worker.js` 6098/6132).
+  `containerPagesFire` writes only `out.tried`, and the collector starts a fresh
+  `const genPath = {}` and hands `resumeCall` over instead — so
+  `containerPagesCall` never runs on a fired build and `via` is undefined.
+  `genPath.via === "container" ? 1 : 0` then answered **0 — "the Worker did
+  it"** — about exactly the builds the CONTAINER held. The rest of the file has
+  always known better: `if (genPath.via) out.genVia` twelve lines down, the
+  `pages` mark's `...(genPath.via ? … : [])`, and the owner-build reader's third
+  answer `gen=container-holding`.
+- **AND IT WAS NOT MERELY A STORED NUMBER.** `scripts/build-as-owner.mjs` falls
+  back to `img.viaContainer` PRECISELY when there is no `pages` step — and a
+  fired build has none, because the route returns its 202 before that mark. So
+  the fallback written for exactly this case was the branch that went wrong.
+  Driven through the reader's own source over a resumed build's steps: it
+  printed `gen=worker` where the truth is `container`, having printed nothing
+  before the hook fix. **Silence became a wrong answer**, which this file rates
+  as the worse of the two.
+- **TWO FIXES, AND THE SECOND IS THE USEFUL ONE.** (1) *The wall*: presence is
+  the signal, so an unknown is ABSENT rather than a lie — the convention its
+  three siblings already follow. (2) *The truth*: `act === "finish"` is answered
+  only for `state === "done"` on the container's own job store, so a collected
+  answer IS a container answer and `runResumedSiteBuild` now records
+  `tried`/`via` to say so. Driven end to end: `gen=worker` → `gen=container`,
+  with the synchronous and container-holding readings untouched.
+- **THE COLLECTED REPLY GAINS `genTried`/`genVia`, AND A CENSUS MADE THAT A
+  DECISION RATHER THAN A DRIFT.** `test/build-answer.test.mjs` derives every
+  legal key of a collected answer and refuses a stray; it went red, which is the
+  guard working. The two names are now listed there with the reason — the
+  collected and synchronous replies are one answer composed once, and a field on
+  one shape and not the other is the split that file exists to close.
+- **TWO OF MY OWN COMMENTS STATED THINGS THAT ARE NOT TRUE.** The design mark's
+  said a broken design "reads as fewer agents than waves"; wave widths are
+  1, 2, 1, so a COMPLETE design reads 4 against 3 and a break after wave 2 reads
+  3 against 3 — the tell held for one of three cases. And `wiring`'s floor
+  message claimed to scan "both call sites"; driven, the brace walk finds the
+  function DECLARATION and the collector's call, because the route passes
+  `buildArgs`, an identifier. The re-anchor weakened nothing — the byte window it
+  replaced had the same two subjects — but the sentence claimed coverage nobody
+  has.
+- **AND A GUARD I WROTE FOR THIS COULD NOT FAIL.** The case asserting the
+  corrected comment scanned `WCODE`, the COMMENT-BLANKED copy, where every
+  comment is spaces — the recorded "a blanker erases the landmark the guard
+  needs", in a guard written to check a comment. Caught only by applying the
+  mutant and watching it pass. It reads the raw source now.
+- **`build-budget`'s dep window was a 2,000-BYTE window and this change outran
+  it** — the eleventh recorded instance, and its first draft of the re-anchor
+  carried the OTHER half of the same trap: `next < 0 ? CODE.length` would give
+  the last dep the whole rest of `worker.js`. It refuses a dep with no sibling
+  now rather than quietly widening.
+- **Guards**: `test/split-timing.test.mjs` 12 → 16. The one that settles it cuts
+  the owner-build reader's own gen line out of `scripts/build-as-owner.mjs` and
+  RUNS it over a fired build's steps, because a re-implementation here would be
+  a second copy of the thing under test. Beside it: the mark's line cut out and
+  driven over all four `genPath` shapes (absent must be absent, not 0); the
+  collector's line driven over every `act`; and the wave arithmetic that proves
+  the old tell false.
+- **Sweep: 15 mutants, 14 killed, none unapplied, two comment-only controls
+  survived.** One survivor was PROVED INERT rather than assumed — the re-anchor's
+  `> 20` collapse floor, measured against real windows of 2,833–15,646
+  characters, so it could never fire; it was replaced by a mutant that does
+  change behaviour (the sibling regex's indent, cutting the window short), which
+  died. The rest: the mark unguarded again (the defect), the step dropped with
+  the lie, the guard inverted or reading `tried`, a container generation
+  recorded as the Worker; the collector silent, claiming a container answer on
+  every act, naming the Worker, recording `via` without `tried`, firing on
+  refire; the false tell restored and its correction deleted; the byte window
+  restored; and the census forgetting `genVia`.
+- Full suite **5,854**.
+- **Not proven live.** The proof is one build, and the list is now: the design
+  event carries `agentMs` and `waveMs` beside `waves`/`agents`; a `bands` step
+  exists with `bands` and `wrote`; and the `img` step carries `viaContainer`
+  reading **container** on a queued build — which is the reading that was wrong
+  for the few hours between the two merges.
 
 ---
 
@@ -3637,7 +3724,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,850.
+  The unit suite is 5,854.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

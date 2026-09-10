@@ -222,6 +222,76 @@ after the deploy before firing a build that needs it. The proof is one build:
 the design step should carry both new numbers, there should be a `bands` step,
 and the pictures step should carry its number for the first time ever.
 
+**One correction, from the review below:** that last item — the pictures number —
+was going to come back WRONG. See the next entry.
+
+---
+
+## 2026-09-10 — You asked me to check my own work, and it found one I'd broken
+
+You said **"now go check your work"**, then **"read only"**, then **"double check
+and fix"**. All three were right, in that order.
+
+**What the check was.** Seven independent reviewers over the change I'd just
+merged, each looking through a different lens taken from this project's own list
+of traps — is anything computed and never forwarded, is the new number actually
+measuring what it claims, can the new tests actually fail, are the search windows
+sound, what else did the change touch, does the clock hold up, do the numbers in
+the notes match the code. Nineteen findings. Every one then went to three
+skeptics whose *job* was to knock it down, because a false alarm here is worse
+than a miss. Fourteen got knocked down. Two survived — and they were the same
+thing, found independently by two lenses that never spoke to each other.
+
+**And your "read only" caught a real risk.** My first version let a reviewer make
+a temporary edit and undo it. Seven of them running at once, one dies mid-edit,
+and the change is sitting in the code with nobody to undo it — this project has
+that exact accident written down already. I stopped it, checked nothing had been
+touched, and re-ran it under a hard rule: nothing may be written anywhere. What
+it does instead is better — it loads a file into memory *as text*, makes the
+change there, and runs the test's own search against it. Same answer, nothing
+touched.
+
+**What it found.** This morning's fix brought a dead field back to life — the one
+that records whether your pictures were made in the container or in the Worker.
+It had been thrown away since the day it was written. **It started saving, and on
+an ordinary build it started saving the wrong answer**: "the Worker did it", about
+exactly the builds the container did. Then the one thing that reads it falls back
+to that field *precisely* on those builds. Driven end to end, it printed
+`gen=worker` where the truth was `container`. Before my change it printed nothing.
+
+Silence turned into a wrong answer, which is the worse of the two — and the
+sharpest part is that my own promise to you was *"the pictures step will carry its
+number for the first time."* It would have. I'd have read it back to you as a win.
+
+**Two fixes.** First, the wall: if we don't know which side did it, the field is
+now simply absent instead of guessing — which is what three other places in the
+same file already do. Second, the truth: a collected answer can only have come
+from the container, because that's the only way it gets collected. So the
+collector says so. `gen=worker` → `gen=container`, with the other two readings
+untouched.
+
+**Two of my own comments were also just wrong**, and arithmetic proves it: I'd
+written that a broken design "reads as fewer agents than waves". The waves are
+1, 2, 1 — so a *finished* design reads 4 against 3, and one that broke in the
+middle reads 3 against 3. My rule of thumb worked for one case in three.
+
+**Two older tests went red doing their jobs**, and one of my new ones was broken.
+A test that reads a fixed number of characters of the code got outrun by my own
+new comment — this project's most-repeated mistake, now fixed properly. A
+head-count test refused to let two new fields appear on a reply without me saying
+out loud that I meant them. And one test I wrote to check a comment was searching
+a copy of the file with all the comments stripped out, so it could never fail —
+I only found that by breaking the thing deliberately and watching the test pass
+anyway.
+
+15 mutation tests, 14 caught; the one that survived was measured and proved
+harmless rather than assumed, then swapped for one that isn't — which was caught.
+Both do-nothing controls untouched. Full suite **5,854**, green.
+
+**The proof list for your build changes by one line**: the pictures step should
+now read **container**, not "for the first time" — that part was already true and
+already wrong.
+
 ---
 
 ## 2026-09-10 — Both splits are switched on, for your account only

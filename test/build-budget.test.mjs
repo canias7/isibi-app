@@ -654,10 +654,30 @@ test("THE MIDDLE OF A BUILD IS MARKED — the void that made run 13 unanswerable
   }
   // AND THEY MUST BE IN THE RIGHT DEPS, or four marks in one place is one mark
   // wearing four names. Derived from where each dep opens.
+  // WINDOWED TO THE NEXT SIBLING, NOT TO 2,000 BYTES — re-anchored 2026-09-10.
+  // It sliced a fixed 2,000 characters and went red when a comment explaining
+  // the `img` mark's guard grew above it, reporting the mark as gone from a dep
+  // that still takes it. That is this repository's most-repeated own-goal
+  // ("never size a source-read window in bytes"; this file's reasoning lives in
+  // comments, so any byte window is outrun by the next one), and the recorded
+  // fix is to derive the closing landmark from the next sibling.
   const dep = (name) => {
     const at = CODE.indexOf(`\n    ${name}:`);
     assert.ok(at > 0, `the \`${name}\` dep is gone`);
-    return CODE.slice(at, at + 2000);
+    const next = CODE.slice(at + 1).search(/\n {4}[a-zA-Z_$][\w$]*: /);
+    // NO FALLBACK TO THE END OF THE FILE. The first draft of this re-anchor
+    // wrote `next < 0 ? CODE.length : …`, which is the recorded "a missing END
+    // landmark is a window that swallows the file" — the LAST dep in the object
+    // would take the whole rest of worker.js, and its mark could then be
+    // satisfied by a match thousands of lines below in an unrelated function.
+    // A dep with no sibling after it is a shape this helper cannot window, so
+    // it says so instead of quietly widening. (Its first draft also carried a
+    // `> 20` floor against a collapsed window; MEASURED, the three real windows
+    // are 2,833–15,646 characters, so that floor could never fire — it was an
+    // inert second wall and the sweep was right to survive it. This assertion
+    // is the one that does the work.)
+    assert.ok(next >= 0, `the \`${name}\` dep has no following sibling — the window would swallow the rest of worker.js`);
+    return CODE.slice(at, at + 1 + next);
   };
   assert.match(dep("generate"), /mark\?\.\("gen"[,)]/, "the model call is not marked, so a hung provider looks like a hung container");
   assert.match(dep("images"), /mark\?\.\("img"[,)]/, "the image models are not marked");

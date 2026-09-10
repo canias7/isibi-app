@@ -12071,9 +12071,27 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       //
       // A NUMBER, because `makeTrace` takes only finite numbers — deliberately,
       // so a connection string or a model's prose can never reach a trace by
-      // accident. That rule is worth more than a readable word here, and 1/0
-      // says the whole of what has to be known.
-      try { mark?.("img", { viaContainer: genPath.via === "container" ? 1 : 0 }); } catch { /* a trace must never break a build */ }
+      // accident. That rule is worth more than a readable word here.
+      //
+      // AND ITS PRESENCE IS THE SIGNAL, WHICH 1/0 ALONE COULD NOT BE
+      // (2026-09-10, found by review the day the field first started landing).
+      // This line said "1/0 says the whole of what has to be known" and it was
+      // wrong: there are THREE states, not two, and the rest of this file has
+      // always known it — `if (genPath.via) out.genVia` twelve lines down, the
+      // `pages` mark's own `...(genPath.via ? … : [])`, and the owner-build
+      // reader's third answer `gen=container-holding`. Only this line collapsed
+      // "nobody wrote a via" into "the Worker did it".
+      //
+      // IT WAS INERT UNTIL THE HOOK WAS FIXED, and that is what makes it worth
+      // a paragraph: both `mark` suppliers dropped their second argument, so
+      // this expression was evaluated and thrown away on every build since it
+      // was written. Fixing the hook turned a silent nothing into a WRONG
+      // ANSWER on exactly the builds the container held — `containerPagesFire`
+      // writes only `tried`, and the collector starts a fresh `genPath`, so
+      // `via` is undefined on every fired build and 1/0 answered 0. Absent is
+      // the honest reading of "this invocation did not make the call"; the
+      // collector supplies the truth it does have (see `runResumedSiteBuild`).
+      try { if (genPath.via) mark?.("img", { viaContainer: genPath.via === "container" ? 1 : 0 }); else mark?.("img"); } catch { /* a trace must never break a build */ }
       return buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve, clock: budget });
     },
     compile: async (pages, builtParts) => {
@@ -14459,6 +14477,19 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   try { tr.at("resume:" + decision.act + (decision.was || decision.why ? ":" + (decision.was || decision.why) : "")); } catch { /* a trace must never break a build */ }
   const budget = makeBudget();
   const genPath = {};
+  // WHAT THIS INVOCATION ALREADY KNOWS ABOUT WHO GENERATED (2026-09-10).
+  //
+  // `genPath` is written by `containerPagesCall` and by nothing else, and a
+  // collector never builds one: it hands `resumeCall` over instead. So the two
+  // fields the whole gen-path diagnostic rests on were blank on every fired
+  // build — not unknown, just never asked, on the ONE path where the answer is
+  // certain. `act === "finish"` is answered only for `state === "done"` on the
+  // container's own job store (`resumeDecision`), so a collected answer IS a
+  // container answer: the hop was made and it came back.
+  //
+  // BOTH FIELDS TOGETHER, because `genTried` without `genVia` is the third
+  // state — "the container is still holding it" — and this is not that.
+  if (decision.act === "finish") { genPath.tried = 1; genPath.via = "container"; }
   // ── WHAT THE GENERATOR IS HANDED, and the three cases are not interchangeable.
   //
   // A REFIRE HANDS IT NOTHING, so the ordinary firing caller is built instead
@@ -15363,7 +15394,17 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // numbers on one row settle it with no second build to compare
           // against, which matters because the between-build spread is wider
           // than any saving a split can produce. `waves` stays the PLANNED
-          // count, so a design that broke reads as fewer agents than waves.
+          // count.
+          //
+          // AND THE TWO ARE NOT A TEST FOR A BROKEN DESIGN — corrected
+          // 2026-09-10, having been written here as one. Wave widths are
+          // 1, 2, 1, so a COMPLETE design reads agents 4 against waves 3, and
+          // a design that broke after wave 2 reads 3 against 3. "Fewer agents
+          // than waves" is true only for a break in wave 1. What actually says
+          // a design ran to the end is `agents` against the plan's own total,
+          // which is `DESIGN_WAVES.flat().length` — a number this row
+          // deliberately does not carry, because the route counting the plan
+          // is the defect `waveMarks` exists to fix.
           tr.at("design", schemaUsage
             ? { out: schemaUsage.out, in: schemaUsage.in, ...(useWaves ? { waves: designWaves.length, ...waveMarks(designedShape) } : {}) }
             : undefined);

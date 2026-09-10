@@ -288,6 +288,18 @@ test("DRIVEN END TO END: a collected build's stored answer names its site, and p
     ...publishPagesOut(),
     "ok",      // the answer is an answer
     "resumed", // WHICH of the three terminal branches finished it
+    // THE GEN PATH, AND THIS CENSUS IS WHY IT IS A DECISION RATHER THAN A DRIFT
+    // (2026-09-10). `buildAndPublishPages` has always ended with
+    // `if (genPath.tried) out.genTried = 1; if (genPath.via) out.genVia = …`,
+    // and on a COLLECTED build both were absent — not because the generation
+    // had no path, but because a collector never builds a `genPath` and so
+    // never asked. `runResumedSiteBuild` now records what `act === "finish"`
+    // proves (the container answered), so the collected reply says what the
+    // synchronous reply has always said. The two are one answer composed once;
+    // a field present on one shape and missing on the other is the split this
+    // whole file exists to close.
+    "genTried",
+    "genVia",
   ]);
   const stray = Object.keys(d).filter((k) => !known.has(k));
   assert.deepEqual(stray, [], "the collector's answer carries " + stray.join(", ") + " from nowhere the guard can derive");

@@ -39,7 +39,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { designInWaves, waveMarks } from "../builder/design-waves.mjs";
+import { designInWaves, waveMarks, DESIGN_WAVES } from "../builder/design-waves.mjs";
 import { generateSiteBands, splitPlan } from "../builder/page-bands.mjs";
 import { makeTrace } from "../builder/trace.mjs";
 import { budgetStage } from "../builder/build-budget.mjs";
@@ -381,6 +381,142 @@ test("every mark hook handed to the build forwards its numbers, and they are DRI
     assert.equal(step.bands, 4, "worker.js:" + (at + 1) + " — the supplier dropped its second argument");
     assert.equal(step.wrote, 3, "worker.js:" + (at + 1) + " — the supplier dropped part of its second argument");
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE FIELD THE HOOK FIX REVIVED — and the lie it started telling
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One line of worker.js, cut out by a landmark, ready to be RUN. */
+function lineHolding(needle, what) {
+  const at = WCODE.indexOf(needle);
+  assert.ok(at >= 0, what + ": the landmark is gone — " + needle);
+  assert.equal(WCODE.indexOf(needle, at + needle.length), -1, what + ": the landmark is not unique");
+  const a = WORKER.lastIndexOf("\n", at) + 1;
+  const b = WORKER.indexOf("\n", at);
+  return WORKER.slice(a, b < 0 ? WORKER.length : b);
+}
+
+test("the img mark answers THREE states, and 'we do not know' is not 'the Worker did it'", () => {
+  // THE DEFECT THIS EXISTS FOR, found by review the day the field first landed.
+  // The expression was written unguarded on the reasoning that "1/0 says the
+  // whole of what has to be known". It does not: `containerPagesFire` writes
+  // only `tried`, and the collector starts a fresh `genPath`, so `via` is
+  // undefined on every fired build and 1/0 answered 0 — "the Worker did it" —
+  // about the builds the CONTAINER held. It was invisible until the `mark` hook
+  // was fixed to forward its second argument; that fix turned a silent nothing
+  // into a wrong answer.
+  //
+  // CUT OUT AND RUN, because the property is what the trace ENDS UP HOLDING.
+  // THE GUARD IS THE LANDMARK, and that is deliberate: an unguarded mark has no
+  // `if (genPath.via)` to find, so the case goes red at the anchor rather than
+  // silently testing something else. (A bare `mark?.("img"` is not unique — the
+  // fixed line calls it on both sides of the branch.)
+  const line = lineHolding('if (genPath.via) mark?.("img"', "the img mark");
+  const fn = new Function("genPath", "mark", line);
+  const seen = [];
+  for (const genPath of [{ via: "container" }, { via: "worker" }, { tried: 1 }, {}]) {
+    const tr = makeTrace(() => 0);
+    fn(genPath, (n, x) => tr.at(n, x));
+    seen.push(tr.done().steps.at(-1));
+  }
+  assert.equal(seen[0].viaContainer, 1, "a container generation is not recorded as one");
+  assert.equal(seen[1].viaContainer, 0, "a worker generation is not recorded as one");
+  assert.ok(!("viaContainer" in seen[2]), "a fired build with no answer yet is recorded as the WORKER — the defect");
+  assert.ok(!("viaContainer" in seen[3]), "an empty genPath is recorded as the WORKER — the defect");
+  // AND THE STEP IS STILL TAKEN, all four times. Dropping the mark entirely
+  // would also stop the lie, and would lose the timing the step exists for.
+  for (const s of seen) assert.equal(s.s, "img", "the img step stopped being recorded at all");
+
+  // The three siblings that already read presence as the signal — so this is
+  // the convention, not a new invention.
+  assert.ok(/if \(genPath\.via\) out\.genVia = genPath\.via;/.test(WCODE), "the reply's genVia stopped being guarded");
+  assert.ok(/\.\.\.\(genPath\.via \? \[\["genVia", genPath\.via === "container" \? 1 : 0\]\] : \[\]\)/.test(WCODE),
+    "the pages mark's genVia stopped being guarded");
+});
+
+test("the collector states what it KNOWS: a collected answer is a container answer", () => {
+  // `act === "finish"` is answered only for `state === "done"` on the
+  // container's own job store, so the generation demonstrably ran there. The
+  // collector never builds a `genPath`, so without this the one path where the
+  // answer is CERTAIN was the one path that recorded nothing.
+  const line = lineHolding('if (decision.act === "finish") { genPath.tried = 1;', "the collector's genPath");
+  const fn = new Function("decision", "genPath", line);
+
+  const finished = {};
+  fn({ act: "finish" }, finished);
+  assert.deepEqual(finished, { tried: 1, via: "container" }, "a collected answer does not record the container");
+
+  // AND ONLY ON `finish`. A refire has not got an answer, and a give-up never
+  // had one — either claiming `via` would be the same lie pointing the other
+  // way.
+  for (const act of ["refire", "stop", "here", ""]) {
+    const g = {};
+    fn({ act }, g);
+    assert.deepEqual(g, {}, `act "${act}" claimed a container answer it has not got`);
+  }
+});
+
+test("THE READER: a fired build reads as the container, driven through its own source", () => {
+  // THE CONSUMER, and the reason this was a defect rather than an untidy row.
+  // scripts/build-as-owner.mjs prefers the `pages` step and falls back to
+  // `img.viaContainer` only when there is none — and a fired build HAS none,
+  // because the route returns its 202 before the `pages` mark. So the fallback
+  // written for exactly this case was the branch that went wrong.
+  //
+  // The reader's own source is cut out and RUN, never paraphrased: a
+  // re-implementation here would be a second copy of the thing under test.
+  const src = read("scripts/build-as-owner.mjs");
+  const a = src.indexOf("const pg = steps.find");
+  const b = src.indexOf("const shape = [db, tabs, via]");
+  assert.ok(a >= 0 && b > a, "the owner-build reader's gen line moved — retarget this case");
+  const readGen = new Function("steps", src.slice(a, b) + " return via;");
+
+  const fired = (img) => [{ s: "fired", genTried: 1 }, { s: "resume:finish" }, { s: "gen" }, ...(img ? [{ s: "img", ...img }] : [])];
+
+  assert.equal(readGen(fired({ viaContainer: 1 })), "gen=container",
+    "a fired build whose answer came from the container does not read as the container");
+  assert.equal(readGen(fired({ viaContainer: 0 })), "gen=worker",
+    "the shape the defect produced no longer reads as the Worker — the case has stopped testing anything");
+  assert.equal(readGen(fired({})), "",
+    "an img step with no viaContainer must say nothing, not guess");
+
+  // THE TWO STATES THAT WERE ALREADY RIGHT, so the fix cannot have moved them.
+  assert.equal(readGen([{ s: "pages", genTried: 1, genVia: 1 }, { s: "img", viaContainer: 1 }]), "gen=container",
+    "a synchronous build stopped reading off its pages step");
+  assert.equal(readGen([{ s: "pages", genTried: 1 }]), "gen=container-holding",
+    "the third answer is gone — the one that says the container has it and has not answered");
+});
+
+test("the design mark's comment no longer states a tell that does not work", () => {
+  // IT WAS WRITTEN AS ONE AND IT IS FALSE. Wave widths are 1, 2, 1: a COMPLETE
+  // design reads agents 4 against waves 3, and a design that broke after wave 2
+  // reads 3 against 3. "Fewer agents than waves" holds only for a break in
+  // wave 1, so a reader using it would call two of the three cases healthy.
+  const widths = DESIGN_WAVES.map((w) => w.length);
+  const waves = widths.length;
+  const complete = widths.reduce((a, b) => a + b, 0);
+  assert.ok(complete > waves, "the arithmetic that makes the old tell false has changed — re-read the comment");
+  let ran = 0;
+  const rel = widths.map((n) => { ran += n; return ran < waves; });
+  assert.deepEqual(rel, [true, false, false],
+    "a break is only 'fewer agents than waves' in wave 1 — if that changed, the comment can be simplified");
+
+  // THE RAW SOURCE, NOT THE BLANKED COPY — and the first draft of this case got
+  // it wrong, which is the recorded "a blanker erases the landmark the guard
+  // needs". Blanking is for scans that FORBID a spelling in CODE; this one is
+  // about PROSE, and against `WCODE` every comment is spaces, so the assertion
+  // could never fail. Caught by applying the mutant and watching it pass.
+  const at = WORKER.indexOf('tr.at("design"');
+  assert.ok(at > 0, "the design trace mark is gone");
+  const end = WORKER.indexOf("knownTables", at);
+  assert.ok(end > at, "the closing landmark is gone");
+  const around = WORKER.slice(WORKER.lastIndexOf("// AND HOW MUCH THE SPLIT SAVED", at), end);
+  assert.ok(around.length > 200, "the comment block around the design mark did not resolve");
+  assert.ok(!/reads as fewer agents than waves/.test(around),
+    "the comment states a tell that is false for two of the three break points");
+  assert.ok(/NOT A TEST FOR A BROKEN DESIGN/.test(around),
+    "the correction that replaced the false tell is gone");
 });
 
 test("…and the trace keeps the numbers and drops everything else, which is why the projection exists", () => {

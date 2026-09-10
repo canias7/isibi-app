@@ -1744,9 +1744,23 @@ test("the translation runs on the picked model like every other small call (owne
     }
   }
   // A FLOOR ON WHAT WAS SCANNED, because `[].every` is true and a walk that
-  // finds nothing passes silently — there are two call sites, the route's and
-  // the collector's, and a guard that sees one of them proves half of this.
-  assert.ok(sites.length >= 2, "expected both build call sites; found " + sites.length);
+  // finds nothing passes silently.
+  //
+  // AND WHAT IT SCANS IS NOT WHAT THIS COMMENT FIRST CLAIMED — corrected
+  // 2026-09-10 by driving it. It said "two call sites, the route's and the
+  // collector's". Driven, the walk finds the function DECLARATION (the
+  // parameter list, whose `models = null` satisfies the match trivially) and
+  // the COLLECTOR's call. The route's call is `buildAndPublishPages(env,
+  // buildArgs)` — an identifier, not an object literal — so this head never
+  // matches it and never did, including under the byte window this replaced.
+  // The re-anchor fixed the truncation and changed the subjects not at all;
+  // only the sentence describing them was wrong, which is worse than a weak
+  // guard because it reads as coverage nobody has.
+  //
+  // THE ROUTE'S CALL IS COVERED ELSEWHERE, by the assertions on `buildArgs`
+  // itself — so the floor here is a floor on THESE two subjects, not a claim
+  // about every call site.
+  assert.ok(sites.length >= 2, "expected the declaration and the collector's call; found " + sites.length);
   for (const site of sites) {
     assert.match(site, /\bmodels\b/, "a build call site hands the page builder no models: " + site.slice(0, 80));
   }
