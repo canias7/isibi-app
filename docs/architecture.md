@@ -54,13 +54,15 @@ characters** of tool on the wire — evaluated out of `worker.js` through
 on a build. The drawing said 19 fields and 84.8k, which is what it was on
 2026-08-29; re-derive before quoting either.
 
-**AND THAT ONE CALL CAN BE SEVERAL, BEHIND A FLAG NOBODY HAS TURNED ON
+**AND THAT ONE CALL CAN BE SEVERAL, BEHIND A FLAG THAT NAMES ONE ACCOUNT
 (2026-09-10).** `builder/design-waves.mjs` cuts the design into three waves of
 agents that run side by side — identity, then the plan beside the look, then the
 detail — each carrying only its own part of the tool. `DESIGN_SPLIT_CANARY`
-defaults to nobody, so every build today still makes the one call in the drawing.
-The same shape as the band split one box over, which does the same for the PAGE
-call. See CLAUDE.md for the waves, why the dependency graph cannot be read off
+shipped naming nobody and, since the owner's *"switch it on"* the same day,
+defaults to the BUILDING ACCOUNT's uid — so the owner's builds design in waves
+and every customer's still makes the one call in the drawing. The same shape as
+the band split one box over, which does the same for the PAGE call and now names
+the same account. See CLAUDE.md for the waves, why the dependency graph cannot be read off
 the tool's own prose, and what each agent's tool costs.
 
 **Status of the split (2026-09-02).** `EDIT` is done — twenty-one lanes, all
@@ -361,7 +363,8 @@ later edit of that route is one line from handing back other customers' slugs.
                                          idle wire is hung up at ~270 s
                                          ── OR ONE CALL PER BAND (2026-09-09),
                                          behind BAND_SPLIT_CANARY, which names
-                                         NOBODY by default: `shape`'s bands are
+                                         the BUILDING ACCOUNT since 2026-09-10
+                                         and nobody else: `shape`'s bands are
                                          written at once, one agent each, and
                                          assembled into the same page. Every
                                          refusal — a `tsx` declaration, a

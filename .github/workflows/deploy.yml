@@ -396,13 +396,23 @@ jobs:
           # model call, all of them in flight at once inside the site's own
           # container, and the answers are assembled into one page.
           #
-          # NOBODY BY DEFAULT, unlike the runner's canary one block up, and the
-          # difference is evidence: that one names a site because the runtime had
-          # been proved on it. This has never written a live page. `-` is a value
-          # `readCanaryList` drops, so a fresh deploy with no secrets splits
-          # nothing and every build writes its page in one call exactly as it
-          # does today. Name a slug here and redeploy to try it on one site.
-          BAND_SPLIT_CANARY: ${{ secrets.BAND_SPLIT_CANARY || '-' }}
+          # ONE ACCOUNT — THE BUILDING ACCOUNT (2026-09-10, owner: "switch it
+          # on"). It was `-` (nobody) from 2026-09-09, the split never having
+          # written a live page. The canary now names the uid every test build
+          # on this platform is made from, so the owner's own builds split and
+          # NO CUSTOMER'S DOES — the broad flag stays off, and `off` is not an
+          # affirmative word.
+          #
+          # A UID AND NOT `fretwork-1`, which is what this block used to suggest.
+          # `bandSplitFor` is handed both, and a slug turns the split on for that
+          # site's edits while leaving every NEW build on the single call — the
+          # half-on state nobody wants to debug. The account is the whole of what
+          # the owner tests with, and it is the same key the design door needs one
+          # block down, so both are switched by one value.
+          #
+          # The secret still overrides: set it to `-` in GitHub (readCanaryList
+          # drops it) and redeploy to turn the split off without touching code.
+          BAND_SPLIT_CANARY: ${{ secrets.BAND_SPLIT_CANARY || '22175f41-6fbf-49d7-b039-a65078a0141c' }}
           BAND_SPLIT_EVERYONE: ${{ secrets.BAND_SPLIT_EVERYONE || 'off' }}
           # ── A DESIGN ANSWERED BY SEVERAL AGENTS AT ONCE (2026-09-10) ───────
           #
@@ -413,12 +423,14 @@ jobs:
           #
           # THE CANARY NAMES A UID, NOT A SLUG. This door is asked BEFORE the
           # design call, and on a first build the slug is one of the things that
-          # call answers — so a slug named here can never match. Put the account
-          # id of whoever is testing it.
+          # call answers — so a slug named here can never match. It is the
+          # account id of whoever is testing it, which is why the block above
+          # names the same value: one identity, both splits.
           #
-          # NOBODY BY DEFAULT, for the same reason as the block above: this has
-          # never designed a live site. `-` is a value `readCanaryList` drops.
-          DESIGN_SPLIT_CANARY: ${{ secrets.DESIGN_SPLIT_CANARY || '-' }}
+          # ONE ACCOUNT — THE BUILDING ACCOUNT (2026-09-10, owner: "switch it
+          # on"). `-` (nobody) from 2026-09-10 until this, the split never having
+          # designed a live site. Every customer still gets the one call.
+          DESIGN_SPLIT_CANARY: ${{ secrets.DESIGN_SPLIT_CANARY || '22175f41-6fbf-49d7-b039-a65078a0141c' }}
           DESIGN_SPLIT_EVERYONE: ${{ secrets.DESIGN_SPLIT_EVERYONE || 'off' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,

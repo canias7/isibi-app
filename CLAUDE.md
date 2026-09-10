@@ -807,13 +807,22 @@ redeploying.
   before the page that holds it exists"; the marks DRAW the brand; `css` is the
   layer over the theme. Everything else is independent, and the independence is
   the feature.
-- **WHERE THE TIME IS, AND IT IS NOT THE PLAN.** `wordmark` and `favicon` draw
-  SVG, and run 41 measured what a drawn answer costs: **292,336 ms** for one mark
-  on Grok, after three earlier attempts were cut dead at the 240 s wall. In the
-  single call those two sit in sequence with the plan, so the plan waits for them
-  and they wait for the plan. Wave 2 is what puts them side by side. **This is
-  the fact the band-split entry's "why the page and not the design" bullet got
-  wrong**, and that bullet now says so.
+- **WHERE THE TIME IS, AND IT IS NOT THE PLAN — AND THE NUMBER UNDER THAT CLAIM
+  IS AN UPPER BOUND, NOT A MEASUREMENT OF THIS CALL (corrected 2026-09-10, the
+  same day it was written).** `wordmark` and `favicon` draw SVG, and a drawn
+  answer is a long generation: run 41 measured **292,336 ms** for one mark on
+  Grok, after three earlier attempts were cut dead at the 240 s wall. **That run
+  is the EDIT LANE — one call drawing one mark on its own** — and the whole
+  design call, all 22 fields with both marks inside it, is ~170 s. So the marks
+  cannot be costing 292 s each in there, or the call could not finish at all:
+  292 s says what a drawn answer CAN cost, and says nothing about what these two
+  fields cost in sequence with the plan. **Nothing here has measured that**, and
+  a split build is what would. What survives the correction is the shape, not the
+  arithmetic: two fields that draw sit in sequence with the plan, so the plan
+  waits for them and they wait for the plan, and wave 2 is what puts them side by
+  side. **The band-split entry's "why the page and not the design" bullet got
+  even this much wrong** — it read the design call as a long question with a short
+  answer — and that bullet now carries the same correction.
 - **AND EACH AGENT CARRIES ONLY ITS OWN SCHEMA — the second, quieter win.**
   `components` alone is **32,603 of a first build's 64,076**, because it carries
   the kit's component menu; the look agent has no business with it and no longer
@@ -967,18 +976,14 @@ redeploying.
   ended ~04:29Z.** The image step lands inside the Deploy section's stated band
   (2m05s best case, ~3m ordinary) for a push that changes the worker tree AND the
   Dockerfile's own COPY line.
-- **AND BOTH DOORS ARE CONFIRMED SHUT ON THE DEPLOYED WORKER, not merely in the
-  repository** — the secret upload lists `DESIGN_SPLIT_CANARY: -` and
-  `DESIGN_SPLIT_EVERYONE: off` beside `BAND_SPLIT_CANARY: -` and
+- **AND ON DEPLOY 2070 BOTH DOORS WERE CONFIRMED SHUT ON THE DEPLOYED WORKER, not
+  merely in the repository** — the secret upload listed `DESIGN_SPLIT_CANARY: -`
+  and `DESIGN_SPLIT_EVERYONE: off` beside `BAND_SPLIT_CANARY: -` and
   `BAND_SPLIT_EVERYONE: off`, all four `Successfully created`. That is the exact
   class of fact `/api/site/runtime` exists for and the reason reading `deploy.yml`
-  is not an answer.
-- **Not proven live, and there is nothing to see until somebody opens the door.**
-  The proof is two steps, in order: set `DESIGN_SPLIT_CANARY` to the building
-  account's UID in GitHub and redeploy, then read `/api/site/runtime?slug=` for
-  any site that account owns and check `design: true` — free, and it settles that
-  the secret reached the Worker before any build is bought. The build after that
-  is the real proof and costs a build.
+  is not an answer. **Both canaries were opened hours later — see "BOTH SPLITS
+  ARE ON FOR ONE ACCOUNT"**; that upload is the record of the day they shipped,
+  not of today.
 
 ---
 
@@ -1217,10 +1222,12 @@ in a GitHub secret and redeploying.
   where most of the time is and that is what was split first. What it got wrong
   was "splitting the design LOSES": it reasoned that the 93,598 characters are
   the QUESTION, cached, with a short answer, so there is little wall clock to
-  win. **`wordmark` and `favicon` DRAW SVG**, and this repository had already
-  measured what a drawn answer costs — 292,336 ms for ONE mark on Grok, run 41 —
-  which is not a short answer and sits in sequence with the plan. The reasoning
-  was about the wrong half of the call.
+  win. **`wordmark` and `favicon` DRAW SVG**, which is not a short answer and
+  sits in sequence with the plan; the reasoning was about the wrong half of the
+  call. **What that correction may NOT lean on is run 41's 292,336 ms** — that
+  is one edit-lane call drawing one mark alone, an upper bound on a drawn
+  answer, and the whole design call is ~170 s, so the two cannot both be true of
+  the same fields. See the design-split bullet, which now says so.
 - **THE SPLIT UNIT ALREADY EXISTED.** `shape` plans a page as an ordered list of
   bands (`{path, sections[]}`, `MAX_SECTIONS` 8), so nothing had to invent a way
   to cut a page up — the design step has been answering one for months and the
@@ -1510,10 +1517,11 @@ and sentinel the single path uses.
   (`EDIT`, `93ff3d5a30d556cc` → `fe1…c92f6`, applied **02:54:08Z**; the game
   image `no changes`); `deploy drain: no live leases after 1s`; Wrangler 34 s;
   the gate left to expire on success. **The 15–20 minute hold ended ~03:14Z.**
-  **AND THE DOOR IS CONFIRMED SHUT ON THE DEPLOYED WORKER, not merely in the
-  repository** — the secret upload lists `BAND_SPLIT_CANARY: -` and
+  **AND THE DOOR WAS CONFIRMED SHUT ON THE DEPLOYED WORKER, not merely in the
+  repository** — the secret upload listed `BAND_SPLIT_CANARY: -` and
   `BAND_SPLIT_EVERYONE: off` among its twenty, which is the exact fact the
   runtime diagnostic exists for and the reason a workflow read is not one.
+  **It was opened the same day — see "BOTH SPLITS ARE ON FOR ONE ACCOUNT" below.**
 - **AND THE INSTRUMENT LIED ABOUT THIS DEPLOY FOR HALF AN HOUR.** GitHub's job
   listing kept answering `in_progress` for the image step long after it had
   finished at 02:53:39Z, and it was reported here as a 32-minute hang with a
@@ -1523,11 +1531,85 @@ and sentinel the single path uses.
   walked past. **A workflow run's own `updated_at` is the tell**: it stayed at
   02:50:57Z beside step timestamps that had moved, which is a stale snapshot
   saying so in the one field nobody read.
-- **Not proven live, and there is nothing to see until somebody opens the door.**
-  The proof is two steps, in order: set `BAND_SPLIT_CANARY` to one slug in GitHub
-  and redeploy, then read `/api/site/runtime?slug=` for that site and check
-  `bands: true` — free, and it settles that the secret reached the Worker before
-  any build is bought. The build after that is the real proof and costs a build.
+- **THE DOOR IS OPEN FOR THE BUILDING ACCOUNT since 2026-09-10 — the section
+  below.** Nothing about the page a customer gets changes; what changes is that
+  the owner's own builds now write it band by band.
+
+---
+
+### BOTH SPLITS ARE ON FOR ONE ACCOUNT (2026-09-10, owner: *"switch it on"*)
+
+Both doors shipped defaulting to nobody, hours apart, each with the same
+sentence: *there is nothing to see until somebody opens the door.* The owner
+opened them. **`BAND_SPLIT_CANARY` and `DESIGN_SPLIT_CANARY` both default to
+`22175f41-6fbf-49d7-b039-a65078a0141c`** — the building account
+(`aniascristian@gmail.com`, 54 sites, read off `auth.users`) — and **both
+`*_EVERYONE` flags stay `off`**, so every customer on the platform still gets the
+single design call and the single page call, exactly as they have for months.
+
+- **ONE VALUE, BOTH DOORS, AND THAT IS WHY IT IS A UID.** `bandSplitFor` and
+  `designSplitFor` are handed `{uid, slug}` and match either. The design door
+  CANNOT be keyed on a slug — it is asked before the design call, and on a first
+  build the slug is one of the things that call answers — so the account is the
+  only key that opens it. And keying the band door on `fretwork-1` instead would
+  have split that one site's edits while leaving every NEW build writing its page
+  in one call: a build that designs in waves and then writes its page the old way,
+  which is a half-on state nobody wants to read a trace of. The account is the
+  whole of what this platform is tested with, so it is one identity for both.
+- **IT IS THE DEPLOY'S `|| fallback`, NOT A GITHUB SECRET, and that is the
+  runner's own precedent** — `JOB_RUNNER_CANARY: ${{ secrets.JOB_RUNNER_CANARY ||
+  'fretwork-1' }}` has named its canary that way since stage 5a, for the same
+  reason: a session cannot set a repository secret. **The secret still wins**, so
+  turning either split off without touching code is setting that name to `-` in
+  GitHub and redeploying — `readCanaryList` drops it, which is what "nobody"
+  spells here.
+- **THE TWO GUARDS THAT PINNED `|| '-'` WENT RED AND WERE RE-ANCHORED, NOT
+  APPEASED** — `test/design-waves.test.mjs` and `test/band-build.test.mjs` each
+  had a case asserting the default was the literal `-`, so each reported the
+  owner's decision as a regression. **Being `-` was never the property**; the
+  property is that a DEFAULT — what ships when nobody has set a secret — may open
+  a door to exactly ONE named identity and no further, because a default is not a
+  decision anybody made per-deploy. Both now read the shipped value out of the
+  workflow and DRIVE the door with it, which is `container-job.test.mjs`'s shape
+  for the runner canary one file over: the fallback exists, the broad flag's
+  default is not an affirmative word, the canary resolves to exactly one entry,
+  that entry reaches its own identity, and a stranger and an identity-less call
+  both get the single call. The design one additionally requires the entry to be
+  a UUID, because a slug there is a canary that can never match — which reads
+  from outside exactly like a canary that is off.
+- **AND ONE ASSERTION I WROTE WAS A CLAIM ABOUT THE CODE THAT WAS NOT TRUE.** The
+  band guard's first draft asserted that the named identity in the WRONG column
+  (a uid handed in as `slug`) is refused. It is not: the door tests its list
+  against both halves, and `readCanaryList`'s slug pattern admits a uuid, so it
+  matches either way. Caught in the first run — the guard went red against
+  correct code, which is the failure this file rates worse than a miss. Deleted
+  rather than reworded, and replaced with the property that IS true: a stranger
+  in either column, and a call with no identity at all, get nothing.
+- **Sweep: 11 mutants, 11 killed, none survived, none unapplied, two comment-only
+  controls survived** — each canary default back to `-` (the state before this,
+  which must now FAIL, and the sweep is the only thing that says so out loud),
+  each default widened to two identities, each broad flag defaulting to an
+  affirmative word, the design canary naming a slug, either `|| fallback` dropped
+  (a name listed with no value fails the WHOLE deploy — three merges have shipped
+  nothing that way), and either name dropped from the uploaded secret list.
+  **A twelfth was written and withdrawn as UNKILLABLE**: "the guard's driven check
+  reduced to a text match a widened default would satisfy" mutates a TEST, and
+  nothing tests the tests — it would have survived and read as a gap. What
+  actually proves those checks are load-bearing is the eleven above, every one of
+  which is a change to the deployed configuration that they catch.
+- **What this does NOT change**: no code path, no prompt, no schema, no page a
+  visitor sees. `.github/workflows/deploy.yml` and two guard files, so **no image
+  input moves and the container does not roll** — the 15–20 minute hold does not
+  apply to this push, though the Worker still has to deploy before the Worker
+  reads the new value.
+- **Not proven live yet, and the free half is not free to THIS session.** The
+  documented confirmation is `/api/site/runtime?slug=` answering `design: true`
+  and `bands: true`, which is owner-gated and needs the owner signed in; no
+  Supabase service key is in this environment, so the evidence available here is
+  the deploy's own secret-upload log — the same class of fact that proved the
+  doors shut on deploy 2070. **The real proof is one build**, and what it should
+  show in the trace is a `design` mark carrying `waves`/`agents` and a page
+  written as a fan-out. Nothing about the finished site should look different.
 
 ---
 

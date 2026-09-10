@@ -155,11 +155,62 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-10 — Both splits are switched on, for your account only
+
+You said **"switch it on"**. Both are on now — the design step answered by
+several agents at once, and the page written a band at a time — and **only for
+your account**. Every customer on the platform still gets the single design call
+and the single page call, exactly as they have for months. The wide switches
+(`*_EVERYONE`) stay off; those are a separate decision and a bigger one.
+
+**How it is switched on: your account id, in both places.** Both doors take
+either an account or a site. The design one can only take an account — it is
+asked before the design call runs, and on a first build the site's name is one of
+the things that call decides, so a site name there could never match. And naming
+`fretwork-1` for the page half would have split that one site's edits while every
+NEW build still wrote its page in one go — half on, which is the worst state to
+read a trace of. So it is one value in both: `22175f41-…-a65078a0141c`, the
+account that owns all 54 of your sites.
+
+**It lives in the deploy file, not in a GitHub secret**, because a session cannot
+set a repository secret — the job-runner canary has named `fretwork-1` the same
+way since 2026-09-06. **A secret still beats it**, so if you ever want either
+split off without waiting for me: set `BAND_SPLIT_CANARY` or
+`DESIGN_SPLIT_CANARY` to `-` in GitHub's secrets and redeploy.
+
+**Two of my own guards went red for this and I re-anchored them, not silenced
+them.** Each said "the default is `-`", which was a spelling, not the point. The
+point is that a default — what ships when nobody has set a secret — may open a
+door to exactly ONE named identity and never further. Both now read the real
+value out of the deploy file and try the door with it: one identity, not two, not
+the whole platform, and a stranger still gets the old path.
+
+**And one of the new checks was wrong the first time it ran.** I asserted that
+your account id handed in as a site name would be refused. It is not — the door
+tests its list against both, so it matches either way. The check went red against
+code that was correct, which is the failure I care about most, so I deleted the
+claim rather than reword it.
+
+**What you should see: nothing, on the site.** A split build and a single-call
+build publish the same page to the same address. What changes is how long the
+build takes, and I have not measured that and will not guess. **The next build
+you make is the measurement.**
+
+**What I could not confirm from here.** The clean proof is opening
+`/api/site/runtime?slug=<any of your sites>` while signed in and seeing
+`design: true` and `bands: true`. That needs your session; there is no key in
+this environment to sign in with. What I can read is the deploy's own log listing
+the value it uploaded, which is the same evidence that proved the doors shut
+yesterday.
+
+---
+
 ## 2026-09-10 — The design step is split too, and that switch is also off
 
 You said *"ok now split the design step"* → *"ok go"*. It is built, wired end to
 end, and **nothing on the platform behaves differently today**, because the
 switch that turns it on names nobody. Same shape as the page split above.
+**(Superseded the same day — see the entry above: you switched both on.)**
 
 **What the design step is.** One model call that answers 22 questions about the
 site — its name, its address, what it is for, what pages it has, which kit parts
@@ -191,12 +242,20 @@ the kit; a control can't be described before the page that holds it exists; the
 marks draw the name; the stylesheet sits on top of the theme.
 
 **Where the time actually is, and it is not the plan.** The logo and the tab
-icon are DRAWN — the model writes the picture. Run 41 measured what one drawn
-mark costs on Grok: **292 seconds**. In the single call those two sit in the
-queue with the plan, so the plan waits for them and they wait for the plan.
-Putting them side by side in round 2 is most of what this buys. **This corrects
-something I told you yesterday** — I said splitting the design "loses". That was
-about the wrong half of the call.
+icon are DRAWN — the model writes the picture, which is slow. In the single call
+those two sit in the queue with the plan, so the plan waits for them and they
+wait for the plan. Putting them side by side in round 2 is most of what this
+buys. **This corrects something I told you yesterday** — I said splitting the
+design "loses". That was about the wrong half of the call.
+
+**And I have to correct the number I used for it, same day.** I said run 41
+measured 292 seconds for one drawn mark, as though that settled it. Run 41 is the
+EDIT lane — one call, drawing one mark, on its own. The whole design call, all 22
+questions with both marks inside, takes about 170 seconds. So the marks plainly
+do not cost 292 seconds each in there, or it could never finish. 292 is the most
+a drawn answer can cost, not what these two cost inside the design step, and
+nothing has measured that. The reasoning still holds; the arithmetic I hung on it
+did not.
 
 **The second win is quieter and it is about size.** The parts question alone is
 **32,603 characters** of the 64,076 a first build sends, because it carries the
@@ -1838,23 +1897,23 @@ rolls the container, so leave 15–20 minutes after it deploys.
 
 ## Open — waiting on you
 
-**0x. TURN ON THE DESIGN SPLIT, OR DON'T (2026-09-10, your "ok go").** The other
-half of the same ask, and it works exactly like 0y below. Two steps, in this
-order:
+**0x. BOTH SPLITS ARE ON FOR YOUR ACCOUNT — ONE BUILD MEASURES THEM
+(2026-09-10, your "switch it on").** Step 1 of what this item used to say is
+done: both canaries name your account id, and no customer is on either path.
+**What is left is the measurement, and it costs one build.** Build a site
+normally. Nothing about the finished site should look different; what changes is
+how long it takes, and I will read the trace afterwards and tell you where the
+time went. Below is what each half is supposed to buy and what it risks — worth
+reading once before you spend the build, because you are the only person who can
+say whether the page still hangs together.
 
-1. **Free.** Set the GitHub secret `DESIGN_SPLIT_CANARY` to **your account id**
-   — not a slug, because this runs before the site has an address — and
-   redeploy. Then open `/api/site/runtime?slug=<any site you own>` while signed
-   in and check it says `design: true`. That proves the secret reached the live
-   Worker, which reading the workflow file cannot tell you.
-2. **One build's credits.** Build a site. Nothing about the site looks different;
-   what changes is how long the design step takes.
-
-**What it should buy: wall clock.** The design step is about 170 seconds today,
-and the two drawn marks — the logo and the tab icon — are what make it long: run
-41 measured 292 seconds for one drawn mark on Grok. Splitting puts them beside
-the plan instead of in the queue with it. **I have not measured the saving and
-will not guess at one.** The first split build is the measurement.
+**What the design half should buy: wall clock.** The design step is about 170 seconds today,
+and the two drawn marks — the logo and the tab icon — are the slow part, because
+drawing a picture is a long answer. Splitting puts them beside the plan instead
+of in the queue with it. **I have not measured the saving and will not guess at
+one.** The first split build is the measurement. (I earlier cited run 41's 292
+seconds here as though it sized the marks inside this call. It does not — that
+run is the edit lane drawing one mark alone, and the whole call is 170 seconds.)
 
 **What it risks:** four agents that do not see each other's answers within a
 round. Each is told what the earlier rounds decided and told the other parts are
@@ -1866,19 +1925,10 @@ fails — free and refunded — where the single call would have handed a partia
 answer on. Reasoning in the 2026-09-10 entry above; say the word and I will
 loosen it.
 
-**0y. TURN ON THE BAND SPLIT, OR DON'T (2026-09-10, your "ok go build it").**
-Writing a page eight bands at a time is built, tested and deployed, and the
-switch names nobody, so nothing on the platform does it. Two steps, in this
-order:
-
-1. **Free.** Set the GitHub secret `BAND_SPLIT_CANARY` to one slug — `fretwork-1`
-   is the obvious one — and redeploy. Then open
-   `/api/site/runtime?slug=fretwork-1` while signed in and check it says
-   `bands: true`. That proves the secret actually reached the Worker, which
-   reading the workflow file cannot tell you.
-2. **One build's credits.** Build a site on that slug. The page comes out
-   assembled from its bands; a band that fails is a placeholder and the rest of
-   the page still publishes.
+**0y. THE PAGE HALF OF 0x, same build, same measurement.** Writing a page eight
+bands at a time is on for your account too. The page comes out assembled from its
+bands; a band that fails is a placeholder and the rest of the page still
+publishes.
 
 **What it should buy: wall clock.** The page call is the long step of a build —
 measured between five and a half and ten minutes — and eight bands run at once

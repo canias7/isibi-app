@@ -446,22 +446,44 @@ test("every call failing is not a page, and says so the way the one call says it
 // THE DEPLOYMENT
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("both flags are uploaded with a fallback, and the canary's default is nobody", () => {
+test("both flags are uploaded with a fallback, and the canary names ONE identity", () => {
   const dep = read(".github/workflows/deploy.yml");
   // AN OPTIONAL SECRET MUST CARRY A FALLBACK. Listing a name with no value
   // fails the WHOLE deploy — three merges have shipped nothing that way.
-  assert.ok(/BAND_SPLIT_CANARY: \$\{\{ secrets\.BAND_SPLIT_CANARY \|\| '-' \}\}/.test(dep),
-    "the canary is uploaded without a fallback, or its default is not nobody");
-  assert.ok(/BAND_SPLIT_EVERYONE: \$\{\{ secrets\.BAND_SPLIT_EVERYONE \|\| 'off' \}\}/.test(dep),
-    "the wide door is uploaded without a fallback, or defaults on");
-  // The default really means nobody, asked of the reader rather than assumed.
-  assert.deepEqual(readCanaryList("-"), [], "the deploy default is a value the reader keeps");
-  assert.equal(bandSplitFor({ BAND_SPLIT_CANARY: "-", BAND_SPLIT_EVERYONE: "off" }, { slug: "fretwork-1" }), false);
+  const canary = /BAND_SPLIT_CANARY: \$\{\{ secrets\.BAND_SPLIT_CANARY \|\| '([^']*)' \}\}/.exec(dep);
+  const everyone = /BAND_SPLIT_EVERYONE: \$\{\{ secrets\.BAND_SPLIT_EVERYONE \|\| '([^']*)' \}\}/.exec(dep);
+  assert.ok(canary && everyone, "a band-split flag is uploaded without a fallback");
   // And both are on the secret list, or they never reach the Worker at all.
   const list = between(dep, "          secrets: |", "        env:", "the secret list");
   for (const n of ["BAND_SPLIT_CANARY", "BAND_SPLIT_EVERYONE"]) {
     assert.ok(list.includes(n), n + " is set in env but never uploaded");
   }
+
+  // RE-ANCHORED 2026-09-10 (owner: "switch it on"). This pinned the canary's
+  // default as the literal `-` and went red for the owner opening the door,
+  // which is the recorded "assert the property, not the spelling": the property
+  // is that a DEFAULT — what ships when nobody has set a secret — may widen this
+  // to exactly one named identity and no further, never to the whole platform.
+  const env = { BAND_SPLIT_CANARY: canary[1], BAND_SPLIT_EVERYONE: everyone[1] };
+  assert.equal(bandSplitEveryone(env), false, "the shipped default splits every page on the platform");
+  const named = readCanaryList(canary[1]);
+  assert.equal(named.length, 1, "the shipped canary names " + named.length + " identities, not one: " + JSON.stringify(canary[1]));
+  // The door reads its list against BOTH halves and does not care which column
+  // an identity arrives in, so drive the default in the column it belongs to.
+  // A UID here is deliberate and is the difference from the runner's canary:
+  // this is asked at page time, when a NEW build already has a slug, so a slug
+  // would split that one site's edits and leave every new build on the single
+  // call — the half-on state, since the design door one block over can only be
+  // keyed on an account.
+  const uidish = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(named[0]);
+  assert.equal(bandSplitFor(env, uidish ? { uid: named[0], slug: "any-site-1" } : { uid: "x", slug: named[0] }), true,
+    "the shipped canary does not reach the identity it names");
+  assert.equal(bandSplitFor(env, { uid: "99999999-8888-7777-6666-555555555555", slug: "somebody-else-1" }), false,
+    "the shipped default splits a stranger's page");
+  assert.equal(bandSplitFor(env, {}), false, "the shipped default splits a page with no identity at all");
+  // And `-` is still what turning it back off looks like, asked of the reader.
+  assert.deepEqual(readCanaryList("-"), [], "`-` must stay a value the reader drops");
+  assert.equal(bandSplitFor({ BAND_SPLIT_CANARY: "-", BAND_SPLIT_EVERYONE: "off" }, { uid: named[0], slug: named[0] }), false);
 });
 
 test("the image carries the band module, because worker.js imports it", () => {

@@ -150,18 +150,40 @@ test("the door lives with the other doors, and `readCanaryList` stays out of wor
   assert.ok(/readCanaryList\(env && env\.DESIGN_SPLIT_CANARY\)/.test(job), "the canary must be read through the one reader");
 });
 
-test("the deploy uploads both flags with a fallback, and defaults to nobody", () => {
+test("the deploy uploads both flags with a fallback, and the canary names ONE account", () => {
   const dep = read(".github/workflows/deploy.yml");
   // A NAME LISTED WITH NO VALUE FAILS THE WHOLE DEPLOY — three merges have
   // shipped nothing that way — so an optional secret must carry a `|| fallback`.
-  assert.match(dep, /DESIGN_SPLIT_CANARY: \$\{\{ secrets\.DESIGN_SPLIT_CANARY \|\| '-' \}\}/);
-  assert.match(dep, /DESIGN_SPLIT_EVERYONE: \$\{\{ secrets\.DESIGN_SPLIT_EVERYONE \|\| 'off' \}\}/);
+  const canary = /DESIGN_SPLIT_CANARY: \$\{\{ secrets\.DESIGN_SPLIT_CANARY \|\| '([^']*)' \}\}/.exec(dep);
+  const everyone = /DESIGN_SPLIT_EVERYONE: \$\{\{ secrets\.DESIGN_SPLIT_EVERYONE \|\| '([^']*)' \}\}/.exec(dep);
+  assert.ok(canary && everyone, "the deploy does not carry both design-split secrets with a fallback");
   // …and named in the secret list, or the Worker never receives them.
   const list = between(dep, "BAND_SPLIT_CANARY", "        env:", "the uploaded secret list");
   assert.ok(list.includes("DESIGN_SPLIT_CANARY") && list.includes("DESIGN_SPLIT_EVERYONE"),
     "a flag that is set and never uploaded is a flag the Worker cannot read");
-  // The defaults are what a fresh deploy runs, and they must split nothing.
-  assert.equal(designSplitFor({ DESIGN_SPLIT_CANARY: "-", DESIGN_SPLIT_EVERYONE: "off" }, { uid: "anyone" }), false);
+
+  // RE-ANCHORED 2026-09-10 (owner: "switch it on"). From the split's own day
+  // until this one the default was `-` and this case pinned that spelling, so
+  // it went red for the owner turning the split on — the recorded "assert the
+  // property, not the spelling". The property was never "the default is `-`";
+  // it is that a DEFAULT may widen a door to exactly one named identity and no
+  // further, because a default is what ships when nobody has set a secret.
+  // Driven with the shipped values, the runner canary's own shape one file over.
+  const env = { DESIGN_SPLIT_CANARY: canary[1], DESIGN_SPLIT_EVERYONE: everyone[1] };
+  assert.equal(designSplitEveryone(env), false, "the shipped default turns the design split on for the whole platform");
+  const named = readCanaryList(canary[1]);
+  assert.equal(named.length, 1, "the shipped canary names " + named.length + " identities, not one: " + JSON.stringify(canary[1]));
+  // A UID, because this door is asked before a first build HAS a slug — a slug
+  // here is a canary that can never match, which reads exactly like a canary
+  // that is off.
+  assert.match(named[0], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    "the shipped canary names something that is not an account id: " + named[0]);
+  assert.equal(designSplitFor(env, { uid: named[0] }), true, "the shipped canary does not reach its own account");
+  assert.equal(designSplitFor(env, { uid: "99999999-8888-7777-6666-555555555555" }), false, "the shipped default splits another account's build");
+  assert.equal(designSplitFor(env, { slug: "fretwork-1" }), false, "the shipped default splits a build by slug, which this door cannot key on");
+  // And `-` is still what turning it back off looks like, asked of the reader.
+  assert.deepEqual(readCanaryList("-"), [], "`-` must stay a value the reader drops");
+  assert.equal(designSplitFor({ DESIGN_SPLIT_CANARY: "-", DESIGN_SPLIT_EVERYONE: "off" }, { uid: named[0] }), false);
 });
 
 test("the runtime diagnostic answers the two flags and never the list", () => {
