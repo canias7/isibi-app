@@ -411,7 +411,13 @@ test("THE WIRING: both halves are painted, from one composition, by one function
   // the stage panel kept a label baked while the phase was still `thinking` —
   // "Thinking…" on the right for seventeen minutes while the left rail moved.
   const paint = fn("function paintReactLive(", src);
-  assert.match(paint, /#stStage \.st-b1/, "paintReactLive no longer repaints the stage panel");
+  // RE-ANCHORED 2026-09-10: the painter reaches the stage CONTAINER first now
+  // (it has to, to create a panel where there is none), so the one-string
+  // selector `#stStage .st-b1` is two reads. Both are asserted, because holding
+  // the container and never looking for the panel is a painter that rebuilds
+  // the frame on every 1.5s tick.
+  assert.match(paint, /getElementById\('stStage'\)/, "paintReactLive no longer reaches the stage");
+  assert.match(paint, /querySelector\('\.st-b1'\)/, "paintReactLive no longer repaints the stage panel");
   assert.match(paint, /buildStageHTML\(\)/, "the stage is repainted from something other than the one composition");
   assert.match(paint, /st-steps-live/, "paintReactLive stopped repainting the thread");
 
@@ -420,8 +426,21 @@ test("THE WIRING: both halves are painted, from one composition, by one function
   // frozen, which is precisely how this shipped.
   assert.equal((src.match(/buildStageHTML\(\)/g) || []).length, 3,
     "one definition plus two call sites; a changed count means a half went unpainted or grew a copy");
-  const render = src.indexOf("st-frame-bar");
-  assert.ok(render > 0 && /buildStageHTML\(\)/.test(src.slice(render, src.indexOf("</div>'", render) + 400)),
+  // RE-ANCHORED 2026-09-10. Both call sites are now one hop further out: the
+  // whole framed panel is `stBuildFrameHTML`, so the render and the painter draw
+  // that and it draws this. The old check found the FIRST `st-frame-bar` in the
+  // file and looked for `buildStageHTML()` near it — and once the render's own
+  // copy of the frame moved into a function, the first one in the file became
+  // the PREVIEW iframe's, which has nothing to do with a build. The recorded
+  // ambiguous-landmark trap: a landmark is only unique until the code that made
+  // it unique moves. Named rather than positional, both hops.
+  assert.match(fn("function stBuildFrameHTML(", src), /buildStageHTML\(\)/,
+    "the build frame no longer holds the one stage composition");
+  const at = src.indexOf('<div class="st-stage" id="stStage"');
+  assert.ok(at > 0, "the stage container is gone");
+  const end = src.indexOf('<div class="st-fixbar"', at);
+  assert.ok(end > at, "the stage block has no end landmark — re-derive this window");
+  assert.match(src.slice(at, end), /\? stBuildFrameHTML\(site\)/,
     "the workspace's own render no longer draws the stage composition");
 });
 

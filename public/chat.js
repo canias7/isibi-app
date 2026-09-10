@@ -11998,7 +11998,7 @@ function renderSiteWorkspace(view, site) {
               '</div>') +
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
-          ((siteBusy && siteBuild && siteBuild.react && !isReact && stBuildRunning())
+          (stStageBuilding(site)
             // A first React build has no preview yet → show a compile placeholder in
             // the stage; the live code is in the chat. (A React revise keeps its
             // existing preview visible and just reloads it when done.)
@@ -12016,7 +12016,13 @@ function renderSiteWorkspace(view, site) {
             // with a build rail for a message that was never a build. The rail
             // asks the predicate, this asks the predicate, and neither spells
             // the state itself.
-            ? '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><div class="st-building">' + buildStageHTML() + '</div></div>'
+            //
+            // BOTH ARE NOW `stStageBuilding` / `stBuildFrameHTML` (2026-09-10),
+            // because the whole condition and the whole panel were still
+            // written out here — so `paintReactLive` could update this panel and
+            // never create it, and a first build sat on the invitation for its
+            // whole run. See those two functions.
+            ? stBuildFrameHTML(site)
             : !hasSite
               // THE CLASSIC LOG BOX IS THE CLASSIC BUILD'S, and it took a react
               // build's thinking window with it once the gate above narrowed:
@@ -12804,6 +12810,39 @@ function buildStageHTML() {
     '<div class="st-bleg">' + legs + '</div>' +
   '</div>';
 }
+// IS THE STAGE SHOWING A BUILD, AND WHAT DOES THAT PANEL LOOK LIKE — asked in
+// the full render and in `paintReactLive`, and that pair is the whole of this
+// change (2026-09-10, owner: "WHEN IT STARTS NOTHING APPEARS IN THE BIG SCREEN,
+// IT WOULD ONLY APPEAR IF I CLICK A BUTTON AND THEN PRESS PREVIEW AGAIN").
+//
+// The two comments above record unifying the DRAWING and then the QUESTION the
+// rail asks. This is the same lesson one gate further out: the question the
+// STAGE asks was still spelled inline on the render's own line, so the live
+// painter could only ever UPDATE a panel the render had already drawn and could
+// never CREATE one. On a first build the render runs while the phase is still
+// `thinking` — deliberately absent from `ST_PHASE_ORDER`, so `stBuildRunning()`
+// is false — the stage falls through to "Describe your site on the left", and
+// `reactSend` sets the phase a moment LATER. Nothing renders the workspace
+// again until the build ends, so `paintReactLive` found no `.st-b1`, skipped,
+// and the invitation sat there for the whole build. Only a re-render somebody
+// triggered by hand converted it, which is what "click a button and then press
+// Preview again" is. A drawing shared between two call sites is not shared
+// until the DECISION is too.
+//
+// `!isReact` STAYS, and it is why this takes the site rather than reading a
+// global: on a site that has already built, the stage holds the live preview
+// iframe, and painting a build panel over it would tear that iframe down and
+// reload it mid-edit — which the render's own branch says a revise must not do.
+function stStageBuilding(site) {
+  return !!(siteBusy && siteBuild && siteBuild.react
+    && !(site && site.react && site.url) && stBuildRunning());
+}
+function stBuildFrameHTML(site) {
+  const active = siteActivePage(site);
+  return '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' +
+    esc(siteChipUrl(site, active && active.path)) + '</span></div>' +
+    '<div class="st-building">' + buildStageHTML() + '</div></div>';
+}
 // WHAT THE CURRENT STAGE IS ACTUALLY DOING — the line under the hero, and the
 // body of the expanded row. Its own sentences, NOT `budgetNote`'s: those read
 // "This build ran out of time before your data model was ready", which is the
@@ -12832,8 +12871,24 @@ function paintReactLive() {
   // "Thinking…" on the right for seventeen minutes while the left rail moved.
   // Painting only the label would leave that mechanism intact; the whole
   // composition is swapped, from the one function that builds it.
-  const st = document.querySelector('#stStage .st-b1');
+  //
+  // AND IT CREATES THE PANEL WHEN THERE IS NONE, which is the second half and
+  // the one the owner saw (2026-09-10). `.st-b1` only exists once a FULL render
+  // has drawn the build frame, and on a first build the full render happens
+  // while the phase is still `thinking` — so there was nothing to swap, `if
+  // (st)` skipped, and the stage kept "Describe your site on the left" until
+  // some other action re-rendered the workspace. The site is looked up here
+  // rather than passed in because every caller is an event, not a render; it is
+  // the same site the render draws (`renderSites` opens `siteById(siteOpenId)`),
+  // so this branch gives the answer that render would give — and it is asked
+  // only when there is no panel, so the ordinary tick pays nothing for it.
+  const stage = document.getElementById('stStage');
+  const st = stage && stage.querySelector('.st-b1');
   if (st) st.outerHTML = buildStageHTML();
+  else if (stage) {
+    const s = siteById(siteOpenId);
+    if (stStageBuilding(s)) stage.innerHTML = stBuildFrameHTML(s);
+  }
   // THE THREAD IS ONLY DRAGGED DOWN IF IT WAS ALREADY THERE. This repaints on a
   // 1.5s tick now, and yanking the scroll away from somebody reading their own
   // build log every 1.5 seconds is worse than the stale scroll it fixes.

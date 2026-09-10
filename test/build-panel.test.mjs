@@ -116,8 +116,23 @@ test("the rail and the stage panel ask the ONE predicate", () => {
   const end = BARE.indexOf('<div class="st-fixbar"', at);
   assert.ok(end > at, "the stage block has no end landmark — re-derive this window");
   const stage = BARE.slice(at, end);
-  assert.match(stage, /siteBusy && siteBuild && siteBuild\.react && !isReact && stBuildRunning\(\)/,
+  // RE-ANCHORED 2026-09-10, and this is the property that was always meant.
+  // The whole condition used to be spelled out on the render's own line, and
+  // this case pinned that spelling. It is `stStageBuilding` now — because the
+  // live painter has to ask the same question to CREATE the panel, and it could
+  // not ask a condition written inline in a render — so the chain is asserted
+  // instead: the stage goes through the shared decision, and that decision goes
+  // through the shared predicate. Being written here was never the property;
+  // not deciding this its own way is.
+  assert.match(stage, /\(stStageBuilding\(site\)/,
+    "the stage panel decides for itself again instead of asking the shared question");
+  const decide = fn("function stStageBuilding(");
+  assert.match(decide, /stBuildRunning\(\)/,
     "the stage panel is drawn without asking whether a build is running — a greeting takes the preview over again");
+  assert.match(decide, /siteBusy && siteBuild && siteBuild\.react/,
+    "the stage's decision stopped asking whether a react build is in flight at all");
+  assert.match(decide, /!\(site && site\.react && site\.url\)/,
+    "the decision no longer exempts a built site — a revise gets its live preview painted over");
 });
 
 test("no display decides this by comparing the state word itself", () => {

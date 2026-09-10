@@ -2076,12 +2076,21 @@ thing that would change the arithmetic, and is unexplored.**
   losing either number, coercing them, or unwrapped; and the design mark spelling
   the timings itself.
 - Full suite **5,875**.
-- **Not proven live.** One ordinary split build is the proof and it needs no
-  baseline: `agentMs − waveMs` on the `bands` step is the overlap, and the
-  comparison that matters is that overlap against `agentMs − <what one call
-  costs>`, the same arithmetic the table above applies to the design split.
-  `worker.js` is a container image input, so the container rolls and the 15–20
-  minute hold applies.
+- **PROVEN LIVE by `kestrel-bindery` (2026-09-10 19:51Z), and the band split's
+  arithmetic is nothing like the design split's.** Its `bands` step reads
+  `bands: 7, wrote: 7, waveMs 93,375, agentMs 424,444` — **an overlap of
+  331,069 ms**, seven bands doing seven minutes of work in a minute and a half of
+  wall clock. Against the design split's 52–66 s of overlap on four agents, that
+  is the shape difference the section predicted: **7-wide in ONE wave against
+  1-2-1**, on a call that is several times longer, so the fixed per-call cost is
+  a much smaller slice of it. `wrote === bands` is the half beyond "it ran" — a
+  band that answers nothing is stubbed rather than dropped, so a page quietly
+  missing a section would read as `wrote < bands`.
+- **AND THE MISSING SIDE ARRIVED TWO BUILDS LATER: 93,375 AGAINST 180,456.** See
+  "THE PAGE CALL IS TIMED ON BOTH PATHS" — `marlow-and-tide` is a deliberate
+  single-call control and its page call took roughly twice as long. That is the
+  comparison this instrument was built for, and it took the wake merge and the
+  `genMs` merge to become askable at all.
 - **MERGED AND DEPLOYED** (owner: *"MERGE"*). `unit tests` run 2410 green, the
   suite step 84 s on the exact tree; main fast-forwarded `cae84f8a` →
   `c61008b5` at 19:27:21Z; **deploy run 2077 green in 3m03s**. The gate set in
@@ -2183,11 +2192,17 @@ had no way to know the layer under it had moved.
   the falsified claim restored as fact, the measurement dropped from the
   correction, and the collector's double-charge wall removed.
 - Full suite **5,883**.
-- **Not proven live.** The next ordinary build is the proof and it needs no
-  special run: the gap between the job's `created_at` and the build row's
-  `updated_at`, minus `total_ms`, should fall from ~253 s to seconds. `worker.js`
-  is a container image input, so the container rolls and the 15–20 minute hold
-  applies.
+- **PROVEN LIVE by `marlow-and-tide` (2026-09-10 21:27Z, the first build after
+  the deploy), and the number it now reports is the GENERATION rather than the
+  timer.** The gap between the job's `created_at` and the build row's
+  `updated_at`, minus `total_ms`, was **253,290 / 252,403 / 260,826** on the
+  three builds before this and is **187,716** on this one — and that 187 s is
+  `genMs` (**180,456**) plus **7,260 ms** of queue hop and the collector's two R2
+  reads. **The idle is the work now.** The tell is the comparison rather than the
+  size: `kestrel-bindery`'s page was finished at 93,375 ms and its idle was
+  253,290 — 160 seconds of nothing — where this one's idle tracks a page call
+  twice as long. A build that waits longer because its page took longer is the
+  timer gone.
 - **AND IT MAKES THE BAND SPLIT'S SAVING REAL FOR THE FIRST TIME.** The split cut
   generation from 333k–620k ms to 93,375 and the whole gain was being handed back
   to this timer, which is why four builds could not show it from outside. Whether
@@ -2284,11 +2299,35 @@ number, for both kinds, off values both paths already carried.
   reads, the look count instead of the stamp, a negative cost; and `flightOf`
   carrying its own copy again.
 - Full suite **5,890**.
-- **Not proven live, and it needs no special run.** The next ordinary build's
-  `resume:finish` step carries `genMs`, and the comparison that answers the
-  owner's question is that number on a split build against the same number on one
-  with `BAND_SPLIT_CANARY` set to `-`. `worker.js` is a container image input, so
-  the container rolls and the 15–20 minute hold applies.
+- **PROVEN LIVE, AND IT ANSWERED THE OWNER'S QUESTION ON ITS FIRST RUN.**
+  `marlow-and-tide` (2026-09-10 21:27Z, grok) carries `genMs: 180456` on its
+  `resume:finish` step — the first time the un-split page call has ever been
+  timed. The owner had turned the band canary off by hand (deploy 2080, a
+  `workflow_dispatch` at 21:19Z on the same sha — 1m02s, both images reused,
+  nothing rolled, so the flag took effect at once), and the trace says so
+  independently: **`bands:door`**, the refusal instrument naming the wall. So it
+  is a real single-call control, not an inference from a missing step.
+
+  | build | page call | how |
+  |---|---|---|
+  | `kestrel-bindery` (2026-09-10 19:51Z) | **93,375** | 7 bands, one wave |
+  | `marlow-and-tide` (2026-09-10 21:27Z) | **180,456** | one call |
+
+  **The split page call is roughly HALF the single call — the first evidence
+  either way in three days of asking.** What the pair is not: the two numbers are
+  not the same measurement (`waveMs` is the fan-out's own wall inside the
+  container; `genMs` is fire-to-collection, a superset by the 7,260 ms measured
+  in the wake entry above) and the two briefs are different. It is one pair, and
+  a pair is not a law — but the gap is 87 seconds against an overhead of 7, so it
+  is not the instruments. **A `genMs` on a SPLIT build is the clean version of
+  this comparison and costs one ordinary build**, since both paths now write the
+  same field.
+- **AND THE WHOLE BUILD DID NOT HALVE, which is the honest second half.**
+  marlow's wall clock was **505,179 ms** against kestrel's **568,983** — faster,
+  but for the wake's reason rather than the page's: kestrel spent 160 s idle on
+  the timer. Take that out of both and the split build is ~409,000 against
+  ~505,000. The page call is one part of a build whose design step alone is
+  ~200,000 ms.
 - **MERGED AND DEPLOYED** (owner: *"MEERGE"*). `unit tests` runs 2413 and 2414
   both green; main fast-forwarded `0bd81ea0` → `50f2ff19` at 20:56:38Z, carrying
   BOTH this and the stale-API correction below it. **Deploy run 2079 green in
@@ -2303,6 +2342,92 @@ number, for both kinds, off values both paths already carried.
   task #147. `/api/site/build-health` answering `0976b2e45f397667` means the
   previous image is still serving; the flip to `9b2b2483f6c968c…` is the moment
   the hold really ends. Owner-gated, so this session cannot take the number.
+
+---
+
+### THE LIVE PAINTER COULD UPDATE THE STAGE AND NEVER CREATE IT (2026-09-10,
+owner, watching a first build run: *"WHEN IT STARTS NOTHING APPEARS IN THE BIG
+SCREEN, IT WOULD ONLY APPEAR IF I CLICK A BUTTON AND THEN PRESS PREVIEW AGAIN"*)
+
+**EVERY FIRST BUILD SHOWED "Describe your site on the left" FOR ITS WHOLE RUN**,
+beside a chat rail that was moving correctly. Not a rendering fault and not a
+race: a deterministic ordering, true on every build since the panel shipped.
+
+- **THE SEQUENCE, AND IT IS THE WHOLE THING.** `reactSend` renders the workspace
+  and THEN sets the phase. At render time `rphase` is still `thinking` — a word
+  deliberately absent from `ST_PHASE_ORDER`, so `stBuildRunning()` is false — and
+  the stage correctly falls through to the invitation. A moment later
+  `reactSend` sets `rphase = ST_PHASE_ORDER[0]` and calls `paintReactLive`, which
+  looked for `.st-b1`, found none, and skipped. **Nothing renders the workspace
+  again until the build ENDS**, so the invitation stood for eight minutes. Any
+  action that re-rendered converted it, which is exactly what "click a button and
+  then press Preview again" is.
+- **THIS IS THE THIRD TURN OF ONE LESSON AND THE OTHER TWO ARE IN THE CODE'S OWN
+  COMMENTS.** The DRAWING was unified into `buildStageHTML` (a panel that said
+  "Thinking…" for a seventeen-minute build); then the QUESTION THE RAIL ASKS
+  became `stBuildRunning()` (typing "hey" replaced the preview with a build
+  rail). Both times the fix stopped one layer short: the question the STAGE asks
+  was still written out on the render's own line, so the painter had no way to
+  ask it. **A drawing shared between two call sites is not shared until the
+  DECISION is too.** `stStageBuilding(site)` and `stBuildFrameHTML(site)` are
+  that pair, and both are asked in both places.
+- **`!isReact` STAYS, and it is why the decision takes a site rather than reading
+  a global.** On a site that has already built, the stage holds the live preview
+  iframe and a revise keeps it — painting a build panel there would tear that
+  iframe down and reload the customer's preview mid-edit, which the render's own
+  branch says a revise must not do. The painter looks the site up itself
+  (`siteById(siteOpenId)`, the same thing `renderSites` opens) because every one
+  of its six callers is an EVENT, not a render, and cannot hand it one; the
+  lookup sits inside the create branch, so the ordinary 1.5 s tick never pays it.
+- **Guards**: `test/build-stage-create.test.mjs` (8), and the one that matters
+  DRIVES THE SEQUENCE rather than the predicate — render at `thinking`, phase to
+  `planning`, assert the stage converted. **Proving `stStageBuilding` answers
+  correctly would have proved nothing**: that is this session's own recorded
+  wiring lesson (a value BUILT is not a value that ARRIVES) and `picked-model`'s
+  before it. A source read is worse still — it cannot tell `if (st)` from
+  `if (st) … else if (stage)`, which is the shape of the defect, and this
+  repository has already recorded that a position is not a behaviour. Beside it:
+  the panel proved to be created ONCE and updated in place after (the frame is
+  not rebuilt on every tick), a built site's preview proved untouched, a
+  stage-less screen proved a no-op, the decision driven over every shape, and
+  both call sites COUNTED — cutting either leaves both new functions perfect and
+  one path dead.
+- **Two older guards went red and were re-anchored, not appeased.**
+  `build-panel`'s "the rail and the stage panel ask the ONE predicate" pinned the
+  whole inline condition; being written on that line was never the property, so
+  it asserts the chain (the stage asks the shared decision, the decision asks the
+  shared predicate). And `build-progress`'s wiring case found the FIRST
+  `st-frame-bar` in the file and looked for `buildStageHTML()` near it — once the
+  render's copy of the frame moved into a function, the first one in the file
+  became the PREVIEW iframe's, which has nothing to do with a build. **The
+  recorded ambiguous-landmark trap in its quietest form: a landmark is unique
+  only until the code that made it unique moves.** Named rather than positional
+  now, both hops.
+- **Sweep: 21 mutants, 19 killed, none survived, none unapplied, two comment-only
+  controls survived** — the create branch deleted (the defect), firing whatever
+  is running, firing when a panel is already there, the update leg dropped, the
+  painter deciding against a site nobody opened or drawing its own copy of the
+  frame or never reaching the stage container; the decision reading `thinking` as
+  a build, not exempting a built site, exempting a half-built one, ignoring
+  whether anything is in flight, ignoring whether it is a react build, or
+  answering a truthy value instead of `false`; the render spelling the condition
+  inline again or drawing its own frame; and the frame losing its url bar, its
+  panel, its site, or the page lookup.
+- **TWO SURVIVED THE FIRST PASS AND NEITHER WAS INERT — both were holes in my own
+  drivers, and both were MEASURED before being believed.** (1) Dropping the `!!`
+  answers `null` instead of `false` when there is no build at all, and my harness
+  always constructed one; both consumers ask truthiness so the product is right
+  today, and one `=== false` downstream reads "nothing running" as a build —
+  `readWaveAnswer`'s recorded defect one screen over. (2) `const active =
+  siteActivePage(site)` cut to `null` changes nothing for a site with no pages,
+  which every fixture here was; a CLASSIC draft with pages reaches this frame
+  (the build gate sits above `hasSite`), so the lookup is load-bearing. Driven
+  now, both killed.
+- Full suite **5,898**.
+- **Not proven live**, and there is no way to prove it but to watch one build
+  start. `public/` only — no image input moves, so **no container roll and no
+  15–20 minute hold** — and `chat.js` is cached, so a hard refresh is part of it
+  reaching anybody. Render: `docs/edits/build-stage-create.png`.
 
 ---
 
@@ -4411,7 +4536,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,890.
+  The unit suite is 5,898.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

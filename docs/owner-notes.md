@@ -4125,3 +4125,84 @@ of guessed. If you're signed in, `/api/site/build-health` answering
 `0976b2e45f397667` means the old image is still serving, and the flip to
 `9b2b2483f6c968c…` is the moment the wait genuinely ends. I can't read that one —
 it needs your login.
+
+## 2026-09-10 — Your build answered the question, and the blank screen is fixed
+
+Two things, and the first one is the answer you've been after for three days.
+
+### 1. Splitting the page IS faster. About twice as fast.
+
+You turned splitting off before this build, which made it the control I needed —
+and the trace says so in its own words (`bands:door`, which is the little
+instrument I built this morning naming exactly why it didn't split). So:
+
+| build | how the page was written | how long it took |
+|---|---|---|
+| `kestrel-bindery`, 7:51pm | split into 7 pieces at once | **93 seconds** |
+| `marlow-and-tide`, 9:27pm | one go | **180 seconds** |
+
+**That's the comparison that didn't exist yesterday.** Being honest about its
+limits: it's two different briefs, one build each, and the two numbers are
+measured from slightly different points (the single-call one includes about 7
+seconds of plumbing either side). But the gap is 87 seconds against 7 seconds of
+noise, so it isn't the instruments. One more ordinary build with splitting back
+on gives the clean, identical-measurement version — both paths write the same
+field now.
+
+**What did NOT halve is the whole build.** Marlow took 8m25s and Kestrel 9m29s.
+The page is one part of a build whose *design* step alone is over three minutes.
+If you want the total to come down, design is where the time is — and we already
+measured that splitting the design step is a wash, so that's a different problem.
+
+### 2. The four-minute wait is really gone
+
+You saw the idea; here's it working. Every build used to sit doing nothing for
+about 253 seconds no matter what. On this build that dead time was 188 seconds —
+and 180 of those were *the page actually being written*. Seven seconds of
+genuine overhead, down from 253.
+
+The clearest way to see it: Kestrel finished its page in 93 seconds and then sat
+there for 160 seconds doing nothing, because the timer hadn't gone off. Marlow
+waited longer — because its page took longer. **The waiting now tracks the work.**
+That's the whole point.
+
+### 3. The blank screen — fixed
+
+**What was wrong.** When you press send, we draw the screen and *then* mark the
+build as started. In that order. So at the moment of drawing, the build hasn't
+officially begun yet, and the big panel correctly shows "Describe your site on
+the left". A split second later we mark it started and tell the screen to
+refresh — but the refresh only knew how to *update* the build panel, and there
+wasn't one to update. So it did nothing, and the invitation stayed there for the
+whole eight minutes.
+
+Clicking a button redrew the whole screen from scratch, which is why that worked.
+
+**The fix.** The refresh can now *create* the panel, not just update it. One
+line of decision and one line of drawing, both shared between the two places that
+need them — because the underlying mistake was that the screen's own drawing was
+shared and its *decision* wasn't.
+
+**This is the third time this exact thing has bitten us**, and I've written that
+down. First the panel said "Thinking…" for seventeen minutes. Then typing "hey"
+replaced your preview with a build bar. Both times the fix stopped one layer
+short of this one. It should be the last.
+
+**One thing I deliberately left alone.** On a site that already exists, that big
+panel holds your live preview. Painting a build panel over it would throw your
+preview away and reload it in the middle of an edit. So the fix only touches
+sites that have nothing to show yet — and there's a test that fails if anyone
+loosens that.
+
+**Checked.** Twenty-one deliberate breakages, nineteen caught, two harmless
+comment edits confirming the tests aren't just failing at everything. Full suite
+green at 5,898. Screenshot of before and after in the chat.
+
+**Two of those breakages survived my first pass and neither was harmless** — both
+were holes in my own tests rather than the code. I measured both rather than
+assuming they were nothing, then wrote the missing tests. That's the check
+working.
+
+**No wait after this one.** This is browser code only, so nothing rebuilds and
+there's no 15–20 minute hold. You will need a hard refresh for it to reach you,
+though — the browser caches that file.
