@@ -309,7 +309,12 @@ test("a registry that CANNOT be asked builds — never skips — and the log say
   assert.deepEqual(out.images.map((i) => i.status), [401, "registry credentials: 403"]);
   const said = calls.logs.filter((l) => /registry could not be asked for isibi-app-(game|site)buildcontainer:[0-9a-f]{16} \((401|registry credentials: 403)\) — building/.test(l));
   assert.equal(said.length, 2, "the two unanswered asks were not both said out loud, with their reasons");
-  assert.equal(calls.writes.length, 1, "the config was not written after the builds");
+  // RE-ANCHORED 2026-09-10 (the image-id stamp). This counted writes — `=== 1`
+  // — which was true while `wrangler.jsonc` was the only file the script wrote
+  // and went red the moment an honest second write arrived. Being the only
+  // write was never the property; being WRITTEN, after the builds, is.
+  assert.equal(calls.writes.filter(([p]) => p === "wrangler.jsonc").length, 1, "the config was not written after the builds");
+  assert.equal(calls.writes.at(-1)[0], "wrangler.jsonc", "the config is no longer the last thing written");
 });
 
 test("a failed build is tried once more; a second failure fails the deploy and writes nothing", async () => {
@@ -319,7 +324,13 @@ test("a failed build is tried once more; a second failure fails the deploy and w
   assert.equal(out.images.length, 2);
   const never = harness({ buildOk: () => false });
   await assert.rejects(() => main(never.deps), /could not build and push/);
-  assert.equal(never.calls.writes.length, 0, "a config referencing an image that does not exist was written");
+  // RE-ANCHORED 2026-09-10, same reason and the same property. What must not
+  // happen is a CONFIG naming an image that was never pushed; the deploy then
+  // references a tag the registry has not got. A stamped Dockerfile in a
+  // checkout whose deploy has already thrown is inert — the runner is
+  // discarded — so the count was never what this case was protecting.
+  assert.equal(never.calls.writes.filter(([p]) => p === "wrangler.jsonc").length, 0,
+    "a config referencing an image that does not exist was written");
 });
 
 test("an input git does not have fails by name BEFORE the registry is asked or anything is built", async () => {

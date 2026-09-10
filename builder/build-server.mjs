@@ -1711,8 +1711,32 @@ const TEMPLATE_ID = (() => {
   } catch { return "unknown"; }
 })();
 
+// WHICH IMAGE THIS CONTAINER IS RUNNING, stamped in at deploy time by
+// `.github/scripts/container-images.mjs` (2026-09-10). It is the ONE fact that
+// answers "has the new code reached this instance yet", and until today nothing
+// could say it: a container app is pointed at a new image the moment Wrangler
+// applies the change, but a WARM instance keeps serving the previous one until
+// it recycles — so every deploy was followed by a 15-20 minute blind wait on a
+// number nobody had ever measured.
+//
+// TEMPLATE_ID DOES NOT ANSWER IT and that is why this exists beside it: that is
+// a hash of ONE template file, so it moves when the template moves and is
+// identical across every worker-only push, which is nearly every push now.
+//
+// AN UNSTAMPED IMAGE SAYS SO. A hand `wrangler deploy` never runs the deploy
+// script, so its image carries no id — reported as `unstamped`, which the
+// reader refuses rather than reading as a value. Cannot-tell must never read as
+// an answer, which is the whole point of an instrument like this.
+const IMAGE_ID = (() => {
+  const v = String(process.env.IMAGE_ID || "");
+  return /^[a-f0-9]{16}$/.test(v) ? v : "";
+})();
+
 const server = http.createServer((req, res) => {
-  if (req.method === "GET" && req.url === "/health") { res.writeHead(200); res.end("ok " + TEMPLATE_ID); return; }
+  // `ok <templateId> <imageId>` — APPENDED, never re-ordered: every existing
+  // reader checks the status or the `ok` prefix, and the template hash keeps
+  // the position it has had since this endpoint was written.
+  if (req.method === "GET" && req.url === "/health") { res.writeHead(200); res.end("ok " + TEMPLATE_ID + " " + (IMAGE_ID || "unstamped")); return; }
 
   // CAN THIS CONTAINER REACH A MODEL PROVIDER AT ALL — the one question the
   // whole move of generation onto this side rests on, and it has cost two real

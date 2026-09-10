@@ -141,3 +141,35 @@ export function laneName(key) {
   if (s.length <= MAX_PLAIN_KEY && /^[a-z0-9][a-z0-9-]*$/.test(s)) return "build-k-" + s;
   return "build-h-" + keyHash(s).toString(36);
 }
+
+/**
+ * THE LANE A HEALTH PROBE ASKS, and it is a LITERAL for the reason the hold
+ * probe's is: a probe keyed by anything caller-supplied is a probe that can
+ * start a container per name. This one is also the lane the answer is ABOUT —
+ * a container instance is per site (`build-k-<slug>`), so what this lane
+ * reports is what a COLD START gets, never what some other site's warm
+ * instance is still running. Said out loud because the difference is the whole
+ * subtlety of the question it exists to answer.
+ */
+export const HEALTH_LANE = "health-probe";
+
+/**
+ * WHAT A BUILD CONTAINER SAID ITS IMAGE WAS — the reader half of the contract
+ * `build-server.mjs` writes (2026-09-10, owner: "WHY DO THE CONTAINER ALWAYS
+ * TAKES 20 MINUTES … WE NEED TO SEE").
+ *
+ * The body is `ok <templateId> <imageId>`. Only a real 16-hex id is an answer:
+ * an older image predating the stamp answers `unstamped`, a hand-built one the
+ * same, and BOTH must read as "cannot tell" rather than as a value — the
+ * recorded rule, and the one that decides whether a person waits or fires.
+ *
+ * IT IS A FUNCTION SO IT CAN BE DRIVEN, not a regex inlined at the route. The
+ * container writes this string and the Worker parses it; two halves of one
+ * contract, tied by a guard that reads the writer's own line rather than a
+ * copy of it.
+ */
+export function healthImage(body) {
+  if (typeof body !== "string") return "";
+  const m = /^ok\s+\S+\s+([a-f0-9]{16})\s*$/.exec(body.trim());
+  return m ? m[1] : "";
+}

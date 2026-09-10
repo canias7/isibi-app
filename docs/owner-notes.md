@@ -3789,3 +3789,68 @@ again and the usual 15–20 minute wait applies before firing anything.
 **Still unknown, said plainly:** we don't yet know whether splitting the page is
 actually faster. Nobody has ever measured it, because it has never run. That's
 what one build will finally tell us.
+
+---
+
+## 2026-09-10 — the container can now tell you which code it's running
+
+You asked why the container always takes twenty minutes. The honest answer was:
+it doesn't — **I do.** So we fixed the part that was actually broken.
+
+**What the twenty minutes really was.** Three things were getting lumped
+together. The deploy itself is about three minutes, and that's real work —
+rebuilding and pushing the container image. Pointing the container at the new
+image is instant. The twenty minutes is the bit after: a container that's
+already warm keeps serving the *old* image until it gets recycled. That part is
+genuinely Cloudflare's, not ours.
+
+**But twenty was a guess.** Nobody had ever measured it. It came from one
+observation — "an instance started right after a deploy is still on the old
+image" — rounded up to something that felt safe. And it couldn't be checked,
+because **the container had no way to say which image it was running.** It has a
+health check, but all that reported was a fingerprint of one template file — so
+it changed when the template changed and said nothing about a code-only push,
+which is nearly every push we make now. No question to ask, so waiting blind was
+the only option.
+
+**What we built.** The deploy now writes the image's own id into the image, the
+container reports it, and there's an owner-only address you can ask. "Is the
+container on the new code?" is a five-second question with a real answer instead
+of a number nobody measured.
+
+**One thing that could have gone quietly wrong and didn't.** The image's id is
+worked out by hashing what goes into it. Writing that id back into the same file
+sounds like a snake eating its tail — and if it were, the id would change on
+every deploy, every image would look new, and every push would rebuild both
+images for no reason, slowly and silently. It isn't circular, because the hash
+reads the *committed* files and the id is written into the *working copy*
+afterwards. That's not a claim in a comment — the test computes the id, writes
+the stamp, recomputes and requires them equal, with a control proving the id does
+still move when something real changes.
+
+**Also worth knowing.** A container instance is *per site*. So a brand-new build
+starts a fresh instance and probably doesn't need the wait at all; the wait is
+really about editing a site whose instance is already warm. We didn't act on that
+today because there's a second unknown underneath it that nobody has measured
+either — and 13 credits isn't worth a guess.
+
+**Two things caught during the work, both by our own tests.** A trap this project
+has hit several times before turned up in code I'd written ten minutes earlier: a
+one-item list quietly turning into text, which would have stamped a nonsense id
+into an image as if it were real. And one deliberate breakage survived at first —
+switching the new address off without deleting it, which left every landmark
+exactly where the test was looking. That's a test checking that something is *in
+the right place* rather than that it *runs*, which we've been caught by before;
+it now runs the thing.
+
+**Checked.** Twenty deliberate breakages, all twenty caught, with two harmless
+comment edits confirming the tests aren't just failing at everything. Full suite
+green at 5,873. Three older tests went red because they were counting things
+rather than checking them; each was re-pointed at what it was actually meant to
+protect.
+
+**What's left.** The next deploy after this one is the first with a stamped
+image, so the new address will honestly say "unstamped" until it rolls — the last
+time that'll ever be the answer. And the twenty minutes is still twenty minutes
+until someone watches one deploy from roll to flip and writes down the real
+number. That's free, and it's the next thing worth doing.

@@ -1982,6 +1982,102 @@ the instrument written that same morning to make the split readable.
 
 ---
 
+### THE CONTAINER SAYS WHICH IMAGE IT IS RUNNING (2026-09-10, owner: *"WHY DO
+THE CONTAINER ALWAYS TAKES 20 MINUTES , GEEZ"* → *"YEA WE NEED TO SEE"*)
+
+**The 15–20 minute hold was never measured.** It came from one observation — an
+instance started seconds after a deploy is still on the previous image — rounded
+up to something safe, and it could not be checked, because **the container had no
+way to name its own image.** `/health` reported `TEMPLATE_ID`, a hash of ONE
+template file (`src/lib/rows.ts`), which moves when the template moves and is
+identical across every worker-only push — which is nearly every push since
+2026-09-05. So the hold was a blind wait on a number nobody had ever taken.
+
+- **THE DEPLOY WRITES THE ID INTO THE IMAGE, AND THERE IS NO CIRCULARITY.**
+  `imageId` hashes GIT OBJECTS AT HEAD (`git rev-parse HEAD:<path>`), never the
+  working copy — so `stampImageId` can rewrite the CHECKOUT's Dockerfile *after*
+  the id is computed and the id cannot move. It is the same move the script
+  already makes with `wrangler.jsonc`, for the same reason: the checkout is ours
+  to rewrite, the repository is not. **DRIVEN, not asserted in a comment** — the
+  guard computes the id, stamps, recomputes and requires equality, with a
+  control proving the id really does move when an input moves. Had that
+  inverted, every deploy would compute a new id, every registry ask would miss,
+  and both images would rebuild on every push — slow, and silently so.
+- **LAST IN THE FILE**, so every layer above keeps its cache; `ENV` after `CMD`
+  is legal and does not replace it. **Idempotent**, under its own marker: the
+  step can run twice on one checkout and a second append would leave two `ENV`
+  lines with the last winning, which is right by luck.
+- **ONLY ON THE BUILD PATH.** A reused image already carries the id it was built
+  with, so stamping for one writes a file nothing then reads.
+- **`/health` IS `ok <templateId> <imageId>`, APPENDED AND NEVER RE-ORDERED** —
+  every existing reader checks the status or the `ok` prefix, and no Worker read
+  that endpoint at all before this. **An unstamped image says `unstamped`** (a
+  hand `wrangler deploy` never runs the script) and `healthImage` refuses it:
+  cannot-tell must never read as a value, which is the whole point of an
+  instrument somebody uses to decide whether to wait or to fire.
+- **`GET /api/site/build-health`** — auth-gated, a FIXED lane, answering
+  `image`, the raw `body` beside it, and `deploy`. **WHAT IT ANSWERS, EXACTLY:**
+  a container instance is PER SITE (`laneName(slug)` → `build-k-<slug>`), so the
+  fixed lane reports what a **cold start** gets — the question for a NEW build,
+  whose lane has never existed. It says nothing about another site's warm
+  instance. Two questions; this answers the first, and a caller-supplied lane is
+  deliberately not offered.
+- **THE READER AND THE WRITER ARE TIED BY A GUARD, not by hope.** The container
+  writes the string and the Worker parses it; a check on either half alone
+  certifies the layer below the break. So the writer's own expression is
+  EVALUATED out of `build-server.mjs` and its output fed to the real
+  `healthImage` — no retyped fixture, which would be a second copy of the
+  contract.
+- **THE `String(["a"])` TRAP FIRED IN CODE I HAD JUST WRITTEN**, and the guard
+  written for this change caught it on its first run: `String(id || "")` means a
+  one-element array coerces and gets stamped into an image as a real id. Refused
+  by type now. Fourth-plus recorded instance.
+- **A SWEEP MUTANT SURVIVED AND IT WAS THE RECORDED POSITIONAL TRAP.**
+  `if (false && url.pathname === …)` leaves every landmark exactly where the
+  guard looks for it: the route reads perfectly and never runs. "A position is
+  not a behaviour." The route's own condition is walked out by parentheses and
+  DRIVEN now — true for its own address and method, false otherwise — and a dead
+  branch cannot answer true. Re-run to a kill.
+- **A CENSUS WENT RED AND WAS TAUGHT THE PROPERTY, NOT THE SPELLING.**
+  `build-lane`'s "every site build is keyed by the slug, and only a probe may key
+  by a literal" knew `laneName("hold-probe")` and not `laneName(HEALTH_LANE)`.
+  A named constant is as fixed as a literal — the difference is that two files
+  share one spelling, which is what this repository asks for everywhere else. It
+  RESOLVES the exported `*_LANE` constants out of the module and matches by
+  value, so the next probe lane is covered by existing; listing `HEALTH_LANE`
+  there would have been the "two lists of the same thing" that census exists to
+  prevent. Proved still to refuse a caller-supplied lane.
+- **Two older cases in `container-images.test.mjs` went red and were re-anchored,
+  not appeased.** Both counted WRITES — `=== 1` and `=== 0` — as a proxy for
+  "the config was written". Being the only write was never the property; being
+  written, after the builds, is. They filter for `wrangler.jsonc` now.
+- **Guards**: `test/container-image-id.test.mjs` (10) — the stamp driven, junk
+  refused, the circularity driven with a live control, the deploy's write driven
+  through the real `main` with fakes (built stamps, reused does not, each
+  container with its OWN id), the container's env read cut out and driven, the
+  contract tie, every cannot-tell shape, the route's condition driven, and the
+  repository's own Dockerfile proved unstamped.
+- **Sweep: 20 mutants, 20 killed, none survived, none unapplied, two
+  comment-only controls survived** — the container silent again, repeating the
+  env, or reporting a zero id; the deploy never stamping, stamping after the
+  build, not last, appending instead of replacing, coercing a non-string,
+  accepting any junk, or stamping a reused image; the config unwritten; the
+  reader accepting anything, coercing, or not requiring a healthy answer; the
+  probe lane caller-supplied, the probe unauthenticated, the route parsing the
+  body itself, dropping the raw body, or dead behind `if (false &&`; and an id
+  committed into the repository's Dockerfile.
+- Full suite **5,873**.
+- **Not proven live**, and the first deploy carrying it is a special case worth
+  saying: the image built by THAT deploy is the first stamped one, so
+  `/api/site/build-health` answers `unstamped` until it has rolled — which is
+  itself the honest answer, and the last time it will ever be the answer.
+  Thereafter: compare `image` against the id the deploy's own log prints. **What
+  this does NOT yet do is measure the hold** — that needs one deploy watched
+  from roll to flip, which is the next free thing worth doing and would replace
+  the 15–20 minutes with a number.
+
+---
+
 ### THE BAND DOOR WAS ASKED WITH A BEARER TOKEN, SO IT COULD NEVER OPEN
 (2026-09-10, found by the refusal instrument's FIRST live answer)
 
@@ -3957,7 +4053,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,863.
+  The unit suite is 5,873.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

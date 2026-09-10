@@ -173,6 +173,51 @@ export function imageId(inputs) {
 /** The Cloudflare API base Wrangler uses; its knob is honoured below. */
 export const API_BASE = "https://api.cloudflare.com/client/v4";
 
+/** The line the stamp below is written under, and the marker that makes it
+ *  idempotent — a second run replaces the block rather than appending a
+ *  second one. */
+export const STAMP_MARK = "# --- the image id, written here at deploy time; see stampImageId ---";
+
+/**
+ * WRITE THE IMAGE ID INTO THE IMAGE, so the container can say which one it is
+ * running (2026-09-10, owner: "WHY DO THE CONTAINER ALWAYS TAKES 20 MINUTES").
+ *
+ * The 15-20 minute hold after a deploy exists because a warm container instance
+ * keeps serving the PREVIOUS image until it recycles — and until today nothing
+ * could tell you when that had happened, because the container had no way to
+ * name its own image. `/health` reported a hash of ONE template file, which
+ * changes only when the template does and says nothing about a worker-only
+ * push, which is nearly every push now. So the hold was a blind wait on a
+ * number nobody measured.
+ *
+ * THERE IS NO CIRCULARITY, and that is the whole reason this can be written
+ * here rather than passed as a build argument. `imageId` hashes GIT OBJECTS AT
+ * HEAD (`git rev-parse HEAD:<path>`), never the working copy — so stamping the
+ * checkout's Dockerfile after the id is computed cannot change that id. It is
+ * the same move the script already makes with `wrangler.jsonc`, for the same
+ * reason: the CHECKOUT is ours to rewrite, the repository is not.
+ *
+ * LAST IN THE FILE, so every layer above keeps its cache. `ENV` after `CMD` is
+ * legal and does not replace it.
+ *
+ * AND AN UNSTAMPED IMAGE IS HONEST RATHER THAN WRONG: a hand `wrangler deploy`
+ * never runs this script, so its image carries no id, `/health` says so, and
+ * the reader answers "cannot tell" instead of a value. A junk id is refused for
+ * the same reason — cannot-tell must never read as a real answer.
+ */
+export function stampImageId(dockerfileText, id) {
+  const text = String(dockerfileText == null ? "" : dockerfileText);
+  const at = text.indexOf(STAMP_MARK);
+  const base = (at >= 0 ? text.slice(0, at) : text).replace(/\s*$/, "") + "\n";
+  // A NON-STRING IS REFUSED, NEVER COERCED. `String(["d9ee764545e997c0"])` is
+  // `"d9ee764545e997c0"` — the recorded trap, shipped here as a real bug three
+  // times, and the first draft of this function had it: a one-element array
+  // would have been stamped into an image as if it were an id. Caught by the
+  // guard written for this change, on its first run.
+  if (typeof id !== "string" || !/^[a-f0-9]{16}$/.test(id)) return base;
+  return base + "\n" + STAMP_MARK + "\nENV IMAGE_ID=" + id + "\n";
+}
+
 /** The manifest media types a registry answers a HEAD for — Wrangler's own list. */
 const MANIFEST_ACCEPT = "application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json";
 
@@ -266,6 +311,7 @@ export async function main({ root, git, wrangler, tagPresent, accountId, registr
 
   const images = [];
   let text = cfgText;
+  const writeOut = write || ((p, t) => writeFileSync(path.join(root, p), t));
   for (const p of planned) {
     // THE BUILD TAG IS SHORT (`wrangler containers build -t` pushes it into
     // this account's namespace itself); THE CONFIG'S REFERENCE IS FULL.
@@ -287,6 +333,11 @@ export async function main({ root, git, wrangler, tagPresent, accountId, registr
       // build is always right and only slow, so that is what happens — said
       // out loud, or a registry refusing every deploy would read as a slow one.
       if (!asked || asked.present !== false) log(`registry could not be asked for ${tag} (${status}) — building, which is always right and only slow`);
+      // THE ID GOES INTO THE IMAGE BEFORE IT IS BUILT, and only on the build
+      // path: a REUSED image already carries the id it was built with, so
+      // stamping the checkout for one would write a file nothing then reads.
+      // The id is computed off HEAD, so this cannot move it — see stampImageId.
+      writeOut(`${p.ctx}/Dockerfile`, stampImageId(readText(`${p.ctx}/Dockerfile`), p.tag));
       // ONCE MORE ON A FAILURE: today's two deploy failures were the registry
       // answering 500 after minutes of layer retries, and a second attempt
       // reuses every layer the first one built.
@@ -298,7 +349,7 @@ export async function main({ root, git, wrangler, tagPresent, accountId, registr
     log(`IMAGE ${p.class_name}: ${action} ${tag}  (registry answered ${status}; ${p.inputs.length} inputs off ${p.ctx}/Dockerfile)`);
     images.push({ class_name: p.class_name, ref, tag, action, status, inputs: p.inputs.length });
   }
-  (write || ((p, t) => writeFileSync(path.join(root, p), t)))("wrangler.jsonc", text);
+  writeOut("wrangler.jsonc", text);
   return { images, config: text };
 }
 

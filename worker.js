@@ -234,7 +234,7 @@ import { THEME_SHORTLIST, themeFontPair, resolveTheme } from "./builder/site-the
 // from is already imported on the line above.
 import { themeCss } from "./builder/site-theme.mjs";
 import { applyStyle } from "./builder/site-style.mjs";
-import { laneName } from "./builder/build-lane.mjs";
+import { laneName, healthImage, HEALTH_LANE } from "./builder/build-lane.mjs";
 // THE EDIT PATH'S OWN BLACK-BOX RECORDER (2026-09-01, owner's call after
 // run 101). Diagnostic only: nothing in this import can change what an edit
 // does, and `recompileAndPublish` treats a null trace as a no-op.
@@ -18961,6 +18961,45 @@ async function handleRequest(request, env, ctx) {
     // already uses. The container caps the hold at fifteen minutes on its own
     // side too, because a bound that lives only in the caller is one the next
     // caller forgets.
+    // ── IS THE BUILD CONTAINER ON THE NEW CODE YET (2026-09-10, owner: "WHY DO
+    //    THE CONTAINER ALWAYS TAKES 20 MINUTES, GEEZ" → "YEA WE NEED TO SEE") ──
+    //
+    // Every deploy that changes an image input was followed by a 15-20 minute
+    // hold before firing anything that must run the new code — and that number
+    // was never measured. It came from one observation (an instance started
+    // seconds after a deploy is still on the previous image) rounded up to
+    // something safe, and it could not be checked, because the container had no
+    // way to name its own image. It has one now, stamped in at build time.
+    //
+    // WHAT THIS ANSWERS, EXACTLY, and the precision is the point. A container
+    // instance is PER SITE (`laneName(slug)` → `build-k-<slug>`), so this fixed
+    // lane reports what a COLD START gets — which is the question for a NEW
+    // build, whose lane has never existed. It says nothing about some other
+    // site's warm instance, which may still be serving the old image until it
+    // recycles. Two different questions; this one answers the first, and a
+    // caller-supplied lane is deliberately not offered, both because a probe
+    // keyed by anything caller-supplied can start a container per name and
+    // because nobody has needed the second question yet.
+    //
+    // `image` IS THE ANSWER AND `body` IS THE EVIDENCE. Compare `image` against
+    // the id the deploy printed: equal means a cold start is on the new image.
+    // An older or hand-built image answers `""` — cannot tell, never a value —
+    // and the raw body is returned beside it so a reader can see which of the
+    // three states it is in rather than being handed a collapsed boolean, the
+    // rule `/api/_hold`'s own probe already follows one route down.
+    if (url.pathname === "/api/site/build-health" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, error: "container binding not configured" }, { status: 501 });
+      const t0 = Date.now();
+      try {
+        const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(HEALTH_LANE));
+        const r = await c.fetch(new Request("http://build/health", { method: "GET", signal: AbortSignal.timeout(20000) }));
+        const body = (await r.text()).slice(0, 200);
+        return Response.json({ ok: r.ok, status: r.status, body, image: healthImage(body), deploy: deployIdOf(env), lane: HEALTH_LANE, ms: Date.now() - t0 });
+      } catch (e) {
+        return Response.json({ ok: false, error: String((e && e.message) || e).slice(0, 300), ms: Date.now() - t0 }, { status: 502 });
+      }
+    }
     if (url.pathname === "/api/_hold" && request.method === "GET") {
       if (!(await authUser(request))) return UNAUTHED();
       if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, error: "no container binding" }, { status: 503 });

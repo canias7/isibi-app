@@ -10,6 +10,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { keyHash, laneName } from "../builder/build-lane.mjs";
+// THE WHOLE MODULE, so the census below can DERIVE which named constants are
+// fixed probe lanes instead of carrying a list that drifts.
+import * as LANE_MODULE from "../builder/build-lane.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
@@ -348,9 +351,24 @@ test("EVERY SITE BUILD IS KEYED BY THE SLUG, and only a probe may key by a liter
     // expression names both halves. Admitted by name AND by place: anywhere
     // else, a job's slug is a caller-supplied key.
     if (arg === "laneName(pre ? preScopeSlug(id) : who.slug)" && enclosing(at) === "fireContainerJob") continue;
-    // Anything else that is not a build must be a FIXED literal. A probe keyed by
+    // Anything else that is not a build must be a FIXED name. A probe keyed by
     // something caller-supplied could pick a container and starve a real build.
-    assert.ok(arg === "laneName(slug)" || /^laneName\("[a-z0-9-]+"\)$/.test(arg),
+    //
+    // A NAMED CONSTANT COUNTS, AND IT IS RESOLVED RATHER THAN LISTED (2026-09-10,
+    // the image-id probe). `laneName(HEALTH_LANE)` is as fixed as
+    // `laneName("hold-probe")` — the difference is only that the Worker and the
+    // reader share one spelling instead of writing it twice, which is the thing
+    // this repository asks for everywhere else. So the exported probe constants
+    // are pulled OUT of the lane module and matched by their value: a constant
+    // added there is covered by existing, and a constant that is not a fixed
+    // string still fails. Listing `HEALTH_LANE` by name here would be the "two
+    // lists of the same thing" this whole census exists to avoid.
+    const fixedNames = new Set(Object.entries(LANE_MODULE)
+      .filter(([n, v]) => /_LANE$/.test(n) && typeof v === "string" && /^[a-z0-9-]+$/.test(v))
+      .map(([n]) => n));
+    assert.ok(fixedNames.size >= 1, "no fixed probe-lane constant is exported — the derivation is not alive");
+    const named = /^laneName\((\w+)\)$/.exec(arg);
+    assert.ok(arg === "laneName(slug)" || /^laneName\("[a-z0-9-]+"\)$/.test(arg) || (named && fixedNames.has(named[1])),
       `getContainer(env.SITE_BUILD_CONTAINER, ${arg}) in ${enclosing(at) || "?"} is neither the slug, a fixed probe name, nor the resume's stored lane`);
   }
 });
