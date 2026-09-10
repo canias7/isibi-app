@@ -1600,14 +1600,28 @@ single design call and the single page call, exactly as they have for months.
 - **What this does NOT change**: no code path, no prompt, no schema, no page a
   visitor sees. `.github/workflows/deploy.yml` and two guard files, so **no image
   input moves and the container does not roll** — the 15–20 minute hold does not
-  apply to this push, though the Worker still has to deploy before the Worker
-  reads the new value.
+  apply to this push.
+- **MERGED AND DEPLOYED.** `unit tests` run 2401 green, the suite step 80 s on
+  the exact tree; main fast-forwarded `6e5d7784` → `43a15dd0` at 04:44Z;
+  **deploy run 2071 green in 55 SECONDS** — the fastest deploy since the image
+  skip landed, and the shape the Deploy section predicts for a push that changes
+  no image input: the gate set in 2 s, the **image step 1 s** with both images
+  reused, `deploy drain` instant, Wrangler 25 s, and Wrangler's container deploy
+  answering **`no changes` for BOTH apps — nothing rolled**, so the 15–20 minute
+  hold really did not apply. The gate was left to expire on success.
+- **AND BOTH VALUES ARE CONFIRMED ON THE DEPLOYED WORKER, not merely in the
+  repository** — the secret upload lists `BAND_SPLIT_CANARY` and
+  `DESIGN_SPLIT_CANARY` each carrying `22…75f4…-6fbf-49d7-b039-a65078a0…4…c`
+  (GitHub masks the digits that also appear in other secrets) beside
+  `BAND_SPLIT_EVERYONE: off` and `DESIGN_SPLIT_EVERYONE: off`, and all four
+  `Successfully created` among the run's 22. That is the same class of fact that
+  proved the doors SHUT on deploy 2070, read the same way, and it is the reason
+  reading `deploy.yml` is not an answer.
 - **Not proven live yet, and the free half is not free to THIS session.** The
   documented confirmation is `/api/site/runtime?slug=` answering `design: true`
   and `bands: true`, which is owner-gated and needs the owner signed in; no
-  Supabase service key is in this environment, so the evidence available here is
-  the deploy's own secret-upload log — the same class of fact that proved the
-  doors shut on deploy 2070. **The real proof is one build**, and what it should
+  Supabase service key is in this environment, so the deploy log above is the
+  evidence available here. **The real proof is one build**, and what it should
   show in the trace is a `design` mark carrying `waves`/`agents` and a page
   written as a fan-out. Nothing about the finished site should look different.
 

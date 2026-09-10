@@ -196,12 +196,18 @@ build publish the same page to the same address. What changes is how long the
 build takes, and I have not measured that and will not guess. **The next build
 you make is the measurement.**
 
-**What I could not confirm from here.** The clean proof is opening
+**It is deployed and I read the proof I could.** Deploy 2071 went green in **55
+seconds** — the fastest since the image-skip work, because nothing an image is
+built from changed: both containers reported "no changes", so nothing rolled and
+there is no 15–20 minute wait this time. The deploy's own log lists both canaries
+carrying your account id and both wide switches `off`, all four uploaded to the
+live Worker. That is the same evidence that proved the doors shut yesterday, read
+the same way.
+
+**What I could not confirm from here.** The cleanest proof is opening
 `/api/site/runtime?slug=<any of your sites>` while signed in and seeing
 `design: true` and `bands: true`. That needs your session; there is no key in
-this environment to sign in with. What I can read is the deploy's own log listing
-the value it uploaded, which is the same evidence that proved the doors shut
-yesterday.
+this environment to sign in with.
 
 ---
 
