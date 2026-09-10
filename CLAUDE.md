@@ -2440,6 +2440,40 @@ stored row.
   should equal `waveMs` for its own wave. The push changes `builder/design-waves.mjs`,
   which is in the Worker's module graph and therefore a container image input, so
   the container ROLLS and the 15–20 minute hold applies.
+- **MERGED AND DEPLOYED** (owner: *"MERGE"*). `unit tests` run 2421 green, the
+  suite step **84 s** on the exact tree; main fast-forwarded `c35cda52` →
+  `97d69615` at 22:56Z; **deploy run 2082 green in 3m21s**. The gate set in 1 s;
+  the **image step 2m25s** — `built isibi-app-sitebuildcontainer:9268b…8acc8a3a03
+  (registry answered 404; ***69 inputs off ./Dockerfile)` — and the container
+  **ROLLED** (`EDIT isibi-app-sitebuildcontainer`, `9b2b2483f6c968c…` →
+  `9268b…8acc8a3a03`, `SUCCESS Modified application`, applied **22:59:20Z**; the
+  game image `no changes`); `deploy drain: no live leases after 1s`; Wrangler
+  29 s; the gate left to expire on success. **The 15–20 minute hold ended
+  ~23:15–23:20Z.** The image step lands inside the Deploy section's stated band
+  for a push that changes the worker tree and nothing above it.
+- **AND THE STALE-SNAPSHOT TRAP HAD ITS WORST SHOWING YET — FORTY MINUTES, and
+  the recorded tell was the only thing that held.** The job endpoint answered
+  `in_progress` on the image step from 22:59 until ~23:40 for a step that had
+  finished at 22:59:02, so the reading was wrong by **more than ten times the
+  step's own duration**. Reported as neither a hang nor a pass, across six polls.
+  What worked: the run's own `updated_at` sat at **22:56:18Z beside step stamps
+  at 22:56:37Z** — behind the steps, which is the 2026-09-10 rule's proving
+  direction — and the step's expected duration (2–3 minutes, measured on five
+  deploys) said the rest.
+  **AND A SECOND, INDEPENDENT QUERY AGREED WITH THE STALE ONE, which is the new
+  half worth writing down.** `list_workflow_runs` filtered to `status:
+  completed` answered `total_count: 2081` with run 2081 newest — a different
+  code path, the same stale cache. So **corroboration from a second GitHub
+  endpoint is NOT evidence**: they share the cache, and two agreeing reads of one
+  snapshot are one read. The only honest instruments here are the tell above, the
+  step's own band, and — once the job really completes — the LOG, which is what
+  every number in the bullet above comes from. `get_job_logs` answers 404 while
+  the snapshot says in-progress, so it cannot break the tie either.
+- **AND THIS DEPLOY'S HOLD IS MEASURABLE — task #147, and it is free.** Both
+  image ids are stamped: `/api/site/build-health` answering `9b2b2483f6c968c…`
+  means the previous image is still serving, and the flip to
+  `9268b…8acc8a3a03` is the moment the hold really ends. Owner-gated, so this
+  session cannot take the number.
 
 ---
 

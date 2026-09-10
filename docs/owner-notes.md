@@ -4288,3 +4288,37 @@ useless gets measured before anyone removes it.
 **To read the answer you need one ordinary build** — nothing special, just a
 normal one. Then I can tell you which agent is the wall, and we can talk about
 whether it's worth cutting.
+
+## 2026-09-10 — merged, deployed, live
+
+Deploy went green in **3m21s**, the normal shape for a push that touches the
+container. The image rebuilt (2m25s) and **the container rolled** — I read that
+off the deploy's own log rather than guessing from how long it took: it says
+`EDIT isibi-app-sitebuildcontainer` and names the old image and the new one.
+
+**The 15–20 minute wait ended around 23:15–23:20.** It's past that, so the new
+code is live and your next build picks it up.
+
+**A footnote you should know about, because it wasted an hour of my evening.**
+GitHub told me the deploy was still running for **forty minutes** after it had
+actually finished — on a step that takes two and a half minutes. That's ten
+times worse than any of the previous days. I didn't report it as stuck and I
+didn't report it as done; I waited and kept re-asking, which is the rule I wrote
+down yesterday.
+
+**And I learned something new about it.** I tried asking a *different* GitHub
+endpoint as a second opinion, and it agreed with the wrong one — because they
+share the same cache. So two GitHub answers that agree are not two answers, they
+are one. The only thing that told the truth was the finished job's **log**, and
+that isn't available until the job admits it's done. I've written that down.
+
+**The one thing still on your side.** The deploy log confirms the band split is
+switched off — your secret from 21:19 is in place and beating the code default.
+The design split is on for your account. To turn the band one back on: delete
+`BAND_SPLIT_CANARY` in GitHub or set it to your account id, then run the deploy
+once.
+
+**Then one ordinary build answers three things at once**: which design agent is
+the slow one, whether the split page really is half the single one on a matched
+pair, and what the whole build costs with both splits on now the four-minute
+dead wait is gone.
