@@ -305,11 +305,15 @@ test("the socket bound is not derived from the wave list", () => {
   const mod = code(read("builder/design-waves.mjs"));
   assert.ok(/MAX_WAVE_AGENTS = \d+/.test(mod), "the bound must be a number somebody chose");
   assert.ok(!/MAX_WAVE_AGENTS = Math\.max|MAX_WAVE_AGENTS = DESIGN_WAVES/.test(mod));
-  // …and a wave wider than it refuses to split at all rather than being sliced.
-  const wide = [[{ name: "a", fields: ["brand"] }, { name: "b", fields: ["slug"] }, { name: "c", fields: ["kind"] },
-    { name: "d", fields: ["lang"] }, { name: "e", fields: ["langs"] }]];
-  const before = DESIGN_WAVES.length;
-  assert.ok(wide[0].length > MAX_WAVE_AGENTS && before === 3, "fixture drifted");
+  // AND THE CHECK IT GUARDS IS PROVED BY LOWERING THE BOUND, NOT BY A WIDE
+  // FIXTURE. `splitDesign` reads the module's own waves, so a fixture cannot
+  // reach it — and the check cannot fire at 2 against 4, which makes deleting
+  // it an INERT mutant that reads exactly like a test gap. What kills that
+  // pair is `MAX_WAVE_AGENTS = 1`: wave 2 becomes too wide and a first build
+  // stops splitting, which the case above catches. This asserts the two halves
+  // that make that true.
+  assert.ok(/wave\.length > MAX_WAVE_AGENTS\) return \[\];/.test(mod), "the width check is gone");
+  assert.ok(widest > 1, "the waves have no wave wider than one — lowering the bound would prove nothing");
 });
 
 test("an answer is read, and a cut-off one is a failed agent", () => {
@@ -326,6 +330,17 @@ test("an answer is read, and a cut-off one is a failed agent", () => {
   assert.equal(readWaveAnswer(cut).ok, false, "a cut-off answer must never be merged");
   assert.equal(readWaveAnswer(cut).stop, "max_tokens", "and the reason must survive, or the customer gets the wrong sentence");
   assert.equal(readWaveAnswer(undefined).ok, false);
+
+  // A FAILED CALL CARRYING A TRANSCRIPT IS STILL A FAILED CALL, and this is
+  // the case that makes the `state === "done"` test load-bearing on its own.
+  // Every failure `runFanout` produces today carries no `answer` at all, so
+  // `use && use.input` refuses them anyway and dropping the state test changes
+  // nothing — an INERT mutant wearing a test gap's clothes. The shape below is
+  // one change away: a cut-off stream relayed as a failure with what it got.
+  assert.equal(readWaveAnswer({
+    i: 0, state: "failed", status: 500,
+    answer: { stop_reason: "tool_use", content: [{ type: "tool_use", input: { brand: "half" } }] },
+  }).ok, false, "a call that failed must never be read as an answer, whatever it came back with");
 });
 
 test("answers are paired by INDEX, not by the order they came back", () => {
@@ -443,6 +458,31 @@ test("THE WHOLE DESIGN, RUN: three waves, four agents, one answer per field", as
   // ONE USAGE OBJECT, SUMMED, priced off ONE model — four rows would charge
   // `pageCredits`' floor four times.
   assert.deepEqual(out.usage, { in: 400, out: 80, cacheRead: 4000, cacheWrite: 0, model: "grok-4.6" });
+});
+
+test("the agents of a wave really run AT THE SAME TIME", () => {
+  // THE PROPERTY THE WHOLE CHANGE EXISTS FOR, and the one a source read cannot
+  // see: a loop that awaits each agent in turn is textually almost the same and
+  // buys nothing at all — the design still takes as long as the sum of its
+  // parts, and every number in the entry describing it is wrong.
+  //
+  // STAGED WITH A GATE, NEVER A TIMER. `list.map(async …)` invokes every
+  // callback synchronously as far as its first `await`, so by the time
+  // `designInWaves` has returned its promise every call of the wave has started
+  // and parked. Timers drift under sweep load and killed a comment-only control
+  // once already, which is a guard reporting correct code as broken.
+  const gates = [];
+  const tool = toyTool({ brand: { type: "string" }, slug: { type: "string" } }, []);
+  const waves = [[{ name: "a", fields: ["brand"] }, { name: "b", fields: ["slug"] }]];
+  const call = (req) => new Promise((res) => {
+    const field = Object.keys(req.tools[0].input_schema.properties)[0];
+    gates.push(() => res({ stop_reason: "tool_use", usage: {}, content: [{ type: "tool_use", input: { [field]: field } }] }));
+  });
+  const p = designInWaves({ tool, system: "s", brief: "b", model: "m", maxTokens: 1, waves }, call);
+  assert.equal(gates.length, 2, "the second agent of the wave had not started — they ran one after another");
+  // Finish BACKWARDS, by hand, so the finishing order is a fact.
+  for (let i = gates.length - 1; i >= 0; i--) gates[i]();
+  return p.then((out) => assert.deepEqual(out.input, { brand: "brand", slug: "slug" }));
 });
 
 test("…and wave 3 is told what waves 1 and 2 answered, which is the whole point of ordering", async () => {

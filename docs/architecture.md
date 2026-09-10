@@ -54,6 +54,15 @@ characters** of tool on the wire — evaluated out of `worker.js` through
 on a build. The drawing said 19 fields and 84.8k, which is what it was on
 2026-08-29; re-derive before quoting either.
 
+**AND THAT ONE CALL CAN BE SEVERAL, BEHIND A FLAG NOBODY HAS TURNED ON
+(2026-09-10).** `builder/design-waves.mjs` cuts the design into three waves of
+agents that run side by side — identity, then the plan beside the look, then the
+detail — each carrying only its own part of the tool. `DESIGN_SPLIT_CANARY`
+defaults to nobody, so every build today still makes the one call in the drawing.
+The same shape as the band split one box over, which does the same for the PAGE
+call. See CLAUDE.md for the waves, why the dependency graph cannot be read off
+the tool's own prose, and what each agent's tool costs.
+
 **Status of the split (2026-09-02).** `EDIT` is done — twenty-one lanes, all
 acting. `ADDON` is split too, the same way (`builder/site-add.mjs`, below):
 its own picker, one small designer per kind of thing a site can lack, and the

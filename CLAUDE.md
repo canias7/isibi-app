@@ -320,9 +320,14 @@ refunds if it refuses.
 
 ## What the design call decides
 
-`design_schema` is one tool, **93,852 characters**, in the cached block. Property
-order IS generation order. **24 properties, 15 required**; a first build sends 23
-of them (14 required).
+`design_schema` is one tool, **93,598 characters**, in the cached block. Property
+order IS generation order. **23 properties, 15 required**; a first build sends 22
+of them (14 required, **64,076 characters**), and the system text is 1,962.
+**RE-MEASURED 2026-09-10** by evaluating the tool through `readSchemaTool()` and
+taking `JSON.stringify(...).length`: this line said 93,852 / 24 / 23 and the two
+property counts were each one high — the order below has 23 names, which is what
+the count has to match. **`components` alone is 32,603 of a first build's 64,076
+— half of it** — because it carries the kit's component menu.
 
 **The order, measured by evaluating the tool rather than reading it** — the list
 below drifted twice before, so re-derive it, don't trust this line:
@@ -767,6 +772,198 @@ the next platform-wide republish is the measurement).
 
 ---
 
+### THE DESIGN IS ANSWERED BY SEVERAL AGENTS AT ONCE — WIRED, BEHIND A DOOR
+NOBODY IS THROUGH (2026-09-10, owner: *"split the design step too but first tell
+me how it is in the generate step now?"* → *"ok now split the design step"* →
+*"ok go"*)
+
+The other half of the 2026-09-09 ask. The page call was split into bands; the
+DESIGN call still answered 22 properties in ONE call, in property order, which is
+one long sequential write. `builder/design-waves.mjs` cuts it into three waves of
+agents that run side by side, and **`DESIGN_SPLIT_CANARY` defaults to `-`, which
+`readCanaryList` drops, so a fresh deploy splits nothing and every build designs
+in one call exactly as it does today.** Same two states as the band split, and
+both are worth saying: a module nobody calls is this repository's most-shipped
+failure and that one is closed; a flag nobody has turned on is a decision waiting
+for the owner, and turning it on is naming a UID in a GitHub secret and
+redeploying.
+
+| wave | agents |
+|---|---|
+| 1 | `identity`: brand slug description kind lang langs action qr three needsWeb webQueries |
+| 2 | `plan`: purpose pages components shape images · `look`: theme css wordmark favicon |
+| 3 | `detail`: tsx behavior |
+
+- **THE OBVIOUS DERIVATION IS WRONG, AND IT WAS MEASURED RATHER THAN ASSUMED.**
+  Reading each field's description and sorting on the other field names it
+  mentions produces a **CYCLIC** graph — `components` names `theme`, `theme`
+  names `css`, `css` names `components` — because **a mention is not a
+  dependency**: a field names another to say "answered before this", "do not
+  repeat what is there", or "this is what will consume you", and those are three
+  different relations wearing one shape. So the waves are the STATED
+  dependencies, the ones the design step's own reasoning gives as reasons: every
+  planning answer is an answer about `kind`; `tsx` is answered "by a model that
+  has just searched the kit and come up short"; `behavior` "cannot be described
+  before the page that holds it exists"; the marks DRAW the brand; `css` is the
+  layer over the theme. Everything else is independent, and the independence is
+  the feature.
+- **WHERE THE TIME IS, AND IT IS NOT THE PLAN.** `wordmark` and `favicon` draw
+  SVG, and run 41 measured what a drawn answer costs: **292,336 ms** for one mark
+  on Grok, after three earlier attempts were cut dead at the 240 s wall. In the
+  single call those two sit in sequence with the plan, so the plan waits for them
+  and they wait for the plan. Wave 2 is what puts them side by side. **This is
+  the fact the band-split entry's "why the page and not the design" bullet got
+  wrong**, and that bullet now says so.
+- **AND EACH AGENT CARRIES ONLY ITS OWN SCHEMA — the second, quieter win.**
+  `components` alone is **32,603 of a first build's 64,076**, because it carries
+  the kit's component menu; the look agent has no business with it and no longer
+  pays to be shown it. Measured per agent: **identity 7,339 · plan 41,353 · look
+  11,058 · detail 4,836**. The plan agent is still most of it, which is the
+  honest shape — the kit menu has to reach whoever picks components, and nobody
+  else.
+- **THE SYSTEM BLOCK IS THE SINGLE CALL'S OWN, BYTE FOR BYTE, and it is a
+  property of the code rather than a claim in a comment.** `designKit(frontendOnly)`
+  is ONE chooser answering both the tool and the system text, asked by
+  `designSiteSchema` and by the wrapper; a second ternary would make "byte for
+  byte" a coincidence and false the first time either variant moved — with a cold
+  cached prefix per agent as the failure nobody sees. **The TOOL is deliberately
+  not shared**, which is the difference from the bands and the half that saves
+  the money; the cost, stated, is four tool prefixes instead of one, each cold
+  until sent once, and they stay warm for the same reason the two design variants
+  do.
+- **THE ORCHESTRATION LIVES IN THE MODULE, NOT THE ROUTE.** `designInWaves` takes
+  the tool, the ceiling and the CALLER as arguments, so the whole thing can be
+  RUN against a fake caller — answers out of order, one agent failed — and the
+  design read. Left inline in `worker.js` it would be provable only by reading
+  text, which this repository has twice recorded as certifying the layer below
+  the break. `worker.js` keeps the decision and a wrapper.
+- **THE FAN-OUT IS `runFanout`, SHARED WITH THE BAND SPLIT RATHER THAN COPIED.**
+  `Promise.all` rejects on the first failure, which here would throw away every
+  agent that answered because one did not; and every entry carries its index,
+  which is the only thing tying an answer back to the agent it was asked of once
+  they finish out of order. Neither is expressible as a claim about text — which
+  is why that module exists — and a sweep mutant that runs the wave one call
+  after another dies against a GATE, never a timer.
+- **ONE USAGE OBJECT, SUMMED**, sound here and nowhere else: every agent goes to
+  the same model, so one rate column prices all of them, and one object means ONE
+  rounding where four would charge `pageCredits`' floor per agent. The rule it
+  must not break is that a build's design usage (Opus under `auto`) and its page
+  usage (Sonnet) come from two rows.
+- **A FAILURE WEARS ITS OWN SENTENCE — three outcomes, told apart because they
+  need different moves.** A cut-off agent throws `truncated` with the single
+  call's own message word for word, so the route's existing "try describing fewer
+  things" covers it. A provider fault is re-thrown in `callBuilderModel`'s own
+  shape (status, detail, class), so `upstreamKind` still separates "they are
+  overloaded" from "we are sending something they reject" — flattened to a
+  message, a real 429 arrives wearing "the designer is busy". And agents that
+  answered nothing come back `input: null`, the same answer a single call gives
+  for a model that declared nothing, which the route already refuses.
+- **A REQUIRED FIELD LOST MID-WAY ENDS THE DESIGN THERE**, rather than two waves
+  later after the rest has been bought — and, worse, after those waves have
+  designed against a note that names no business. `wavesMissing` asks only about
+  the fields already ASKED FOR, because between waves every later field is
+  legitimately absent.
+- **THE TRADE, STATED: THIS IS STRICTER THAN THE SINGLE CALL, and any lost agent
+  fails the design today.** MEASURED: every one of the four carries at least one
+  required field, so there is no such thing as an optional agent right now. The
+  single call never checks `required` at all and hands a partial answer straight
+  on. Stricter is the right direction because of what the two failures cost — a
+  refused design is FREE (the route's catch reverses the deposit in full and says
+  why) where a design that ships with no plan charges for a site that is not one,
+  and the owner's *"ship it as it is"* rule was about a type error in a page that
+  works. **The code says "a design missing a required field is a failed design"**
+  rather than "an agent that fails fails the build", which is the property that
+  survives a field becoming optional. Open for the owner if a lost `detail` ever
+  costs a real build.
+- **A NOTE STATES WHAT IS DECIDED AND NEVER GUESSES.** Absent means absent — a
+  note that invents `kind: "shopfront"` for an agent whose wave never settled it
+  is worse than one that says nothing. **`action` IS ANSWERED IN WAVE 1 AND IS
+  DELIBERATELY NOT IN THE NOTE**: `shape`'s own description tells the agent
+  writing it that "the primary action is NOT yet named", true of the single call
+  by property order and a lie the moment the note carries it.
+- **TWO DOORS, DEFAULTING TO NOBODY**, asked in `edit-job.mjs` beside the band
+  split's for the same reason — `readCanaryList` is deliberately not imported
+  into `worker.js`, so a flag asked there gets either a second copy of that
+  reader or a boolean, and it gets a boolean. **The canary names a UID, not a
+  slug**: this door is asked BEFORE the design call, and on a first build the
+  slug is one of the things that call answers, so a slug named here can never
+  match. `/api/site/runtime` answers `design` and `designEveryone` — booleans
+  only, never the list.
+- **Guards**: `test/design-waves.test.mjs` (32). The **CENSUS** is the one that
+  matters: every property the REAL frontend tool carries belongs to exactly one
+  wave, and every wave field is on the tool — both directions, derived from the
+  tool through `readSchemaTool()` rather than listed, because a field added to
+  the tool and to no wave comes back empty on every split build, silently, since
+  absent is a legal answer for the optional ones. That is `three` shipped dead
+  for a day, one layer over. Beside it: the whole orchestration RUN against a
+  fake caller, with wave 3 proved to be told what waves 1 and 2 answered; the
+  concurrency proved with a gate the test opens itself; the failure paths driven;
+  the door driven over every shape including the coercion refusals;
+  `readCanaryList` proved absent from `worker.js`.
+- **TWO DEFECTS OF MY OWN THE GUARDS CAUGHT BEFORE THE SWEEP, and both are
+  recorded traps.** `splitDesign` was written `if (mode && mode !== "build")`,
+  which reads perfectly and falls to the PERMISSIVE side for the one input nobody
+  supplied — cannot-tell read as a first build, at the door of the most expensive
+  step. And `readWaveAnswer`'s `ok` answered `undefined` for a missing entry:
+  falsy, so the product was right, and one `=== false` written anywhere
+  downstream would read a lost agent as fine.
+- **Sweep: 62 mutants, 62 killed, none survived, none unapplied, three
+  comment-only controls survived** — a wave losing a field, two agents claiming
+  one, a wave claiming a field the tool has not got, the census dropped, a revise
+  split by either door, an unstated mode read as a build, the socket bound
+  derived from the waves, an agent's tool keeping the whole required list or
+  every property or losing its name, an agent given its own system block, either
+  cached block uncached, the brief or the note or the "at the same time" clause
+  dropped, the ceiling invented, `tool_choice` unnamed, an attachment after the
+  text, the note carrying `action` or dropping the page or the components or
+  coercing a non-string or inventing an answer, a cut-off answer merged, a failed
+  call read as an answer, answers paired by finishing order, a stray field kept,
+  a lost agent unrecorded, the design usable whatever came back, `null` counted
+  as an answer, the mid-way check asking the whole tool or never answering, the
+  wave run one call after another, the usage taken from one call or unpriced, a
+  wave's answers not reaching the next, an unusable design handed on, a cut-off
+  design wearing the provider's sentence, a fault flattened, the trace unable to
+  say which designer ran, both doors defaulting on or coercing or taking any
+  truthy word, the deploy default flipped, a flag set and never uploaded, the
+  image dropping either module, the decision made and the single call running
+  anyway, the door never asked, the mode inferred from a state that is also null
+  when the read blips, the split asked about the wrong tool, the wrapper handing
+  its own tool or dropping the build's clock, the single call keeping its own
+  ternary, and the diagnostic losing the flag or handing back the list.
+- **TWO SURVIVED THE FIRST PASS AND BOTH WERE PROVED INERT RATHER THAN ASSUMED,
+  which is the recorded procedure.** The width check cannot fire (widest wave 2
+  against a bound of 4), and `state === "done"` is redundant with `use &&
+  use.input` because a failure `runFanout` produces today carries no `answer` at
+  all. Each was MEASURED both ways, the redundancy is now stated in the code so
+  the next session does not delete a wall nothing appears to need, and each was
+  replaced by a mutant that does change behaviour — lowering the bound so wave 2
+  is too wide, and a failure carrying a half-written transcript, which is the
+  shape a cut-off stream is one change away from producing. Both died.
+- **Two older guards went red for the change and were re-anchored, not appeased.**
+  `test/wiring.test.mjs`'s design-cache case pinned the ternary that moved into
+  the chooser — the SECOND time that case has gone red for a correct change, and
+  its own comment already called that the sign of an assertion pinned too tightly;
+  it asks the chooser now. `test/publish-integrity.test.mjs`'s runtime roster
+  gained two fields, which is that `deepEqual` working exactly as designed
+  ("an exact set is what makes adding one a line in this file") rather than a
+  spelling pin.
+- **AND THE DESIGN TOOL'S OWN NUMBERS IN THIS FILE WERE ONE HIGH.** The section
+  above said 24 properties / 23 on a first build and 93,852 characters; measured
+  through `readSchemaTool()` it is **23 / 22 and 93,598** (frontend 64,076,
+  system 1,962). The order list beside it has always had 23 names, so the count
+  and the list had disagreed without anybody adding them up.
+- Full suite **5,838**.
+- **Not proven live, and there is nothing to see until somebody opens the door.**
+  The proof is two steps, in order: set `DESIGN_SPLIT_CANARY` to the building
+  account's UID in GitHub and redeploy, then read `/api/site/runtime?slug=` for
+  any site that account owns and check `design: true` — free, and it settles that
+  the secret reached the Worker before any build is bought. The build after that
+  is the real proof and costs a build. **The push changes `worker.js` and
+  `builder/`, which are container image inputs, so the container rolls and the
+  15–20 minute hold applies.**
+
+---
+
 ### A PROJECT HAS AN ADDRESS (2026-09-09, owner, holding up
 `lovable.dev/projects/a752aa91-…`: *"or something with id, look at lovable for
 example"* → *"build it"*)
@@ -994,14 +1191,18 @@ nobody calls is this repository's most-shipped failure (`three`, `parts`,
 turned on is a decision waiting for the owner, and turning it on is naming a slug
 in a GitHub secret and redeploying.
 
-- **WHY THE PAGE AND NOT THE DESIGN**, since the owner asked about both. The
-  design's dependency graph really is shallow — the 23 fields collapse to about
-  five levels — and splitting it still LOSES: its 93,598 characters are the
-  QUESTION, they are in the cached block, and the answer is short, so there is
-  little wall clock to win and five prompt-processings to pay for it. The page
-  call is the long one. Its own header says seven to twelve minutes on a real
-  brief, and the container has measured **334,000–620,000 ms** against a design
-  step of ~170 s. **That is where the time is, so that is what was split.**
+- **WHY THE PAGE FIRST, since the owner asked about both — AND THIS BULLET'S
+  OWN CONCLUSION WAS REVERSED A DAY LATER (see the design-split section above).**
+  What it said, and what still stands: the page call is the long one — its own
+  header says seven to twelve minutes on a real brief, and the container has
+  measured **334,000–620,000 ms** against a design step of ~170 s, so that is
+  where most of the time is and that is what was split first. What it got wrong
+  was "splitting the design LOSES": it reasoned that the 93,598 characters are
+  the QUESTION, cached, with a short answer, so there is little wall clock to
+  win. **`wordmark` and `favicon` DRAW SVG**, and this repository had already
+  measured what a drawn answer costs — 292,336 ms for ONE mark on Grok, run 41 —
+  which is not a short answer and sits in sequence with the plan. The reasoning
+  was about the wrong half of the call.
 - **THE SPLIT UNIT ALREADY EXISTED.** `shape` plans a page as an ordered list of
   bands (`{path, sections[]}`, `MAX_SECTIONS` 8), so nothing had to invent a way
   to cut a page up — the design step has been answering one for months and the
@@ -3164,7 +3365,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,806.
+  The unit suite is 5,838.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

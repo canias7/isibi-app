@@ -122,6 +122,13 @@ export const WAVE_FIELDS = DESIGN_AGENTS.flatMap((a) => a.fields);
  * bands, and it is deliberately NOT derived from the wave list: the day
  * somebody adds a fifth agent to wave 2 is a day to decide about sockets on
  * purpose rather than to get four more of them for free.
+ *
+ * THE CHECK IT GUARDS CANNOT FIRE TODAY, and that is stated rather than left
+ * to be rediscovered: the widest wave is 2 and this is 4, so a sweep mutant
+ * that deletes the check in `splitDesign` changes no answer and reads exactly
+ * like a test gap. It is proved instead by LOWERING this number, which makes
+ * wave 2 too wide and the whole design unsplittable — that mutant dies. Do not
+ * delete the check because nothing appears to need it.
  */
 export const MAX_WAVE_AGENTS = 4;
 
@@ -308,6 +315,15 @@ export function splitDesign({ tool, current, mode } = {}) {
  * keeps it: `input: null` from a model that made no tool call and `{}` from one
  * that called the tool and declared nothing are different failures, and a
  * caller that cannot tell them apart writes one sentence for both.
+ *
+ * `state === "done"` AND `use.input` ARE TWO WALLS, AND THE REDUNDANCY IS
+ * DELIBERATE. MEASURED: a failure `runFanout` produces today carries no
+ * `answer` at all, so the second test alone refuses every one of them and
+ * cutting the first changes no answer — which reads exactly like a test gap and
+ * is not one. It stays because the two are claims about different things: one
+ * about whether the CALL succeeded, one about whether the model said anything.
+ * The day a failure carries a half-written transcript — the shape a cut-off
+ * stream is one change away from producing — only the first refuses it.
  *
  * A TRUNCATED ANSWER IS A FAILED AGENT, which is `designSiteSchema`'s own rule
  * (it throws on `max_tokens`) and matters more here, not less: a tool_use block

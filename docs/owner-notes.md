@@ -155,6 +155,83 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-10 — The design step is split too, and that switch is also off
+
+You said *"ok now split the design step"* → *"ok go"*. It is built, wired end to
+end, and **nothing on the platform behaves differently today**, because the
+switch that turns it on names nobody. Same shape as the page split above.
+
+**What the design step is.** One model call that answers 22 questions about the
+site — its name, its address, what it is for, what pages it has, which kit parts
+it is built from, how the page is laid out, its theme, its stylesheet, the logo,
+the tab icon, what each button does. It answers them in a fixed order and each
+answer can see the ones before it, so the whole thing is one long write.
+Measured at about 170 seconds.
+
+**What it is now, behind the switch.** Three rounds, and inside a round the
+agents work at the same time:
+
+1. **identity** — the name, the address, the one-line description, what kind of
+   site it is, the language, the one action the site most wants done.
+2. **plan** and **look**, side by side. The plan is the pages, the kit parts and
+   the layout. The look is the theme, the stylesheet and the two drawn marks.
+3. **detail** — anything the kit could not do, and what each control does.
+
+**Why those three and not some other three.** I tried the obvious thing first
+and it does not work: read each question's own text, find where it mentions
+another question, and sort by that. What comes out is a **circle** — the parts
+question mentions the theme, the theme mentions the stylesheet, the stylesheet
+mentions the parts — because a mention is not the same as a dependency. A
+question names another to say "that was already decided", or "don't repeat it",
+or "this is what will read your answer", and those are three different things
+that look identical. So the rounds are the dependencies the step actually states
+as reasons: everything about the plan depends on what kind of site it is; the
+"anything the kit can't do" question is asked by a model that has just searched
+the kit; a control can't be described before the page that holds it exists; the
+marks draw the name; the stylesheet sits on top of the theme.
+
+**Where the time actually is, and it is not the plan.** The logo and the tab
+icon are DRAWN — the model writes the picture. Run 41 measured what one drawn
+mark costs on Grok: **292 seconds**. In the single call those two sit in the
+queue with the plan, so the plan waits for them and they wait for the plan.
+Putting them side by side in round 2 is most of what this buys. **This corrects
+something I told you yesterday** — I said splitting the design "loses". That was
+about the wrong half of the call.
+
+**The second win is quieter and it is about size.** The parts question alone is
+**32,603 characters** of the 64,076 a first build sends, because it carries the
+whole menu of kit components. The look agent has no business with that menu and
+no longer pays to be shown it. Per agent: identity 7,339 · plan 41,353 · look
+11,058 · detail 4,836.
+
+**What happens when one agent fails.** Three different failures, three different
+sentences, because they need different reactions: an agent that ran out of room
+gets "try describing fewer things"; an agent the provider refused carries the
+provider's own error through, so "they're overloaded, try again" stays different
+from "we sent something wrong"; and agents that simply answered nothing get the
+same refusal a single call gets when the model declares nothing.
+
+**One trade you should know about.** If an agent is lost, the design fails —
+free, refunded, and it says why. The single call is looser: it hands a partial
+answer straight on. I went the stricter way because of what the two mistakes
+cost. A refused design costs nothing and can be asked again; a design that ships
+with no page plan charges you for a site that isn't one. Your *"ship it as it
+is"* rule was about a type error in a page that works, not about a design with a
+hole in it. If a lost agent ever costs a real build, say so and I will loosen it.
+
+**The switch.** `DESIGN_SPLIT_CANARY` in GitHub, and it names an **account**,
+not a site — this runs before the site has an address, so a slug there could
+never match. Free first step: set it to your account id, redeploy, then open
+`/api/site/runtime?slug=<any site you own>` and check `design` says true. That
+proves the setting reached the live Worker before a single credit is spent. The
+build after that is the real proof and costs a build.
+
+**Not proven live, and there is nothing to see until you open it.** The push
+changes the Worker, so the container rolls — wait 15–20 minutes after the deploy
+before firing anything that must run the new code.
+
+---
+
 ## 2026-09-10 — Writing a page in pieces, at the same time (half built, nothing live)
 
 You asked whether the design step and the generate step really have to wait for
@@ -1751,6 +1828,34 @@ rolls the container, so leave 15–20 minutes after it deploys.
 ---
 
 ## Open — waiting on you
+
+**0x. TURN ON THE DESIGN SPLIT, OR DON'T (2026-09-10, your "ok go").** The other
+half of the same ask, and it works exactly like 0y below. Two steps, in this
+order:
+
+1. **Free.** Set the GitHub secret `DESIGN_SPLIT_CANARY` to **your account id**
+   — not a slug, because this runs before the site has an address — and
+   redeploy. Then open `/api/site/runtime?slug=<any site you own>` while signed
+   in and check it says `design: true`. That proves the secret reached the live
+   Worker, which reading the workflow file cannot tell you.
+2. **One build's credits.** Build a site. Nothing about the site looks different;
+   what changes is how long the design step takes.
+
+**What it should buy: wall clock.** The design step is about 170 seconds today,
+and the two drawn marks — the logo and the tab icon — are what make it long: run
+41 measured 292 seconds for one drawn mark on Grok. Splitting puts them beside
+the plan instead of in the queue with it. **I have not measured the saving and
+will not guess at one.** The first split build is the measurement.
+
+**What it risks:** four agents that do not see each other's answers within a
+round. Each is told what the earlier rounds decided and told the other parts are
+being written at the same moment, but a plan and a look decided side by side
+could pull apart in a way one call would not have. One build tells you.
+
+**And one trade is already made, on purpose:** if an agent is lost, the design
+fails — free and refunded — where the single call would have handed a partial
+answer on. Reasoning in the 2026-09-10 entry above; say the word and I will
+loosen it.
 
 **0y. TURN ON THE BAND SPLIT, OR DON'T (2026-09-10, your "ok go build it").**
 Writing a page eight bands at a time is built, tested and deployed, and the
