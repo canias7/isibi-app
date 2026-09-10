@@ -953,14 +953,32 @@ redeploying.
   system 1,962). The order list beside it has always had 23 names, so the count
   and the list had disagreed without anybody adding them up.
 - Full suite **5,838**.
+- **MERGED AND DEPLOYED** (owner: *"ok merge"*). `unit tests` run 2399 green,
+  the suite step 83 s on the exact tree; main fast-forwarded `f462df86` →
+  `6e5d7784` at 04:06Z; **deploy run 2070 green in 3m01s**. The gate set in 1 s;
+  the image step **2m11s** — the game image `reused` (registry answered 200) and
+  the site image `built isibi-app-sitebuildcontainer:3cf2fa050cd4df…9` (registry
+  answered 404, off `./Dockerfile`; the input count reads `***69` because the log
+  masks it, which is 167 + the two modules added to the COPY line) — so the site
+  image was BUILT and the container **ROLLED** (`EDIT
+  isibi-app-sitebuildcontainer`, `fe…d27ffed7c92f6` → `3cf2fa050cd4df…9`, applied
+  04:09:01Z; the game app `no changes`); `deploy drain: no live leases` in 1 s;
+  Wrangler 27 s; the gate left to expire on success. **The 15–20 minute hold
+  ended ~04:29Z.** The image step lands inside the Deploy section's stated band
+  (2m05s best case, ~3m ordinary) for a push that changes the worker tree AND the
+  Dockerfile's own COPY line.
+- **AND BOTH DOORS ARE CONFIRMED SHUT ON THE DEPLOYED WORKER, not merely in the
+  repository** — the secret upload lists `DESIGN_SPLIT_CANARY: -` and
+  `DESIGN_SPLIT_EVERYONE: off` beside `BAND_SPLIT_CANARY: -` and
+  `BAND_SPLIT_EVERYONE: off`, all four `Successfully created`. That is the exact
+  class of fact `/api/site/runtime` exists for and the reason reading `deploy.yml`
+  is not an answer.
 - **Not proven live, and there is nothing to see until somebody opens the door.**
   The proof is two steps, in order: set `DESIGN_SPLIT_CANARY` to the building
   account's UID in GitHub and redeploy, then read `/api/site/runtime?slug=` for
   any site that account owns and check `design: true` — free, and it settles that
   the secret reached the Worker before any build is bought. The build after that
-  is the real proof and costs a build. **The push changes `worker.js` and
-  `builder/`, which are container image inputs, so the container rolls and the
-  15–20 minute hold applies.**
+  is the real proof and costs a build.
 
 ---
 

@@ -226,9 +226,18 @@ never match. Free first step: set it to your account id, redeploy, then open
 proves the setting reached the live Worker before a single credit is spent. The
 build after that is the real proof and costs a build.
 
-**Not proven live, and there is nothing to see until you open it.** The push
-changes the Worker, so the container rolls — wait 15–20 minutes after the deploy
-before firing anything that must run the new code.
+**Merged and deployed** (your *"ok merge"*). Tests green, main moved, **deploy
+2070 green in 3 minutes**: the site container image was rebuilt and the container
+rolled at 04:09Z, so anything that runs in a container was safe to fire from
+about 04:29Z. The game container was untouched.
+
+**And I checked the switch is really off on the LIVE Worker, not just in the
+repository** — the deploy's own secret upload lists `DESIGN_SPLIT_CANARY: -` and
+`DESIGN_SPLIT_EVERYONE: off`, beside the band split's two. Reading the workflow
+file would only have told you the default; this is the deployment.
+
+**Not proven live, and there is nothing to see until you open it.** Nothing about
+any site changed today.
 
 ---
 
