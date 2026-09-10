@@ -4791,6 +4791,20 @@ poll. The general shape is this file's own screenshot rule pointed at a control
 plane — **when the instrument and the thing disagree, suspect the instrument
 first** — and the cost of getting it wrong in this direction is a false alarm,
 which this file rates worse than a miss.
+**IT HAPPENED AGAIN THE NEXT DAY AND THE TELL ABOVE DID NOT WORK (2026-09-10,
+`unit tests` run 2413).** The suite step finished at 20:49:11Z and three
+different endpoints — the run listing, `get_workflow_job`, and the check-run —
+all answered `in_progress` with unmoved step timestamps for ~15 minutes after.
+**This time `updated_at` was frozen TOO** (20:47:38Z, beside step stamps that
+had also not moved), so there was no internal disagreement to spot: the
+sentence above says to read `updated_at` before believing a status, and a
+snapshot stale in every field passes that test. So the corrected rule is
+narrower. `updated_at` moving BEHIND the steps proves staleness; it agreeing
+with them proves nothing, because a whole snapshot can be old. **What settles
+it is the step's own expected duration** — this suite step has taken 80–84 s on
+every run of this workflow, so anything past a few minutes is the instrument
+until a later poll says otherwise. Wait and re-poll; do not report a hang, and
+do not report a pass either.
 
 **AN INSTRUMENT THAT REPORTS CORRECT CODE AS BROKEN — the screenshot version
 (2026-08-30).** A `fullPage: true` capture of a site using `animation-timeline:

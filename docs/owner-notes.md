@@ -4097,3 +4097,13 @@ comparison that settles your original question is that number on a split build
 against the same number with splitting switched off — one flag, no code change.
 This touches the worker, so the container rolls and the usual 15–20 minute wait
 applies after the deploy.
+
+**Footnote, and it's about our own tooling rather than the product.** GitHub's
+API told me the test run was still going for about fifteen minutes after it had
+actually finished — green, in the usual eighty-odd seconds. Three different ways
+of asking all gave the same frozen answer. That's the second time in two days,
+and yesterday's note about how to spot it didn't help this time, because the
+whole snapshot was stale rather than half of it. I've corrected the note: the
+thing that actually catches it is knowing how long the step normally takes, and
+waiting. I didn't report it as stuck, and I didn't report it as passed until it
+really had.
