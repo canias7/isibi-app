@@ -1282,13 +1282,33 @@ and sentinel the single path uses.
   second wall, and the third withdrawal was an anchor naming a one-liner the
   source does not have.
 - Full suite **5,806**.
+- **MERGED AND DEPLOYED** (owner: *"ok merge"*). `unit tests` run 2397 green in
+  83 s on the exact tree; main fast-forwarded `4fb604a7` → `f462df86` at 02:50Z;
+  **deploy run 2069 green in 3m27s**. The image step **2m19s** — `built
+  isibi-app-sitebuildcontainer:fe1…c92f6 (registry answered 404; 167 inputs off
+  ./Dockerfile)`, the export 15.3 s and the rest the registry push, one layer
+  alone taking ~67 s — so the site image was BUILT and the container **ROLLED**
+  (`EDIT`, `93ff3d5a30d556cc` → `fe1…c92f6`, applied **02:54:08Z**; the game
+  image `no changes`); `deploy drain: no live leases after 1s`; Wrangler 34 s;
+  the gate left to expire on success. **The 15–20 minute hold ended ~03:14Z.**
+  **AND THE DOOR IS CONFIRMED SHUT ON THE DEPLOYED WORKER, not merely in the
+  repository** — the secret upload lists `BAND_SPLIT_CANARY: -` and
+  `BAND_SPLIT_EVERYONE: off` among its twenty, which is the exact fact the
+  runtime diagnostic exists for and the reason a workflow read is not one.
+- **AND THE INSTRUMENT LIED ABOUT THIS DEPLOY FOR HALF AN HOUR.** GitHub's job
+  listing kept answering `in_progress` for the image step long after it had
+  finished at 02:53:39Z, and it was reported here as a 32-minute hang with a
+  claim that the deploy gate was holding customers' edits. Both were false: the
+  step took 2m19s and the gate cleared at 02:54:14Z. The recorded rule — *when
+  the instrument and the thing disagree, suspect the instrument first* — was
+  walked past. **A workflow run's own `updated_at` is the tell**: it stayed at
+  02:50:57Z beside step timestamps that had moved, which is a stale snapshot
+  saying so in the one field nobody read.
 - **Not proven live, and there is nothing to see until somebody opens the door.**
   The proof is two steps, in order: set `BAND_SPLIT_CANARY` to one slug in GitHub
   and redeploy, then read `/api/site/runtime?slug=` for that site and check
   `bands: true` — free, and it settles that the secret reached the Worker before
   any build is bought. The build after that is the real proof and costs a build.
-  The push changes `worker.js` and the Dockerfile's COPY line, so **the container
-  rolls and the 15–20 minute hold applies.**
 
 ---
 
@@ -3524,6 +3544,20 @@ and this one is invisible to every instrument we have because both renderings ar
 well-formed. The fix shape is a type (a `Minor` branded number) or a prop name
 that carries the unit (`deltaMinor`), not a firmer sentence. Not fixed — the
 owner has not asked.
+
+**AN API THAT SERVES A STALE SNAPSHOT AND SAYS SO IN A FIELD NOBODY READS
+(2026-09-10, deploy 2069).** GitHub's job listing kept answering `in_progress`
+for a container-image step that had finished at 02:53:39Z, and it was read here
+as a 32-minute hang on a deploy that took 3m27s — reported to the owner as a
+stuck deploy, with an invented consequence about the deploy gate holding
+customers' edits for 45 minutes. **The tell was free and in the response**: the
+run's own `updated_at` stayed at 02:50:57Z while the step timestamps beside it
+moved, which is a cached snapshot saying it is one. Read `updated_at` before
+believing a status, and prefer the COMPLETED run's timings to any in-flight
+poll. The general shape is this file's own screenshot rule pointed at a control
+plane — **when the instrument and the thing disagree, suspect the instrument
+first** — and the cost of getting it wrong in this direction is a false alarm,
+which this file rates worse than a miss.
 
 **AN INSTRUMENT THAT REPORTS CORRECT CODE AS BROKEN — the screenshot version
 (2026-08-30).** A `fullPage: true` capture of a site using `animation-timeline:

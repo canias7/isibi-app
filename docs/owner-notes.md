@@ -325,6 +325,26 @@ and the billing are proven by running them. **A real site built this way is
 not** — nothing has been through it end to end, and it cannot be until you turn
 the switch on. That is one build's worth of credits, and it is your call.
 
+**Merged and deployed** (your "ok merge"). The test suite ran green on the exact
+tree first — 83 seconds — then main moved to it and the deploy went out in
+**3m27s**. The container image rebuilt (2m19s, most of it uploading one large
+layer) and the build container **rolled at 02:54:08Z**, so the twenty-minute
+wait before firing anything that builds ended around **03:14Z**.
+
+**And I can confirm the switch is off on the live system, not just in the
+code** — the deploy log lists `BAND_SPLIT_CANARY: -` and `BAND_SPLIT_EVERYONE:
+off` among the twenty secrets it uploaded. That is exactly the thing reading the
+config file cannot tell you.
+
+**I got something wrong while watching that deploy and told you about it.**
+GitHub's status API kept reporting the image step as still running long after it
+had finished, and I reported a 32-minute hang — and went further and said the
+deploy gate was holding customers' edits back for 45 minutes. Neither happened:
+the step took 2m19s and the gate cleared normally. The signal that it was a
+stale answer was sitting in the same response I was reading, in a timestamp I
+did not check. Written down as a trap, because raising a false alarm is worse
+here than missing something.
+
 **One more thing on testing.** Four existing checks went red for this change and
 every one of them was pointing at correct code — they were pinned to how a line
 was *spelled* rather than what it had to be *true* about. One of them has now
