@@ -40,7 +40,43 @@
  */
 export async function runFanout(reqs, callOne, now = () => Date.now()) {
   const list = Array.isArray(reqs) ? reqs : [];
-  return Promise.all(list.map(async (r, i) => {
+  // ── WHAT THE FAN-OUT COST IN WALL TIME, STAMPED ON WHAT COMES BACK ─────────
+  //
+  // The question a split has to answer is "was running these together faster
+  // than running them one after another", and it takes TWO numbers: the sum of
+  // the per-call times (already on every entry as `ms` — what serial would have
+  // cost) and the WALL time of the whole fan-out. The difference is the overlap,
+  // and it can be read off ONE run with no baseline — which is the only way to
+  // ask it at all, since build-to-build variance here is wider than any saving.
+  //
+  // MEASURED RATHER THAN DERIVED FROM `max(ms)`, AND TODAY THE TWO AGREE — said
+  // plainly, because the first draft of this comment claimed they did not and
+  // that was wrong. Every call's `at` is read in the same synchronous pass as
+  // `fanAt`, so the starts are simultaneous and the wall time IS the slowest
+  // call. The reason to measure anyway is that the agreement is a PROPERTY OF
+  // THE STARTS, not of the arithmetic: the day anything staggers them — a
+  // semaphore, a connection pool, a `callOne` that awaits before it dials —
+  // `max(ms)` keeps reporting the slowest call while the fan-out really took
+  // longer. That is wrong in the FLATTERING direction, which is the worst one
+  // for a number somebody decides with: a serialised fan-out would read as a
+  // fast one. One clock read buys immunity to that, and the guard pins it with a
+  // fixture whose starts really do stagger.
+  //
+  // STAMPED ON EVERY ENTRY RATHER THAN RETURNED BESIDE THEM, and that is a
+  // deliberate choice against the tidier shape. This value has to survive the
+  // container's job store, its pushed report, its poll answer, the R2 record and
+  // the resume — and `build-resume.mjs` says in as many words why a sibling
+  // field is refused there: "a second field here would be a second set of
+  // branches, one of which nobody drives". The entries already travel every one
+  // of those hops intact, so riding on them costs no hop anybody can forget.
+  // The price is the same number repeated N times, which is said here so nobody
+  // later reads it as an accident. An array property would be tidier and is not
+  // an option: `JSON.stringify` drops non-index properties, and every hop above
+  // is JSON.
+  // NOT `at`: every call has its own `at` inside the map, and one name for two
+  // clocks is how a per-call time gets read as a wall time.
+  const fanAt = now();
+  const out = await Promise.all(list.map(async (r, i) => {
     const at = now();
     try {
       const answer = await callOne(r, i);
@@ -61,6 +97,11 @@ export async function runFanout(reqs, callOne, now = () => Date.now()) {
       };
     }
   }));
+  // AFTER EVERY CALL HAS SETTLED, which is what makes it the wall time of the
+  // fan-out rather than of the slowest call: a call that fails early and one
+  // that answers late are both inside it.
+  const waveMs = now() - fanAt;
+  return out.map((e) => ({ ...e, waveMs }));
 }
 
 /** Did every call in a fan-out fail? The caller has nothing to assemble. */

@@ -3898,3 +3898,68 @@ else's. Three things are proven that weren't this morning: the door opens, the
 container really runs five model calls side by side, and the pieces reassemble
 into a page that compiles and publishes. What's unproven is whether any of it
 saves time.
+
+---
+
+## 2026-09-10 — is splitting faster? For the design step: no. And now one build can answer it for the page step
+
+You asked the right question. Here's the honest answer for one half of it, and the
+instrument that will answer the other half on your next build.
+
+**The design step splitting into four is a wash.** It cost nothing to find out —
+the numbers were already sitting in three builds you'd already paid for. Against
+the two ordinary single-call builds we have as a baseline, the three split builds
+came out dead even, then 4.6 seconds slower, then 51 seconds slower. Not faster.
+
+**Why, in one paragraph.** Splitting buys you two things and charges you one. It
+buys overlap — work happening at the same time — and that really is happening:
+between 52 and 66 seconds of it on each of those three builds. But it charges you
+for the split itself, because four agents each read the brief and each think about
+the site, where one call did that once. That charge came to between 65 and 103
+seconds. The two numbers are the same size, so they cancel out.
+
+**And it can't get much better, for a structural reason.** The four agents don't
+all run at once — they run in three rounds: one alone, then two together, then one
+alone. Three of the four are running by themselves. So the *most* that running side
+by side can ever save is however long the shorter of the two paired agents takes,
+while the cost of splitting is paid four times regardless. The rounds are that
+shape for real reasons (the logo can't be drawn before the site has a name, the
+behaviour of a button can't be described before the page exists), so it isn't a bug
+we can fix — it's what this particular split is.
+
+**The page step is a completely different shape**, which is why I'm not calling the
+whole idea dead. There, five sections run **all at once**, not two, and they're
+running on a call that takes five to ten minutes rather than three. The fixed cost
+of splitting is the same, but it's a much smaller slice of a much bigger number.
+That's exactly the shape where splitting should win.
+
+**We just couldn't read it.** The record kept how many sections were written and
+whether any came back empty, and no timings at all. So the only way to ask was to
+run the same brief several times with the split on and off and compare — and the
+natural spread on that step is 74 to 355 seconds between builds, which is wider
+than any saving we'd be looking for. That's a lot of credits to buy an answer the
+noise would eat.
+
+**So the change today is two numbers on the record.** How long each of the five
+sections took added up (what running them one after another would have cost), and
+how long the whole batch took on the clock. Subtract, and you have the overlap — off
+a *single* build, no baseline, nothing to compare against. Then it's the same
+arithmetic as the table above: does the overlap beat what splitting cost you?
+
+**One thing I got wrong and fixed.** I wrote a comment claiming the measured clock
+beats the simpler alternative of "take the slowest call". Today those two give the
+same answer, and saying otherwise was overclaiming. Measuring is still the right
+call for a narrower reason: they agree only because all five calls start in the
+same instant, and if anything ever staggers them, "slowest call" would under-report
+the time — which is wrong in the flattering direction, the worst way for a number
+you're going to make a decision with. There's now a test whose calls deliberately
+stagger, so that stays honest.
+
+**Checked.** Eighteen deliberate breakages, all eighteen caught, two harmless
+comment edits confirming the tests aren't just failing at everything. Full suite
+green at 5,875. Two older tests went red because they were pinned to exactly where
+something sat rather than what it did; both re-pointed.
+
+**What's left.** Your next ordinary build proves it — no special run, no extra
+spend, just read the record afterwards. This touches the worker, so the container
+rolls and the usual 15–20 minute wait after the deploy applies.

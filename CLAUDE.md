@@ -1982,6 +1982,109 @@ the instrument written that same morning to make the split readable.
 
 ---
 
+### THE BAND FAN-OUT SAYS WHAT IT COST, AND THE DESIGN SPLIT'S OWN NUMBERS SAY
+IT DOES NOT PAY (2026-09-10, owner: *"YEAH WE NEED TO FIGURE THIS OUT , CUZ
+SPLITTING THEM SHOULD MAKE IT FASTER"*)
+
+**THE DESIGN SPLIT IS A WASH, MEASURED OVER THREE RUNS AND FOR FREE.** The pair
+added on 2026-09-10 (`agentMs` = every agent's own call time summed, `waveMs` =
+the wall clock) is readable off runs already stored, and against the single-call
+grok baseline (175,259 and 197,248 — mean **186,254**) it says:
+
+| build | wall | work | overlap | extra work | vs single |
+|---|---|---|---|---|---|
+| `ridgeway-cycle-works` | 185,607 | 251,615 | +66,008 | +65,362 | **−646** |
+| `thornbury-kiln` | 190,859 | 256,050 | +65,191 | +69,797 | **+4,606** |
+| `ashcombe-fishmonger` | 237,763 | 289,628 | +51,865 | +103,375 | **+51,510** |
+
+**The overlap and the extra work are the same number, so they cancel.** Running
+side by side gives back 52–66 s; splitting one call into four ADDS 65–103 s of
+total work. What the customer waits (`waveMs` against the single call) is dead
+even, then 4.6 s slower, then 51 s slower.
+
+**AND THE CEILING IS STRUCTURAL, NOT NOISE.** The waves are **1, 2, 1**:
+`identity` alone, then `plan` ∥ `look`, then `detail` alone. Four calls and
+**never more than two running at once** — three of the four run by themselves —
+so the most parallelism can ever save is whichever of `plan`/`look` finishes
+first, while four times the per-call cost is paid regardless. The dependency
+shape is not arbitrary (the marks draw the brand, the plan answers `kind`,
+`behavior` cannot describe a control before the page exists), so this is a
+property of the split rather than a bug in it. **Widening the waves is the only
+thing that would change the arithmetic, and is unexplored.**
+
+- **THE BAND SPLIT IS A DIFFERENT SHAPE AND COULD NOT BE ASKED THE SAME
+  QUESTION.** Five bands, ONE wave, all five at once — 5-wide, not 2-wide — on a
+  call whose single-call form measures 334,000–620,000 ms, so the fixed per-call
+  cost is a much smaller slice of it. That is the shape that should win where the
+  design split does not. But the `bands` mark carried `bands`/`wrote` and no
+  timings, so the question needed a baseline — and the single-call spread
+  swallows any saving, which is why no number of paid runs would have settled it.
+- **`runFanout` HAS ALWAYS MEASURED THE AGENT HALF AND THE BAND PATH THREW IT
+  AWAY**, exactly as the design loop did before 2026-09-10. It now measures its
+  own WALL time too and stamps it on every entry it returns.
+- **STAMPED ON THE ENTRIES RATHER THAN RETURNED BESIDE THEM, and that is a
+  deliberate choice against the tidier shape.** The value has to survive the
+  container's job store, its pushed report, its poll answer, the R2 record and
+  the resume — and `build-resume.mjs` refuses a sibling field there in as many
+  words: *"a second field here would be a second set of branches, one of which
+  nobody drives"*. The entries already travel every one of those hops intact, so
+  riding on them costs no hop anybody can forget. The price is one number
+  repeated N times, said in the code so nobody later reads it as an accident. An
+  array property is not an option: `JSON.stringify` drops non-index properties
+  and every hop above is JSON.
+- **AND THE JUSTIFICATION IN THAT COMMENT WAS WRONG ON ITS FIRST DRAFT.** It said
+  measuring beats deriving from `max(ms)`; **today the two agree**, because every
+  call's `at` is read in the same synchronous pass as the fan-out's, so the
+  starts are simultaneous and the wall time IS the slowest call. Measuring is
+  still right for a narrower reason — the agreement is a property of the STARTS,
+  not of the arithmetic, and the day anything staggers them (a semaphore, a pool,
+  a `callOne` that awaits before it dials) `max(ms)` keeps reporting the slowest
+  call while the fan-out really took longer. That is wrong in the FLATTERING
+  direction, which is the worst one for a number somebody decides with. Corrected
+  in the comment rather than left standing, and pinned by a fixture whose starts
+  really do stagger (wall 100 against a slowest call of 80).
+- **BOTH RETURNS CARRY THE PAIR.** The early one — every band failed — is the
+  outcome where knowing what the attempt cost matters most, and an early return
+  quietly carrying less than the late one is a recorded shape here.
+- **AN UNSTAMPED FAN-OUT READS AS ZERO, NEVER AS AN INVENTED NUMBER.** An older
+  image mid-rollout is a real state; `tr.at` keeps the key either way, so the row
+  says "asked and not answered" instead of implying an overlap.
+- **Guards**: `test/split-timing.test.mjs` 16 → 18, both DRIVEN. The fan-out on a
+  clock the test owns and gates it opens (no timers — two concurrency guards one
+  file over used `setTimeout`, drifted under sweep load and came back with the
+  comment-only control KILLED), in two cases: simultaneous starts, where the
+  arithmetic is pinned, and staggered starts, which is the only case the two
+  answers differ and is what measuring exists for. Plus `generateSiteBands` run
+  against a fake container on all three of its outcomes.
+- **Two older cases went red and were re-anchored, not appeased.** One asserted
+  the two millisecond names appear NOWHERE in `worker.js` — a true proxy only
+  while the design split was the only thing with those numbers, and it reported
+  the band mark's own pair as a second copy of the design's projection; being
+  absent from the file was never the property, the DESIGN mark going through
+  `waveMarks` is, so it is asked of the design block. The other pinned the mark's
+  wrap as a **200-BYTE window** that the four-field mark outgrew — the eleventh
+  recorded instance; it is asked by position between the nearest enclosing `try`
+  and the next `catch`, with nothing but whitespace between the `try` and the
+  mark, which is what "wrapped" means.
+- **Sweep: 18 mutants, 18 killed, none survived, none unapplied, two comment-only
+  controls survived** — the fan-out never measuring, deriving from the slowest
+  call, starting its clock inside the map, reading it before the calls settle,
+  stamping only the first entry, or replacing the entry instead of extending it;
+  the generator never summing, dropping a failed band's time, summing the wall
+  time N times, inventing one for an unstamped fan-out, losing the pair on either
+  return, or swapping the two so every build reports a negative overlap; the mark
+  losing either number, coercing them, or unwrapped; and the design mark spelling
+  the timings itself.
+- Full suite **5,875**.
+- **Not proven live.** One ordinary split build is the proof and it needs no
+  baseline: `agentMs − waveMs` on the `bands` step is the overlap, and the
+  comparison that matters is that overlap against `agentMs − <what one call
+  costs>`, the same arithmetic the table above applies to the design split.
+  `worker.js` is a container image input, so the container rolls and the 15–20
+  minute hold applies.
+
+---
+
 ### THE CONTAINER SAYS WHICH IMAGE IT IS RUNNING (2026-09-10, owner: *"WHY DO
 THE CONTAINER ALWAYS TAKES 20 MINUTES , GEEZ"* → *"YEA WE NEED TO SEE"*)
 
@@ -4087,7 +4190,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,873.
+  The unit suite is 5,875.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

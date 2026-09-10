@@ -258,11 +258,19 @@ test("the design mark takes the projection, and the numbers are spelled in one p
   assert.ok(/\.\.\.waveMarks\(designedShape\)/.test(block), "the mark no longer asks the projection");
   assert.ok(/waves: designWaves\.length/.test(block),
     "the PLANNED wave count is gone — a design that broke must read as fewer agents than waves, which needs both");
-  // ONE PROJECTION. The two millisecond names must not be spelled in worker.js
-  // at all: a second reader there is "two lists of the same thing" with the one
-  // subject where a drift is a number nobody can check.
-  assert.ok(!/\bagentMs\b|\bwaveMs\b/.test(WCODE),
-    "worker.js spells the wave timings itself — a second copy of the projection");
+  // ONE PROJECTION FOR THE DESIGN'S PAIR. A second reader of the DESIGN shape
+  // in worker.js is "two lists of the same thing" with the one subject where a
+  // drift is a number nobody can check.
+  //
+  // RE-ANCHORED 2026-09-10 (the band split's own pair). This read
+  // `!/agentMs|waveMs/.test(WCODE)` — absent from the WHOLE FILE — which was a
+  // true proxy only while the design split was the only thing that had those
+  // two numbers. The band mark now carries its own, legitimately, and the old
+  // form reported that as a second copy of the design's projection. Being
+  // absent from the file was never the property; the DESIGN mark going through
+  // `waveMarks` is, so it is asked of the design block.
+  assert.ok(!/\bagentMs\b|\bwaveMs\b/.test(block),
+    "the design mark spells the wave timings itself — a second copy of the projection");
   assert.ok(/import \{[^}]*\bwaveMarks\b[^}]*\} from "\.\/builder\/design-waves\.mjs"/.test(WCODE),
     "waveMarks is not imported from the module that owns it");
 });
@@ -290,10 +298,32 @@ test("a page written in pieces leaves a bands step; a page written in one call l
   const single = between(WCODE, "console.log(\"build: the container would not take a fan-out", "return await generateSitePages(env, briefWithLayout", "the fallback to one call");
   assert.ok(!/mark\?\.\("bands"/.test(single), "the fallback marks the build as split after falling back to the one call");
 
+  // AND THE TWO NUMBERS THAT SAY WHETHER THE SPLIT PAID (2026-09-10).
+  // `agentMs` is the serial cost, `waveMs` the parallel one; their difference is
+  // the overlap, readable off ONE build — which is the only way to ask it, since
+  // the single-call page step's own spread (334k-620k ms) is wider than any
+  // saving a split can produce.
+  assert.ok(/agentMs: Number\(fan && fan\.agentMs\) \|\| 0/.test(fanBranch), "the mark does not carry what the bands cost in turn");
+  assert.ok(/waveMs: Number\(fan && fan\.waveMs\) \|\| 0/.test(fanBranch), "the mark does not carry what they cost together");
+
   // A TRACE MUST NEVER BREAK A BUILD. Every other mark in this function is
-  // wrapped; this one carries an expression that reads a field off an answer.
-  assert.ok(/try \{ mark\?\.\("bands"[\s\S]{0,200}?\} catch \{/.test(fanBranch),
+  // wrapped; this one carries expressions that read fields off an answer.
+  //
+  // RE-ANCHORED 2026-09-10: this was `try \{ mark…[\s\S]{0,200}?\} catch` — a
+  // 200-BYTE window, and the mark outgrew it the moment it carried four fields
+  // instead of two. Never size a source-read window in bytes; this repository
+  // has been caught by that eleven times. Asked by POSITION between the nearest
+  // enclosing `try` and the next `catch`, which is what "wrapped" means.
+  const markAt = fanBranch.indexOf('mark?.("bands"');
+  assert.ok(markAt > 0, "the bands mark is gone");
+  const tryAt = fanBranch.lastIndexOf("try {", markAt);
+  const catchAt = fanBranch.indexOf("} catch {", markAt);
+  assert.ok(tryAt >= 0 && catchAt > markAt,
     "the bands mark is not wrapped — a trace that throws takes the build with it");
+  // …and the `try` is THIS mark's, not one belonging to something above it:
+  // nothing but whitespace and comments may sit between them.
+  assert.equal(code(fanBranch.slice(tryAt + "try {".length, markAt)).trim(), "",
+    "the bands mark rides inside somebody else's try — a wrap it does not own");
 });
 
 test("a deadline landing on the bands mark says the pages are not written YET", () => {
@@ -538,4 +568,111 @@ test("…and the trace keeps the numbers and drops everything else, which is why
   raw.at("design", { waves: true });
   assert.deepEqual(raw.done().steps.at(-1), { s: "design", ms: 0 },
     "the boolean landed after all — then handing the shape straight in would have worked and the projection is dead code");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE BAND SPLIT'S OWN PAIR (2026-09-10, owner: "YEAH WE NEED TO FIGURE THIS
+// OUT , CUZ SPLITTING THEM SHOULD MAKE IT FASTER")
+//
+// The design split has had `agentMs`/`waveMs` since the day it shipped, and
+// three runs could therefore be read for whether it pays. (It does not: the
+// overlap and the extra work of splitting one call into four cancel, because
+// the waves are 1-2-1 and only two agents ever run at once.) The band split had
+// `bands`/`wrote` and no timings, so the same question needed a baseline — and
+// the single-call page step's own spread, 334,000-620,000 ms, is wider than any
+// saving a split can produce, so no number of paid runs would have settled it.
+//
+// These two numbers answer it off ONE build, which is the whole point.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("the fan-out measures its own wall time, and measuring is what makes it survive a stagger", async () => {
+  // DRIVEN ON A CLOCK THE TEST OWNS — no timers. Two concurrency guards one
+  // file over used `setTimeout`, drifted under sweep load and came back with the
+  // comment-only control KILLED, which is a guard reporting correct code as
+  // broken.
+  const { runFanout } = await import("../builder/model-fanout.mjs");
+
+  // ── SIMULTANEOUS STARTS: the ordinary case, where the wall time IS the
+  //    slowest call. Both numbers are still right; this pins the arithmetic.
+  let t = 0;
+  const open = [];
+  const p = runFanout([0, 1, 2], () => new Promise((res) => open.push(res)), () => t);
+  await flush();
+  assert.equal(open.length, 3, "the calls did not all start — a fan-out that is not one is not measuring one");
+  t = 100; open[0]("a"); await flush();
+  t = 250; open[2]("c"); await flush();
+  t = 300; open[1]("b"); await flush();
+  const out = await p;
+
+  assert.deepEqual(out.map((e) => e.ms), [100, 300, 250], "the per-call times are wrong");
+  assert.equal(out.reduce((a, e) => a + e.ms, 0), 650, "the serial cost is not the sum of the calls");
+  assert.equal(out[0].waveMs, 300, "the wall time is not measured from before the fan-out to after every call settled");
+  assert.equal(new Set(out.map((e) => e.waveMs)).size, 1, "the entries disagree about how long the fan-out took");
+
+  // ── STAGGERED STARTS: the case measuring exists for, and the ONLY one where
+  //    the two answers differ. Every start moves the clock, and the call that
+  //    starts LAST settles last — so the slowest call ran 80 while the fan-out
+  //    really took 100. `max(ms)` would report 80: a fan-out that was partly
+  //    serialised, reading as a fast one. That is the flattering direction, and
+  //    it is what a derived number would get wrong.
+  let s2 = 0;
+  const later = [];
+  const q = runFanout([0, 1, 2], () => { s2 += 10; return new Promise((res) => later.push(res)); }, () => s2);
+  await flush();
+  s2 = 50;  later[0]("a"); await flush();   // started at 0  → 50
+  s2 = 60;  later[1]("b"); await flush();   // started at 10 → 50
+  s2 = 100; later[2]("c"); await flush();   // started at 20 → 80, and settles last
+  const stag = await q;
+  assert.deepEqual(stag.map((e) => e.ms), [50, 50, 80]);
+  assert.equal(stag[0].waveMs, 100, "the wall time collapsed to the slowest call — derived, not measured");
+  assert.ok(stag[0].waveMs > Math.max(...stag.map((e) => e.ms)),
+    "a staggered fan-out reports the same wall time as a simultaneous one — the stagger is invisible");
+
+  // A FAILED CALL'S TIME COUNTS — it was spent — and it carries the stamp too,
+  // or a fan-out whose slowest band failed would under-report both numbers.
+  let s3 = 0;
+  const bad = await runFanout([0, 1], (r, i) => (i ? Promise.reject(new Error("no")) : Promise.resolve("ok")), () => (s3 += 10));
+  assert.equal(bad.length, 2);
+  assert.ok(bad.every((e) => Number.isFinite(e.ms) && Number.isFinite(e.waveMs)), "a failed call lost its timings");
+  assert.equal(bad[1].state, "failed", "the failure stopped being an entry");
+});
+
+test("generateSiteBands carries the pair out, on both of its returns", async () => {
+  // DRIVEN THROUGH THE REAL GENERATOR against a fake container, because a sum
+  // computed and never forwarded is this repository's most-shipped failure —
+  // and the `bands` mark reads these two fields by name.
+  const args = {
+    lines: ["hero", "prices", "find us"], route: "/", brief: "a fishmonger", brand: "Ashcombe",
+    spec: {}, kind: "shopfront", model: "grok-4.6",
+    chrome: { name: "Ashcombe", tagline: "", links: [], action: null },
+  };
+  // Entries shaped the way `runFanout` really shapes them, INCLUDING the stamp.
+  const entry = (i, source, ms) => ({
+    i, state: "done", ms, waveMs: 900,
+    answer: { content: [{ type: "tool_use", name: "write_band", input: { source } }], usage: {} },
+  });
+  const band = (n) => `export function ${n}() {\n  return <section data-slot="${n}">${n}</section>;\n}`;
+
+  const ok = await generateSiteBands(args, null,
+    async (keys, reqs) => reqs.map((r, i) => entry(i, band("Band" + i), 100 * (i + 1))));
+  assert.equal(ok.agentMs, 600, "the bands' own times were not summed (100+200+300)");
+  assert.equal(ok.waveMs, 900, "the fan-out's wall time did not come through");
+  assert.ok(ok.input && ok.input.pages && ok.input.pages.length, "the page was not assembled");
+
+  // THE EARLY RETURN CARRIES THEM TOO. Every band empty is the outcome where
+  // knowing what the attempt cost matters MOST, and an early return that
+  // quietly carries less than the late one is a recorded shape here.
+  const none = await generateSiteBands(args, null,
+    async (keys, reqs) => reqs.map((r, i) => ({ i, state: "failed", ms: 50, waveMs: 70, message: "no" })));
+  assert.equal(none.input, null, "a page of nothing was assembled");
+  assert.equal(none.agentMs, 150, "the failed fan-out lost what it cost");
+  assert.equal(none.waveMs, 70, "the failed fan-out lost its wall time");
+
+  // AND A CONTAINER THAT NEVER STAMPED — an older image, mid-rollout — reads as
+  // ZERO rather than as a wrong number. `tr.at` keeps the key either way, so the
+  // stored row says "asked and not answered" instead of inventing an overlap.
+  const old = await generateSiteBands(args, null,
+    async (keys, reqs) => reqs.map((r, i) => { const e = entry(i, band("Band" + i), 100); delete e.waveMs; return e; }));
+  assert.equal(old.waveMs, 0, "an unstamped fan-out invented a wall time");
+  assert.equal(old.agentMs, 300, "an unstamped fan-out lost the per-call times as well");
 });

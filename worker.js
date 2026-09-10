@@ -12076,7 +12076,28 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
             // nothing is STUBBED rather than dropped, so `wrote < bands` is a
             // page missing a section and reads as such rather than as a clean
             // build. Numbers only — `tr.at` drops everything else.
-            try { mark?.("bands", { bands: Number(fan && fan.bands) || 0, wrote: Number(fan && fan.wrote) || 0 }); } catch { /* a trace must never break a build */ }
+            //
+            // AND THE TWO NUMBERS THAT SAY WHETHER IT PAID (2026-09-10, owner:
+            // "YEAH WE NEED TO FIGURE THIS OUT , CUZ SPLITTING THEM SHOULD MAKE
+            // IT FASTER"). `agentMs` is every band's own call time summed — what
+            // the work would have cost run one after another — and `waveMs` is
+            // what the fan-out actually took; the difference is the overlap.
+            //
+            // THEY ARE HERE BECAUSE A COMPARISON BETWEEN BUILDS CANNOT ANSWER
+            // IT. The single-call page step has measured 334,000-620,000 ms on
+            // ordinary builds, so that spread swallows any saving a split can
+            // produce and no number of paid runs settles it cheaply. Two numbers
+            // off ONE run need no baseline — the same argument the design step's
+            // identical pair was added for, and the half this side was missing:
+            // the band split could be seen to RUN and not to PAY.
+            try {
+              mark?.("bands", {
+                bands: Number(fan && fan.bands) || 0,
+                wrote: Number(fan && fan.wrote) || 0,
+                agentMs: Number(fan && fan.agentMs) || 0,
+                waveMs: Number(fan && fan.waveMs) || 0,
+              });
+            } catch { /* a trace must never break a build */ }
             return fan;
           } catch (e) {
             // A CONTAINER THAT WOULD NOT TAKE THE FAN-OUT IS NOT A FAILED

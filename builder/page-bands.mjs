@@ -589,9 +589,31 @@ export async function generateSiteBands({
   const answers = await call(keys, reqs, budget);
   const list = Array.isArray(answers) ? answers : [];
   const usage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model: reqs.length ? reqs[0].model : model };
+  // ── WAS RUNNING THEM TOGETHER FASTER THAN RUNNING THEM IN TURN ─────────────
+  //
+  // `agentMs` is every band's own call time summed — what the work would have
+  // cost one after another. `waveMs` is what the fan-out actually took, measured
+  // in the CONTAINER by `runFanout` and stamped on every entry, so it survives
+  // the job store, the report, the poll and the resume without a hop anybody can
+  // forget. `agentMs - waveMs` is the overlap.
+  //
+  // WHY IT HAS TO BE THESE TWO AND NOT A COMPARISON WITH ANOTHER BUILD: the
+  // single-call page step has measured 334,000-620,000 ms across ordinary
+  // builds, so a spread that wide swallows any saving a split can produce. Two
+  // numbers off ONE run need no baseline, which is the same argument the design
+  // split's own pair was added for — and this is the half that was missing, so
+  // the band split could be seen to RUN and not to PAY.
+  //
+  // A FAILED BAND'S TIME COUNTS: it was spent. And `waveMs` is read rather than
+  // summed — every entry carries the same one, so the first finite value is the
+  // answer and anything else is a fan-out that did not come from `runFanout`.
+  let agentMs = 0;
+  let waveMs = 0;
   for (const a of list) {
     const u = usageOf(a && a.answer, usage.model);
     usage.in += u.in; usage.out += u.out; usage.cacheRead += u.cacheRead; usage.cacheWrite += u.cacheWrite;
+    if (a && Number.isFinite(a.ms)) agentMs += a.ms;
+    if (!waveMs && a && Number.isFinite(a.waveMs)) waveMs = a.waveMs;
   }
   const bands = bandsFromAnswers(list, bandLines);
   // EVERY BAND EMPTY IS NOT A PAGE. `assembleBands` would answer a shell
@@ -600,7 +622,11 @@ export async function generateSiteBands({
   // generator gives when the model produced nothing usable, so `publishPages`
   // reports it the way it already reports that.
   if (!bands.some((b) => b.source)) {
-    return { input: null, usage, bands: bands.length, wrote: 0, shape: { stopReason: "no-bands", blocks: [] } };
+    // THE TIMINGS RIDE THE EARLY RETURN TOO. A fan-out where every band failed
+    // still spent the time, and it is the one outcome where knowing what the
+    // attempt cost matters most — the recorded shape where an early return
+    // quietly carries less than the late one.
+    return { input: null, usage, bands: bands.length, wrote: 0, agentMs, waveMs, shape: { stopReason: "no-bands", blocks: [] } };
   }
   const { source, refused } = assembleBands({ route, chrome, bands });
   return {
@@ -608,6 +634,13 @@ export async function generateSiteBands({
     usage,
     bands: bands.length,
     wrote: bands.filter((b) => b.source).length,
+    // THE OVERLAP, AS TWO NUMBERS — see the comment where they are summed, and
+    // the design split's identical pair, which is stored the same way for the
+    // same stated reason: a derived value beside the values it derives from is
+    // two lists of the same thing, and the subtraction is free wherever it is
+    // read.
+    agentMs,
+    waveMs,
     ...(refused.length ? { refused } : {}),
   };
 }
