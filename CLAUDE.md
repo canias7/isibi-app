@@ -2192,12 +2192,46 @@ evaluating both doors with the shipped deploy defaults: band `false` with
   my own, was simply written wrong: `assert.equal(…) || assert.equal(…)` still
   runs the second call, so it removed nothing.)
 - Full suite **5,863**.
-- **Not proven live.** The next build after the deploy is the proof, and it is
-  now a build that can answer either way: a `bands` step means the fan-out ran at
-  last, and `bands:<reason>` still names the wall. **Nothing about the page a
-  customer gets should look different** — this decides how it is written, not
-  what it says. `worker.js` is a container image input, so the container rolls
-  and the 15–20 minute hold applies.
+- **PROVEN LIVE — `ashcombe-fishmonger`, 2026-09-10 18:28Z, deploy 2075, grok:
+  THE PAGE WAS WRITTEN FIVE BANDS AT ONCE, THE FIRST TIME IN THE FEATURE'S
+  LIFE.** `bands: 5, wrote: 5` — and `wrote === bands` is the half that matters
+  beyond "it ran": a band that answers nothing is STUBBED rather than dropped, so
+  `wrote < bands` would have been a page quietly missing a section. All five
+  agents answered. The whole chain is now proven end to end: the door opened for
+  the account, `splitPlan` cut the plan into five, the container really held five
+  calls at once, `assembleBands` put them back together, and the result compiled
+  and published (`ok`, `page: "app"`, `x-site-version 01789065420972-lz5ami`).
+  **The tell arrived before the answer did, exactly as designed**: the fire's
+  trace had NO `bands:<reason>` between `gen` and `fired`, which is precisely
+  where `thornbury-kiln` carried `bands:door` — a refusal is marked at the
+  decision, so an empty gap already said the ladder had been walked through.
+  **And the page reads as ONE page, which was the real risk of splitting**: 32,521
+  characters served, 11 top-level sections, 15 distinct kit components, and
+  headings that track the brief without repeating each other — no second hero, no
+  band closing with its own call to action. That is what `bandPlan` telling each
+  agent about its neighbours without showing them their source is FOR, and it
+  held on its first live run. One build is not a pattern.
+- **AND THE CLOCK STILL SAYS NOTHING, WHICH WAS PREDICTED BEFORE THE RUN.**
+  `container` — where the band split lives — was **130,435 ms**, squarely inside
+  the 74k–355k spread single-call builds already show, so this run cannot
+  separate a split from ordinary variance. Design was **237,763 ms** (overlap
+  **51,865**, a third reading against 66,008 and 65,191), the slowest of the five
+  and on the richest brief of the five. **17 credits** (407 → 390) against 13 for
+  the two before it.
+
+  | build | design | container | total |
+  |---|---|---|---|
+  | `hartleys-barbers` (single/single) | 197,248 | 74,276 | 289,747 |
+  | `coalhole-2` (single/single) | 175,259 | 93,719 | 290,942 |
+  | `thornbury-kiln` (waves/single) | 190,859 | 97,763 | 308,830 |
+  | `ridgeway-cycle-works` (waves/single) | 185,607 | 189,149 | 392,551 |
+  | **`ashcombe-fishmonger` (waves/BANDS)** | **237,763** | **130,435** | **397,808** |
+
+  **Whether the split is FASTER is still unmeasured**, and answering it needs
+  several runs on ONE brief rather than one run on a new one — a spending
+  decision, not a technical one. Said here rather than inferred from a number
+  somebody wanted: this session has already predicted a saving once and been
+  wrong by ~100 s.
 
 ---
 

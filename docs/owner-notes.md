@@ -3854,3 +3854,47 @@ image, so the new address will honestly say "unstamped" until it rolls — the l
 time that'll ever be the answer. And the twenty minutes is still twenty minutes
 until someone watches one deploy from roll to flip and writes down the real
 number. That's free, and it's the next thing worth doing.
+
+---
+
+## 2026-09-10 — it worked: the page was written five bands at once
+
+`ashcombe-fishmonger`, 18:28Z. **The first time in the feature's life that a page
+has been written in pieces.** Five sections, five agents, all five came back.
+
+The record says `bands: 5, wrote: 5`. The second number is the one worth knowing
+about: if an agent had come back empty, its section would have been replaced with
+a stub rather than dropped, and you'd have got a page quietly missing a chunk with
+nothing saying so. `wrote` matching `bands` means that didn't happen.
+
+**The tell arrived before the answer did.** Six minutes in, before the page had
+been assembled, I could already say it had worked — because the record showed *no
+refusal* at the point where this morning's build showed one. That's the whole
+value of the thing we built this afternoon: the difference between "it split" and
+"it didn't" used to be invisible, and now the absence of a reason is itself an
+answer.
+
+**The page reads as one page**, which was the real risk. Five independent writers
+could easily have produced five disconnected slabs, each opening with its own
+headline and closing with its own "get in touch". They didn't — 11 sections, and
+the headings run through the brief in order: what came in today and who landed it,
+the boats by name, prepared while you wait, the smokehouse, the restaurant round,
+find us. Have a look: **https://ashcombe-fishmonger.gofarther.app/** — one build
+isn't a pattern, and your eye is better than my markup reading.
+
+**Is it faster? Still don't know, and I'm not going to guess again.** The step
+where the splitting happens took 130 seconds. Single-call builds have taken
+anywhere from 74 to 355 seconds for the same step. One run inside that range tells
+you nothing, which is exactly what I said before it ran — and I got this wrong
+once already today by predicting a saving that turned into a hundred seconds the
+other way. Answering it properly means running the *same* brief several times with
+the split on and off, which is a spending decision rather than a technical one.
+
+Cost: 17 credits, 407 down to 390. That's up from 13 for the last two, on a
+noticeably richer brief.
+
+**Where the whole thing stands.** Both splits are on for your account and nobody
+else's. Three things are proven that weren't this morning: the door opens, the
+container really runs five model calls side by side, and the pieces reassemble
+into a page that compiles and publishes. What's unproven is whether any of it
+saves time.
