@@ -4716,3 +4716,69 @@ your browser shows the live log and the API doesn't.
 **Next is one build.** The brief I gave you is sized to match
 `ravenscroft-and-fyne`, which is where today's four per-agent numbers came
 from — so the comparison is clean. Tell me the site name and I'll pull the row.
+
+## 2026-09-11 — the build ran, and the design step beat every run we have measured
+
+`sowerby-forge` is live. It cost **14 credits** (332 → 318) and the whole
+build took a shade under five minutes.
+
+**The design step took 159,599 ms — 2 minutes 40.** Every previous build on
+your account, whichever way it designed, sat between **175,259** and
+**237,763**. So this is not a bit quicker than the average, it is under the
+whole range.
+
+**And the numbers prove themselves.** Two sums have to come out exact if the
+thing really ran the way we built it, and both do:
+
+- The sixteen agents' own times add up to 527,944 — which is exactly the
+  total the build recorded. Nothing lost, nothing double-counted.
+- `components` + `shape` + `behavior` = 159,599 — which is exactly what the
+  whole step took. That chain of three IS the design step. Everything else
+  finished underneath it.
+
+So the twelve agents that wait for nothing really did run side by side. If
+they had run one after another the step would have cost 527,944, not 159,599.
+
+### Where the time actually went
+
+**Nine minutes of work in two and a half minutes of clock.** That is the
+368,345 ms of overlap. And this is the first time the trade has gone the
+right way: the three waves bought about a minute of overlap and cost about a
+minute of extra work, which is why it was a wash. Sixteen separate calls cost
+more in total than four — but they overlap so much more that it stops
+mattering.
+
+**We were wrong about which step was slow.** For a day the record has said
+the drawings were the wall — the wordmark and the tab icon, both hand-drawn
+SVG. Now that they are separate we can see: the two drawings together are
+**83,426**, and the **stylesheet on its own is 93,013** — the single most
+expensive step in the whole graph.
+
+One honest caveat: the stylesheet step normally answers *nothing* and costs
+nothing. It only does work when the brief asks for a look the theme does not
+already give — and the brief I gave you said "dark, heavy, a bit sooty",
+which is exactly that. So 93,013 is what it costs when it works, not what it
+costs every time. What is not brief-dependent is that the drawings are no
+longer the thing to blame.
+
+### What to change next, if you want to
+
+The slowest run is `components → shape → behavior`. Second place is
+`theme → css` at 113,397 — about **46 seconds behind**. So:
+
+- Cutting the long chain is worth **about 46 seconds and no more**, because
+  the stylesheet becomes the wall the moment you get past it.
+- The drawings are not on the slow path at all. Speeding them up buys zero.
+- The link I would question first is **`behavior` waiting on `shape`**. It is
+  the only one of the four waits that is my judgement rather than something
+  the step's own instructions say. If it does not really need to wait, that
+  is the 46 seconds.
+
+That is Stage C and it is your call — nothing is changed yet.
+
+### The picture
+
+`docs/edits/design-graph-sowerby.png` — your barrier drawing with this
+build's real numbers on it. Sixteen bars, each starting where it really
+started, the slow run in green ending exactly on the line, and the old
+three-wave finish as a faint line further right so you can see the gap.

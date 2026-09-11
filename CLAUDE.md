@@ -978,6 +978,83 @@ today** and no customer, the owner included, is on it.
   that the secret exists and that its value is the account uid**, which is
   more than "it exists" and is exactly the class of fact reading `deploy.yml`
   cannot give.
+- **PROVEN LIVE ON THE FIRST BUILD AFTER THE MERGE, AND THE DESIGN STEP CAME IN
+  BELOW EVERY PRIOR MEASUREMENT ON THIS ACCOUNT.** `sowerby-forge`
+  (2026-09-11 02:01:08Z → 02:09:33Z, grok, `ok`, `page: "app"`, live at 200 with
+  `x-site-version 01789092443193-j2i30c`, 36,806 bytes, **14 credits**, 332 →
+  318). The design step read `graph: 16, agents: 16, waveMs 159,599, agentMs
+  527,944` and the sixteen per-agent numbers this whole stage exists to produce:
+
+  | free (12) | ms | | waits | ms |
+  |---|---|---|---|---|
+  | kind | 7,476 | | `wordmark` ← identity | 22,546 |
+  | web | 12,903 | | `css` ← theme | **93,013** |
+  | pages | 13,276 | | `shape` ← components | 65,452 |
+  | purpose | 16,536 | | `behavior` ← shape | 64,793 |
+  | action | 17,149 | | | |
+  | lang | 19,665 | | | |
+  | theme | 20,384 | | | |
+  | identity | 21,700 | | | |
+  | extras | 25,506 | | | |
+  | components | 29,354 | | | |
+  | images | 37,311 | | | |
+  | favicon | 60,880 | | | |
+
+  **THE ARITHMETIC CLOSES TWICE, which is the instrument checking itself rather
+  than a claim about it.** The sixteen parts sum to **527,944 = `agentMs`
+  exactly**; and `components + shape + behavior` = 29,354 + 65,452 + 64,793 =
+  **159,599 = `waveMs` exactly**, so that chain IS the design step to the
+  millisecond. A three-link critical path can only come out exact if those three
+  really ran in series and nothing else ran longer — and the twelve free agents
+  really ran together, because serial they would have cost `agentMs`.
+- **BELOW THE WHOLE PRIOR RANGE, NOT INSIDE IT — which is what makes one run
+  worth something here.** Design step on this account, grok: single call
+  **175,259** (`coalhole-2`) and **197,248** (`hartleys-barbers`); waves
+  **185,607** (`ridgeway`), **190,859** (`thornbury`), **237,686**
+  (`ravenscroft`), **237,763** (`ashcombe`). The graph: **159,599** — 15,660
+  under the best single call and 26,008 under the best waves run. Different
+  brief and one run, so it is not a law; what it is not is noise, because it
+  falls outside a six-run range rather than into it, and because the critical
+  path above says WHY.
+- **AND THIS IS THE FIRST TIME THE SPLIT TRADE GOES THE RIGHT WAY.** Splitting
+  buys overlap and costs extra total work. The WAVES bought 51,865–78,560 of
+  overlap for 65,362–103,375 of extra work — the wash this file measured over
+  three runs. The GRAPH buys **368,345 of overlap** (527,944 − 159,599) for
+  about **211,698** of extra work (527,944 against the waves' 316,246). Sixteen
+  calls cost more than four; they overlap far more than they cost.
+- **AND THE RECORD WAS WRONG ABOUT WHY `look` WAS SLOW — CORRECTED BY THE
+  SPLIT.** The design-waves section says `look` is the wall because it DRAWS,
+  `wordmark` and `favicon` both being SVG, and run 41's 292,336 ms for one mark
+  is quoted as the upper bound. Split apart: **the two drawings are 83,426
+  together (wordmark 22,546, favicon 60,880) and `css` ALONE is 93,013** — the
+  single most expensive agent in the graph, more than both marks. The stylesheet
+  is the slow one. **The caveat is real and is the brief's**: `css` omits itself
+  unless the customer's own words ask for something the theme does not give, and
+  this brief said *"dark, heavy, a bit sooty"*, which is exactly that ask. So
+  93,013 is what `css` costs WHEN IT WORKS, not a constant — on a brief that
+  does not ask, it answers nothing and is instant. What is not brief-dependent
+  is that the drawings are no longer the thing to blame.
+- **THE WALL MOVED, AND STAGE C NOW HAS A TARGET.** It was `look`. It is now
+  `components → shape → behavior` (159,599), with the `theme → css` chain second
+  at **113,397** — 46,202 ms of slack behind it. So breaking the last link of the
+  long chain is worth about 46 s and no more, because css becomes the wall; and
+  the drawings, which the record has been pointing at for a day, are not on the
+  critical path at all. **`behavior` ← `shape` is the edge to question first**,
+  and it is the one edge in the graph that is JUDGEMENT rather than the tool's
+  own words (the module says so) — so it is both the most valuable and the least
+  evidenced.
+- Two other readings off the same build, both free: **`bands:door`**, so the page
+  was written in ONE call with the band canary still off from the owner's 21:19Z
+  secret, and that call took **`genMs` 204,546**; `img` carried `viaContainer: 1`,
+  the corrected reading; `container` 111,907; `total_ms` **293,753** against the
+  two fastest single/single builds at 289,747 and 290,942 and every waves build
+  at 308,830–397,808.
+- **Drawn: `docs/edits/design-graph-sowerby.png`** — the owner's own barrier
+  drawing carrying this build's numbers, sixteen bars at their real start
+  offsets, the critical path in green ending exactly on the barrier, and the
+  waves' 237,686 as a faint line to its right. It is the same picture as
+  `design-waves-barrier.png` with the measurement in it, which is what makes the
+  two comparable at a glance.
 - **THE STALE-SNAPSHOT TRAP, FIFTH INSTANCE, SAME ~25 MINUTES.** The job
   completed at 01:59:08Z and the jobs endpoint returned the identical snapshot —
   `in_progress` on the image step — for roughly twenty-five minutes after, with
@@ -4960,8 +5037,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 502 credits** (read off the ledger 2026-09-07 04:44Z, after run 42
-  took 503 → 502). It was topped up to 505 on 2026-09-06 19:12Z on the owner's
+- **Balance: 318 credits** (read off the ledger 2026-09-11 02:10Z, after
+  `sowerby-forge` took 332 → 318 — the Stage B graph build, 14 credits).
+  It was 502 on 2026-09-07 04:44Z, after run 42 took 503 → 502. It was topped
+  up to 505 on 2026-09-06 19:12Z on the owner's
   *"Top it up"*: a DIRECT GRANT of 500, not a purchase — `add_credits`
   is mint-key gated and the secret is not in a session, so the grant mirrors
   that function's body minus the mint check, one `purchases` row under
