@@ -63,7 +63,8 @@ import {
 } from "./page-gen.mjs";
 import { modelsFor } from "./build-models.mjs";
 import { routeOf } from "./site-addon.mjs";
-import { MAX_SECTIONS } from "./site-plan.mjs";
+import { MAX_MODEL_FANOUT } from "./model-fanout.mjs";
+import { MAX_SECTIONS, MAX_TSX } from "./site-plan.mjs";
 
 /**
  * How many bands a page can be split into.
@@ -374,6 +375,127 @@ export function bandRequest({
 }
 
 /**
+ * The components this site needs that the kit has not got — one agent each.
+ *
+ * ── WHY A PART IS A THING AND NOT PART OF THE PAGE (2026-09-11, owner: "one
+ *    agent per thing like the design one, just make it wait if its requires
+ *    from something to wait for other thing") ────────────────────────────────
+ *
+ * The design's `tsx` field DECLARES these; until today the page call wrote them,
+ * which is why `planRefusal` refused to split a build that had any — its own
+ * comment said so in as many words: "a band writes one section and cannot write
+ * a part… A band step that writes parts is a later change, not a smaller one."
+ * This is that change. A part is exactly the same kind of thing a band is — one
+ * file, one component, one agent — so it gets one.
+ *
+ * A PART WAITS FOR NOTHING, and that is read off the declarations rather than
+ * assumed. `tsxDirective` hands a part its NAME, what it DOES, its PROPS and its
+ * import path, and every one of those is the design's answer, settled before any
+ * of this runs. A band that imports the part reads the same four things. So
+ * neither reads the other's source and there is no edge to draw — which is the
+ * same answer the design graph reached for fifteen of its twenty-two fields, and
+ * it is stated here so the next session does not add a wait nothing needs.
+ *
+ * Capped at `MAX_TSX`, the design's own ceiling, rather than a second number
+ * beside it.
+ */
+export function partsOf(tsx) {
+  const list = Array.isArray(tsx) ? tsx : [];
+  return list
+    .filter((t) => t && typeof t === "object" && !Array.isArray(t))
+    .map((t) => ({
+      name: String(t.name == null ? "" : t.name).trim(),
+      does: String(t.does == null ? "" : t.does).trim(),
+      props: String(t.props == null ? "" : t.props).trim(),
+    }))
+    // THE SAME TWO `tsxDirective` REQUIRES, so a part this fans out for is a
+    // part the single-call path would also have been told to write. A row it
+    // drops is a row nothing would have written either way.
+    .filter((t) => t.name && t.does)
+    .slice(0, MAX_TSX);
+}
+
+/**
+ * The tool ONE part agent answers: a component's source, and nothing else.
+ *
+ * ONE PROPERTY FOR `BAND_TOOL`'s OWN REASON, and it bites harder here: the part
+ * has a NAME the design assigned and the page's imports are written against it,
+ * so a writer that could answer its own `name` would eventually answer one and
+ * the page would import a file that is not there.
+ */
+export const PART_TOOL = {
+  name: "write_part",
+  description: "Return the source of ONE component for this site.",
+  input_schema: {
+    type: "object",
+    properties: {
+      source: {
+        type: "string",
+        description:
+          "The component's source: its imports, then the component itself, exported as the default. " +
+          "No route, and nothing else in the file.",
+      },
+    },
+    required: ["source"],
+  },
+};
+
+/**
+ * What one part agent is asked.
+ *
+ * THE FOUR FACTS ARE `tsxDirective`'s OWN, and they are not re-worded here: the
+ * name, what it does, its props and the import path other files will use. A
+ * second wording would be "two lists of the same thing" between the agent that
+ * WRITES the component and the page that IMPORTS it — and the half that drifted
+ * would be the props, which is a page that does not compile.
+ *
+ * IT IS TOLD THE PAGE'S PLAN for the reason a band is: a component written with
+ * no idea what page it lands on is a component in the wrong voice. It is NOT
+ * told which band imports it, because that is not decided by anyone — every band
+ * is being written at this moment and may or may not reach for it.
+ */
+export function partPrompt({ brief, spec, brand, lines, part } = {}) {
+  const label = String(brand || "").trim();
+  const p = part && typeof part === "object" ? part : {};
+  const plan = bandPlan(lines, -1);
+  return "Write ONE component for this site.\n\nBRIEF\n" + String(brief || "").trim() +
+    (label ? "\n\nTHE SITE IS CALLED\n" + label : "") +
+    (siteHasTables(spec)
+      ? "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec)
+      : "\n\nTHIS SITE'S DATA\nThere is none, and that is the design. Write the content in.") +
+    (plan ? "\n\nTHE PAGE IT BELONGS TO, TOP TO BOTTOM\n" + plan : "") +
+    "\n\nYOURS IS " + p.name + "\n" + p.does +
+    (p.props ? "\nProps: " + p.props : "") +
+    "\n\nHOW A COMPONENT IS WRITTEN\n" +
+    "- Imports at the top, then the component, exported as the DEFAULT. Nothing else in the file.\n" +
+    "- It is imported as `@/routes/-parts/" + p.name + "` — that name is already written into the page.\n" +
+    "- No `createFileRoute` and no route of any kind: this is a component, never a page.\n" +
+    "- Paint with the same kit tokens every other component uses, so it belongs to the theme.";
+}
+
+/**
+ * The exact body sent for one part.
+ *
+ * THE CACHED SYSTEM BLOCK IS `pageRulesFor`'s, BYTE FOR BYTE — the page call's
+ * and the band's. A part obeys the same rules about what the kit has and what
+ * may never be imported, so a third variant would be a third cold cache prefix
+ * for rules that are already warm, and a rule fixed for the page would have to
+ * be fixed twice.
+ */
+export function partRequest({ brief, spec, brand, lines, part, model, kind = "", attachments } = {}) {
+  const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
+  const text = partPrompt({ brief, spec, brand, lines, part });
+  return {
+    model: model || modelsFor().pages,
+    max_tokens: SITE_PAGES_MAX_TOKENS,
+    tools: [PART_TOOL],
+    tool_choice: { type: "tool", name: "write_part" },
+    system: [{ type: "text", text: pageRulesFor(spec, kind), cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
+  };
+}
+
+/**
  * The SOURCE FILE a planned route's page is written to.
  *
  * THE PLAN SPEAKS IN ROUTES AND THE PAGE LIST SPEAKS IN FILES, and getting the
@@ -418,13 +540,22 @@ export const MIN_BANDS = 2;
  * `ridgeway-cycle-works` (2026-09-10) in the instrument written the same morning
  * to make the split readable.
  *
- * `tsx` IS THE ONE THAT WOULD SHIP BROKEN PAGES, and it is worth naming. The
- * design's `tsx` field declares components the PAGE CALL writes into `parts`;
- * a band writes one section and cannot write a part, so a split build of a site
- * whose design declared `tsx` would produce a page importing a file nothing
- * generated — which does not compile. It is optional and absent on nearly every
- * site, so the cost of refusing is small and the cost of not refusing is a dead
- * build. A band step that writes parts is a later change, not a smaller one.
+ * `tsx` IS GONE AS A REASON (2026-09-11, owner: "one agent per thing like the
+ * design one"). It used to refuse here, because the design's `tsx` field
+ * declares components the PAGE CALL wrote into `parts` and a band writes one
+ * section — so a split build of such a site produced a page importing a file
+ * nothing generated, which does not compile. The comment that stood here called
+ * a band step that writes parts "a later change, not a smaller one". That is the
+ * change: a part is its own agent now, in the same fan-out, and there is nothing
+ * left to refuse.
+ *
+ * `wide` IS WHAT REPLACED IT, and it is a different question. Bands and parts go
+ * out as ONE list and the container holds at most `MAX_MODEL_FANOUT` calls, so
+ * `MAX_SECTIONS` (8) plus `MAX_TSX` (3) can ask for more sockets than exist. The
+ * answer is to refuse the SPLIT — one call still writes every one of them — and
+ * never to drop a band or a part to make the list fit, which would ship a page
+ * missing a section or importing a file nothing wrote. Asked BEFORE anything is
+ * composed, so a refusal costs nothing.
  *
  * A REVISE IS NOT SPLIT EITHER. It hands the model the site's existing pages to
  * work from (`priorPages`), and a band is written against a plan rather than
@@ -438,13 +569,17 @@ export const MIN_BANDS = 2;
  * names the first wall met, never the only one standing.
  */
 export function planRefusal({ shape, route, tsx, priorPages, mode } = {}) {
-  if (Array.isArray(tsx) && tsx.length) return "tsx";
   if (priorPages || (mode && mode !== "build")) return "revise";
   // A ROUTE THIS PIPELINE CANNOT NAME A FILE FOR IS NOT SPLIT. `bandFile`
   // answers "" rather than guessing, and a guess here writes the page to a name
   // nothing downstream recognises.
   if (!bandFile(route)) return "route";
-  if (bandsOf(shape, route).length < MIN_BANDS) return "thin";
+  const bands = bandsOf(shape, route).length;
+  if (bands < MIN_BANDS) return "thin";
+  // THE WHOLE LIST HAS TO FIT IN ONE JOB — see `wide` above. Counted from the
+  // two producers rather than from their caps, so a page that plans five bands
+  // and declares one part is never refused for what it COULD have asked for.
+  if (bands + partsOf(tsx).length > MAX_MODEL_FANOUT) return "wide";
   return "";
 }
 
@@ -503,7 +638,7 @@ export function bandRefusal({ pages, canFire, door, shape, route, tsx, priorPage
  * `resume:`; the names stay short because `tr.at` truncates at 40 characters and
  * a truncated reason is a reason nobody can match on.
  */
-export const BAND_REFUSALS = ["sync", "pages", "tsx", "revise", "route", "thin", "door", "nofanout"];
+export const BAND_REFUSALS = ["sync", "pages", "wide", "revise", "route", "thin", "door", "nofanout"];
 export const BAND_MARK = "bands:";
 
 /**
@@ -542,15 +677,30 @@ export const BAND_MARK = "bands:";
  * nobody wrote — the one outcome worse than a missing section. The state is the
  * only thing that says the answer is whole.
  */
+/**
+ * The source one agent answered, out of a fan-out entry's raw reply.
+ *
+ * ONE READER FOR BOTH KINDS. A band and a part answer different TOOLS
+ * (`write_band`, `write_part`) and the same SHAPE — one `tool_use` block with
+ * one `source` string — so two readers would be "two lists of the same thing"
+ * over the one expression that decides whether an agent's work is kept at all.
+ * It does not check the tool's NAME, deliberately: `tool_choice` names it on the
+ * way out, and a reader that re-checked it would refuse a perfectly good answer
+ * the day either tool is renamed on one side only.
+ */
+export function answerSource(answer) {
+  const use = (Array.isArray(answer && answer.content) ? answer.content : [])
+    .find((b) => b && b.type === "tool_use");
+  return use && use.input && typeof use.input.source === "string" ? use.input.source : "";
+}
+
 export function bandsFromAnswers(answers, lines) {
   const list = Array.isArray(lines) ? lines : [];
   const got = new Map();
   for (const a of Array.isArray(answers) ? answers : []) {
     if (!a || typeof a !== "object" || !Number.isInteger(a.i)) continue;
     if (a.state !== "done") continue;
-    const use = (Array.isArray(a.answer && a.answer.content) ? a.answer.content : [])
-      .find((b) => b && b.type === "tool_use");
-    const src = use && use.input && typeof use.input.source === "string" ? use.input.source : "";
+    const src = answerSource(a.answer);
     if (src) got.set(a.i, src);
   }
   return list.map((line, i) => ({ name: bandName(line, i), line, source: got.get(i) || "" }));
@@ -577,13 +727,31 @@ export function bandsFromAnswers(answers, lines) {
  * would charge a floor per band.
  */
 export async function generateSiteBands({
-  brief, spec, brand, attachments, model, kind = "", route, chrome, lines,
+  brief, spec, brand, attachments, model, kind = "", route, chrome, lines, tsx,
 } = {}, keys, call, budget = null) {
   const file = bandFile(route);
   const bandLines = Array.isArray(lines) ? lines : [];
-  const reqs = bandLines.map((line, i) => bandRequest({
-    brief, spec, brand, lines: bandLines, index: i, name: bandName(line, i), model, kind, attachments,
-  }));
+  // ── ONE AGENT PER THING, AND A PART IS A THING (2026-09-11) ────────────────
+  //
+  // The fan-out carries BOTH kinds: a band writes one section of the page, a
+  // part writes one component the kit has not got. Neither waits for the other
+  // — a part's whole input is its own declaration and a band that imports it
+  // reads that same declaration, so there is no edge between them and nothing
+  // here schedules one.
+  //
+  // THE BANDS COME FIRST AND THAT IS NOT COSMETIC: `bandsFromAnswers` pairs an
+  // answer to a band BY ITS INDEX, so the bands must occupy 0…N-1 for that
+  // pairing to be the identity it has always been. The parts follow, and their
+  // own offset is what `partsFromAnswers` reads.
+  const partList = partsOf(tsx);
+  const reqs = [
+    ...bandLines.map((line, i) => bandRequest({
+      brief, spec, brand, lines: bandLines, index: i, name: bandName(line, i), model, kind, attachments,
+    })),
+    ...partList.map((part) => partRequest({
+      brief, spec, brand, lines: bandLines, part, model, kind, attachments,
+    })),
+  ];
   // ONE CALL WITH N REQUESTS, not N calls: the container serialises separate
   // jobs, so a list is the only way they run together (see `model-fanout.mjs`).
   const answers = await call(keys, reqs, budget);
@@ -641,6 +809,13 @@ export async function generateSiteBands({
   // The sum is the truth about what the attempt cost; a part that cannot be
   // named cannot be filed, and inventing a position for it would put one band's
   // time under another band's key.
+  //
+  // AND THE KEY CARRIES THE ROLE, since the fan-out holds two kinds of thing:
+  // `b<n>` for a band and `p<n>` for a part. A bare index would file part 1 of a
+  // seven-band page under `b8Ms` — a number that reads perfectly and names the
+  // wrong kind of agent, which is the same "wrong number wearing a right one's
+  // name" this whole key rule exists to refuse. `slotName` is the one place the
+  // offset is applied, so the pairing and the timing cannot drift apart.
   let agentMs = 0;
   let waveMs = 0;
   const eachMs = {};
@@ -649,7 +824,8 @@ export async function generateSiteBands({
     usage.in += u.in; usage.out += u.out; usage.cacheRead += u.cacheRead; usage.cacheWrite += u.cacheWrite;
     if (a && Number.isFinite(a.ms)) {
       agentMs += a.ms;
-      if (Number.isInteger(a.i) && a.i >= 0) eachMs[a.i] = (eachMs[a.i] || 0) + a.ms;
+      const slot = slotName(a.i, bandLines.length);
+      if (slot) eachMs[slot] = (eachMs[slot] || 0) + a.ms;
     }
     if (!waveMs && a && Number.isFinite(a.waveMs)) waveMs = a.waveMs;
   }
@@ -667,11 +843,25 @@ export async function generateSiteBands({
     return { input: null, usage, bands: bands.length, wrote: 0, agentMs, waveMs, eachMs, shape: { stopReason: "no-bands", blocks: [] } };
   }
   const { source, refused } = assembleBands({ route, chrome, bands });
+  // THE PARTS RIDE OUT IN `parts`, NEVER IN `pages` — the same division
+  // `write_pages` has always made, and for the same reason: a component in the
+  // page list would be counted against the page cap, put in the nav manifest,
+  // published in `sitemap.xml` and stubbed by salvage.
+  const parts = partsFromAnswers(list, partList, bandLines.length);
   return {
-    input: { pages: [{ path: file, source }] },
+    input: { pages: [{ path: file, source }], ...(parts.length ? { parts } : {}) },
     usage,
     bands: bands.length,
     wrote: bands.filter((b) => b.source).length,
+    // WHAT WAS ASKED FOR AND WHAT CAME BACK, for the parts as for the bands.
+    // A part that answered nothing is STUBBED, never dropped, and that is the
+    // whole reason this path is safe to take at all: the design declared the
+    // component, so a band may already have imported it, and a file that is not
+    // there is not a page missing a section — it is `vite` refusing the build.
+    // That is precisely the failure `planRefusal` refused `tsx` to avoid, and
+    // dropping the part would walk straight back into it.
+    parts: partList.length,
+    wroteParts: parts.filter((p) => !p.stub).length,
     // THE OVERLAP, AS TWO NUMBERS — see the comment where they are summed, and
     // the design split's identical pair, which is stored the same way for the
     // same stated reason: a derived value beside the values it derives from is
@@ -684,6 +874,92 @@ export async function generateSiteBands({
     eachMs,
     ...(refused.length ? { refused } : {}),
   };
+}
+
+/**
+ * Which thing the fan-out's slot `i` was asked for — `b<n>` or `p<n>`.
+ *
+ * THE OFFSET IS APPLIED IN EXACTLY ONE PLACE. The requests are built bands-then-
+ * parts, so slot 7 of a seven-band page is part 1 — and every reader that works
+ * that out for itself is another copy of the same arithmetic, with a stored row
+ * as the thing they can disagree about. `bandsFromAnswers` pairs by raw index
+ * because bands occupy 0…N-1 and that IS the raw index; this is for everything
+ * past them.
+ *
+ * ZERO-BASED IN, ONE-BASED OUT, because band 1 is the top of the page and part 1
+ * is the first component — the array's zero is not the reader's.
+ */
+export function slotName(i, bandCount) {
+  if (!Number.isInteger(i) || i < 0) return "";
+  const n = Number.isInteger(bandCount) && bandCount >= 0 ? bandCount : 0;
+  return i < n ? "b" + (i + 1) : "p" + (i - n + 1);
+}
+
+/**
+ * A component that stands in for a part whose agent answered nothing.
+ *
+ * IT RENDERS NOTHING AND IT COMPILES, which is the whole job. The design
+ * declared this component and a band may already import it, so the alternative
+ * is not "a page without it" — it is `vite` refusing a file that is not there,
+ * and the build ending with a charged customer and no site.
+ *
+ * The default export is what the import expects; the props are swallowed so a
+ * band calling it with the declared props still typechecks.
+ */
+export function partStub(name) {
+  const n = String(name == null ? "" : name).trim() || "Part";
+  return "export default function " + n + "(_props: Record<string, unknown>) {\n" +
+    "  return null;   // " + n + " could not be written on this build\n" +
+    "}\n";
+}
+
+/**
+ * One answer per part, paired BY POSITION with the part it was asked for.
+ *
+ * THE SAME RULE `bandsFromAnswers` FOLLOWS and for the same reason — the index
+ * comes off the ENTRY, never off the loop, because the calls finish out of
+ * order and reading the list's own order would undo that at the last hop. The
+ * only difference is THE OFFSET: the parts sit after the bands in the request
+ * list, so `a.i - n` is the whole of what tells a part's slot from a band's,
+ * and it is the one expression here a mutant can change the answer through.
+ *
+ * THE RANGE LINE IS INERT TODAY AND IS KEPT DELIBERATELY, said out loud because
+ * a sweep cannot tell a second wall from dead code and the next session deletes
+ * what nothing appears to need. `got` is read at `0 … want.length - 1` and
+ * nowhere else, so a key outside that span is never asked for and refusing it
+ * changes no answer — MEASURED over 702 entry/clock/part combinations, which
+ * agree exactly. It states the offset's contract for the day this is read some
+ * other way (`[...got.values()]` would need it), and it is what catches a slip
+ * in the line above.
+ *
+ * A `a.i < n` TEST WAS REMOVED FROM THE LOOP RATHER THAN KEPT AS THAT SECOND
+ * WALL, and the difference matters: `a.i < n` is `at < 0` with the subtraction
+ * done in the reader's head — one condition spelled twice, two lines apart,
+ * which is "two lists of the same thing" with the smallest possible subject.
+ * Two spellings of one wall are not two walls.
+ */
+export function partsFromAnswers(answers, parts, bandCount) {
+  const list = Array.isArray(answers) ? answers : [];
+  const want = Array.isArray(parts) ? parts : [];
+  const n = Number.isInteger(bandCount) && bandCount >= 0 ? bandCount : 0;
+  const got = new Map();
+  for (const a of list) {
+    if (!a || a.state !== "done" || !Number.isInteger(a.i)) continue;
+    const at = a.i - n;
+    if (at < 0 || at >= want.length) continue;
+    const src = answerSource(a.answer);
+    if (src) got.set(at, src);
+  }
+  // `{ name, source }` IS `write_pages`' OWN SHAPE FOR A PART, and handing
+  // `validatePages` anything else would make the two generators produce
+  // different things for one declaration. It owns what a component may be
+  // called, refuses an empty one and repairs duplicate imports — all of which
+  // a split answer needs exactly as much as a single-call one, and none of
+  // which is re-decided here.
+  return want.map((p, i) => {
+    const source = got.get(i) || "";
+    return source ? { name: p.name, source } : { name: p.name, source: partStub(p.name), stub: true };
+  });
 }
 
 /**
@@ -700,28 +976,39 @@ export async function generateSiteBands({
  * signal here as everywhere on this mark.
  *
  * IT MUST BE A STRING, and that is the recorded coercion trap rather than
- * fussiness: `Object.entries` hands string keys, and `/^\d+$/.test(["3"])`
+ * fussiness: `Object.entries` hands string keys, and `/^b\d+$/.test(["b3"])`
  * is TRUE because `test` coerces — so a one-element array would key a band.
+ *
+ * ── AND THE KEY CARRIES THE ROLE (2026-09-11, owner: "one agent per thing like
+ *    the design one") ────────────────────────────────────────────────────────
+ *
+ * The fan-out holds two kinds of thing now — a BAND writes one section of the
+ * page and a PART writes one component — so the slot name arriving here is
+ * `b<n>` or `p<n>` and not a bare index. `slotName` is the one place that is
+ * decided; this only refuses what it cannot read. A bare index would file part
+ * 1 of a seven-band page under `b8Ms`: a number that reads perfectly and names
+ * the wrong kind of agent, which is exactly the "wrong number wearing a right
+ * one's name" this whole key rule exists to refuse.
  *
  * ── TWO WALLS THE DESIGN'S `agentMark` HAS AND THIS DELIBERATELY DOES NOT ────
  *
- * There is no truncation check, because an index cannot reach sixteen
- * characters without thirteen digits, and no already-taken check, because every
- * key this makes is a `b`, digits and `Ms` while the four fixed keys
- * (`bands`, `wrote`, `agentMs`, `waveMs`) are words — they cannot collide.
- * Both are stated rather than copied: a wall that cannot fire reads as a test
- * gap for ever and the next session deletes it wondering what it was for.
- * `agentMark` needs both because an AGENT's key comes from a name.
+ * There is no truncation check, because a slot cannot reach sixteen characters
+ * without thirteen digits, and no already-taken check, because every key this
+ * makes is a letter, digits and `Ms` while the six fixed keys (`bands`,
+ * `wrote`, `parts`, `wroteParts`, `agentMs`, `waveMs`) are words — they cannot
+ * collide. Both are stated rather than copied: a wall that cannot fire reads as
+ * a test gap for ever and the next session deletes it wondering what it was
+ * for. `agentMark` needs both because an AGENT's key comes from a name.
  *
- * And there is deliberately NO ceiling at `MAX_BANDS`: `generateSiteBands`
- * takes its lines as an argument, so a caller handing more bands than the plan
- * allows would have the extra ones' times silently dropped — which is the worse
- * failure of the two, since the sum would then disagree with the parts and
- * nothing would say why.
+ * And there is deliberately NO ceiling at `MAX_BANDS` or `MAX_TSX`:
+ * `generateSiteBands` takes its lines and its parts as arguments, so a caller
+ * handing more than the plan allows would have the extra ones' times silently
+ * dropped — the worse failure of the two, since the sum would then disagree
+ * with the parts and nothing would say why.
  */
 export function bandMark(at) {
-  if (typeof at !== "string" || !/^\d+$/.test(at)) return "";
-  return "b" + (Number(at) + 1) + "Ms";
+  if (typeof at !== "string" || !/^[bp]\d+$/.test(at)) return "";
+  return at + "Ms";
 }
 
 /**
@@ -746,7 +1033,14 @@ export function bandMark(at) {
 export function bandMarks(fan) {
   const f = fan && typeof fan === "object" ? fan : {};
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-  const marks = { bands: num(f.bands), wrote: num(f.wrote), agentMs: num(f.agentMs), waveMs: num(f.waveMs) };
+  const marks = {
+    bands: num(f.bands), wrote: num(f.wrote),
+    // THE PARTS ARE COUNTED BESIDE THE BANDS, not folded into them: they are a
+    // different kind of thing and a row that added them up could not say
+    // whether a build wrote seven bands or five bands and two components.
+    parts: num(f.parts), wroteParts: num(f.wroteParts),
+    agentMs: num(f.agentMs), waveMs: num(f.waveMs),
+  };
   const each = f.eachMs && typeof f.eachMs === "object" ? f.eachMs : {};
   for (const [at, ms] of Object.entries(each)) {
     const key = bandMark(at);

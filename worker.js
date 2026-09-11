@@ -12086,6 +12086,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
               brief: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief }),
               spec, brand, attachments, model, kind: plan && plan.kind,
               route: planned[0], chrome: chromeFor(plan, brand, siteDescription), lines: bandLines,
+              // AND THE DECLARATIONS THEMSELVES, not only the brief's copy of
+              // them (2026-09-11, owner: "one agent per thing like the design
+              // one"). `briefWithLayout` folds `tsx` into the PROSE a band
+              // reads; the fan-out needs the list to give each declared
+              // component its own agent. Until today this generator could not
+              // write a part at all, which is why `planRefusal` refused to split
+              // any build that declared one.
+              tsx,
             }, env, call, budget);
             // THE ONE MARK THAT SAYS A PAGE WAS WRITTEN IN PIECES (2026-09-10,
             // owner: "lets fix that"). The design step has recorded which

@@ -21,6 +21,27 @@
 // that line within the hour it was written.
 
 /**
+ * How many model calls ONE job may hold open at once (2026-09-09, the band
+ * split; moved here 2026-09-11).
+ *
+ * A RESOURCE BOUND, AND DELIBERATELY NOT DERIVED FROM `MAX_SECTIONS`. It is
+ * tempting to tie this to the design's band cap, and it would be the wrong
+ * list: that one answers "how many bands may a page have", a question about the
+ * product, and this one answers "how many calls may a single container hold
+ * open", a question about this process's memory and its sockets. They agree at
+ * 8 today by coincidence, and the day the plan allows twelve bands is the day
+ * this has to be re-decided ON ITS OWN TERMS rather than dragged along.
+ *
+ * IT LIVES HERE BECAUSE TWO SIDES NEED IT. The container ENFORCES it (a longer
+ * list is a 400) and the Worker has to know it before it sends one, or a page
+ * with eight bands and two parts is refused after the whole fan-out has been
+ * composed. Two copies of a bound where one side refuses and the other side
+ * decides is "two lists of the same thing" with a build as the thing that
+ * breaks.
+ */
+export const MAX_MODEL_FANOUT = 8;
+
+/**
  * Run every request at once; answer one outcome per request, in order.
  *
  * `Promise.all` REJECTS ON THE FIRST FAILURE, and that is the whole reason this

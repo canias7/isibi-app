@@ -55,9 +55,15 @@ const OK = {
   route: "/", tsx: undefined, priorPages: undefined, mode: "build",
 };
 
-test("planRefusal names each of its four walls, and answers nothing when the plan splits", () => {
+test("planRefusal names each of its walls, and answers nothing when the plan splits", () => {
   assert.equal(planRefusal(OK), "", "a two-band plan on `/` must not refuse");
-  assert.equal(planRefusal({ ...OK, tsx: [{ name: "ChordDiagram" }] }), "tsx");
+  // RE-ANCHORED 2026-09-11, NOT APPEASED. `tsx` used to refuse here, because a
+  // band could not write a part and a split build of such a site produced a page
+  // importing a file nothing generated. A part is its own agent now, so the
+  // refusal is GONE — and that is asserted rather than merely deleted, because
+  // the whole point of the change is that these builds split.
+  assert.equal(planRefusal({ ...OK, tsx: [{ name: "ChordDiagram", does: "draws a chord" }] }), "",
+    "a declared component still refuses the split — the part agents are not reachable");
   assert.equal(planRefusal({ ...OK, mode: "revise" }), "revise");
   assert.equal(planRefusal({ ...OK, priorPages: { "index.tsx": "…" } }), "revise");
   assert.equal(planRefusal({ ...OK, route: "index.tsx" }), "route", "a file is not a route");
@@ -68,6 +74,22 @@ test("planRefusal names each of its four walls, and answers nothing when the pla
   // A page the shape has no entry for is `thin` rather than a throw: "no plan
   // for this page" is a real answer that means "do not split it".
   assert.equal(planRefusal({ ...OK, shape: [{ path: "/prices", sections: ["a", "b"] }] }), "thin");
+  // `wide` IS WHAT REPLACED `tsx`, and it is a different question: bands and
+  // parts go out as ONE list, and the container holds at most
+  // `MAX_MODEL_FANOUT` calls. Refusing the SPLIT is right; dropping a band or a
+  // part to make the list fit would ship a page missing a section or importing
+  // a file nothing wrote.
+  const eight = { ...OK, shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six", "sevn", "ate"] }] };
+  const three = [{ name: "A", does: "a" }, { name: "B", does: "b" }, { name: "C", does: "c" }];
+  assert.equal(planRefusal(eight), "", "eight bands and no parts is exactly the bound and must split");
+  assert.equal(planRefusal({ ...eight, tsx: three }), "wide", "eleven calls were sent to a container that holds eight");
+  assert.equal(planRefusal({ ...OK, tsx: three }), "", "two bands and three parts is five calls and must split");
+  // COUNTED FROM THE PRODUCERS, never from their caps: a page that plans five
+  // bands and declares one part must never be refused for what it COULD have
+  // asked for.
+  const six = { ...OK, shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six"] }] };
+  assert.equal(planRefusal({ ...six, tsx: three.slice(0, 2) }), "", "eight exactly must fit");
+  assert.equal(planRefusal({ ...six, tsx: three }), "wide", "nine must not");
 });
 
 test("splitPlan is DERIVED from planRefusal and cannot disagree with it", () => {
@@ -77,7 +99,9 @@ test("splitPlan is DERIVED from planRefusal and cannot disagree with it", () => 
   // build that records "tsx" while splitting anyway.
   const cases = [
     OK,
-    { ...OK, tsx: [{ name: "X" }] },
+    { ...OK, tsx: [{ name: "X", does: "x" }] },
+    { ...OK, shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six", "sevn", "ate"] }],
+      tsx: [{ name: "A", does: "a" }, { name: "B", does: "b" }, { name: "C", does: "c" }] },
     { ...OK, mode: "revise" },
     { ...OK, priorPages: {} },
     { ...OK, route: "index.tsx" },
@@ -107,16 +131,19 @@ test("bandRefusal answers the whole ladder, and the ORDER is the code's order", 
   assert.equal(bandRefusal({ ...OK, canFire: false }), "sync");
   assert.equal(bandRefusal({ ...OK, pages: 2 }), "pages");
   assert.equal(bandRefusal({ ...OK, pages: 0 }), "pages");
-  assert.equal(bandRefusal({ ...OK, tsx: [{ name: "X" }] }), "tsx");
   assert.equal(bandRefusal({ ...OK, door: false }), "door");
   assert.equal(bandRefusal({}), "sync", "an argument-less call must refuse, never split");
   // THE ORDER, pinned. A synchronous build whose plan ALSO refuses answers
   // `sync`, because that is the wall it actually met. This is deliberately not
   // a ranking of which reason is most useful — a ranking would report a wall
   // the build never reached.
-  assert.equal(bandRefusal({ ...OK, canFire: false, pages: 3, tsx: [{ name: "X" }], door: false }), "sync");
-  assert.equal(bandRefusal({ ...OK, pages: 3, tsx: [{ name: "X" }], door: false }), "pages");
-  assert.equal(bandRefusal({ ...OK, tsx: [{ name: "X" }], door: false }), "tsx");
+  const wide = { shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six", "sevn", "ate"] }],
+    tsx: [{ name: "A", does: "a" }, { name: "B", does: "b" }, { name: "C", does: "c" }] };
+  assert.equal(bandRefusal({ ...OK, ...wide, canFire: false, pages: 3, door: false }), "sync");
+  assert.equal(bandRefusal({ ...OK, ...wide, pages: 3, door: false }), "pages");
+  assert.equal(bandRefusal({ ...OK, ...wide, door: false }), "wide",
+    "the plan's own wall is met before the door, which is where `planRefusal` sits in the chain");
+  assert.equal(bandRefusal({ ...OK, door: false }), "door", "…and the door is the last wall standing");
 });
 
 test("BAND_REFUSALS is a CENSUS of the words bandRefusal can answer, both directions", () => {

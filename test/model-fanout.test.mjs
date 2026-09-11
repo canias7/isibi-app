@@ -179,8 +179,15 @@ test("DRIVEN: allFailed and the tally read the outcome", () => {
 test("the container calls runFanout rather than keeping its own copy", () => {
   // The wiring hop: a module nobody calls is this repository's most-shipped
   // failure, and the two properties above are only guarded where they are RUN.
-  assert.match(bare, /import \{ runFanout, fanoutTally \} from "\.\/model-fanout\.mjs";/,
-    "the container does not import the fan-out");
+  // RE-ANCHORED 2026-09-11, NOT APPEASED: this pinned the import LIST as exactly
+  // two names, so it went red the day an honest third arrived — the recorded
+  // "assert the property, not the spelling", in its quietest form. Membership is
+  // the property; being the whole list never was.
+  const fanImport = bare.match(/import \{([^}]*)\} from "\.\/model-fanout\.mjs";/);
+  assert.ok(fanImport, "the container does not import the fan-out");
+  for (const name of ["runFanout", "fanoutTally"]) {
+    assert.ok(fanImport[1].includes(name), "the container stopped importing " + name);
+  }
   const start = between("if (mReqs) {", "MODEL_JOBS.set(id, { state: \"done\", answers");
   assert.match(start, /const results = await runFanout\(mReqs, \(r\) =>/,
     "the container does not use runFanout — a second copy of the per-call catch is two things that drift");
@@ -224,11 +231,24 @@ test("MAX_MODEL_FANOUT is the CONTAINER's bound, deliberately not the design's",
   // list: that answers "how many bands may a page have" — about the product —
   // and this answers "how many calls may one container hold open" — about this
   // process's memory and its sockets. They agree at 8 today by coincidence.
-  assert.match(bare, /const MAX_MODEL_FANOUT = \d+;/, "the fan-out bound is gone");
-  assert.ok(!/MAX_MODEL_FANOUT = MAX_SECTIONS/.test(bare),
-    "the container's resource bound was tied to the design's band cap");
-  assert.ok(!/import .*MAX_SECTIONS.*site-plan/.test(bare),
-    "the container imported the design's cap to bound its own sockets");
+  // RE-ANCHORED 2026-09-11, NOT APPEASED. This pinned the bound as a `const`
+  // DECLARED IN build-server.mjs, and it moved into `model-fanout.mjs` when the
+  // Worker started needing the same number — it composes a fan-out of bands AND
+  // parts now, and has to know what will fit before it sends one. Where it is
+  // declared was never the property; the properties are that it EXISTS as one
+  // number, that the container enforces it, and that it is not the design's cap.
+  const fanoutMod = fs.readFileSync(new URL("../builder/model-fanout.mjs", import.meta.url), "utf8");
+  assert.match(fanoutMod, /export const MAX_MODEL_FANOUT = \d+;/, "the fan-out bound is gone");
+  assert.ok(!/const MAX_MODEL_FANOUT = \d+;/.test(bare),
+    "the container declares its own copy of the bound again — two lists of the same thing, and the two sides can now disagree");
+  assert.match(bare, /import \{[^}]*MAX_MODEL_FANOUT[^}]*\} from "\.\/model-fanout\.mjs";/,
+    "the container no longer reads the shared bound");
+  for (const src of [bare, fanoutMod]) {
+    assert.ok(!/MAX_MODEL_FANOUT = MAX_SECTIONS/.test(src),
+      "the container's resource bound was tied to the design's band cap");
+    assert.ok(!/import .*MAX_SECTIONS.*site-plan/.test(src),
+      "the fan-out bound imported the design's cap to bound its own sockets");
+  }
 });
 
 test("A CALLER THAT SENDS `req` IS UNTOUCHED — every existing one does", () => {

@@ -2969,6 +2969,192 @@ are invisible inside one sum.
 - The push changes `worker.js`, which is a container image input, so the
   container ROLLS and the 15–20 minute hold applies.
 
+---
+
+### ONE AGENT PER THING, AND A PART IS A THING (2026-09-11, owner: *"one agent
+per thing like the design one , just make it wait if its requires from something
+to wait for other thing"*)
+
+The design's shape applied to the generate step. **The answer to the second half
+is that NOTHING WAITS, and it is read off the prompts rather than reasoned
+about** — the design graph's own record says this file has been wrong three times
+by reasoning about what SOUNDS like a dependency instead of reading what the
+field says, so the edges here were derived the same way:
+
+- **the band prompt states independence in as many words** — *"The bands above
+  and below yours are being written at the same time by someone else"*;
+- **a part's whole input is its DECLARATION** — name, what it does, its props,
+  its import path, every one of them answered by the design before any of this
+  runs (`tsxDirective` is where they are written);
+- **a band that imports a part reads that same declaration.**
+
+Neither reads the other's source, so there is no edge to draw — the same answer
+the design graph reached for fifteen of its twenty-two fields.
+
+**WHAT ONE AGENT PER THING ACTUALLY BOUGHT IS THE `tsx` REFUSAL, AND THE CODE
+NAMED THE CHANGE ITSELF.** Until today `planRefusal` refused to split ANY build
+whose design declared a component, and its own comment said why: *"a band writes
+one section and cannot write a part, so a split build of a site whose design
+declared `tsx` would produce a page importing a file nothing generated — which
+does not compile… **A band step that writes parts is a later change, not a
+smaller one.**"* This is that change.
+
+- **A PART IS THE SAME KIND OF THING A BAND IS** — one file, one component, one
+  agent — so `partsOf` / `PART_TOOL` / `partPrompt` / `partRequest` mirror the
+  band's four, and the fan-out carries both kinds in ONE list.
+  **The cached system block is `pageRulesFor`'s, BY IDENTITY** over every
+  spec/kind combination, exactly as the band's is: a part obeys the same rules
+  about what the kit has and what may never be imported, so a third variant would
+  be a third cold prefix for rules that are already warm.
+  **`PART_TOOL` has ONE property** for `BAND_TOOL`'s reason, and it bites harder
+  here — the design assigned the NAME and the page's imports are written against
+  it, so a writer that could answer its own would eventually answer one and the
+  page would import a file that is not there.
+- **BANDS FIRST, PARTS AFTER, AND THAT IS NOT COSMETIC.** `bandsFromAnswers`
+  pairs an answer to a band BY ITS RAW INDEX, so the bands must occupy 0…N-1 for
+  that pairing to be the identity it has always been. `slotName` is the ONE place
+  the offset is applied; every reader that worked it out for itself would be
+  another copy of the same arithmetic with a stored row to disagree about.
+- **A FAILED PART IS STUBBED, NEVER DROPPED, and that is the whole reason this
+  is safe to take.** The design declared the component, so a band may already
+  import it: a file that is not there is not a page missing a section, it is
+  `vite` refusing the build — precisely the failure `planRefusal` refused `tsx`
+  to avoid. `partStub` is a default-exported component returning `null` that
+  swallows its props, so a band calling it with the declared props still
+  typechecks. **The first draft of this got it backwards** and its comment argued
+  for dropping "so the import fails loudly"; that is the dead build, written down
+  as a feature. Corrected before it ran.
+- **`{ name, source }` IS `write_pages`' OWN SHAPE FOR A PART**, never a path.
+  `validatePages` owns what a component may be called, refuses an empty one and
+  repairs duplicate imports — all of which a split answer needs exactly as much
+  as a single-call one, and none of which is re-decided here. A site that
+  declares nothing carries no `parts` key at all, so the ordinary answer shape is
+  byte-identical to what it was.
+- **`wide` IS WHAT REPLACED `tsx` ON THE LADDER, and it is a different
+  question.** `MAX_SECTIONS` (8) plus `MAX_TSX` (3) can ask for eleven sockets
+  from a container that holds `MAX_MODEL_FANOUT` (8). The answer is to refuse the
+  SPLIT — one call still writes every one of them — and never to drop a band or a
+  part to make the list fit, which would ship a page missing a section or
+  importing a file nothing wrote. **Counted from the two producers, never from
+  their caps**, so a page that plans five bands and declares one part is never
+  refused for what it COULD have asked for. `BAND_REFUSALS` swaps one word for
+  another and the census in `band-refusal.test.mjs` holds both ends.
+- **`MAX_MODEL_FANOUT` MOVED INTO `model-fanout.mjs`, which is one home for a
+  bound two sides need.** The container ENFORCES it (a longer list is a 400) and
+  the Worker now has to know it BEFORE composing a fan-out, or a page with eight
+  bands and two parts is refused after everything has been built. Two copies
+  where one side refuses and the other decides is "two lists of the same thing"
+  with a build as the thing that breaks. Its "not `MAX_SECTIONS`" reasoning moved
+  with it, unchanged.
+- **THE TRACE KEY CARRIES THE ROLE** — `b<n>Ms` and `p<n>Ms`, and the row counts
+  `parts`/`wroteParts` BESIDE `bands`/`wrote` rather than folding them in, which
+  a row that added them up could not undo. A bare index would file part 1 of a
+  seven-band page under `b8Ms`: a number that reads perfectly and names the wrong
+  kind of agent, which is the "wrong number wearing a right one's name" the whole
+  key rule exists to refuse.
+- **ONE SOURCE READER FOR BOTH KINDS** (`answerSource`). A band and a part answer
+  different TOOLS and the same SHAPE, so two readers would be two lists of the
+  same thing over the one expression that decides whether an agent's work is kept
+  at all. It does NOT re-check the tool's name: `tool_choice` names it on the way
+  out, and a reader that checked would refuse a good answer the day either tool is
+  renamed on one side only.
+- **Guards**: `test/page-parts.test.mjs` (9), every one driven — the declarations
+  becoming agents and the design's own cap; the part request's one property, its
+  compelled tool and its rules block asserted BY IDENTITY over four spec/kind
+  combinations; the "nothing waits" derivation pinned to the band prompt's own
+  sentence and to the part prompt being deterministic in its own inputs; the
+  whole fan-out run with both kinds, asserting bands-before-parts and
+  `write_pages`' shape; a failed part proved stubbed rather than dropped; the one
+  reader and the slot pairing, including a band's answer proved never filed as a
+  part; the `wide` bound at, one under and one over; and THE CHAIN — the Worker's
+  own call read by DEPTH for its top-level keys.
+- **PROVEN RED SIX WAYS BEFORE GREEN**, because eight passing first-run guards on
+  a change this size is a reason for suspicion rather than confidence: parts never
+  fanned out, a failed part dropped, the Worker not handing the declarations, the
+  part given its own rules block, the `wide` bound removed, and the parts sent
+  before the bands.
+- **AND THE CHAIN GUARD FELL INTO THE TRAP ITS OWN COMMENT NAMES.** Its first
+  draft matched `/(^|[\s,{])tsx,/` against the call — which `briefWithLayout({
+  brief, plan, tsx, … })` satisfies, one call down — so the mutant that stopped
+  handing the LIST survived a guard written to catch precisely that. Caught by
+  RUNNING the mutant, never by reading the assertion. It reads the call's own
+  top-level keys by depth now — **and the first depth walk was wrong too**, adding
+  every closing bracket and no opening one, so the splitter's depth went negative,
+  no keys came out at all, and the guard read that as "tsx is missing": the
+  recorded "flat scans where depth matters", twice in one guard.
+- **Eleven older guards went red for the change and were re-anchored, not
+  appeased**, each naming the spelling that moved: three pinned `tsx` as a
+  refusal (it must now SPLIT, which is asserted rather than deleted, since a
+  build that declares a component splitting at all IS the change); two pinned
+  `MAX_MODEL_FANOUT` as a `const` declared in `build-server.mjs`, and one of those
+  pinned the fan-out import as exactly two names — being the whole list was never
+  the property, membership is; and six were this morning's own, where `eachMs`
+  keys gained their role. One of my re-anchors carried an off-by-one of its own
+  (`slotName(6, 7)` is band 7, not part 1), caught on the first run.
+- **Sweep: 40 mutants, 40 killed, none survived, none unapplied, two comment-only
+  controls survived** — the `tsx` refusal restored (the state before this), no
+  part agents at all, the parts sent before the bands, a failed part dropped, the
+  stub not the default export or emitting `function ()`, a stub counted as
+  written, the parts never reaching the answer or handed to `pages`; `partsOf`
+  keeping a nameless declaration, ignoring the design's cap, or coercing a
+  non-string name; the part answering its OWN name, its tool uncompelled, its
+  rules block given its own copy or left uncached, the part never told its import
+  path or its props or the brief; the `wide` bound removed, counting only the
+  bands, off by one, or derived from the caps; `BAND_REFUSALS` forgetting `wide`;
+  `slotName` losing the role, reading every slot as a part, zero-based, forgetting
+  the offset, or admitting a coerced index; `bandMark` taking a bare index or
+  losing its type check; the projection dropping the parts or folding them into
+  the band count; `answerSource` re-checking the tool name or taking prose as
+  source; `partsFromAnswers` pairing by the loop's order or dropping the band
+  offset; the Worker never handing over the declarations; and the container
+  declaring its own copy of the socket bound, or the shared one unexported.
+- **THREE SURVIVED THE FIRST PASS AND THE SPLIT BETWEEN THEM IS THE PART WORTH
+  KEEPING.** Two were driver gaps; one was a wall spelled twice.
+  **(1) `partsOf` coercing a non-string name.** `tsxDirective` — the SINGLE-CALL
+  path's reader of these same declarations — coerces too, so coercing here is
+  what keeps one design answer producing ONE component whichever generator runs;
+  a reader that passed `["ChordDiagram"]` through would hand `validatePages` a
+  name the other path never sees, and `String(["ChordDiagram"])` is
+  `"ChordDiagram"`, the recorded trap. The guard drives the AGREEMENT against the
+  directive's own output rather than a retyped expectation.
+  **(2) `answerSource` taking prose as source.** My only prose case fed a text
+  block AND NOTHING ELSE, which answers `""` under both readings and therefore
+  cannot tell them apart. **A PREAMBLE is the shape that separates them** — a
+  model very often writes a sentence before calling the tool, so the `tool_use`
+  is the SECOND block, and a reader taking block 0 finds no `input` and stubs
+  every band and every part of that build.
+  **(3) `a.i < n` in `partsFromAnswers` — PROVED INERT AND THEN DELETED RATHER
+  THAN KEPT AS A SECOND WALL.** Driven over 702 entry/state/part combinations the
+  two readings agree every time, and the reason is algebra rather than the
+  fixtures: `a.i < n` IS `at < 0` with the subtraction done in the reader's head,
+  two lines above the line that already refuses it. **Two spellings of one wall
+  are not two walls** — that is "two lists of the same thing" with the smallest
+  possible subject — so the duplicate went, and the mutant was replaced by one
+  that DOES change behaviour: the offset itself (`a.i - n` → `a.i`), which
+  mis-files every part. It dies. The range line that remains is inert against
+  today's `Map` read (asked only at `0 … want.length - 1`) and is kept with that
+  said in the code, because a sweep cannot tell a second wall from dead code and
+  the next session deletes what nothing appears to need.
+- **AND THE SWEEP'S OWN SPEC HAD TWO DEFECTS, BOTH OF WHICH READ AS PRODUCT
+  FAILURES.** The two controls carried the word CONTROL in their LABEL and not
+  the runner's `control: true` flag, so two correct controls were counted as
+  survivors — a summary reading "5 survived" when three did. And two anchors named
+  `PART_TOOL.name`, a spelling the source no longer had, so they reported NEVER
+  APPLIED: the recorded "a mutant that never applied reads exactly like a killed
+  one", here reading as a coverage hole instead. Every anchor is now proved to
+  resolve exactly once before the run.
+- Full suite **5,953**.
+- **Not proven live, and it cannot be until the band door is open.** The owner
+  turned `BAND_SPLIT_CANARY` off by hand on 2026-09-10 (deploy 2080) to time a
+  single-call control, so every build since records `bands:door`. The push changes
+  `worker.js`, which is a container image input, so the container ROLLS and the
+  15–20 minute hold applies. **The tell** on the first split build of a site whose
+  design declares a component is a `bands` step carrying `parts` and `wroteParts`
+  beside `bands` and `wrote`, and a `p1Ms` where there has never been one — on a
+  build that today would carry `bands:tsx` and write its page in one call.
+
+---
+
 
 ---
 

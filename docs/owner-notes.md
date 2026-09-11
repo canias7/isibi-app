@@ -4837,3 +4837,81 @@ After that, one ordinary build fills the chart in.
 
 **No page a customer sees changes either way**, and nothing about the design
 graph moves — that stays on.
+
+## 2026-09-11 — one agent per thing on the generate step
+
+You asked for the design step's shape on the generate step: one agent per thing,
+and a thing waits only if it genuinely needs something first.
+
+### Nothing waits, and I checked rather than guessed
+
+I went looking for what has to wait for what, the same way I did on the design
+step — by reading what each prompt actually says, not by reasoning about what
+sounds like it would need to wait. (That is how I got the design graph wrong
+three times before it was right.)
+
+The answer is **nothing waits**. Two reasons, both in the code already:
+
+- The band prompt already tells each band, in as many words, that *"the bands
+  above and below yours are being written at the same time by someone else."*
+- A component's whole input is its own description — its name, what it does,
+  what props it takes, where it is imported from — and the design step answered
+  all of that before any of this starts. A band that uses the component reads
+  that same description.
+
+So neither one needs to see the other's code. There was no waiting to add.
+
+### What "one agent per thing" actually bought
+
+Here is the part that turned out to matter. The split had a rule that refused to
+run at all if the design had asked for a **custom component** — something the
+2,112-piece kit does not have, which the model writes itself. The reason was
+honest: a band writes one section of the page, and nobody was writing the
+components, so a split build of that site would produce a page importing a file
+that does not exist, and the build would die.
+
+**One agent per thing fixes exactly that.** A component is the same kind of thing
+a band is — one file, one job — so it gets its own agent, and now it goes out
+alongside the bands in the same burst. That refusal is gone.
+
+It matters because it was not rare. Any site interesting enough to need something
+the kit has not got was quietly falling back to writing its whole page in one
+call — the slow way — and nothing said so.
+
+### The safety bit
+
+If one of those component agents comes back with nothing, we **do not drop it**.
+We write a placeholder file that compiles and shows nothing. Dropping it would be
+the dead build all over again: a page importing a file that is not there.
+
+A missing section is a page with a gap. A missing file is no page at all.
+
+### One new refusal in its place
+
+There is a ceiling of 8 on how many agents can run in one burst. A page can plan
+up to 8 bands and the design can ask for up to 3 components — 11, which does not
+fit. When that happens the split now steps aside and the page is written in one
+call, and the trace says `bands:wide` so we can see it happened.
+
+It counts what was actually asked for, not what could have been — a page with
+five bands and one component is never refused for a limit it never reached.
+
+### On the chart
+
+Each band and each component now reports its own time, and the trace label says
+which kind it was: `b1Ms`, `b2Ms` … for the bands down the page, `p1Ms`, `p2Ms` …
+for the components. Without the letter, component 1 of a seven-band page would
+have filed itself as "band 8" — a number that looks perfectly fine and names the
+wrong thing, which is worse than no number.
+
+### Nothing to do, and one thing still waiting on you
+
+No page a customer sees changes. No prompt changes. The design graph stays
+exactly as it is.
+
+**The band split is still switched off** — that is the secret you set on the
+10th so we could time a single-call control, and it is still doing its job. To
+see any of this run, and to fill in the per-band chart, delete
+`BAND_SPLIT_CANARY` in GitHub (the code's own default already names your
+account) or set it to `22175f41-6fbf-49d7-b039-a65078a0141c`, then redeploy.
+One ordinary build after that shows the whole thing.

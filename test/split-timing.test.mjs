@@ -40,7 +40,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { designInWaves, waveMarks, agentMark, DESIGN_WAVES } from "../builder/design-waves.mjs";
-import { generateSiteBands, splitPlan, bandMark, bandMarks } from "../builder/page-bands.mjs";
+import { generateSiteBands, splitPlan, bandMark, bandMarks, slotName, partsFromAnswers, partStub, partsOf } from "../builder/page-bands.mjs";
 import { makeTrace } from "../builder/trace.mjs";
 import { budgetStage } from "../builder/build-budget.mjs";
 
@@ -1067,39 +1067,65 @@ test("THE CENSUS: every agent the waves really plan can be keyed, and no two sha
 // arrive as ONE key with the later overwriting the earlier.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("a band's position becomes its trace key, and the positions that cannot are refused", () => {
-  assert.equal(bandMark("0"), "b1Ms", "the key is ONE-BASED: band 1 is the top of the page, and the array's zero is not the reader's");
-  assert.equal(bandMark("1"), "b2Ms");
-  assert.equal(bandMark("6"), "b7Ms", "kestrel-bindery's seventh band could not be keyed");
-  assert.equal(bandMark("12"), "b13Ms", "a two-digit position is refused — there is no ceiling here and there must not be one");
+test("a slot becomes its trace key, the role rides in it, and the slots that cannot are refused", () => {
+  // RE-ANCHORED 2026-09-11, NOT APPEASED. This took a bare index and answered
+  // `b<n+1>Ms`; the fan-out holds two kinds of thing now, so the ROLE is decided
+  // by `slotName` and this only refuses what it cannot read. A bare index would
+  // file part 1 of a seven-band page under `b8Ms` — the "wrong number wearing a
+  // right one's name" the whole key rule exists to refuse.
+  assert.equal(slotName(0, 3), "b1", "the slot is ONE-BASED: band 1 is the top of the page, and the array's zero is not the reader's");
+  assert.equal(slotName(2, 3), "b3");
+  assert.equal(slotName(3, 3), "p1", "the first slot past the bands is part 1");
+  assert.equal(slotName(6, 7), "b7", "kestrel-bindery had seven bands, and slot 6 is the last of them");
+  assert.equal(slotName(7, 7), "p1", "the slot after seven bands is part 1, never band 8");
+  assert.equal(slotName(0, 0), "p1", "a fan-out of parts alone starts at part 1");
+  for (const bad of [["1", 3], [-1, 3], [1.5, 3], [null, 3], [undefined, 3], [{}, 3]]) {
+    assert.equal(slotName(bad[0], bad[1]), "", "a slot that is not a whole number was named anyway: " + JSON.stringify(bad[0]));
+  }
+
+  assert.equal(bandMark("b1"), "b1Ms");
+  assert.equal(bandMark("b13"), "b13Ms", "a two-digit slot is refused — there is no ceiling here and there must not be one");
+  assert.equal(bandMark("p1"), "p1Ms");
+  assert.equal(bandMark("p3"), "p3Ms");
 
   // REFUSED, NEVER REPAIRED. `bNaNMs` or `b[object Object]Ms` on a stored row
   // reads like a band that took no time, which is worse than a silence.
-  for (const bad of ["hero", "-1", "1.5", "", "1e3", "0x3", " 3", "3 ", "+3", "Infinity"]) {
-    assert.equal(bandMark(bad), "", "a position that is not a whole number was keyed anyway: " + JSON.stringify(bad));
+  for (const bad of ["hero", "3", "b", "p", "b-1", "b1.5", "", "b1e3", " b3", "b3 ", "x1"]) {
+    assert.equal(bandMark(bad), "", "a slot that is not a role and a number was keyed anyway: " + JSON.stringify(bad));
   }
 
   // AND IT MUST BE A STRING — the recorded coercion trap, and it bites here
-  // rather than in theory: `/^\d+$/.test(["3"])` is TRUE, because `test`
+  // rather than in theory: `/^[bp]\d+$/.test(["b3"])` is TRUE, because `test`
   // coerces its argument, so a one-element array would key a band if the type
   // were not asked first.
-  assert.equal(bandMark(["3"]), "", "String([\"3\"]) is \"3\" — a one-element array keyed a band");
-  assert.equal(bandMark(3), "", "a raw number reached the key — Object.entries hands strings, so this is a producer that is wrong");
+  assert.equal(bandMark(["b3"]), "", "String([\"b3\"]) is \"b3\" — a one-element array keyed a band");
   assert.equal(bandMark(null), "");
   assert.equal(bandMark(undefined), "");
   assert.equal(bandMark({}), "");
 });
 
 test("the band projection answers four numbers, one per band, and zeros for a shape it cannot read", () => {
+  // RE-ANCHORED 2026-09-11: the row carries `parts`/`wroteParts` beside
+  // `bands`/`wrote` now — counted BESIDE them, never folded in, or a row could
+  // not say whether a build wrote seven bands or five bands and two components.
   assert.deepEqual(
-    bandMarks({ bands: 7, wrote: 7, agentMs: 424444, waveMs: 93375, eachMs: { 0: 10, 1: 20, 2: 93375 } }),
-    { bands: 7, wrote: 7, agentMs: 424444, waveMs: 93375, b1Ms: 10, b2Ms: 20, b3Ms: 93375 },
+    bandMarks({ bands: 7, wrote: 7, parts: 0, wroteParts: 0, agentMs: 424444, waveMs: 93375,
+      eachMs: { b1: 10, b2: 20, b3: 93375 } }),
+    { bands: 7, wrote: 7, parts: 0, wroteParts: 0, agentMs: 424444, waveMs: 93375,
+      b1Ms: 10, b2Ms: 20, b3Ms: 93375 },
+  );
+  // AND A FAN-OUT THAT WROTE BOTH KINDS keys them apart.
+  assert.deepEqual(
+    bandMarks({ bands: 2, wrote: 2, parts: 2, wroteParts: 1, agentMs: 100, waveMs: 40,
+      eachMs: { b1: 10, b2: 20, p1: 30, p2: 40 } }),
+    { bands: 2, wrote: 2, parts: 2, wroteParts: 1, agentMs: 100, waveMs: 40,
+      b1Ms: 10, b2Ms: 20, p1Ms: 30, p2Ms: 40 },
   );
 
   // A SHAPE IT CANNOT READ ANSWERS ZEROS rather than nothing, so the four keys
   // are on the row either way — and a numeric STRING is not a number: presence
   // is the signal, and a string reaching here means the producer is wrong.
-  const none = { bands: 0, wrote: 0, agentMs: 0, waveMs: 0 };
+  const none = { bands: 0, wrote: 0, parts: 0, wroteParts: 0, agentMs: 0, waveMs: 0 };
   assert.deepEqual(bandMarks(null), none);
   assert.deepEqual(bandMarks(undefined), none);
   assert.deepEqual(bandMarks("nope"), none);
@@ -1109,7 +1135,7 @@ test("the band projection answers four numbers, one per band, and zeros for a sh
   // A BAND THAT DID NOT RUN HAS NO KEY — the opposite rule from the four above
   // and deliberately so, because `b3Ms: 0` reads as a band that answered
   // instantly where a missing key reads as a band that never ran.
-  const m = bandMarks({ bands: 3, wrote: 1, agentMs: 40, waveMs: 40, eachMs: { 0: 40, 2: "40", 5: NaN } });
+  const m = bandMarks({ bands: 3, wrote: 1, agentMs: 40, waveMs: 40, eachMs: { b1: 40, b3: "40", b6: NaN } });
   assert.equal(m.b1Ms, 40);
   assert.ok(!("b3Ms" in m), "a band whose time was not a number was recorded as having taken none");
   assert.ok(!("b6Ms" in m), "a non-finite time reached the row");
@@ -1117,13 +1143,14 @@ test("the band projection answers four numbers, one per band, and zeros for a sh
   // AND A JUNK POSITION IS DROPPED RATHER THAN KEYED. `eachMs` is ours, so this
   // is the wall for a shape somebody else built — a fixture, or a mutated
   // producer — and the four fixed keys must survive it.
-  const j = bandMarks({ bands: 2, wrote: 2, agentMs: 5, waveMs: 5, eachMs: { hero: 3, "-1": 2 } });
-  assert.deepEqual(j, { bands: 2, wrote: 2, agentMs: 5, waveMs: 5 });
+  const j = bandMarks({ bands: 2, wrote: 2, agentMs: 5, waveMs: 5, eachMs: { hero: 3, "-1": 2, "0": 9 } });
+  assert.deepEqual(j, { bands: 2, wrote: 2, parts: 0, wroteParts: 0, agentMs: 5, waveMs: 5 });
 
-  // AN ARRAY IS A LEGAL `eachMs`, because its own keys ARE the positions — and
-  // reading one wrong would be the quietest possible way to lose every band.
+  // AN ARRAY IS NO LONGER A LEGAL `eachMs`, and that follows from the role: its
+  // own keys are bare INDICES, which cannot say whether slot 0 was a band or a
+  // part. Refused whole rather than guessed at — the four fixed keys survive.
   assert.deepEqual(bandMarks({ bands: 2, wrote: 2, agentMs: 30, waveMs: 20, eachMs: [10, 20] }),
-    { bands: 2, wrote: 2, agentMs: 30, waveMs: 20, b1Ms: 10, b2Ms: 20 });
+    { bands: 2, wrote: 2, parts: 0, wroteParts: 0, agentMs: 30, waveMs: 20 });
 });
 
 test("THE WALL NAMES ITSELF: the fan-out costs its slowest band, and the row says which", async () => {
@@ -1155,7 +1182,8 @@ test("THE WALL NAMES ITSELF: the fan-out costs its slowest band, and the row say
   });
 
   const m = bandMarks(out);
-  assert.deepEqual(m, { bands: 3, wrote: 3, agentMs: 220, waveMs: 150, b1Ms: 20, b2Ms: 50, b3Ms: 150 });
+  assert.deepEqual(m, { bands: 3, wrote: 3, parts: 0, wroteParts: 0, agentMs: 220, waveMs: 150,
+    b1Ms: 20, b2Ms: 50, b3Ms: 150 });
   // THE PROPERTY THE OWNER ASKED FOR, as arithmetic rather than prose: the
   // bands are ONE wave, so the largest per-band number IS the wall — and
   // halving either of the others moves the page call by nothing at all.
@@ -1166,7 +1194,7 @@ test("THE WALL NAMES ITSELF: the fan-out costs its slowest band, and the row say
   // AND THE SUM ALONE CANNOT SAY IT, which is why the parts exist: the same
   // 220/150 is producible by three bands where there is no wall worth cutting.
   assert.deepEqual(bandMarks({ bands: 3, wrote: 3, agentMs: 220, waveMs: 150 }),
-    { bands: 3, wrote: 3, agentMs: 220, waveMs: 150 });
+    { bands: 3, wrote: 3, parts: 0, wroteParts: 0, agentMs: 220, waveMs: 150 });
 });
 
 test("the band parts sum to the whole, and a repeated position adds rather than replaces", async () => {
@@ -1191,7 +1219,7 @@ test("the band parts sum to the whole, and a repeated position adds rather than 
     async () => [entry(0, "Band0", 90), entry(0, "Band0b", 160)]);
 
   assert.equal(out.agentMs, 250, "the two calls were still made and still cost what they cost");
-  assert.equal(out.eachMs[0], 250, "the second entry replaced the first instead of adding to it");
+  assert.equal(out.eachMs.b1, 250, "the second entry replaced the first instead of adding to it");
   const parts = Object.values(out.eachMs).reduce((a, b) => a + b, 0);
   assert.equal(parts, out.agentMs, "the per-band numbers no longer add up to the sum");
 });
@@ -1229,12 +1257,11 @@ test("a band with no readable position is filed nowhere, and a failed band is fi
     { ...ok(2, 70), i: 4, ms: NaN },
   ]);
 
-  assert.equal(out.eachMs[0], 100);
-  assert.equal(out.eachMs[1], 400, "the band that failed lost the time it spent");
-  assert.ok(!("2" in out.eachMs), "a band whose position was a string was filed under one anyway");
-  assert.ok(!("-1" in out.eachMs), "a band at a negative position was filed under one anyway");
-  assert.ok(!("4" in out.eachMs),
-    "a band whose time is not a number was filed anyway — the parts no longer add up to the sum, and only `bandMarks` would hide it");
+  assert.equal(out.eachMs.b1, 100);
+  assert.equal(out.eachMs.b2, 400, "the band that failed lost the time it spent");
+  assert.ok(!("b3" in out.eachMs), "a band whose position was a string was filed under one anyway");
+  assert.ok(!Object.keys(out.eachMs).some((k) => k !== "b1" && k !== "b2"),
+    "a band this fan-out cannot place was filed anyway: " + JSON.stringify(out.eachMs));
   // …AND THE SUM COUNTS ALL THREE OF THE BANDS IT CANNOT FILE, which is the
   // honest half: the sum is the truth about what the attempt cost, so the tie
   // between the parts and the whole holds only when every band has a readable
@@ -1255,8 +1282,9 @@ test("generateSiteBands carries the per-band numbers out on BOTH of its returns"
   const none = await generateSiteBands(args, null,
     async (keys, reqs) => reqs.map((r, i) => ({ i, state: "failed", ms: 50 * (i + 1), waveMs: 70, message: "no" })));
   assert.equal(none.input, null, "a page of nothing was assembled");
-  assert.deepEqual(none.eachMs, { 0: 50, 1: 100 }, "the failed fan-out lost what each band cost");
-  assert.deepEqual(bandMarks(none), { bands: 2, wrote: 0, agentMs: 150, waveMs: 70, b1Ms: 50, b2Ms: 100 });
+  assert.deepEqual(none.eachMs, { b1: 50, b2: 100 }, "the failed fan-out lost what each band cost");
+  assert.deepEqual(bandMarks(none), { bands: 2, wrote: 0, parts: 0, wroteParts: 0,
+    agentMs: 150, waveMs: 70, b1Ms: 50, b2Ms: 100 });
 });
 
 test("THE CHAIN: a driven fan-out's per-band numbers reach a real trace, through worker.js's own mark", async () => {

@@ -66,7 +66,7 @@ import { checkRender, screenshotHtml } from "./render-check.mjs";
 import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
 import { readCss, plainSelectors, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
-import { runFanout, fanoutTally } from "./model-fanout.mjs";
+import { runFanout, fanoutTally, MAX_MODEL_FANOUT } from "./model-fanout.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -144,19 +144,9 @@ const MODEL_JOBS = new Map();
 // refusing is better than holding whole model answers — megabytes each — for a
 // caller that has stopped listening.
 const MAX_MODEL_JOBS = 8;
-/**
- * How many model calls ONE job may hold open at once (2026-09-09, the band
- * split).
- *
- * A RESOURCE BOUND, AND DELIBERATELY NOT DERIVED FROM `MAX_SECTIONS`. It is
- * tempting to tie this to the design's band cap, and it would be the wrong
- * list: that one answers "how many bands may a page have", a question about
- * the product, and this one answers "how many calls may a single container
- * hold open", a question about this process's memory and its sockets. They
- * agree at 8 today by coincidence, and the day the plan allows twelve bands is
- * the day this has to be re-decided ON ITS OWN TERMS rather than dragged along.
- */
-const MAX_MODEL_FANOUT = 8;
+// `MAX_MODEL_FANOUT` is imported from `model-fanout.mjs`: the Worker has to
+// know the same bound before it composes a fan-out, and a bound spelled twice
+// is one the two sides can disagree about.
 // LONGER THAN THE HOLD, ON PURPOSE. `MAX_BUSY_HOLD_MS` is thirty minutes, so a
 // container is stopped before an answer can age out from under a caller that is
 // still entitled to it; anything still here past this belongs to a build that

@@ -131,7 +131,19 @@ test("splitPlan reads the stored design args and nothing else, so a resume re-de
   // resume re-derive the LINES while the store decides the PATH.
   assert.deepEqual(splitPlan(args), splitPlan(args));
   // Every refusal, each a fallback to a path that already works.
-  assert.equal(splitPlan({ ...args, tsx: [{ name: "ChordDiagram" }] }).length, 0, "a tsx declaration must not split");
+  // RE-ANCHORED 2026-09-11, NOT APPEASED. A `tsx` declaration used to refuse the
+  // split outright, because a band could not write a part. It is its own agent
+  // now, so the plan splits and the parts ride out beside the bands — asserted
+  // rather than deleted, since a build that declares a component splitting AT
+  // ALL is the whole change.
+  assert.equal(splitPlan({ ...args, tsx: [{ name: "ChordDiagram", does: "draws a chord" }] }).length, 3,
+    "a declared component still refuses the split");
+  // …and the wall that DID replace it: the whole list has to fit in one job.
+  assert.equal(splitPlan({
+    shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six", "sevn", "ate"] }],
+    route: "/", mode: "build",
+    tsx: [{ name: "A", does: "a" }, { name: "B", does: "b" }, { name: "C", does: "c" }],
+  }).length, 0, "eleven calls were sent to a container that holds eight");
   assert.equal(splitPlan({ ...args, mode: "revise" }).length, 0, "a revise must not split");
   assert.equal(splitPlan({ ...args, priorPages: [{ path: "index.tsx" }] }).length, 0, "a page rewrite must not split");
   assert.equal(splitPlan({ shape: [{ path: "/", sections: ["only one"] }], route: "/", mode: "build" }).length, 0,
