@@ -5422,3 +5422,44 @@ nesting question — so it runs before this goes to main. Full test suite is gre
 at 6,024.
 
 Still on your desk: the 19 credits from the two failed builds.
+
+---
+
+## And the folders are real folders now (11 Sept)
+
+You drew `1. / 1.a. / 2.` and asked why it wasn't that. No good reason — it is
+now.
+
+The four headings stay on top, and inside each one the files sit in their actual
+folders. Nothing prints a path as text any more.
+
+One thing I did deliberately: a run of folders that each hold only one thing gets
+joined into a single row — you see `src/routes/-parts` rather than `src`, then
+`routes`, then `-parts`. Our paths are deep and narrow, so without that the Pages
+group would be three rows of nothing with one file at the bottom. VS Code does
+the same.
+
+Every folder folds and every folder tells you how many files are under it,
+counting the whole thing below — so `src` says 12 even though it holds mostly
+other folders.
+
+Screenshot in the chat: how it opens, and opened up.
+
+### Two things I got wrong and caught by looking
+
+The first version drew every file flush against the left edge, ignoring the
+folder it was in — two lines of styling fighting each other, and the wrong one
+won. The second drew every folder's arrow pointing shut even while it was open.
+Neither would have been caught by a test; I only saw them because I looked at the
+picture. Both fixed, and both now have a test.
+
+Worth saying because it's the same lesson as the rest of today: the instrument
+has to be checked against the thing.
+
+### Where this stands
+
+Committed and pushed. The safety sweep hasn't run on this yet — it's written and
+ready, 47 checks — and it runs before any of this goes to main. Tests are green
+at 6,025. The earlier red tests on GitHub are fixed and that run came back green.
+
+Still on your desk: the 19 credits from the two failed builds.

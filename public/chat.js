@@ -11253,17 +11253,73 @@ const ST_CODE_GROUPS = [
   ['shared', 'Shared with every site'],
 ];
 /**
- * Which groups the tree draws OPEN (owner, 2026-09-11: *"components you click
- * and the 8 or 0 or whatever how many they appear"*).
+ * One group's files as the DIRECTORY TREE they really are (owner, 2026-09-11,
+ * drawing `1. / 1.a. / 2.`: *"Why"*).
+ *
+ * The groups say what a file IS to the customer; they never said where it lives,
+ * and the flat list underneath printed the path as text — `-parts/` repeated on
+ * nine rows, `public/` on four. Worse, the display rule stripped `src/routes/`
+ * in the customer's own groups and kept it everywhere else, so the tree showed
+ * HALF a hierarchy: a path fragment where a folder should be. This is the other
+ * half, and it deletes that special case rather than adding to it — a file row
+ * carries its own name now, because the folders above it carry the rest.
+ */
+function stDirTree(files) {
+  const root = { dirs: new Map(), files: [] };
+  for (const f of files) {
+    const segs = String((f && f.name) || '').split('/');
+    const base = segs.pop();
+    let at = root;
+    for (const seg of segs) {
+      if (!at.dirs.has(seg)) at.dirs.set(seg, { dirs: new Map(), files: [] });
+      at = at.dirs.get(seg);
+    }
+    at.files.push({ ...f, base });
+  }
+  return root;
+}
+/**
+ * A CHAIN OF ONE-CHILD DIRECTORIES IS ONE ROW — `src/routes/-parts`, never
+ * `src` then `routes` then `-parts`, which is three clicks and two rows of
+ * nothing to reach nine files. What VS Code calls compact folders, and the
+ * reason it exists here is that our own paths are deep and narrow: every page
+ * and every component lives under `src/routes/`, so without this the Pages group
+ * is a ladder holding one file at the bottom.
+ *
+ * ONE COLLAPSE RULE, ASKED IN BOTH PLACES. The renderer walks the tree and the
+ * default-open chain walks it again to name the folders holding the open file;
+ * two copies of "where does this chain stop" would drift, and the failure is a
+ * folder the tree draws under a key the toggle cannot match — a row that does
+ * nothing when clicked.
+ */
+function stCollapse(name, node) {
+  let label = name, at = node;
+  while (at.dirs.size === 1 && !at.files.length) {
+    const one = [...at.dirs][0];
+    label += '/' + one[0];
+    at = one[1];
+  }
+  return { label, node: at };
+}
+/** How many files are under a node, at any depth — what a folded folder says. */
+function stDirCount(node) {
+  let n = node.files.length;
+  for (const child of node.dirs.values()) n += stDirCount(child);
+  return n;
+}
+/**
+ * Which nodes the tree draws OPEN — the four groups and every folder inside them
+ * (owner, 2026-09-11: *"components you click and the 8 or 0 or whatever how many
+ * they appear"*, then the nesting).
  *
  * THE THIRD STATE IS THE WHOLE OF THE FIRST DRAW. `chosen` is what the customer
  * has folded and unfolded; `null` means they have touched nothing yet, which is
- * NOT an empty Set. Uninitialised opens exactly ONE folder — the one holding the
- * file on screen — and leaves the rest folded, which is what a file explorer
- * does when you open a file by path. An empty Set is a customer who has closed
- * every folder, and re-deriving the default for them would re-open one on the
- * next click, for ever. The recorded "cannot-tell must never read as a value",
- * pointed at a preference.
+ * NOT an empty Set. Uninitialised opens exactly the CHAIN holding the file on
+ * screen — its group and every folder down to it — and leaves everything else
+ * folded, which is what a file explorer does when you open a file by path. An
+ * empty Set is a customer who has closed every folder, and re-deriving the
+ * default for them would re-open one on the next click, for ever. The recorded
+ * "cannot-tell must never read as a value", pointed at a preference.
  *
  * THE DEFAULT IS DERIVED FROM THE OPEN FILE rather than naming `page`, because
  * the first draw is not the only draw that can find `chosen` null — a rebuild
@@ -11274,7 +11330,68 @@ function stOpenGroups(files, openName, chosen) {
   if (chosen instanceof Set) return chosen;
   const list = Array.isArray(files) ? files : [];
   const holds = list.find((f) => f && f.name === openName);
-  return new Set([(holds && holds.kind) || ST_CODE_GROUPS[0][0]]);
+  const kind = (holds && holds.kind) || ST_CODE_GROUPS[0][0];
+  const keys = new Set([kind]);
+  if (!holds) return keys;
+  // THE CHAIN, walked through the SAME collapse rule the renderer uses, so every
+  // key here is a key the tree really draws.
+  let at = stDirTree(list.filter((f) => f.kind === kind));
+  let prefix = '';
+  const segs = String(holds.name).split('/');
+  segs.pop();
+  let i = 0;
+  while (i < segs.length && at.dirs.has(segs[i])) {
+    const step = stCollapse(segs[i], at.dirs.get(segs[i]));
+    const path = prefix + step.label;
+    keys.add(kind + '/' + path);
+    i += step.label.split('/').length;
+    prefix = path + '/';
+    at = step.node;
+  }
+  return keys;
+}
+/** A row that folds: a group heading, or a folder inside one. */
+function stFoldRow(key, label, count, shown, depth, cls) {
+  // ONE CHEVRON, TURNED. `chevronleft` points left when the folder is shut — the
+  // universal collapsed state — and the open rule rotates it to point down. A
+  // second icon entry would be a second glyph to keep in step with the first for
+  // no gain; the disclosure triangle IS one mark that turns.
+  //
+  // AND THE COUNT IS WHAT MAKES A FOLDED FOLDER HONEST rather than a hidden one.
+  // "Made by the build 4" says there are four things in there; a bare heading
+  // over nothing says a group exists and nothing about whether it is empty.
+  return '<button type="button" class="' + cls + (shown ? ' on' : '') +
+    '" data-srcfold="' + esc(key) + '" aria-expanded="' + (shown ? 'true' : 'false') + '"' +
+    (depth ? ' style="--d:' + depth + '"' : '') + '>' +
+    '<span class="st-code-caret">' + ic('chevronleft', 12) + '</span>' +
+    '<span class="st-code-hn">' + esc(label) + '</span>' +
+    '<span class="st-code-count">' + count + '</span></button>';
+}
+/** The rows under one node: its folders first, then its own files. */
+function stCodeRows(node, keyBase, prefix, depth, open, openName) {
+  let out = '';
+  // FOLDERS ABOVE FILES, which is what every explorer does and what keeps a long
+  // file list from burying the one folder under it.
+  for (const entry of node.dirs) {
+    const step = stCollapse(entry[0], entry[1]);
+    const path = prefix + step.label;
+    const key = keyBase + '/' + path;
+    const shown = open.has(key);
+    out += stFoldRow(key, step.label, stDirCount(step.node), shown, depth, 'st-code-d');
+    if (shown) out += stCodeRows(step.node, keyBase, path + '/', depth + 1, open, openName);
+  }
+  for (const f of node.files) {
+    // THE ROW CARRIES ITS OWN NAME AND THE FULL PATH. The name is what the reader
+    // sees, since the folders above it carry the rest; `data-srcname` is the full
+    // one, because that is what the click handler looks a file up by and two
+    // files can share a basename across folders.
+    out += '<button type="button" class="st-file' + (f.name === openName ? ' on' : '') +
+      (f.unplaced ? ' st-file-lost' : '') + '" data-srcname="' + esc(f.name) + '"' +
+      (depth ? ' style="--d:' + depth + '"' : '') + '>' +
+      '<span class="st-file-ic">' + ic('code', 13) + '</span>' +
+      '<span class="st-file-n">' + esc(f.base) + '</span></button>';
+  }
+  return out;
 }
 function stCodeTree(files, openName, chosen) {
   const list = Array.isArray(files) ? files : [];
@@ -11283,28 +11400,9 @@ function stCodeTree(files, openName, chosen) {
   for (const g of ST_CODE_GROUPS) {
     const mine = list.filter((f) => f.kind === g[0]);
     if (!mine.length) continue;
-    // THE HEADING IS THE CONTROL, and it carries the COUNT — which is the half
-    // that makes a folded folder honest rather than a hidden one. "Made by the
-    // build 4" says there are four things in there; a bare heading over nothing
-    // says a group exists and nothing about whether it is empty.
-    //
-    // ONE CHEVRON, TURNED. `chevronleft` points left when the folder is shut —
-    // the universal collapsed state — and the open rule rotates it to point
-    // down. A second icon entry would be a second glyph to keep in step with
-    // the first for no gain; the disclosure triangle IS one mark that turns.
     const shown = open.has(g[0]);
-    out += '<button type="button" class="st-code-h' + (shown ? ' on' : '') +
-      '" data-srcgroup="' + esc(g[0]) + '" aria-expanded="' + (shown ? 'true' : 'false') + '">' +
-      '<span class="st-code-caret">' + ic('chevronleft', 12) + '</span>' +
-      '<span class="st-code-hn">' + esc(g[1]) + '</span>' +
-      '<span class="st-code-count">' + mine.length + '</span></button>';
-    if (!shown) continue;
-    const own = g[0] === 'page' || g[0] === 'part';
-    out += mine.map((f) =>
-      '<button type="button" class="st-file' + (f.name === openName ? ' on' : '') +
-      (f.unplaced ? ' st-file-lost' : '') + '" data-srcname="' + esc(f.name) + '">' +
-      '<span class="st-file-ic">' + ic('code', 13) + '</span>' +
-      '<span class="st-file-n">' + esc(own ? f.name.replace(/^src\/routes\//, '') : f.name) + '</span></button>').join('');
+    out += stFoldRow(g[0], g[1], mine.length, shown, 0, 'st-code-h');
+    if (shown) out += stCodeRows(stDirTree(mine), g[0], '', 1, open, openName);
   }
   return out;
 }
@@ -11527,11 +11625,15 @@ function drawSiteCode(src) {
   host.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { siteCodeOpen = b.dataset.srcname; drawSiteCode(src); });
   // A FOLD IS MATERIALISED BEFORE IT IS CHANGED. The first click has no stored
   // choice to toggle, so it takes the derived default as its starting point —
-  // which is what keeps the folder holding the open file open after the customer
+  // which is what keeps the chain holding the open file open after the customer
   // folds a different one, rather than everything snapping shut at once.
-  host.querySelectorAll('[data-srcgroup]').forEach((b) => b.onclick = () => {
+  //
+  // ONE HANDLER FOR A GROUP AND A FOLDER, because they are the same thing at two
+  // depths: a key that is either in the open set or not. A second handler would
+  // be a second copy of "materialise, toggle, redraw" with nothing to gain.
+  host.querySelectorAll('[data-srcfold]').forEach((b) => b.onclick = () => {
     const now = new Set(stOpenGroups(files, open.name, siteCodeOpenGroups));
-    const k = b.dataset.srcgroup;
+    const k = b.dataset.srcfold;
     if (now.has(k)) now.delete(k); else now.add(k);
     siteCodeOpenGroups = now;
     drawSiteCode(src);

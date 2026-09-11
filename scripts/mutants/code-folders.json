@@ -2,288 +2,291 @@
   {
     "label": "CONTROL: a comment only",
     "control": true,
-    "files": [
-      "public/chat.js"
-    ],
+    "files": ["public/chat.js"],
     "from": " * THE THIRD STATE IS THE WHOLE OF THE FIRST DRAW.",
     "to": " * The third state is the whole of the first draw."
   },
   {
     "label": "CONTROL 2: a comment in the sheet",
     "control": true,
-    "files": [
-      "public/styles.css"
-    ],
+    "files": ["public/styles.css"],
     "from": "/* THE NAME WRAPS, IT IS NEVER TRUNCATED.",
     "to": "/* The name wraps, it is never truncated."
   },
 
   {
-    "label": "THE STATE BEFORE THIS: nothing folds — every group draws its files",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "    if (!shown) continue;\n    const own = g[0] === 'page' || g[0] === 'part';",
-    "to": "    const own = g[0] === 'page' || g[0] === 'part';"
+    "label": "THE STATE BEFORE THIS: nothing nests — every file flat under its group",
+    "files": ["public/chat.js"],
+    "from": "    if (shown) out += stCodeRows(stDirTree(mine), g[0], '', 1, open, openName);",
+    "to": "    if (shown) out += mine.map((f) => '<button type=\"button\" class=\"st-file\" data-srcname=\"' + esc(f.name) + '\"><span class=\"st-file-n\">' + esc(f.name) + '</span></button>').join('');"
   },
   {
-    "label": "a folder that is open still draws nothing",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "    if (!shown) continue;\n",
-    "to": "    if (shown || !shown) continue;\n"
+    "label": "a one-child chain is not collapsed — src, then routes, then the file",
+    "files": ["public/chat.js"],
+    "from": "  while (at.dirs.size === 1 && !at.files.length) {",
+    "to": "  while (false) {"
   },
+  {
+    "label": "a chain collapses through a directory that also holds files, hiding them",
+    "files": ["public/chat.js"],
+    "from": "  while (at.dirs.size === 1 && !at.files.length) {",
+    "to": "  while (at.dirs.size === 1) {"
+  },
+  {
+    "label": "a file row prints its whole path again, as text where a folder should be",
+    "files": ["public/chat.js"],
+    "from": "'<span class=\"st-file-n\">' + esc(f.base) + '</span></button>';",
+    "to": "'<span class=\"st-file-n\">' + esc(f.name) + '</span></button>';"
+  },
+  {
+    "label": "folders are drawn and never open",
+    "files": ["public/chat.js"],
+    "from": "    if (shown) out += stCodeRows(step.node, keyBase, path + '/', depth + 1, open, openName);",
+    "to": ""
+  },
+  {
+    "label": "every folder draws its contents whether it is open or not",
+    "files": ["public/chat.js"],
+    "from": "    if (shown) out += stCodeRows(step.node, keyBase, path + '/', depth + 1, open, openName);",
+    "to": "    out += stCodeRows(step.node, keyBase, path + '/', depth + 1, open, openName);"
+  },
+  {
+    "label": "depth never grows, so every row sits at the same indent",
+    "files": ["public/chat.js"],
+    "from": "path + '/', depth + 1, open, openName);",
+    "to": "path + '/', depth, open, openName);"
+  },
+  {
+    "label": "a fold row never carries its depth",
+    "files": ["public/chat.js"],
+    "from": "    (depth ? ' style=\"--d:' + depth + '\"' : '') + '>' +\n    '<span class=\"st-code-caret\">'",
+    "to": "    '>' +\n    '<span class=\"st-code-caret\">'"
+  },
+  {
+    "label": "a file row never carries its depth",
+    "files": ["public/chat.js"],
+    "from": "      (depth ? ' style=\"--d:' + depth + '\"' : '') + '>' +\n      '<span class=\"st-file-ic\">'",
+    "to": "      '>' +\n      '<span class=\"st-file-ic\">'"
+  },
+  {
+    "label": "a folder's count is zero whatever it holds",
+    "files": ["public/chat.js"],
+    "from": "stDirCount(step.node), shown, depth, 'st-code-d')",
+    "to": "0, shown, depth, 'st-code-d')"
+  },
+  {
+    "label": "a folder counts only its own files, never the subtree",
+    "files": ["public/chat.js"],
+    "from": "  let n = node.files.length;\n  for (const child of node.dirs.values()) n += stDirCount(child);",
+    "to": "  let n = node.files.length;"
+  },
+  {
+    "label": "files are drawn above the folders, so a long list buries them",
+    "files": ["public/chat.js"],
+    "from": "  for (const entry of node.dirs) {",
+    "to": "  for (const f of node.files) {\n    out += '<button type=\"button\" class=\"st-file\" data-srcname=\"' + esc(f.name) + '\"><span class=\"st-file-n\">' + esc(f.base) + '</span></button>';\n  }\n  for (const entry of node.dirs) {"
+  },
+  {
+    "label": "the tree builder loses the basename, so a file row has no name",
+    "files": ["public/chat.js"],
+    "from": "    at.files.push({ ...f, base });",
+    "to": "    at.files.push({ ...f, base: f.name });"
+  },
+  {
+    "label": "every file lands at the root, so nothing is inside anything",
+    "files": ["public/chat.js"],
+    "from": "    for (const seg of segs) {\n      if (!at.dirs.has(seg)) at.dirs.set(seg, { dirs: new Map(), files: [] });\n      at = at.dirs.get(seg);\n    }",
+    "to": ""
+  },
+
   {
     "label": "the count is gone, so a shut folder is a heading over nothing",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "      '<span class=\"st-code-count\">' + mine.length + '</span></button>';",
-    "to": "      '</button>';"
+    "files": ["public/chat.js"],
+    "from": "    '<span class=\"st-code-count\">' + count + '</span></button>';",
+    "to": "    '</button>';"
   },
   {
-    "label": "the count is the whole list rather than the folder's own",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "' + mine.length + '</span></button>';",
-    "to": "' + list.length + '</span></button>';"
+    "label": "the fold row is a div, so it is unreachable by keyboard and announces nothing",
+    "files": ["public/chat.js"],
+    "from": "  return '<button type=\"button\" class=\"' + cls + (shown ? ' on' : '') +",
+    "to": "  return '<div class=\"' + cls + (shown ? ' on' : '') +"
   },
   {
-    "label": "the folder is a div, so it is unreachable by keyboard and announces nothing",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "    out += '<button type=\"button\" class=\"st-code-h'",
-    "to": "    out += '<div class=\"st-code-h'"
-  },
-  {
-    "label": "the folder never says whether it is open",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "'\" data-srcgroup=\"' + esc(g[0]) + '\" aria-expanded=\"' + (shown ? 'true' : 'false') + '\">'",
-    "to": "'\" data-srcgroup=\"' + esc(g[0]) + '\">'"
+    "label": "a fold row never says whether it is open",
+    "files": ["public/chat.js"],
+    "from": "'\" aria-expanded=\"' + (shown ? 'true' : 'false') + '\"' +",
+    "to": "'\"' +"
   },
   {
     "label": "the open class disagrees with the state it announces",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "    out += '<button type=\"button\" class=\"st-code-h' + (shown ? ' on' : '') +",
-    "to": "    out += '<button type=\"button\" class=\"st-code-h' +"
+    "files": ["public/chat.js"],
+    "from": "  return '<button type=\"button\" class=\"' + cls + (shown ? ' on' : '') +",
+    "to": "  return '<button type=\"button\" class=\"' + cls +"
   },
   {
-    "label": "the folder carries no key, so the click cannot say which one was pressed",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "'\" data-srcgroup=\"' + esc(g[0]) + '\"",
-    "to": "'\" data-srcgroup=\"\""
+    "label": "a fold row carries no key, so the click cannot say which one was pressed",
+    "files": ["public/chat.js"],
+    "from": "'\" data-srcfold=\"' + esc(key) + '\"",
+    "to": "'\" data-srcfold=\"\""
   },
   {
-    "label": "the caret is gone, so nothing says a heading opens",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "      '<span class=\"st-code-caret\">' + ic('chevronleft', 12) + '</span>' +\n",
+    "label": "the caret is gone, so nothing says a row opens",
+    "files": ["public/chat.js"],
+    "from": "    '<span class=\"st-code-caret\">' + ic('chevronleft', 12) + '</span>' +\n",
     "to": ""
   },
 
   {
     "label": "an empty Set is read as no choice at all — a folder the customer shut re-opens",
-    "files": [
-      "public/chat.js"
-    ],
+    "files": ["public/chat.js"],
     "from": "  if (chosen instanceof Set) return chosen;",
     "to": "  if (chosen instanceof Set && chosen.size) return chosen;"
   },
   {
     "label": "any truthy thing is taken as a stored choice",
-    "files": [
-      "public/chat.js"
-    ],
+    "files": ["public/chat.js"],
     "from": "  if (chosen instanceof Set) return chosen;",
     "to": "  if (chosen) return chosen;"
   },
   {
-    "label": "the default is hardcoded to the first group, so the file on screen can be in a shut folder",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "  return new Set([(holds && holds.kind) || ST_CODE_GROUPS[0][0]]);",
-    "to": "  return new Set([ST_CODE_GROUPS[0][0]]);"
+    "label": "the default opens the group and not the chain holding the file",
+    "files": ["public/chat.js"],
+    "from": "    keys.add(kind + '/' + path);\n",
+    "to": ""
   },
   {
-    "label": "a name that names nothing opens no folder at all",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "  return new Set([(holds && holds.kind) || ST_CODE_GROUPS[0][0]]);",
-    "to": "  return new Set(holds ? [holds.kind] : []);"
+    "label": "the default is hardcoded to the first group",
+    "files": ["public/chat.js"],
+    "from": "  const kind = (holds && holds.kind) || ST_CODE_GROUPS[0][0];",
+    "to": "  const kind = ST_CODE_GROUPS[0][0];"
   },
   {
-    "label": "the first draw opens everything, so the fold buys nothing",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "function stOpenGroups(files, openName, chosen) {\n  if (chosen instanceof Set) return chosen;",
-    "to": "function stOpenGroups(files, openName, chosen) {\n  if (chosen instanceof Set) return chosen;\n  return new Set(ST_CODE_GROUPS.map((g) => g[0]));"
+    "label": "a name that names nothing opens no group at all",
+    "files": ["public/chat.js"],
+    "from": "  const kind = (holds && holds.kind) || ST_CODE_GROUPS[0][0];\n  const keys = new Set([kind]);",
+    "to": "  const kind = (holds && holds.kind) || ST_CODE_GROUPS[0][0];\n  const keys = new Set(holds ? [kind] : []);"
+  },
+  {
+    "label": "the chain walk steps one segment at a time, so a collapsed folder is keyed wrong",
+    "files": ["public/chat.js"],
+    "from": "    i += step.label.split('/').length;",
+    "to": "    i += 1;"
   },
   {
     "label": "the tree asks its own question instead of the one reader",
-    "files": [
-      "public/chat.js"
-    ],
+    "files": ["public/chat.js"],
     "from": "  const open = stOpenGroups(list, openName, chosen);",
     "to": "  const open = chosen instanceof Set ? chosen : new Set([ST_CODE_GROUPS[0][0]]);"
   },
 
   {
     "label": "the click computes the fold and never stores it",
-    "files": [
-      "public/chat.js"
-    ],
+    "files": ["public/chat.js"],
     "from": "    siteCodeOpenGroups = now;\n",
     "to": ""
   },
   {
     "label": "the toggle only ever adds, so a folder opens once and never shuts",
-    "files": [
-      "public/chat.js"
-    ],
+    "files": ["public/chat.js"],
     "from": "    if (now.has(k)) now.delete(k); else now.add(k);",
     "to": "    now.add(k);"
   },
   {
-    "label": "the fold starts from nothing rather than from the derived default",
-    "files": [
-      "public/chat.js"
-    ],
+    "label": "the fold starts from nothing rather than from the derived chain",
+    "files": ["public/chat.js"],
     "from": "    const now = new Set(stOpenGroups(files, open.name, siteCodeOpenGroups));",
     "to": "    const now = new Set(siteCodeOpenGroups || []);"
   },
   {
-    "label": "the folders are never wired, so the tree is drawn and nothing opens",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "  host.querySelectorAll('[data-srcgroup]').forEach((b) => b.onclick = () => {",
+    "label": "the folds are never wired, so the tree is drawn and nothing opens",
+    "files": ["public/chat.js"],
+    "from": "  host.querySelectorAll('[data-srcfold]').forEach((b) => b.onclick = () => {",
     "to": "  [].forEach((b) => b.onclick = () => {"
   },
   {
     "label": "the tree is drawn without the customer's folds",
-    "files": [
-      "public/chat.js"
-    ],
+    "files": ["public/chat.js"],
     "from": "  const tree = stCodeTree(files, open.name, siteCodeOpenGroups);",
     "to": "  const tree = stCodeTree(files, open.name, null);"
   },
 
   {
     "label": "a fold goes back to the network — a blip replaces the panel with an apology",
-    "files": [
-      "public/chat.js"
-    ],
+    "files": ["public/chat.js"],
     "from": "    siteCodeOpenGroups = now;\n    drawSiteCode(src);",
     "to": "    siteCodeOpenGroups = now;\n    loadSiteCode(site);"
   },
   {
     "label": "the file picker goes back to the network, as it did before this",
-    "files": [
-      "public/chat.js"
-    ],
+    "files": ["public/chat.js"],
     "from": "siteCodeOpen = b.dataset.srcname; drawSiteCode(src);",
     "to": "siteCodeOpen = b.dataset.srcname; loadSiteCode(site);"
   },
   {
     "label": "the fetch never hands its answer on, so the tab loads for ever",
-    "files": [
-      "public/chat.js"
-    ],
+    "files": ["public/chat.js"],
     "from": "  drawSiteCode(src);\n}\n// THE DRAW IS NOT THE FETCH",
     "to": "}\n// THE DRAW IS NOT THE FETCH"
   },
-  {
-    "label": "the draw looks the host up once and keeps it, so a redraw writes into a stage nobody is on",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "function drawSiteCode(src) {\n  const host = document.getElementById('stCode'); if (!host) return;",
-    "to": "function drawSiteCode(src) {\n  const host = document.getElementById('stCode') || { innerHTML: '', querySelectorAll: () => [] };"
-  },
 
   {
-    "label": "the chevron never turns, so a folder looks shut whether it is or not",
-    "files": [
-      "public/styles.css"
-    ],
-    "from": ".st-code-h.on .st-code-caret { transform: rotate(-90deg); }",
-    "to": ".st-code-h.on .st-code-caret { transform: none; }"
+    "label": "a folder's caret never turns, so it looks shut over its own open contents",
+    "files": ["public/styles.css"],
+    "from": ".st-code-h.on .st-code-caret, .st-code-d.on .st-code-caret { transform: rotate(-90deg); }",
+    "to": ".st-code-h.on .st-code-caret { transform: rotate(-90deg); }"
   },
   {
-    "label": "the folder does not read as clickable",
-    "files": [
-      "public/styles.css"
-    ],
-    "from": "border-radius: 8px; padding: .4rem .5rem; cursor: pointer; }\n.st-code-h:hover",
-    "to": "border-radius: 8px; padding: .4rem .5rem; }\n.st-code-h:hover"
+    "label": "no caret turns at all",
+    "files": ["public/styles.css"],
+    "from": "transform: rotate(-90deg); }",
+    "to": "transform: none; }"
   },
   {
-    "label": "the folder gives no sign it can be pressed",
-    "files": [
-      "public/styles.css"
-    ],
-    "from": ".st-code-h:hover { background: var(--panel-2); color: var(--text); }\n",
+    "label": "a folder does not read as clickable",
+    "files": ["public/styles.css"],
+    "from": ".st-code-d:hover { background: var(--panel-2); color: var(--text); }\n",
     "to": ""
   },
   {
+    "label": "nothing indents a nested row, so the tree draws flat",
+    "files": ["public/styles.css"],
+    "from": ".st-code-d, .st-file { padding-left: calc(.55rem + var(--d, 0) * .85rem); }",
+    "to": ""
+  },
+  {
+    "label": "the indent ignores the depth, so every row sits at one step",
+    "files": ["public/styles.css"],
+    "from": "padding-left: calc(.55rem + var(--d, 0) * .85rem); }",
+    "to": "padding-left: calc(.55rem + 1 * .85rem); }"
+  },
+  {
     "label": "the folder name truncates instead of wrapping",
-    "files": [
-      "public/styles.css"
-    ],
+    "files": ["public/styles.css"],
     "from": ".st-code-hn { min-width: 0; line-height: 1.3; }",
     "to": ".st-code-hn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"
   },
   {
-    "label": "the name cannot shrink, so the count is pushed off the row",
-    "files": [
-      "public/styles.css"
-    ],
-    "from": ".st-code-hn { min-width: 0; line-height: 1.3; }",
-    "to": ".st-code-hn { line-height: 1.3; }"
-  },
-  {
     "label": "the counts no longer line up at the right",
-    "files": [
-      "public/styles.css"
-    ],
+    "files": ["public/styles.css"],
     "from": ".st-code-count { margin-left: auto;",
     "to": ".st-code-count { margin-left: .4rem;"
   },
   {
     "label": "two folded folders run together — the spacing rule only knows heading-after-file",
-    "files": [
-      "public/styles.css"
-    ],
+    "files": ["public/styles.css"],
     "from": ".st-code-h + .st-code-h, .st-file + .st-code-h { margin-top: .5rem; }",
     "to": ".st-file + .st-code-h { margin-top: .5rem; }"
   },
 
   {
-    "label": "THE STATE BEFORE THIS: a file no checkout has is shown as shared with every site",
-    "files": [
-      "builder/gen-foundation.mjs"
-    ],
+    "label": "A FILE NO CHECKOUT HAS is shown as shared with every site",
+    "files": ["builder/gen-foundation.mjs"],
     "from": "  \"src/routes/__root.tsx\",\n  \"src/styles.css\",",
     "to": "  \"src/routes/__root.tsx\",\n  \"src/routeTree.gen.ts\",\n  \"src/styles.css\","
   },
   {
     "label": "a DIFFERENT generated file enters the shared set — the rule is keyed on one name",
-    "files": [
-      "builder/gen-foundation.mjs"
-    ],
+    "files": ["builder/gen-foundation.mjs"],
     "from": "  \"src/routes/__root.tsx\",\n  \"src/styles.css\",",
     "to": "  \"src/routes/__root.tsx\",\n  \"src/__all_entry.ts\",\n  \"src/styles.css\","
   }

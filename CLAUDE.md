@@ -853,12 +853,85 @@ that ASKS THE SERVER is.
 - **Not proven live.** `public/` only — no image input moves, so **no container
   roll and no 15–20 minute hold** — and `chat.js` is cached, so a hard refresh is
   part of it reaching anybody.
-- **OPEN, THE OWNER'S QUESTION AND NOT ANSWERED HERE: the groups are by KIND and
-  nothing nests inside them.** `-parts/` is repeated on nine rows and `public/`
-  on four, as flat text where a folder should be — and the display rule already
-  strips `src/routes/` in the customer's own groups, so the tree shows HALF a
-  hierarchy. Nesting by real directory under the four group headings is the
-  change; it removes every repeated prefix and is unstarted.
+---
+
+### AND THE FOLDERS ARE REAL FOLDERS (2026-09-11, owner, drawing `1. / 1.a. /
+2. Etc etc etc`: *"Why"*)
+
+The groups say what a file IS to the customer; they never said where it lives,
+and the flat list underneath printed the path as TEXT — `-parts/` repeated on
+nine rows, `public/` on four. Worse, the display rule stripped `src/routes/` in
+the customer's own groups and kept it everywhere else, so the tree showed HALF a
+hierarchy: a path fragment where a folder should be. The groups stay as the top
+level and each one nests by real directory inside.
+
+- **THE SPECIAL CASE IS DELETED RATHER THAN EXTENDED.** A folder row is a folder
+  and a file row is its own name; nothing strips a prefix, because the folders
+  above it carry the rest. `data-srcname` is still the FULL path, because that is
+  what the click looks a file up by and two folders can hold the same basename.
+- **A CHAIN OF ONE-CHILD DIRECTORIES IS ONE ROW** — `src/routes/-parts`, never
+  `src` then `routes` then `-parts`, which is three clicks and two rows of
+  nothing to reach nine files. What VS Code calls compact folders, and it earns
+  its place here because OUR paths are deep and narrow: every page and every
+  component lives under `src/routes/`, so without it the Pages group is a ladder
+  holding one file at the bottom.
+- **ONE COLLAPSE RULE, ASKED IN BOTH PLACES.** The renderer walks the tree and
+  `stOpenGroups` walks it again to name the folders holding the open file; two
+  copies of "where does this chain stop" would drift, and the failure is a folder
+  drawn under a key the toggle cannot match — a row that does nothing when
+  clicked. The guards derive their expected keys through the same reader for the
+  same reason.
+- **THE DEFAULT IS THE WHOLE CHAIN, not just the group.** Opening `page` alone
+  would reveal the folder and stop there, leaving the file on screen one click
+  away in the explorer that is showing it.
+- **A FOLDER SAYS HOW MANY ARE UNDER IT AT ANY DEPTH**, counting the subtree
+  rather than its own files: `src` holding nothing but `lib/` still says 5.
+- **ONE HANDLER FOR A GROUP AND A FOLDER**, because they are the same control at
+  two depths: a key that is in the open set or not. The attribute is
+  `data-srcfold` now rather than `data-srcgroup` — it stopped meaning "a group"
+  the moment folders folded too.
+- **DEPTH IS ONE NUMBER THE ROW CARRIES (`--d`), never a wrapper per level.**
+  Nested divs put the indent in the MARKUP, where a folded branch leaves an empty
+  box behind and a guard has to count boxes to know a depth.
+
+**TWO FAULTS IN MY OWN FIRST CUT, AND NEITHER WAS VISIBLE TO A TEST I HAD —
+both found by looking at the render.** (1) Every file drew FLUSH LEFT under the
+folders holding it: `.st-file` sets `padding` as a SHORTHAND, which rewrites
+`padding-left`, so the indent rule written above it lost on source order alone.
+It sits below both now and says why. (2) Every FOLDER drew a shut caret over its
+own open contents, because the rotate rule named `.st-code-h` and not
+`.st-code-d` — the one state a disclosure triangle exists to report, reported
+wrong. Both are guarded, asked of both classes.
+
+**AND THE DEPTH GUARD'S FIRST DRAFT READ A CORRECTLY NESTED TREE AS FLAT.** Its
+helper sliced the row from `<button` to the attribute it had searched for — and
+`style` is written AFTER `data-srcfold`, so no row had a depth and every
+assertion failed against correct code. The recorded window trap, in a helper
+written that minute; it takes the whole opening tag now.
+
+- **Guards**: `test/site-source.test.mjs` 43 → 44, and the whole renderer is
+  carried out of `chat.js` rather than stubbed — the tree builder, the collapse
+  rule, the counter, the fold reader and both row writers — because a stub for
+  any one of them would leave a case passing against a rule this file wrote
+  itself. New: the nesting and the collapse driven, a group's root file proved to
+  have no folder, a folder's count at four depths, and **depth read off the row**
+  for the group, a folder, a folder inside it, a file under that, a file beside a
+  folder and a group's own root file — six positions, because an indent that is
+  right for one is not evidence about the rest.
+- **Nine mutants proven red before green, and ONE SURVIVED**: nothing asserted a
+  FOLDER's count, only the group headings, so a folder could report 0 while
+  holding nine files. That is the "a folded folder must be honest" rule one level
+  down, and it had no driver. Closed and re-run to a kill.
+- Full suite **6,025**.
+- **Rendered: `docs/edits/code-tab-project-tree.png`** — as it opens and opened
+  up, through the REAL readers carried out of `chat.js` and its own icon table,
+  with the second state's open set DERIVED through `stOpenGroups` rather than
+  typed, since a hand-written key is a second copy of the collapse rule.
+- **THE SWEEP IS OUTSTANDING** (47 mutants, spec written, every anchor proved to
+  resolve exactly once and change the file). It runs before the merge.
+- **Not proven live.** `public/` only — no image input moves, so no container
+  roll and no hold — and `chat.js` is cached, so a hard refresh is part of it
+  reaching anybody.
 
 ---
 

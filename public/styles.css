@@ -2629,7 +2629,11 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    rotates it to point down, which is the disclosure triangle every file tree
    has. A second icon entry would be a second glyph to keep in step. */
 .st-code-caret { display: flex; color: var(--muted); transition: transform .14s ease; }
-.st-code-h.on .st-code-caret { transform: rotate(-90deg); }
+/* BOTH KINDS OF FOLD, because a group heading and a folder are the same control
+   at two depths. Naming only `.st-code-h` here left every folder drawing a shut
+   caret over its own open contents — the one state a disclosure triangle exists
+   to report, reported wrong. */
+.st-code-h.on .st-code-caret, .st-code-d.on .st-code-caret { transform: rotate(-90deg); }
 /* THE NAME WRAPS, IT IS NEVER TRUNCATED. The column is 210px and the caret and
    the count take ~40 of it, so "SHARED WITH EVERY SITE" no longer fits on one
    line — and an ellipsis there reads as a heading somebody cut, where two lines
@@ -2639,6 +2643,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* THE COUNT, hard right. It is what makes a FOLDED group honest rather than
    hidden: "Made by the build 4" says there are four things in there. */
 .st-code-count { margin-left: auto; font-variant-numeric: tabular-nums; letter-spacing: 0; opacity: .8; }
+/* A FOLDER INSIDE A GROUP (owner, 2026-09-11, drawing `1. / 1.a. / 2.`). It
+   folds exactly as a group heading does and shares the caret and the count, but
+   it is a PATH rather than a label: sentence case, not the tracked uppercase the
+   four group names wear, so a reader can tell "Components" from `src/routes`. */
+.st-code-d { display: flex; align-items: center; gap: .4rem; width: 100%; text-align: left; font: inherit; font-size: .8rem; color: var(--muted); background: none; border: none; border-radius: 8px; padding: .4rem .55rem; cursor: pointer; }
+.st-code-d:hover { background: var(--panel-2); color: var(--text); }
+.st-code-d .st-code-hn { font-variant-numeric: normal; }
 /* A GROUP HEADING AFTER THE FIRST needs air above it: four groups run together
    read as one long list, which is the thing this tree exists to stop. Both
    spellings, because a folded group puts two headings side by side where an
@@ -2656,6 +2667,16 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-file:hover, .st-file.on { background: var(--panel-2); color: var(--text); }
 .st-file-ic { display: flex; color: var(--muted); }
 .st-file-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* DEPTH IS ONE NUMBER THE ROW CARRIES, never a wrapper element per level. Nested
+   divs would put the indent in the MARKUP, where a folded branch leaves an empty
+   box behind and a guard has to count boxes to know a depth; `--d` keeps the tree
+   one flat list of rows that each say how deep they are.
+   AFTER `.st-file`, AND THAT IS THE WHOLE OF WHY IT WORKS: `.st-file` sets
+   `padding` as a SHORTHAND, which rewrites `padding-left` — so the same rule
+   written above it lost to it on source order alone and every file in the tree
+   drew flush left under folders it was supposed to sit inside. Equal specificity,
+   later wins; keep this below both. */
+.st-code-d, .st-file { padding-left: calc(.55rem + var(--d, 0) * .85rem); }
 .st-code-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .st-code-bar { display: flex; align-items: center; justify-content: space-between; padding: .5rem .8rem; border-bottom: 1px solid var(--line); }
 .st-code-fname { font-size: .8rem; color: var(--text); font-family: ui-monospace, monospace; }
