@@ -29,6 +29,7 @@ import {
   graphOrder, splitGraph, needKnown, permits, designInGraph,
 } from "../builder/design-graph.mjs";
 import { agentMark } from "../builder/design-waves.mjs";
+import { runFanout } from "../builder/model-fanout.mjs";
 import { designGraphFor, designGraphEveryone } from "../builder/edit-job.mjs";
 import { makeTrace } from "../builder/trace.mjs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
@@ -74,6 +75,24 @@ const agentOf = (req) => {
 };
 
 /**
+ * A tool carrying exactly the fields a small graph answers, with a stated
+ * `required` list.
+ *
+ * `wavesUsable` — reused here rather than re-decided — asks the TOOL which
+ * fields a complete design needs, so a three-agent fixture run against the REAL
+ * tool is missing fourteen required fields and fails for a reason the case is
+ * not about. Derived from the graph handed in, so the two cannot drift.
+ */
+const toolFor = (graph, required = []) => ({
+  name: "design_schema",
+  input_schema: {
+    type: "object",
+    properties: Object.fromEntries(graph.flatMap((a) => a.fields).map((f) => [f, { type: "string", description: "x" }])),
+    required,
+  },
+});
+
+/**
  * A graph run against gates the test opens, with no timers anywhere.
  *
  * NO `setTimeout`, DELIBERATELY: two concurrency guards one file over used one,
@@ -81,7 +100,7 @@ const agentOf = (req) => {
  * a guard reporting correct code as broken, which this repository rates worse
  * than a miss.
  */
-function driven({ fail = [], graph = DESIGN_GRAPH } = {}) {
+function driven({ fail = [], graph = DESIGN_GRAPH, clock = null, tool = TOOL } = {}) {
   const started = [];
   const parked = new Map();
   let t = 0;
@@ -90,10 +109,15 @@ function driven({ fail = [], graph = DESIGN_GRAPH } = {}) {
     started.push(name);
     parked.set(name, { res, rej, req });
   });
+  // THE CLOCK IS THE TEST'S WHEN A CASE ASKS FOR ONE. The default ticks by ten
+  // per read, which is enough for "a number arrived" and useless for "which
+  // number" — and every timing question here is the second kind. A case that
+  // asserts arithmetic hands in a clock it moves itself, which is `split-timing`
+  // one file over and, like it, uses NO timers.
   const p = designInGraph(
-    { tool: TOOL, system: "s", brief: "b", model: "m", maxTokens: 1, graph },
+    { tool, system: "s", brief: "b", model: "m", maxTokens: 1, graph },
     call,
-    () => (t += 10),
+    clock || (() => (t += 10)),
   );
   // A REJECTION OBSERVED ONE TICK LATE READS TO THE RUNNER AS UNHANDLED, and
   // the failing cases here MUST let the design reject while they drive the
@@ -113,9 +137,22 @@ function driven({ fail = [], graph = DESIGN_GRAPH } = {}) {
       else g.res(answer(Object.fromEntries(fields.map((f) => [f, VAL[f]]))));
       await flush(); await flush();
     },
-    /** Answer with a tool call that declares nothing. */
+    /** Answer with NO tool call at all — the model declined the tool. */
     async silent(name) {
       parked.get(name).res({ stop_reason: "end_turn", usage: {}, content: [{ type: "text", text: "no" }] });
+      await flush(); await flush();
+    },
+    /**
+     * Answer with a tool call whose input declares nothing.
+     *
+     * A DIFFERENT ANSWER FROM `silent`, AND THE DIFFERENCE IS THE WHOLE POINT.
+     * No tool call is a call that FAILED — `readWaveAnswer` says `ok: false` —
+     * and its dependents are rightly skipped. A tool call declaring no fields is
+     * the model using the tool to say "nothing here", which is the correct
+     * answer for four of the eight optional fields and must not block anybody.
+     */
+    async declared(name, input = {}) {
+      parked.get(name).res(answer(input));
       await flush(); await flush();
     },
     async settleAll() {
@@ -530,4 +567,240 @@ test("the image carries the module, because the container runs the Worker's own 
   // import with MODULE_NOT_FOUND and reaches the customer as "our build service
   // was restarting" — the sentence that has already hidden two other causes.
   assert.match(read("Dockerfile"), /builder\/design-graph\.mjs/, "the image does not copy the graph module");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE NUMBERS THE GRAPH EXISTS TO PRODUCE
+//
+// Every case above proves the graph is SHAPED right — who starts, who waits,
+// who is told what. None of them read a number, and the numbers are the whole
+// point: one agent per field is how a per-FIELD time becomes measurable at all,
+// and `look`'s 132,394 ms was four fields sharing one call. A sweep found six
+// mutants alive in this block, every one a driver gap rather than the product's
+// — the guards tested what the change added and not what it carries.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A clock the test moves by hand. No timers — see `driven`. */
+function handClock() {
+  let at = 1000;                       // NOT zero: an absolute reading and an
+  const c = () => at;                  // elapsed one are the same number at 0,
+  c.to = (v) => { at = v; };           // which is how a wrong origin passes.
+  return c;
+}
+
+test("the graph's own numbers: per agent, summed, and the wall clock of the whole run", async () => {
+  const clock = handClock();
+  // TWO FREE AGENTS AND A DEPENDENT, so the row has both shapes in it: two that
+  // overlap and one that cannot.
+  const g = [
+    { name: "theme", fields: ["theme"] },
+    { name: "components", fields: ["components"] },
+    { name: "shape", fields: ["shape"], needs: ["components"] },
+  ];
+  const d = driven({ graph: g, clock });
+  await flush();
+  // Both free agents started at 1000. `components` answers at 1060, `theme` at
+  // 1200 — so they really overlap, and `shape` cannot start before 1060.
+  clock.to(1060); await d.finish("components");
+  clock.to(1140); await d.finish("shape");
+  clock.to(1200); await d.finish("theme");
+  clock.to(1200);
+  const out = await d.p;
+
+  // ONE NUMBER PER AGENT, UNDER ITS OWN NAME. With one agent per field this IS
+  // the per-field time, which is the whole reason the graph is worth running.
+  assert.deepEqual(out.shape.eachMs, { components: 60, shape: 80, theme: 200 },
+    "the per-agent times are wrong, missing, or all filed under one name");
+  // THE PARTS SUM TO THE WHOLE — the tie that stops the two drifting.
+  assert.equal(out.shape.agentMs, 340, "the sum is not the sum of the parts");
+  // AND THE WALL CLOCK IS THE ELAPSED, NOT AN ABSOLUTE READING. `at` starts at
+  // 1000 here precisely so a `waveMs` read from the origin answers 1200 and is
+  // caught; at an origin of zero the two are indistinguishable.
+  assert.equal(out.shape.waveMs, 200, "the wall clock was read from an absolute origin, or after the agents");
+  // THE OVERLAP, which is what the owner's barrier drawing is about: 340 of
+  // work done in 200 of wall clock.
+  assert.equal(out.shape.agentMs - out.shape.waveMs, 140);
+  assert.equal(out.shape.agents, 3, "`agents` is not the count of agents that RAN");
+  assert.equal(out.shape.graph, true, "the row cannot say which designer ran");
+});
+
+test("a failed agent's time counts, it is named, and its dependents are counted as skipped", async () => {
+  const clock = handClock();
+  const g = [
+    { name: "components", fields: ["components"] },
+    { name: "shape", fields: ["shape"], needs: ["components"] },
+    { name: "behavior", fields: ["behavior"], needs: ["shape"] },
+  ];
+  const d = driven({ graph: g, fail: ["components"], clock });
+  await flush();
+  // A FAILED AGENT SPENT ITS TIME. The call was made, the provider was paid for
+  // whatever it produced, and a row that hides it under-reports every build that
+  // had a failure in it.
+  clock.to(1090); await d.finish("components");
+  clock.to(1090);
+  const out = await d.p.then((o) => o, (e) => ({ threw: e.message, status: e.status }));
+  assert.ok(out.threw, "a lost required field should have failed the design");
+  assert.equal(out.status, 503);
+});
+
+test("a failed need is NAMED on the row, and `agents` counts only what ran", async () => {
+  const clock = handClock();
+  // The failing agent's field is OPTIONAL, so the design still succeeds and the
+  // row can be read — a required one throws and the shape never comes back.
+  const g = [
+    { name: "theme", fields: ["theme"] },
+    { name: "extras", fields: ["tsx"] },
+    { name: "css", fields: ["css"], needs: ["extras"] },
+  ];
+  const d = driven({ graph: g, fail: ["extras"], clock, tool: toolFor(g, ["theme"]) });
+  await flush();
+  clock.to(1040); await d.finish("extras");
+  clock.to(1100); await d.finish("theme");
+  clock.to(1100);
+  const out = await d.p;
+  assert.ok(out.input, "an optional agent failing took the whole design down");
+  // BLOCKED IS A THIRD OUTCOME beside answered and failed, and it needs its own
+  // word: "css was skipped because extras died" and "css answered nothing" are
+  // different facts needing different moves.
+  assert.deepEqual(out.shape.blocked, ["css:extras"], "the row cannot say who was skipped, or after what");
+  assert.equal(out.shape.agents, 2, "`agents` counted the plan rather than the agents that ran");
+  // AND THE FAILED AGENT'S TIME IS STILL IN THE SUM. It was spent.
+  assert.equal(out.shape.eachMs.extras, 40, "a failed agent's time was thrown away");
+  assert.equal(out.shape.agentMs, 140);
+});
+
+test("an agent that ANSWERS NOTHING does not block its dependents — only a failure does", async () => {
+  // THE RULE THIS DRIVES: a need is satisfied when its agent did not FAIL, never
+  // when it answered something. Four of the eight tool fields are absent on
+  // nearly every site by their own instructions, so "answered nothing" is the
+  // ordinary case and reading it as a failed need would block real work behind
+  // an agent that was right.
+  const g = [
+    { name: "theme", fields: ["theme"] },
+    { name: "css", fields: ["css"], needs: ["theme"] },
+  ];
+  const d = driven({ graph: g, tool: toolFor(g, []) });
+  await flush();
+  // THE TOOL WAS USED AND NO FIELD DECLARED. Not `silent`, which is a model that
+  // declined the tool altogether and really is a failed call.
+  await d.declared("theme", {});
+  assert.ok(d.started.includes("css"), "an agent that declared nothing blocked its dependent");
+  await d.declared("css", {});
+  const out = await d.p;
+  assert.ok(!(out.shape.blocked || []).length, "declaring nothing was recorded as a failure");
+  assert.equal(out.shape.agents, 2);
+
+  // AND THE OTHER SHAPE IS STILL A FAILURE. A model that answers prose instead
+  // of calling the tool has not answered, and its dependents cannot proceed —
+  // the two must not collapse into one rule.
+  const e = driven({ graph: g, tool: toolFor(g, []) });
+  await flush();
+  await e.silent("theme");
+  assert.ok(!e.started.includes("css"), "a dependent ran behind an agent that never called the tool");
+  const outE = await e.p;
+  assert.deepEqual(outE.shape.blocked, ["css:theme"]);
+});
+
+test("the permit is released when a call REJECTS, so the graph does not deadlock behind the bound", async () => {
+  // WITHOUT THE `finally` THE PERMIT LEAKS ON A THROW. Nothing shows until more
+  // agents than the bound want a permit — `MAX_GRAPH_INFLIGHT` is 8 and the real
+  // graph has 12 free agents, so this is the ordinary case on a real build, and
+  // the symptom is the hang every wall in this module exists to prevent.
+  const wide = [];
+  for (let i = 0; i < MAX_GRAPH_INFLIGHT + 3; i++) wide.push({ name: "a" + i, fields: ["f" + i] });
+  const started = [];
+  const parked = new Map();
+  let t = 0;
+  const p = designInGraph(
+    { tool: toolFor(wide, []), system: "s", brief: "b", model: "m", maxTokens: 1, graph: wide },
+    (req) => new Promise((res, rej) => {
+      const n = Object.keys(req.tools[0].input_schema.properties)[0].replace("f", "a");
+      started.push(n); parked.set(n, { res, rej });
+    }),
+    () => (t += 10),
+  );
+  p.catch(() => {});
+  for (let i = 0; i < 6; i++) await flush();
+  assert.equal(started.length, MAX_GRAPH_INFLIGHT, "the bound is not being applied at all");
+  // Every one of the first eight REJECTS. If the permit leaks, the remaining
+  // three never start and this promise never settles.
+  for (const n of [...parked.keys()]) { parked.get(n).rej(new Error("no")); }
+  for (let i = 0; i < 8; i++) await flush();
+  assert.equal(started.length, MAX_GRAPH_INFLIGHT + 3,
+    "agents queued behind the bound never started — the permit was not released");
+
+  // AND WHY THE `finally` AROUND THE CALL READS AS DEAD CODE, measured rather
+  // than reasoned about: `runFanout` catches every call, so it does not reject
+  // and the release would run without it. Both throwing shapes are driven,
+  // because "it never rejects" is the claim the wall is redundant WITH, and an
+  // unmeasured claim is how the next session deletes a wall nothing needs.
+  const threw = await runFanout([{ a: 1 }], () => { throw new Error("sync"); });
+  assert.equal(threw[0].state, "failed", "a throwing call rejected the fan-out");
+  const rejected = await runFanout([{ a: 1 }], () => Promise.reject(new Error("async")));
+  assert.equal(rejected[0].state, "failed", "a rejecting call rejected the fan-out");
+});
+
+test("a cut-off answer throws `truncated`; a provider fault keeps its status", async () => {
+  // THE THREE FAILURES WEAR DIFFERENT SENTENCES because they need different
+  // moves: "try describing fewer things", "they are overloaded", and "we are
+  // sending something they reject". Flattened to one message, a real 429 reads
+  // as the customer's fault.
+  const g = [{ name: "theme", fields: ["theme"] }];
+  {
+    const d = driven({ graph: g });
+    await flush();
+    d.parked.get("theme").res({ stop_reason: "max_tokens", usage: {}, content: [] });
+    await flush(); await flush();
+    const e = await d.p.then(() => null, (err) => err);
+    assert.ok(e, "a cut-off design was handed on as usable");
+    assert.equal(e.truncated, true, "a cut-off answer did not wear the single call's own flag");
+  }
+  {
+    const d = driven({ graph: g, fail: ["theme"] });
+    await flush();
+    await d.finish("theme");
+    const e = await d.p.then(() => null, (err) => err);
+    assert.equal(e.status, 503, "the provider's status was flattened away");
+  }
+});
+
+test("the usage is SUMMED across every agent, never taken from one", async () => {
+  // ONE USAGE OBJECT, and it is sound here for the reason the waves give: every
+  // agent goes to the same model, so one rate column prices all of them — and
+  // one object means ONE rounding where sixteen would charge `pageCredits`'
+  // floor per agent.
+  const g = [
+    { name: "theme", fields: ["theme"] },
+    { name: "components", fields: ["components"] },
+  ];
+  const d = driven({ graph: g });
+  await flush();
+  const use = (n, input, u) => {
+    d.parked.get(n).res({ stop_reason: "tool_use", usage: u, content: [{ type: "tool_use", input }] });
+  };
+  use("theme", { theme: VAL.theme }, { input_tokens: 10, output_tokens: 3 });
+  use("components", { components: VAL.components }, { input_tokens: 40, output_tokens: 7 });
+  await flush(); await flush();
+  const out = await d.p;
+  assert.equal(out.usage.in, 50, "the input tokens are one agent's, not the sum");
+  assert.equal(out.usage.out, 10, "the output tokens are one agent's, not the sum");
+  assert.equal(out.usage.model, "m", "the usage cannot be priced — it names no model");
+});
+
+test("the Worker's wrapper sends the shared cached prefix and the build's own clock", () => {
+  // THE PREFIX IS SHARED BY IDENTITY, NOT BY COINCIDENCE. `designKit` is ONE
+  // chooser answering both the tool and the system text for all three designers;
+  // a second ternary here would make "byte for byte" a claim in a comment and
+  // false the first time either variant moved — with a cold cached prefix per
+  // build as the failure nobody sees.
+  const at = WCODE.indexOf("const designSiteGraph =");
+  assert.ok(at > 0, "the graph wrapper is gone");
+  const end = WCODE.indexOf("\n);", at);
+  assert.ok(end > at, "the wrapper's closing landmark is gone — re-derive this window");
+  const body = WORKER.slice(at, end);
+  assert.match(body, /\.\.\.designKit\(frontendOnly\)/, "the wrapper builds its own tool instead of asking the chooser");
+  assert.ok(!/\btool:\s/.test(code(body)), "the wrapper names a tool of its own beside the chooser's");
+  // AND THE BUILD'S CLOCK. Without it the design agents run on no deadline at
+  // all, which is a build that cannot be killed by its own budget.
+  assert.match(body, /callBuilderModel\(env,\s*req,\s*budget\)/, "the wrapper drops the build's clock");
 });

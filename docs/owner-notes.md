@@ -4622,3 +4622,67 @@ whose own field is optional. So if the theme agent dies, css is simply skipped.
 If `components` dies, `shape` and `behavior` both fall over and the design is
 genuinely done for. Worth knowing which failures are survivable before building
 it rather than after.
+
+## 2026-09-11 — built it: the design step is the graph you drew
+
+Your drawing, in code. `builder/design-graph.mjs` — **sixteen agents, twelve of
+them starting on the first second, one chain three long.** No waves, no
+barriers: each agent starts the moment its own input lands.
+
+**It's switched OFF.** Nobody is on it — not even your account, which is
+different from the last two splits. Those two named your account in the default
+because each had already been proved live; this one has never designed a site,
+so the default opens nothing and turning it on is a deliberate step.
+
+### What's in it
+
+| starts immediately | waits for |
+|---|---|
+| the name (brand + slug + description together), theme, components, pages, kind, purpose, action, images, favicon, the optional extras (tsx/qr/3D), language, web search | wordmark → the name · css → the theme · shape → the components · behavior → the shape |
+
+**The name stays as one agent on purpose.** A slug is the brand as an address
+and a description is the brand in one line — three agents reading the same brief
+would each invent a different business name. Four nameless-CRM runs already
+taught us what that costs.
+
+**The rarely-used optional fields share one agent.** tsx, QR and 3D are absent
+on nearly every site by their own instructions, so four separate agents would
+each buy a model call to answer "nothing". One call saves three and loses no
+time, because "nothing" comes back instantly either way.
+
+### What I had to be careful about
+
+**A loop in the arrows doesn't crash — it HANGS.** Two agents waiting on each
+other just sit there until the job clock kills the build, with everything
+charged and nothing to show. So the graph is checked before it runs, and
+anything wrong with it falls back to the way builds work today.
+
+**Each agent is told only what it asked for**, not everything that happened to
+finish first. Otherwise the same brief gives different prompts on two runs, and
+a build that came out well can't be reproduced.
+
+**A failed agent doesn't hang the ones behind it** — they're skipped and named
+on the row, so you can see "shape was skipped because components died" instead
+of a build that stops with no explanation.
+
+### The honest bit about my own tests
+
+The sweep found **seventeen holes**, and thirteen of them were the same mistake:
+my tests proved the graph was *shaped* right — who starts, who waits, who gets
+told what — and never read a single number it produces. The numbers are the
+whole point of this change. Fixed, and the sweep is now **69 mutants, 67 killed,
+nothing survived**. Suite 5,937.
+
+The other four turned out to be walls that a second wall already covers — I
+measured that over 68,000 generated graphs rather than guessing, wrote in the
+code that the doubling-up is deliberate, and replaced each with a test that does
+bite.
+
+### What happens next
+
+**Stage B is one build with the flag on, on your account.** That's the only
+thing that produces a time for every single field — which is what we'd need
+before regrouping anything. Turning it on is one secret in GitHub and a
+redeploy; I can't fire a build from here, so it's your button.
+
+Nothing about the site a customer gets changes either way.

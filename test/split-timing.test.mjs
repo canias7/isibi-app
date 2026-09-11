@@ -993,6 +993,22 @@ test("THE CHAIN: a driven design's per-agent numbers reach a real trace, through
   const plain = one.done().steps.at(-1);
   assert.deepEqual(plain, { s: "design", ms: 0, out: 7, in: 5 },
     "a single-call design left wave numbers on its row");
+
+  // AND THE THIRD ARM: a GRAPH design says `graph` and carries the SAME
+  // projection (2026-09-11). The three numbers below are what makes a graph
+  // build readable at all — and the arm is driven rather than read, because
+  // `useGraph ? { graph: n } : …` without the spread satisfies every text match
+  // while leaving the row unable to say which agent was the wall.
+  const gr = makeTrace(() => 0);
+  new Function("tr", "waveMarks", "schemaUsage", "useWaves", "useGraph", "designWaves", "designGraph", "designedShape", stmt)(
+    gr, waveMarks, { in: 5, out: 7 }, false, true, [[1], [1, 1]], [1, 1, 1, 1, 1, 1], out.shape,
+  );
+  const gstep = gr.done().steps.at(-1);
+  assert.equal(gstep.graph, 6, "the graph's own agent count never reached the row");
+  assert.ok(!("waves" in gstep), "a graph design left a wave count on its row — the two designers are indistinguishable");
+  assert.equal(gstep.identityMs, 30, "the per-agent numbers do not reach the row on a graph build");
+  assert.equal(gstep.agentMs, 260, "the sum does not reach the row on a graph build");
+  assert.equal(gstep.waveMs, 200, "the wall clock does not reach the row on a graph build");
 });
 
 test("THE CENSUS: every agent the waves really plan can be keyed, and no two share a key", () => {

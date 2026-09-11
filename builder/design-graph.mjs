@@ -226,6 +226,18 @@ export function graphOrder(graph) {
   }
   // EVERY `needs` NAMES AN AGENT THAT EXISTS. A need naming nothing is an agent
   // whose gate no one ever resolves — the hang above, wearing a typo.
+  //
+  // THESE THREE ARE A SECOND WALL, DELIBERATELY, AND IT IS MEASURED RATHER THAN
+  // ASSUMED. Kahn's loop below already answers `[]` for every one of them: an
+  // agent whose need is a typo, an array, or its own name is never placed, so a
+  // pass eventually places nobody and the cycle branch fires. DRIVEN over 8,272
+  // graphs for the dangling case (5,390 of them really carrying one) and 60,000
+  // for the other two: the answers agree EVERY time. So a sweep cannot kill any
+  // of them alone and each reads as dead code — which is exactly why this says
+  // so. They are kept because they name the three shapes apart at the point a
+  // person reads, where "a cycle" does not, and because each is what catches a
+  // future slip in the loop below. What proves they are load-bearing is a mutant
+  // that removes the wall AND the loop's own refusal, which dies.
   for (const a of list) {
     for (const n of a.needs || []) {
       if (typeof n !== "string" || !byName.has(n)) return [];
@@ -264,6 +276,13 @@ export function splitGraph({ tool, current, mode } = {}) {
   // because absent is a legal answer for the optional ones. That is `three`
   // shipped dead for a day, one layer over.
   for (const n of names) if (!GRAPH_FIELDS.includes(n)) return [];
+  // AND THE SHIPPED GRAPH IS ASKED WHETHER IT CAN BE RUN, every time. This
+  // cannot fire today — `DESIGN_GRAPH` orders, and a guard asserts it does — so
+  // a sweep reads it as dead code. It is the wall for the edit that has not been
+  // made yet: a `needs` added next month that closes a loop turns this line into
+  // a fallback to the single call, and turns its absence into a design step that
+  // hangs until the job's clock kills it. What proves it load-bearing is a
+  // mutant that puts a cycle IN the graph, which dies on the acyclic guard.
   if (!graphOrder(DESIGN_GRAPH).length) return [];
   return DESIGN_GRAPH;
 }
@@ -389,6 +408,16 @@ export async function designInGraph({ tool, system, brief, model, files = [], ma
     // per-call elapsed that both timing numbers are read from; a second copy
     // here is the recorded "two lists of the same thing" with error handling as
     // its subject, and a sweep cannot kill a `catch` that rethrows.
+    //
+    // AND THE `finally` IS A SECOND WALL, DELIBERATELY, WHICH IS WHY IT READS AS
+    // DEAD CODE. `runFanout` catches every call and answers a failure as an
+    // ENTRY, so it does not reject today and `release()` would run without it —
+    // DRIVEN, with a callOne that throws and one that rejects, both resolving.
+    // The wall is for the day that stops being true: a permit not released is
+    // every agent past the bound waiting for one, which is the hang this whole
+    // module is built to refuse, and it would arrive from one layer down with
+    // nothing here changed. What proves the release load-bearing is a mutant
+    // that deletes it outright, which dies against a graph wider than the bound.
     try { out = await runFanout([req], (r) => call(r), now); }
     finally { release(); }
     const entry = out[0];
@@ -410,10 +439,15 @@ export async function designInGraph({ tool, system, brief, model, files = [], ma
     Object.assign(known, merged.input);
     lost.push(...merged.failed);
     strayed.push(...merged.strayed);
-    // A NEED IS SATISFIED WHEN ITS AGENT DID NOT FAIL, never when it answered
-    // something. An optional field answering nothing is the CORRECT answer on
-    // most sites, so treating an empty answer as a failed need would block
-    // `shape` behind an `extras` agent that rightly said nothing.
+    // A NEED IS SATISFIED WHEN ITS AGENT DID NOT FAIL, never when it ANSWERED
+    // something, and the two are genuinely different answers rather than a
+    // distinction without one. `readWaveAnswer` already separates them: a model
+    // that declines the tool and replies in prose is `ok: false` — a failed
+    // call, whose dependents cannot proceed — while a model that CALLS the tool
+    // and declares no field is `ok: true` with an empty input, which is the
+    // correct answer for four of the eight optional fields by their own
+    // instructions. Reading the second as a failure would block real work behind
+    // an agent that was right; both are driven.
     gate.get(agent.name).open({ ok: !merged.failed.length });
   }));
 

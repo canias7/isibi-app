@@ -772,6 +772,185 @@ the next platform-wide republish is the measurement).
 
 ---
 
+### THE DESIGN STEP IS A DEPENDENCY GRAPH — WIRED, BEHIND A DOOR NOBODY IS
+THROUGH (2026-09-11, owner, drawing one spine with twenty-odd branches and two
+of them cut in two: *"it should be split into all the 23, and if theres one that
+requires the next then together, understand it now?"* → *"Ok go"*)
+
+Stage A of the owner's own drawing. The waves are **1-2-1**, so `identity`,
+`detail` and whichever of `plan`/`look` is slower each run ALONE, and the entire
+saving the design split buys is `min(plan, look)` — algebra off the wave shape,
+confirmed to the millisecond on `ravenscroft-and-fyne` (overlap 78,560 =
+`planMs` exactly). `builder/design-graph.mjs` replaces the barriers with edges:
+**sixteen agents over the 22 first-build fields, twelve of them starting at
+once, and a longest chain of three.** `DESIGN_GRAPH_CANARY` defaults to `-`,
+which `readCanaryList` drops, so **a fresh deploy designs exactly as it does
+today** and no customer, the owner included, is on it.
+
+| agent | fields | waits for |
+|---|---|---|
+| `identity` | brand slug description | — |
+| `theme` · `components` · `pages` · `kind` · `purpose` · `action` · `images` · `favicon` | one each | — |
+| `extras` | tsx qr three | — |
+| `lang` | lang langs | — |
+| `web` | needsWeb webQueries | — |
+| `wordmark` | wordmark | `identity` |
+| `css` | css | `theme` |
+| `shape` | shape | `components` |
+| `behavior` | behavior | `shape` |
+
+- **THE EDGES ARE THE TOOL'S STATED DEPENDENCIES, AND MOST OF WHAT SOUNDS LIKE
+  ONE IS NOT.** Only **seven of the 22** fields carry a sequencing phrase in
+  their own prose (`above`, `just picked`, `already decided`, `only when X is`);
+  fifteen carry none. Of the seven, **four earn an edge** and three were read
+  again and dropped: `components`←`pages` (`pages` answers one page at route `/`
+  on every first build — a near-constant left over from `MAX_PAGES` 5, and it
+  was sitting at the head of the longest chain), `images`←`shape` ("THE BRIEF'S
+  OWN WORDS ABOUT PHOTOGRAPHS ARE LAW" — the shape only tinted the wording), and
+  `wordmark`←`theme` (contrast only, and the field names its own safe answer).
+  **`tsx`←`components` was dropped after being called unavoidable TWICE**: it
+  needs the kit's MENU, not which fifteen were picked. Three corrections in one
+  session, every one the same mistake — reasoning about what SOUNDS like it
+  needs an input instead of reading what the field says. The module's header
+  records each drop with the sentence it was read against, because the prose is
+  the only thing that can settle it and this file has now been wrong about it
+  three times.
+- **`behavior`←`shape` IS JUDGEMENT AND IT IS A CORRECTION, not the tool's.**
+  Nothing in `behavior`'s description says it needs the page arranged; it has
+  relied on PROPERTY ORDER to carry that, which works by accident under the
+  waves (it sits in the last one) and would not here. Stated as an edge so it
+  stops depending on luck.
+- **NOT EVERY FIELD IS REQUIRED, AND THAT CHANGES THE FAILURE RULE.** 14 of 22
+  are required. Four of the eight optional ones are ABSENT on nearly every site
+  **by their own instructions** (`tsx` "OMIT THIS FIELD ENTIRELY… the right
+  answer for nearly every site", `css`, `three`, `qr`), so one agent each would
+  buy four model calls to answer "nothing". `extras` holds three of them in ONE
+  call — it costs no parallelism, because a "nothing" answer is instant either
+  way — which is 19 agents down to 16 with identical width. **`wavesUsable` is
+  reused rather than re-decided**: it asks the TOOL which fields are required,
+  so optional-empty and required-empty already tell apart and nothing here
+  re-states which is which.
+- **A CYCLE HANGS, IT DOES NOT THROW, and that is the whole reason `graphOrder`
+  exists.** Two promises awaiting each other sit there until the job's clock
+  kills the build with everything charged and nothing to show. Kahn's algorithm
+  answers `[]` for a cycle, a self-need, a dangling need, a duplicate name, a
+  nameless or fieldless agent — and `[]` means "use the waves, or the one call",
+  which is `splitDesign`'s own convention.
+- **THREE OF THOSE REFUSALS ARE A SECOND WALL AND IT IS MEASURED, NOT ASSUMED.**
+  The Kahn loop already answers `[]` for a dangling need, a self-need and a
+  coerced one: an agent whose need is never placed is never ready. **DRIVEN over
+  8,272 graphs for the dangling case (5,390 of them really carrying one) and
+  60,000 for the other two — the answers agree EVERY time.** So a sweep cannot
+  kill any of them alone and each reads as dead code; the code now SAYS the
+  redundancy is deliberate, because the next session deletes a wall nothing
+  appears to need. What proves them load-bearing is a PAIR mutant — the wall and
+  the loop's own refusal together — and all three die. The same applies to the
+  `finally` around the call (`runFanout` catches every call, so it does not
+  reject today: driven with a throwing and a rejecting `callOne`) and to
+  `splitGraph`'s own ordering check (the shipped graph orders, so it cannot
+  fire); each is replaced by a mutant that DOES change behaviour — the release
+  deleted outright, and a cycle put IN the graph.
+- **AN AGENT IS TOLD EXACTLY WHAT IT DECLARED IT NEEDS, never "everything that
+  has landed", and the reason is determinism rather than tidiness.** In a graph
+  the set of finished agents at any instant depends on how fast the calls came
+  back, so a note built from whatever is there makes the same brief produce
+  different prompts on two runs — and a build that designed well once cannot be
+  reproduced. Scoped to `needs`, the note is a function of the graph alone.
+- **A NEED IS SATISFIED WHEN ITS AGENT DID NOT FAIL, never when it ANSWERED, and
+  the two "nothing" answers are genuinely different.** A model that declines the
+  tool and replies in prose is a FAILED call and its dependents are skipped; a
+  model that CALLS the tool and declares no field has answered, and that is the
+  correct answer for four of the eight optional fields. Both are driven.
+- **A FAILED NEED BLOCKS ITS DEPENDENTS RATHER THAN HANGING THEM**, and
+  `blocked` is a third outcome beside answered and failed, on the row as
+  `css:extras`. **NO MID-WAY ABORT**, deliberately, against the waves' own
+  behaviour: twelve of the sixteen are already in flight before anything can
+  fail, so an abort could save at most the four dependents on a build the
+  route's catch refunds IN FULL — buying four calls with determinism is the
+  wrong trade.
+- **`MAX_GRAPH_INFLIGHT` IS 8 AND IS NOT THE GRAPH'S WIDTH.** One answers *how
+  many sockets and how much memory one process may hold*; the other *how many
+  fields are independent*. Tie them and the day somebody adds a seventeenth
+  agent is the day this process quietly gets another socket. 8 matches
+  `MAX_MODEL_FANOUT`, which is the widest fan-out this platform has evidence for
+  (seven at once on `kestrel-bindery`); twelve is not refused for being wrong,
+  it is refused because nothing here has run it.
+- **A THIRD DOOR, NOT A MODE ON THE SECOND.** `designGraphFor` /
+  `designGraphEveryone` sit in `edit-job.mjs` beside the other three for the
+  standing reason — `readCanaryList` is deliberately NOT imported into
+  `worker.js`, and a route one edit from the list is one edit from handing one
+  customer another's slugs. A tri-state flag would make turning the graph ON
+  silently turn the WAVES off, which is a decision nobody made. **BOTH DOORS ARE
+  ASKED AND THE GRAPH WINS BY A STATED LINE**: computing `useWaves` only when the
+  graph declined would leave the waves door unasked on a graph build, which from
+  a stored row is indistinguishable from a waves door that is shut.
+- **THE CANARY DEFAULTS TO NOBODY, unlike the two beside it.** `BAND_SPLIT_CANARY`
+  and `DESIGN_SPLIT_CANARY` name the building account because each had been
+  proved live first; this has never designed a site. Both flags carry a
+  `|| fallback` — a name listed with no value fails the WHOLE deploy, three
+  merges have shipped nothing that way — and `/api/site/runtime` answers `graph`
+  and `graphEveryone`, booleans only, never the list.
+- **THE ROW SAYS `graph`, NEVER `waves`**, and carries the SAME `waveMarks`
+  projection — per-agent `<name>Ms`, `agentMs`, `waveMs` — so a graph build is
+  readable with the instruments built for the waves and the two designers can be
+  told apart afterwards. With one agent per field for most of the list, those
+  ARE the per-field times nothing has ever been able to measure.
+- **Guards**: `test/design-graph.test.mjs` (30). The CENSUS is the one that
+  matters — every property the REAL frontend tool carries belongs to exactly one
+  agent, both directions, derived through `readSchemaTool()`, because a field on
+  the tool and in no agent comes back EMPTY on every graph build without failing
+  (that is `three` shipped dead for a day, one layer over). Beside it: the
+  shipped graph proved acyclic; `graphOrder` driven over eight malformed shapes;
+  the scheduler driven on gates the test opens with NO timers; a dependent
+  proved not to start until its need lands; a failed need proved to block rather
+  than hang; the numbers driven on a clock the test moves — per agent, summed,
+  and the whole graph's wall proved to be the ELAPSED rather than an absolute
+  reading (the fixture starts at 1000, because at an origin of zero the two are
+  the same number); the permits driven at 1/2/5 and past the bound with every
+  call rejecting; every kept edge traced to a phrase still present in its
+  field's description; and both doors driven including the coercion refusals.
+  `test/split-timing.test.mjs` gained the mark's third arm, DRIVEN through
+  worker.js's own statement.
+- **THE GUARDS TESTED WHAT THE CHANGE ADDED AND NOT WHAT IT CARRIES, and the
+  sweep said so — 17 survivors on the first pass.** Four were inert (above);
+  thirteen were real gaps, and every one of them was a NUMBER: the file proved
+  the graph was shaped right — who starts, who waits, who is told what — and
+  read none of its output. That is this repository's own recorded shape ("a
+  guard proves the branch it drives") pointed at the half the feature exists
+  for.
+- **Sweep, re-run whole: 69 mutants, 67 killed, none survived, none unapplied,
+  two comment-only controls survived** — the graph defaulting on, either door
+  coercing or taking any truthy word or opening for an identity-less call, the
+  deploy's canary naming an identity or losing its `|| fallback`, a flag never
+  uploaded; the cycle refusal removed, each of the three second walls PAIRED
+  with it, a cycle put in the shipped graph; every edge dropped in turn and one
+  added back, a field leaving the graph, the three identity fields split across
+  three agents; the bound derived from the width, the pool admitting everybody,
+  a nonsense bound admitting everybody, the permit never released and the pool
+  never asked; the gates built inside the loop, a failed need not blocking or
+  never opening its own gate or going unrecorded, a declared-nothing answer read
+  as a failure; the note built from everything that landed, `needKnown` reading
+  the agent's own fields or handing a null through; the agents run one after
+  another, the wall clock read late or taken as the sum or read per agent, a
+  failed agent's time dropped, every agent filed under one name, `agents`
+  counting the plan, the usage taken from one agent or unpriced, a stray field
+  kept, a cut-off answer wearing the provider's sentence, a fault flattened, the
+  design usable whatever came back; the wrapper handing its own tool or dropping
+  the build's clock; the mark unable to say the graph ran, dropping the
+  projection, or leaving a WAVE count on a graph row; the diagnostic losing the
+  flag or handing back the list; and the image dropping the module.
+- Full suite **5,937**.
+- **Not proven live, and nothing can be until the owner opens the door.** The
+  push changes `worker.js`, which is a container image input, so the container
+  ROLLS and the 15–20 minute hold applies. Turning it on is setting
+  `DESIGN_GRAPH_CANARY` to the building account's uid in GitHub and redeploying;
+  the tell on the next build is a `design` step carrying `graph: 16` and sixteen
+  per-agent numbers where today it carries `waves: 3` and four. **That one build
+  is Stage B** — it yields a time for every field, which is what Stage C
+  (regrouping) needs and which no amount of reasoning can supply.
+
+---
+
 ### THE DESIGN IS ANSWERED BY SEVERAL AGENTS AT ONCE — WIRED, BEHIND A DOOR
 NOBODY IS THROUGH (2026-09-10, owner: *"split the design step too but first tell
 me how it is in the generate step now?"* → *"ok now split the design step"* →
@@ -4783,7 +4962,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,907.
+  The unit suite is 5,937.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
