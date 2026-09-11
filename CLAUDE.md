@@ -948,6 +948,43 @@ today** and no customer, the owner included, is on it.
   per-agent numbers where today it carries `waves: 3` and four. **That one build
   is Stage B** — it yields a time for every field, which is what Stage C
   (regrouping) needs and which no amount of reasoning can supply.
+- **MERGED AND DEPLOYED** (owner: *"merge"*). `unit tests` run 2432 green, the
+  suite step **79 s** on the exact tree; the full suite re-run locally at 5,937
+  on the merge commit itself; main fast-forwarded `97d69615` → `b675b81d` at
+  01:56Z. **Deploy run 2084 green in 3m03s**: the gate set in 0 s; the **image
+  step 2m10s** — `built isibi-app-sitebuildcontainer:25b74…6e95…fbe47 (registry
+  answered 404; ***70 inputs off ./Dockerfile)`, the export 15.2 s and the rest
+  the registry push — so the site image was BUILT and the container **ROLLED**
+  (`EDIT isibi-app-sitebuildcontainer`, `9268b…8acc8a3a03` → `25b74…6e95…fbe47`,
+  `SUCCESS Modified application`, applied **01:58:57Z**; the game app `no
+  changes`); `deploy drain: no live leases after 0s`; Wrangler 26 s; the gate
+  left to expire on success. **The 15–20 minute hold ended ~02:14–02:19Z.** The
+  image step lands inside the Deploy section's band for a push that changes the
+  worker tree AND the Dockerfile's own COPY line, and the log shows
+  `builder/design-graph.mjs` on that line, which is the image really carrying the
+  module rather than the guard's claim that it should.
+- **AND THE CANARY IS CONFIRMED ON THE DEPLOYED WORKER BY A SHARPER TELL THAN
+  USUAL.** All 24 secrets read `Successfully created`, `DESIGN_GRAPH_CANARY`
+  among them, and it printed **`***` — fully masked**. That is the proof rather
+  than a formality: the workflow's own fallback is `-`, which GitHub would print
+  in the clear because a dash is nobody's secret, so a masked value means a
+  REGISTERED repository secret is behind it. `DESIGN_GRAPH_EVERYONE: off`
+  printed in the clear, which is the fallback and is correct.
+  **AND `DESIGN_SPLIT_CANARY` WENT FROM PARTLY VISIBLE TO FULLY MASKED IN THE
+  SAME UPLOAD**, having printed `22…75f4…` on every deploy since 2026-09-10.
+  GitHub masks a registered secret's VALUE wherever it appears, so the design
+  split's `|| fallback` — the building account's uid — is masked now only
+  because a registered secret holds that same string. **So the log says both
+  that the secret exists and that its value is the account uid**, which is
+  more than "it exists" and is exactly the class of fact reading `deploy.yml`
+  cannot give.
+- **THE STALE-SNAPSHOT TRAP, FIFTH INSTANCE, SAME ~25 MINUTES.** The job
+  completed at 01:59:08Z and the jobs endpoint returned the identical snapshot —
+  `in_progress` on the image step — for roughly twenty-five minutes after, with
+  `get_job_logs` answering 404 the whole time, so neither reading could break
+  the tie. The log became readable the moment the status flipped. Two deploys
+  and one suite run in one session, each lied about for ~25 minutes: treat that
+  as the band rather than an outlier.
 
 ---
 

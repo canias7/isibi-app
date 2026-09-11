@@ -4686,3 +4686,33 @@ before regrouping anything. Turning it on is one secret in GitHub and a
 redeploy; I can't fire a build from here, so it's your button.
 
 Nothing about the site a customer gets changes either way.
+
+## 2026-09-11 — merged, deployed, and your secret is confirmed on the Worker
+
+Deploy 2084, green in **3m03s**. The container rolled at 01:58:57Z, so the
+15–20 minute hold ended around 02:14–02:19Z. It's long past — **a build now
+runs the new code.**
+
+**Your secret is really there**, and the log proves it in a way that's worth
+knowing about for next time. `DESIGN_GRAPH_CANARY` printed as `***` — fully
+hidden. The code's own fallback is a dash, and GitHub prints a dash in the
+clear because a dash is nobody's secret. Hidden means a real secret is behind
+it.
+
+And there's a second tell: `DESIGN_SPLIT_CANARY` has printed as `22…75f4…`
+on every deploy since yesterday, and today it went fully hidden too. GitHub
+hides a secret's *value* everywhere it shows up — so the design split's
+built-in default got hidden only because a registered secret now holds that
+same account id. **So the log says both that your secret exists and that it's
+the right account.** Reading the code file could never have told us either.
+
+**GitHub's status API lied for twenty-five minutes again** — third time
+today, once on the test run and twice on deploys. The job finished at
+01:59:08Z and the API said "still running" until about 02:20. There's no
+reading that beats it; the only honest move is to wait and re-check, which is
+what I did. If you ever want to know sooner than I can, the Actions page in
+your browser shows the live log and the API doesn't.
+
+**Next is one build.** The brief I gave you is sized to match
+`ravenscroft-and-fyne`, which is where today's four per-agent numbers came
+from — so the comparison is clean. Tell me the site name and I'll pull the row.
