@@ -5370,6 +5370,16 @@ it is the step's own expected duration** — this suite step has taken 80–84 s
 every run of this workflow, so anything past a few minutes is the instrument
 until a later poll says otherwise. Wait and re-poll; do not report a hang, and
 do not report a pass either.
+**A FOURTH INSTANCE PUTS A BAND ON HOW LONG IT CAN LIE (2026-09-11, `unit
+tests` run 2432).** The suite step ran 01:41:38Z → 01:42:57Z — **79 seconds**,
+inside the measured band — and five polls over ~25 minutes returned the SAME
+snapshot byte for byte, `in_progress` on that step. `updated_at` sat at
+01:41:23Z against step stamps at 01:41:38Z, which is the proving direction, so
+the tell worked and it still took twenty-five minutes to clear. **So the tell
+says the reading is stale; it says nothing about when the truth arrives.** The
+free thing to do while waiting is rule out the OTHER explanation locally: the
+whole suite on the same tree, and the changed guard files on their own, which
+is what made "the instrument" the only reading left.
 
 **AN INSTRUMENT THAT REPORTS CORRECT CODE AS BROKEN — the screenshot version
 (2026-08-30).** A `fullPage: true` capture of a site using `animation-timeline:
