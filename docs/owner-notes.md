@@ -4556,3 +4556,38 @@ instead of in the middle of the second wave.
 **Regrouping later is editing that list** — moving names between the `fields`
 arrays, no new code. Which is exactly what stage C would be, once a real build
 has told us which field is the slow one.
+
+## 2026-09-11 — you asked again, and most of those waits weren't real
+
+Six of the ten arrows I drew don't earn their place. Redrawn:
+`docs/edits/design-graph-shape.png` — **fifteen of the nineteen agents now start
+on the first second, and the only chain left is three long.**
+
+**What I dropped, and why each was wrong:**
+
+- **components waiting for pages.** `pages` says "ONE page… one entry: what the
+  site is called, route /". It's a near-constant. This arrow is a leftover from
+  when a site had five pages, and it was sitting at the head of the longest
+  chain doing nothing.
+- **shape waiting for pages.** Same. Shape still waits for the components, which
+  is the arrow that actually matters.
+- **tsx waiting for components.** It needs the kit's *menu*, not which fifteen
+  got picked — and its own field says "OMIT ENTIRELY… the right answer for
+  nearly every site", so it barely ever runs. Worst case if it's wrong: one
+  duplicate part.
+- **images waiting for shape.** The field says "THE BRIEF'S OWN WORDS ABOUT
+  PHOTOGRAPHS ARE LAW". The shape only tinted the wording.
+- **wordmark waiting for theme.** Colour contrast only — and the tool already
+  names its own safe answer, "a plate behind the letters is the safe shape".
+- **favicon waiting for the name and theme.** Both were mine, neither is in the
+  code, and it's one of the two SLOW fields — so that arrow cost the most and
+  bought the least.
+
+**The four that stay:** shape waits for components (it arranges them), css waits
+for the theme (it *is* the bit the theme doesn't give), wordmark waits for the
+name (you can't set a name you haven't got), and behavior waits for the layout.
+
+**Third time I've had to correct this.** I called `tsx` unavoidable twice. The
+pattern is the same each time: I reasoned about what *sounds* like it needs
+something instead of reading what the field actually says. Worth me remembering
+the next time I draw one of these.
