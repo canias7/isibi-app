@@ -4455,3 +4455,39 @@ number. Unlike everything else this week, there's no free way to find out.
 theme and stylesheet in the other. One ordinary build then says which half is
 slow, and that's the number that decides whether one wave is worth its risk.
 Not started; your call.
+
+## 2026-09-11 — your second drawing: all 22, only the real waits
+
+You're right, and it's a better model than what we built. `docs/edits/design-field-graph.png`
+draws it: every field starts at once, and only the ones that genuinely need
+another's answer wait — your line cut in two pieces.
+
+**Eleven of the twenty-two can start on the first second.** The deepest chain is
+five long — kind → pages → components → shape → behavior — and everything else
+is at most two deep.
+
+**Today's waste, in one sentence:** `tsx` and `behavior` sit waiting for all 132
+seconds of `look`, and neither of them needs anything `look` answers. That's the
+barrier costing us for no reason.
+
+**But I found the real obstacle while reading the field text, and it isn't the
+scheduling.** The tool is written as one conversation with itself:
+
+- the stylesheet field says "the theme you picked **above**"
+- the layout field says "the page and the components are **already decided above**"
+- the custom-component field says "you have **just picked** from the kit"
+
+Split those into separate agents and the sentences stop being true — an agent
+writing the stylesheet on its own never picked a theme. So the job isn't
+rescheduling; it's **rewriting about eleven fields so each takes its input as
+given instead of as something it did itself.** That's prompt work, which is
+where we've lost real builds before, so it needs care rather than speed.
+
+**Two things I still can't tell you, honestly:**
+- which chain is the slow one — we time agents, never fields, so `look`'s 132s
+  could be the logo or the stylesheet and there's no free way to find out;
+- whether 22 calls can run at once where they're made. The limit is 4 today and
+  the code's own comment says that's a memory-and-sockets question.
+
+**Not started.** If you want it, I'd build it behind a flag like the other two
+splits, so nothing changes for anyone until you switch it on.
