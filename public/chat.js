@@ -11232,10 +11232,12 @@ function stSrcPath(f) {
 // no stylesheet shows no empty "Made by the build" heading — a heading over
 // nothing reads as something missing rather than something absent.
 //
-// THE DISPLAY NAME DROPS ONLY `src/routes/`, which is where the customer's own
-// files live and is noise repeated down the whole first group. Everything else
-// keeps its real path, because `public/icon.svg` and `src/lib/rows.ts` are only
-// meaningful with it.
+// THE DISPLAY NAME DROPS `src/routes/` ONLY IN THE CUSTOMER'S OWN GROUPS, which
+// is where every file shares that prefix and it is noise repeated down the list.
+// Everything else keeps its real path — `public/icon.svg` and `src/lib/rows.ts`
+// are only meaningful with it, and the SHARED group holds `src/routes/__root.tsx`,
+// which stripped reads as a file sitting beside the customer's pages instead of
+// the platform's own root route.
 const ST_CODE_GROUPS = [
   ['page', 'Pages'],
   ['part', 'Components'],
@@ -11249,11 +11251,12 @@ function stCodeTree(files, openName) {
     const mine = list.filter((f) => f.kind === g[0]);
     if (!mine.length) continue;
     out += '<div class="st-code-h">' + esc(g[1]) + '</div>';
+    const own = g[0] === 'page' || g[0] === 'part';
     out += mine.map((f) =>
       '<button type="button" class="st-file' + (f.name === openName ? ' on' : '') +
       (f.unplaced ? ' st-file-lost' : '') + '" data-srcname="' + esc(f.name) + '">' +
       '<span class="st-file-ic">' + ic('code', 13) + '</span>' +
-      '<span class="st-file-n">' + esc(f.name.replace(/^src\/routes\//, '')) + '</span></button>').join('');
+      '<span class="st-file-n">' + esc(own ? f.name.replace(/^src\/routes\//, '') : f.name) + '</span></button>').join('');
   }
   return out;
 }
@@ -11305,8 +11308,17 @@ function stSrcFiles(src) {
     if (!a || typeof a.path !== 'string' || !a.path || typeof a.source !== 'string') continue;
     out.push({ name: a.path, text: a.source, kind: 'asset', note: typeof a.note === 'string' ? a.note : '' });
   }
+  // THE SITE'S OWN FILE WINS A PATH THE SHARED SET ALSO CLAIMS, and today there
+  // is exactly one: `src/styles.css`. The shared copy is the template's base and
+  // the site's is the layer written over it, so both are real — but they are one
+  // PATH, and a tree showing it twice under two headings with different contents
+  // is a project nobody has. It also breaks the set: the download collapses two
+  // entries of one name, so the tree would list a file the archive does not
+  // hold, which is the disagreement this whole change exists to end.
+  const claimed = new Set(out.map((f) => f.name));
   for (const f of (src && Array.isArray(src.shared)) ? src.shared : []) {
     if (!f || typeof f.path !== 'string' || !f.path || typeof f.source !== 'string') continue;
+    if (claimed.has(f.path)) continue;
     out.push({ name: f.path, text: f.source, kind: 'shared', note: '' });
   }
   return out;

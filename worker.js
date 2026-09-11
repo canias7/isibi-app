@@ -20530,12 +20530,23 @@ async function handleRequest(request, env, ctx) {
         // A CONFIG WE COULD NOT READ IS NO ASSETS, NEVER A FAILED REQUEST: the
         // source is the half a customer came for, and losing the whole tree
         // because a second read blipped is the worse answer by a distance.
+        // AND THE THING THAT CARRIES THAT IS `loadConfig`'S OWN CONTRACT, not a
+        // catch here. It RETURNS rather than throws — `{ok:false, why:"store",
+        // config: emptyConfig()}` for a bucket that blew up — so `sCfg.config`
+        // below is an empty config and `siteAssetFiles` answers `[]`. A
+        // `.catch(() => null)` stood here for one afternoon and was DELETED as
+        // unreachable: traced end to end with no database handed in, every exit
+        // from that function returns, and a throw from `configDeps` itself
+        // happens while the argument is evaluated, which no `.catch` on the
+        // result could ever see. `test/site-source.test.mjs`'s `configFails`
+        // case is what guards the contract now, and it goes red the day
+        // `loadConfig` starts throwing — which a second wall would have hidden.
         // NO DATABASE HANDED IN, DELIBERATELY: `configDeps`' third argument is
         // the legacy `_meta` fallback, which is a Postgres round trip for a
         // handful of pre-R2 sites. This route only SHOWS files, so a site old
         // enough to need that fallback shows no assets rather than putting a
         // query in front of every explorer open.
-        loadConfig(configDeps(env, sslug, null), sslug).catch(() => null),
+        loadConfig(configDeps(env, sslug, null), sslug),
       ]);
       const pages = Array.isArray(sPages) ? sPages : [];
       const parts = Array.isArray(sParts) ? sParts : [];

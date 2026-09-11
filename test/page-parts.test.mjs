@@ -222,6 +222,42 @@ test("the parts ride out beside the bands, in `write_pages`' own shape", async (
   assert.equal(plain.parts, 0, "a site that declared no component was counted as having some");
 });
 
+test("THE CHAIN: the declared names are held back from the band files, so one answer is one file", async () => {
+  // THE DECLARED COMPONENTS HAVE TO REACH `assembleBands` AS `taken`, and the
+  // hop is one word on one line. A design may legally declare `band-1-hero` —
+  // `TSX_ITEM.name` asks for a kebab name and every kebab string is one — and
+  // with the hop cut, the band's file and the component's file claim one name:
+  // `validatePages` refuses the second, the page imports a file nothing wrote,
+  // and vite refuses the build. A paid build ending in a placeholder.
+  //
+  // DRIVEN THROUGH THE REAL `generateSiteBands` rather than by reading the line,
+  // because `freeBandFile` works perfectly with the hop cut — the argument it is
+  // handed is simply empty, which is this repository's own recorded wiring trap:
+  // a value computed and never forwarded.
+  // THE LINE STARTS WITH "hero" ON PURPOSE: `bandName` is `Band<n><FirstWord>`,
+  // so this band is `Band1Hero` and `bandFileName` kebabs it to exactly the name
+  // the design declared. A line reading "a hero with…" answers `Band1A` and
+  // collides with nothing, which is how a fixture can look like this case and
+  // test none of it.
+  const clash = [{ name: "band-1-hero", does: "a hero band, hand written", props: "x: string" }];
+  const out = await generateSiteBands(args({ tsx: clash, lines: ["hero band with the workshop name"] }), null,
+    async (keys, reqs) => reqs.map((r, i) => ({
+      i, state: "done", ms: 10, waveMs: 10,
+      answer: { content: [{ type: "tool_use", input: { source: i === 0 ? band("Band1Hero") : part("band-1-hero") } }], usage: {} },
+    })));
+  const names = out.input.parts.map((p) => p.name);
+  assert.equal(names.length, 2, "one of the two files was lost before it reached validation");
+  assert.equal(new Set(names).size, 2,
+    "the band took the declared component's file name — validatePages refuses one and the page cannot compile");
+  assert.ok(names.includes("band-1-hero"), "the DECLARED name moved; it is written into the page by tsxDirective and cannot");
+  // AND THE PAGE IMPORTS THE FILE THAT EXISTS, which is the half a name check
+  // alone cannot see: the move has to reach the import in the same pass.
+  const m = /import Band1Hero from "@\/routes\/-parts\/([a-z0-9-]+)"/.exec(out.input.pages[0].source);
+  assert.ok(m, "the band is not imported at all");
+  assert.ok(names.includes(m[1]), "the page imports a file no part answers");
+  assert.notEqual(m[1], "band-1-hero", "the page's band import points at the DECLARED component's file");
+});
+
 test("A FAILED PART IS STUBBED, NEVER DROPPED — the page already imports it", async () => {
   // THIS IS THE WHOLE REASON THE PATH IS SAFE TO TAKE. The design declared the
   // component, so a band may already have imported it: a file that is not there

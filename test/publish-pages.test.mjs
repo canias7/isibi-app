@@ -322,6 +322,14 @@ test("a part's broken import is repaired, and the repaired part is what is compi
   // one that does not.
   assert.ok(Array.isArray(out.repaired) && out.repaired.some((f) => f.path === "tide-window"),
     "the part's repair is missing from what the build reported: " + JSON.stringify(out.repaired));
+
+  // AND THE COUNT COUNTS IT. `out.files` is what the reply's file count and the
+  // owner-build log are read off, and it listed the PAGES alone — so a split
+  // build that wrote one page and seven section files reported "1 file" beside
+  // a tree of eight. The tree, the download and the counter disagreeing is the
+  // whole thing this change exists to end, and the counter is the third reader.
+  assert.deepEqual(out.files, ["src/routes/index.tsx", "src/routes/-parts/tide-window.tsx"],
+    "a component is missing from the build's own file list: " + JSON.stringify(out.files));
 });
 
 test("a build whose imports were all correct reports no repairs at all", async () => {

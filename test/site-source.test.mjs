@@ -602,9 +602,16 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false } = {}) 
       if (fail) throw new Error("offline");
       return { ok: true, json: async () => answer };
     },
+    // A STUB, and the only thing it owes `loadSiteCode` is the SHAPE that
+    // function consumes — `{name, text, kind, note}`. `stSrcFiles` itself is
+    // driven whole, against its real inputs, further up this file; what is under
+    // test here is the tab that reads its answer. It forwards `note` and `kind`,
+    // because a stub that flattened either would leave the cases below passing
+    // on a shape the real producer never makes.
     stSrcFiles: (s) => {
       const out = [];
       for (const p of (s.pages || []).concat(s.parts || [])) out.push({ name: p.path || p.name, text: p.source, kind: "page", note: "" });
+      for (const a of (s.assets || [])) out.push({ name: a.path, text: a.source, kind: "asset", note: a.note || "" });
       return out;
     },
     // THE REAL TREE RENDERER, carried out of the file rather than stubbed.
@@ -662,6 +669,44 @@ test("DRIVEN: every way the tab can come up empty says WHICH empty it is", async
   const noSlug = codeTab({ answer: PAGES(["src/routes/index.tsx"]), slug: "" });
   await noSlug.t.run(noSlug.site);
   assert.match(noSlug.host.innerHTML, /no address yet/);
+});
+
+test("DRIVEN: the bar says READ ONLY, and a file that needs a sentence gets one", async () => {
+  // TWO SMALL THINGS THE SWEEP FOUND UNGUARDED, and both are a customer being
+  // told something true that nothing was keeping true.
+  //
+  // (1) THE PANEL HAS NEVER BEEN EDITABLE AND NEVER SAID SO, which leaves
+  // somebody clicking into a file wondering whether they may type in it. It is
+  // a label, so it can be deleted without anything failing — which is exactly
+  // why it needs a driver rather than a reading.
+  const a = codeTab({ answer: PAGES(["src/routes/index.tsx"]) });
+  await a.t.run(a.site);
+  assert.match(a.host.innerHTML, /class="st-code-ro">Read only</,
+    "the Code tab no longer says it is read only — a customer cannot tell whether they may type in it");
+
+  // (2) THE NOTE IS COMPUTED BY THE ROUTE AND HAS TO BE SHOWN. The site's
+  // `src/styles.css` is the LAYER the build wrote over the template's base, not
+  // the whole stylesheet — a customer reading it as the whole thing would find
+  // most of their site's styling missing and report a bug we do not have. The
+  // note is the only thing that says so, and `siteAssetFiles` sending one that
+  // the tab drops is this repository's recorded "computed and never forwarded".
+  const b = codeTab({
+    answer: {
+      ok: true,
+      pages: [{ path: "src/routes/index.tsx", source: "// x\n" }],
+      assets: [{ path: "src/styles.css", source: ":root{}", note: "the layer this build wrote over the shared base" }],
+    },
+    open: "src/styles.css",
+  });
+  await b.t.run(b.site);
+  assert.match(b.host.innerHTML, /class="st-code-note">the layer this build wrote over the shared base</,
+    "an asset's note was computed and never drawn — the stylesheet reads as the whole thing");
+
+  // AND A FILE WITH NOTHING TO SAY GETS NO EMPTY BOX, because a bar of blank
+  // space under every page reads as something that failed to load.
+  const c = codeTab({ answer: PAGES(["src/routes/index.tsx"]) });
+  await c.t.run(c.site);
+  assert.ok(!c.host.innerHTML.includes("st-code-note"), "a file with no note was given an empty note box");
 });
 
 // ── THE TOP BAR: THE SAME CONTROLS, BUILT OR NOT ────────────────────────────
@@ -921,6 +966,45 @@ test("DRIVEN: a site with no marks and no stylesheet has no assets, not empty on
   assert.deepEqual(r.body.assets, [], "a site with nothing drawn was given files anyway");
 });
 
+test("DRIVEN: an UPLOADED mark is not a file — only a drawing is", async () => {
+  // A MARK HAS THREE FORMS and only one of them is bytes we hold. `{form:"svg"}`
+  // is a drawing the model made and the container writes to `public/`;
+  // `{form:"image", url}` is a picture the customer UPLOADED, which lives at
+  // that URL and for which the build writes no file at all. Showing one here
+  // would invent a path the project has not got — and, worse, would put a URL
+  // string in the pane where a customer expects the file's contents, and in the
+  // download where they expect an image.
+  //
+  // THE SWEEP FOUND THIS UNDRIVEN: nothing here had ever handed the route an
+  // uploaded mark, so a reader that took `m.url` as the source passed.
+  const r = await callSource({
+    pages: [{ path: "index.tsx", source: "x" }],
+    config: {
+      look: {
+        favicon: { form: "image", url: "https://gofarther.dev/u/u-owner/icon.png" },
+        wordmark: { form: "image", url: "https://gofarther.dev/u/u-owner/logo.png" },
+      },
+    },
+  });
+  assert.deepEqual(r.body.assets, [],
+    "an uploaded mark was shown as a file: " + JSON.stringify(r.body.assets));
+  // AND `{form:"text"}` IS NOT A FILE EITHER — the wordmark is then the brand
+  // name set in type by the page, with nothing written to `public/`.
+  const t = await callSource({
+    pages: [{ path: "index.tsx", source: "x" }],
+    config: { look: { wordmark: { form: "text" }, favicon: { form: "initials" } } },
+  });
+  assert.deepEqual(t.body.assets, [], "a mark with no drawing behind it was given a file");
+  // THE OBSERVER IS ALIVE: the same route, the same shape of config, a DRAWING
+  // in it — and two files come back. Without this the case above passes for a
+  // route that answers `[]` to everything.
+  const drawn = await callSource({
+    pages: [{ path: "index.tsx", source: "x" }],
+    config: { look: { favicon: { form: "svg", svg: ICON }, wordmark: { form: "svg", svg: MARK } } },
+  });
+  assert.deepEqual(drawn.body.assets.map((a) => a.path), ["public/icon.svg", "public/logo.svg"]);
+});
+
 test("DRIVEN: a config that could not be read loses the assets and never the source", async () => {
   // CANNOT-TELL IS NO ASSETS, NEVER A FAILED REQUEST. The source is the half the
   // customer came for, and losing the tree because a second read blipped is the
@@ -971,4 +1055,91 @@ test("DRIVEN: a site with components and no pages is not told it has nothing", a
 test("DRIVEN: a site with nothing stored still says so", async () => {
   const r = await callSource({});
   assert.match(r.body.why || "", /not published a build yet/, "the empty case lost its sentence");
+});
+
+test("DRIVEN END TO END: the favicon reaches the explorer AND the download", async () => {
+  // THE OWNER'S OWN TEST (2026-09-11): *"we do have a favicon but it doesnt show
+  // in the code tab"*. Driven from the route's answer, through the browser's own
+  // list builder, into a real archive — because "the route returns it" and "the
+  // customer can see and save it" are two different claims and only the second
+  // is what was asked for.
+  const r = await callSource({
+    pages: [{ path: "index.tsx", source: "SHELL" }],
+    parts: [{ name: "band-1-hero", source: "HERO" }],
+    config: { look: { favicon: { form: "svg", svg: ICON } }, css: ".hero{}" },
+  });
+  const stSrcFiles = new Function(
+    "ST_CODE_GROUPS",
+    fn("function stSrcFiles(") + "\n" + fn("function stSrcPath(") + "\nreturn stSrcFiles;",
+  )([]);
+  const files = stSrcFiles(r.body);
+  const names = files.map((f) => f.name);
+
+  // IN THE EXPLORER, under the path the container writes it to.
+  assert.ok(names.includes("public/icon.svg"), "the favicon is not in the tree: " + names.join(", "));
+  // AND THE WHOLE PROJECT BESIDE IT — the customer's own files, what the build
+  // made, and the shared scaffold, each in its own group.
+  assert.ok(names.includes("src/routes/index.tsx") && names.includes("src/routes/-parts/band-1-hero.tsx"));
+  assert.ok(names.includes("src/styles.css"), "the site's own stylesheet is not in the tree");
+  assert.ok(names.includes("src/router.tsx") && names.includes("package.json"), "the shared scaffold is not in the tree");
+  assert.ok(!names.some((n) => n.startsWith("src/components/")), "the kit was dumped into the tree");
+  const kinds = new Set(files.map((f) => f.kind));
+  assert.deepEqual([...kinds].sort(), ["asset", "page", "part", "shared"], "the four groups are not all present");
+
+  // AND IN THE DOWNLOAD — the same list, no adapter between, which is what keeps
+  // the tree and the zip from disagreeing.
+  const bytes = SiteZip.zipFiles(files.map((f) => ({ name: f.name, text: f.text })));
+  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "gf-src-"));
+  const zip = path.join(dir, "site.zip");
+  try {
+    fs.writeFileSync(zip, Buffer.from(bytes));
+    const script = [
+      "import json,sys,zipfile",
+      "z = zipfile.ZipFile(sys.argv[1])",
+      "assert z.testzip() is None",
+      "print(json.dumps({n: z.read(n).decode('utf-8') for n in z.namelist()}))",
+    ].join("\n");
+    const back = JSON.parse(execFileSync("python3", ["-c", script, zip], { encoding: "utf8" }));
+    // THE COUNTER, THE TREE AND THE ARCHIVE ARE ONE SET. Any two disagreeing is
+    // the defect this whole entry is about.
+    assert.deepEqual(Object.keys(back).sort(), names.slice().sort(), "the download holds a different set from the tree");
+  // ONE PATH, ONE FILE. `src/styles.css` is claimed by the shared base AND by
+  // the site's own layer; showing both would put it in the tree twice under two
+  // headings, and the archive collapses two entries of one name — so the tree
+  // would list a file the download does not hold. The site's own wins.
+  assert.equal(names.filter((n) => n === "src/styles.css").length, 1, "one path is in the tree twice");
+  assert.equal(back["src/styles.css"], ".hero{}", "the shared base overwrote the site's own stylesheet");
+    assert.equal(back["public/icon.svg"], cleanFavicon(ICON).svg, "the favicon in the archive is not the one the build writes");
+    assert.ok(back["src/router.tsx"] && back["package.json"], "the shared scaffold did not survive into the archive");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("DRIVEN: the tree groups the project, and a shared file keeps its real path", () => {
+  const stCodeTree = new Function("esc", "ic", "ST_CODE_GROUPS", fn("function stCodeTree(") + "\nreturn stCodeTree;")(
+    escFake, () => "", [["page", "Pages"], ["part", "Components"], ["asset", "Made by the build"], ["shared", "Shared with every site"]]);
+  const files = [
+    { name: "src/routes/index.tsx", kind: "page" },
+    { name: "src/routes/-parts/band-1-hero.tsx", kind: "part" },
+    { name: "public/icon.svg", kind: "asset" },
+    { name: "src/routes/__root.tsx", kind: "shared" },
+    { name: "package.json", kind: "shared" },
+  ];
+  const html = stCodeTree(files, "public/icon.svg");
+  for (const label of ["Pages", "Components", "Made by the build", "Shared with every site"]) {
+    assert.ok(html.includes(label), "the tree has no " + label + " heading");
+  }
+  // A HEADING OVER NOTHING reads as something missing rather than absent.
+  assert.ok(!stCodeTree([{ name: "a.tsx", kind: "page" }], "a.tsx").includes("Made by the build"),
+    "an empty group was given a heading");
+  // THE PREFIX IS DROPPED IN THE CUSTOMER'S OWN GROUPS ONLY. `src/routes/` is
+  // noise repeated down the first two; on the SHARED root route, stripping it
+  // makes a platform file read as one sitting beside the customer's pages.
+  assert.ok(html.includes(">index.tsx<"), "a page kept a prefix every file in its group shares");
+  assert.ok(html.includes(">-parts/band-1-hero.tsx<"), "a component's display name is wrong");
+  assert.ok(html.includes(">src/routes/__root.tsx<"), "the shared root route lost its path and reads as the customer's own");
+  assert.ok(html.includes(">public/icon.svg<") && html.includes(">package.json<"), "a real path was mangled");
+  // THE OPEN FILE IS MARKED, and the data attribute is the full name the click
+  // handler looks a file up by — never the display name.
+  assert.match(html, /data-srcname="public\/icon\.svg"[^>]*/, "the open file cannot be looked up by what the row carries");
+  assert.ok(/class="st-file on"[^>]*data-srcname="public\/icon\.svg"/.test(html), "the open file is not marked open");
 });

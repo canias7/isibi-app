@@ -27,7 +27,7 @@ import { createRequire } from "node:module";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import {
   MAX_BANDS, MIN_BAND_CHARS, bandsOf, bandName, splitBand, bandProblems,
-  bandStub, pageShell, assembleBands, SHELL_IMPORTS,
+  bandStub, pageShell, assembleBands, SHELL_IMPORTS, freeBandFile,
   BAND_TOOL, bandPlan, bandPrompt, bandRequest,
 } from "../builder/page-bands.mjs";
 import { MAX_SECTIONS } from "../builder/site-plan.mjs";
@@ -238,6 +238,54 @@ test("DRIVEN: the design's order is what lands, not the order the answers came i
   assert.ok(wat.every((i) => i > 0), "a band is missing from the shell");
   assert.deepEqual([...wat].sort((a, b) => a - b), wat,
     "the shell reordered the bands — the design's order is the only order there is");
+});
+
+test("DRIVEN: a band never takes a file name a declared component already holds", () => {
+  // A DESIGN MAY DECLARE A COMPONENT CALLED `band-1-hero`. Nothing stops it —
+  // `TSX_ITEM.name` asks for a kebab name and every kebab string is legal — and
+  // the collision is not cosmetic: `validatePages` refuses the second entry of a
+  // duplicated name, so one of the two files is never written and the page
+  // importing it does not compile. That is `vite` refusing the build, which is
+  // the failure the whole part path exists to avoid.
+  //
+  // NOTHING DROVE `freeBandFile` AT ALL until the sweep said so — two mutants
+  // survived, the walk itself and the hop that hands the declared names in, and
+  // each is a paid build that ends in a placeholder.
+  assert.equal(freeBandFile("band-1-hero", new Set()), "band-1-hero", "a free name was moved");
+  assert.equal(freeBandFile("band-1-hero", new Set(["band-1-hero"])), "band-1-hero-2");
+  assert.equal(freeBandFile("hero", new Set(["hero", "hero-2", "hero-3"])), "hero-4",
+    "the walk stopped at the first taken name instead of walking past them");
+  // THE TAKEN SET IS COMPARED CASE-INSENSITIVELY at the caller, so a declared
+  // `Band1Hero` and a band file `band-1-hero` are the same file on a case-
+  // insensitive filesystem AND the same entry in `parts.json`.
+  assert.equal(freeBandFile("x", new Set()), "x");
+  assert.equal(freeBandFile("", new Set()), "band", "an empty base made an empty file name");
+  for (const junk of [null, undefined, 7, {}]) {
+    assert.equal(typeof freeBandFile(junk, "nope"), "string", "junk threw: " + JSON.stringify(junk));
+  }
+  // AND THE MOVE REACHES BOTH HALVES — the file AND the import, which this one
+  // pass writes together. A file that moved without its import is the same dead
+  // page one spelling over.
+  const { source, parts } = assembleBands({
+    route: "/", chrome: CHROME,
+    bands: [{ name: "Band1Hero", line: "Hero", source: band("Band1Hero") }],
+    taken: ["Band1Hero", "band-1-hero"],
+  });
+  assert.ok(!parts.some((p) => p.name === "band-1-hero"), "the band took the declared component's file name");
+  const m = /import Band1Hero from "@\/routes\/-parts\/([a-z0-9-]+)"/.exec(source);
+  assert.ok(m, "the moved band is not imported at all");
+  assert.ok(parts.some((p) => p.name === m[1]), "the import moved and the file did not, or the other way round");
+  // TWO BANDS THAT KEBAB TO ONE NAME ARE THE SAME PROBLEM without any design at
+  // all, so the walk has to hold against the bands themselves too.
+  const two = assembleBands({
+    route: "/", chrome: CHROME,
+    bands: [
+      { name: "Band1Hero", line: "a", source: band("Band1Hero") },
+      { name: "Band1Hero", line: "b", source: band("Band1Hero") },
+    ],
+  });
+  assert.equal(new Set(two.parts.map((p) => p.name)).size, two.parts.length,
+    "two bands wrote one file — validatePages refuses the second and the page cannot compile");
 });
 
 test("DRIVEN: a refused band is STUBBED, never dropped — and it is stubbed as a FILE", () => {

@@ -60,6 +60,30 @@ test("every route file becomes a page, with home first", () => {
     ["Home /", "Zebra /zebra", "Apple /apple"]);
 });
 
+test("a component is not a page, so it is never offered in the picker", () => {
+  // A `-` PREFIX IS WHAT KEEPS A FILE FROM BEING A ROUTE — pinned in our own
+  // vite config as `routeFileIgnorePrefix` rather than inherited from
+  // @tanstack/router-generator's default. Since 2026-09-11 every band of a split
+  // page is such a file, so a picker that listed them would offer a customer
+  // seven entries that all 404: the site genuinely has no `/-parts/band-1-hero`.
+  //
+  // DRIVEN rather than read, because the skip is one line in a loop and deleting
+  // it leaves every other case in this file passing — the sweep said so.
+  assert.deepEqual(names([
+    "src/routes/index.tsx",
+    "src/routes/-parts/band-1-hero.tsx",
+    "src/routes/-parts/band-2-prices.tsx",
+    "src/routes/menu.tsx",
+  ]), ["Home /", "Menu /menu"], "a component was offered as a page — every one of those is a 404");
+  // A `-` ANYWHERE ELSE IN THE NAME IS FINE, and that is the half a blunt
+  // `includes("-")` would break: real sites have routes like `/gift-cards`.
+  assert.deepEqual(names(["src/routes/gift-cards.tsx"]), ["Gift cards /gift-cards"],
+    "an ordinary hyphenated route was dropped from the picker");
+  // AND THE OBSERVER IS ALIVE: a list of nothing but components is empty rather
+  // than quietly falling back to something.
+  assert.deepEqual(names(["src/routes/-parts/band-1-hero.tsx"]), []);
+});
+
 test("plumbing files are not pages", () => {
   // __root is the layout and routeTree.gen is generated — neither is somewhere a
   // visitor can go, and offering them in the picker is offering a broken link.

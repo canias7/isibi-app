@@ -155,6 +155,84 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-11 — Each section of a page is its own file now, and the Code tab shows the whole project
+
+You held up Lovable's file explorer next to ours and said **"their stuff is
+files organized ours is all on one file"**, and then **"we do have a favicon but
+it doesnt show in the code tab"**. Both were true. Neither was what it looked
+like.
+
+**The one-file part was one line of our own code.** When a page is written by
+several agents at once — which is how every page is written now — each agent
+writes a complete, self-contained section. They arrive as separate things. The
+very last step took all of them and **glued them into one file** before anything
+else saw them. Nothing about the models, the prompts or the design forced that;
+it was a decision made when the split was new and never revisited.
+
+So now each section is written to its own file, at `src/routes/-parts/`, and the
+page file keeps what is genuinely the page: the route and the frame the sections
+sit in. **Nothing new is generated and nothing costs more** — the same answers,
+written to the right number of files instead of one.
+
+A nice side effect: two sections that both wanted the same import used to
+collide inside the shared file, which is what killed a build back in run 90.
+They can't meet any more.
+
+**The favicon was never missing.** It has been stored with every build since the
+day the design step started drawing one, and it is served on every live site — I
+checked yours, it's 278 bytes and answering fine. **The Code tab just never
+looked at it.** That pane only ever asked for pages; the icon, the wordmark, the
+QR codes and the stylesheet all live one drawer over, and nobody had opened it.
+
+**So the Code tab now shows the project.** Four groups, in the order you'd read
+them: **Pages**, then **Components** (the new section files), then **Assets**
+(the favicon, the wordmark, the QR codes, the site's stylesheet), then **Shared**
+— the 18 files every site is built from, marked as shared so it is obvious which
+half is yours and which half is the platform's. The kit is deliberately not in
+there: 3,394 files nobody asked for.
+
+**And the tree, the Download button and the file count now agree.** They were
+three separate opinions about what a project contains, and they disagreed. Same
+list, same paths, same names, all three — checked by opening the actual zip.
+
+**The part that mattered most isn't visible at all.** Splitting the sections into
+files would have quietly broken editing: the cheap rung that changes wording only
+ever read the page file, so the moment the words moved into section files, **every
+wording change would have fallen through to the expensive full rewrite** — about
+one credit becoming twenty-five, every time, silently. That's fixed in the same
+change: the edit path now sees the page and its sections as one list. Driven and
+proven: an edit reached two separated sections and changed both.
+
+**Proven, on a real generated site**: six sections in six files, `vite` built it
+(2,094 modules), the typechecker passed, none of the section files leaked out as
+a public page, and the favicon showed up in both the tree and the download.
+
+**And the deliberate-sabotage pass found ten holes — in my own testing, not in
+the code.** I break the code on purpose, one small change at a time, and check
+that a test notices. Ten changes went unnoticed: nine were things I had built
+correctly and never actually tested (the read-only label, the note under the
+stylesheet, the file counter, an uploaded logo being shown as a file it isn't,
+and so on), and one was a test I'd written so short it couldn't tell right from
+wrong. All ten now have a real test behind them. **One of the ten was the
+sabotage tool itself** — it had a bug that would have made every future run
+report a clean pass while testing nothing at all. Fixed first, before anything
+else was trusted.
+
+**Here is what it looks like** — `docs/edits/code-tab-project-tree.png`, a
+nine-section site with the four groups down the left.
+
+**Not proven live** — this needs the deploy, and because it touches the Worker
+the container rolls, so the usual 15–20 minute wait applies before firing
+anything.
+
+**One thing I did not fix, and it's a small step down rather than a break.** The
+rung that makes little layout tweaks still finds pages by their web address, so
+on a split site a layout tweak falls to the next rung up — roughly 1 credit
+becoming 1–3. Wording, colours, pictures, links and the rest are unaffected.
+Worth doing, not worth bundling into this.
+
+---
+
 ## 2026-09-10 — The build now records enough to answer the question you asked
 
 You said **"lets fix that"** about the two things I could not tell you after the

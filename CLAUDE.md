@@ -772,6 +772,265 @@ the next platform-wide republish is the measurement).
 
 ---
 
+### A PAGE SECTION IS ITS OWN FILE, AND THE EXPLORER SHOWS THE WHOLE PROJECT
+(2026-09-11, owner, holding our two-file "YOUR CODE" pane beside Lovable's
+explorer: *"their stuff is files organized ours is all on one file"* → *"we do
+have a favicon but it doesnt show in the code tab"*)
+
+Both observations were true and **neither was what it looked like.** The band
+split has written N self-contained components since the day it shipped;
+`assembleBands` was the ONE place they stopped being separate things,
+concatenating every body into one `index.tsx`. And the favicon was never
+missing — it is stored, versioned per build and served live (278 bytes off
+`fretwork-1`'s `/icon.svg`, read this session); **the explorer had simply never
+asked for anything but pages.**
+
+- **NOTHING NEW IS GENERATED, WHICH IS THE WHOLE SHAPE OF THE FIX.** The same N
+  answers land at N paths. `assembleBands` returns `{source, parts, refused}`
+  instead of one `source`: the page keeps what is genuinely the page — the route
+  export and the `SiteChrome` composition `pageShell` already built — and each
+  band becomes `src/routes/-parts/<name>.tsx`. No prompt moved, no model was
+  re-trained, no call costs more.
+- **THE BAND WRITER'S CONTRACT IS UNCHANGED BYTE FOR BYTE.** `bandProblems`
+  already required a band to declare itself and NOT export; what kind of FILE
+  holds it has always been the assembler's business rather than the model's. So
+  `bandModule` keeps the body verbatim and appends `export default <Name>;`.
+- **AND `bandProblems`' STATED REASON EXPIRED WITH THE CONCATENATION — corrected
+  in place rather than left standing.** It argued that a second top-level
+  declaration is a duplicate in one shared file. There is no shared file. **The
+  rule stays and its reason is now the true one**: a band is ONE component and
+  `bandModule` exports only the one we named, so a second declaration would be
+  silently unreachable code the customer paid for. That it also refuses a
+  legitimate module-scope helper is recorded as OPEN rather than fixed here — the
+  recorded "a rule true because of a layer below it expires when that layer
+  moves", caught while moving the layer.
+- **THE CROSS-BAND IMPORT MERGE IS GONE AND SO IS WHAT IT SOLVED.** Two bands
+  importing `Card` produced the duplicate declaration that killed run 90 in the
+  bundler; they can no longer meet. `validatePages` still runs `undupe` over
+  every part, so a band repeating an import INSIDE its own file is still
+  repaired — driven, not assumed.
+- **`freeBandFile` MOVES THE BAND'S NAME, NEVER THE DECLARED ONE.** A design may
+  declare a component called `band-1-hero` (`TSX_ITEM.name` asks for a kebab
+  name and every kebab string is legal), and the collision is not cosmetic:
+  `validatePages` refuses the second entry of a duplicated name, so one file is
+  never written and the page importing it does not compile — `vite` refusing the
+  build, which is the failure the part path exists to avoid. The declared name is
+  already written into the page by `tsxDirective` and cannot move without a
+  source rewrite; the band's is ours on both sides, since one pass names the file
+  AND the import.
+- **`bandFileName` IS DERIVED FROM `bandName`, not built beside it** — the import
+  the shell writes and the file the container writes are two halves of one fact,
+  and a second reading of the band's own line is "two lists of the same thing"
+  over a name. The digit boundary is load-bearing: without it `Band1Hero` and
+  `Band1Hero2` kebab to one string.
+
+#### THE EDIT PATH HAD TO MOVE WITH IT, OR EVERY WORDING CHANGE WOULD HAVE COST 25
+
+**This is the half that was not optional and is invisible from outside.**
+`source/<slug>/pages.json` and `source/<slug>/parts.json` have always been two
+stores and the cheap rungs only ever read the first. Free while a component was a
+rarity; **the moment the prose moves into the parts, a `text` lane reads a shell
+of imports, finds none of the words, and escalates a one-credit wording change to
+the ~25-credit rewrite — every time, silently.** So the split and this land
+together or not at all.
+
+- **`builder/site-files.mjs` IS AN ADAPTER AND IT IS NOT IN THE RUNGS**, which is
+  the design. `textItems` and `applyEdits` key on `p.path` and NEVER interpret it
+  — read, both of them — so a part presented with a path is a page as far as they
+  are concerned. Teaching each rung a second shape is the same knowledge in
+  several places.
+- **THE ROUND TRIP IS THE CONTRACT**, driven rather than asserted:
+  `splitEditable(editableFiles(pages, parts))` must give back exactly what went
+  in, or an edit moves a component into the page list — where it is counted
+  against the page cap, put in the nav manifest, published in `sitemap.xml` and
+  stubbed by salvage.
+- **PAGES FIRST, PARTS AFTER, AND THE ORDER IS LOAD-BEARING.** `textItems` walks
+  the list and stops one past `MAX_TEXT_ITEMS`, so a site at the cap shows the
+  page's own words before its components'. Reversed, one long component pushes
+  every page string past the cap and sends an ordinary site to the expensive lane.
+- **THE NAME COMES BACK OFF THE PATH, never carried beside it.** The rungs
+  rebuild these objects freely (`applyEdits` maps to `{path, source}` twice), so
+  anything but the path would not survive the trip this function exists to
+  complete. `partNameOf` is ANCHORED AND SUFFIXED, never a substring test: a PAGE
+  legitimately called `my-parts/x.tsx` is not a component, and reading it as one
+  would file it into `parts.json` and drop it off the site.
+- **A PART WITH NO USABLE NAME IS DROPPED, never given an invented path** — it
+  could not be written back under a name we made up, and a file that cannot
+  round-trip must not enter a list whose whole contract is that it does.
+
+#### THE EXPLORER SHOWS THE PROJECT, AND THE THREE READERS AGREE
+
+- **FOUR GROUPS**: `Pages` · `Components` · `Assets` · `Shared`. The assets are
+  `public/icon.svg`, `public/logo.svg`, `public/qr-<name>.svg` and
+  `src/styles.css`, and **no new storage was created** — `STATE_CONFIG_FIELDS`
+  has versioned `look`/`css`/`logo`/`icon`/`langStrings` per build in R2 since
+  stage 7. `siteAssetFiles` reads them through `lookWithMarks`, the SAME fold
+  `markWire` uses, so the bytes the explorer shows are the bytes the container
+  bakes; the marks normalise on the way (a favicon is forced square), which is
+  why the fixture is derived from `cleanFavicon`/`readWordmark` rather than from
+  the raw stored string.
+- **`builder/foundation-files.mjs` IS THE SHARED SET — 18 files, 171,573 bytes,
+  GENERATED.** The Worker has no filesystem and the template lives in the
+  container image, so the three ways to reach it are an R2 copy at deploy time, a
+  container round trip per file, or a bundle; bundling adds no moving part. **It
+  is a copy and a copy drifts**, so `builder/gen-foundation.mjs` writes it and
+  `test/foundation-files.test.mjs` re-runs the generator and compares —
+  `builder/component-api.mjs` is the precedent down to the failure message.
+  Without it somebody edits the template's `router.tsx`, every site is built from
+  the new one, and the explorer keeps showing the old one: not a crash, **a code
+  viewer quietly lying about the project it is showing**, which is worse than not
+  showing it.
+- **WHAT IS OUT, AND BOTH HALVES WERE DECIDED**: `src/components/**` — 3,394 kit
+  files, 9.5 MB, a dependency and no more a customer's project than
+  `node_modules`, and bundling it would put 9.5 MB in every isolate. And the
+  template's DEMO routes, because **the image DELETES them** — the guard derives
+  that from the Dockerfile's own `find src/routes … -delete` line rather than a
+  list typed in the test, so showing one would be showing a file that is not
+  there. `src/site-brand.ts` is out for the opposite reason: the template's copy
+  is a STUB the container overwrites per build, so the shared copy is the one
+  entry that would actively mislead.
+- **THE SITE'S OWN FILE WINS A PATH THE SHARED SET ALSO CLAIMS**, and today there
+  is exactly one: `src/styles.css`. Both are real — the template's base and the
+  layer written over it — but they are ONE PATH, and a tree showing it twice
+  under two headings with different contents is a project nobody has. It also
+  breaks the set: the download collapses two entries of one name, so the tree
+  would list a file the archive does not hold, **which is the disagreement this
+  change exists to end**.
+- **AN UNNAMEABLE FILE IS SHOWN AS `unplaced/<n>.txt` WITH A NOTE, never dropped**
+  — the owner's own words were *"don't silently omit files"*, and `stSrcPath`
+  applies `safePart`'s exact rule and REFUSES a non-kebab name rather than
+  coercing one.
+- **THE DISPLAY NAME DROPS `src/routes/` ONLY IN THE CUSTOMER'S OWN GROUPS.**
+  `public/icon.svg` and `src/lib/rows.ts` are meaningless without their path, and
+  the shared group holds `src/routes/__root.tsx`, which stripped reads as a file
+  sitting beside the customer's pages instead of the platform's own root route.
+- **`reactRoutePages` SKIPS `-`-PREFIXED FILES** — the page picker lists routes,
+  and a part is not one. `routeFileIgnorePrefix: "-"` is pinned in our own vite
+  config rather than inherited from @tanstack/router-generator's default.
+
+**Guards**: `test/site-files.test.mjs` (5) — the round-trip identity, page versus
+part, the WORKER CHAIN, `loadEditableFiles`, and **a DRIVEN text edit that
+reaches a separated section**, which is the case the whole edit half exists for.
+`test/foundation-files.test.mjs` (4) — the staleness compare, every path a real
+file, the kit and demo routes absent (derived from the Dockerfile), and the size
+bound with the image's COPY line. `test/site-source.test.mjs` 26 → 36, its
+harness gaining `config`/`configFails`. Four older files re-anchored, not
+appeased: `page-bands`, `band-build`, `page-parts`, `site-qr-list`.
+
+**VERIFIED ON A REAL GENERATED SITE, which is what the owner asked for**: six
+bands → six part files; **a real `vite build` — 2,094 modules transformed**,
+client and SSR bundles emitted; **`tsc --noEmit` exit 0**; `routeTree.gen.ts`
+held exactly `/`, so none of the six leaked out as a route; the driven text edit
+changed two separated sections with the page untouched; and the favicon end to
+end — route → browser list → a real zip opened by Python, the same set both ways.
+The template was restored afterwards (`git checkout -- builder/lovable/template/`).
+
+**AND THE SWEEP RUNNER ITSELF WAS THE FIRST THING THIS FOUND, which would have
+poisoned every future sweep in this repository.** `execFileSync`'s default
+`maxBuffer` is 1 MB and the TAP output of fifteen test files is several times
+that, so a GREEN tree threw `ENOBUFS` and the bare `catch` read it as *the mutant
+was killed*. **Every mutant would have "died", the baseline check would have
+refused a tree that was fine, and the summary would have been a clean sweep that
+tested nothing.** The recorded "a failure that cannot name itself", in the
+instrument. `scripts/mutate.mjs` now raises the buffer and — the half that
+matters — **only a real test failure counts as a kill**: anything else names
+itself, restores and exits 2.
+
+**TEN SURVIVED THE FIRST PASS AND NINE WERE GUARD GAPS RATHER THAN THE
+PRODUCT'S — the largest first-pass survivor count recorded here, and the shape
+of it is worth more than the number.** The guards proved the change's SHAPE and
+skipped its edges: what a value is, and not that anybody forwards it. Each was
+resolved rather than counted.
+- **`freeBandFile` had NO driver anywhere** — two mutants, the walk itself and
+  the hop handing it the declared names, and each is a paid build ending in a
+  placeholder. Both are driven now: the walk directly (free, taken, several
+  taken, junk, an empty base), the file AND the import proved to move together,
+  two bands that kebab to one name, and the CHAIN through the real
+  `generateSiteBands` — because the argument being empty is `picked-model`'s own
+  lesson, a value computed and never forwarded.
+- **THE COLLISION FIXTURE HAD TO BE BUILT AGAINST `bandName`'S REAL RULE.** A
+  line reading *"a hero with the workshop name"* answers `Band1A`, not
+  `Band1Hero`, so it collides with nothing — the first draft of that case looked
+  exactly right and tested none of it. The line starts with the word now.
+- **`partNameOf`'s `.tsx` test: a DRIVER GAP, and measured.** `-parts/x.ts`
+  answers `""` under both readings, because `slice(7, -4)` of an 11-character
+  string is empty — so every fixture in the file agreed with itself. At a real
+  length they diverge: `-parts/hero-band.ts` answers `"hero-ban"` without the
+  check, a component filed under a mangled name one character short.
+- **The `.catch(() => null)` on the config read was INERT, TRACED RATHER THAN
+  ASSUMED, AND DELETED.** `loadConfig` RETURNS rather than throws — every exit
+  answers `{ok:false, config: emptyConfig()}`, and with no database handed in
+  `deps.legacy` is never set — while a throw from `configDeps` itself happens
+  while the argument is evaluated, where no `.catch` on the result could see it.
+  So it was a second spelling of one wall, not a second wall; `worker.js`'s own
+  comments in three other places already state that contract. What guards the
+  cannot-tell case now is the `configFails` driver, which goes red the day
+  `loadConfig` starts throwing — a thing the second wall would have hidden. The
+  mutant was replaced by one that DOES change behaviour (the asset reader handed
+  the load WRAPPER instead of the config, which loses every asset on a healthy
+  site) and it dies.
+- **The remaining six had never been driven at all**: an UPLOADED mark shown as
+  a file (`{form:"image", url}` is a picture at the customer's own URL and the
+  build writes nothing for it — no fixture had ever handed the route one); the
+  file count reverting to the pages alone (`1 file` beside a tree of eight);
+  a component offered in the page picker, which is a 404; the read-only badge;
+  the stylesheet's note, without which a layer reads as the whole file; and the
+  generator SKIPPING a missing template file instead of throwing — inert over
+  the real template, since nothing is missing, so it is driven against a root
+  that genuinely lacks the files.
+- **AND ONE MUTANT NEVER APPLIED, which is the one that mattered most**: "THE
+  STATE BEFORE THIS — the bands are concatenated back into one page", anchored
+  two spaces wrong. A never-applied mutant reads exactly like a killed one in a
+  summary, and this was the mutant that proves the whole change. Re-anchored on
+  the real loop, and written as the genuine old shape (the bodies back in the
+  page, `parts: []`) rather than a `continue` — **and the first re-write of it
+  was itself INERT**, adding a `bodies` declaration nothing read. Every anchor
+  in the spec is now proved to resolve exactly once AND to change the file
+  before the run.
+
+**Sweep, re-run whole: 55 mutants, 55 killed, none survived, none unapplied, two
+comment-only controls survived** — the bands concatenated back into one page (the
+state before this), a band's file never written, a refused band dropped rather
+than stubbed as a file, no default export, a band's own imports dropped, the body
+trimmed, the file name built beside `bandName` instead of derived from it, the
+kebab losing its digit boundary so `Band1Hero` and `Band1Hero2` collide, a band
+taking a declared component's name, the declared names not held back; the
+editable view read as a substring, a non-`.tsx` file read as a component, a
+nameless part given an invented path, the round trip losing a part into the
+pages, the text lane reading the pages alone, the split not published; the
+explorer opening a database connection, the asset reader handed the load wrapper,
+the shared foundation dropped, the marks read by a second precedence rather than
+the one fold, an uploaded mark shown as a file, a code shown as `[object
+Object]`, the stylesheet shown without its note, the empty sentence keyed on the
+pages alone, the tree showing a part under a name the container never writes, a
+name the download refuses still drawn, an unnameable file vanishing, two unplaced
+files colliding, the assets through the page-path composer, the shared base
+overwriting the site's own stylesheet, the tree one flat list, an empty group
+given a heading, a shared file's path stripped, the open file looked up by its
+display name, the read-only badge, the note, a component offered in the page
+picker, the file count back to the pages alone, the foundation carrying the demo
+routes or the `site-brand` stub, a missing template file skipped, and the image
+dropping either module.
+
+- Full suite **6,014**.
+- **Rendered: `docs/edits/code-tab-project-tree.png`** — the tab as a customer
+  sees it on a nine-piece site, drawn through the REAL `stSrcFiles` and
+  `stCodeTree` carried out of `chat.js` rather than a second renderer. It shows
+  the one path collision resolving: 18 shared files, 17 drawn, because the site's
+  own `src/styles.css` claims that path.
+- **NOT PROVEN LIVE.** The push changes `worker.js`, a container image input, so
+  the container ROLLS and the 15–20 minute hold applies.
+- **OPEN, NAMED, NOT FIXED: the `tweak` rung still targets pages by ROUTE**, so a
+  layout tweak on a split site falls to the `page` rung (~1 → ~1–3 credits).
+  Degradation, not breakage, and every other rung — wording, colours, pictures,
+  links — is unaffected because they all go through the adapter.
+- **OPEN, and it is the band rule's over-strictness**: `bandProblems` refuses a
+  module-scope helper, which was right when every band shared one file and is
+  merely conservative now. Nothing is broken by it — a refused band is stubbed —
+  so it is left as a decision to make rather than one made in passing.
+
+---
+
 ### THE DESIGN STEP IS A DEPENDENCY GRAPH — WIRED, BEHIND A DOOR NOBODY IS
 THROUGH (2026-09-11, owner, drawing one spine with twenty-odd branches and two
 of them cut in two: *"it should be split into all the 23, and if theres one that
@@ -6061,7 +6320,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,958 (2026-09-11, the queue).
+  The unit suite is 6,014 (2026-09-11, the project files).
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

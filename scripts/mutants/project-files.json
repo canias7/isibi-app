@@ -1,0 +1,460 @@
+[
+  {
+    "label": "CONTROL: a comment only",
+    "control": true,
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "/** Where a component written for this site is imported from. */",
+    "to": "/** where a component written for this site is imported from. */"
+  },
+  {
+    "label": "CONTROL 2: a comment in the editable view",
+    "control": true,
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": " * THE ROUND TRIP IS THE CONTRACT.",
+    "to": " * The round trip is the contract."
+  },
+  {
+    "label": "THE STATE BEFORE THIS: the band bodies are concatenated back into one page",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "    const { imports: got, body } = splitBand(b.source);\n    parts.push({ name: file, source: bandModule(b.name, got, body) });\n  }\n  const source = imports.join(\"\\n\") + \"\\n\\n\" + pageShell({ route, chrome, names }) + \"\\n\";\n  return { source: dedupeImports(source).source, parts, refused };",
+    "to": "    const { imports: got, body } = splitBand(b.source);\n    imports.push(...got);\n    parts.push({ name: file, source: bandModule(b.name, [], body) });\n  }\n  const source = imports.join(\"\\n\") + \"\\n\\n\" + pageShell({ route, chrome, names }) + \"\\n\\n\" +\n    parts.filter((q) => !q.stub).map((q) => splitBand(q.source).body).join(\"\\n\\n\") + \"\\n\";\n  return { source: dedupeImports(source).source, parts: [], refused };"
+  },
+  {
+    "label": "a band's file is never written — the page imports a module that is not there",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "    const { imports: got, body } = splitBand(b.source);\n    parts.push({ name: file, source: bandModule(b.name, got, body) });",
+    "to": "    const { imports: got, body } = splitBand(b.source);\n    void got; void body;"
+  },
+  {
+    "label": "a refused band is dropped rather than stubbed as a file",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "      parts.push({ name: file, source: bandModule(b.name, [], bandStub(b.name, b.line)), stub: true });\n      continue;",
+    "to": "      continue;"
+  },
+  {
+    "label": "the page does not import the band it composes",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "    imports.push('import ' + b.name + ' from \"' + PART_IMPORT + file + '\";');",
+    "to": ""
+  },
+  {
+    "label": "the band file has no default export, so the page's import finds nothing",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "    \"\\n\\nexport default \" + String(name) + \";\\n\";",
+    "to": "    \"\\n\";"
+  },
+  {
+    "label": "a band's own imports are dropped from its file",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "  const head = (Array.isArray(imports) ? imports : []).filter(Boolean).join(\"\\n\");",
+    "to": "  const head = \"\";"
+  },
+  {
+    "label": "the band's body is not kept verbatim — the model's code is trimmed away",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "return (head ? head + \"\\n\\n\" : \"\") + String(body || \"\").replace(/\\s+$/, \"\") +",
+    "to": "return (head ? head + \"\\n\\n\" : \"\") + \"\" +"
+  },
+  {
+    "label": "the file name is built beside `bandName` rather than derived from it",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "export function bandFileName(name) {\n  return String(name == null ? \"\" : name)",
+    "to": "export function bandFileName(name) {\n  return String(\"band\")"
+  },
+  {
+    "label": "the kebab rule drops the digit boundary, so Band1Hero and Band1Hero2 collide",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "    .replace(/([0-9])([A-Za-z])/g, \"$1-$2\")",
+    "to": ""
+  },
+  {
+    "label": "a band file takes a declared component's name — validatePages then refuses one of them",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "  if (!taken.has(b)) return b;\n  for (let n = 2; n <= 99; n += 1) if (!taken.has(b + \"-\" + n)) return b + \"-\" + n;",
+    "to": "  if (true) return b;\n  for (let n = 2; n <= 99; n += 1) if (!taken.has(b + \"-\" + n)) return b + \"-\" + n;"
+  },
+  {
+    "label": "the declared components are not held back from the band names",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "    route, chrome, bands, taken: parts.map((p) => p.name),",
+    "to": "    route, chrome, bands,"
+  },
+  {
+    "label": "the band files never reach the answer — every page imports files nothing wrote",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "  const allParts = [...bandFiles, ...parts];",
+    "to": "  const allParts = [...parts];"
+  },
+  {
+    "label": "the declared components are dropped when a build also has bands",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "  const allParts = [...bandFiles, ...parts];",
+    "to": "  const allParts = [...bandFiles];"
+  },
+  {
+    "label": "the bands are filed AFTER the declared parts, so the raw-index pairing shifts",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "  const allParts = [...bandFiles, ...parts];",
+    "to": "  const allParts = [...parts, ...bandFiles];"
+  },
+  {
+    "label": "the band files are counted as declared components on the trace row",
+    "files": [
+      "builder/page-bands.mjs"
+    ],
+    "from": "    parts: partList.length,",
+    "to": "    parts: partList.length + bandFiles.length,"
+  },
+  {
+    "label": "a component is presented to the edit rungs with no path — the text lane cannot see it",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "    const path = partPath(p.name);\n    if (path) out.push({ path, source: p.source });",
+    "to": "    void partPath;"
+  },
+  {
+    "label": "the round trip loses the parts — every component comes back as a page",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "    const name = partNameOf(f.path);\n    if (name) parts.push({ name, source: f.source });\n    else pages.push({ path: f.path, source: f.source });",
+    "to": "    pages.push({ path: f.path, source: f.source });"
+  },
+  {
+    "label": "a page whose name merely ends in the part directory's is read as a component",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "  if (!p.startsWith(PART_DIR) || !p.endsWith(\".tsx\")) return \"\";",
+    "to": "  if (!p.includes(PART_DIR) || !p.endsWith(\".tsx\")) return \"\";"
+  },
+  {
+    "label": "a file that is not .tsx is read as a component",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "  if (!p.startsWith(PART_DIR) || !p.endsWith(\".tsx\")) return \"\";",
+    "to": "  if (!p.startsWith(PART_DIR)) return \"\";"
+  },
+  {
+    "label": "a nameless component is given an invented path it can never be written back under",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "  return n ? PART_DIR + n + \".tsx\" : \"\";",
+    "to": "  return PART_DIR + n + \".tsx\";"
+  },
+  {
+    "label": "the components are listed BEFORE the pages, so a long one can push every page past the text cap",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "export function editableFiles(pages, parts) {\n  const out = [];",
+    "to": "export function editableFiles(parts, pages) {\n  const out = [];"
+  },
+  {
+    "label": "the text lane goes back to reading pages alone — every wording edit on a split site escalates",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const eFiles = editableFiles(eSrc, eParts);",
+    "to": "              const eFiles = eSrc;"
+  },
+  {
+    "label": "the lane never reads the site's components",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const eParts = await loadSiteParts(env, ownerSlug);",
+    "to": "              const eParts = [];"
+  },
+  {
+    "label": "what came back is published unsplit — a component is stored as a page",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const eSplit = splitEditable(out.pages);",
+    "to": "              const eSplit = { pages: out.pages, parts: [] };"
+  },
+  {
+    "label": "the publish is handed the pages only, so every untouched component leaves the site",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                slug: ownerSlug, pages: eSplit.pages, parts: eSplit.parts,",
+    "to": "                slug: ownerSlug, pages: eSplit.pages,"
+  },
+  {
+    "label": "the whole-source reader repairs a second time instead of going through the one that does",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const pages = await loadSiteSourceForEdit(env, slug);\n  const parts = await loadSiteParts(env, slug);",
+    "to": "  await ensureEditableState(env, slug);\n  const pages = await loadSiteSource(env, slug);\n  const parts = await loadSiteParts(env, slug);"
+  },
+  {
+    "label": "the explorer stops reading the files the build made — the favicon is invisible again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        assets: siteAssetFiles(sCfg && sCfg.config),",
+    "to": "        assets: [],"
+  },
+  {
+    "label": "the explorer opens a database connection to show a file",
+    "files": [
+      "worker.js"
+    ],
+    "from": "loadConfig(configDeps(env, sslug, null), sslug),",
+    "to": "loadConfig(configDeps(env, sslug, await siteBackendBySlug(env, sslug)), sslug),"
+  },
+  {
+    "label": "the asset reader is handed the load WRAPPER instead of the config",
+    "files": [
+      "worker.js"
+    ],
+    "from": "assets: siteAssetFiles(sCfg && sCfg.config),",
+    "to": "assets: siteAssetFiles(sCfg),"
+  },
+  {
+    "label": "the shared foundation is dropped from the answer",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        shared: FOUNDATION_FILES,",
+    "to": "        shared: [],"
+  },
+  {
+    "label": "the marks are read by a second reading of the precedence rather than the one fold",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const look = lookWithMarks(cfg) || {};\n  const out = [];\n  const drawn = (field) => {\n    const m = look[field];",
+    "to": "  const look = (cfg && cfg.look) || {};\n  const out = [];\n  const drawn = (field) => {\n    const m = look[field];"
+  },
+  {
+    "label": "an uploaded mark is shown as a file the project has not got",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    return m && m.form === \"svg\" && typeof m.svg === \"string\" && m.svg.trim() ? m.svg : \"\";",
+    "to": "    return m && typeof m.svg === \"string\" ? m.svg : (m && typeof m.url === \"string\" ? m.url : \"\");"
+  },
+  {
+    "label": "a code is shown as `[object Object]` — the drawer's answer used as a string",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    const svg = drawnQr && typeof drawnQr.svg === \"string\" ? drawnQr.svg : \"\";",
+    "to": "    const svg = drawnQr ? String(drawnQr) : \"\";"
+  },
+  {
+    "label": "the site's stylesheet is shown as a whole file with nothing saying it is a layer",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      note: \"This site's own stylesheet. At build time it is appended to the shared src/styles.css, under the theme.\",",
+    "to": ""
+  },
+  {
+    "label": "the empty sentence keys on the pages alone — a components-only site is told it has nothing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        ...(pages.length || parts.length",
+    "to": "        ...(pages.length"
+  },
+  {
+    "label": "the file count goes back to the pages alone — `1 file` beside a tree of nine",
+    "files": [
+      "builder/publish-pages.mjs"
+    ],
+    "from": "  out.files = v.pages.map((p) => \"src/routes/\" + p.path)\n    .concat((v.parts || []).map((p) => \"src/routes/-parts/\" + p.name + \".tsx\"));",
+    "to": "  out.files = v.pages.map((p) => \"src/routes/\" + p.path);"
+  },
+  {
+    "label": "a component is offered in the page picker as a route, which is a 404",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (/(^|\\/)-/.test(rel)) continue;",
+    "to": ""
+  },
+  {
+    "label": "the tree shows a part under a name the container never writes",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    const n = f.name.trim().toLowerCase();\n    return /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(n) ? 'src/routes/-parts/' + n + '.tsx' : '';",
+    "to": "    return 'src/routes/-parts/' + f.name + '.tsx';"
+  },
+  {
+    "label": "a name the download refuses is still drawn in the tree — the two disagree again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    return /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(n) ? 'src/routes/-parts/' + n + '.tsx' : '';",
+    "to": "    return 'src/routes/-parts/' + n + '.tsx';"
+  },
+  {
+    "label": "an unnameable file vanishes from the tree, the zip and the count, in silence",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      if (name) { out.push({ name, text: p.source, kind: kind, note: typeof p.note === 'string' ? p.note : '' }); continue; }",
+    "to": "      if (!name) continue;\n      out.push({ name, text: p.source, kind: kind, note: typeof p.note === 'string' ? p.note : '' }); continue;"
+  },
+  {
+    "label": "two unplaced files collide on one name inside the archive",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "        name: 'unplaced/' + lost + '.txt', text: p.source, kind: kind, unplaced: true,",
+    "to": "        name: 'unplaced.txt', text: p.source, kind: kind, unplaced: true,"
+  },
+  {
+    "label": "the assets go through the page path composer and land under src/routes/",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    out.push({ name: a.path, text: a.source, kind: 'asset', note: typeof a.note === 'string' ? a.note : '' });",
+    "to": "    out.push({ name: stSrcPath({ path: a.path }), text: a.source, kind: 'asset', note: typeof a.note === 'string' ? a.note : '' });"
+  },
+  {
+    "label": "the shared foundation never reaches the tree",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    out.push({ name: f.path, text: f.source, kind: 'shared', note: '' });",
+    "to": ""
+  },
+  {
+    "label": "the shared base overwrites the site's own stylesheet, and one path is in the tree twice",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (claimed.has(f.path)) continue;",
+    "to": ""
+  },
+  {
+    "label": "the tree is one flat list again — nothing says which files are the customer's own",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    out += '<div class=\"st-code-h\">' + esc(g[1]) + '</div>';",
+    "to": ""
+  },
+  {
+    "label": "an empty group is given a heading, so a site with no drawn mark looks like it lost one",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (!mine.length) continue;",
+    "to": ""
+  },
+  {
+    "label": "a shared file's real path is stripped, so the platform's root route reads as the customer's",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      '<span class=\"st-file-n\">' + esc(own ? f.name.replace(/^src\\/routes\\//, '') : f.name) + '</span></button>').join('');",
+    "to": "      '<span class=\"st-file-n\">' + esc(f.name.replace(/^src\\/routes\\//, '')) + '</span></button>').join('');"
+  },
+  {
+    "label": "the open file is looked up by its display name, so no part can ever be opened",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      (f.unplaced ? ' st-file-lost' : '') + '\" data-srcname=\"' + esc(f.name) + '\">' +",
+    "to": "      (f.unplaced ? ' st-file-lost' : '') + '\" data-srcname=\"' + esc(f.name.replace(/^src\\/routes\\//, '')) + '\">' +"
+  },
+  {
+    "label": "the Read only badge goes",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      '<span class=\"st-code-ro\">Read only</span>' +",
+    "to": ""
+  },
+  {
+    "label": "the note is computed and never shown",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      (open.note ? '<div class=\"st-code-note\">' + esc(open.note) + '</div>' : '') +",
+    "to": ""
+  },
+  {
+    "label": "the foundation carries the template's demo routes, which the image deletes",
+    "files": [
+      "builder/gen-foundation.mjs"
+    ],
+    "from": "  \"src/router.tsx\",",
+    "to": "  \"src/router.tsx\",\n  \"src/routes/index.tsx\","
+  },
+  {
+    "label": "the foundation carries the site-brand stub the container overwrites per build",
+    "files": [
+      "builder/gen-foundation.mjs"
+    ],
+    "from": "  \"src/site-locale.ts\",",
+    "to": "  \"src/site-brand.ts\",\n  \"src/site-locale.ts\","
+  },
+  {
+    "label": "a missing template file is skipped, so the tree quietly loses the router",
+    "files": [
+      "builder/gen-foundation.mjs"
+    ],
+    "from": "    out.push({ path: rel, source: fs.readFileSync(full, \"utf8\") });",
+    "to": "    try { out.push({ path: rel, source: fs.readFileSync(full, \"utf8\") }); } catch {}"
+  },
+  {
+    "label": "the image stops carrying the editable view, so the container's worker import dies",
+    "files": [
+      "Dockerfile"
+    ],
+    "from": "builder/site-favicon.mjs builder/site-files.mjs builder/site-fonts.mjs",
+    "to": "builder/site-favicon.mjs builder/site-fonts.mjs"
+  },
+  {
+    "label": "the image stops carrying the shared foundation",
+    "files": [
+      "Dockerfile"
+    ],
+    "from": "builder/font-index.json builder/foundation-files.mjs builder/gen-code.mjs",
+    "to": "builder/font-index.json builder/gen-code.mjs"
+  }
+]

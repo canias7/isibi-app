@@ -30,11 +30,29 @@ for (const sig of ["exit", "SIGINT", "SIGTERM", "SIGHUP", "uncaughtException"]) 
   process.on(sig, (e) => { restore(); if (sig === "uncaughtException") { console.error(e); process.exit(1); } });
 }
 
+// A RUN THAT COULD NOT BE READ IS NOT A RED RUN, and until 2026-09-11 this told
+// them apart by not asking. `execFileSync`'s default `maxBuffer` is 1 MB; the
+// TAP output of the whole suite is several times that, so a GREEN tree threw
+// ENOBUFS and the bare `catch` below read it as "the mutant was killed". Every
+// mutant would have "died", the baseline check would have refused a tree that
+// was fine, and the summary would have been a clean sweep that tested nothing.
+// The recorded "a failure that cannot name itself", in the instrument.
+const BUF = 512 * 1024 * 1024;
 const runTests = () => {
   try {
-    execFileSync("node", ["--test", ...testFiles], { stdio: "pipe", encoding: "utf8" });
+    execFileSync("node", ["--test", ...testFiles], { stdio: "pipe", encoding: "utf8", maxBuffer: BUF });
     return true;   // green: nothing caught the mutant
-  } catch { return false; }   // red: killed
+  } catch (e) {
+    // ONLY A REAL TEST FAILURE IS A KILL. Anything else — the buffer, a missing
+    // binary, a signal — is this runner failing, and reporting it as a kill is
+    // how a sweep proves nothing and says it proved everything.
+    if (e && (e.code === "ENOBUFS" || typeof e.status !== "number")) {
+      console.error("THE RUNNER COULD NOT READ THE TEST RUN (" + (e.code || e.message) + ") — this is not a kill.");
+      restore();
+      process.exit(2);
+    }
+    return false;   // red: killed
+  }
 };
 
 console.log("baseline…");
