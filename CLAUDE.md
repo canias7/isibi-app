@@ -3365,13 +3365,25 @@ whole page went out in a single model call. `ben-crowe-guitar` measured that at
   holding every caller past the bound for ever. A guard now reads the import and
   refuses a local declaration, and the mutant dies.
 - Full suite **5,958**.
-- **Not proven live.** The push changes `worker.js`'s module graph, which is a
-  container image input, so the container ROLLS and the 15–20 minute hold
-  applies. The proof is one build whose design declares a component and whose
-  page plans a full set of bands — today that records `bands:wide` and one long
-  call; after this it should record a `bands` step carrying `bands`, `parts`,
-  `wrote`, `wroteParts` and a time per piece (`b1Ms` … `bNMs`, `p1Ms`), which is
-  the measurement the refusal has been preventing.
+- **MERGED AND DEPLOYED** (owner: *"merge"*). `unit tests` run 2440 green in
+  1m45s on the exact tree; main fast-forwarded `e36fc287` → `09d5ebb7` at
+  05:31Z. **Deploy run 2087 green in 3m15s**: the gate set in 1 s; the **image
+  step 2m16s** — a BUILD, since a reuse is one second — and the container
+  **ROLLED** (`EDIT isibi-app-sitebuildcontainer`, `25ae3fbda702…b6…` →
+  `2b3956b92f83bd7…`, `SUCCESS Modified application`, applied **05:34:07Z**; the
+  game app `No changes to be made`); the drain instant; Wrangler 22 s; the gate
+  left to expire on success. **The 15–20 minute hold ended ~05:49–05:54Z.** The
+  image step lands inside the Deploy section's stated band (2m05s best case, ~3m
+  ordinary) for a push that changes the worker tree and nothing above it.
+- **Not proven live.** The proof is one build whose design declares a component
+  and whose page plans a full set of bands — that shape recorded `bands:wide` and
+  one 407,694 ms call on `ben-crowe-guitar`; after this it should record a
+  `bands` step carrying `bands`, `parts`, `wrote`, `wroteParts` and a time per
+  piece (`b1Ms` … `bNMs`, `p1Ms`), which is the measurement the refusal has been
+  preventing. **And the queue itself has a tell nothing else produces**: with
+  more than eight pieces `waveMs` EXCEEDS the slowest piece, because the tail
+  waited for a permit — on every fan-out before this the two were equal by
+  construction.
 
 ---
 
