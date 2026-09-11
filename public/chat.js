@@ -9911,7 +9911,42 @@ let siteMobileW = null;
 // number. Two phones need about twice one, so the container query that puts
 // them side by side is pitched just above a single phone's widest clamp.
 const MOBILE_MIN_W = 300;
-let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
+let siteErr = null;         // { chatId, cost, short } → the "Try to fix" card over the preview
+
+// ── WHAT A FAILED BUILD COST, SAID ONLY WHEN WE KNOW IT ────────────────────
+//
+// The error card used to end with the LITERAL "you weren't charged", and the
+// chat rail's catch-all fell back to the same words. Neither read anything: the
+// card had no response in scope at all (`siteErr` carried a chat id and nothing
+// else), and the reply has carried `cost` all along. MEASURED on
+// `saltmarsh-kayak-co` (2026-09-11): 10 credits taken, "you weren't charged"
+// on screen, and no reversal row anywhere.
+//
+// THREE ANSWERS, NOT TWO, and the third is the point. A cost we did not read —
+// a connection lost mid-build, a shape with no `cost` — is CANNOT-TELL, and
+// this repo's standing rule is that cannot-tell must never read as a value. So
+// it says nothing about money rather than guessing zero, and the balance in the
+// top bar (refreshed on every one of these paths) is then the honest answer.
+//
+// `refundShort` IS THE SERVER'S OWN FLAG for a reversal that did not land, and
+// it outranks a zero: `cost: 0` with `refundShort` means we tried to give it
+// back and could not, which is the one case where claiming nothing was charged
+// would be worst.
+function buildCostWords(err) {
+  if (!err || err.short) return '';
+  const n = err.cost;
+  if (typeof n !== 'number' || !isFinite(n) || n < 0) return '';
+  if (n === 0) return ' You weren’t charged.';
+  return ' You were charged ' + n + (n === 1 ? ' credit' : ' credits') + '.';
+}
+
+// The outcome a failed build leaves for the card to read. Built from the
+// server's own reply, and answering `cost: null` when there was no reply to
+// read — which is what keeps `buildCostWords` silent rather than wrong.
+function buildErrOutcome(chatId, d) {
+  const n = d && typeof d.cost === 'number' ? d.cost : null;
+  return { chatId, cost: n, short: !!(d && d.refundShort) };
+}
 // Images the owner attached for the next build/revise (logo / reference). Sent to
 // the builder, which hosts them + shows them to the generator's vision.
 let siteAttach = [];
@@ -12067,7 +12102,13 @@ function renderSiteWorkspace(view, site) {
             ? '<div class="st-fixbar" id="stFixBar" hidden><span class="st-fixbar-ic">' + ic('alert', 15) + '</span><span class="st-fixbar-n"></span><button type="button" class="st-fixbar-btn" id="stFixBtn">Fix with AI</button><button type="button" class="st-fixbar-x" id="stFixX" aria-label="Dismiss">×</button></div>'
             : '') +
           ((siteErr && siteErr.chatId === site.id)
-            ? '<div class="st-errcard"><div class="st-err-h"><span class="st-err-ic">' + ic('alert', 16) + '</span> Error</div><div class="st-err-b">That change didn’t go through — you weren’t charged.</div>' +
+            // THE CARD READS THE OUTCOME, IT DOES NOT ASSERT ONE. This sentence
+            // ended "— you weren't charged" as a string literal, with no
+            // response anywhere in scope: it said that over a build that had
+            // just taken 10 credits. `buildCostWords` answers "" when the cost
+            // was never read, so the card simply stops talking about money
+            // rather than guessing.
+            ? '<div class="st-errcard"><div class="st-err-h"><span class="st-err-ic">' + ic('alert', 16) + '</span> Error</div><div class="st-err-b">' + esc('That change didn’t go through.' + buildCostWords(siteErr)) + '</div>' +
               '<div class="st-err-row"><button type="button" class="st-err-logs" id="stErrLogs">Dismiss</button><button type="button" class="st-err-fix" id="stErrFix">Try to fix ⏎</button></div></div>'
             : '') +
         '</div>' +
@@ -14507,7 +14548,13 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
     } else if (r.status === 429) { finish('⏳ You’ve hit today’s build limit — it resets within 24 hours.'); }
     else if (r.status === 501) { finish('⚠️ The build engine isn’t switched on yet — check back soon.'); }
     else if ((d && d.code === 429) || r.status === 503) { siteErr = null; finish(buildDownMsg(d)); }
-    else { siteErr = { chatId: origin }; finish('⚠️ ' + ((d && d.msg) || 'That didn’t come together — you weren’t charged. Try again in a moment.')); }
+    else {
+      siteErr = buildErrOutcome(origin, d);
+      // THE SERVER'S SENTENCE STILL WINS where it wrote one; the fallback no
+      // longer asserts a charge it has not read. `buildCostWords` is appended
+      // rather than baked in, so the one reading serves this and the card.
+      finish('⚠️ ' + ((d && d.msg) || ('That didn’t come together.' + buildCostWords(siteErr) + ' Try again in a moment.')));
+    }
     if (typeof fetchCredits === 'function') fetchCredits();
   }).catch((e) => {
     if (e && e.name === 'AbortError') { finish('■ Stopped. (A build already running may still finish server-side.)'); return; }

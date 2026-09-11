@@ -229,7 +229,20 @@ test("the build's refs: one per debit, the job's id under the queue, carried to 
   // scope hook — a name the designer gave that a stranger holds (409), and a
   // gateway that could not re-scope the job (503) — both before anything is
   // provisioned, both reversing every ref the build debited.
-  assert.equal((route.match(/await refundFields\(\)/g) || []).length, 8, "the eight refusals no longer all reverse through the ledger of refs");
+  //
+  // COUNTED BY SHAPE SINCE 2026-09-11, not by a bare total, and the shape is a
+  // real difference rather than a spelling. A REFUSAL quotes the reversal's own
+  // fields into the response it is about to return — `const back = await
+  // refundFields()` — because that response IS the answer. The post-build
+  // reversal added that day has no response to quote into: it runs before the
+  // reply is composed and the reply reads `schemaCost`, which `refundFields`
+  // updates on its way out. So the bare call is the one that is not a refusal,
+  // and a total alone could not tell a ninth refusal that forgot to reverse
+  // from a ninth caller that is not one.
+  assert.equal((route.match(/const back = await refundFields\(\);/g) || []).length, 8,
+    "the eight refusals no longer all reverse through the ledger of refs");
+  assert.equal((route.match(/await refundFields\(\)/g) || []).length, 9,
+    "a reversal was added or removed outside the eight refusals — say which, here");
   // What the reply carries.
   assert.match(route, /exempt: \(exempt \|\| \(pages && pages\.exempt === true\)\) \? true : undefined,/, "the reply does not carry exempt");
   // A FOUNDER IS NEVER SETTLED, and the flag that says so is set where the

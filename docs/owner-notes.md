@@ -5108,3 +5108,70 @@ The queue. The first build did run eight agents at once and every number lines
 up — 7 bands plus 1 component, all eight answered, times that add up exactly —
 but eight fits in eight, so nothing had to wait in line. Proving the queue needs
 a design that asks for nine or more pieces.
+
+---
+
+## 2026-09-11 — a failed build no longer charges for the half that ran
+
+The "you weren't charged" message was a **string literal**. It sat in the error
+card with no answer from the server anywhere near it, so it said the same thing
+whatever had happened — including over your build that had just taken 10
+credits.
+
+That was the smaller half.
+
+### The money
+
+The platform already had a rule for this and it was only being applied to half
+the bill. Every build failure is classed as either **the model's fault** (the
+page it wrote doesn't compile) or **ours** (the bundler, the container, the
+collector giving up, or anything nobody has thought about yet). The rule's own
+note in the code is blunt about why it leans our way: *"the cost of being wrong
+the other way is billing somebody for our own rollout, which is the exact trust
+problem this rule exists to prevent."*
+
+Both of your failed builds were ours by that rule — one died in the bundler, one
+timed out waiting.
+
+The problem is **when** the money is taken. A build pays twice: once for the
+design, once for writing the pages. The rule was asked before the pages charge —
+which is why neither build has a pages charge on it — and the design charge is
+taken earlier, before any of that runs. Every refund on that route sits in the
+early refusals, above the design call. So once a build had actually started,
+nothing could give the design money back, ever.
+
+Now it can. A build that ends with no site, at a stage that's ours, reverses what
+it took. A build that fails because the model wrote a page that doesn't compile
+still pays — that one isn't ours, and the code already said so.
+
+The collector — the part that picks a build up after the fact — needed the same
+thing, and it's the one that took your 10 credits. It's a separate run with no
+memory of what was charged, so it reverses by the build's own reference and lets
+the ledger decide how much is left. Both of its endings do it now.
+
+### The sentence
+
+The card reads the answer instead of asserting one. Three outcomes:
+
+- we know nothing was charged → it says so;
+- we know something was → it says how much;
+- we never got an answer to read → **it says nothing about money at all**, and
+  your balance at the top is the honest place to look.
+
+That last one matters more than it sounds. Guessing "you weren't charged" when
+we don't know is the same false claim in a quieter voice. And a refund we tried
+to make and couldn't now beats a zero — that's the one case where saying
+"nothing was charged" would be worst.
+
+### One thing I got wrong while writing it
+
+My first version of the refund told "there was nothing to give back" apart from
+"the ledger didn't answer" by looking at the wrong field — and both cases report
+the same value there, so a dead ledger would have been silently read as "nothing
+owed". Caught by the guard, and the test now pins it.
+
+### What this doesn't do
+
+It doesn't give you back the 19 credits from today. Those two builds are done
+and reversing them is a deliberate action on the existing records — your call,
+not something I'd do on my own.

@@ -3400,6 +3400,120 @@ whole page went out in a single model call. `ben-crowe-guitar` measured that at
 
 ---
 
+### A FAILED BUILD CHARGED FOR ITS DESIGN AND TOLD THE CUSTOMER IT HAD NOT
+(2026-09-11, owner: *"yes merge and go on the charging one"*)
+
+**`ourFault(stage)` GOVERNED ONE OF THE TWO CHARGES, AND NOTHING SAID SO.** Read
+off the ledger for `saltmarsh-kayak-co`: two builds producing no site — the first
+`stage: "build"` (vite could not resolve an import), the second `stage:
+"resume"` (the collector gave up) — **19 credits taken between them, `:deposit`
+and `:settle` on each, and NOT ONE reversal row**, while the browser said *"you
+weren't charged."*
+
+- **THE RULE WAS ALREADY WRITTEN.** `CHARGED_STAGES` is `published`, `validate`,
+  `home`, `typecheck` — the model output's own failures — and everything else,
+  an unrecognised stage included, is OURS. `ourFault`'s own comment spends a
+  paragraph on `build` in particular: *"this fails toward NOT charging… the cost
+  of being wrong the other way is billing somebody for our own rollout, which is
+  the exact trust problem this rule exists to prevent."* So nothing here is a new
+  policy; the rule simply never reached one of the charges.
+- **WHICH CHARGE, EXACTLY.** `publishPages` asks `ourFault` before billing the
+  PAGE call — which is why neither failed build has a `:pages` row, and why the
+  reply's `cost` read 0 while nine credits stood. The DESIGN's deposit and settle
+  are taken by the ROUTE before the page call ever runs, and **every one of the
+  eight `refundFields()` calls on that route sits in an early refusal, above the
+  design call.** Once a build had started, nothing could reverse it. One line
+  (`pages.page !== "app" && ourFault(pages.stage)`) closes it, and `ourFault` had
+  to be IMPORTED into `worker.js` — it was named in three comments there and
+  called in none.
+- **BOTH CONDITIONS, and the second is what keeps a salvaged build paid for**: a
+  site that IS live has been delivered whatever its stage says, so only a build
+  with nothing to show reverses. A mutant that drops either dies.
+- **THE COLLECTOR IS A DIFFERENT INVOCATION AND HAS NO LEDGER**, so it reverses
+  BY REF. `refundBuildByRef` walks `BUILD_DEBIT_STEPS` and asks `credit_reverse`
+  for `REVERSE_WHOLE` — the RPC's own documented maximum, **a ceiling and never
+  an amount**: it refunds `least(p_amount, debited − already)`, so asking for the
+  ceiling means "whatever is still on this ref" and the LEDGER stays the
+  authority on what that is. A caller that knew the number would be a second,
+  staler copy of the row — which is the argument `giveBack` already makes by
+  recomputing from `already + refunded` instead of its own arithmetic.
+  `design.billRef` survives into the resume record (it is in `buildArgs` and not
+  among the six fields stripped when the record is written), and a guard pins
+  that, because a stripped ref makes the whole reversal a silent no-op.
+- **BOTH OF THE COLLECTOR'S EXITS, and the second is the one that bit.** The
+  returned-but-placeholder exit packs `ok: true, ...pages` with `pages.cost` 0 —
+  the same lie, one invocation over. The THROW exit is where
+  `saltmarsh-kayak-co`'s second build ended, and it is **unconditional** because
+  every answer packed there is `stage: "resume"`: a test on a literal would read
+  as a choice nobody makes. Guarded, because a reversal that threw inside the
+  catch of a failed build would replace a named diagnosis with an exception —
+  and a throw there is reported rather than swallowed.
+- **`ok` IS THE ONLY FIELD THAT SEPARATES "NOTHING TO REVERSE" FROM "COULD NOT
+  REVERSE", and my first draft got it wrong.** `credit_reverse` answers
+  `{ok: true, refunded: 0, debited: 0}` for a ref with no row — which is EVERY
+  build that died before the pages debit — and `reverseCredits`' own `none`
+  carries `debited: 0` as well. So the `r.debited > 0` test I wrote to tell them
+  apart could never fire, and a dead ledger would have been swallowed as "there
+  was nothing to give back": the exact failure `refundFields`' own comment was
+  written about (*"A REVERSAL THAT FAILS IS MONEY THE CUSTOMER KEEPS BEING
+  CHARGED"*). Any `!ok` is cannot-tell and is reported SHORT.
+- **AND THE SENTENCE WAS A STRING LITERAL.** `public/chat.js`'s error card ended
+  *"— you weren't charged"* with **no response in scope at all**: `siteErr`
+  carried a chat id and nothing else, and the reply has carried `cost` all along.
+  The chat rail's catch-all had the same words as its fallback. Now `siteErr`
+  carries the outcome and **one** reading (`buildCostWords`) serves both — two
+  readings would disagree on the first reply the card rendered and the rail did
+  not. **THREE ANSWERS, NOT TWO**: a cost we never read says NOTHING about money
+  rather than guessing zero (cannot-tell must never read as a value), and
+  `refundShort` outranks a zero — *we tried to give it back and could not* is the
+  one case where claiming nothing was charged would be worst.
+- **Guards**: `test/build-refund.test.mjs` (11). `refundBuildByRef` and both
+  browser readers are CUT OUT of their files and RUN — the route's post-build
+  reversal cannot be reached by `credit-debit`'s harness, which makes the design
+  call THROW in order to reach the design catch and so never gets to a build
+  outcome at all; that limit is said out loud rather than papered over, and the
+  three call sites are read by their own conditions. Beside them: a CENSUS
+  deriving `BUILD_DEBIT_STEPS` from the route's own `debitRef(...)` spellings
+  both ways; `ourFault` driven over every stage this change relies on, both
+  directions, off the real module; the reversal proved to run BEFORE the reply
+  reads `schemaCost`; `billRef` proved not stripped from the stored design; and
+  `buildCostWords` driven over ten junk shapes including `{cost: ["0"]}`.
+- **One older guard went red and was re-anchored, not appeased.** `credit-debit`
+  counted `await refundFields()` at exactly 8 — a true proxy for "the eight
+  refusals all reverse" while refusals were the only callers. It counts BY SHAPE
+  now: a refusal quotes the fields into the response it is about to return
+  (`const back = await refundFields()`), and the post-build reversal has no
+  response to quote into. A bare total could not tell a ninth refusal that forgot
+  to reverse from a ninth caller that is not one.
+- **Sweep: 24 mutants, 24 killed, none survived, none unapplied, two comment-only
+  controls survived — clean on the first pass** — the route never reversing (the
+  state before this), reversing a typecheck failure, reversing a live site,
+  `ourFault` unimported; a dead ledger read as nothing to give back, the walk
+  stopping after one step, a token amount asked for, the empty-ref guard dropped;
+  `BUILD_DEBIT_STEPS` forgetting the settle or inventing a step; each collector
+  exit's reversal cut, the failure reversal unguarded, either `refundShort`
+  dropped, `billRef` stripped from the stored design; and on the browser, a
+  never-read cost claimed as zero, `refundShort` ignored, a coerced cost, `1
+  credits`, the card and the rail each back to their literal, and `siteErr`
+  carrying nothing to read.
+- Full suite **5,979**.
+- **AND THE `pgrep -f` TRAP FIRED, in the check written to avoid it.** `ps -eo
+  args | grep -q "[s]cripts/mutate.mjs" && echo RUNNING || node scripts/mutate…`
+  answered RUNNING with nothing running: the `[s]` bracket stops grep matching
+  its own GREP, and not the bash whose argv holds the whole compound command —
+  including the `node scripts/mutate.mjs` it was about to run. Run the check as
+  its own command, never in the same line as the thing it is checking for.
+- **Not proven live, and the two halves prove differently.** The push changes
+  `worker.js`, so the container ROLLS and the 15–20 minute hold applies. The
+  SENTENCE is provable on the next failed build — the card should name what was
+  charged, or say nothing. The MONEY is provable off the ledger: a failed build
+  should now leave a `refund` row beside its `:deposit` and `:settle`, and the
+  balance should come back. **What this does NOT do is repay the 19 credits
+  already taken** — that is a `credit_reverse` by ref on the two existing jobs,
+  and it is the owner's call rather than a session's.
+
+---
+
 ### THE ONE COMPONENT THE RULES MAKE MANDATORY HAD NO IMPORT PATH (2026-09-11,
 owner, on two failed builds: *"tell me what was the issue"* → *"ok go"*)
 

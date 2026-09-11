@@ -118,7 +118,11 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // own name the two collide, and the collision is invisible to `node --check` and
 // to all 1,632 tests (nothing can import a Worker entrypoint); esbuild refuses
 // it at deploy time and the deploy is the first thing that ever sees it.
-import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
+// `ourFault` IS IMPORTED NOW, AND UNTIL 2026-09-11 IT WAS NAMED IN THREE
+// COMMENTS HERE AND CALLED IN NONE. It decided the PAGES charge inside
+// `publish-pages.mjs` and nothing applied it to the design charge this route
+// takes first — see the reversal beside `publishPlaceholder`.
+import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, photoWait, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
@@ -982,6 +986,73 @@ async function reverseCredits(env, uid, ref, reason, amount) {
       refunded: Math.max(0, Number(a.refunded) || 0), already: Math.max(0, Number(a.already) || 0), debited: Math.max(0, Number(a.debited) || 0),
     };
   } catch (e) { console.error("credit_reverse failed:", ref, reason, amount, e && e.message); return none; }
+}
+
+/**
+ * THE STEPS A BUILD DEBITS UNDER, and the ONE place they are listed.
+ *
+ * `debitRef(step)` in the build route mints `build:<id>:<step>`, and until
+ * 2026-09-11 nothing outside that route's own closure ever had to name them —
+ * its `bill` Map remembered what each took. The COLLECTOR is a different
+ * invocation with no Map and no closure, so it reverses by ref, and reversing
+ * by ref means knowing the refs.
+ *
+ * `test/credit-debit.test.mjs` DERIVES this set from the route's own
+ * `debitRef(...)` call sites and the pages debit's inline spelling, and fails
+ * on any difference — so a fourth step added next month cannot be left
+ * un-reversed on the one path that cannot see it, which is exactly the "two
+ * lists of the same thing" this repo keeps paying for.
+ */
+const BUILD_DEBIT_STEPS = Object.freeze(["deposit", "settle", "pages"]);
+
+/**
+ * `credit_reverse`'s own documented maximum ask (`p_amount > 100000` raises).
+ *
+ * IT IS A CEILING, NEVER AN AMOUNT. The RPC refunds `least(p_amount, debited −
+ * already)`, so asking for the ceiling means "whatever is still on this ref"
+ * and the LEDGER is the authority on what that is — which is the same thing
+ * `giveBack` relies on when it recomputes from `already + refunded` instead of
+ * trusting its own arithmetic. A caller that knew the number would be a second
+ * copy of the ledger's row, and a stale one.
+ */
+const REVERSE_WHOLE = 100000;
+
+/**
+ * REVERSE EVERY DEBIT A BUILD MADE, BY REF, WITH NO LEDGER OF ITS OWN.
+ *
+ * For the COLLECTOR, which finishes a build a different invocation started and
+ * therefore cannot reach the route's `bill` Map. Answers what it managed to
+ * return and whether anything is still owed, so a failed reversal is not
+ * reported as a clean zero — the trap `refundFields`' own comment records
+ * ("A REVERSAL THAT FAILS IS MONEY THE CUSTOMER KEEPS BEING CHARGED").
+ *
+ * A REF THAT WAS NEVER DEBITED IS NOT A FAILURE, AND `ok` IS WHAT SAYS SO.
+ * `credit_reverse` answers `ok: true, refunded: 0, debited: 0` for a ref with
+ * no row — a build that died before the pages debit simply has no `:pages` row
+ * — so that is nothing owed and nothing wrong. `ok: false` comes only from
+ * `reverseCredits`' own `none`: a refused request, a dead ledger, an answer
+ * that was not an object. **Every one of those is CANNOT-TELL**, and this
+ * repo's standing rule is that cannot-tell must never read as nothing-there —
+ * so any `!ok` is reported short, and the reply says the money may still be on
+ * the ledger rather than claiming a clean zero.
+ *
+ * (The first draft of this tested `r.debited > 0` to tell the two apart, which
+ * could never fire: `none` carries `debited: 0` as well, so a dead ledger
+ * would have been swallowed as "there was nothing to give back" — the exact
+ * failure `refundFields`' own comment was written about.)
+ */
+async function refundBuildByRef(env, uid, billRef, reason) {
+  if (!billRef || !uid) return { returned: 0, short: false };
+  let returned = 0;
+  let short = false;
+  for (const step of BUILD_DEBIT_STEPS) {
+    const ref = billRef + ":" + step;
+    const r = await reverseCredits(env, uid, ref, reason, REVERSE_WHOLE);
+    if (r.ok) { returned += r.refunded; continue; }
+    short = true;
+    console.error("build reversal could not be made:", ref, reason);
+  }
+  return { returned, short };
 }
 
 // Deduct credits atomically under the caller's own JWT. Returns the new
@@ -14748,6 +14819,24 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
     // so in as many words — and a wrong `true` here puts a Data panel over a
     // database that does not exist. A read that fails answers `false`: hiding a
     // panel is recoverable, promising a missing database is not.
+    // ── AND THE COLLECTOR REVERSES TOO, ON THE SAME RULE ────────────────────
+    //
+    // This path packs `ok: true, ...pages` for EVERY returned build, including
+    // one that came back as the placeholder — and `pages.cost` is 0 there,
+    // because `publishPages` exempted its own charge through `ourFault`. So the
+    // reply already said "this cost nothing" while the design's deposit and
+    // settle, taken by the route hours earlier, still stood. Same lie as the
+    // route's, one invocation over.
+    //
+    // BY REF, because this invocation has no `bill` Map — that lived in the
+    // route's closure and is gone. `design.billRef` survives into the resume
+    // record (it is in `buildArgs` and not among the six fields stripped when
+    // the record is written), which is what makes reversing possible at all.
+    let rShort = false;
+    if (pages && pages.page !== "app" && ourFault(pages.stage)) {
+      const r = await refundBuildByRef(env, claimed.uid, design.billRef, "refund");
+      rShort = r.short;
+    }
     const rSlug = (stored && stored.slug) || design.slug || "";
     let rBackend = false;
     if (rSlug) {
@@ -14779,6 +14868,11 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         // want route-local state the record does not carry, and
         // `builder/build-answer.mjs` names them and says why.
         ...pageNotes(pages),
+        // A REVERSAL THAT DID NOT LAND IS NOT A CLEAN ZERO. Carried only when
+        // something is still owed, so an ordinary answer is unchanged and the
+        // field's PRESENCE is the alarm — the convention `prerenderUnprivileged`
+        // and `sourceStored` already follow on the inline reply.
+        ...(rShort ? { refundShort: true } : {}),
       }),
       uid: claimed.uid,
     });
@@ -14809,10 +14903,37 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
     // NOT carried — it can quote the request, and the request is the brief.
     const rk = upstreamKind(e && e.detail, e && e.status);
     console.error("build resume: the build threw for", id, "act=" + decision.act, "why=" + (decision.why || "-"), String((e && e.stack) || (e && e.message) || e));
+    // ── AND THIS IS THE ONE THAT BIT ────────────────────────────────────────
+    //
+    // `saltmarsh-kayak-co`'s second build ended exactly here — `resume:stop`,
+    // `why: "timeout"` — having taken 10 credits for its design, and the
+    // customer was shown "you weren't charged". `stage: "resume"` is not in
+    // `CHARGED_STAGES`, so `ourFault` has always called this ours; nothing
+    // asked it. Unconditional here BECAUSE the stage is a constant: every
+    // answer packed below is `stage: "resume"`, so there is no case to test
+    // and a test on a literal would read as a choice nobody makes.
+    //
+    // BEST-EFFORT, and the reply stands whatever happens: this runs inside the
+    // catch of a build that has already failed, and a throw here would replace
+    // a named failure with an unnamed one. What it cannot do is go quiet — a
+    // reversal it could not make says so.
+    let rFailShort = false;
+    try {
+      const r = await refundBuildByRef(env, claimed.uid, design.billRef, "refund");
+      rFailShort = r.short;
+    } catch (re) {
+      rFailShort = true;
+      console.error("build resume: the reversal itself threw for", id, String((re && re.message) || re));
+    }
     out = packResult({
       status: 500, type: "application/json", uid: claimed.uid,
       body: JSON.stringify({
         ok: false, stage: "resume", error: "the build failed",
+        // WHAT HAPPENED TO THE MONEY, on the reply that used to say nothing
+        // about it at all. `cost: 0` is now a fact rather than a hope, and
+        // `refundShort` is the flag that says it is not.
+        cost: 0,
+        ...(rFailShort ? { refundShort: true } : {}),
         kind: String((e && e.name) || "Error"),
         resumed: decision.act,
         why: decision.why || null,
@@ -16872,6 +16993,37 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // the hopeful wording standing, which is the best that can be said when
       // nothing of ours got to run.
       if (pages.page !== "app") await publishPlaceholder(env, slug, brand, spec);
+
+      // ── A BUILD THAT SHIPPED NOTHING, AT A STAGE THAT IS OURS, IS NOT PAID FOR
+      //
+      // MEASURED LIVE on `saltmarsh-kayak-co` (2026-09-11): two builds, one
+      // dying at `stage: "build"` (vite refused an import our own prompt never
+      // specified) and one at `stage: "resume"` (the collector gave up), **19
+      // credits taken between them and not one reversal row** — while the
+      // browser told the customer "you weren't charged".
+      //
+      // THE RULE IS NOT NEW AND IS NOT WIDENED HERE. `CHARGED_STAGES` is
+      // `published`, `validate`, `home`, `typecheck` — the model output's own
+      // failures — and everything else, an unrecognised stage included, is ours
+      // by `ourFault`'s own stated design, which spends a paragraph on why
+      // `build` in particular fails toward NOT charging: *"the cost of being
+      // wrong the other way is billing somebody for our own rollout, which is
+      // the exact trust problem this rule exists to prevent."*
+      //
+      // WHAT WAS ACTUALLY BROKEN is that the rule governed ONE of the two
+      // charges. `publishPages` asks it before billing the page call — which is
+      // why neither failed build has a `:pages` row — and the DESIGN's deposit
+      // and settle are taken by this route BEFORE the page call ever runs. Every
+      // other `refundFields()` on this route sits in an early refusal, above the
+      // design call, so once a build had started nothing could reverse it. This
+      // is that existing answer applied to the charge it never reached.
+      //
+      // BOTH CONDITIONS, and the second is what keeps a salvaged build paid for:
+      // a site that IS live has been delivered whatever its stage says, so only
+      // a build with nothing to show is reversed. `refundFields` reverses every
+      // ref by the ledger's own row and re-reads what stays, so `schemaCost` —
+      // and therefore the `cost` on the reply — is corrected by the same call.
+      if (pages.page !== "app" && ourFault(pages.stage)) await refundFields();
       // SPLIT, not one number. `pages` was the model call, the container compile
       // and ~20 R2 puts together — the majority of a build's wall clock with no
       // way to attribute it.
