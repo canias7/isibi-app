@@ -4782,3 +4782,58 @@ That is Stage C and it is your call — nothing is changed yet.
 build's real numbers on it. Sixteen bars, each starting where it really
 started, the slow run in green ending exactly on the line, and the old
 three-wave finish as a faint line further right so you can see the gap.
+
+## 2026-09-11 — the same for the generate step: what it says, and what it could not
+
+Short version: **the generate step does not record what each band cost**, so the
+chart you asked for cannot be drawn from it yet. I built the instrument that
+records it. Here is what the step *does* say today —
+`docs/edits/generate-step-today.png`.
+
+### What the numbers already show
+
+The last build that wrote its page in pieces was `kestrel-bindery`, and it is
+the most impressive number on this platform:
+
+- **7 bands, all at once: 93,375 ms** — a minute and a half.
+- **The same work one after another: 424,444 ms** — seven minutes.
+- So **331,069 ms of overlap**. The design split, by comparison, buys about a
+  minute. This is the split that really pays.
+- And against a page written in ONE call (`marlow-and-tide`, the control I ran
+  the same night): **93,375 against 180,456** — roughly half.
+
+### What is missing
+
+The design step now reports one number per agent — which is how we found that
+the stylesheet, not the drawings, is the wall. The generate step reports **one
+number for all seven bands**, so "which band is the wall" cannot be asked at
+all. And the wall is the only thing worth cutting: the other six answer and then
+wait for it.
+
+That is what I added. Each band now gets its own number — `b1Ms`, `b2Ms` and so
+on, counting down the page — so the next split build draws the same chart the
+design step drew.
+
+**Keyed by position rather than by name, and that is a real decision.** The
+bands are called things like `Band1Testimonials`, and the trace cuts a label at
+sixteen characters — so two bands whose words start the same way would end up
+sharing one slot, with the second quietly writing over the first. A wrong number
+wearing the right name is the one way this could lie to us instead of just going
+quiet. The position cannot do that, and it is what a chart shows anyway: band 1
+is the top of the page.
+
+### One thing you need to do
+
+**The band split is switched off right now.** You set that secret yourself last
+night at 21:19 so we could time a single-call control, and it worked — that is
+where the 180,456 came from. Every build since has recorded `bands:door`, which
+is the trace saying "the flag is off for this account":
+`marlow-and-tide`, `ravenscroft-and-fyne`, and last night's `sowerby-forge`.
+
+So the per-band chart needs the split back on. Either delete
+`BAND_SPLIT_CANARY` in GitHub (the code's own default already names your
+account) or set it to `22175f41-6fbf-49d7-b039-a65078a0141c`, then redeploy.
+After that, one ordinary build fills the chart in.
+
+**No page a customer sees changes either way**, and nothing about the design
+graph moves — that stays on.

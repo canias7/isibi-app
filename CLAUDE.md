@@ -2845,6 +2845,122 @@ stored row.
   decided earlier* to *here is what you are given* — prompt work, which is where
   this repository has lost real builds. Unstarted; the owner has not said go.
 
+---
+
+### AND SO DOES THE FAN-OUT THAT WRITES THE PAGE (2026-09-11, owner, having read
+the design graph's sixteen per-agent numbers: *"ok now the same for the generate
+step too"*)
+
+The same instrument one path over, and **the FOURTH time `runFanout` has measured
+the parts while a loop kept only the total** — the design loop threw the per-call
+elapsed away until 2026-09-10, the band path threw its own wall time away until
+the same day, and this is `a.ms` again, now filed under the band that spent it.
+The generate step recorded `bands`, `wrote`, `agentMs` and `waveMs`; `agentMs −
+waveMs` says what the fan-out saved and **cannot say where**, because seven bands
+are invisible inside one sum.
+
+- **KEYED BY POSITION, NEVER BY NAME, and that is the ONE way this differs from
+  the design's identical pair.** `bandName` is `Band<n><Word>` — up to
+  twenty-one characters — and `tr.at` cuts a key at sixteen, so two bands whose
+  words agree far enough in would arrive as ONE key with the later silently
+  overwriting the earlier: a wrong number wearing a right one's name, which is
+  the only way this instrument can LIE rather than go quiet. The index is what
+  `bandName`'s own comment calls the thing that makes a band unique whatever the
+  words do, it is short by construction, and it is already what a chart of a page
+  shows on its vertical axis. `b1Ms` … `bNMs`, **one-based**: band 1 is the top
+  of the page, and the array's zero is not the reader's.
+- **TWO OF `agentMark`'S WALLS ARE DELIBERATELY ABSENT, AND THE CODE SAYS SO.**
+  No truncation check (an index cannot reach sixteen characters without thirteen
+  digits) and no already-taken check (every key made here is `b`, digits and
+  `Ms`, while the four fixed keys are words — they cannot collide). Copying them
+  would have added two lines a sweep can never kill, which read as a test gap for
+  ever and get deleted by the next session wondering what they were for. The
+  design needs both because an AGENT's key comes from a name.
+- **AND NO CEILING AT `MAX_BANDS`, deliberately**: `generateSiteBands` takes its
+  lines as an argument, so a caller handing more bands than the plan allows would
+  have the extra ones' times silently dropped — the worse failure of the two,
+  because the sum would then disagree with the parts and nothing would say why.
+- **THE PARTS SUM TO `agentMs` ONLY WHEN EVERY BAND HAS A READABLE POSITION**,
+  and that is the honest half rather than a hedge. The sum is the truth about
+  what the attempt cost, so a band whose index is not a whole number COUNTS in it
+  and is filed nowhere — inventing a position would put one band's time under
+  another's key. `+=` rather than `=` is what keeps the tie where the positions
+  *are* readable; a repeated index is a shape `runFanout` cannot produce, so that
+  is not defending against a real fan-out, it is what stops the sum and the parts
+  disagreeing if one ever arrives.
+- **`bandMarks` IS THE ONE PROJECTION, and taking the four existing numbers into
+  it is half the change.** They were four `Number(fan && fan.X) || 0`
+  expressions inline in `worker.js`; a per-band LOOP written there would be a
+  loop nothing can drive, which is the recorded shape that put `waveMarks` in a
+  module. A shape it cannot read answers ZEROS for the four (a missing key and a
+  key reading 0 are the same from a stored row) and NOTHING per band (`b3Ms: 0`
+  reads as a band that answered instantly where a missing key reads as a band
+  that never ran) — the opposite rule, and the same one the design settled.
+- **NOT SHARED WITH `waveMarks`, and the reason is the key rule**: one keys by
+  position and the other by name, so a single function answering both would need
+  a mode. Said in the module so the next session does not merge them.
+- **Guards**: `test/split-timing.test.mjs` 27 → 34, every new one DRIVEN. The one
+  that settles the owner's question runs the REAL `runFanout` on a clock the test
+  owns and feeds it through the REAL `generateSiteBands` — because the property
+  is a relationship BETWEEN the two (one measures `waveMs`, the other files the
+  parts) and a hand-stamped fixture would assert a relationship the test invented.
+  Three bands, the third much slower: the row reads `b1Ms 20, b2Ms 50, b3Ms 150`
+  against `waveMs 150`, and the guard asserts `max(per-band) === waveMs` — the
+  barrier as arithmetic — with the same 220/150 shown to be producible by three
+  bands where there is no wall to cut. Beside it: `bandMark` driven over fourteen
+  shapes including `String(["3"])`; the projection driven over junk, arrays and
+  a band that did not run; a failed band proved filed under its own position; a
+  band with an unreadable position (string, negative) proved filed nowhere while
+  still counting in the sum; the parts proved to sum to the whole; both returns
+  proved to carry the pair; and THE CHAIN — the Worker's own mark statement cut
+  out and RUN against a real `makeTrace`, because `mark?.("bands")` without the
+  projection satisfies every text match there is.
+- **One older case went red and was re-anchored, not appeased.** It asserted the
+  four numbers as four literal `Number(fan && fan.X) || 0` expressions on the
+  mark's own line — the property while those four lines WERE the mark, and a
+  spelling once they moved into the projection. It asks the HANDOFF now (the mark
+  asks `bandMarks` about the fan-out's answer) plus the half a drive cannot see:
+  that the timings are spelled in exactly ONE place, since a second copy in
+  `worker.js` would be "two lists of the same thing" with the stored row as the
+  other list.
+- **Sweep: 24 mutants, 24 killed, none survived, none unapplied, the comment-only
+  control survived — ONE survived the first pass and it was a real guard gap**:
+  the builder's finite guard escaped, so a band whose time is not a number would
+  be filed anyway. It changes no STORED row — `bandMarks` refuses a non-finite
+  number on the way out and `tr.at` refuses one again — but it breaks the tie
+  between the sum and the parts, visible to every reader except the one that
+  happens to filter it. Driven now, re-run to a kill. **And my own first attempt
+  at that driver was a FALSE CLAIM**: it asserted the parts sum to the whole in
+  the fixture built out of unfileable bands, where by design they cannot. Deleted
+  rather than reworded; the tie is driven where it holds. The rest: the record
+  deleted (the state before this), `eachMs` built and never returned on either
+  path, `=` for `+=`, the position coerced or its integer or negative test
+  dropped, the time taken from the fan-out's wall so every band reads the same;
+  `bandMark` losing its type check (so `String(["3"])` keys a band), its digit
+  test, its unit, its one-based offset, or refusing everything; `bandMarks`
+  losing the loop, reading the wrong field, dropping the finite test, coercing
+  the four, or handing the shape straight through; and on the Worker the mark
+  handed the raw answer, handed nothing, deleted, or unwrapped.
+- Full suite **5,944**.
+- **NOT PROVEN LIVE, AND IT CANNOT BE UNTIL THE BAND SPLIT IS TURNED BACK ON.**
+  The owner set `BAND_SPLIT_CANARY` as a repository secret at 2026-09-10 21:19Z
+  to run a single-call control, and every build since has recorded **`bands:door`**
+  — `marlow-and-tide`, `ravenscroft-and-fyne`, `sowerby-forge`. So the generate
+  step is writing pages in ONE call today and this instrument has nothing to
+  record. Turning it back on is deleting that secret (the workflow's `|| fallback`
+  then names the building account) or setting it to the account uid, and
+  redeploying; the tell on the next build is a `bands` step carrying `b1Ms` …
+  `bNMs` where today there is no `bands` step at all.
+- **What the generate step DOES say today, drawn:
+  `docs/edits/generate-step-today.png`** — `kestrel-bindery`'s seven bands as ONE
+  green bar (`waveMs` 93,375) against the same work in series (`agentMs` 424,444)
+  and the single-call control (`marlow-and-tide`, `genMs` 180,456). **331,069 ms
+  of overlap, the largest either split has produced**, and roughly half the
+  single call. What the picture cannot show is the inside of the green bar, which
+  is exactly what this change adds.
+- The push changes `worker.js`, which is a container image input, so the
+  container ROLLS and the 15–20 minute hold applies.
+
 
 ---
 

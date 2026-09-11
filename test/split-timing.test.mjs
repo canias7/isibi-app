@@ -40,7 +40,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { designInWaves, waveMarks, agentMark, DESIGN_WAVES } from "../builder/design-waves.mjs";
-import { generateSiteBands, splitPlan } from "../builder/page-bands.mjs";
+import { generateSiteBands, splitPlan, bandMark, bandMarks } from "../builder/page-bands.mjs";
 import { makeTrace } from "../builder/trace.mjs";
 import { budgetStage } from "../builder/build-budget.mjs";
 
@@ -291,8 +291,18 @@ test("a page written in pieces leaves a bands step; a page written in one call l
   // fallback it would fire on every build and say nothing.
   const fanBranch = between(WCODE, "const fan = await generateSiteBands({", "if (!isNoFanout(e)) throw e;", "the fan-out branch");
   assert.ok(/mark\?\.\("bands"/.test(fanBranch), "the fan-out records nothing — a split page and a single-call page are one row again");
-  assert.ok(/bands: Number\(fan && fan\.bands\) \|\| 0/.test(fanBranch), "the mark does not carry how many bands were asked for");
-  assert.ok(/wrote: Number\(fan && fan\.wrote\) \|\| 0/.test(fanBranch), "the mark does not carry how many answered");
+  // RE-ANCHORED 2026-09-11, NOT APPEASED. This asserted the four numbers as
+  // four literal `Number(fan && fan.X) || 0` expressions on this line, which was
+  // the property while those four lines WERE the mark. They moved into
+  // `bandMarks` when the per-band numbers arrived, because a loop building trace
+  // keys inline is a loop nothing can drive — so the spelling this pinned is
+  // gone and the property is not. What it asserts now is the HANDOFF: the mark
+  // asks the projection, and it asks it about the fan-out's own answer. That
+  // the four numbers really land is DRIVEN two ways below — through
+  // `bandMarks` directly, and through this exact statement against a real trace
+  // in "THE CHAIN".
+  assert.ok(/mark\?\.\("bands",\s*bandMarks\(fan\)\)/.test(fanBranch),
+    "the bands mark no longer asks the projection about the fan-out's answer");
   assert.ok(/return fan;/.test(fanBranch), "the fan-out's answer is no longer returned — the mark ate it");
 
   // Exactly one, and it is that one. A second `bands` mark on the single-call
@@ -309,8 +319,12 @@ test("a page written in pieces leaves a bands step; a page written in one call l
   // the overlap, readable off ONE build — which is the only way to ask it, since
   // the single-call page step's own spread (334k-620k ms) is wider than any
   // saving a split can produce.
-  assert.ok(/agentMs: Number\(fan && fan\.agentMs\) \|\| 0/.test(fanBranch), "the mark does not carry what the bands cost in turn");
-  assert.ok(/waveMs: Number\(fan && fan\.waveMs\) \|\| 0/.test(fanBranch), "the mark does not carry what they cost together");
+  // …and that they are still spelled in exactly ONE place, which is the half a
+  // driven test cannot see: a second copy in `worker.js` would be "two lists of
+  // the same thing" with the stored row as the other list, and the day they
+  // disagree is the day a build's own mark contradicts itself.
+  assert.ok(!/agentMs:/.test(fanBranch) && !/waveMs:/.test(fanBranch),
+    "the fan-out branch spells the timings itself again instead of asking the projection");
 
   // A TRACE MUST NEVER BREAK A BUILD. Every other mark in this function is
   // wrapped; this one carries expressions that read fields off an answer.
@@ -1033,4 +1047,254 @@ test("THE CENSUS: every agent the waves really plan can be keyed, and no two sha
   // …and the names are distinct in the first place, which is what makes the
   // per-agent numbers readable as agents rather than as totals.
   assert.equal(new Set(names).size, names.length, "two agents share a name: " + names.join(","));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WHICH BAND IS THE FAN-OUT'S WALL (2026-09-11, owner, having read the design
+// graph's sixteen per-agent numbers: "ok now the same for the generate step
+// too")
+//
+// The same arithmetic one path over, and a simpler shape: the bands are ONE
+// wave, all of them at once, so the fan-out costs its slowest band exactly and
+// every other band answers and then waits. `agentMs - waveMs` has measured that
+// saving since 2026-09-10 and cannot say WHERE it went — seven bands are
+// invisible inside one sum — so the only lever on the page call's wall time had
+// no instrument pointing at it.
+//
+// KEYED BY POSITION, NOT BY NAME, which is the one way this differs from the
+// design's identical pair: `bandName` is `Band<n><Word>` and `tr.at` cuts a key
+// at sixteen characters, so two bands whose words agree far enough in would
+// arrive as ONE key with the later overwriting the earlier.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("a band's position becomes its trace key, and the positions that cannot are refused", () => {
+  assert.equal(bandMark("0"), "b1Ms", "the key is ONE-BASED: band 1 is the top of the page, and the array's zero is not the reader's");
+  assert.equal(bandMark("1"), "b2Ms");
+  assert.equal(bandMark("6"), "b7Ms", "kestrel-bindery's seventh band could not be keyed");
+  assert.equal(bandMark("12"), "b13Ms", "a two-digit position is refused — there is no ceiling here and there must not be one");
+
+  // REFUSED, NEVER REPAIRED. `bNaNMs` or `b[object Object]Ms` on a stored row
+  // reads like a band that took no time, which is worse than a silence.
+  for (const bad of ["hero", "-1", "1.5", "", "1e3", "0x3", " 3", "3 ", "+3", "Infinity"]) {
+    assert.equal(bandMark(bad), "", "a position that is not a whole number was keyed anyway: " + JSON.stringify(bad));
+  }
+
+  // AND IT MUST BE A STRING — the recorded coercion trap, and it bites here
+  // rather than in theory: `/^\d+$/.test(["3"])` is TRUE, because `test`
+  // coerces its argument, so a one-element array would key a band if the type
+  // were not asked first.
+  assert.equal(bandMark(["3"]), "", "String([\"3\"]) is \"3\" — a one-element array keyed a band");
+  assert.equal(bandMark(3), "", "a raw number reached the key — Object.entries hands strings, so this is a producer that is wrong");
+  assert.equal(bandMark(null), "");
+  assert.equal(bandMark(undefined), "");
+  assert.equal(bandMark({}), "");
+});
+
+test("the band projection answers four numbers, one per band, and zeros for a shape it cannot read", () => {
+  assert.deepEqual(
+    bandMarks({ bands: 7, wrote: 7, agentMs: 424444, waveMs: 93375, eachMs: { 0: 10, 1: 20, 2: 93375 } }),
+    { bands: 7, wrote: 7, agentMs: 424444, waveMs: 93375, b1Ms: 10, b2Ms: 20, b3Ms: 93375 },
+  );
+
+  // A SHAPE IT CANNOT READ ANSWERS ZEROS rather than nothing, so the four keys
+  // are on the row either way — and a numeric STRING is not a number: presence
+  // is the signal, and a string reaching here means the producer is wrong.
+  const none = { bands: 0, wrote: 0, agentMs: 0, waveMs: 0 };
+  assert.deepEqual(bandMarks(null), none);
+  assert.deepEqual(bandMarks(undefined), none);
+  assert.deepEqual(bandMarks("nope"), none);
+  assert.deepEqual(bandMarks({ bands: "5", agentMs: "9", eachMs: "x" }), none, "a numeric string was coerced onto the row");
+  assert.deepEqual(bandMarks({ bands: NaN, waveMs: Infinity }), none, "a non-finite number reached the row");
+
+  // A BAND THAT DID NOT RUN HAS NO KEY — the opposite rule from the four above
+  // and deliberately so, because `b3Ms: 0` reads as a band that answered
+  // instantly where a missing key reads as a band that never ran.
+  const m = bandMarks({ bands: 3, wrote: 1, agentMs: 40, waveMs: 40, eachMs: { 0: 40, 2: "40", 5: NaN } });
+  assert.equal(m.b1Ms, 40);
+  assert.ok(!("b3Ms" in m), "a band whose time was not a number was recorded as having taken none");
+  assert.ok(!("b6Ms" in m), "a non-finite time reached the row");
+
+  // AND A JUNK POSITION IS DROPPED RATHER THAN KEYED. `eachMs` is ours, so this
+  // is the wall for a shape somebody else built — a fixture, or a mutated
+  // producer — and the four fixed keys must survive it.
+  const j = bandMarks({ bands: 2, wrote: 2, agentMs: 5, waveMs: 5, eachMs: { hero: 3, "-1": 2 } });
+  assert.deepEqual(j, { bands: 2, wrote: 2, agentMs: 5, waveMs: 5 });
+
+  // AN ARRAY IS A LEGAL `eachMs`, because its own keys ARE the positions — and
+  // reading one wrong would be the quietest possible way to lose every band.
+  assert.deepEqual(bandMarks({ bands: 2, wrote: 2, agentMs: 30, waveMs: 20, eachMs: [10, 20] }),
+    { bands: 2, wrote: 2, agentMs: 30, waveMs: 20, b1Ms: 10, b2Ms: 20 });
+});
+
+test("THE WALL NAMES ITSELF: the fan-out costs its slowest band, and the row says which", async () => {
+  // DRIVEN THROUGH THE REAL `runFanout` on a clock the test owns, then through
+  // the real `generateSiteBands` — because the property being asserted is a
+  // relationship BETWEEN the two (`waveMs` is measured by one, the parts are
+  // filed by the other) and a hand-stamped fixture would be asserting a
+  // relationship the test invented rather than one the code produces.
+  const { runFanout } = await import("../builder/model-fanout.mjs");
+  const band = (n) => `export function ${n}() {\n  return <section data-slot="${n}">${n}</section>;\n}`;
+  const args = {
+    lines: ["hero", "prices", "find us"], route: "/", brief: "a fishmonger", brand: "Ashcombe",
+    spec: {}, kind: "shopfront", model: "grok-4.6",
+    chrome: { name: "Ashcombe", tagline: "", links: [], action: null },
+  };
+  const reply = (n) => ({ content: [{ type: "tool_use", name: "write_band", input: { source: band("Band" + n) } }], usage: {} });
+
+  // Three bands at once, the third much slower: the fan-out's wall time IS that
+  // band's time, and the two fast ones spent their last 130 and 100 ms waiting.
+  let t = 0;
+  const open = [];
+  const out = await generateSiteBands(args, null, async (keys, reqs) => {
+    const p = runFanout(reqs, (r, i) => new Promise((res) => open.push(() => res(reply(i)))), () => t);
+    await flush();
+    t = 20;  open[0](); await flush();
+    t = 50;  open[1](); await flush();
+    t = 150; open[2](); await flush();
+    return p;
+  });
+
+  const m = bandMarks(out);
+  assert.deepEqual(m, { bands: 3, wrote: 3, agentMs: 220, waveMs: 150, b1Ms: 20, b2Ms: 50, b3Ms: 150 });
+  // THE PROPERTY THE OWNER ASKED FOR, as arithmetic rather than prose: the
+  // bands are ONE wave, so the largest per-band number IS the wall — and
+  // halving either of the others moves the page call by nothing at all.
+  const per = [m.b1Ms, m.b2Ms, m.b3Ms];
+  assert.equal(Math.max(...per), m.waveMs, "the fan-out did not cost its slowest band — re-derive what these numbers mean");
+  assert.equal(per.filter((x) => x < m.waveMs).length, 2, "only one band should be at the wall");
+
+  // AND THE SUM ALONE CANNOT SAY IT, which is why the parts exist: the same
+  // 220/150 is producible by three bands where there is no wall worth cutting.
+  assert.deepEqual(bandMarks({ bands: 3, wrote: 3, agentMs: 220, waveMs: 150 }),
+    { bands: 3, wrote: 3, agentMs: 220, waveMs: 150 });
+});
+
+test("the band parts sum to the whole, and a repeated position adds rather than replaces", async () => {
+  // THE TIE THAT KEEPS THEM HONEST. `agentMs` and the per-band numbers are read
+  // off ONE `a.ms` under ONE test, so a row whose parts do not add up to its sum
+  // is a row that has lost a band.
+  //
+  // A REPEATED INDEX IS A SHAPE `runFanout` CANNOT PRODUCE (it maps over the
+  // list), so this is not defending against a real fan-out — it is what keeps
+  // the sum and the parts from disagreeing if one ever arrives, and `=` instead
+  // of `+=` is exactly how that disagreement gets in.
+  const band = (n) => `export function ${n}() {\n  return <section data-slot="${n}">${n}</section>;\n}`;
+  const args = {
+    lines: ["hero", "prices"], route: "/", brief: "b", brand: "B", spec: {}, kind: "shopfront", model: "m",
+    chrome: { name: "B", tagline: "", links: [], action: null },
+  };
+  const entry = (i, n, ms) => ({
+    i, state: "done", ms, waveMs: 300,
+    answer: { content: [{ type: "tool_use", name: "write_band", input: { source: band(n) } }], usage: {} },
+  });
+  const out = await generateSiteBands(args, null,
+    async () => [entry(0, "Band0", 90), entry(0, "Band0b", 160)]);
+
+  assert.equal(out.agentMs, 250, "the two calls were still made and still cost what they cost");
+  assert.equal(out.eachMs[0], 250, "the second entry replaced the first instead of adding to it");
+  const parts = Object.values(out.eachMs).reduce((a, b) => a + b, 0);
+  assert.equal(parts, out.agentMs, "the per-band numbers no longer add up to the sum");
+});
+
+test("a band with no readable position is filed nowhere, and a failed band is filed under its own", async () => {
+  const band = (n) => `export function ${n}() {\n  return <section data-slot="${n}">${n}</section>;\n}`;
+  const args = {
+    lines: ["hero", "prices", "find us"], route: "/", brief: "b", brand: "B", spec: {}, kind: "shopfront", model: "m",
+    chrome: { name: "B", tagline: "", links: [], action: null },
+  };
+  const ok = (i, ms) => ({
+    i, state: "done", ms, waveMs: 400,
+    answer: { content: [{ type: "tool_use", name: "write_band", input: { source: band("Band" + i) } }], usage: {} },
+  });
+  const out = await generateSiteBands(args, null, async () => [
+    ok(0, 100),
+    // A FAILED BAND'S TIME COUNTS — it was spent — and the parts must agree with
+    // the sum, or the one row worth reading (the fan-out whose slowest band died
+    // holding the wall) under-reports exactly the band that cost the most.
+    { i: 1, state: "failed", ms: 400, waveMs: 400, message: "upstream said no", status: 429 },
+    // …and a position that is not a whole number is filed NOWHERE. The sum
+    // still counts it (the call was made and paid for); only the POSITION is
+    // refused, because inventing one puts this band's time under another's key.
+    // BOTH HALVES OF THAT TEST ARE DRIVEN — a string index and a negative one —
+    // because either alone leaves the other reading as a wall nothing needs.
+    { ...ok(2, 60), i: "2" },
+    { ...ok(2, 25), i: -1 },
+    // AND A BAND WHOSE TIME IS NOT A NUMBER IS IN NEITHER — not in the sum and
+    // not in the parts, because both are read off ONE test. That is what the
+    // tie rests on, and it is the half `bandMarks` cannot defend: the
+    // projection refuses a non-finite number on the way OUT, so a builder that
+    // filed one would leave an identical stored row and a `eachMs` whose values
+    // no longer add up to `agentMs` — a disagreement visible to every reader
+    // except the one that happens to filter it.
+    { ...ok(2, 70), i: 4, ms: NaN },
+  ]);
+
+  assert.equal(out.eachMs[0], 100);
+  assert.equal(out.eachMs[1], 400, "the band that failed lost the time it spent");
+  assert.ok(!("2" in out.eachMs), "a band whose position was a string was filed under one anyway");
+  assert.ok(!("-1" in out.eachMs), "a band at a negative position was filed under one anyway");
+  assert.ok(!("4" in out.eachMs),
+    "a band whose time is not a number was filed anyway — the parts no longer add up to the sum, and only `bandMarks` would hide it");
+  // …AND THE SUM COUNTS ALL THREE OF THE BANDS IT CANNOT FILE, which is the
+  // honest half: the sum is the truth about what the attempt cost, so the tie
+  // between the parts and the whole holds only when every band has a readable
+  // position — and THAT is driven in its own case above, on a fan-out where
+  // they all do. 100 + 400 + 60 + 25 = 585, of which 500 is filed.
+  assert.equal(out.agentMs, 585, "the sum stopped counting a band it cannot file");
+  assert.equal(bandMarks(out).b2Ms, 400, "…and the failed band never reached the projection");
+});
+
+test("generateSiteBands carries the per-band numbers out on BOTH of its returns", async () => {
+  // AN EARLY RETURN THAT QUIETLY CARRIES LESS THAN THE LATE ONE IS A RECORDED
+  // SHAPE HERE, and every-band-failed is the outcome where knowing what the
+  // attempt cost matters most.
+  const args = {
+    lines: ["hero", "prices"], route: "/", brief: "b", brand: "B", spec: {}, kind: "shopfront", model: "m",
+    chrome: { name: "B", tagline: "", links: [], action: null },
+  };
+  const none = await generateSiteBands(args, null,
+    async (keys, reqs) => reqs.map((r, i) => ({ i, state: "failed", ms: 50 * (i + 1), waveMs: 70, message: "no" })));
+  assert.equal(none.input, null, "a page of nothing was assembled");
+  assert.deepEqual(none.eachMs, { 0: 50, 1: 100 }, "the failed fan-out lost what each band cost");
+  assert.deepEqual(bandMarks(none), { bands: 2, wrote: 0, agentMs: 150, waveMs: 70, b1Ms: 50, b2Ms: 100 });
+});
+
+test("THE CHAIN: a driven fan-out's per-band numbers reach a real trace, through worker.js's own mark", async () => {
+  // A VALUE BUILT IS NOT A VALUE THAT ARRIVES — this repository's most-shipped
+  // failure. Every case above proves the numbers are COMPUTED; this one proves
+  // they land on a stored step, and it proves it by RUNNING the Worker's own
+  // line, because `mark?.("bands")` without the projection satisfies every text
+  // match there is while leaving the row unable to say anything at all.
+  const at = WORKER.indexOf('mark?.("bands"');
+  assert.ok(at > 0, "the bands trace mark is gone");
+  const close = ");";
+  const end = WORKER.indexOf(close, at);
+  assert.ok(end > at, "the bands mark's closing landmark is gone — re-derive this window");
+  const stmt = WORKER.slice(at, end + close.length);
+  assert.ok(/bandMarks/.test(stmt), "the statement cut out is not the one that asks the projection");
+
+  // A REAL FAN-OUT, RUN — not a hand-typed shape, which is the recorded
+  // "fixture in a different shape from its real producer".
+  const band = (n) => `export function ${n}() {\n  return <section data-slot="${n}">${n}</section>;\n}`;
+  const args = {
+    lines: ["hero", "prices", "find us"], route: "/", brief: "b", brand: "B", spec: {}, kind: "shopfront", model: "m",
+    chrome: { name: "B", tagline: "", links: [], action: null },
+  };
+  const fan = await generateSiteBands(args, null, async (keys, reqs) => reqs.map((r, i) => ({
+    i, state: "done", ms: 30 * (i + 1), waveMs: 90,
+    answer: { content: [{ type: "tool_use", name: "write_band", input: { source: band("Band" + i) } }], usage: {} },
+  })));
+
+  const tr = makeTrace(() => 0);
+  new Function("tr", "bandMarks", "fan", "mark", stmt)(tr, bandMarks, fan, (n, d) => tr.at(n, d));
+  const step = tr.done().steps.at(-1);
+  assert.equal(step.s, "bands", "the mark did not record a step at all");
+  assert.equal(step.bands, 3);
+  assert.equal(step.wrote, 3);
+  assert.equal(step.agentMs, 180, "the sum stopped arriving");
+  assert.equal(step.waveMs, 90, "the wall time stopped arriving");
+  assert.equal(step.b1Ms, 30, "the per-band numbers never reached the trace");
+  assert.equal(step.b2Ms, 60);
+  assert.equal(step.b3Ms, 90);
+  assert.ok(!("eachMs" in step), "the nested object reached the trace — then the projection is dead code");
 });

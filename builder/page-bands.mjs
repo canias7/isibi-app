@@ -607,12 +607,50 @@ export async function generateSiteBands({
   // A FAILED BAND'S TIME COUNTS: it was spent. And `waveMs` is read rather than
   // summed — every entry carries the same one, so the first finite value is the
   // answer and anything else is a fan-out that did not come from `runFanout`.
+  //
+  // ── AND ONE NUMBER PER BAND BESIDE THEM (2026-09-11, owner: "ok now the same
+  //    for the generate step too") ─────────────────────────────────────────────
+  //
+  // `agentMs - waveMs` says what the fan-out saved and cannot say WHERE. A
+  // fan-out costs its SLOWEST band — every other band answers and then waits —
+  // so the only lever on the wall time is which band is the max, and the sum
+  // hides exactly that. This is the FOURTH time on this instrument that
+  // `runFanout` has measured the parts and a loop has kept only the total: the
+  // design loop threw the per-call elapsed away until 2026-09-10, this path
+  // threw its wall time away until the same day, and this is `a.ms` again, now
+  // filed under the band that spent it.
+  //
+  // KEYED BY THE BAND'S POSITION, NEVER BY ITS NAME, and that is the one place
+  // this differs from the design's identical pair. `bandName` is
+  // `Band<n><Word>` — up to twenty-one characters — and `tr.at` cuts a key at
+  // sixteen, so two bands whose words agree far enough in would arrive as ONE
+  // key with the later silently overwriting the earlier: a wrong number wearing
+  // a right one's name, which is the only way this instrument can LIE rather
+  // than go quiet. The index is what `bandName`'s own comment calls the thing
+  // that makes a band unique whatever the words do, it is short by
+  // construction, and it is already what a chart of a page shows on its
+  // vertical axis — band 1 is the top of the page.
+  //
+  // `+=` RATHER THAN `=`, for the tie: `agentMs` sums every finite `ms`, so the
+  // parts can only add up to the whole if they are accumulated the same way.
+  // Two entries under one index is a shape `runFanout` cannot produce (it maps
+  // over the list), so this is not defending against a real fan-out — it is
+  // what keeps the sum and the parts from disagreeing if one ever arrives.
+  //
+  // A BAND WHOSE INDEX CANNOT BE READ COUNTS IN THE SUM AND IS FILED NOWHERE.
+  // The sum is the truth about what the attempt cost; a part that cannot be
+  // named cannot be filed, and inventing a position for it would put one band's
+  // time under another band's key.
   let agentMs = 0;
   let waveMs = 0;
+  const eachMs = {};
   for (const a of list) {
     const u = usageOf(a && a.answer, usage.model);
     usage.in += u.in; usage.out += u.out; usage.cacheRead += u.cacheRead; usage.cacheWrite += u.cacheWrite;
-    if (a && Number.isFinite(a.ms)) agentMs += a.ms;
+    if (a && Number.isFinite(a.ms)) {
+      agentMs += a.ms;
+      if (Number.isInteger(a.i) && a.i >= 0) eachMs[a.i] = (eachMs[a.i] || 0) + a.ms;
+    }
     if (!waveMs && a && Number.isFinite(a.waveMs)) waveMs = a.waveMs;
   }
   const bands = bandsFromAnswers(list, bandLines);
@@ -626,7 +664,7 @@ export async function generateSiteBands({
     // still spent the time, and it is the one outcome where knowing what the
     // attempt cost matters most — the recorded shape where an early return
     // quietly carries less than the late one.
-    return { input: null, usage, bands: bands.length, wrote: 0, agentMs, waveMs, shape: { stopReason: "no-bands", blocks: [] } };
+    return { input: null, usage, bands: bands.length, wrote: 0, agentMs, waveMs, eachMs, shape: { stopReason: "no-bands", blocks: [] } };
   }
   const { source, refused } = assembleBands({ route, chrome, bands });
   return {
@@ -641,8 +679,81 @@ export async function generateSiteBands({
     // read.
     agentMs,
     waveMs,
+    // ONE NUMBER PER BAND, so the sum above can say WHERE it went. See the
+    // comment where it is built; `bandMarks` is what turns it into trace keys.
+    eachMs,
     ...(refused.length ? { refused } : {}),
   };
+}
+
+/**
+ * One band's position, as a key the trace can store a number under.
+ *
+ * `b1Ms` … `bNMs`, ONE-BASED, because that is how a person counts the bands
+ * down a page and how every chart of one is labelled — band 1 is the top. The
+ * index arriving here is zero-based, which is the array's business and not the
+ * reader's.
+ *
+ * THE KEY IS REFUSED, NEVER REPAIRED. A position that is not a whole number is
+ * not a position, and `b[object Object]Ms` or `bNaNMs` on a stored row is worse
+ * than a silence: it reads like a band that took no time. Presence is the
+ * signal here as everywhere on this mark.
+ *
+ * IT MUST BE A STRING, and that is the recorded coercion trap rather than
+ * fussiness: `Object.entries` hands string keys, and `/^\d+$/.test(["3"])`
+ * is TRUE because `test` coerces — so a one-element array would key a band.
+ *
+ * ── TWO WALLS THE DESIGN'S `agentMark` HAS AND THIS DELIBERATELY DOES NOT ────
+ *
+ * There is no truncation check, because an index cannot reach sixteen
+ * characters without thirteen digits, and no already-taken check, because every
+ * key this makes is a `b`, digits and `Ms` while the four fixed keys
+ * (`bands`, `wrote`, `agentMs`, `waveMs`) are words — they cannot collide.
+ * Both are stated rather than copied: a wall that cannot fire reads as a test
+ * gap for ever and the next session deletes it wondering what it was for.
+ * `agentMark` needs both because an AGENT's key comes from a name.
+ *
+ * And there is deliberately NO ceiling at `MAX_BANDS`: `generateSiteBands`
+ * takes its lines as an argument, so a caller handing more bands than the plan
+ * allows would have the extra ones' times silently dropped — which is the worse
+ * failure of the two, since the sum would then disagree with the parts and
+ * nothing would say why.
+ */
+export function bandMark(at) {
+  if (typeof at !== "string" || !/^\d+$/.test(at)) return "";
+  return "b" + (Number(at) + 1) + "Ms";
+}
+
+/**
+ * The fan-out's numbers, as the trace can store them — ONE projection.
+ *
+ * `tr.at` keeps FINITE NUMBERS ONLY and drops everything else silently: a
+ * deliberate wall, so a model's prose or a connection string can never reach a
+ * trace by accident, and a trap for anything handed to a mark unprojected.
+ *
+ * A SHAPE IT CANNOT READ ANSWERS ZEROS rather than nothing, so the four fixed
+ * keys are on the row either way — a missing key and a key reading 0 are the
+ * same thing from a stored trace, and inventing a number would be worse than
+ * both. The PER-BAND keys are the opposite rule and deliberately so: a band
+ * that did not run has no key at all, because `b3Ms: 0` reads as a band that
+ * answered instantly. The four can afford a zero; a per-band key cannot.
+ *
+ * The design split's `waveMarks` is the same projection one path over, and the
+ * two are NOT shared: this one keys by position and that one by name, which is
+ * the whole difference between a fan-out of bands a model planned and a fan-out
+ * of agents we named. One function answering both would need a mode.
+ */
+export function bandMarks(fan) {
+  const f = fan && typeof fan === "object" ? fan : {};
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const marks = { bands: num(f.bands), wrote: num(f.wrote), agentMs: num(f.agentMs), waveMs: num(f.waveMs) };
+  const each = f.eachMs && typeof f.eachMs === "object" ? f.eachMs : {};
+  for (const [at, ms] of Object.entries(each)) {
+    const key = bandMark(at);
+    if (!key) continue;
+    if (typeof ms === "number" && Number.isFinite(ms)) marks[key] = ms;
+  }
+  return marks;
 }
 
 /**

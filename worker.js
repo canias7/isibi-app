@@ -105,7 +105,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, lift
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
-import { splitPlan, bandRefusal, BAND_MARK, generateSiteBands } from "./builder/page-bands.mjs";
+import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands } from "./builder/page-bands.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
 // rather than importing either, so a guard can run the whole orchestration
@@ -12116,14 +12116,18 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
             // off ONE run need no baseline — the same argument the design step's
             // identical pair was added for, and the half this side was missing:
             // the band split could be seen to RUN and not to PAY.
-            try {
-              mark?.("bands", {
-                bands: Number(fan && fan.bands) || 0,
-                wrote: Number(fan && fan.wrote) || 0,
-                agentMs: Number(fan && fan.agentMs) || 0,
-                waveMs: Number(fan && fan.waveMs) || 0,
-              });
-            } catch { /* a trace must never break a build */ }
+            //
+            // AND ONE NUMBER PER BAND BESIDE THEM (2026-09-11, owner: "ok now
+            // the same for the generate step too"). `agentMs - waveMs` says
+            // what the fan-out saved and cannot say WHERE: it costs its slowest
+            // band, so the only lever is which band is the max, and the sum
+            // hides exactly that. `b1Ms` … `bNMs`, top of the page down.
+            //
+            // THE FOUR NUMBERS ARE SPELLED IN `bandMarks` AND NOT HERE, which
+            // is the design mark's own shape one path over: a loop building
+            // trace keys inline is a loop nothing can drive, and this mark is
+            // reached only by a build that really fanned out.
+            try { mark?.("bands", bandMarks(fan)); } catch { /* a trace must never break a build */ }
             return fan;
           } catch (e) {
             // A CONTAINER THAT WOULD NOT TAKE THE FAN-OUT IS NOT A FAILED
