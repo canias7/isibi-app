@@ -4395,3 +4395,19 @@ So there are really two separate decisions here, and they're different sizes.
 The small one is splitting `look` in two, worth about 54s. The big one is
 reshaping the waves so more than two things ever run at once, which is where the
 remaining three minutes are. **Both are your call and I haven't started either.**
+
+## 2026-09-11 — your drawing, measured
+
+`docs/edits/design-waves-barrier.png` is the picture you drew with the real
+numbers on it, plus the two "what if" cases underneath.
+
+**One thing in it differs from your sketch, and it's the point.** You drew
+several lines all waiting at the barrier. In reality **only one waits** —
+`plan`, for 53.8 seconds, behind `look`. The other two agents (`identity` and
+`detail`) don't have anyone to run beside; they go on their own, one before the
+pair and one after. So there is exactly one gap in the whole design step.
+
+That's the difference between this and the page split. **The page split is seven
+things at once, for its whole run** — 424 seconds of work in 93 seconds of
+clock. **The design split is two things at once, and only in the middle third.**
+Same idea, very different shape, and the shape is what decides whether it pays.

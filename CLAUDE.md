@@ -2485,6 +2485,12 @@ stored row.
   design-split section reached from the other direction ("never more than two
   running at once… widening the waves is the only thing that would change the
   arithmetic"), now with a number under it.
+  **Drawn: `docs/edits/design-waves-barrier.png`** — the owner's own barrier
+  sketch with this build's numbers on it, the two what-ifs beside it. **And the
+  drawing corrects the sketch in one way worth keeping**: the sketch has several
+  lines waiting at the barrier, and the real shape has exactly ONE, because
+  three of the four agents run alone. That is the whole difference between this
+  split (2-wide for part of its run) and the band split (7-wide for all of it).
 - Two other readings off the same build, both free: **`bands:door`**, so the page
   was written in ONE call with the band canary off, exactly as expected — and
   that single call took **`genMs` 294,300**, well above `marlow-and-tide`'s
