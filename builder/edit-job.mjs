@@ -857,6 +857,39 @@ export function designSplitFor(env, { uid = "", slug = "" } = {}) {
 }
 
 /**
+ * IS THIS BUILD'S DESIGN RUN AS A DEPENDENCY GRAPH (2026-09-11)?
+ *
+ * A THIRD DOOR RATHER THAN A MODE ON THE SECOND, and that is the decision worth
+ * reading. The waves and the graph are two different answers to one question, so
+ * a single flag with three states ("off | waves | graph") would be tidier —
+ * and it would make turning the graph on for one account silently turn the WAVES
+ * off for them, which is a second change nobody asked for riding inside the
+ * first. Two doors, asked in a stated order by `worker.js`, keep each rollback
+ * to the thing it rolls back.
+ *
+ * THE KEY IS THE UID FOR THE REASON THE DESIGN DOOR GIVES: this is asked before
+ * the design call, and on a first build the slug is one of the things that call
+ * answers, so a canary naming a slug can never match. The `slug` half is kept
+ * because the signature is the other doors' and a named revise really does have
+ * one — but a revise is never split anyway (`splitGraph` refuses `current`).
+ */
+export function designGraphEveryone(env) {
+  const v = env && env.DESIGN_GRAPH_EVERYONE;
+  if (typeof v !== "string") return false;
+  return ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
+}
+
+export function designGraphFor(env, { uid = "", slug = "" } = {}) {
+  const u = typeof uid === "string" ? uid.toLowerCase() : "";
+  const s = typeof slug === "string" ? slug.toLowerCase() : "";
+  if (!u && !s) return false;
+  if (designGraphEveryone(env)) return true;
+  const list = readCanaryList(env && env.DESIGN_GRAPH_CANARY);
+  if (!list.length) return false;
+  return (!!u && list.includes(u)) || (!!s && list.includes(s));
+}
+
+/**
  * THE STRING BINDINGS A JOB CARRIES INTO THE CONTAINER, by name.
  *
  * An explicit list rather than "every string on `env`", because the Worker's

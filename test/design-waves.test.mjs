@@ -594,12 +594,27 @@ test("the build route decides, and the decision reaches the call", () => {
   assert.ok(/current: editState/.test(block));
   assert.ok(/mode: firstBuild \? "build" : "revise"/.test(block),
     "`mode` must be stated: `editState` is also null when the config read blips, and cannot-tell must not read as a first build");
-  assert.ok(/const useWaves = designWaves\.length > 0 && designSplitFor\(env, \{ uid: bu\.id/.test(block),
-    "the door must be asked with a real identity, and only when there are waves");
-  // THE HOP THAT SHIPS DEAD IF IT IS CUT: the decision made and never used.
-  assert.ok(/useWaves\s*\n?\s*\? await designSiteWaves\(/.test(block), "the split answer must choose the designer");
+  // RE-ANCHORED 2026-09-11 for the GRAPH, and it was pinned to a spelling that
+  // moved rather than to a property. This read `const useWaves = designWaves…`
+  // and `useWaves ? await designSiteWaves(` — true while the waves were the only
+  // split, and both false once a third designer arrived ABOVE them in the same
+  // ternary. Being the first arm was never the property; being asked with a real
+  // identity, and choosing its own designer, is.
+  assert.ok(/const useWaves = [^;]*designWaves\.length > 0 && designSplitFor\(env, \{ uid: bu\.id/.test(block),
+    "the waves door must be asked with a real identity, and only when there are waves");
+  assert.ok(/const useGraph = designGraph\.length > 0 && designGraphFor\(env, \{ uid: bu\.id/.test(block),
+    "the graph door must be asked with a real identity, and only when there is a graph");
+  // BOTH DOORS ARE ASKED. Computing `useWaves` only when the graph declined
+  // would leave the waves door unasked on a graph build, which is
+  // indistinguishable from a waves door that is shut — the blindness
+  // `bands:<reason>` exists one step over to end.
+  assert.ok(/const useWaves = !useGraph &&/.test(block),
+    "the graph must win by a stated precedence, with the waves door still asked");
+  // THE HOPS THAT SHIP DEAD IF THEY ARE CUT: a decision made and never used.
+  assert.ok(/useGraph\s*\n?\s*\? await designSiteGraph\(/.test(block), "the graph answer must choose the graph designer");
+  assert.ok(/useWaves\s*\n?\s*\? await designSiteWaves\(/.test(block), "the split answer must choose the wave designer");
   assert.ok(/: await designSiteSchema\(env, briefWithLinks, models\.design, editState, attached\.blocks, budget, firstBuild\)/.test(block),
-    "the single call must remain untouched as the other side of the ternary");
+    "the single call must remain untouched as the last arm of the ternary");
 });
 
 test("the wrapper hands the module the tool, the system, the ceiling and the caller", () => {

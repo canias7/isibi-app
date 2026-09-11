@@ -75,6 +75,7 @@ import {
   // A DESIGN ANSWERED BY SEVERAL AGENTS (2026-09-10): the same two doors again,
   // asked in the same module for the same reason.
   designSplitFor, designSplitEveryone,
+  designGraphFor, designGraphEveryone,
 } from "./builder/edit-job.mjs";
 import { tailOf, clipWithLine, CODE_TAIL_MAX } from "./builder/gen-code.mjs";
 import { RESUME_FIRST_SECONDS, genMarks, resumeKey, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf, noFanoutError, isNoFanout } from "./builder/build-resume.mjs";
@@ -111,6 +112,7 @@ import { splitPlan, bandRefusal, BAND_MARK, generateSiteBands } from "./builder/
 // against the real `FRONTEND_SCHEMA_TOOL` and a fake caller — answers arriving
 // out of order, one agent failed — and read the design that comes out.
 import { splitDesign, designInWaves, waveMarks } from "./builder/design-waves.mjs";
+import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.mjs";
 // ALIASED, because worker.js already has an `IMAGE_USD` — the per-model price
 // map for the image GENERATOR the customer drives directly. Imported under its
 // own name the two collide, and the collision is invisible to `node --check` and
@@ -5699,6 +5701,30 @@ const designSiteWaves = (env, brief, model, files, budget, waves, frontendOnly) 
     // this one layer over — so a tighter one sized to "an agent only answers a
     // few fields" buys nothing but a cheaper failure, and a cut-off tool_use is
     // a whole wave lost after being paid for.
+    maxTokens: SITE_SCHEMA_MAX_TOKENS,
+  },
+  (req) => callBuilderModel(env, req, budget),
+);
+
+/**
+ * THE SAME DESIGN, RUN AS A GRAPH (2026-09-11).
+ *
+ * Identical to `designSiteWaves` above in every argument that matters, and that
+ * is the property worth keeping rather than a coincidence: `designKit` is ONE
+ * chooser answering both the tool and the system text, so all three designers —
+ * the single call, the waves and the graph — send the same cached prefix byte
+ * for byte. A second ternary anywhere here would make that a claim in a comment
+ * and false the first time either variant moved, with a cold cached prefix per
+ * build as the failure nobody sees.
+ */
+const designSiteGraph = (env, brief, model, files, budget, graph, frontendOnly) => designInGraph(
+  {
+    ...designKit(frontendOnly),
+    brief, model, files, graph,
+    // THE SINGLE CALL'S OWN CEILING, PER AGENT, for `designSiteWaves`' reason:
+    // a ceiling is not a reservation, so a tighter one sized to "an agent only
+    // answers one field" buys nothing but a cheaper failure — and a cut-off
+    // tool_use is a whole agent lost after being paid for.
     maxTokens: SITE_SCHEMA_MAX_TOKENS,
   },
   (req) => callBuilderModel(env, req, budget),
@@ -15468,11 +15494,28 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // of the things the design call is about to ANSWER — a canary naming a
           // slug can never match here. `namedSlug` rides along for the revise
           // case, where there is one and where the split refuses anyway.
-          const useWaves = designWaves.length > 0 && designSplitFor(env, { uid: bu.id, slug: namedSlug || "" });
+          // AND THE SAME QUESTION FOR THE GRAPH (2026-09-11, owner: "Ok go"),
+          // asked off the SAME tool and the same mode, so a refusal is a refusal
+          // for the same reasons.
+          const designGraph = splitGraph({
+            tool: designKit(firstBuild).tool,
+            current: editState,
+            mode: firstBuild ? "build" : "revise",
+          });
+          // BOTH DOORS ARE ASKED, AND THE GRAPH WINS. Computing `useWaves` only
+          // when the graph declined would leave the waves door unasked on a
+          // graph build — indistinguishable, from a stored row, from a waves
+          // door that is shut, which is the blindness `bands:<reason>` exists
+          // one step over to end. Asked both ways, the precedence is a stated
+          // line rather than a side effect of evaluation order.
+          const useGraph = designGraph.length > 0 && designGraphFor(env, { uid: bu.id, slug: namedSlug || "" });
+          const useWaves = !useGraph && designWaves.length > 0 && designSplitFor(env, { uid: bu.id, slug: namedSlug || "" });
           // `firstBuild` IS THE SEVENTH ARGUMENT AND IT IS THE ONLY CALLER THAT
           // EVER PASSES IT — see `designSiteSchema`, where the default is false
           // so the two edit lanes keep the whole tool by saying nothing.
-          const dz = useWaves
+          const dz = useGraph
+            ? await designSiteGraph(env, briefWithLinks, models.design, attached.blocks, budget, designGraph, firstBuild)
+            : useWaves
             ? await designSiteWaves(env, briefWithLinks, models.design, attached.blocks, budget, designWaves, firstBuild)
             : await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget, firstBuild);
           // LIFTED AT THE DOOR, before anything reads it. The tool asks for the
@@ -15508,7 +15551,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // deliberately does not carry, because the route counting the plan
           // is the defect `waveMarks` exists to fix.
           tr.at("design", schemaUsage
-            ? { out: schemaUsage.out, in: schemaUsage.in, ...(useWaves ? { waves: designWaves.length, ...waveMarks(designedShape) } : {}) }
+            ? { out: schemaUsage.out, in: schemaUsage.in, ...(useGraph ? { graph: designGraph.length, ...waveMarks(designedShape) } : useWaves ? { waves: designWaves.length, ...waveMarks(designedShape) } : {}) }
             : undefined);
           // STARTER ROWS THE DESIGNER DID NOT WRITE. `seed` is a required field
           // on its tool and the model omits it anyway — measured on two
@@ -20374,6 +20417,12 @@ async function handleRequest(request, env, ctx) {
         // so `who.slug` can only ever match on a revise, which is never split.
         design: designSplitFor(env, { uid: tu.id }),
         designEveryone: designSplitEveryone(env),
+        // THE GRAPH'S OWN PAIR (2026-09-11). Booleans, never the canary LIST —
+        // `readCanaryList` is deliberately not imported into this file at all,
+        // so no later edit of this route is one line from handing one customer
+        // another's slugs.
+        graph: designGraphFor(env, { uid: tu.id }),
+        graphEveryone: designGraphEveryone(env),
       });
     }
 

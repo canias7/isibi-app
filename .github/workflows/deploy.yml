@@ -203,6 +203,8 @@ jobs:
             BAND_SPLIT_EVERYONE
             DESIGN_SPLIT_CANARY
             DESIGN_SPLIT_EVERYONE
+            DESIGN_GRAPH_CANARY
+            DESIGN_GRAPH_EVERYONE
         env:
           DEPLOY_ID: ${{ github.sha }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
@@ -432,6 +434,14 @@ jobs:
           # designed a live site. Every customer still gets the one call.
           DESIGN_SPLIT_CANARY: ${{ secrets.DESIGN_SPLIT_CANARY || '22175f41-6fbf-49d7-b039-a65078a0141c' }}
           DESIGN_SPLIT_EVERYONE: ${{ secrets.DESIGN_SPLIT_EVERYONE || 'off' }}
+          # THE GRAPH DEFAULTS TO NOBODY, unlike the two canaries above it.
+          # Those name the building account because each had been proved live
+          # before the default moved; this has never designed a site, so `-`
+          # — which `readCanaryList` drops — is what ships. Both carry a
+          # `|| fallback`: a name listed with no value fails the WHOLE deploy,
+          # and three merges have shipped nothing that way.
+          DESIGN_GRAPH_CANARY: ${{ secrets.DESIGN_GRAPH_CANARY || '-' }}
+          DESIGN_GRAPH_EVERYONE: ${{ secrets.DESIGN_GRAPH_EVERYONE || 'off' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

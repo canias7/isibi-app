@@ -798,6 +798,7 @@ test("the diagnostic answers the two effective eligibilities and the deploy iden
     runnerBindings: true, runnerKeyed: true,
     bands: false, bandsEveryone: false,
     design: false, designEveryone: false,
+    graph: false, graphEveryone: false,
   });
 });
 

@@ -964,8 +964,12 @@ test("THE CHAIN: a driven design's per-agent numbers reach a real trace, through
   // The REAL trace module, whose numbers-only wall is the reason the projection
   // exists at all.
   const tr = makeTrace(() => 0);
-  new Function("tr", "waveMarks", "schemaUsage", "useWaves", "designWaves", "designedShape", stmt)(
-    tr, waveMarks, { in: 5, out: 7 }, true, [[1], [1, 1]], out.shape,
+  // `useGraph` IS SUPPLIED FALSE, and it has to be supplied at all because this
+  // runs the REAL statement — which grew a third arm on 2026-09-11. That is the
+  // guard doing its job rather than a spelling pin: a driver that stopped
+  // compiling is a driver that is still executing the product's own line.
+  new Function("tr", "waveMarks", "schemaUsage", "useWaves", "useGraph", "designWaves", "designGraph", "designedShape", stmt)(
+    tr, waveMarks, { in: 5, out: 7 }, true, false, [[1], [1, 1]], [], out.shape,
   );
   const step = tr.done().steps.at(-1);
   assert.equal(step.s, "design", "the mark did not record a step at all");
@@ -983,8 +987,8 @@ test("THE CHAIN: a driven design's per-agent numbers reach a real trace, through
   // own shape the flag: `useWaves` false must leave a row that says nothing
   // about waves at all.
   const one = makeTrace(() => 0);
-  new Function("tr", "waveMarks", "schemaUsage", "useWaves", "designWaves", "designedShape", stmt)(
-    one, waveMarks, { in: 5, out: 7 }, false, [[1], [1, 1]], out.shape,
+  new Function("tr", "waveMarks", "schemaUsage", "useWaves", "useGraph", "designWaves", "designGraph", "designedShape", stmt)(
+    one, waveMarks, { in: 5, out: 7 }, false, false, [[1], [1, 1]], [], out.shape,
   );
   const plain = one.done().steps.at(-1);
   assert.deepEqual(plain, { s: "design", ms: 0, out: 7, in: 5 },
