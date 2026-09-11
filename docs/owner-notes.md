@@ -4526,3 +4526,33 @@ the page to be planned. It's been relying on the order of the questions to do
 that silently. Under the current waves it works by luck; under your graph it
 would start immediately and describe controls for a page nobody has designed
 yet. That sentence needs writing whichever way we go.
+
+## 2026-09-11 — what the graph would actually look like
+
+`docs/edits/design-graph-shape.png`. **19 agents covering the 22 fields, eleven
+of them starting on the first second, and one chain of four:**
+pages → components → shape → images.
+
+In code it's a plain list — each entry is a name, the fields it answers, and
+what it needs. No `needs` means it starts immediately. The scheduler gives each
+agent a promise that waits for its `needs` and then fires, so **that list IS the
+running order** — nothing anywhere says "wave 1, wave 2" any more.
+
+**Two of the arrows are mine rather than the tool's, and they're drawn dashed
+so nobody forgets:**
+- `behavior` waits for `shape`, because it lists every button and form on the
+  page and can't do that before the page is arranged. The tool has never said
+  this; it's been getting away with it because of question order.
+- `favicon` waits for the name and the theme, because a letterform needs the
+  initials and the mood needs the theme.
+
+**And `brand`, `slug` and `description` stay in one agent** — three separate
+ones would each invent a business name and they'd disagree.
+
+**Why this beats the waves:** the two slow fields are the drawings, and they now
+hang off two of the *cheapest* answers. So the slow work starts almost at once
+instead of in the middle of the second wave.
+
+**Regrouping later is editing that list** — moving names between the `fields`
+arrays, no new code. Which is exactly what stage C would be, once a real build
+has told us which field is the slow one.
