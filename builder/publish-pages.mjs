@@ -1159,7 +1159,17 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
   // `tsc` to refuse honestly.
   const rep = repairImports(v.pages);
   v.pages = rep.pages;
-  if (rep.fixed.length) out.repaired = rep.fixed;
+  // THE PARTS TOO, because they compile in the SAME PROGRAM — `validatePages`
+  // says exactly this where it runs `undupe` over both, and a bad import in a
+  // hand-written component takes the build down precisely as one in a page does,
+  // naming a file the customer never asked for and cannot see. Reported in the
+  // one list: an entry says which file it was in, so two lists would only be two
+  // things to forget to read.
+  const repParts = repairImports(v.parts);
+  v.parts = repParts.pages;
+  sitePartsForBuild = v.parts;
+  const allFixed = rep.fixed.concat(repParts.fixed);
+  if (allFixed.length) out.repaired = allFixed;
 
   const problems = v.problems.concat(lintPages(v.pages, spec));
 

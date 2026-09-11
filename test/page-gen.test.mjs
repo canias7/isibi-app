@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import {
   UI_COMPONENTS, componentApiFor, siteComponentApi, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MAX_PAGE_CHARS, MANAGED_COLUMNS,
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, READ_NOTE, WRITE_NOTE, accessNote, propsOf, UI_EXPORTS,
-  repairImports, dedupeImports } from "../builder/page-gen.mjs";
+  repairImports, dedupeImports, kitPathExists, oneKitModuleFor, KIT_DIRS } from "../builder/page-gen.mjs";
 import { MAX_TWEAK_CHARS } from "../builder/site-tweak.mjs";
 import { accessNameFor } from "../site-access.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
@@ -4728,6 +4728,249 @@ test("repairImports fixes the measured failure and refuses to guess", () => {
   const guessy = 'import { Header } from "@/components/ui/heading-level";\n<Header />';
   assert.equal(repairImports(page(guessy)).pages[0].source, guessy,
     "it guessed on a module with several exports and no PascalCase match");
+});
+
+/* ------------------------- an import path that names no file at all (2026-09-11) */
+
+// `saltmarsh-kayak-co`, a real first build: a band wrote
+//
+//     import { SafeImage } from "@/components/SafeImage";
+//
+// and vite answered `Could not load /app/src/components/SafeImage`. Nothing saw
+// it coming — BOTH import checks in page-gen hard-code the `ui/` segment in
+// their own regex, so a path one directory up matched neither — and a missing
+// module is the one class `vite` cannot bundle around, so it is not a finding on
+// a published site, it is the whole site as a placeholder.
+test("a @/components path that names no file is repaired to the module that exports it", () => {
+  const page = (source) => [{ path: "index.tsx", source }];
+
+  // THE MEASURED FAILURE, verbatim.
+  const r = repairImports(page(
+    'import { SafeImage } from "@/components/SafeImage";\n<SafeImage src={null} alt="a" />'));
+  assert.match(r.pages[0].source, /from "@\/components\/ui\/safe-image"/,
+    "the path that killed a real build was not repaired");
+  assert.match(r.pages[0].source, /import \{ SafeImage \}/, "the member was renamed as well as the path");
+  assert.deepEqual(r.fixed, [{
+    path: "index.tsx", module: "safe-image",
+    from: "@/components/SafeImage", to: "@/components/ui/safe-image",
+  }]);
+
+  // THE SAME MISTAKE IN ITS OTHER SPELLINGS. One rule covers all of them,
+  // because the rule is "names no file", not a list of ways to get it wrong.
+  for (const bad of ["@/components/ui/SafeImage", "@/components/safe-image", "@/components/ui/safeimage"]) {
+    const out = repairImports(page('import { SafeImage } from "' + bad + '";'));
+    assert.match(out.pages[0].source, /from "@\/components\/ui\/safe-image"/, bad + " was not repaired");
+  }
+
+  // THE MEMBER NAMES THE MODULE, NEVER THE PATH'S OWN SPELLING. `Hero` is a real
+  // kit component in `hero`, so an import of it from a path that reads like
+  // `hero-split` lands on `hero` — the member is the thing we can check and the
+  // path is the thing that was guessed. Getting this backwards would move a
+  // correct import onto a module that does not export it.
+  const named = repairImports(page('import { Hero } from "@/components/HeroSplit";\n<Hero />'));
+  assert.match(named.pages[0].source, /import \{ Hero \} from "@\/components\/ui\/hero"/,
+    "the path was placed from its own spelling instead of from the member");
+  assert.match(named.pages[0].source, /<Hero \/>/, "the usage was renamed — only the path was wrong");
+
+  // THE TWO PASSES ARE DISJOINT BY CONSTRUCTION, AND THAT IS MEASURED RATHER
+  // THAN ARGUED. The path pass fires only on specifiers the member pass's own
+  // regex cannot match (it requires a real lower-case `ui/` module), and every
+  // path it writes is a module that exports all the members — that is HOW it
+  // resolved — so the member pass always finds them known and does nothing. So
+  // their ORDER is immaterial today. Said out loud because the obvious story,
+  // that running the path first lets the member pass clean up after it, is
+  // false: a wrong member is exactly what stops the path being placeable at all.
+  const placed = repairImports(page('import { SafeImage } from "@/components/SafeImage";'));
+  assert.equal(placed.fixed.length, 1, "one import produced two repairs — the passes overlap");
+  assert.equal(repairImports(placed.pages).fixed.length, 0,
+    "repairing the repaired source changed it again — the passes are not settled");
+
+  // A QUOTED SPECIFIER IS REPLACED, NEVER A MEMBER OF THE SAME SPELLING. The
+  // match ends on the specifier, so there is exactly one occurrence to move.
+  const echo = repairImports(page('import { SafeImage } from "@/components/SafeImage";\nconst s = "@/components/SafeImage";'));
+  assert.match(echo.pages[0].source, /const s = "@\/components\/SafeImage";/,
+    "it rewrote a string literal that merely spells the same path");
+});
+
+test("the path repair refuses to guess, in every way it could be wrong", () => {
+  const page = (source) => [{ path: "index.tsx", source }];
+  const same = (src) => assert.equal(repairImports(page(src)).pages[0].source, src);
+
+  // A member no kit module exports: we do not know where it lives.
+  same('import { Wibble } from "@/components/Wibble";');
+  // A member TWO modules export — `uiModuleFor` answers null for those 27 names,
+  // and guessing which one a page meant renders the wrong component.
+  assert.equal(oneKitModuleFor("Activity"), null, "an ambiguous member resolved to a module");
+  same('import { Activity } from "@/components/Activity";');
+  // Members from two different modules: the fix would be to SPLIT the statement,
+  // which is a rewrite rather than a correction.
+  assert.equal(oneKitModuleFor("SafeImage, HeroSplit"), null);
+  same('import { SafeImage, HeroSplit } from "@/components/Stuff";');
+  // Nothing named at all.
+  assert.equal(oneKitModuleFor(""), null);
+  assert.equal(oneKitModuleFor(null), null);
+
+  // ONE UNKNOWN MEMBER BESIDE A KNOWN ONE IS STILL A REFUSAL, and this is the
+  // case that separates "every member must resolve" from "any member may".
+  // A lone unknown refuses under both readings — `want` simply never gets set —
+  // so a guard with only that fixture cannot tell them apart, which is exactly
+  // how a sweep mutant survived here.
+  assert.equal(oneKitModuleFor("SafeImage, Wibble"), null,
+    "a member no kit module exports was skipped instead of refusing the import");
+  same('import { SafeImage, Wibble } from "@/components/SafeImage";');
+
+  // A TYPE COUNTS AS A MEMBER and does not block a repair when it agrees.
+  assert.equal(oneKitModuleFor("SafeImage, type ImageFocus"), "safe-image");
+  assert.equal(oneKitModuleFor("SafeImage as Img"), "safe-image", "`X as Y` imports X");
+
+  // `import type { … }` IS THE SAME STATEMENT and is repaired too. A page that
+  // imports only a type from the wrong path fails to resolve exactly as one that
+  // imports a component does — vite has no module to load either way.
+  const typed = repairImports(page('import type { ImageFocus } from "@/components/SafeImage";'));
+  assert.match(typed.pages[0].source, /import type \{ ImageFocus \} from "@\/components\/ui\/safe-image"/,
+    "an `import type` statement was not seen at all");
+
+  // AND A PART IS NEVER TOUCHED EVEN WHEN ITS EXPORT SHARES A KIT NAME. This is
+  // the fixture that matters: a part exporting something called `Hero` resolves
+  // perfectly well through `uiModuleFor`, so a repair that reached
+  // `@/routes/-parts/` would move a correct import onto the kit's own `hero` and
+  // the site would render the wrong component — the failure mode this whole
+  // function refuses to risk.
+  same('import { Hero } from "@/routes/-parts/tide-hero";');
+
+  // AND A PART IS NEVER TOUCHED. `@/routes/-parts/<name>` is the site's own
+  // component and has nothing to do with the kit.
+  same('import Tide from "@/routes/-parts/tide-window";');
+  same('import { TideWindow } from "@/routes/-parts/tide-window";');
+});
+
+test("kitPathExists separates a real kit path from one that names nothing", () => {
+  // REAL, driven against the kit's own module list rather than a typed one.
+  assert.ok(kitPathExists("@/components/ui/safe-image"));
+  assert.ok(kitPathExists("@/components/ui/" + UI_COMPONENTS[0]));
+  assert.ok(kitPathExists("@/components/charts/lib/bullet"), "a chart primitive is real");
+  // NOT REAL.
+  for (const s of ["@/components/SafeImage", "@/components/ui/SafeImage", "@/components/ui/",
+    "@/components/charts/", "@/components/", "@/lib/rows", "react", "", null, undefined, 7, ["@/components/ui/safe-image"]]) {
+    assert.equal(kitPathExists(s), false, JSON.stringify(s) + " was read as a real kit path");
+  }
+});
+
+// THE ASSUMPTION UNDER `kitPathExists`, HELD BY A GUARD RATHER THAN A COMMENT.
+// It calls anything outside `ui/` and `charts/` a path that names nothing — true
+// today because those are the only two directories there. The day somebody adds
+// a third, this goes red and the repair is widened on purpose, instead of
+// quietly starting to rewrite imports that were correct all along.
+test("KIT_DIRS is every directory under the template's src/components", () => {
+  const dir = fileURLToPath(new URL("../builder/lovable/template/src/components/", import.meta.url));
+  const real = fs.readdirSync(dir, { withFileTypes: true });
+  assert.deepEqual(real.filter((e) => e.isDirectory()).map((e) => e.name).sort(), [...KIT_DIRS].sort(),
+    "a directory under @/components/ that KIT_DIRS does not know — widen it on purpose");
+  assert.deepEqual(real.filter((e) => e.isFile()).map((e) => e.name), [],
+    "a component sits at the top of @/components/, so `@/components/<Name>` can be a real path now");
+});
+
+// RULE 7 NAMES THE MODULE, AND THE GUARD READS THE NAME OUT OF THE RULE.
+// The rule ordered `<SafeImage>` on every picture fifteen times and never said
+// where it comes from: every other kit component reaches the writer through
+// `siteComponentApi`, which is keyed by MODULE name, but that menu is exactly
+// the <=15 components the DESIGN step named — so the one component the rules
+// make mandatory was the one whose module name might never arrive at all.
+// Asserted by identity against the kit (the `marksDirective` precedent), so a
+// kit rename cannot leave the rule quietly lying.
+test("the picture rule states SafeImage's import path, and that path is real", () => {
+  const m = /`(@\/components\/ui\/[a-z0-9-]+)`/.exec(PAGE_RULES.slice(PAGE_RULES.indexOf("7. EVERY PICTURE IS")));
+  assert.ok(m, "rule 7 no longer names a module for SafeImage");
+  assert.ok(kitPathExists(m[1]), "rule 7 names " + m[1] + ", which is not a kit module");
+  assert.equal(oneKitModuleFor("SafeImage"), m[1].split("/").pop(),
+    "rule 7 names a module that does not export SafeImage");
+});
+
+test("a path the repair cannot place is REPORTED, and a real one is silent", () => {
+  const lint = (source) => lintPages([{ path: "index.tsx", source }], { pages: [], tables: [] })
+    .filter((p) => /which is not a file/.test(p));
+
+  const said = lint('import { Wibble } from "@/components/Wibble";');
+  assert.equal(said.length, 1, "an unplaceable path was reported " + said.length + " times");
+  assert.match(said[0], /@\/components\/Wibble/);
+  assert.match(said[0], /safe-image/, "the message does not show what a real one looks like");
+
+  // `ui/` IS LEFT TO THE CHECK BELOW IT, which lists what exists — so an unknown
+  // ui module is reported exactly once, by that one, not twice.
+  const uiSaid = lintPages([{ path: "index.tsx", source: 'import { X } from "@/components/ui/nope-xyz";' }],
+    { pages: [], tables: [] });
+  assert.equal(uiSaid.filter((p) => /which is not a file/.test(p)).length, 0);
+  assert.equal(uiSaid.filter((p) => /which does not exist/.test(p)).length, 1,
+    "an unknown ui module is now reported twice, or not at all");
+
+  // AND A CORRECT PAGE IS SILENT — including a chart, which has no export list
+  // behind it and must never be guessed at.
+  assert.deepEqual(lint('import { SafeImage } from "@/components/ui/safe-image";'), []);
+  assert.deepEqual(lint('import { Bullet } from "@/components/charts/lib/bullet";'), []);
+  assert.deepEqual(lint('import Tide from "@/routes/-parts/tide-window";'), []);
+});
+
+// THE BAR THIS REPO SETS BEFORE A CHECK SHIPS: zero false alarms on real code.
+// A check that flags correct code teaches the model — and the next session —
+// away from something that works, which this file rates strictly worse than the
+// miss it prevents.
+test("ZERO FALSE ALARMS: the path repair and its lint over every real file we have", () => {
+  const walk = (dir, out = []) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p, out);
+      else if (/\.tsx?$/.test(e.name)) out.push(p);
+    }
+    return out;
+  };
+  const read = (dir) => walk(dir).map((f) => ({ path: f, source: fs.readFileSync(f, "utf8") }));
+  const corpus = read(CORPUS_DIR);
+  const kit = read(fileURLToPath(new URL("../builder/lovable/template/src", import.meta.url)));
+  // THE OBSERVER IS PROVED ALIVE FIRST — a walk that found nothing reports a
+  // clean sweep over nothing, and every assertion below would pass.
+  assert.ok(corpus.length >= 300, "the corpus scan found only " + corpus.length + " files — it has drifted");
+  assert.ok(kit.length >= 3000, "the kit scan found only " + kit.length + " files — it has drifted");
+
+  for (const [what, files] of [["corpus", corpus], ["kit", kit]]) {
+    const out = repairImports(files);
+    const moved = out.pages.filter((p, i) => p.source !== files[i].source).map((p) => p.path);
+    assert.deepEqual(moved, [], "the repair rewrote correct " + what + " files: " + moved.slice(0, 3).join(", "));
+    const said = lintPages(files, { pages: [], tables: [] }).filter((p) => /which is not a file/.test(p));
+    assert.deepEqual(said.slice(0, 3), [], "the lint cried wolf on the " + what);
+  }
+});
+
+// EVERY RUNG THAT GENERATES SOURCE REPAIRS ITS PARTS, NOT ONLY ITS PAGES.
+// Three call sites: the build path (driven end to end in
+// `test/publish-pages.test.mjs`) and the page and addon rungs in `worker.js`,
+// which have no driven harness — so these two are read, and the reading is
+// honest about being weaker than a drive. What makes it worth having is that
+// cutting either leaves `repairImports` perfect and one whole rung's components
+// unrepaired, which is the recorded wiring shape: a hop nobody lists is a hop
+// nobody guards.
+test("the page and addon rungs repair their parts, not only their pages", () => {
+  const w = fs.readFileSync(fileURLToPath(new URL("../worker.js", import.meta.url)), "utf8");
+  const code = w.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+  assert.equal(code.length, w.length, "the blanker moved a byte");
+
+  for (const v of ["pValid", "aValid"]) {
+    assert.ok(code.includes("repairImports(" + v + ".pages)"),
+      v + " stopped repairing its pages — this guard is measuring the wrong thing");
+    assert.ok(code.includes(v + ".parts = repairImports(" + v + ".parts).pages;"),
+      v + " repairs its pages and leaves its hand-written components alone");
+  }
+});
+
+// A PART IS REPAIRED TOO, and the label follows the file. They compile in the
+// SAME PROGRAM — `validatePages` says exactly that where it runs `undupe` over
+// both — so a bad import in a hand-written component takes the build down
+// precisely as one in a page does, naming a file the customer never asked for.
+test("repairImports reports a part under its own name", () => {
+  const r = repairImports([{ name: "tide-window", source: 'import { SafeImage } from "@/components/SafeImage";' }]);
+  assert.match(r.pages[0].source, /from "@\/components\/ui\/safe-image"/);
+  assert.equal(r.fixed[0].path, "tide-window", "a part was reported with no name on it");
+  assert.equal(r.pages[0].name, "tide-window", "the repair dropped the part's own fields");
 });
 
 /* ------------------------------------------ the same import written twice */

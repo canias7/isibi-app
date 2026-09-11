@@ -69,7 +69,7 @@ const gen = (pages, extra = {}) => ({ input: { pages, notes: "" }, usage: { ...U
 // Recording wraps the override rather than being one of the defaults, so a test
 // that supplies its own `generate` still gets counted.
 function harness(over = {}) {
-  const calls = { generate: [], compile: [], publish: [], stored: [], charges: [] };
+  const calls = { generate: [], compile: [], compiledParts: [], publish: [], stored: [], charges: [] };
   // The default dist is stamped with the attempt number, so a test can tell WHICH
   // attempt's build was published — otherwise "kept the first attempt" and "kept
   // the retry" produce identical, indistinguishable output.
@@ -92,7 +92,14 @@ function harness(over = {}) {
     // so "generate is called with nothing" could never be asserted through it —
     // a fake less faithful than the real thing, which is how setTotp hid a bug.
     generate: (...a) => { calls.generate.push(a[0] || null); return pick("generate")(...a); },
-    compile: (pages) => { calls.compile.push(pages); return pick("compile")(pages); },
+    // BOTH ARGUMENTS, the same lesson as `publish` below and found the same way:
+    // written `(pages) => …(pages)` this wrapper manufactured a call with no
+    // parts, so what the container is handed as the site's hand-written
+    // components could not be asserted at all — and a sweep mutant that repaired
+    // the parts and never forwarded them survived every case in this file.
+    // `calls.compile` still holds the PAGES, which is what every older assertion
+    // reads; the parts get their own list rather than changing that shape.
+    compile: (...a) => { calls.compile.push(a[0]); calls.compiledParts.push(a[1]); return pick("compile")(...a); },
     // BOTH ARGUMENTS, because the real dep takes both. Written `(dist) => …(dist)`
     // the second one — the SOURCE stored for a later revise — was dropped on the
     // floor, so nothing could assert what a revise would be handed back. That is
@@ -286,6 +293,35 @@ test("TWO REPAIRS, TWO FIELDS — the import fix and the browser fix cannot coll
   // them stopped reporting at all.
   assert.ok(written.includes("repaired"), "repairImports no longer reports what it fixed");
   assert.ok(written.includes("renderRepaired"), "the browser repair no longer reports what it fixed");
+});
+
+// THE PARTS ARE REPAIRED TOO, AND THE REPAIRED ONES ARE WHAT GET COMPILED.
+// They go into the SAME PROGRAM as the pages — `validatePages` says so where it
+// runs `undupe` over both — so an import naming a file that is not there takes
+// the build down from a hand-written component exactly as it does from a page,
+// and `vite` cannot bundle around either. Driven end to end rather than read:
+// the repair happening and the repair ARRIVING at the container are two
+// different claims, and this repo has shipped the first without the second more
+// than a dozen times.
+test("a part's broken import is repaired, and the repaired part is what is compiled", async () => {
+  const part = { name: "tide-window", source: 'import { SafeImage } from "@/components/SafeImage";\nexport default () => <SafeImage src={null} alt="" />;' };
+  const { deps, calls } = harness({ generate: async () => gen([good()], { input: { pages: [good()], parts: [part], notes: "" } }) });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "app");
+
+  // IT REACHED THE CONTAINER REPAIRED. This is the assertion that matters: a
+  // repair computed and left in a local is the shape that ships dead.
+  assert.equal(calls.compiledParts.length, 1, "the compile was never handed any parts");
+  assert.equal(calls.compiledParts[0].length, 1);
+  assert.match(calls.compiledParts[0][0].source, /from "@\/components\/ui\/safe-image"/,
+    "the container was handed the part with its broken import still in it");
+  assert.equal(calls.compiledParts[0][0].name, "tide-window", "the part lost its name on the way");
+
+  // AND IT IS REPORTED, in the one list, under the part's own name — otherwise a
+  // build response cannot tell a generator that keeps getting paths wrong from
+  // one that does not.
+  assert.ok(Array.isArray(out.repaired) && out.repaired.some((f) => f.path === "tide-window"),
+    "the part's repair is missing from what the build reported: " + JSON.stringify(out.repaired));
 });
 
 test("a build whose imports were all correct reports no repairs at all", async () => {

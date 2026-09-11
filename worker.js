@@ -24570,6 +24570,10 @@ async function handleRequest(request, env, ctx) {
               // longer exists.
               const pRepair = repairImports(pValid.pages);
               pValid.pages = pRepair.pages;
+              // AND THE PARTS, which compile in the same program — a bad import
+              // in a hand-written component takes the build down exactly as one
+              // in a page does.
+              pValid.parts = repairImports(pValid.parts).pages;
               const pProblems = pValid.problems.concat(lintPages(pValid.pages, eSpec));
               // ONLY THE PAGE THAT WAS ASKED FOR. A page edit that returns a
               // different file is not a page edit, and taking it would let one
@@ -25741,6 +25745,10 @@ async function handleRequest(request, env, ctx) {
             // while both generating lanes did not.
             const aRepair = repairImports(aValid.pages);
             aValid.pages = aRepair.pages;
+            // AND THE PARTS, which compile in the same program — a bad import
+            // in a hand-written component takes the build down exactly as one
+            // in a page does.
+            aValid.parts = repairImports(aValid.parts).pages;
             const aProblems = aValid.problems.concat(lintPages(aValid.pages, aSpec));
             // `remove` IS OPTIONAL ON THE TOOL and the build prompt never mentions
             // it, so no build request changes shape. Only the addon prompt

@@ -5032,3 +5032,79 @@ that records `bands:wide` and one long call. After this it should record a
 `b2Ms`, … and `p1Ms` — which is a measurement we have never once been able to
 take, because the builds rich enough to be interesting were the ones being
 refused.
+
+---
+
+## 2026-09-11 — why the two Saltmarsh builds failed
+
+You sent the kayak brief twice. Both failed, for two completely different
+reasons, and neither of them was the splitting work.
+
+### The first one: the AI asked for a file that isn't there
+
+It wrote `import { SafeImage } from "@/components/SafeImage"`. The real file is
+`@/components/ui/safe-image`. The bundler can't build a page that imports a file
+that doesn't exist, so the whole site came out as the placeholder.
+
+I went looking for why it guessed, and the answer is embarrassing in a useful
+way: **our own instructions never tell it where that file is.** They order it to
+use `<SafeImage>` on every picture — the rule names it fifteen times and gives
+its full signature — and not once say the path. Every other component gets its
+path from the menu of components the design step picked, but this one is
+mandatory for every site and may not be on that menu at all.
+
+Two things nobody could see it coming with:
+
+- the rule was silent about the path;
+- both of our import checkers only look at paths inside the `ui/` folder, so a
+  path one folder up was invisible to both of them. I ran the real checker over
+  that exact import to be sure: it caught an unrelated mistake and said nothing
+  about the file that doesn't exist.
+
+**What I changed.** The rule now names the path. And rather than just *reporting*
+a bad path — a report doesn't stop the bundler refusing — the builder now
+**fixes** it: if the import names a component that only one kit file exports, it
+rewrites the path to that file. Free, before anything compiles, no model call.
+2,385 of the kit's 2,412 component names belong to exactly one file, so that
+covers nearly everything. Where it can't be sure — an unknown name, a name two
+files both export, or names from two different files in one line — it refuses to
+guess and reports instead, because a wrong guess would compile and render the
+wrong thing, which is worse than a failed build.
+
+I also measured it against every real page we have — 324 generated pages and the
+whole 3,412-file kit — and it changes none of them and complains about none of
+them. That's the bar here: a checker that cries wolf on correct code teaches the
+model away from something that works.
+
+### The second one: it was treated as an edit, not a build
+
+The second attempt recorded `bands:revise` — the splitting was switched off
+because the system thought you were editing an existing site.
+
+Here's why. **A build claims its name at the start, not at the end.** The first
+attempt claimed `saltmarsh-kayak-co` and then died. The claim stayed. When you
+sent the same brief again, the design step naturally picked the same name, the
+system looked it up, found a site under your account with that name, and decided
+this must be a revision of it. Revisions don't split.
+
+You said it plainly and you're right: typing in that box should be a fresh build
+no matter what, unless you pick a site from the list. That's a separate fix and
+it's on the list now.
+
+### The money
+
+This is the one I'd want to know about. Both builds charged and neither was
+refunded: 9 credits on the first, 10 on the second, 275 left from 298. The
+second one told you on screen *"you weren't charged"* while taking 10. The
+design step ran and was paid for both times; the page never landed, so the page
+charge never happened — but the deposit and the settle stand, and nothing
+reversed them.
+
+Also on the list, and I'd put it above the other two.
+
+### What still hasn't been tested
+
+The queue. The first build did run eight agents at once and every number lines
+up — 7 bands plus 1 component, all eight answered, times that add up exactly —
+but eight fits in eight, so nothing had to wait in line. Proving the queue needs
+a design that asks for nine or more pieces.

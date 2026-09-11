@@ -3384,6 +3384,158 @@ whole page went out in a single model call. `ben-crowe-guitar` measured that at
   more than eight pieces `waveMs` EXCEEDS the slowest piece, because the tail
   waited for a permit — on every fan-out before this the two were equal by
   construction.
+- **PROVEN LIVE, AND THE QUEUE ITSELF IS STILL NOT.** `saltmarsh-kayak-co`
+  (2026-09-11 05:42Z, grok) recorded the per-piece numbers this whole stage
+  exists to produce — **7 bands + 1 part, `wrote: 7`, `wroteParts: 1`**, so the
+  `tsx` refusal really is gone and a part was written by its OWN agent for the
+  first time. `b1Ms` 81,060 · `b2Ms` 132,042 · `b3Ms` 73,303 · `b4Ms` 84,802 ·
+  `b5Ms` 65,476 · `b6Ms` 27,773 · `b7Ms` 74,176 · **`p1Ms` 198,577**, and the
+  eight parts sum to **737,209 = `agentMs` exactly**. `max(piece)` 198,577
+  against `waveMs` 198,708 — 131 ms apart, which is the fan-out's own wall. **So
+  the QUEUE did not engage: 7 + 1 is 8, which fits the sockets exactly**, and the
+  tell that separates a queue from a plain fan-out (`waveMs` exceeding the
+  slowest piece) still needs a plan of nine or more.
+- **AND THAT BUILD DIED IN VITE FOR AN UNRELATED REASON — see the section
+  below.** A band imported `@/components/SafeImage`.
+
+---
+
+### THE ONE COMPONENT THE RULES MAKE MANDATORY HAD NO IMPORT PATH (2026-09-11,
+owner, on two failed builds: *"tell me what was the issue"* → *"ok go"*)
+
+`saltmarsh-kayak-co`'s first build designed, generated eight pieces, assembled
+them and then died:
+
+    [vite:load-fallback] Could not load /app/src/components/SafeImage
+      (imported by src/routes/index.tsx)
+
+A band wrote `import { SafeImage } from "@/components/SafeImage"`; the file is
+`@/components/ui/safe-image`. **A missing module is the one class `vite` cannot
+bundle around**, so unlike the type errors the 2026-08-30 rule lets ride out,
+this is not a `problems` line on a published site — it is the whole site as a
+placeholder, for 9 credits.
+
+- **NO PROMPT ANYWHERE NAMED THE MODULE, and that is the actual defect.**
+  `grep -rn "ui/safe-image" builder/*.mjs` was **ZERO HITS**. Rule 7 spends a
+  whole numbered rule ordering `<SafeImage>` on every picture, names it fifteen
+  times across the rules and directives, gives its full signature — and never
+  said where it comes from. Every other kit component reaches the writer through
+  `siteComponentApi`, which is keyed by MODULE name; but that menu is exactly the
+  ≤15 the DESIGN step named (owner, 2026-08-29: *"it should be only 15, the 15 on
+  the design step"*, which subtracted `ALWAYS_API_CORE`). **So the one component
+  the rules make mandatory is the one whose module name may never arrive at all.**
+  `tsxDirective` had the answer written down one screen over — *"IT STATES THE
+  IMPORT PATH RATHER THAN LEAVING IT TO BE INFERRED… a model that guesses
+  `@/components/ui/<name>` writes a page that does not compile"* — and rule 7 did
+  not do the same for its own component.
+- **AND THE LINT COULD NOT SEE IT.** Both import checks hard-code the `ui/`
+  segment in their own regex, so a path one directory up matched NEITHER.
+  DRIVEN rather than read: `lintPages` over a page carrying both
+  `@/components/SafeImage` and a wrong `{ Hero }` from a real module reported the
+  Hero mistake and said nothing at all about the module that does not exist.
+- **THE FIX IS A REPAIR FIRST AND A REPORT SECOND, which is the pairing this
+  file already has.** A report does not stop vite refusing; `repairImports` — free,
+  pre-compile, no model call — now rewrites a `@/components/…` path that names no
+  file to **the one kit module that exports what is being imported**. MEASURED:
+  2,385 of the kit's 2,412 exported names belong to exactly one module, so the
+  unambiguous case is nearly all of them. What is left unplaceable the lint
+  reports.
+- **IT REFUSES TO GUESS IN THREE WAYS, each a different wrong answer.** A member
+  no kit module exports (we do not know where it lives); a member TWO modules
+  export (`uiModuleFor` already answers null for those 27 names — guessing which
+  one a page meant renders the wrong component); and members resolving to two
+  DIFFERENT modules, where the fix would be to SPLIT the statement, which is a
+  rewrite rather than a correction.
+- **THE MEMBER NAMES THE MODULE, NEVER THE PATH'S OWN SPELLING.** `Hero` written
+  as `@/components/HeroSplit` lands on `hero`, because the member is the half we
+  can check against the kit and the path is the half that was guessed.
+- **AND THE OBVIOUS STORY ABOUT THE PASS ORDER IS FALSE — corrected in the code
+  before it shipped.** Fixing the path does NOT let the member pass clean up
+  after it: this pass fires only on specifiers the member pass's own regex cannot
+  match, and every path it writes is a module that exports all the members (that
+  is HOW it resolved), so the member pass always finds them known. A wrong member
+  is exactly what makes a path unplaceable. **The two are disjoint and the order
+  is immaterial**, said out loud so the next session does not hunt a case that
+  cannot exist; a guard runs the repair over its own output and requires it to
+  settle.
+- **`KIT_DIRS` IS THE ASSUMPTION, HELD BY A GUARD RATHER THAN A COMMENT.**
+  `kitPathExists` calls anything outside `ui/` and `charts/` a path that names
+  nothing — true today because those are the only two directories under
+  `src/components/`. A guard READS THE TEMPLATE and fails if a third appears, so
+  the day somebody adds one the repair is widened on purpose instead of quietly
+  starting to rewrite imports that were correct all along.
+- **THE PARTS ARE REPAIRED TOO, at all three call sites** (the build path and the
+  page and addon rungs). They compile in the SAME PROGRAM — `validatePages` says
+  exactly that where it runs `undupe` over both — so a bad import in a
+  hand-written component takes the build down precisely as one in a page does,
+  naming a file the customer never asked for and cannot see.
+- **ZERO FALSE ALARMS, MEASURED OVER 3,736 REAL FILES** — the 324-page corpus and
+  the 3,412-file kit: the repair rewrites none of them and the lint reports none
+  of them. That is the bar `dedupeImports` set, and the observer is proved alive
+  first (a walk that found nothing would report a clean sweep over nothing).
+- **Guards**: `test/page-gen.test.mjs` +7. The live failure verbatim and its
+  three other spellings; the three refusals DRIVEN, including the mixed
+  known-plus-unknown member, which is the only shape that separates "every member
+  must resolve" from "any member may"; a part whose export SHARES a kit name
+  proved untouched; `kitPathExists` driven over real and unreal paths including
+  every coercion; `KIT_DIRS` read off the template; rule 7's module read OUT of
+  the rule and proved real AND proved to export `SafeImage` (the `marksDirective`
+  precedent, so a kit rename cannot leave the rule lying); the lint proved to
+  report once and to stay silent on `ui/`, `charts/` and a part; and the
+  false-alarm measurement.
+  `test/publish-pages.test.mjs` +1, DRIVEN end to end: a part's broken import
+  repaired and **the repaired part proved to reach the container**, which is the
+  assertion that matters — a repair computed and left in a local is the shape
+  that ships dead.
+- **AND THAT GUARD NEEDED THE HARNESS FIXED FIRST, which is this file's own
+  recorded trap two lines from where it happened.** `harness`'s compile wrapper
+  was written `(pages) => …(pages)` and dropped the second argument, so what the
+  container is handed as the site's components could not be asserted at all —
+  a fake less faithful than the real thing, exactly what the `publish` wrapper
+  immediately below it spends a paragraph warning about. The sweep mutant that
+  repairs the parts and never forwards them survived every case in the file until
+  the wrapper took both.
+- **Two guards caught ME rather than the code, and both are recorded traps.** A
+  duplicate `CORPUS_DIR` import (*"a re-anchor lands in a scope it did not write;
+  check the name is free"*), and — the useful one — `frontend-build`'s
+  cross-reference check went red because my first draft of rule 7 said *"follows
+  rule 3 like every other one"*. `FRONTEND_PAGE_RULES` RENUMBERS, so a "rule N"
+  reference in a kept rule points at the wrong rule on every frontend build. The
+  prose was fixed, not the guard; it states the convention now instead of
+  pointing at it.
+- **Sweep: 29 mutants, 29 killed, none survived, none unapplied, two comment-only
+  controls survived — EIGHT survived the first pass and every one was a guard
+  gap, not the product's.** Three were driver gaps (a lone unknown member refuses
+  under both readings so it cannot tell them apart; no `import type` fixture; a
+  part fixture whose export no kit module shares, so the over-reach mutant was
+  inert against it) and five were the parts wiring, which had no guard anywhere.
+  The rest: the repair deleted (the state before this), `kitPathExists` answering
+  always-true or always-false or admitting a bare `charts/` or never asking the
+  kit's real module list or coercing a non-string; `oneKitModuleFor` taking the
+  first member that resolves, not stripping `type `, or reading `X as Y` as Y;
+  the repair reporting nothing or reporting the path it did not write, a part
+  reported with no name; the regex blind to `import type`, or widened to reach
+  `@/routes/-parts`; the lint's check deleted, double-reporting a `ui/` module,
+  crying wolf on a real chart, or losing the example from its message;
+  `KIT_DIRS` forgetting `charts` or gaining one the template has not got; rule 7
+  losing the path, naming a module the kit has not got, or naming a real one that
+  does not export `SafeImage`; and each of the three call sites' parts repair cut
+  in turn, plus the repaired parts computed and never forwarded to the compile.
+- Full suite **5,968**.
+- **Not proven live.** The push changes `worker.js`, which is a container image
+  input, so the container ROLLS and the 15–20 minute hold applies. The proof is
+  one build whose page reaches for a picture: it should compile, and if the model
+  guesses the path again the build response should carry a `repaired` entry
+  naming it rather than a placeholder.
+- **WHAT THIS DOES NOT FIX, and both are their own task.** The two builds took
+  **19 credits between them** (9 + 10, ledger `build:…:deposit` and `:settle`,
+  298 → 275) with **no reversal row for either**, and the second told the customer
+  *"you weren't charged"*. And the second build recorded **`bands:revise`**: a
+  build CLAIMS its slug before it generates, so the first attempt's claim was
+  still there, `existing` read true off `site_backends`, and the retry came in as
+  a revise of the placeholder — which turns the split off. Owner, on the start
+  screen's box: *"if i type in this chatbox its gotta be a fresh build no matter
+  what, unless i select a site"*.
 
 ---
 

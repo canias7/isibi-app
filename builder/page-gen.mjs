@@ -581,7 +581,87 @@ export const componentApiFor = (names) => {
 };
 
 /**
- * REWRITE AN IMPORT OF A MEMBER A KIT MODULE DOES NOT EXPORT.
+ * THE TWO DIRECTORIES UNDER `@/components/`, and the one place that is written.
+ *
+ * `kitPathExists` needs to know a real `@/components/…` specifier from one that
+ * names nothing, and a specifier under neither of these names nothing today.
+ * `test/page-gen.test.mjs` READS THE TEMPLATE and fails if a third appears, so
+ * the day somebody adds `@/components/forms/` a guard goes red and the repair
+ * below is widened on purpose — rather than quietly starting to rewrite imports
+ * that were correct all along, which is the false-alarm direction this file
+ * rates strictly worse than the miss.
+ */
+export const KIT_DIRS = ["ui", "charts"];
+
+/** `UI_COMPONENTS` as a set — the kit's real module names, built once. */
+const UI_SET = new Set(UI_COMPONENTS);
+
+/**
+ * Does this `@/components/…` specifier name a file the kit actually has?
+ *
+ * `ui/<module>` is checked against the real list; anything under `charts/` is
+ * taken as real WITHOUT checking, because there is no export list for the chart
+ * modules and a check with nothing behind it would be a guess. The point of this
+ * function is only to separate "names a file" from "names nothing at all".
+ */
+export function kitPathExists(spec) {
+  if (typeof spec !== "string" || !spec.startsWith("@/components/")) return false;
+  const rest = spec.slice("@/components/".length);
+  if (rest.startsWith("charts/")) return rest.length > "charts/".length;
+  const m = /^ui\/([a-z0-9-]+)$/.exec(rest);
+  return !!m && UI_SET.has(m[1]);
+}
+
+/**
+ * The ONE kit module every member of an import list comes from, or null.
+ *
+ * IT REFUSES TO GUESS IN THREE WAYS, and each is a different wrong answer it
+ * would otherwise give: a member no kit module exports (we do not know where it
+ * lives), a member TWO modules export (`uiModuleFor` already answers null for
+ * those 27 names — guessing which one a page meant is how a repair renders the
+ * wrong component), and members that resolve to two DIFFERENT modules (the fix
+ * would be to split the statement in two, which is a rewrite rather than a
+ * correction).
+ *
+ * MEASURED over the kit: 2,385 of 2,412 exported names belong to exactly one
+ * module, so the unambiguous case is nearly all of them.
+ */
+export function oneKitModuleFor(inner) {
+  let want = null;
+  for (const raw of String(inner == null ? "" : inner).split(",")) {
+    const part = raw.trim();
+    if (!part) continue;
+    // `type X` is still a member, and `X as Y` imports X.
+    const name = part.replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim();
+    if (!name) continue;
+    const mod = uiModuleFor(name);
+    if (!mod || (want && mod !== want)) return null;
+    want = mod;
+  }
+  return want;
+}
+
+/** An import of one or more named members from somewhere under `@/components/`. */
+const KIT_IMPORT = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*(["'`])(@\/components\/[^"'`]+)\2/g;
+
+/**
+ * REWRITE AN IMPORT THE KIT CANNOT SATISFY — first a MODULE PATH that names no
+ * file at all, then a MEMBER a real module does not export.
+ *
+ * THE PATH HALF WAS ADDED 2026-09-11 AND IT COST A BUILD. `saltmarsh-kayak-co`
+ * wrote `import { SafeImage } from "@/components/SafeImage"` and vite answered
+ * `Could not load /app/src/components/SafeImage`. Nothing saw it coming: both
+ * import checks in `lintPages` hard-code the `ui/` segment in their own regex,
+ * so a path one directory up matched neither, and a missing module is the ONE
+ * class `vite` genuinely cannot bundle around — so unlike a type error it is not
+ * reported, it is the whole site as a placeholder.
+ *
+ * WHY IT GUESSED. Rule 7 orders `<SafeImage>` on every picture and, until the
+ * same commit, never said where it comes from: every other kit component reaches
+ * the writer through `siteComponentApi`, which is keyed by MODULE name, but that
+ * menu is exactly the <=15 components the DESIGN step named. So the one component
+ * the rules make mandatory was the one whose module name might never arrive.
+ * The rule says it now; this is the wall under the rule.
  *
  * WHY THIS IS FREE AND WHY IT EXISTS. `lintPages` already reports this exactly:
  * "imports { Hero } from @/components/ui/hero-split, which does not export it.
@@ -620,6 +700,43 @@ export function repairImports(pages) {
   const fixed = [];
   for (const p of Array.isArray(pages) ? pages : []) {
     let src = String(p && p.source || "");
+    // A PART HAS A `name` WHERE A PAGE HAS A `path`, and both compile in the same
+    // program — `validatePages` says so where it runs `undupe` over both. The
+    // label is only what the repair reports itself under.
+    const where = (p && (p.path || p.name)) || "";
+
+    // ── FIRST THE PATH, THEN THE MEMBER, AND THE ORDER IS IMMATERIAL ──────────
+    //
+    // Said out loud because the obvious story — that fixing the path first lets
+    // the member pass clean up after it — is FALSE, and a comment claiming it
+    // would send the next session hunting for a case that cannot exist. The two
+    // are disjoint by construction: this pass fires only on specifiers the member
+    // pass's own regex cannot match (it requires a real lower-case `ui/` module),
+    // and every path written here is a module that exports all the members —
+    // that is HOW it was resolved — so the member pass always finds them known
+    // and does nothing. A wrong member is exactly what makes a path unplaceable,
+    // so "both mistakes in one import" is not a shape either pass can help with.
+    // A guard runs the repair over its own output and requires it to settle.
+    //
+    // THE MEMBER NAMES THE MODULE, NEVER THE PATH'S OWN SPELLING: `Hero` written
+    // as `@/components/HeroSplit` lands on `hero`, because the member is the half
+    // we can check against the kit and the path is the half that was guessed.
+    //
+    // `from`/`to` hold the SPECIFIER on these entries and a member NAME on the
+    // ones below, and no `kind` field says which — a member name can never start
+    // with `@/`, so a reader already has the answer and a field beside it would
+    // be two lists of the same thing.
+    src = src.replace(KIT_IMPORT, (whole, inner, q, spec) => {
+      if (kitPathExists(spec)) return whole;
+      const want = oneKitModuleFor(inner);
+      if (!want) return whole;          // cannot tell where it lives: vite's problem
+      const to = "@/components/ui/" + want;
+      fixed.push({ path: where, module: want, from: spec, to });
+      // The quoted specifier ENDS the match, so this replaces that one occurrence
+      // and cannot touch a member of the same spelling inside the braces.
+      return whole.slice(0, whole.lastIndexOf(q + spec + q)) + q + to + q;
+    });
+
     src.replace(/import\s*\{([^}]*)\}\s*from\s*"@\/components\/ui\/([a-z0-9-]+)"/g, (whole, inner, mod) => {
       const known = UI_EXPORTS[mod];
       if (!known) return whole;               // unknown module: tsc's problem, not ours
@@ -886,7 +1003,9 @@ or an access level — anything not in the schema below does not exist.
 6. NEVER WRITE A MANAGED COLUMN. These are set by the engine and dropped from any write:
    ${MANAGED_COLUMNS.join(", ")}.
 
-7. EVERY PICTURE IS \`<SafeImage>\`, NEVER A BARE \`<img>\`.
+7. EVERY PICTURE IS \`<SafeImage>\`, NEVER A BARE \`<img>\`. Import it as
+   \`@/components/ui/safe-image\` — an ordinary kit module, named for its file the way
+   every other one is, never for the component.
    \`SafeImage(src?, alt?, ratio? = "4/3", fallback?, fallbackSeed?)\` draws the picture when
    there is one and this theme's own designed placeholder when there is not, so there is
    nothing to guard and nothing to remember. A bare \`<img src="">\` paints a broken icon.
@@ -2865,7 +2984,9 @@ export function lintPages(pages, spec) {
     ? 'which the schema has CLOSED (retired) — its grants are revoked and its public view dropped, ' +
       "so every read and write on it returns 403. Take this out of the page."
     : "which the schema does not declare.";
-  const ui = new Set(UI_COMPONENTS);
+  // `UI_SET`, not a second `new Set(UI_COMPONENTS)` — the module-level one is the
+  // same list and is built once rather than per call.
+  const ui = UI_SET;
   const say = (path, msg) => problems.push(path + ": " + msg);
   const memberTables = [...tables.values()].filter((t) => needsMember(t));
 
@@ -3118,6 +3239,29 @@ export function lintPages(pages, spec) {
       const body = m[1].replace(/String\s*\([^()]*\)/g, '""');
       const bare = body.match(/\b[A-Za-z_$][\w$]*\.id\b/);
       if (bare) say(path, "puts " + bare[0] + " into a route without String(). Params and search params are typed string; wrap it as String(" + bare[0] + ").");
+    }
+
+    // A PATH THAT NAMES NO FILE AT ALL, which the check below could not see.
+    //
+    // Both import checks in this file hard-code the `ui/` segment in their own
+    // regex, so `@/components/SafeImage` — one directory up — matched neither and
+    // was reported by nothing. It killed `saltmarsh-kayak-co` on 2026-09-11:
+    // `vite` cannot bundle around a module that is not there, so unlike a type
+    // error it is not a finding on a published site, it is the whole site as a
+    // placeholder. `repairImports` runs BEFORE this and rewrites every one of
+    // these it can resolve, so anything reaching here is a path we could not
+    // place — which is exactly when saying so is worth something.
+    //
+    // `ui/` IS SKIPPED because the check immediately below says it better (it
+    // lists what exists), and `charts/` because there is no export list behind
+    // those modules to check against. MEASURED over the 324-page corpus: 279
+    // distinct `@/components/…` specifiers, every one of them under `ui/`, so
+    // this fires on none of them.
+    for (const m of code.matchAll(/from\s*["'`]@\/components\/([^"'`]+)["'`]/g)) {
+      if (/^(?:ui|charts)\//i.test(m[1])) continue;
+      say(path, 'imports "@/components/' + m[1] + '", which is not a file. Every kit component is ' +
+        '"@/components/ui/<module>" — the module is the file name, all lower case with hyphens ' +
+        '(SafeImage is "@/components/ui/safe-image"), never the component name.');
     }
 
     for (const m of code.matchAll(/from\s+"@\/components\/ui\/([a-z0-9-]+)"/gi)) {
