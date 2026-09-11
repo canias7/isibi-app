@@ -240,11 +240,15 @@ test("DRIVEN: the design's order is what lands, not the order the answers came i
     "the shell reordered the bands — the design's order is the only order there is");
 });
 
-test("DRIVEN: a refused band is STUBBED, never dropped", () => {
-  // A dropped band leaves the shell composing a name nothing declares, which
-  // does not compile — the whole-page failure, arriving one line later than the
-  // band's own. Salvage's precedent: a page missing one band beats no page.
-  const { source, refused } = assembleBands({
+test("DRIVEN: a refused band is STUBBED, never dropped — and it is stubbed as a FILE", () => {
+  // RE-ANCHORED 2026-09-11, when a band became its own module. The property is
+  // unchanged and the spelling moved: a dropped band used to leave the shell
+  // composing a name nothing DECLARED; it now leaves the shell importing a
+  // module that is not THERE, which is `vite` refusing the build rather than a
+  // page missing a section — a strictly worse failure, so the stub matters more
+  // than it did. Salvage's precedent either way: a page missing one band beats
+  // no page.
+  const { source, parts, refused } = assembleBands({
     route: "/", chrome: CHROME,
     bands: [
       { name: "Band1Hero", line: "Hero", source: band("Band1Hero") },
@@ -255,13 +259,27 @@ test("DRIVEN: a refused band is STUBBED, never dropped", () => {
   assert.equal(refused.length, 1);
   assert.equal(refused[0].name, "Band2Bad");
   assert.match(source, /<Band2Bad \/>/, "the refused band left the shell");
-  assert.match(source, /function Band2Bad\(\)/, "the refused band has no declaration — the page cannot compile");
-  assert.ok(!source.includes("function helper"), "the refused band's helper reached the file");
+  assert.match(source, /import Band2Bad from "@\/routes\/-parts\/band-2-bad"/, "the refused band is not imported — the page cannot compile");
+  const stub = parts.find((p) => p.name === "band-2-bad");
+  assert.ok(stub, "the refused band got no file — the import names nothing and vite refuses the build");
+  assert.match(stub.source, /function Band2Bad\(\)/, "the stub file does not declare the band");
+  assert.match(stub.source, /export default Band2Bad;/, "the stub file does not export what the page imports");
+  assert.ok(stub.stub, "the stub is not marked as one");
+  // THE HELPER IS THE REASON IT WAS REFUSED, so it must not survive into any
+  // file — not the page, and not the band's own.
+  assert.ok(!source.includes("function helper"), "the refused band's helper reached the page");
+  for (const p of parts) assert.ok(!p.source.includes("function helper"), "the refused band's helper reached " + p.name);
 });
 
-test("EVERY NAME THE SHELL COMPOSES IS DECLARED — the invariant, over every shape", () => {
+test("EVERY NAME THE SHELL COMPOSES IS IMPORTED FROM A FILE THAT EXPORTS IT — the invariant, over every shape", () => {
   // The one property that decides whether a page compiles at all, asserted over
   // clean bands, refused bands, and a band that answered nothing.
+  //
+  // RE-ANCHORED 2026-09-11 and STRONGER than the version it replaces. That one
+  // asked whether the composed name was DECLARED in the same file. A band is
+  // its own module now, so the chain is three links — composed, imported from a
+  // path, and that path's file declaring AND default-exporting the name — and
+  // any one of them broken is a page that does not build. All three are asked.
   const shapes = [
     [band("Band1A"), band("Band2B")],
     ["", band("Band2B")],
@@ -270,27 +288,51 @@ test("EVERY NAME THE SHELL COMPOSES IS DECLARED — the invariant, over every sh
   ];
   for (const [n, sources] of shapes.entries()) {
     const bands = sources.map((s, i) => ({ name: bandName("Band " + i, i), line: "l" + i, source: s }));
-    const { source } = assembleBands({ route: "/", chrome: CHROME, bands });
+    const { source, parts } = assembleBands({ route: "/", chrome: CHROME, bands });
     for (const b of bands) {
       assert.match(source, new RegExp("<" + b.name + " />"), "shape " + n + ": " + b.name + " is not composed");
-      assert.match(source, new RegExp("function " + b.name + "\\("), "shape " + n + ": " + b.name + " is composed and never declared");
+      const m = new RegExp("import " + b.name + ' from "@/routes/-parts/([a-z0-9-]+)"').exec(source);
+      assert.ok(m, "shape " + n + ": " + b.name + " is composed and never imported");
+      const file = parts.find((p) => p.name === m[1]);
+      assert.ok(file, "shape " + n + ": " + b.name + " is imported from " + m[1] + ", which no file answers");
+      assert.match(file.source, new RegExp("function " + b.name + "\\("), "shape " + n + ": " + m[1] + " does not declare " + b.name);
+      assert.match(file.source, new RegExp("export default " + b.name + ";"), "shape " + n + ": " + m[1] + " does not export " + b.name);
     }
+    // AND NO FILE IS ORPHANED. A part in the list that the page never imports is
+    // a component nobody will ever see — the failure `tsxDirective` warns about
+    // for a declared component, and it would arrive here silently.
+    assert.equal(parts.length, bands.length, "shape " + n + ": a band file has no band");
   }
 });
 
-test("DRIVEN: the imports are merged, and the shell's own two are always there", () => {
-  const { source } = assembleBands({
+test("DRIVEN: each band keeps its OWN imports, and the shell carries exactly one line per band", () => {
+  // INVERTED DELIBERATELY 2026-09-11. This case used to assert that three bands
+  // importing `Button` produced ONE import — the cross-band merge, which was the
+  // wall against run 90's duplicate-declaration failure in the bundler. That
+  // merge is gone because the collision it prevented is gone: each band is its
+  // own module, so the repeats can no longer meet. Asserting the merge now would
+  // report the change as a regression; what IS the property is that every band
+  // still gets what it imported, in its own file, and that the SHELL — whose
+  // imports this function writes itself — is still deduped.
+  const names = ["Band1A", "Band2B", "Band3C"];
+  const { source, parts } = assembleBands({
     route: "/", chrome: CHROME,
-    bands: ["Band1A", "Band2B", "Band3C"].map((n) => ({ name: n, line: n, source: band(n) })),
+    bands: names.map((n) => ({ name: n, line: n, source: band(n) })),
   });
   for (const need of SHELL_IMPORTS) assert.ok(source.includes(need), "the shell's own import is missing: " + need);
-  // Three bands each imported Button and useState. A repeated import is what
-  // killed run 90's build in the bundler; `dedupeImports` is the wall and this
-  // is it doing the job it was built for.
-  const count = (re) => (source.match(re) || []).length;
-  assert.equal(count(/import \{ Button \}/g), 1, "Button was imported more than once");
-  assert.equal(count(/import \{ useState \}/g), 1, "useState was imported more than once");
-  assert.equal(count(/import \{ createFileRoute \}/g), 1, "the shell's own import was duplicated");
+  const count = (s, re) => (s.match(re) || []).length;
+  assert.equal(count(source, /import \{ createFileRoute \}/g), 1, "the shell's own import was duplicated");
+  assert.equal(count(source, /@\/routes\/-parts\//g), names.length, "the shell does not import exactly one file per band");
+  // Each band kept what IT imported — nothing was hoisted away from it into a
+  // shared header, which would leave the band's own file unable to compile.
+  for (const p of parts) {
+    assert.equal(count(p.source, /import \{ Button \}/g), 1, p.name + " lost or repeated its Button import");
+    assert.equal(count(p.source, /import \{ useState \}/g), 1, p.name + " lost or repeated its useState import");
+  }
+  // The page itself imports NONE of the bands' own dependencies — that is the
+  // whole of what "separate files" buys, and a hoist back into the shell would
+  // be invisible without this.
+  assert.ok(!source.includes("import { Button }"), "a band's own import was hoisted into the page");
 });
 
 test("assembleBands survives junk without throwing", () => {
@@ -350,14 +392,26 @@ test("THE CORPUS: bands cut from real generated pages assemble into TSX that PAR
     // A corpus page that does not parse on its own cannot be evidence about the
     // assembler — the observer has to be alive before an absence means anything.
     if (bands.some((b) => !b.clean)) continue;
-    const { source, refused } = assembleBands({ route: "/", chrome: CHROME, bands });
+    const { source, parts, refused } = assembleBands({ route: "/", chrome: CHROME, bands });
     built++;
-    const bad = errs(source);
-    if (bad.length) {
-      broke.push(group.map((p) => path.relative(CORPUS_DIR, p)).join(" + ") + " → " +
+    // EVERY FILE, NOT JUST THE PAGE — re-anchored 2026-09-11, and without this
+    // the case would have quietly stopped being evidence. It used to parse one
+    // concatenated file holding all three real pages; the shell it parses now is
+    // a handful of imports and a composition, which would pass whatever the
+    // bands contained. The real source moved into the parts, so the parse has to
+    // follow it there or the corpus is scanned and never read.
+    const files = [["index.tsx", source], ...parts.map((p) => ["-parts/" + p.name + ".tsx", p.source])];
+    for (const [name, text] of files) {
+      const bad = errs(text);
+      if (!bad.length) continue;
+      broke.push(group.map((p) => path.relative(CORPUS_DIR, p)).join(" + ") + " → " + name + ": " +
         bad.slice(0, 2).map((d) => ts.flattenDiagnosticMessageText(d.messageText, " ")).join(" | ") +
         (refused.length ? "  [refused: " + refused.map((r) => r.name).join(",") + "]" : ""));
     }
+    // AND THE BAND FILES ARE WHERE THE SOURCE WENT. A group of three clean
+    // bands must produce three files; anything less means a band was dropped
+    // and the parse above was reading an empty shell.
+    assert.equal(parts.length, bands.length, "a band produced no file");
   }
   assert.ok(built >= 80, "only " + built + " pages were assembled — the scan is not exercising the assembler");
   assert.deepEqual(broke.slice(0, 5), [], built + " groups assembled, " + broke.length + " produced TSX that does not parse");

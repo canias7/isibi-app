@@ -10335,6 +10335,17 @@ function reactRoutePages(files) {
     const rel = m[1].replace(/^\/+/, '');
     // __root and the generated route tree are plumbing, not pages.
     if (!rel || /(^|\/)__/.test(rel) || rel === 'routeTree.gen') continue;
+    // AND A COMPONENT IS NOT A ROUTE. `out.files` began carrying the parts on
+    // 2026-09-11 so the "wrote the code — N files" count could stop lying, and
+    // this list is the OTHER reader of it: the page picker. A part offered here
+    // becomes `/-parts/tide-window-chart` in the picker, which is a 404 — the
+    // finding `render-check.mjs` already records for exactly this directory,
+    // arriving in the customer's own page list instead of a report.
+    //
+    // The `-` prefix is what makes it not a route (`routeFileIgnorePrefix` in
+    // the template's vite config), so testing the segment tests the real rule
+    // rather than a name we happen to use today.
+    if (/(^|\/)-/.test(rel)) continue;
     const path = rel === 'index' ? '/' : '/' + rel.replace(/\/index$/, '');
     if (seen.has(path)) continue;
     seen.add(path);
@@ -11188,20 +11199,115 @@ function brandMark(name, size) {
 // archive whose layout is not their site's.
 function stSrcPath(f) {
   if (!f || typeof f !== 'object') return '';
-  if (typeof f.name === 'string' && f.name) return 'src/routes/-parts/' + f.name + '.tsx';
+  // A PART IS NAMED EXACTLY AS `safePart` NAMES IT — trimmed, lowercased, and
+  // REFUSED when it is not a kebab name. Both halves matter and both were wrong.
+  //
+  // Without the normalising, a component stored as `Foo` showed in the tree as
+  // `-parts/Foo.tsx` while the container had written `-parts/foo.tsx`: a name in
+  // the explorer that no file on the site answers to.
+  //
+  // Without the refusal, a name the container REFUSES still drew a row here —
+  // and `SiteZip.safeName` refuses it too, so the file appeared in the tree and
+  // was silently absent from the download, with no sentence anywhere. One rule
+  // now, the container's; anything it will not name is reported by the caller as
+  // unplaced rather than shown as a file that exists.
+  if (typeof f.name === 'string') {
+    const n = f.name.trim().toLowerCase();
+    return /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(n) ? 'src/routes/-parts/' + n + '.tsx' : '';
+  }
   const p = typeof f.path === 'string' ? f.path.replace(/^(?:src\/)?routes\//, '') : '';
   return p ? 'src/routes/' + p : '';
 }
-// EVERY FILE OF THE SITE, pages first, in ONE list both the tree and the zip
-// read. Two lists would let the tree show a file the download leaves out.
+// THE TREE, GROUPED BY WHOSE FILE IT IS.
+//
+// FOUR HEADINGS, NOT ONE FLAT LIST (owner, 2026-09-11, on Lovable's explorer
+// beside ours: *"their stuff is files organized ours is all on one file"*).
+// The customer's own pages and components come first, then what the build made
+// for this site, then the scaffold every site shares — and the last group is
+// SEPARATED rather than flagged, because "this is yours" and "this is the
+// platform's" is the distinction a reader most needs and a flag on a row is the
+// one a reader skims past.
+//
+// EACH GROUP IS DRAWN ONLY WHEN IT HAS FILES, so a site with no drawn mark and
+// no stylesheet shows no empty "Made by the build" heading — a heading over
+// nothing reads as something missing rather than something absent.
+//
+// THE DISPLAY NAME DROPS ONLY `src/routes/`, which is where the customer's own
+// files live and is noise repeated down the whole first group. Everything else
+// keeps its real path, because `public/icon.svg` and `src/lib/rows.ts` are only
+// meaningful with it.
+const ST_CODE_GROUPS = [
+  ['page', 'Pages'],
+  ['part', 'Components'],
+  ['asset', 'Made by the build'],
+  ['shared', 'Shared with every site'],
+];
+function stCodeTree(files, openName) {
+  const list = Array.isArray(files) ? files : [];
+  let out = '';
+  for (const g of ST_CODE_GROUPS) {
+    const mine = list.filter((f) => f.kind === g[0]);
+    if (!mine.length) continue;
+    out += '<div class="st-code-h">' + esc(g[1]) + '</div>';
+    out += mine.map((f) =>
+      '<button type="button" class="st-file' + (f.name === openName ? ' on' : '') +
+      (f.unplaced ? ' st-file-lost' : '') + '" data-srcname="' + esc(f.name) + '">' +
+      '<span class="st-file-ic">' + ic('code', 13) + '</span>' +
+      '<span class="st-file-n">' + esc(f.name.replace(/^src\/routes\//, '')) + '</span></button>').join('');
+  }
+  return out;
+}
+// EVERY FILE OF THE PROJECT, in ONE list the tree, the download and the counter
+// all read. Two lists would let the tree show a file the download leaves out —
+// which it did, silently, until 2026-09-11.
+//
+// FOUR GROUPS, IN READING ORDER: the pages, the components written for this
+// site, the files the build made (the favicon, the wordmark, the codes, the
+// stylesheet), and last the shared scaffold every site is built from. `shared`
+// is marked rather than mixed in, so the tree can say which files are the
+// customer's own and which are the platform's.
+//
+// A FILE THAT CANNOT BE NAMED IS REPORTED, NEVER DROPPED. It used to vanish:
+// `if (name) out.push(...)` and nothing else, so a page with a malformed path
+// left the tree, left the zip and left the count, with no sentence anywhere —
+// and if it was the only page, the panel said "Nothing stored for this site
+// yet" about a store that had something in it. The entry is kept with the name
+// we could not resolve so the customer sees that something is there and that we
+// could not place it.
 function stSrcFiles(src) {
   const out = [];
-  const pages = src && Array.isArray(src.pages) ? src.pages : [];
-  const parts = src && Array.isArray(src.parts) ? src.parts : [];
-  for (const p of pages.concat(parts)) {
-    if (!p || typeof p.source !== 'string') continue;
-    const name = stSrcPath(p);
-    if (name) out.push({ name, text: p.source });
+  let lost = 0;
+  const add = (list, kind, key) => {
+    for (const p of (src && Array.isArray(src[key])) ? src[key] : []) {
+      if (!p || typeof p.source !== 'string') continue;
+      const name = stSrcPath(p);
+      if (name) { out.push({ name, text: p.source, kind: kind, note: typeof p.note === 'string' ? p.note : '' }); continue; }
+      // A REAL, UNIQUE, DOWNLOADABLE NAME — never a label. `(unnamed file)` would
+      // read fine in the tree and then be the entry name inside the archive, and
+      // two of them would collide there. `unplaced/<n>.txt` is a path the zip
+      // admits and a folder a customer can open, which is what keeps the tree,
+      // the download and the count showing the same set.
+      lost += 1;
+      out.push({
+        name: 'unplaced/' + lost + '.txt', text: p.source, kind: kind, unplaced: true,
+        note: 'This file is stored under a name the project cannot use, so it is shown here but is not part of the built site.',
+      });
+    }
+  };
+  add(src, 'page', 'pages');
+  add(src, 'part', 'parts');
+  // THE ASSETS AND THE FOUNDATION CARRY REAL PATHS ALREADY — `public/icon.svg`,
+  // `src/router.tsx` — so they go in as they are rather than through
+  // `stSrcPath`, which exists to compose a path for the two stores that carry
+  // none. Sending them through it would prefix `src/routes/` onto a file that
+  // is nowhere near it.
+  for (const a of (src && Array.isArray(src.assets)) ? src.assets : []) {
+    if (!a || typeof a.path !== 'string' || !a.path || typeof a.source !== 'string') continue;
+    out.push({ name: a.path, text: a.source, kind: 'asset', note: typeof a.note === 'string' ? a.note : '' });
+  }
+  for (const f of (src && Array.isArray(src.shared)) ? src.shared : []) {
+    if (!f || typeof f.path !== 'string' || !f.path || typeof f.source !== 'string') continue;
+    out.push({ name: f.path, text: f.source, kind: 'shared', note: '' });
   }
   return out;
 }
@@ -11324,19 +11430,22 @@ async function loadSiteCode(site) {
   // file than the one that was open.
   let open = files.find((f) => f.name === siteCodeOpen) || files[0];
   siteCodeOpen = open.name;
-  const tree = files.map((f) =>
-    '<button type="button" class="st-file' + (f.name === open.name ? ' on' : '') + '" data-srcname="' + esc(f.name) + '">' +
-    '<span class="st-file-ic">' + ic('code', 13) + '</span><span class="st-file-n">' + esc(f.name.replace(/^src\/routes\//, '')) + '</span></button>').join('');
+  const tree = stCodeTree(files, open.name);
   // CLIPPED FOR DISPLAY ONLY, and the zip gets the whole file. A `<pre>` of a
   // megabyte locks the tab; a download that quietly lost the end of a page
   // would be a lying instrument.
   const raw = String(open.text).slice(0, 120000);
   const gutter = Array.from({ length: raw.split('\n').length }, (_, i) => i + 1).join('\n');
   host.innerHTML = '<div class="st-code">' +
-    '<div class="st-code-tree"><div class="st-code-h">Your code</div>' + tree + '</div>' +
+    '<div class="st-code-tree">' + tree + '</div>' +
     '<div class="st-code-main">' +
       '<div class="st-code-bar"><span class="st-code-fname">' + esc(open.name) + '</span>' +
+      // READ ONLY, SAID OUT LOUD. The panel has never been editable and never
+      // said so, which leaves a customer clicking into a file wondering whether
+      // they may type in it. A label costs nothing and answers it.
+      '<span class="st-code-ro">Read only</span>' +
       '<button type="button" class="st-code-dl" id="stCodeDl" title="Download this file">' + ic('download', 14) + ' Download</button></div>' +
+      (open.note ? '<div class="st-code-note">' + esc(open.note) + '</div>' : '') +
       '<div class="st-code-scroll"><pre class="st-code-gutter" aria-hidden="true">' + gutter + '</pre><pre class="st-code-pre"><code>' + esc(raw) + '</code></pre></div>' +
     '</div>' +
   '</div>';

@@ -392,23 +392,43 @@ test("a real split build: answers arrive out of order, one call fails, and the p
   const at = (n) => src.indexOf("<" + bandName(lines[n], n) + " />");
   assert.ok(at(0) >= 0 && at(1) > at(0) && at(2) > at(1) && at(3) > at(2),
     "the bands are composed in the order they finished, not the order they were planned");
-  // The failed band is a STUB, not a missing name: dropping it would leave the
-  // shell composing something nothing declares, which does not compile.
-  assert.ok(src.includes("function " + bandName(lines[1], 1) + "("), "the failed band was dropped rather than stubbed");
+  // The failed band is a STUB, not a missing name. RE-ANCHORED 2026-09-11: the
+  // stub used to be a local declaration in this same file and is now the band's
+  // own module, so the page imports it and the file carries it. Dropping either
+  // half is a page importing a module that is not there, which is `vite`
+  // refusing the build.
+  const failed = bandName(lines[1], 1);
+  assert.match(src, new RegExp("import " + failed + ' from "@/routes/-parts/'), "the failed band left the page");
+  const stubFile = (out.input.parts || []).find((p) => p.source.includes("function " + failed + "("));
+  assert.ok(stubFile, "the failed band was dropped rather than stubbed");
+  assert.match(stubFile.source, new RegExp("export default " + failed + ";"), "the stub does not export what the page imports");
   assert.deepEqual(out.refused.map((r) => r.name), [bandName(lines[1], 1)]);
-  // ONE `Hero` IMPORT for two bands that both asked for it — the repeat that
-  // killed run 90's build in the bundler.
-  assert.equal((src.match(/from "@\/components\/ui\/hero"/g) || []).length, 1);
+  // TWO BANDS BOTH ASKED FOR `Hero`, AND THEY NO LONGER MEET. That repeat is
+  // what killed run 90's build in the bundler, and the cross-band merge was the
+  // wall against it. INVERTED 2026-09-11: each band is its own module, so the
+  // page imports neither and each file keeps its own — the collision is gone by
+  // construction rather than repaired.
+  assert.equal((src.match(/from "@\/components\/ui\/hero"/g) || []).length, 0,
+    "a band's own import was hoisted into the page");
+  const heroFiles = (out.input.parts || []).filter((p) => /from "@\/components\/ui\/hero"/.test(p.source));
+  assert.equal(heroFiles.length, 2, "the two bands that imported Hero did not each keep it");
+  for (const p of heroFiles) {
+    assert.equal((p.source.match(/from "@\/components\/ui\/hero"/g) || []).length, 1, p.name + " repeated its own import");
+  }
 
-  // AND IT COMPILES. The template's own TypeScript, over the assembled file —
-  // including a band whose JSX text carries an apostrophe, which is this
-  // repository's recorded "JSX text is not JavaScript" trap.
-  const r = ts.transpileModule(src, {
-    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
-    reportDiagnostics: true,
-  });
-  const msgs = (r.diagnostics || []).map((d) => ts.flattenDiagnosticMessageText(d.messageText, " "));
-  assert.deepEqual(msgs, [], "the assembled page does not parse");
+  // AND EVERY FILE COMPILES. The template's own TypeScript, over the page AND
+  // each band's module — including a band whose JSX text carries an apostrophe,
+  // which is this repository's recorded "JSX text is not JavaScript" trap. The
+  // page alone would prove almost nothing now: the bands' source lives in the
+  // parts, so the parse has to follow it there.
+  for (const [name, text] of [["index.tsx", src], ...(out.input.parts || []).map((p) => [p.name, p.source])]) {
+    const r = ts.transpileModule(text, {
+      compilerOptions: { jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
+      reportDiagnostics: true,
+    });
+    const msgs = (r.diagnostics || []).map((d) => ts.flattenDiagnosticMessageText(d.messageText, " "));
+    assert.deepEqual(msgs, [], name + " does not parse");
+  }
 
   // THE MONEY. One usage object, summed across the calls, so `pageCredits`
   // rounds ONCE across the build exactly as it does for a single call — N
@@ -443,8 +463,12 @@ test("a failed call that carries half an answer is stubbed, not assembled", asyn
   assert.equal(out.wrote, 2, "the cut-off band was counted as written");
   assert.deepEqual(out.refused.map((r) => r.name), [bandName(lines[1], 1)]);
   const src = out.input.pages[0].source;
-  assert.ok(!src.includes("hal"), "half a band reached the page");
-  assert.ok(src.includes("This band could not be written"), "the cut-off band was not stubbed");
+  const files = [src, ...(out.input.parts || []).map((p) => p.source)];
+  // RE-ANCHORED 2026-09-11: half a band must reach NO file, not merely not the
+  // page — there are several now, and the page is the one it was never going to
+  // reach. The stub moved with it.
+  for (const f of files) assert.ok(!f.includes("hal"), "half a band reached a file");
+  assert.ok(files.some((f) => f.includes("This band could not be written")), "the cut-off band was not stubbed");
 });
 
 test("an entry naming no position is dropped, never landed on the first band", () => {

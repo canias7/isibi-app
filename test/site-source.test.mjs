@@ -31,6 +31,14 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
+// THE REAL DRAWER, so "the code shown is the code served" is an identity rather
+// than a second renderer's opinion — which is the whole reason a QR is stored as
+// its payload and never as a picture.
+import { qrSvg } from "../builder/site-qr.mjs";
+// AND THE REAL MARK VALIDATORS, for the same reason: `writeSiteBrand` writes
+// what these answer, so deriving the expectation from them is what makes "the
+// bytes shown are the bytes written" an identity instead of a hope.
+import { cleanFavicon, readWordmark } from "../builder/site-favicon.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (p) => fs.readFileSync(path.join(here, p), "utf8");
@@ -279,10 +287,29 @@ test("DRIVEN: one list feeds both the tree and the download", () => {
   // The shape it answers is the shape the zip takes, with no adapter between —
   // an adapter is where a tree and a download start disagreeing.
   assert.equal(SiteZip.zipFiles(out).length > 22, true, "what the tab lists is what the zip writes");
-  // Junk in the store is dropped rather than shown as an empty file.
-  assert.deepEqual(stSrcFiles({ pages: [{ path: "index.tsx" }, { source: "no path" }], parts: null }), []);
+  // AN ENTRY WITH NO SOURCE IS STILL DROPPED — there is nothing to show.
+  assert.deepEqual(stSrcFiles({ pages: [{ path: "index.tsx" }], parts: null }), []);
   for (const junk of [null, undefined, {}, { pages: "x" }]) assert.deepEqual(stSrcFiles(junk), [], JSON.stringify(junk));
-  assert.ok(stSrcPath, "the path rule is the one this list is built from");
+  // BUT AN ENTRY WITH SOURCE AND NO USABLE NAME IS REPORTED — inverted
+  // deliberately 2026-09-11. It used to vanish: out of the tree, out of the zip
+  // and out of the count, with no sentence anywhere, and if it was the only page
+  // the panel said "Nothing stored for this site yet" about a store that had
+  // something in it. It gets a real, unique, downloadable name and a note.
+  const lost = stSrcFiles({ pages: [{ source: "no path" }], parts: [{ name: "Not A Kebab Name", source: "junk" }] });
+  assert.deepEqual(lost.map((f) => f.name), ["unplaced/1.txt", "unplaced/2.txt"], "an unnameable file was dropped in silence");
+  assert.deepEqual(lost.map((f) => f.text), ["no path", "junk"], "the content of an unplaced file was lost");
+  for (const f of lost) {
+    assert.ok(f.unplaced, "an unplaced file is not marked, so it reads as an ordinary part of the project");
+    assert.ok(f.note, "an unplaced file says nothing about why it is unplaced");
+    assert.ok(SiteZip.safeName(f.name), "an unplaced file's name is one the download refuses — the tree and the zip disagree again");
+  }
+  // THE PART RULE IS THE CONTAINER'S. `safePart` lowercases, trims and refuses a
+  // non-kebab name, and the tree must refuse exactly what it refuses — a name
+  // shown here that the container will not write is a file in the explorer that
+  // no file on the site answers to.
+  assert.equal(stSrcPath({ name: "  Chord-Diagram  " }), "src/routes/-parts/chord-diagram.tsx", "the part name is not normalised as safePart does");
+  assert.equal(stSrcPath({ name: "Not A Kebab Name" }), "", "a name the container refuses was given a path anyway");
+  assert.equal(stSrcPath({ name: "a:b" }), "", "a name the download refuses was given a path anyway");
 });
 
 // ── THE ROUTE ───────────────────────────────────────────────────────────────
@@ -296,7 +323,7 @@ const USER = { id: "u-owner" };
 // owner's own read then came back 404. The recorded trap, and the reason the
 // stranger case was passing partly by luck.
 let caseNo = 0;
-async function callSource({ user = USER, slug = "gf-src-" + (++caseNo), owner = "u-owner", pages, parts, bucketFails = false } = {}) {
+async function callSource({ user = USER, slug = "gf-src-" + (++caseNo), owner = "u-owner", pages, parts, config, configFails = false, bucketFails = false } = {}) {
   const worker = await loadWorker();
   const reads = [];
   const real = globalThis.fetch;
@@ -313,6 +340,14 @@ async function callSource({ user = USER, slug = "gf-src-" + (++caseNo), owner = 
       if (bucketFails) throw new Error("r2 down");
       if (key.endsWith("/pages.json")) return pages === undefined ? null : { text: async () => JSON.stringify(pages) };
       if (key.endsWith("/parts.json")) return parts === undefined ? null : { text: async () => JSON.stringify(parts) };
+      // THE SITE'S CONFIG — where the favicon, the wordmark, the codes and the
+      // stylesheet have always been stored, and what the assets half of the
+      // answer is read from. `configFails` is the cannot-tell case: the source
+      // must still arrive.
+      if (key.startsWith("config/")) {
+        if (configFails) throw new Error("config read blipped");
+        return config === undefined ? null : { text: async () => JSON.stringify(config) };
+      }
       return null;
     },
   };
@@ -360,8 +395,18 @@ test("DRIVEN: the owner gets their pages and their own parts", async () => {
   assert.deepEqual(r.body.pages, [{ path: "index.tsx", source: "PAGE" }], "the store's own shape, unchanged");
   assert.deepEqual(r.body.parts, [{ name: "chord-diagram", source: "PART" }]);
   assert.equal(r.body.why, undefined, "a site with source does not carry the empty sentence");
-  assert.deepEqual(r.reads.sort(), ["source/" + r.body.slug + "/pages.json", "source/" + r.body.slug + "/parts.json"],
-    "it read some other site's keys");
+  // RE-ANCHORED 2026-09-11: the config joined the reads when the explorer began
+  // showing the files the build made. Being exactly two reads was never the
+  // property — reading only THIS site's keys is, which is what the case has
+  // always been called.
+  for (const key of r.reads) {
+    assert.ok(key.includes(r.body.slug), "it read some other site's key: " + key);
+  }
+  assert.deepEqual(r.reads.slice().sort(), [
+    "config/" + r.body.slug + ".json",
+    "source/" + r.body.slug + "/pages.json",
+    "source/" + r.body.slug + "/parts.json",
+  ], "the explorer's reads have drifted");
 });
 
 test("DRIVEN: nothing stored is ok:true with a sentence, never the stranger's 404", async () => {
@@ -391,9 +436,22 @@ test("the route READS and never repairs — it takes no lease and moves nothing"
   const at = src.indexOf('url.pathname === "/api/site/source"');
   assert.ok(at > 0, "the source route is gone");
   const block = src.slice(at, src.indexOf('url.pathname === "/api/site/reconcile"', at));
-  assert.ok(block.length > 200 && block.length < 4000, "re-derive this window");
+  // The window grew when the explorer began carrying the assets and the shared
+  // foundation; the bound is re-derived rather than the property loosened.
+  assert.ok(block.length > 200 && block.length < 8000, "re-derive this window");
   assert.match(block, /loadSiteSource\(env, sslug\)/, "it no longer reads the page source");
   assert.match(block, /loadSiteParts\(env, sslug\)/, "it no longer reads the site's own components");
+  // THE THIRD ARGUMENT IS PINNED AS `null`, and that is the whole assertion:
+  // `configDeps`' third argument is the legacy `_meta` fallback, so anything
+  // else there puts a Postgres round trip in front of every explorer open — a
+  // cost a read-only tab must not carry.
+  //
+  // ONE SPELLING, NOT TWO. The first draft added a negative beside this
+  // (`configDeps(env, sslug, <a letter>` forbidden) and it went red against
+  // correct code, because `null` begins with a letter — a guard reporting a
+  // working route as broken, which this repository rates worse than a miss. The
+  // positive match already pins the argument exactly.
+  assert.match(block, /loadConfig\(configDeps\(env, sslug, null\), sslug\)/, "it no longer reads the files the build made, or it opens a database to do it");
   // `loadSiteSourceForEdit` REPAIRS the editable copy and is for the four
   // callers that go on to publish. A tab that only shows the code must not.
   assert.ok(!/loadSiteSourceForEdit/.test(block), "the code tab repairs state it only displays");
@@ -532,7 +590,7 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false } = {}) 
   const src = fn("async function loadSiteCode(site)");
   const host = { innerHTML: "", querySelectorAll: () => [] };
   const make = new Function("deps", [
-    "const { document, apiFetch, stSrcFiles, esc, ic, stSaveBlob } = deps;",
+    "const { document, apiFetch, stSrcFiles, stCodeTree, esc, ic, stSaveBlob } = deps;",
     "let siteCodeFiles = []; let siteCodeOpen = deps.open;",
     src,
     "return { run: loadSiteCode, get open() { return siteCodeOpen; }, get files() { return siteCodeFiles; } };",
@@ -546,9 +604,17 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false } = {}) 
     },
     stSrcFiles: (s) => {
       const out = [];
-      for (const p of (s.pages || []).concat(s.parts || [])) out.push({ name: p.path || p.name, text: p.source });
+      for (const p of (s.pages || []).concat(s.parts || [])) out.push({ name: p.path || p.name, text: p.source, kind: "page", note: "" });
       return out;
     },
+    // THE REAL TREE RENDERER, carried out of the file rather than stubbed.
+    // `loadSiteCode` closes over it now, so a bare scope throws
+    // `stCodeTree is not defined` for a function that is perfectly correct —
+    // this repository's recorded free-identifier trap, and the reason every name
+    // a driven function reaches for comes from the FILE. A stub answering "" for
+    // every shape would leave the case passing for the wrong reason.
+    stCodeTree: new Function("esc", "ic", "ST_CODE_GROUPS", fn("function stCodeTree(") + "\nreturn stCodeTree;")(
+      escFake, () => "", [["page", "Pages"], ["part", "Components"], ["asset", "Made by the build"], ["shared", "Shared with every site"]]),
     esc: escFake, ic: () => "", stSaveBlob: () => {},
   });
   return { t, host, site: { slug } };
@@ -784,4 +850,125 @@ test("the Code host fills its stage, and the file tree keeps its scroll", () => 
   // THE OBSERVER IS ALIVE: the editor it holds still has its own rules.
   assert.match(CSS, /\.st-code \{[^}]*height: 100%/, "the editor lost its height");
   assert.match(CSS, /\.st-code-tree \{[^}]*overflow-y: auto/, "the file tree lost its scroll");
+});
+
+// ── THE WHOLE PROJECT, NOT TWO FILES ────────────────────────────────────────
+//
+// Owner, 2026-09-11, holding our explorer beside Lovable's: *"we do have a
+// favicon but it doesnt show in the code tab"*. It did not, and the reason was
+// that this route read two R2 objects and nothing else — while the favicon had
+// been sitting in `config/<slug>.json` as the SVG text the model drew, carried
+// into every version's `state/config.json`, and served at `/icon.svg`, for as
+// long as the favicon step has existed.
+
+const ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#104148"/></svg>';
+const MARK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 32"><text x="0" y="24">SKC</text></svg>';
+
+test("DRIVEN: the favicon the build drew reaches the explorer, out of what was already stored", async () => {
+  const r = await callSource({
+    pages: [{ path: "index.tsx", source: "<h1>Saltmarsh</h1>" }],
+    config: { look: { favicon: { form: "svg", svg: ICON }, wordmark: { form: "svg", svg: MARK } } },
+  });
+  assert.equal(r.status, 200);
+  const at = (p) => r.body.assets.find((a) => a.path === p);
+  // THE PATH IS THE CONTAINER'S OWN (`build-server.mjs` writes `public/icon.svg`),
+  // because a tree with different names in it is a drawing of a project rather
+  // than the project.
+  assert.ok(at("public/icon.svg"), "the favicon is still missing from the explorer");
+  assert.ok(at("public/logo.svg"), "the drawn wordmark is missing");
+  // THE BYTES SHOWN ARE THE BYTES WRITTEN, and that is a stronger claim than
+  // "what was stored". Both the explorer and `writeSiteBrand` read the mark
+  // through `cleanFavicon`/`cleanWordmark`, which normalise — a favicon is
+  // forced square — so the file on disk is not the raw stored string and
+  // asserting against the raw string would pin the explorer to something the
+  // project has not got. Derived from the real producers rather than typed.
+  assert.equal(at("public/icon.svg").source, cleanFavicon(ICON).svg, "the favicon shown is not the one the build writes");
+  assert.equal(at("public/logo.svg").source, readWordmark(MARK).svg, "the wordmark shown is not the one the build writes");
+  // AND NOT ONE NEW BYTE WAS STORED FOR IT. Every read this route makes is a
+  // read; a write here would be a second copy of a customer's own artwork.
+  assert.ok(r.reads.some((k) => k.startsWith("config/")), "the config was never read");
+});
+
+test("DRIVEN: a code is drawn by the same function the build draws it with", async () => {
+  // A STORED PICTURE WAS REFUSED ON PURPOSE — it would be a second copy of
+  // `points` that can disagree with it — so the explorer re-derives, and it must
+  // re-derive through `qrSvg` rather than a second renderer's opinion.
+  const points = "https://saltmarsh-kayak-co-2.gofarther.app/tides";
+  const r = await callSource({
+    pages: [{ path: "index.tsx", source: "x" }],
+    config: { look: { qr: [{ name: "tides", points, label: "Scan for tides" }] } },
+  });
+  const drawn = r.body.assets.find((a) => a.path === "public/qr-tides.svg");
+  assert.ok(drawn, "a stored code produced no file");
+  assert.equal(drawn.source, qrSvg(points).svg, "the code shown is not the code served");
+});
+
+test("DRIVEN: the site's own stylesheet is shown, and says what it is", async () => {
+  const css = ".hero { letter-spacing: -0.02em; }";
+  const r = await callSource({ pages: [{ path: "index.tsx", source: "x" }], config: { css } });
+  const sheet = r.body.assets.find((a) => a.path === "src/styles.css");
+  assert.ok(sheet, "the site's stylesheet is missing");
+  assert.equal(sheet.source, css);
+  // IT IS A LAYER, NOT THE WHOLE FILE, and the note is what keeps that honest:
+  // the served sheet is the shared base, then the theme, then this. Showing a
+  // third of a file as all of it would be the instrument lying.
+  assert.match(sheet.note || "", /theme/i, "the partial stylesheet is shown as if it were the whole file");
+});
+
+test("DRIVEN: a site with no marks and no stylesheet has no assets, not empty ones", async () => {
+  // An empty file in a tree reads as a file the build made and did not fill.
+  const r = await callSource({ pages: [{ path: "index.tsx", source: "x" }], config: { look: { theme: "slate" } } });
+  assert.deepEqual(r.body.assets, [], "a site with nothing drawn was given files anyway");
+});
+
+test("DRIVEN: a config that could not be read loses the assets and never the source", async () => {
+  // CANNOT-TELL IS NO ASSETS, NEVER A FAILED REQUEST. The source is the half the
+  // customer came for, and losing the tree because a second read blipped is the
+  // worse answer by a distance.
+  const r = await callSource({ pages: [{ path: "index.tsx", source: "<h1>Saltmarsh</h1>" }], configFails: true });
+  assert.equal(r.status, 200, "a blipped config read took the whole explorer down");
+  assert.deepEqual(r.body.pages.map((p) => p.path), ["index.tsx"]);
+  assert.deepEqual(r.body.assets, []);
+});
+
+test("DRIVEN: the shared foundation rides along, marked apart from the site's own files", async () => {
+  const r = await callSource({ pages: [{ path: "index.tsx", source: "x" }] });
+  const shared = r.body.shared.map((f) => f.path);
+  // THE SCAFFOLD A CUSTOMER'S PROJECT IS BUILT FROM — the entry points, the root
+  // route, the data layer and the configuration.
+  for (const need of ["src/router.tsx", "src/server.ts", "src/routes/__root.tsx", "src/lib/rows.ts", "package.json", "vite.config.ts"]) {
+    assert.ok(shared.includes(need), "the shared foundation is missing " + need);
+  }
+  for (const f of r.body.shared) assert.ok(typeof f.source === "string" && f.source.length, f.path + " came through empty");
+  // NEVER THE KIT, and never a compiled bundle. 3,394 files and 9.5 MB is a
+  // dependency, not a customer's project — and it would be in every isolate.
+  assert.ok(!shared.some((p) => p.startsWith("src/components/")), "the kit was dumped into the tree");
+  assert.ok(!shared.some((p) => p.includes("assets/") || p.endsWith(".map")), "a compiled bundle reached the tree");
+  // NEVER THE TEMPLATE'S DEMO ROUTES: the image deletes them, so they are in no
+  // generated site and showing one is showing a file that is not there.
+  for (const gone of ["src/routes/index.tsx", "src/routes/book.tsx", "src/routes/account.tsx", "src/routes/manage.tsx"]) {
+    assert.ok(!shared.includes(gone), "a demo route the image deletes is shown as part of the project: " + gone);
+  }
+  // AND NOT `site-brand.ts`: the template's copy is a stub the container
+  // overwrites per build, so a shared copy is the one entry that would mislead.
+  assert.ok(!shared.includes("src/site-brand.ts"), "the stub site-brand.ts is shown as a shared file");
+  // THE TWO HALVES STAY APART IN THE ANSWER rather than being flagged inside one
+  // list: a platform file and a customer's own file are different things, and a
+  // boolean on a row is a distinction one careless reader drops.
+  assert.ok(!r.body.pages.some((p) => shared.includes(p.path)), "a shared file was served as one of the site's pages");
+});
+
+test("DRIVEN: a site with components and no pages is not told it has nothing", async () => {
+  // The sentence keyed on `pages.length` alone, so this shape got a `why` that
+  // was false — and the browser, seeing files, never showed it. The real gap it
+  // leaves is the other way round: a store with parts in it reading as empty.
+  const r = await callSource({ parts: [{ name: "tide-window-chart", source: "export default () => null;" }] });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.why, undefined, "a site whose components are stored was told nothing is stored");
+  assert.deepEqual(r.body.parts.map((p) => p.name), ["tide-window-chart"]);
+});
+
+test("DRIVEN: a site with nothing stored still says so", async () => {
+  const r = await callSource({});
+  assert.match(r.body.why || "", /not published a build yet/, "the empty case lost its sentence");
 });

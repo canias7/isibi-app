@@ -152,6 +152,15 @@ import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } fro
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
 import { runTweak, keptProse } from "./builder/site-tweak.mjs";
+// ONE EDITABLE VIEW of a site's source — its pages and its own components in a
+// single `{path, source}` list, and the way back. The cheap rungs key on `path`
+// and never interpret one, so a part with a path is a page to them; the mapping
+// lives in that module rather than at each rung that needs it.
+import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "./builder/site-files.mjs";
+// THE SHARED FILES EVERY SITE IS BUILT FROM, as the code explorer shows them.
+// Generated from the template by `builder/gen-foundation.mjs` and bundled,
+// because a Worker has no filesystem and the template lives in the image.
+import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
@@ -218,7 +227,7 @@ import { QR_FIELD, qrSvg } from "./builder/site-qr.mjs";
 // THE LIST OF CODES A SITE CARRIES (2026-09-03) — read, patched and placed by
 // name. Dependency-free on purpose: the container imports the same module to
 // name the files, so what is drawn here and what is written there agree.
-import { qrList, patchQr, qrRefusal, qrUnplaced } from "./builder/site-qr-list.mjs";
+import { qrList, qrFile, patchQr, qrRefusal, qrUnplaced } from "./builder/site-qr-list.mjs";
 // THE ONE SHAPE OF A TABLE (2026-09-02), lifted out of `design_schema` so the
 // ADD step can ask for a table without the build's designer — see the header
 // of that file. The build's `tables` array keeps its own framing around it.
@@ -9497,6 +9506,105 @@ async function loadSiteSourceForEdit(env, slug) {
   try { await ensureEditableState(env, slug); }
   catch (e) { console.error("editable state: check failed for", slug, e && e.message); }
   return loadSiteSource(env, slug);
+}
+
+/**
+ * THE WHOLE OF THE SOURCE A JOB IS ABOUT TO EDIT — the pages AND the site's own
+ * components, repaired once and read together.
+ *
+ * THE FUNCTION ABOVE IS NAMED FOR THIS JOB AND DOES HALF OF IT, which is worth
+ * saying rather than quietly fixing: it answers the PAGES a job is about to
+ * edit. That was the whole source while a component was a rarity; since the
+ * band split began writing each section to its own file it is the smaller half,
+ * and a rung reading only pages is a rung that cannot see the words on the
+ * page. Its four callers publish what they read and are unchanged — they either
+ * carry parts already (the page rung, the addon) or deliberately regenerate
+ * them (a revise, the platform rebuild) — so this is a sibling rather than a
+ * change of shape under them.
+ *
+ * ONE REPAIR, NOT TWO. `ensureEditableState` is what puts a copy one version
+ * behind the live site back from that version's own state, and it covers both
+ * stores in a single pass; asking for it twice would do the work twice and
+ * leave a window between the two reads in which the site could move.
+ *
+ * A FAILED PARTS READ IS AN EMPTY LIST AND NEVER A FAILED EDIT: `loadSiteParts`
+ * already answers null on any read failure, and a site that genuinely has no
+ * components is the ordinary case, so the two are the same answer here — which
+ * is safe precisely because nothing downstream WRITES parts on this path unless
+ * a rung changed one.
+ */
+/**
+ * THE FILES A BUILD WRITES BESIDE THE PAGES, read out of what is already stored.
+ *
+ * NOTHING NEW IS PERSISTED FOR THIS. Every value here is a field the site's
+ * config already carries and every version's `state/config.json` already copies
+ * — which is what makes showing them free: the favicon and the wordmark are
+ * stored as the SVG TEXT the model drew (`site-mark.mjs` says so in as many
+ * words), and a QR is stored as its PAYLOAD because a stored picture would be a
+ * second copy of `points` that can disagree with it.
+ *
+ * THE CODES ARE DRAWN BY `qrSvg`, THE SAME FUNCTION THE BUILD DRAWS THEM WITH,
+ * so the bytes shown are the bytes served rather than a second renderer's
+ * opinion of them. That is the whole reason a stored picture was refused in the
+ * first place, and re-deriving here keeps the property.
+ *
+ * THE PATHS ARE THE CONTAINER'S OWN. `build-server.mjs` writes `public/icon.svg`,
+ * `public/logo.svg` and `public/qr-<name>.svg`; showing a customer a tree with
+ * different names in it would be a drawing of a project rather than the project.
+ *
+ * `src/styles.css` IS THE ONE ENTRY THAT IS NOT THE WHOLE FILE, and it says so
+ * rather than pretending. The served stylesheet is the template's base, then the
+ * theme, then this — and only this layer is stored, because the theme is
+ * regenerated from `look.theme` on every build. Showing it under its real path
+ * with a note is honest; inventing a path for a file that is not on disk, or
+ * silently showing a third of a file as all of it, is not.
+ */
+function siteAssetFiles(config) {
+  const cfg = config && typeof config === "object" ? config : {};
+  // ONE READER FOR THE MARKS — `lookWithMarks` is the same fold `markWire` uses
+  // on the way to the container, so what the explorer shows and what the build
+  // bakes come from one expression. Asking `markOf` again here would be a second
+  // reading of a precedence this repository has already had disagree with itself
+  // once (a legacy pair folded the wrong way round takes a customer's own logo
+  // off their site).
+  const look = lookWithMarks(cfg) || {};
+  const out = [];
+  const drawn = (field) => {
+    const m = look[field];
+    // ONLY A DRAWING IS A FILE. An uploaded mark is `{form:"image", url}` — it
+    // lives at the customer's own upload URL and the build never writes a file
+    // for it, so showing one here would invent a path the project has not got.
+    return m && m.form === "svg" && typeof m.svg === "string" && m.svg.trim() ? m.svg : "";
+  };
+  const icon = drawn("favicon");
+  if (icon) out.push({ path: "public/icon.svg", source: icon });
+  const logo = drawn("wordmark");
+  if (logo) out.push({ path: "public/logo.svg", source: logo });
+  for (const q of qrList(look.qr)) {
+    // A CODE WE COULD NOT DRAW IS LEFT OUT, never shown empty: an empty file in
+    // a tree reads as a file the build produced and did not fill. `qrSvg`
+    // answers `{svg, why}` — a payload too long for the largest version has a
+    // reason rather than a picture — so the answer is read, not used as one.
+    let drawnQr = null;
+    try { drawnQr = qrSvg(q.points); } catch { drawnQr = null; }
+    const svg = drawnQr && typeof drawnQr.svg === "string" ? drawnQr.svg : "";
+    if (svg) out.push({ path: "public/" + qrFile(q.name), source: svg });
+  }
+  const css = typeof cfg.css === "string" && cfg.css.trim() ? cfg.css : "";
+  if (css) {
+    out.push({
+      path: "src/styles.css",
+      source: css,
+      note: "This site's own stylesheet. At build time it is appended to the shared src/styles.css, under the theme.",
+    });
+  }
+  return out;
+}
+
+async function loadEditableFiles(env, slug) {
+  const pages = await loadSiteSourceForEdit(env, slug);
+  const parts = await loadSiteParts(env, slug);
+  return { pages: Array.isArray(pages) ? pages : [], parts: Array.isArray(parts) ? parts : [] };
 }
 
 /**
@@ -20417,7 +20525,18 @@ async function handleRequest(request, env, ctx) {
       // READ, NEVER REPAIRED. `loadSiteSourceForEdit` is for the four callers
       // that go on to PUBLISH what they read; this one only shows it, so it
       // takes no lease, moves nothing, and cannot make a site busy.
-      const [sPages, sParts] = await Promise.all([loadSiteSource(env, sslug), loadSiteParts(env, sslug)]);
+      const [sPages, sParts, sCfg] = await Promise.all([
+        loadSiteSource(env, sslug), loadSiteParts(env, sslug),
+        // A CONFIG WE COULD NOT READ IS NO ASSETS, NEVER A FAILED REQUEST: the
+        // source is the half a customer came for, and losing the whole tree
+        // because a second read blipped is the worse answer by a distance.
+        // NO DATABASE HANDED IN, DELIBERATELY: `configDeps`' third argument is
+        // the legacy `_meta` fallback, which is a Postgres round trip for a
+        // handful of pre-R2 sites. This route only SHOWS files, so a site old
+        // enough to need that fallback shows no assets rather than putting a
+        // query in front of every explorer open.
+        loadConfig(configDeps(env, sslug, null), sslug).catch(() => null),
+      ]);
       const pages = Array.isArray(sPages) ? sPages : [];
       const parts = Array.isArray(sParts) ? sParts : [];
       return Response.json({
@@ -20425,7 +20544,30 @@ async function handleRequest(request, env, ctx) {
         slug: sslug,
         pages,
         parts,
-        ...(pages.length ? {} : { why: "nothing stored — this site has not published a build yet" }),
+        // THE FILES THE BUILD MADE, AND NOT ONE NEW BYTE STORED FOR THEM
+        // (owner, 2026-09-11: *"we do have a favicon but it doesnt show in the
+        // code tab"*). Every one of these already lives in `config/<slug>.json`
+        // and is already carried into each version's `state/config.json` — the
+        // favicon and the wordmark as the SVG TEXT the model drew, the codes as
+        // the payloads we draw from. So the explorer reads what publishing
+        // already keeps; a second copy for the sake of showing it would be two
+        // stores that can disagree about a customer's own artwork.
+        assets: siteAssetFiles(sCfg && sCfg.config),
+        // THE SHARED HALF, MARKED AS SHARED. Identical on every site, bundled
+        // rather than stored (`builder/gen-foundation.mjs` says why), and kept
+        // apart from `pages`/`parts` in the answer rather than flagged inside
+        // one list — a customer's own file and a platform file are different
+        // things, and a boolean on a row is a distinction one careless reader
+        // drops. The kit's 3,394 components are deliberately not here.
+        shared: FOUNDATION_FILES,
+        // THE SENTENCE ASKS ABOUT THE WHOLE ANSWER, NOT JUST THE PAGES. It read
+        // `pages.length` alone, so a site whose pages were all unnameable — or
+        // one carrying only components — got no sentence at all and the browser
+        // fell back to "Nothing stored for this site yet", which was a lie about
+        // a store that had something in it.
+        ...(pages.length || parts.length
+          ? {}
+          : { why: "nothing stored — this site has not published a build yet" }),
       });
     }
 
@@ -23920,8 +24062,24 @@ async function handleRequest(request, env, ctx) {
               });
             }
             if (eLayer === "text") {
+              // THE WORDS ARE NOT ALL IN THE PAGES ANY MORE (2026-09-11). Since
+              // the band split began writing each section to its own file under
+              // `-parts/`, a lane reading `eSrc` alone looks at a shell of
+              // imports and a `<SiteChrome>` composition — none of the prose a
+              // customer is asking to change. It would answer `no-match` and
+              // escalate every wording edit on a split site to the page rewrite:
+              // ~1 credit becoming ~3, and the copy reworded on the way past.
+              //
+              // `editableFiles` presents the parts with a path, which is all
+              // `textItems` and `applyEdits` ever look at — neither interprets
+              // one — so the rung is unchanged and the mapping lives in one
+              // place. `splitEditable` puts them back before anything publishes,
+              // because a component that came back as a page would be counted
+              // against the page cap and published in `sitemap.xml`.
+              const eParts = await loadSiteParts(env, ownerSlug);
+              const eFiles = editableFiles(eSrc, eParts);
               const out = await runTextEdit({ send: eQuick() },
-                { instruction: eInstruction, pages: eSrc, model: eQuickModel });
+                { instruction: eInstruction, pages: eFiles, model: eQuickModel });
               // `escalate` false with `ok` false is the one case that is NOT a
               // rung problem: the stored source moved under us, and the lane
               // above would be working from the same copy. Retrying fixes it.
@@ -23940,8 +24098,15 @@ async function handleRequest(request, env, ctx) {
                 }
                 return escalate(out.reason);
               }
+              // BOTH HALVES GO TO THE PUBLISH, and the parts go EVERY time
+              // rather than only when one changed. `recompileAndPublish` reads
+              // `Array.isArray(parts) ? parts : await loadSiteParts(...)`, so a
+              // list handed in is the list stored — and handing in only the
+              // changed ones would store only those, taking every untouched
+              // component off the site on a one-word edit.
+              const eSplit = splitEditable(out.pages);
               const pub = await publishStep(env, {
-                slug: ownerSlug, pages: out.pages,
+                slug: ownerSlug, pages: eSplit.pages, parts: eSplit.parts,
                 label: versionLabel({ revise: true, changeNote: eInstruction }),
               });
               // A FAILED COMPILE LEAVES THE LIVE SITE ALONE, and is not

@@ -1412,7 +1412,20 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
   // generator miss is now a placeholder immediately. The backend is still live
   // and a revise re-runs the whole thing, so the recovery is the customer
   // sending it again rather than us paying to guess twice.
-  out.files = v.pages.map((p) => "src/routes/" + p.path);
+  // WHAT THE BUILD WROTE, PAGES AND COMPONENTS BOTH (2026-09-11). This was
+  // `v.pages` alone, so the rail said "wrote the code — 1 file" beside a tree
+  // holding two, and since the band split gives every section its own file it
+  // would have said 1 beside nine. A component is a file this build wrote; a
+  // count that leaves it out is simply wrong.
+  //
+  // THE PARTS ARE NAMED THE WAY THE CONTAINER WRITES THEM — `safePart`'s own
+  // answer — so the list is paths that exist rather than two spellings of one
+  // file. `reactRoutePages` reads this list to offer the page picker and must
+  // not offer a component as a route, so it filters on the `-parts/` segment
+  // rather than taking every entry: the recorded 404-per-part finding
+  // (`render-check.mjs`) is what that filter exists to prevent.
+  out.files = v.pages.map((p) => "src/routes/" + p.path)
+    .concat((v.parts || []).map((p) => "src/routes/-parts/" + p.name + ".tsx"));
   out.problems = problems;
   // ── THE TYPECHECK'S VERDICT, ON A BUILD THAT SHIPPED ANYWAY (2026-08-30) ───
   //

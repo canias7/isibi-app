@@ -155,7 +155,19 @@ test("the Worker draws every stored code by name and hands the container the lis
   assert.match(body, /continue;/, "one refused code must skip, not end the list");
   assert.match(body, /return out\.length \? out : undefined;/, "an empty list must be `undefined`, the no-QR payload every publish already sends");
   // The Worker imports the list module by name, beside the drawing module.
-  assert.match(w, /import \{ qrList, patchQr, qrRefusal, qrUnplaced \} from "\.\/builder\/site-qr-list\.mjs";/);
+  //
+  // RE-ANCHORED 2026-09-11: this pinned the import as an exact four-name list,
+  // so it went red because an honest fifth arrived (`qrFile`, for the code
+  // explorer) — reporting the QR payload as unwired by a change that did not
+  // touch it. Being exactly those four was never the property; each of them
+  // being imported from that module is. The recorded "assert the property, not
+  // the spelling", in its list form.
+  const line = /import \{([^}]*)\} from "\.\/builder\/site-qr-list\.mjs";/.exec(w);
+  assert.ok(line, "the Worker no longer imports the list module at all");
+  const named = line[1].split(",").map((s) => s.trim()).filter(Boolean);
+  for (const need of ["qrList", "patchQr", "qrRefusal", "qrUnplaced"]) {
+    assert.ok(named.includes(need), "the Worker stopped importing " + need + " from the list module");
+  }
 });
 
 test("the container writes each code to the file its name gives it, and emits the record beside the old bindings", () => {

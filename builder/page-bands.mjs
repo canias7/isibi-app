@@ -171,13 +171,29 @@ export function splitBand(source) {
 /**
  * Everything wrong with one band's answer, as sentences — empty when it is fine.
  *
- * A BAND MAY DECLARE NOTHING AT TOP LEVEL BUT ITSELF, and this is the rule that
- * keeps assembly free of a rename pass. Two bands that both write
- * `function formatPrice` produce a file with a duplicate declaration, which
- * vite refuses outright — and renaming one of them means renaming every
- * reference to it in that band's source, which is a source rewrite this
- * repository has no business doing on the money path. Helpers go INSIDE the
- * component, which is ordinary JavaScript and costs the writer nothing.
+ * A BAND MAY DECLARE NOTHING AT TOP LEVEL BUT ITSELF.
+ *
+ * THE REASON THIS WAS WRITTEN FOR EXPIRED ON 2026-09-11 AND THE RULE STAYS —
+ * said out loud, because a justification that is no longer true is how the next
+ * session deletes a wall that still earns its place. It read: two bands that
+ * both write `function formatPrice` produce a file with a duplicate
+ * declaration, which vite refuses, and renaming one means rewriting every
+ * reference to it. True while `assembleBands` concatenated. Each band is its
+ * own module now, so two bands may both declare `formatPrice` and neither can
+ * see the other.
+ *
+ * WHAT KEEPS IT: a band is ONE component, and the shell imports exactly one
+ * default from each file. A band that declares a second top-level name has
+ * either written a component nobody composes or split itself in two without
+ * being asked — and `bandModule` would export only the one we named, silently
+ * dropping the rest of what the model wrote. The prompt says helpers go INSIDE
+ * (`bandPrompt`), so this is the wall under a rule the writer has already been
+ * given, not a new constraint.
+ *
+ * IT IS NOW STRICTER THAN THE FILE NEEDS, and that is the open half: a band
+ * with a top-level helper is refused and STUBBED, losing the whole section, for
+ * a shape its own file would accept. Relaxing it means changing the prompt as
+ * well, which is a generation change and not this one. Left as it was.
  *
  * So the check is exact: one top-level declaration, and it is the name we
  * assigned. Anything else is refused and the band is stubbed, which is
@@ -858,14 +874,27 @@ export async function generateSiteBands({
     // quietly carries less than the late one.
     return { input: null, usage, bands: bands.length, wrote: 0, agentMs, waveMs, eachMs, shape: { stopReason: "no-bands", blocks: [] } };
   }
-  const { source, refused } = assembleBands({ route, chrome, bands });
+  // THE DECLARED COMPONENTS ARE READ FIRST, because their names are what the
+  // band files must not collide with — and they cannot move, being already
+  // written into the page by `tsxDirective`.
+  const parts = partsFromAnswers(list, partList, bandLines.length);
+  const { source, parts: bandFiles, refused } = assembleBands({
+    route, chrome, bands, taken: parts.map((p) => p.name),
+  });
   // THE PARTS RIDE OUT IN `parts`, NEVER IN `pages` — the same division
   // `write_pages` has always made, and for the same reason: a component in the
   // page list would be counted against the page cap, put in the nav manifest,
-  // published in `sitemap.xml` and stubbed by salvage.
-  const parts = partsFromAnswers(list, partList, bandLines.length);
+  // published in `sitemap.xml` and stubbed by salvage. Since 2026-09-11 the
+  // BANDS ride there too, one file each.
+  //
+  // BAND FILES FIRST, AND THE COUNTS STAY APART. `bands`/`wrote` count bands
+  // and `parts`/`wroteParts` count the design's declared components, exactly as
+  // they did when a band was a local function — a row that added them up could
+  // not be undone, and every instrument built on those four numbers keeps
+  // reading what it has always read.
+  const allParts = [...bandFiles, ...parts];
   return {
-    input: { pages: [{ path: file, source }], ...(parts.length ? { parts } : {}) },
+    input: { pages: [{ path: file, source }], ...(allParts.length ? { parts: allParts } : {}) },
     usage,
     bands: bands.length,
     wrote: bands.filter((b) => b.source).length,
@@ -1066,8 +1095,83 @@ export function bandMarks(fan) {
   return marks;
 }
 
+/** Where a component written for this site is imported from. */
+export const PART_IMPORT = "@/routes/-parts/";
+
 /**
- * Every band's answer, as one page file.
+ * A band's COMPONENT name as the FILE name that holds it.
+ *
+ * DERIVED FROM `bandName` RATHER THAN BUILT BESIDE IT, so the two can never
+ * name different things. The import the shell writes and the file the
+ * container writes are the two halves of one fact, and a second reading of the
+ * band's own line — the shape this repository calls "two lists of the same
+ * thing" — would eventually disagree about a band whose word had a digit in
+ * it. `bandName` answers `Band<n><Word>` and nothing else, so the kebab of it
+ * always satisfies `safePart`'s `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`.
+ */
+export function bandFileName(name) {
+  return String(name == null ? "" : name)
+    .replace(/([a-z])([A-Z0-9])/g, "$1-$2")
+    .replace(/([0-9])([A-Za-z])/g, "$1-$2")
+    .toLowerCase();
+}
+
+/**
+ * A file name for this band that no component on the site has already taken.
+ *
+ * A DESIGN MAY DECLARE A COMPONENT CALLED `band-1-hero`. Nothing stops it —
+ * `TSX_ITEM.name` asks for a kebab name and every kebab string is legal — and
+ * the collision is not cosmetic: `validatePages` refuses the second entry of a
+ * duplicated name, so one of the two files is never written and the page
+ * importing it does not compile. That is `vite` refusing the build, which is
+ * the failure the whole part path exists to avoid.
+ *
+ * THE BAND'S NAME IS THE ONE THAT MOVES, never the declared component's: the
+ * declared name is already written into the page by `tsxDirective`, so it
+ * cannot move without a source rewrite. The band's is ours on both sides —
+ * this function names the file AND the import in the same pass — so moving it
+ * costs nothing and is invisible.
+ */
+export function freeBandFile(base, used) {
+  const b = String(base == null ? "" : base) || "band";
+  const taken = used instanceof Set ? used : new Set();
+  if (!taken.has(b)) return b;
+  for (let n = 2; n <= 99; n += 1) if (!taken.has(b + "-" + n)) return b + "-" + n;
+  return b + "-99";
+}
+
+/**
+ * One band, as a module of its own.
+ *
+ * THE BODY IS KEPT VERBATIM AND THE EXPORT IS APPENDED, which is the whole
+ * transformation. `bandProblems` requires a band to declare itself and NOT to
+ * export — the band writer answers a component, and what kind of file holds it
+ * has always been the assembler's business, not the model's. So separating the
+ * bands needed no prompt change and no re-training: the contract the agents
+ * are held to is byte-for-byte the one they were held to when every band went
+ * into one file.
+ *
+ * `export default` because that is what a file under `-parts/` is: `partPrompt`
+ * says so to the model, `partStub` writes one, and `tsxDirective` tells the
+ * page to import the default. One rule for what lives in that directory,
+ * whoever wrote the file.
+ */
+export function bandModule(name, imports, body) {
+  const head = (Array.isArray(imports) ? imports : []).filter(Boolean).join("\n");
+  return (head ? head + "\n\n" : "") + String(body || "").replace(/\s+$/, "") +
+    "\n\nexport default " + String(name) + ";\n";
+}
+
+/**
+ * Every band's answer, as a page shell plus ONE FILE PER BAND.
+ *
+ * IT USED TO CONCATENATE (owner, 2026-09-11, on our explorer beside Lovable's:
+ * *"their stuff is files organized ours is all on one file"*). The fan-out has
+ * always been N agents writing N self-contained components; this function was
+ * the one place they stopped being separate things. Now each lands at
+ * `src/routes/-parts/<file>.tsx` and `index.tsx` keeps what is genuinely the
+ * page: the route export and the `SiteChrome` composition `pageShell` already
+ * built. NOTHING NEW IS GENERATED — the same N answers, at N paths.
  *
  * ORDER IS THE DESIGN'S ORDER, not the order the answers came back in. The
  * whole point of running the bands at once is that they finish out of order,
@@ -1075,38 +1179,44 @@ export function bandMarks(fan) {
  * fastest agent happened to land. The caller hands them in `shape` order and
  * this preserves it; nothing here sorts.
  *
- * THE IMPORTS ARE MERGED BY `dedupeImports`, which is page-gen's own and is
- * measured at 0 false alarms over 3,736 real files. Every band will import
- * `react` and most will import a kit component, so the raw concatenation is
- * full of repeats — and a repeated import is the exact failure that killed run
- * 90's build in the bundler (`Identifier 'createFileRoute' has already been
- * declared`). This is that wall doing the job it was built for.
+ * THE CROSS-BAND IMPORT MERGE IS GONE, AND SO IS THE PROBLEM IT SOLVED. The
+ * old header held every band's imports at once, so two bands importing `Card`
+ * produced a duplicate declaration and run 90 died in the bundler on exactly
+ * that. Each band now owns its own header, so the repeats cannot meet;
+ * `dedupeImports` still runs over the SHELL, whose imports this function
+ * writes itself, and `validatePages` runs `undupe` over every part, so a band
+ * that repeats an import INSIDE its own file is still repaired.
  *
- * A band with problems is STUBBED rather than dropped: dropping it would leave
- * the shell composing a name nothing declares, which does not compile — the
- * whole-page failure, arriving one line later than the band's own.
+ * A band with problems is STUBBED rather than dropped, and it is stubbed as a
+ * FILE: dropping it would leave the shell importing a module that is not
+ * there, which is `vite` refusing the build rather than a page missing a
+ * section — a strictly worse failure than the local stub it replaces.
  */
-export function assembleBands({ route, chrome, bands }) {
+export function assembleBands({ route, chrome, bands, taken }) {
   const list = (Array.isArray(bands) ? bands : []).filter((b) => b && typeof b === "object" && typeof b.name === "string" && b.name);
   const refused = [];
-  const bodies = [];
+  const parts = [];
   const imports = [...SHELL_IMPORTS];
+  const names = [];
+  const used = new Set(
+    (Array.isArray(taken) ? taken : [])
+      .map((n) => String(n == null ? "" : n).trim().toLowerCase())
+      .filter(Boolean),
+  );
   for (const b of list) {
+    const file = freeBandFile(bandFileName(b.name), used);
+    used.add(file);
+    names.push(b.name);
+    imports.push('import ' + b.name + ' from "' + PART_IMPORT + file + '";');
     const why = bandProblems(b.name, b.source);
     if (why.length) {
       refused.push({ name: b.name, line: b.line || "", why });
-      bodies.push(bandStub(b.name, b.line));
+      parts.push({ name: file, source: bandModule(b.name, [], bandStub(b.name, b.line)), stub: true });
       continue;
     }
     const { imports: got, body } = splitBand(b.source);
-    imports.push(...got);
-    bodies.push(body.replace(/\s+$/, ""));
+    parts.push({ name: file, source: bandModule(b.name, got, body) });
   }
-  const names = list.map((b) => b.name);
-  const source = imports.join("\n") + "\n" +
-    pageShell({ route, chrome, names }) + "\n\n" +
-    bodies.join("\n\n") + "\n";
-  // Merged AFTER the file is whole, because `importSpans` reads a header and
-  // the header is only correct once every band's imports sit at the top.
-  return { source: dedupeImports(source).source, refused };
+  const source = imports.join("\n") + "\n\n" + pageShell({ route, chrome, names }) + "\n";
+  return { source: dedupeImports(source).source, parts, refused };
 }

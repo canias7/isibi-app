@@ -182,7 +182,18 @@ test("the parts ride out beside the bands, in `write_pages`' own shape", async (
   // owns what a component may be called, refuses an empty one and repairs
   // duplicate imports; handing it anything else would make the two generators
   // produce different things for one declaration.
-  assert.deepEqual(out.input.parts.map((p) => p.name), ["ChordDiagram", "Tuner"]);
+  //
+  // RE-ANCHORED 2026-09-11, when the BANDS became files too. The declared
+  // components were the whole of `parts` and are now its tail: band files come
+  // FIRST, because `bandsFromAnswers` pairs a band to its answer by RAW INDEX
+  // and the declared parts sit above the bands in the request list. What was
+  // never the property is that this list holds only what the design declared;
+  // what IS the property is that each declaration still arrives under its own
+  // name, in this shape, exactly once.
+  const partNames = out.input.parts.map((p) => p.name);
+  assert.deepEqual(partNames.slice(-2), ["ChordDiagram", "Tuner"], "a declared component lost its name or its place");
+  assert.deepEqual(partNames.slice(0, -2), ["band-1-a", "band-2-the"], "the bands did not become files ahead of the declarations");
+  assert.equal(new Set(partNames).size, partNames.length, "two files claimed one name — validatePages refuses the second");
   for (const p of out.input.parts) {
     assert.equal(typeof p.source, "string");
     assert.ok(p.source.trim(), "a part reached validation with no code in it");
@@ -191,14 +202,24 @@ test("the parts ride out beside the bands, in `write_pages`' own shape", async (
   // NEVER IN `pages`: a component in the page list would be counted against the
   // page cap, put in the nav manifest, published in `sitemap.xml` and stubbed.
   assert.deepEqual(out.input.pages.map((p) => p.path), ["index.tsx"]);
-  // A build that declares nothing carries no `parts` key at all, so the single
-  // path's own answer shape is unchanged for every ordinary site.
+  // AND THE COUNTS STAY APART. `parts`/`wroteParts` count the DESIGN'S declared
+  // components and not the band files beside them — a row that added them up
+  // could not be undone, and every instrument built on those numbers reads what
+  // it has always read.
+  assert.equal(out.parts, 2, "the band files were counted as declared components");
+  assert.equal(out.bands, 2);
+  // A SITE THAT DECLARES NOTHING NOW CARRIES `parts` ALL THE SAME — inverted
+  // deliberately, and it is the shape change this whole entry is about. Before
+  // 2026-09-11 a build with no declared component sent no `parts` key at all,
+  // because a band was a local function; every split build sends one now, and
+  // it holds one file per band.
   const plain = await generateSiteBands(args(), null, async (keys, reqs) => reqs.map((r, i) => ({
     i, state: "done", ms: 10, waveMs: 10,
     answer: { content: [{ type: "tool_use", input: { source: band(names[i]) } }], usage: {} },
   })));
-  assert.ok(!("parts" in plain.input), "a site with no declared components carries an empty parts list");
-  assert.equal(plain.parts, 0);
+  assert.deepEqual(plain.input.parts.map((p) => p.name), ["band-1-a", "band-2-the"],
+    "a split build's bands did not reach `parts` as files");
+  assert.equal(plain.parts, 0, "a site that declared no component was counted as having some");
 });
 
 test("A FAILED PART IS STUBBED, NEVER DROPPED — the page already imports it", async () => {
@@ -216,9 +237,14 @@ test("A FAILED PART IS STUBBED, NEVER DROPPED — the page already imports it", 
 
   assert.equal(out.parts, 2, "the declaration stopped being counted");
   assert.equal(out.wroteParts, 1, "a stub was counted as written");
-  assert.deepEqual(out.input.parts.map((p) => p.name), ["ChordDiagram", "Tuner"],
+  // RE-ANCHORED 2026-09-11: the band files sit ahead of the declarations, so the
+  // declared pair is the TAIL rather than the whole list. Being the whole list
+  // was never the property — a declared component arriving at all, under its own
+  // name, is.
+  assert.deepEqual(out.input.parts.map((p) => p.name).slice(-2), ["ChordDiagram", "Tuner"],
     "the failed part was DROPPED — the page now imports a file nothing wrote");
-  const stub = out.input.parts[0];
+  const stub = out.input.parts.find((p) => p.name === "ChordDiagram");
+  assert.ok(stub, "the failed declaration produced no file at all");
   assert.match(stub.source, /export default function ChordDiagram/, "the stub is not importable by the name the page uses");
   assert.match(partStub("X"), /export default/, "a stub with no default export is not importable");
   assert.match(partStub("X"), /return null/, "a stub that renders something is not a stub");
