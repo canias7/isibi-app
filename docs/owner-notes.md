@@ -4915,3 +4915,62 @@ see any of this run, and to fill in the per-band chart, delete
 `BAND_SPLIT_CANARY` in GitHub (the code's own default already names your
 account) or set it to `22175f41-6fbf-49d7-b039-a65078a0141c`, then redeploy.
 One ordinary build after that shows the whole thing.
+
+## 2026-09-11 — we tested it: the refusal is gone, and the wall moved
+
+Merged, deployed, and built `ben-crowe-guitar` with the guitar-teacher brief.
+Site is live, it cost **20 credits** (318 → 298), and the picture is
+`docs/edits/design-generate-ben-crowe.png`.
+
+### The good half
+
+**The component got written.** The design asked for a fretboard the kit has not
+got, the page was built with it, and it is on the live site — "See where the
+fingers go", with the chord markup under it.
+
+**Yesterday that exact build would have been refused.** It would have recorded
+`bands:tsx` — the old rule that said *this site wants a custom component, so do
+not split it at all*. That rule is gone. Which is the thing we set out to fix.
+
+### The half that did not get to run
+
+It still wrote the page in **one call**, and it took **407,694 ms** — nearly
+seven minutes, the longest page write we have ever measured. It says why:
+**`bands:wide`**.
+
+Here is the arithmetic. A page can plan up to **8** bands. A design can ask for
+up to **3** custom components. The container can hold **8** calls at once. This
+page did both, so the list came to at least 9 — one over — and the split stepped
+aside rather than drop anything.
+
+**So the page that most wants splitting is the page that cannot.** A rich page
+that also needs something the kit has not got is exactly the expensive case, and
+it is the one that overflows. That is not bad luck, it is the shape of the rule,
+and this build is the proof.
+
+For scale: a page that *did* split — `kestrel-bindery`, seven bands — took
+**93,375 ms**. Different brief, so it is not a like-for-like, but the gap between
+93 seconds and 407 is roughly what this is costing.
+
+### Your call, three ways
+
+1. **Leave it.** The refusal is honest and it only bites the widest pages.
+2. **Let the container take a longer list and run 8 at a time.** We already do
+   exactly this in the design step — sixteen agents through a pool of eight. It
+   would have let this build split, and it invents no new number. **This is the
+   one I would pick.**
+3. **Raise the limit from 8.** Quickest, and the one I would avoid: 8 is there
+   because seven-at-once is the most we have ever actually run, and too many open
+   calls is how a container dies mid-build.
+
+### And the design graph proved itself twice over
+
+Second build running, second time the numbers close exactly: the sixteen agents
+sum to their own total, and the slow chain — components → shape → behavior —
+comes to **245,189 ms**, which is the whole design step to the millisecond. Ten
+minutes of work done in four minutes.
+
+One thing that confirms an earlier note: the stylesheet took **29,763 ms** here
+against **93,013** on the last build. That entry said the 93 seconds was what
+`css` costs *when the brief asks for a look the theme does not give*, and that on
+a brief that does not ask it would be quick. This brief did not ask. It was.

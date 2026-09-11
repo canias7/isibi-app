@@ -3144,14 +3144,70 @@ smaller one.**"* This is that change.
   one", here reading as a coverage hole instead. Every anchor is now proved to
   resolve exactly once before the run.
 - Full suite **5,953**.
-- **Not proven live, and it cannot be until the band door is open.** The owner
-  turned `BAND_SPLIT_CANARY` off by hand on 2026-09-10 (deploy 2080) to time a
-  single-call control, so every build since records `bands:door`. The push changes
-  `worker.js`, which is a container image input, so the container ROLLS and the
-  15–20 minute hold applies. **The tell** on the first split build of a site whose
-  design declares a component is a `bands` step carrying `parts` and `wroteParts`
-  beside `bands` and `wrote`, and a `p1Ms` where there has never been one — on a
-  build that today would carry `bands:tsx` and write its page in one call.
+- **MERGED AND DEPLOYED** (owner: *"ok merge and lets test"*). The suite re-run at
+  **5,953 on the merge commit itself**; main fast-forwarded `b675b81d` →
+  `e36fc287` at 03:26:41Z. **Deploy 2085 green in 3m08s**: the gate set in 1 s;
+  the **image step 2m16s** — a BUILD, since a reuse is one second — and the
+  container **ROLLED** (`EDIT isibi-app-sitebuildcontainer`, `25b74…6e95…fbe47`
+  → `25ae3fbda702…b6…`, `SUCCESS Modified application`, applied **03:29:44Z**;
+  the game app `no changes`); the drain found no live leases; Wrangler 24 s; the
+  gate left to expire. **The hold ended ~03:45–03:50Z.**
+- **THE DOOR'S OWN TELL HAD BROKEN, AND THE LOG'S HYPHENS REPLACED IT.** The
+  recorded discriminator was that `BAND_SPLIT_CANARY` printed `***` while
+  `DESIGN_SPLIT_CANARY` printed `22…75f4…`, the DIFFERENCE saying a registered
+  secret was in place. That died on deploy 2084: registering `DESIGN_GRAPH_CANARY`
+  with the account uid made that uid a masked string everywhere, so all three
+  canaries print `***` whether they hold a secret or the `|| fallback`. **The
+  recorded "a rule true because of a layer below it expires when that layer moves"
+  trap, pointed at an instrument.** What replaced it is sharper and was free:
+  GitHub masks a registered secret's value WHEREVER it appears, so a secret whose
+  value is literally `-` — which is how this repository spells "nobody" for a
+  canary — blacks out **every hyphen in the whole log**. Deploy 2085 printed
+  `isibi***app***sitebuildcontainer`, `saas***setup.mjs`, `wrangler***action@v3`;
+  deploy 2086, after the owner deleted that one secret, printed all three plainly.
+  So the owner's 21:19Z secret was `BAND_SPLIT_CANARY: -`, it is gone, and the
+  workflow's default (the account uid) applies. **Deploy 2086 was a
+  `workflow_dispatch` on the same sha, green in 57 SECONDS** — image step 2 s,
+  both reused, `no changes` on both container apps, nothing rolled.
+- **PROVEN LIVE, AND THE `tsx` REFUSAL IS GONE — `ben-crowe-guitar`
+  (2026-09-11 03:43:54Z → 03:57:05Z, grok, `ok`, `page: "app"`, live at 200 with
+  `x-site-version 01789098898670-u8gp4m`, 52,060 bytes, **20 credits**,
+  318 → 298).** The step that settles it is **`bands:wide`** — the word this
+  change introduced, on its first live build.
+  **THAT WORD IS ALSO THE PROOF THE DESIGN DECLARED A COMPONENT, by arithmetic
+  rather than by reading a store this session cannot reach**: `wide` fires on
+  `bands + partsOf(tsx).length > MAX_MODEL_FANOUT` (8), `bandsOf` slices at
+  `MAX_BANDS = MAX_SECTIONS` (8), so `parts ≥ 1` is forced. And the served page
+  carries it — `fretboard` ×3, `chords` ×7, `fretting-hand`, under the heading
+  "See where the fingers go". **So a build that would have recorded `bands:tsx`
+  yesterday recorded `bands:wide` today**: the blanket refusal really is replaced
+  by a width test, which is the whole change.
+- **AND THE CASE THAT MOST WANTS SPLITTING IS THE CASE THAT OVERFLOWS — this is
+  structural, not bad luck.** A page may plan `MAX_SECTIONS` (8) bands and a
+  design may declare `MAX_TSX` (3) components; the container holds 8 calls. So a
+  rich page that also needs something the kit has not got can NEVER split under
+  today's rule, and that is exactly the page worth splitting. The page went out
+  whole at **`genMs` 407,694 — the longest page call this platform has measured**
+  (against `marlow-and-tide`'s single-call 180,456 and `kestrel-bindery`'s
+  seven-band 93,375). **Open, owner's call**, three ways: leave it (`wide` is
+  honest and rare); let the container take a longer list and run 8 AT A TIME,
+  which is `design-graph.mjs`'s own permit pool one path over and invents no
+  number; or raise `MAX_MODEL_FANOUT`, which this file's own rule refuses without
+  evidence, 7-at-once being the widest ever measured.
+- **THE DESIGN GRAPH'S ARITHMETIC CLOSED EXACTLY A SECOND TIME**, which is what
+  turns one build's coincidence into an instrument: the sixteen parts sum to
+  **614,205 = `agentMs`**, and `components 56,999 → shape 112,688 → behavior
+  75,502` = **245,189 = `waveMs`**. Same three-link critical path as
+  `sowerby-forge`. Overlap **369,016 ms**. `css` was 29,763 here against
+  sowerby's 93,013 — the brief did not ask for a stylesheet, exactly as that
+  entry predicted.
+- **Drawn: `docs/edits/design-generate-ben-crowe.png`** — both steps on ONE axis,
+  so the lengths compare: sixteen design agents at their real offsets with the
+  critical path in green, and under it the single 407,694 ms bar the generate step
+  fell back to, with `kestrel-bindery`'s 93,375 as a faint line for scale.
+- **STILL NOT PROVEN LIVE: the per-band and per-part numbers themselves**
+  (`b1Ms` … `bNMs`, `parts`, `wroteParts`, `p1Ms`). The door is open now, so the
+  next build whose plan fits inside 8 requests produces them.
 
 ---
 
@@ -5347,8 +5403,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 318 credits** (read off the ledger 2026-09-11 02:10Z, after
-  `sowerby-forge` took 332 → 318 — the Stage B graph build, 14 credits).
+- **Balance: 298 credits** (read off the ledger 2026-09-11 03:57Z, after
+  `ben-crowe-guitar` took 318 → 298 — **20 credits**, the richest first build
+  measured on this account and the one that hit `bands:wide`). Before it,
+  `sowerby-forge` took 332 → 318 — the Stage B graph build, 14 credits.
   It was 502 on 2026-09-07 04:44Z, after run 42 took 503 → 502. It was topped
   up to 505 on 2026-09-06 19:12Z on the owner's
   *"Top it up"*: a DIRECT GRANT of 500, not a purchase — `add_credits`
@@ -5388,7 +5446,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,937.
+  The unit suite is 5,953 (re-run on the merge commit `e36fc287`, 2026-09-11).
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
