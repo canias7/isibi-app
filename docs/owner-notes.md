@@ -4491,3 +4491,38 @@ where we've lost real builds before, so it needs care rather than speed.
 
 **Not started.** If you want it, I'd build it behind a flag like the other two
 splits, so nothing changes for anyone until you switch it on.
+
+## 2026-09-11 — you were right to push back: I over-claimed the waits
+
+I said eleven of the twenty-two had to wait for something. **It's seven, and
+only three of those are real.** I checked it properly this time by reading each
+field's own wording instead of reasoning about it.
+
+**How the tool says a field waits.** It uses a phrase — "the theme you picked
+*above*", "you have *just picked* from the kit", "*already decided above*",
+"only when needsWeb is true". Seven fields carry one of those. Fifteen say
+nothing at all.
+
+**Three I made up.** `slug`, `pages` and `favicon` were my reasoning, not the
+code. I had also put `behavior` at the end of the longest chain, and the tool
+never says it waits for anything either. That's four wrong out of eleven, in a
+picture I'd already sent you and pushed. Corrected now —
+`docs/edits/design-field-graph.png` is redrawn.
+
+**Of the seven that do wait, only three genuinely can't be answered otherwise:**
+the stylesheet (it *is* the bit the theme doesn't give you), the layout (it
+arranges the component list), and the custom-components field (it's whatever the
+kit couldn't do). The other four are soft — the logo only wants the theme so its
+colours don't vanish, the photos only want the layout for flavour, and the
+search-queries one is just the back half of a yes/no that should share its
+agent.
+
+**So it lands almost exactly where you drew it.** Fifteen start on the first
+second, and there's one real chain: page → components → layout → photos.
+
+**One genuine gap I found while checking.** `behavior` is supposed to list every
+button, form and toggle on the page — but the tool never tells it to wait for
+the page to be planned. It's been relying on the order of the questions to do
+that silently. Under the current waves it works by luck; under your graph it
+would start immediately and describe controls for a page nobody has designed
+yet. That sentence needs writing whichever way we go.

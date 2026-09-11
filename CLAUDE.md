@@ -2516,50 +2516,42 @@ stored row.
   time agents, never fields, because an agent's fields go out in ONE call — so
   whether `look`'s 132 s is the wordmark, the favicon or the stylesheet is
   **unknowable without splitting them**, and unlike every measurement of the
-  last two days there is no free instrument for it. The cheapest informative
-  move is therefore to make `look` two agents (the two drawings apart from
-  theme/css) and read one ordinary build; that number is what decides whether
-  one wave is worth the coherence it costs. Owner's call, unstarted.
-- Two other readings off the same build, both free: **`bands:door`**, so the page
-  was written in ONE call with the band canary off, exactly as expected — and
-  that single call took **`genMs` 294,300**, well above `marlow-and-tide`'s
-  180,456, so the single-call page spread is wide and a one-run comparison
-  against it would prove nothing. `img` carried `viaContainer: 1`, the corrected
-  reading, and `container` was 94,414 ms.
-- **MERGED AND DEPLOYED** (owner: *"MERGE"*). `unit tests` run 2421 green, the
-  suite step **84 s** on the exact tree; main fast-forwarded `c35cda52` →
-  `97d69615` at 22:56Z; **deploy run 2082 green in 3m21s**. The gate set in 1 s;
-  the **image step 2m25s** — `built isibi-app-sitebuildcontainer:9268b…8acc8a3a03
-  (registry answered 404; ***69 inputs off ./Dockerfile)` — and the container
-  **ROLLED** (`EDIT isibi-app-sitebuildcontainer`, `9b2b2483f6c968c…` →
-  `9268b…8acc8a3a03`, `SUCCESS Modified application`, applied **22:59:20Z**; the
-  game image `no changes`); `deploy drain: no live leases after 1s`; Wrangler
-  29 s; the gate left to expire on success. **The 15–20 minute hold ended
-  ~23:15–23:20Z.** The image step lands inside the Deploy section's stated band
-  for a push that changes the worker tree and nothing above it.
-- **AND THE STALE-SNAPSHOT TRAP HAD ITS WORST SHOWING YET — FORTY MINUTES, and
-  the recorded tell was the only thing that held.** The job endpoint answered
-  `in_progress` on the image step from 22:59 until ~23:40 for a step that had
-  finished at 22:59:02, so the reading was wrong by **more than ten times the
-  step's own duration**. Reported as neither a hang nor a pass, across six polls.
-  What worked: the run's own `updated_at` sat at **22:56:18Z beside step stamps
-  at 22:56:37Z** — behind the steps, which is the 2026-09-10 rule's proving
-  direction — and the step's expected duration (2–3 minutes, measured on five
-  deploys) said the rest.
-  **AND A SECOND, INDEPENDENT QUERY AGREED WITH THE STALE ONE, which is the new
-  half worth writing down.** `list_workflow_runs` filtered to `status:
-  completed` answered `total_count: 2081` with run 2081 newest — a different
-  code path, the same stale cache. So **corroboration from a second GitHub
-  endpoint is NOT evidence**: they share the cache, and two agreeing reads of one
-  snapshot are one read. The only honest instruments here are the tell above, the
-  step's own band, and — once the job really completes — the LOG, which is what
-  every number in the bullet above comes from. `get_job_logs` answers 404 while
-  the snapshot says in-progress, so it cannot break the tie either.
-- **AND THIS DEPLOY'S HOLD IS MEASURABLE — task #147, and it is free.** Both
-  image ids are stamped: `/api/site/build-health` answering `9b2b2483f6c968c…`
-  means the previous image is still serving, and the flip to
-  `9268b…8acc8a3a03` is the moment the hold really ends. Owner-gated, so this
-  session cannot take the number.
+  last two days there is no free instrument for it.
+- **THE WAVES ARE NOT THE SHAPE — THE OWNER'S IS (2026-09-11, drawn: every
+  field starts at once and only a genuine prerequisite makes one wait, "one of
+  those steps needs one first in order for him to start").** The waves make
+  `tsx` and `behavior` wait on the WHOLE of `look` (132 s) when neither needs
+  anything `look` answers; a dependency graph starts each field the moment its
+  own input lands. **`docs/edits/design-field-graph.png`**.
+- **AND THE DEPENDENCIES ARE FEWER THAN THEY LOOK — MEASURED OFF THE TOOL'S OWN
+  WORDING, after a first draft of that picture got it wrong.** The tool states a
+  dependency in exactly one way: a sequencing phrase in the field's own prose
+  (`above`, `just picked`, `already decided`, `only when <field> is`). **Seven
+  fields carry one**: `components`←pages, `shape`←pages+components,
+  `tsx`←components, `images`←shape, `css`←theme, `wordmark`←theme (colour only),
+  `webQueries`←needsWeb. **Fifteen state nothing at all.** The first draft of
+  the graph had ELEVEN waiting — `slug`←brand, `pages`←kind and `favicon`←theme
+  were MY reasoning and are nowhere in the code, which is this file's own
+  "derive it, don't trust the prose" rule turned on a session that had just
+  written the prose. **Of the seven, only three are impossible otherwise**:
+  `css` IS the delta on the theme, `shape` arranges a component list, `tsx` is
+  the residue of the kit search. `components`, `wordmark` and `images` could
+  read the brief; `webQueries` is the second half of one decision and should
+  simply share `needsWeb`'s agent. **So the longest real chain is
+  `pages → components → shape → images`, and its last two links are soft.**
+- **AND `behavior` STATES NOTHING WHILE NEEDING EVERYTHING — a gap either way.**
+  It is meant to list every interactive element on the page, which nobody knows
+  until the page is planned, and the tool has never said so: it has relied on
+  PROPERTY ORDER to carry a dependency it never wrote down. Under the waves that
+  worked by accident (it is in the last wave); under a graph it would start
+  immediately and design controls for a page that does not exist yet. Whichever
+  shape wins, that sentence needs writing.
+- **THE OBSTACLE IS THE PROSE, NOT THE SCHEDULING.** Those same seven phrases
+  are what makes a split hard: an agent answering `css` alone never "picked a
+  theme above". Every dependent field's wording has to change from *what you
+  decided earlier* to *here is what you are given* — prompt work, which is where
+  this repository has lost real builds. Unstarted; the owner has not said go.
+
 
 ---
 
