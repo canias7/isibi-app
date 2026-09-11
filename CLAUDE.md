@@ -3400,6 +3400,98 @@ whole page went out in a single model call. `ben-crowe-guitar` measured that at
 
 ---
 
+### THE START BOX IS A FRESH BUILD, NEVER A REVISE (2026-09-11, owner: *"if i
+type in this chatbox its gotta be a fresh build no matter what, unless i select
+a site"*)
+
+**A BUILD CLAIMS ITS SLUG BEFORE IT GENERATES, so a failed build leaves the name
+held and its own retry can never be a fresh build.** MEASURED:
+`saltmarsh-kayak-co`'s second attempt, typed fresh into the start screen's box,
+recorded **`bands:revise`** and went out as ONE page call against the placeholder
+its FIRST attempt had left behind. The chain — attempt 1 claims the name and
+dies; the designer picks the same name from the same brief; `existing = !!(owner
+&& owner.uid)` reads a row owned by this account; that is `revise: true` and
+`priorPages: <the placeholder's source>`; and `planRefusal`'s first line refuses
+to split a revise. **So the build that most wants splitting could never get it,
+purely because its own earlier attempt had failed.**
+
+- **HALF OF THIS ALREADY EXISTED AND WORKS.** A build from a chat that DOES own
+  a site is intercepted before a penny is spent and answered with that site
+  (2026-09-08, *"the build gotta stay in that chat"*). The gap was the OTHER
+  answer: `siteForChat`'s "this chat has no site" was computed and thrown away,
+  and it is exactly the fact that makes a later name collision a clash rather
+  than a revise.
+- **THE COLUMN IS `chat_id`, NOT `project_id`** — the earlier note in this file
+  had the name wrong. `site_backends.chat_id`, with a partial unique index
+  `(uid, chat_id) WHERE chat_id IS NOT NULL` doing the one-chat-one-site work in
+  Postgres, read live off `pg_indexes` rather than from the migration.
+- **THREE CONDITIONS, and every one of them is a refusal to guess.**
+  (1) **The DESIGNER chose the name.** A customer who names their own site means
+  that name, and `namedSlug` is never moved; a named slug WITH a row is already a
+  revise by `firstBuild`'s own reading, so there is nothing there to move off.
+  (2) **The chat is POSITIVELY known to own no site** (`mine === null`, never
+  truthiness): `undefined` is a lookup that could not answer, and reading it as
+  no-site makes a SECOND PAID SITE off a blip — wrong in the expensive
+  direction. A build with no chat id at all (a harness, `build as owner`, a curl)
+  keeps today's behaviour by construction.
+  (3) **The name is held BY US.** A stranger's name keeps the 409 it has always
+  had; moving off it would answer a customer's chosen name by quietly ignoring
+  it.
+- **AT THE SLUG AND NOT AT THE OWNERSHIP CHECK, which is where the clash is
+  currently READ.** `env.JOB_SCOPE(slug)` re-mints the job's token FOR THAT NAME
+  a few lines below the slug, so a name settled after it leaves the job scoped to
+  a slug it is not building. The name has to be final at the moment it is chosen,
+  and a guard asserts the last reader of the un-moved `wantedSlug` sits above the
+  scope hook.
+- **THE TRAILING NUMBER IS REPLACED, NOT STACKED**: `fretwork-1` tries
+  `fretwork-2`, which is the shape every numbered site on this platform already
+  has, rather than `fretwork-1-2`, which is a shape none of them has. And the
+  taken name is never offered back to itself as a candidate — stripping
+  `coalhole-2` gives the base `coalhole`, whose second candidate IS the name we
+  already know is taken.
+- **A READ THAT THROWS ANSWERS THE NAME UNCHANGED**, anywhere in the walk.
+  Cannot-tell keeps today's behaviour rather than inventing a name off a blip,
+  and the claim below is still atomic — so the narrow race between this read and
+  that write resolves exactly as it always has.
+- **`MAX_SLUG_TRIES` IS 25 AND GIVING UP IS TODAY'S BEHAVIOUR**, which is what
+  makes the bound safe to have: an account holding twenty-five names that all
+  start the same way gets the designer's own name, i.e. a revise — wrong, but not
+  made worse by the ceiling.
+- **Guards**: `test/fresh-build-slug.test.mjs` (10). `freeSlugFor` is CUT OUT of
+  `worker.js` and RUN against a stubbed lookup — a free name unchanged and read
+  ONCE (this is every ordinary build, so it must not become a walk), a stranger's
+  name unchanged, our own name walking to `-2` and past the taken ones whoever
+  holds them, the trailing number replaced, a throw at the start AND part way up
+  both keeping the name, and the bound driven at exactly `MAX_SLUG_TRIES` reads.
+  The three-way decision at the slug is READ, and the limit is stated rather than
+  papered over: `credit-debit`'s route harness makes the DESIGN CALL THROW in
+  order to reach the design catch, so nothing in this repo can drive a route past
+  the point where the designer names the site. Plus a CONTROL that the ownership
+  check still refuses a stranger and still reads a revise — otherwise "always a
+  fresh build" would quietly become "builds over other people's sites".
+- **One older guard went red and was re-anchored, not appeased.**
+  `build-runner`'s ordering case used the slug's own expression as a landmark for
+  "the name exists before the scope hook". Which expression produces it was never
+  the property — and the move had to land above that line precisely because of
+  what the line asserts.
+- **Sweep: 16 mutants, 16 killed, none survived, none unapplied, two comment-only
+  controls survived — clean on the first pass** — the name never moved (the state
+  before this), a customer's own name moved off, the move made on a cannot-tell
+  chat lookup, the chat answer read by truthiness or thrown away, `chatOwnsNoSite`
+  defaulting true; `freeSlugFor` moving off a stranger's name or off a free one,
+  a taken candidate answered as free, a throw inventing a name, the number
+  stacked, the taken name offered back to itself, the walk unbounded or started
+  at 1; and the ownership check's two halves each removed.
+- Full suite **5,989**.
+- **Not proven live.** `worker.js` moves, so the container ROLLS and the 15–20
+  minute hold applies. The proof is one build: type a brief into the start box
+  whose name the account already holds. Today that produces `bands:revise` and
+  one long call; after this it should produce a NEW site at `<name>-2` and a
+  `bands` step with a time per piece. `saltmarsh-kayak-co` is held and its brief
+  is known, so the same brief is the test.
+
+---
+
 ### A FAILED BUILD CHARGED FOR ITS DESIGN AND TOLD THE CUSTOMER IT HAD NOT
 (2026-09-11, owner: *"yes merge and go on the charging one"*)
 

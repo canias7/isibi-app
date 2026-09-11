@@ -7510,6 +7510,66 @@ async function claimSiteSlug(env, slug, uid, brief, chatId = "") {
   return true;
 }
 
+/**
+ * How many names past the designer's own choice a fresh build will try.
+ *
+ * A ceiling rather than a target: a build reaching the end of it has an account
+ * holding twenty-five sites whose names all start the same way, and answering
+ * the designer's own name there is exactly today's behaviour — a revise of the
+ * first — which is wrong but is not made worse by giving up.
+ */
+const MAX_SLUG_TRIES = 25;
+
+/**
+ * A NAME NOBODY IS USING, FOR A BUILD THAT IS DEFINITELY A NEW SITE.
+ *
+ * Owner, 2026-09-11, on the start screen's box: *"if i type in this chatbox its
+ * gotta be a fresh build no matter what, unless i select a site"*.
+ *
+ * WHAT WENT WRONG. The designer invents the name, and if that name is already
+ * held BY THIS ACCOUNT the ownership check reads `existing = true` and the whole
+ * build becomes a revise of that site — anchored on its stored pages, with the
+ * band split switched off (`planRefusal` refuses to split a revise). MEASURED:
+ * `saltmarsh-kayak-co`'s second attempt, typed fresh into that box, came back
+ * `bands:revise` and went out as one page call against the placeholder its own
+ * first attempt had left behind. A build CLAIMS ITS SLUG BEFORE IT GENERATES, so
+ * a failed build leaves the name held and the retry can never be a fresh build.
+ *
+ * WHEN IT APPLIES, and all three are required:
+ *   - the DESIGNER chose the name (a customer who names their own site means
+ *     that name, and a named slug with an existing row is a revise by
+ *     `firstBuild`'s own reading — so there is nothing here to move off);
+ *   - the chat is KNOWN to own no site (`chatOwnsNoSite`, positively `null`);
+ *   - the name is held BY US. A stranger's name keeps the 409 it has always
+ *     had: silently building under a different name would answer a customer's
+ *     chosen name by ignoring it.
+ *
+ * A READ THAT THROWS ANSWERS THE NAME UNCHANGED. Cannot-tell keeps today's
+ * behaviour rather than inventing a name off a blip — and the claim below is
+ * still atomic, so the narrow race between this read and that write resolves
+ * exactly as it always has.
+ *
+ * THE TRAILING NUMBER IS REPLACED, NOT STACKED: `fretwork-1` tries `fretwork-2`
+ * rather than `fretwork-1-2`, which is the shape every numbered site on this
+ * platform already has.
+ */
+async function freeSlugFor(env, wanted, uid) {
+  const base = String(wanted || "").replace(/-\d+$/, "") || String(wanted || "");
+  try {
+    const held = await siteBackendRowFresh(env, wanted);
+    if (!held || !held.uid || held.uid !== uid) return wanted;
+    for (let n = 2; n <= MAX_SLUG_TRIES; n++) {
+      const candidate = base + "-" + n;
+      if (candidate === wanted) continue;
+      const row = await siteBackendRowFresh(env, candidate);
+      if (!row) return candidate;
+    }
+  } catch (e) {
+    console.error("free slug lookup failed:", wanted, e && (e.detail || e.message));
+  }
+  return wanted;
+}
+
 // Provision (or reuse) one site's database, returning its connection string.
 // The ordering and the failure paths live in site-provision.mjs, where they are
 // tested; this supplies the real Neon and Supabase calls.
@@ -15213,8 +15273,21 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // there-is-one, which would answer somebody the wrong site. Wrong the
       // other way is a duplicate build, which the customer can see and undo.
       const chatId = firstBuild ? cleanChatId(body.chat) : "";
+      // ── AND THE ANSWER IS KEPT, BECAUSE THE *OTHER* ANSWER MATTERS TOO ─────
+      //
+      // `siteForChat` has three states and this block only ever acted on one of
+      // them. "This chat HAS a site" returns above; "this chat has NO site" is
+      // what makes a later name collision a NAME CLASH rather than a revise —
+      // see `freeSlugFor` at the slug below — and it was being thrown away.
+      //
+      // POSITIVELY KNOWN, never inferred. `null` is no site; `undefined` is a
+      // lookup that could not answer, and cannot-tell must never read as
+      // there-is-none: wrong that way makes a SECOND paid site where a retry
+      // should have found the first. So a blip keeps exactly today's behaviour.
+      let chatOwnsNoSite = false;
       if (chatId) {
         const mine = await siteForChat(env, bu.id, chatId);
+        chatOwnsNoSite = mine === null;
         if (mine && mine.slug) {
           const mineUrl = await publicUrlFor(env, mine.slug).catch(() => "");
           return Response.json({
@@ -15939,8 +16012,20 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // cleaned exactly once, at the ownership check, and every reader below
       // shares that answer. Two cleanings of one field is the bug this route
       // already carries a guard for.
-      const slug = namedSlug || cleanSlug(designed && designed.slug)
+      const wantedSlug = namedSlug || cleanSlug(designed && designed.slug)
         || ("site-" + Math.random().toString(36).slice(2, 8));
+      // ── A FRESH CHAT'S NAME CLASH IS A CLASH, NOT A REVISE ────────────────
+      //
+      // HERE AND NOT AT THE OWNERSHIP CHECK, which is where the clash is
+      // currently READ: `env.JOB_SCOPE(slug)` a few lines down re-mints the
+      // job's token FOR THIS NAME, so a name settled after it would leave the
+      // job scoped to a slug it is not building. The name has to be final at the
+      // moment it is chosen.
+      //
+      // `namedSlug` IS NEVER MOVED: a customer who names their site means that
+      // name, and `freeSlugFor` is only asked when the designer invented one.
+      const slug = namedSlug ? wantedSlug
+        : (chatOwnsNoSite ? await freeSlugFor(env, wantedSlug, bu.id) : wantedSlug);
 
       // ── THE JOB'S SCOPE FOLLOWS THE NAME (stage 5b, 2026-09-06) ────────
       //

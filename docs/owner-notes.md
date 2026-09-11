@@ -5175,3 +5175,52 @@ owed". Caught by the guard, and the test now pins it.
 It doesn't give you back the 19 credits from today. Those two builds are done
 and reversing them is a deliberate action on the existing records — your call,
 not something I'd do on my own.
+
+---
+
+## 2026-09-11 — typing in the start box always makes a new site now
+
+You said it plainly and you were right: that box means a new site, unless you
+pick one from the list.
+
+### Why it wasn't
+
+A build **claims its name at the very start**, before it writes anything. So
+when the first Saltmarsh build died, the name `saltmarsh-kayak-co` stayed
+claimed. You typed the same brief again, the designer picked the same name from
+the same brief, and the system found a site under your account with that name and
+decided you must be editing it.
+
+That's what `bands:revise` in the trace meant. And revisions don't split, so the
+whole page went out in one call again — the build that most needed splitting
+couldn't have it, purely because its own earlier attempt had failed.
+
+### What it does now
+
+If the **designer** picked the name (you typed a brief rather than naming a
+site), and the chat you're in definitely owns no site yet, and the name turns out
+to be one you already hold — it takes the next free one. `saltmarsh-kayak-co`
+becomes `saltmarsh-kayak-co-2`. `fretwork-1` would become `fretwork-2`, not
+`fretwork-1-2`.
+
+Three things it deliberately won't do:
+
+- **It won't move a name you chose yourself.** If you name a site, that's the
+  name; if it's taken by you, that's a revision and always was.
+- **It won't move off someone else's name.** That still tells you the name is
+  taken and asks you to pick another, which is the honest answer.
+- **It won't move on a maybe.** If the lookup can't tell whether your chat has a
+  site, nothing changes — guessing wrong there would make a second paid site
+  where a retry should have found the first.
+
+### Half of this already worked
+
+Worth saying: if your chat **does** already have a site, typing in it has been
+returning that site rather than building a second one since 8 September. What was
+missing was the other half — the case where the chat has no site but the *name*
+collides.
+
+### One correction to my own notes
+
+I'd written that the chat↔site link lives in a column called `project_id`. It's
+`chat_id`. Checked against the live database rather than the migration.

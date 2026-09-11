@@ -619,7 +619,14 @@ test("the fire, read off the Worker: a build's clock and token expiry, the place
 test("the build route: the job's scope follows the name BEFORE the recorder, the ownership check and the claim; a taken name refunds and answers 409; the row learns the name after the claim — read by order", () => {
   const src = noComments(WORKER);
   const build = fn(src, "async function runSiteBuild(");
-  const slugAt = at(build, "const slug = namedSlug || cleanSlug(designed && designed.slug)");
+  // RE-ANCHORED 2026-09-11: the designer's raw choice became `wantedSlug` and
+  // `slug` became the SETTLED name — a fresh chat whose designer picked a name
+  // this account already holds moves to a free one, rather than the ownership
+  // check reading it as a revise. What this landmark is for is ORDER: the name
+  // exists before the scope hook re-mints the job's token for it. Which
+  // expression produces it was never the property, and the move had to land
+  // above this line precisely because of what this line asserts.
+  const slugAt = at(build, "const slug = namedSlug ?");
   const scopeAt = at(build, "await env.JOB_SCOPE(slug)");
   const identifyAt = at(build, "rec.identify(slug, bu.id);");
   const ownerAt = at(build, "const owner = await siteBackendRowFresh(env, slug);");
