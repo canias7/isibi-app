@@ -4591,3 +4591,34 @@ name (you can't set a name you haven't got), and behavior waits for the layout.
 pattern is the same each time: I reasoned about what *sounds* like it needs
 something instead of reading what the field actually says. Worth me remembering
 the next time I draw one of these.
+
+## 2026-09-11 — and not all of them are required
+
+Checked: **14 required on a first build, 8 optional** — tsx, qr, css, lang,
+langs, three, needsWeb, webQueries. Two things follow, and the second would have
+bitten us.
+
+**Four of the optional ones are usually ABSENT**, by their own wording — tsx
+("OMIT ENTIRELY… the right answer for nearly every site"), css ("OMIT unless the
+customer's own words ask"), three, and qr. So four separate agents would each
+buy a model call in order to answer "nothing". That's paying for silence.
+
+**Group them.** One call that says "no custom components, no QR, no 3D" costs a
+quarter of four calls and loses no time, because a "nothing" answer comes back
+instantly either way. Same for lang + langs, which are one decision about
+language. That takes it from **19 agents to 16 with identical parallelism** —
+twelve starting at once, same chain of three — and three fewer calls on every
+build.
+
+**The failure rule has to split in two.** Today "an agent answered nothing" ends
+the design. With one agent per field that stops being an edge case and becomes
+an everyday event: tsx answering nothing is the RIGHT answer on most sites. So:
+
+- answered nothing, field optional → normal, carry on
+- answered nothing, field required → the design failed
+
+**And one useful consequence.** Of the four waits left, `css` is the only one
+whose own field is optional. So if the theme agent dies, css is simply skipped.
+If `components` dies, `shape` and `behavior` both fall over and the design is
+genuinely done for. Worth knowing which failures are survivable before building
+it rather than after.
