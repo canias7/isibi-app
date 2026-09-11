@@ -1248,6 +1248,13 @@ test("DRIVEN: depth is on the row, and it is the depth the folder really sits at
   assert.ok(pad > 0, "nothing indents a nested row, so the tree draws flat");
   assert.ok(pad > CSS.indexOf(".st-file {") && pad > CSS.indexOf(".st-code-d {"),
     "the indent is written above a `padding` shorthand that overrides it — the tree draws flat");
+  // AND IT READS THE DEPTH. Existing-and-positioned is not the property: a rule
+  // that indents every row by a FIXED step satisfies both and draws a tree where
+  // nothing is inside anything — the markup carrying the right `--d` all the
+  // while. A sweep survivor until this line, because the case above proves what
+  // the ROWS say and this is the only thing that proves the sheet listens.
+  assert.match(CSS.slice(pad, CSS.indexOf("}", pad)), /var\(--d/,
+    "the indent ignores --d, so every row draws at one step whatever its depth");
 });
 
 /* ───────────────────────── THE FOLDERS FOLD ─────────────────────────
@@ -1367,6 +1374,24 @@ test("DRIVEN: `null` is not an empty Set — the first draw opens the folder hol
       "a " + typeof junk + " was read as a stored choice");
   }
   assert.deepEqual([...stOpenGroups(null, "x", null)], ["page"], "a missing file list throws instead of drawing");
+
+  // A COLLAPSED CHAIN WITH ANOTHER FOLDER BELOW IT — the shape every fixture
+  // above lacks, and a sweep survivor until it was added. The walk has to skip
+  // as many segments as the chain SWALLOWED (`a/b/c` is three) before looking
+  // for the next folder; advancing one at a time leaves the walk comparing
+  // `b` against a node that holds `e`, it stops, and the folder holding the file
+  // on screen is drawn SHUT — in the explorer that is showing that file.
+  //
+  // TREE_FILES cannot see it: `src/routes/-parts` swallows every segment there
+  // is, so there is nothing after the chain for the walk to get wrong.
+  const nested = [
+    { name: "a/b/c/d.ts", kind: "page" },
+    { name: "a/b/c/e/f.ts", kind: "page" },
+  ];
+  assert.deepEqual([...stOpenGroups(nested, "a/b/c/e/f.ts", null)], ["page", "page/a/b/c", "page/a/b/c/e"],
+    "the walk lost the folder below a collapsed chain");
+  assert.ok(stCodeTree(nested, "a/b/c/e/f.ts", null).includes('data-srcname="a/b/c/e/f.ts"'),
+    "the file on screen sits in a folder the tree drew shut");
 });
 
 test("DRIVEN THROUGH THE TAB: a click really folds, and the fold survives the redraw", async () => {

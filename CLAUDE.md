@@ -844,12 +844,8 @@ that ASKS THE SERVER is.
   `stSrcFiles`, `stOpenGroups` and `stCodeTree` carried out of `chat.js` rather
   than a second renderer, and through chat.js's own icon table so the caret in
   the picture is the caret on the page.
-- **THE SWEEP IS OUTSTANDING, said rather than counted.** Its spec is written and
-  every anchor proved to resolve exactly once and change the file
-  (`scripts/mutants/code-folders.json`, 35 mutants, two comment-only controls),
-  and the run was stopped twice by things that had to come first — the red CI
-  below, and the owner's question about nesting the tree by real directory. It
-  runs before the merge.
+- **The sweep covering this ran with the nesting** — see the section above: 45
+  mutants, 45 killed, two comment-only controls survived.
 - **Not proven live.** `public/` only — no image input moves, so **no container
   roll and no 15–20 minute hold** — and `chat.js` is cached, so a hard refresh is
   part of it reaching anybody.
@@ -922,13 +918,40 @@ written that minute; it takes the whole opening tag now.
   FOLDER's count, only the group headings, so a folder could report 0 while
   holding nine files. That is the "a folded folder must be honest" rule one level
   down, and it had no driver. Closed and re-run to a kill.
+- **Sweep: 45 mutants, 45 killed, none survived, none unapplied, two comment-only
+  controls survived — TWO SURVIVED THE FIRST PASS AND BOTH WERE DRIVER GAPS.**
+  (1) **The chain walk advancing one segment at a time.** `stOpenGroups` has to
+  skip as many segments as a collapsed chain SWALLOWED — `a/b/c` is three — and
+  advancing by one leaves it comparing `b` against a node holding `e`: it stops,
+  and the folder holding the file on screen is drawn SHUT, in the explorer that
+  is showing that file. **Invisible to every fixture here because `src/routes/-parts`
+  swallows every segment there is**, so nothing follows the chain for the walk to
+  get wrong; a path with a folder BELOW a collapsed chain is the shape that
+  separates them.
+  (2) **The indent ignoring `--d`.** The case above proves what the ROWS say, and
+  the CSS half asserted only that the rule EXISTS and sits below the `padding`
+  shorthand — both of which a rule indenting every row by a FIXED step satisfies,
+  drawing a tree where nothing is inside anything while the markup carries the
+  right depth all the while.
+  **AND MY OWN FIRST CHECK OF (1) REPORTED IT INERT**: an inline `node -e` whose
+  quote escaping silently no-op'd the `replace`, so the "mutant" was the original
+  code and agreed with itself. The recorded "a mutant that never applied reads
+  exactly like a killed one", in the ad-hoc check written to classify a survivor.
+  Re-run from a file that REFUSES to build when the mutation does not change the
+  source, and the answer inverted.
 - Full suite **6,025**.
+- **AND THE SWEEP RUNS AGAINST THE GUARDS THAT CAN SEE IT, not the whole suite**
+  (owner: *"Why this is taiking so long"*). `scripts/mutate.mjs` takes a test-file
+  list and had been given none, so each of 45 mutants re-ran all 6,025 tests at
+  ~90 s. The 73 files that mention `chat.js`, `styles.css` or the foundation are
+  2,313 tests in **32 s** — the sweep in ~25 minutes rather than ~70. **The rule
+  that keeps it honest: a SURVIVOR is re-checked against the whole suite before
+  it is believed**, since a narrow list can only produce a false survivor, never
+  a false kill.
 - **Rendered: `docs/edits/code-tab-project-tree.png`** — as it opens and opened
   up, through the REAL readers carried out of `chat.js` and its own icon table,
   with the second state's open set DERIVED through `stOpenGroups` rather than
   typed, since a hand-written key is a second copy of the collapse rule.
-- **THE SWEEP IS OUTSTANDING** (47 mutants, spec written, every anchor proved to
-  resolve exactly once and change the file). It runs before the merge.
 - **Not proven live.** `public/` only — no image input moves, so no container
   roll and no hold — and `chat.js` is cached, so a hard refresh is part of it
   reaching anybody.

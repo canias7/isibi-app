@@ -5463,3 +5463,41 @@ ready, 47 checks — and it runs before any of this goes to main. Tests are gree
 at 6,025. The earlier red tests on GitHub are fixed and that run came back green.
 
 Still on your desk: the 19 credits from the two failed builds.
+
+---
+
+## The sweep came back (11 Sept, late)
+
+45 checks, all caught, both controls behaved. Two got through on the first pass
+and both were gaps in my testing rather than faults in the code — I closed them
+and re-ran to make sure they now fail.
+
+The first is worth knowing about because it's a real bug we don't have: if a file
+sits below one of those joined-up folder chains, the tree could draw its folder
+shut — in the very panel showing that file. None of my test cases could see it,
+because in our project the chain always swallows the whole path and there's
+nothing after it. Added a case with a folder below the chain.
+
+The second: the styling could have indented every row by the same fixed amount
+and my check would still have passed, because I checked the rule existed rather
+than that it read the depth. A tree where nothing looks like it's inside anything.
+
+**And my first attempt to work out whether the first one mattered told me it
+didn't.** A quoting slip meant the "broken" version I tested was actually the
+normal code, so of course it agreed with itself. Same class of mistake the sweep
+exists to catch, in the thing I was using to check the sweep. Redid it properly
+and the answer flipped.
+
+### On your question about the time
+
+You were right that it was slow. It was re-running all 6,025 tests once per
+check, 45 times. Only about 2,300 of those tests can even see the files being
+changed — running just those takes 32 seconds instead of 90, so the whole thing
+is 25 minutes rather than 70. Changed. The safety rule is that anything that
+survives gets re-checked against the full set before I believe it, so narrowing
+can only ever cost a false alarm, never a missed bug.
+
+Everything is committed and pushed. Tests green at 6,025, GitHub green. Ready to
+merge when you say.
+
+Still on your desk: the 19 credits from the two failed builds.
