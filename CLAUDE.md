@@ -2958,6 +2958,14 @@ are invisible inside one sum.
   of overlap, the largest either split has produced**, and roughly half the
   single call. What the picture cannot show is the inside of the green bar, which
   is exactly what this change adds.
+- **And the STEP's own shape, drawn: `docs/edits/generate-step-shape.png`**
+  (2026-09-11, owner: *"tell me how it looks the generate step now with our
+  plan"*) — the one call beside the fan-out, what WE write against what the model
+  writes (imports, band names, the route, the `SiteChrome` shell and the order
+  are ours; the band bodies are theirs), and the **eight refusal words along the
+  bottom with `door` marked as the one firing today**. Every constant on it is
+  derived rather than typed: `MAX_BANDS` 8 (= `MAX_SECTIONS`), `MIN_BANDS` 2,
+  `MAX_MODEL_FANOUT` 8, and `BAND_REFUSALS` in the code's own order.
 - The push changes `worker.js`, which is a container image input, so the
   container ROLLS and the 15–20 minute hold applies.
 
