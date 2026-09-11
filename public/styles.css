@@ -2619,10 +2619,31 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-codewrap > * { flex: 1; min-height: 0; }
 .st-code { display: flex; width: 100%; height: 100%; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; background: var(--bg); }
 .st-code-tree { flex: 0 0 210px; border-right: 1px solid var(--line); overflow-y: auto; padding: .6rem .5rem; background: var(--panel); }
-.st-code-h { font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding: .3rem .5rem .5rem; }
+/* THE HEADING IS A FOLDER (owner, 2026-09-11: "components you click and the 8
+   or 0 or whatever how many they appear"). A button, so it is reachable by
+   keyboard and announces its own state; the type stays exactly what it was, so
+   a folded tree reads as the same tree with its groups closed. */
+.st-code-h { display: flex; align-items: center; gap: .4rem; width: 100%; text-align: left; font: inherit; font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); background: none; border: none; border-radius: 8px; padding: .4rem .5rem; cursor: pointer; }
+.st-code-h:hover { background: var(--panel-2); color: var(--text); }
+/* ONE CHEVRON, TURNED — `chevronleft` is the shut state and the open rule
+   rotates it to point down, which is the disclosure triangle every file tree
+   has. A second icon entry would be a second glyph to keep in step. */
+.st-code-caret { display: flex; color: var(--muted); transition: transform .14s ease; }
+.st-code-h.on .st-code-caret { transform: rotate(-90deg); }
+/* THE NAME WRAPS, IT IS NEVER TRUNCATED. The column is 210px and the caret and
+   the count take ~40 of it, so "SHARED WITH EVERY SITE" no longer fits on one
+   line — and an ellipsis there reads as a heading somebody cut, where two lines
+   read as a heading. `min-width: 0` is what lets a flex item shrink below its
+   own text at all. */
+.st-code-hn { min-width: 0; line-height: 1.3; }
+/* THE COUNT, hard right. It is what makes a FOLDED group honest rather than
+   hidden: "Made by the build 4" says there are four things in there. */
+.st-code-count { margin-left: auto; font-variant-numeric: tabular-nums; letter-spacing: 0; opacity: .8; }
 /* A GROUP HEADING AFTER THE FIRST needs air above it: four groups run together
-   read as one long list, which is the thing this tree exists to stop. */
-.st-code-h + .st-file + .st-code-h, .st-file + .st-code-h { padding-top: .9rem; }
+   read as one long list, which is the thing this tree exists to stop. Both
+   spellings, because a folded group puts two headings side by side where an
+   open one puts files between them. */
+.st-code-h + .st-code-h, .st-file + .st-code-h { margin-top: .5rem; }
 /* A file the store has and we could not place. Shown rather than dropped, and
    marked so it does not read as an ordinary part of the project. */
 .st-file-lost .st-file-n { font-style: italic; opacity: .75; }

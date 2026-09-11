@@ -772,6 +772,177 @@ the next platform-wide republish is the measurement).
 
 ---
 
+### THE FOUR HEADINGS ARE FOLDERS (2026-09-11, owner, holding the explorer:
+*"components you clikc and the 8 or 0 or whatver how many the appear like this
+look"*)
+
+The tree drew four headings with every file under every one of them — thirty-one
+rows on a nine-piece site, seventeen of them the shared scaffold nobody opens.
+Each heading is a control now: it carries its count and it folds.
+
+- **THE COUNT IS WHAT MAKES A FOLDED FOLDER HONEST rather than a hidden one.**
+  "Made by the build 4" says there are four things in there; a bare heading over
+  nothing says a group exists and nothing about whether it is empty — the same
+  failure the empty-group rule already exists to avoid, wearing a fold.
+- **`null` IS A THIRD STATE AND IT IS THE WHOLE OF THE FIRST DRAW.** `chosen` is
+  what the customer has folded and unfolded; `null` means they have touched
+  nothing yet, which is NOT an empty Set. Uninitialised opens exactly ONE folder
+  and leaves the rest shut; an empty Set is a customer who closed every folder,
+  and re-deriving the default for them would re-open one on the next click, for
+  ever. The recorded "cannot-tell must never read as a value", pointed at a
+  preference. `stOpenGroups` is the ONE reader, so the tree and the toggle cannot
+  disagree about what the third state means.
+- **THE DEFAULT IS DERIVED FROM THE OPEN FILE, never a hardcoded `page`.** The
+  first draw is not the only draw that can find `chosen` null — a rebuild
+  replaces the file list while the customer's chosen file may be a component —
+  and a fixed default would fold the folder holding the file being shown.
+- **A FOLD IS MATERIALISED BEFORE IT IS CHANGED.** The first click has no stored
+  choice to toggle, so it takes the derived default as its starting point. That
+  is what keeps the folder holding the open file open when the customer folds a
+  different one, rather than everything snapping shut at once.
+- **ONE CHEVRON, TURNED.** `chevronleft` is the shut state and the open rule
+  rotates it `-90deg`. A second icon entry would be a second glyph to keep in
+  step with the first for no gain; a disclosure triangle IS one mark that turns.
+- **A BUTTON, NOT A DIV WITH A CLICK HANDLER**, carrying `aria-expanded`. The
+  tree is reachable by keyboard and its state is announced; no assertion about a
+  click handler can see that difference, so it is asserted directly.
+- **THE NAME WRAPS, IT IS NEVER TRUNCATED — and that was a regression of mine.**
+  The column is 210px and the caret and the count take ~40 of it, so "SHARED WITH
+  EVERY SITE" stopped fitting on one line and the first draft ellipsized it to
+  "SHARED WITH EVERY SI… 17". An ellipsis there reads as a heading somebody cut;
+  before this change the same label simply wrapped, and it wraps again.
+
+**AND A FOLD MUST NOT BE ABLE TO TAKE THE PANEL DOWN.** The fold handler's first
+draft called `loadSiteCode`, which RE-FETCHES THE WHOLE PROJECT: opening a folder
+would have bought eighteen files over the wire to hide four rows, and a blip on
+that fetch replaces the entire panel with *"Couldn't read your code just now"*.
+A display control that can take the panel down is the wrong shape whatever it
+costs. `loadSiteCode` asks the server and hands the answer to `drawSiteCode`,
+which draws and wires; both click handlers redraw from the answer they close
+over, and nothing is re-asked until the tab is opened again. **The file picker
+went through the fetch too, from the day it shipped** — fixed by the same split
+rather than left standing beside the new one. The guard that counted
+`loadSiteCode(` at three is re-anchored at TWO and says why the count is worth
+more now than before: being three was never the property, being the only thing
+that ASKS THE SERVER is.
+
+- **Guards**: `test/site-source.test.mjs` 38 → 43, every new one DRIVEN — the
+  count on every folder open or shut, a shut folder proved to draw no files and
+  an open one all of them, the folder as a button with its state announced and
+  its `on` class agreeing, `null` against an empty Set against junk, the default
+  derived from each kind in turn, and **THE CHAIN through the real tab**: a click
+  proved to STORE the fold (a handler that builds a new Set and drops it leaves
+  every other case green and the folder shut for ever), a second click proved to
+  shut it again, the fold proved to survive a re-fetch, and ONE fetch across
+  three clicks. Plus the sheet: the chevron's rotation, the hover, the wrap, the
+  count's right edge, and the two-headings-adjacent spacing a folded group needs.
+- **Proven red before green ELEVEN ways**, because five new guards passing on the
+  first run is a reason for suspicion rather than confidence.
+- Full suite **6,024**.
+- **Rendered: `docs/edits/code-tab-project-tree.png`** — two states side by side,
+  as the tab opens and after clicking Components, drawn through the REAL
+  `stSrcFiles`, `stOpenGroups` and `stCodeTree` carried out of `chat.js` rather
+  than a second renderer, and through chat.js's own icon table so the caret in
+  the picture is the caret on the page.
+- **THE SWEEP IS OUTSTANDING, said rather than counted.** Its spec is written and
+  every anchor proved to resolve exactly once and change the file
+  (`scripts/mutants/code-folders.json`, 35 mutants, two comment-only controls),
+  and the run was stopped twice by things that had to come first — the red CI
+  below, and the owner's question about nesting the tree by real directory. It
+  runs before the merge.
+- **Not proven live.** `public/` only — no image input moves, so **no container
+  roll and no 15–20 minute hold** — and `chat.js` is cached, so a hard refresh is
+  part of it reaching anybody.
+- **OPEN, THE OWNER'S QUESTION AND NOT ANSWERED HERE: the groups are by KIND and
+  nothing nests inside them.** `-parts/` is repeated on nine rows and `public/`
+  on four, as flat text where a folder should be — and the display rule already
+  strips `src/routes/` in the customer's own groups, so the tree shows HALF a
+  hierarchy. Nesting by real directory under the four group headings is the
+  change; it removes every repeated prefix and is unstarted.
+
+---
+
+### A SHARED FILE MUST BE ONE THE REPOSITORY HAS (2026-09-11, found by a RED CI
+run — the first defect the "read CI after every push" rule has caught here)
+
+`unit tests` run 2448 failed on a tree that was green locally, and its two
+failures name the cause: `ENOENT … builder/lovable/template/src/routeTree.gen.ts`.
+
+**That file is not in the repository at all.** The template's own `.gitignore`
+names it — *"produced by `tsr generate` before every build"* — because TanStack's
+router generator writes it from whatever is in `src/routes`, so every site's
+build makes its own, listing that site's pages. It was in `FOUNDATION_PATHS`, and
+on any machine that had ever run a real build of the template it read perfectly
+and baked THAT MACHINE'S COPY into the committed module.
+
+**So the explorer was showing customers, under "Shared with every site", a file
+no checkout has, listing routes no site has** — and the container deletes those
+demo routes anyway. Exactly the failure the section above states for
+`src/site-brand.ts`: *"the shared copy is the one entry that would actively
+mislead"*. On a fresh checkout it is simply absent, which is the only reason
+anybody found out.
+
+- **THE GUARD ASKED THE FILESYSTEM, WHICH IS THE TRAP.** `fs.existsSync` passed
+  locally because the file was right there — untracked. It asks GIT now
+  (`git ls-files` over the template), DERIVED, so the next generated file cannot
+  enter the list either; untracked and ignored are the same answer, since neither
+  is a file the repository can promise is the same on every machine. The observer
+  is proved alive first — a listing that came back empty would make every
+  assertion vacuous and report a clean set over no data.
+- The foundation is **17 files, 168,387 bytes** (was 18 / 171,573).
+- **Proven red with the file PRESENT ON DISK**, which is the whole point: the
+  existence check passes there and only the git check names the real reason.
+
+---
+
+### THE SWEEP COULD NOT BE STOPPED, AND THE OBVIOUS FIX WAS INERT (2026-09-11,
+found by killing a sweep to make way for the CI fix and watching it carry on)
+
+`scripts/mutate.mjs` decides what every sweep in this repository means, and
+**nothing anywhere asserted anything about it** — the recorded "the thing that
+runs your guards is not itself guarded", which this file already states for the
+CI triggers.
+
+- **MEASURED, NOT REASONED ABOUT.** A four-iteration loop of `execFileSync` with
+  a SIGTERM handler installed swallowed the signal **entirely**: the handler
+  never fired once and the process exited 0. Installing a listener REPLACES
+  Node's default (which is to die), and a handler is dispatched through the event
+  loop, which a synchronous loop never returns to. So `kill` did nothing at all
+  and a second `kill` did nothing either; `kill -9` was the only thing that
+  worked, and that leaves whatever mutant was applied sitting in the tree.
+- **THE FIRST FIX WAS ONE LINE AND WOULD HAVE CHANGED NOTHING.** Adding
+  `process.exit(130)` inside a handler that never runs reads exactly like a fix.
+  The recorded inert shape, in a fix rather than in a mutant, and only the
+  measurement separated them.
+- **SO THE LOOP AWAITS.** `runTests` is a promise over `spawn` and the mutant loop
+  awaits it, which is what gives the handler a turn between mutants.
+- **AND NOTHING IS BUFFERED ANY MORE.** The ENOBUFS defect fixed this morning was
+  answered by raising `maxBuffer` to 512 MB, which fixed that run and left the
+  class. The output is DRAINED and counted now, never collected: nothing here
+  reads the TAP text — the exit code is the whole answer — so keeping it was only
+  ever a way to run out of memory. A run that printed NOTHING is its own
+  cannot-tell answer rather than a kill.
+- **A NESTED `node --test` MUST NOT BE TOLD IT IS NESTED.** `NODE_TEST_CONTEXT`
+  is stamped on everything the test runner spawns; a nested runner that sees it
+  reports through the parent protocol instead of exiting non-zero, so **a real
+  failure comes back GREEN**. That is how the first draft of these guards
+  reported a survivor for a mutant that dies by hand.
+- **Guards**: `test/sweep-runner.test.mjs` (4) — a whole sweep DRIVEN in a temp
+  directory, because a guard on a tool that mutates files must not mutate the
+  repository; the signal is sent on the runner's own word rather than on a timer
+  of ours, and the control requires the sweep to have gone all the way through,
+  since "it stopped and the file is unchanged" is also true of a runner that
+  never ran. **Proven red against the PREVIOUS runner out of git**: SIGTERM at
+  2.7 s, the sweep ran on to 8.0 s and exited 0 having killed both mutants.
+- **PROVEN LIVE ON ITS FIRST REAL USE**, an hour later: the folder sweep was
+  stopped for the owner's nesting question and answered `stopped by SIGTERM — the
+  tree is back as it was`, exit 130, with the ten changed files exactly as they
+  were and no mutant text anywhere.
+- **THE SWEEP CANNOT MUTATE ITS OWN RUNNER**, so this is the one change here
+  proved by hand rather than by a sweep. Said out loud rather than counted.
+
+---
+
 ### A PAGE SECTION IS ITS OWN FILE, AND THE EXPLORER SHOWS THE WHOLE PROJECT
 (2026-09-11, owner, holding our two-file "YOUR CODE" pane beside Lovable's
 explorer: *"their stuff is files organized ours is all on one file"* → *"we do

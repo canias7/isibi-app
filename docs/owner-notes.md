@@ -5370,3 +5370,55 @@ refuses to draw at all unless the numbers on the page add up to the numbers in
 the database.
 
 Still on your desk: the 19 credits from the two failed builds.
+
+---
+
+## The code tab's headings are folders now (11 Sept)
+
+You asked for it and it's done — each heading shows how many files are in it, and
+you click one to open it. On a nine-piece site that's thirty-one rows down to
+five until you go looking.
+
+It opens with one folder already open: whichever one holds the file you're
+looking at. The rest are shut with their counts showing, so nothing is hidden —
+you can see there are 9 components and 17 shared files without opening either.
+
+Screenshot is in the chat: as it opens, and after clicking Components.
+
+### Your question about nesting
+
+You're right and I haven't done it. Inside a folder the files are still flat, so
+you see `-parts/` typed out nine times and `public/` four times where a folder
+should be. It's half a hierarchy — we already strip `src/routes/` off your own
+files, so the tree is inconsistent with itself.
+
+Nesting them properly under the four headings is the change. Say go and I'll do
+it; it's not started.
+
+### Two things I found on the way
+
+**The last push's tests were red on GitHub and green on my machine.** The cause
+was real and it was ours: one of the "shared with every site" files —
+`routeTree.gen.ts` — isn't in the repository at all. It's rebuilt by the site
+builder every single time, and the copy we were showing customers was the one
+sitting on my machine from an old build. Nobody would have noticed, because it
+looks like a perfectly ordinary file. It's out of the list, and the check now
+asks git whether a file is really in the repository rather than asking the disk,
+so the next generated file can't sneak in the same way.
+
+**And the tool that runs our safety sweeps couldn't be stopped.** I tried to kill
+one to make room for the fix above and it just carried on. Measured it: the stop
+signal was being swallowed entirely — the sweep would run to the end no matter
+what, and the only way to stop it was the hard kill, which is exactly the thing
+that leaves broken code sitting in the tree. Fixed, and there's a test for it
+now; the tool had no tests at all before today, which is its own kind of problem
+given it decides whether everything else is safe.
+
+### Where this stands
+
+Everything above is committed and pushed. The safety sweep on the folder change
+hasn't finished — I stopped it twice, once for the red tests and once for your
+nesting question — so it runs before this goes to main. Full test suite is green
+at 6,024.
+
+Still on your desk: the 19 credits from the two failed builds.

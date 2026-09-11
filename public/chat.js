@@ -9866,6 +9866,14 @@ let siteDataForm = null;    // Data panel: the add/edit row form ({editId, value
 // disagree about what the site is made of — one list, two readers.
 let siteCodeFiles = [];     // Code panel: [{name, text}] from /api/site/source
 let siteCodeOpen = '';      // Code panel: the open file, kept by NAME across renders
+// WHICH FOLDERS ARE OPEN, and `null` is a THIRD state rather than "none of
+// them". Until the customer has folded or unfolded anything there is no choice
+// to remember, and the first draw derives one — open the folder holding the file
+// on screen, leave the rest folded. An empty Set is a different thing entirely:
+// a customer who has closed every folder, which must survive a re-render.
+// Reading the two as one would re-open a folder somebody just closed, on the
+// next click, for ever.
+let siteCodeOpenGroups = null;
 let siteRail = 'chat';      // left rail: chat | history
 let siteRailHidden = false; // collapse the chat rail to give the preview full width
 // THE MOBILE APP COLUMN, closed until somebody opens it (owner, 2026-09-08:
@@ -11244,13 +11252,53 @@ const ST_CODE_GROUPS = [
   ['asset', 'Made by the build'],
   ['shared', 'Shared with every site'],
 ];
-function stCodeTree(files, openName) {
+/**
+ * Which groups the tree draws OPEN (owner, 2026-09-11: *"components you click
+ * and the 8 or 0 or whatever how many they appear"*).
+ *
+ * THE THIRD STATE IS THE WHOLE OF THE FIRST DRAW. `chosen` is what the customer
+ * has folded and unfolded; `null` means they have touched nothing yet, which is
+ * NOT an empty Set. Uninitialised opens exactly ONE folder — the one holding the
+ * file on screen — and leaves the rest folded, which is what a file explorer
+ * does when you open a file by path. An empty Set is a customer who has closed
+ * every folder, and re-deriving the default for them would re-open one on the
+ * next click, for ever. The recorded "cannot-tell must never read as a value",
+ * pointed at a preference.
+ *
+ * THE DEFAULT IS DERIVED FROM THE OPEN FILE rather than naming `page`, because
+ * the first draw is not the only draw that can find `chosen` null — a rebuild
+ * replaces the file list while the customer's chosen file may be a component —
+ * and a hardcoded `page` would fold the folder holding the file being shown.
+ */
+function stOpenGroups(files, openName, chosen) {
+  if (chosen instanceof Set) return chosen;
   const list = Array.isArray(files) ? files : [];
+  const holds = list.find((f) => f && f.name === openName);
+  return new Set([(holds && holds.kind) || ST_CODE_GROUPS[0][0]]);
+}
+function stCodeTree(files, openName, chosen) {
+  const list = Array.isArray(files) ? files : [];
+  const open = stOpenGroups(list, openName, chosen);
   let out = '';
   for (const g of ST_CODE_GROUPS) {
     const mine = list.filter((f) => f.kind === g[0]);
     if (!mine.length) continue;
-    out += '<div class="st-code-h">' + esc(g[1]) + '</div>';
+    // THE HEADING IS THE CONTROL, and it carries the COUNT — which is the half
+    // that makes a folded folder honest rather than a hidden one. "Made by the
+    // build 4" says there are four things in there; a bare heading over nothing
+    // says a group exists and nothing about whether it is empty.
+    //
+    // ONE CHEVRON, TURNED. `chevronleft` points left when the folder is shut —
+    // the universal collapsed state — and the open rule rotates it to point
+    // down. A second icon entry would be a second glyph to keep in step with
+    // the first for no gain; the disclosure triangle IS one mark that turns.
+    const shown = open.has(g[0]);
+    out += '<button type="button" class="st-code-h' + (shown ? ' on' : '') +
+      '" data-srcgroup="' + esc(g[0]) + '" aria-expanded="' + (shown ? 'true' : 'false') + '">' +
+      '<span class="st-code-caret">' + ic('chevronleft', 12) + '</span>' +
+      '<span class="st-code-hn">' + esc(g[1]) + '</span>' +
+      '<span class="st-code-count">' + mine.length + '</span></button>';
+    if (!shown) continue;
     const own = g[0] === 'page' || g[0] === 'part';
     out += mine.map((f) =>
       '<button type="button" class="st-file' + (f.name === openName ? ' on' : '') +
@@ -11431,6 +11479,21 @@ async function loadSiteCode(site) {
     if (r.ok && d && d.ok) src = d;
   } catch (e) {}
   if (!src) { host.innerHTML = '<div class="st-empty">Couldn\u2019t read your code just now \u2014 try the tab again in a moment.</div>'; return; }
+  drawSiteCode(src);
+}
+// THE DRAW IS NOT THE FETCH, and splitting them is what makes a fold free.
+// Opening a folder changes nothing about the project \u2014 it is a preference, not a
+// question for the server \u2014 so a fold that went back through `loadSiteCode`
+// would buy eighteen files over the wire to hide four rows, AND a blip on that
+// fetch would replace the whole panel with "couldn't read your code just now".
+// A display control that can take the panel down is the wrong shape whatever it
+// costs. Both click handlers redraw from the answer they were drawn from, which
+// they close over; nothing is re-asked until the tab is opened again.
+//
+// The file picker went through the fetch too, from the day it shipped. Fixed by
+// the same split rather than left standing beside the new one.
+function drawSiteCode(src) {
+  const host = document.getElementById('stCode'); if (!host) return;
   const files = stSrcFiles(src);
   siteCodeFiles = files;
   if (!files.length) {
@@ -11442,7 +11505,7 @@ async function loadSiteCode(site) {
   // file than the one that was open.
   let open = files.find((f) => f.name === siteCodeOpen) || files[0];
   siteCodeOpen = open.name;
-  const tree = stCodeTree(files, open.name);
+  const tree = stCodeTree(files, open.name, siteCodeOpenGroups);
   // CLIPPED FOR DISPLAY ONLY, and the zip gets the whole file. A `<pre>` of a
   // megabyte locks the tab; a download that quietly lost the end of a page
   // would be a lying instrument.
@@ -11461,7 +11524,18 @@ async function loadSiteCode(site) {
       '<div class="st-code-scroll"><pre class="st-code-gutter" aria-hidden="true">' + gutter + '</pre><pre class="st-code-pre"><code>' + esc(raw) + '</code></pre></div>' +
     '</div>' +
   '</div>';
-  host.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { siteCodeOpen = b.dataset.srcname; loadSiteCode(site); });
+  host.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { siteCodeOpen = b.dataset.srcname; drawSiteCode(src); });
+  // A FOLD IS MATERIALISED BEFORE IT IS CHANGED. The first click has no stored
+  // choice to toggle, so it takes the derived default as its starting point —
+  // which is what keeps the folder holding the open file open after the customer
+  // folds a different one, rather than everything snapping shut at once.
+  host.querySelectorAll('[data-srcgroup]').forEach((b) => b.onclick = () => {
+    const now = new Set(stOpenGroups(files, open.name, siteCodeOpenGroups));
+    const k = b.dataset.srcgroup;
+    if (now.has(k)) now.delete(k); else now.add(k);
+    siteCodeOpenGroups = now;
+    drawSiteCode(src);
+  });
   const one = document.getElementById('stCodeDl');
   if (one) one.onclick = () => stSaveBlob(new Blob([open.text], { type: 'text/plain' }), open.name.split('/').pop());
 }

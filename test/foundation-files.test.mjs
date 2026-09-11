@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { read, render, FOUNDATION_PATHS } from "../builder/gen-foundation.mjs";
 import { FOUNDATION_FILES } from "../builder/foundation-files.mjs";
@@ -36,6 +37,37 @@ test("every foundation path is a real file in the template", () => {
   assert.ok(FOUNDATION_PATHS.length >= 15, "the foundation has shrunk — re-derive it");
   assert.equal(FOUNDATION_FILES.length, FOUNDATION_PATHS.length, "a path produced no file");
   for (const f of FOUNDATION_FILES) assert.ok(f.source.length, f.path + " was bundled empty");
+});
+
+test("a foundation file is one the REPOSITORY has, never one a build made", () => {
+  // THIS COST A RED CI RUN, and the case above is why it took one. `existsSync`
+  // asks the FILESYSTEM, and on any machine that has ever run a real build of the
+  // template the filesystem holds files git does not: `src/routeTree.gen.ts` is
+  // written by TanStack's router generator from whatever is in `src/routes`, and
+  // the template's own `.gitignore` names it. It was in FOUNDATION_PATHS. Locally
+  // it read perfectly and baked THAT machine's copy into the committed module — a
+  // file no checkout has, listing routes no site has, shown to customers under
+  // "Shared with every site". On a fresh checkout it is ENOENT, which is the only
+  // reason anybody found out.
+  //
+  // SO ASK GIT. Untracked and ignored are the same answer here: neither is a file
+  // the repository can promise is the same on every machine.
+  const tracked = new Set(
+    execFileSync("git", ["ls-files", "-z", "--", "builder/lovable/template"], { cwd: path.join(here, ".."), encoding: "utf8" })
+      .split("\0").filter(Boolean).map((p) => p.replace(/^builder\/lovable\/template\//, "")),
+  );
+  // THE OBSERVER IS ALIVE FIRST: a `git ls-files` that answered nothing would
+  // make every assertion below vacuous and report a clean set over no data.
+  assert.ok(tracked.size > 1000, "the template listing came back empty — this check is measuring nothing (" + tracked.size + ")");
+  for (const rel of FOUNDATION_PATHS) {
+    assert.ok(tracked.has(rel),
+      "the foundation names a file git does not track — a build made it, so it is site-specific and differs per machine: " + rel);
+  }
+  // AND THE ONE THAT GOT IN IS NAMED, so nobody puts it back by reading the
+  // template's directory listing and assuming a `.ts` beside the root route
+  // belongs with it.
+  assert.ok(!FOUNDATION_PATHS.includes("src/routeTree.gen.ts"),
+    "the generated route tree is back in the shared set");
 });
 
 test("DRIVEN: a missing template file THROWS; it is never skipped", () => {

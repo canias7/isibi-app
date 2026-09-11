@@ -586,19 +586,27 @@ test("DRIVEN: a server that cannot answer is said, and the tab's list is used wh
  * survives renders, and which file is open across a rebuild is exactly what is
  * being asked.
  */
-function codeTab({ answer, open = "", slug = "fretwork-1", fail = false } = {}) {
-  const src = fn("async function loadSiteCode(site)");
-  const host = { innerHTML: "", querySelectorAll: () => [] };
+function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups = null, host } = {}) {
+  // BOTH HALVES, because they are one hop. `loadSiteCode` fetches and hands the
+  // answer to `drawSiteCode`, which draws and wires; carrying only the first
+  // would drive a function whose whole body is now one call.
+  const body = fn("async function loadSiteCode(site)") + "\n" + fn("function drawSiteCode(src)");
+  host = host || { innerHTML: "", querySelectorAll: () => [] };
   const make = new Function("deps", [
-    "const { document, apiFetch, stSrcFiles, stCodeTree, esc, ic, stSaveBlob } = deps;",
-    "let siteCodeFiles = []; let siteCodeOpen = deps.open;",
-    src,
-    "return { run: loadSiteCode, get open() { return siteCodeOpen; }, get files() { return siteCodeFiles; } };",
+    "const { document, apiFetch, stSrcFiles, stCodeTree, stOpenGroups, esc, ic, stSaveBlob } = deps;",
+    "let siteCodeFiles = []; let siteCodeOpen = deps.open; let siteCodeOpenGroups = deps.groups;",
+    body,
+    "return { run: loadSiteCode, draw: drawSiteCode,",
+    "  get open() { return siteCodeOpen; }, get files() { return siteCodeFiles; },",
+    "  get groups() { return siteCodeOpenGroups; } };",
   ].join("\n"));
+  let asked = 0;
   const t = make({
     open,
+    groups,
     document: { getElementById: (id) => (id === "stCode" ? host : null) },
     apiFetch: async () => {
+      asked += 1;
       if (fail) throw new Error("offline");
       return { ok: true, json: async () => answer };
     },
@@ -614,18 +622,20 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false } = {}) 
       for (const a of (s.assets || [])) out.push({ name: a.path, text: a.source, kind: "asset", note: a.note || "" });
       return out;
     },
-    // THE REAL TREE RENDERER, carried out of the file rather than stubbed.
-    // `loadSiteCode` closes over it now, so a bare scope throws
+    // THE REAL TREE RENDERER AND ITS FOLD READER, carried out of the file rather
+    // than stubbed. `drawSiteCode` closes over both, so a bare scope throws
     // `stCodeTree is not defined` for a function that is perfectly correct —
     // this repository's recorded free-identifier trap, and the reason every name
     // a driven function reaches for comes from the FILE. A stub answering "" for
     // every shape would leave the case passing for the wrong reason.
-    stCodeTree: new Function("esc", "ic", "ST_CODE_GROUPS", fn("function stCodeTree(") + "\nreturn stCodeTree;")(
-      escFake, () => "", [["page", "Pages"], ["part", "Components"], ["asset", "Made by the build"], ["shared", "Shared with every site"]]),
+    ...TREE,
     esc: escFake, ic: () => "", stSaveBlob: () => {},
   });
-  return { t, host, site: { slug } };
+  return { t, host, site: { slug }, fetches: () => asked };
 }
+const TREE = new Function("esc", "ic", "ST_CODE_GROUPS",
+  fn("function stOpenGroups(") + "\n" + fn("function stCodeTree(") + "\nreturn { stOpenGroups, stCodeTree };")(
+  escFake, () => "", [["page", "Pages"], ["part", "Components"], ["asset", "Made by the build"], ["shared", "Shared with every site"]]);
 
 const PAGES = (names) => ({ ok: true, pages: names.map((n) => ({ path: n, source: "// " + n + "\n" })) });
 
@@ -840,8 +850,25 @@ test("the source is fetched once the host is on the page, and the download asks 
   // progress panel and the picker both shipped.
   assert.match(BARE, /if \(isReact && siteView === 'code'\) loadSiteCode\(site\);/,
     "nothing fills the Code tab — it will sit on its loading line for ever");
+  // THE FETCH HAS EXACTLY TWO MENTIONS: itself, and the render hook above. It
+  // used to have three, the third being the file picker's redraw — which went
+  // back through the network to change which file was highlighted. Being three
+  // was never the property; being the only thing that ASKS THE SERVER is, and
+  // that is what makes the count worth keeping now rather than before.
   const calls = [...BARE.matchAll(/loadSiteCode\(/g)];
-  assert.equal(calls.length, 3, "expected the definition, the render hook and the file-picker redraw; found " + calls.length);
+  assert.equal(calls.length, 2, "expected the definition and the render hook; found " + calls.length);
+  // AND THE REDRAW NEVER FETCHES. A fold and a file pick are display changes, so
+  // a blip on a re-fetch must not be able to replace the panel with "couldn't
+  // read your code just now" — which is what routing either back through
+  // `loadSiteCode` would do. Both handlers redraw from the answer in hand.
+  const draw = fn("function drawSiteCode(src)");
+  assert.ok(draw.length > 800, "re-derive the draw function's window");
+  assert.ok(!/loadSiteCode\(/.test(draw), "a click in the Code tab goes back to the network");
+  for (const [what, attr] of [["the file picker", "data-srcname"], ["the folder", "data-srcgroup"]]) {
+    const at = draw.indexOf("[" + attr + "]");
+    assert.ok(at > 0, what + " is no longer wired");
+    assert.match(draw.slice(at, at + 400), /drawSiteCode\(src\)/, what + " does not redraw");
+  }
 
   // THE DOWNLOAD FETCHES RATHER THAN READING THE TAB'S CACHE ALONE. A customer
   // may press it having never opened Code; reading the cache alone makes the
@@ -877,7 +904,10 @@ test("ONE saver, so the two downloads cannot drift", () => {
   // NEITHER site download writes its own copy of "blob, click, revoke".
   const dlBody = BARE.slice(BARE.indexOf("const dl = document.getElementById('stDl');"));
   const barDl = dlBody.slice(0, dlBody.indexOf("\n  };") + 5);
-  const tabDl = fn("async function loadSiteCode(site)");
+  // The tab's per-file download moved with the rest of the drawing when the
+  // fetch and the draw were split; which function holds it was never the
+  // property, reaching the disk through the one saver is.
+  const tabDl = fn("function drawSiteCode(src)");
   assert.ok(barDl.length > 200 && tabDl.length > 400, "re-derive these two windows");
   for (const [what, body] of [["the top bar's zip", barDl], ["the tab's per-file download", tabDl]]) {
     assert.ok(!/createObjectURL/.test(body), what + " makes its own blob URL instead of using the saver");
@@ -1114,22 +1144,28 @@ test("DRIVEN END TO END: the favicon reaches the explorer AND the download", asy
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+const TREE_FILES = [
+  { name: "src/routes/index.tsx", kind: "page" },
+  { name: "src/routes/-parts/band-1-hero.tsx", kind: "part" },
+  { name: "public/icon.svg", kind: "asset" },
+  { name: "src/routes/__root.tsx", kind: "shared" },
+  { name: "package.json", kind: "shared" },
+];
+const ALL_OPEN = new Set(["page", "part", "asset", "shared"]);
+
 test("DRIVEN: the tree groups the project, and a shared file keeps its real path", () => {
-  const stCodeTree = new Function("esc", "ic", "ST_CODE_GROUPS", fn("function stCodeTree(") + "\nreturn stCodeTree;")(
-    escFake, () => "", [["page", "Pages"], ["part", "Components"], ["asset", "Made by the build"], ["shared", "Shared with every site"]]);
-  const files = [
-    { name: "src/routes/index.tsx", kind: "page" },
-    { name: "src/routes/-parts/band-1-hero.tsx", kind: "part" },
-    { name: "public/icon.svg", kind: "asset" },
-    { name: "src/routes/__root.tsx", kind: "shared" },
-    { name: "package.json", kind: "shared" },
-  ];
-  const html = stCodeTree(files, "public/icon.svg");
+  const { stCodeTree } = TREE;
+  const files = TREE_FILES;
+  // EVERY FOLDER OPEN, because what this case asserts is the DISPLAY NAMES and
+  // the marking — which a folded folder simply does not draw. Folding has its
+  // own case below; conflating the two would make this one go red for a change
+  // to the fold default, reporting the names as wrong.
+  const html = stCodeTree(files, "public/icon.svg", ALL_OPEN);
   for (const label of ["Pages", "Components", "Made by the build", "Shared with every site"]) {
     assert.ok(html.includes(label), "the tree has no " + label + " heading");
   }
   // A HEADING OVER NOTHING reads as something missing rather than absent.
-  assert.ok(!stCodeTree([{ name: "a.tsx", kind: "page" }], "a.tsx").includes("Made by the build"),
+  assert.ok(!stCodeTree([{ name: "a.tsx", kind: "page" }], "a.tsx", ALL_OPEN).includes("Made by the build"),
     "an empty group was given a heading");
   // THE PREFIX IS DROPPED IN THE CUSTOMER'S OWN GROUPS ONLY. `src/routes/` is
   // noise repeated down the first two; on the SHARED root route, stripping it
@@ -1142,4 +1178,160 @@ test("DRIVEN: the tree groups the project, and a shared file keeps its real path
   // handler looks a file up by — never the display name.
   assert.match(html, /data-srcname="public\/icon\.svg"[^>]*/, "the open file cannot be looked up by what the row carries");
   assert.ok(/class="st-file on"[^>]*data-srcname="public\/icon\.svg"/.test(html), "the open file is not marked open");
+});
+
+/* ───────────────────────── THE FOLDERS FOLD ─────────────────────────
+ * Owner, 2026-09-11, holding the tree: *"components you click and the 8 or 0 or
+ * whatever how many they appear"*. A heading became a folder that opens, and it
+ * carries its count — which is the half that makes a FOLDED group honest rather
+ * than a hidden one.
+ */
+// The class must end at the quote or at a space, never mid-word: `st-file` is a
+// prefix of `st-file-ic` and `st-file-n`, so a loose match counts three rows per
+// file and every count below would be wrong in the same direction.
+const rows = (html, cls) => [...html.matchAll(new RegExp('class="' + cls + '( [^"]*)?"', "g"))].map((m) => m[0]);
+
+test("DRIVEN: every folder says how many are in it, open or shut", () => {
+  const { stCodeTree } = TREE;
+  const shut = stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set());
+  // THE COUNT IS THE WHOLE OF WHAT A SHUT FOLDER SAYS. Without it a folded group
+  // is a heading over nothing, which reads as the thing being missing — the same
+  // failure the empty-group rule one case up exists to avoid, wearing a fold.
+  for (const [key, n] of [["page", 1], ["part", 1], ["asset", 1], ["shared", 2]]) {
+    const at = shut.indexOf('data-srcgroup="' + key + '"');
+    assert.ok(at > 0, "the " + key + " folder is gone");
+    assert.match(shut.slice(at, shut.indexOf("</button>", at)),
+      new RegExp('class="st-code-count">' + n + "<"), "the " + key + " folder does not say it holds " + n);
+  }
+  // SHUT DRAWS NO FILES, OPEN DRAWS THEM ALL. Both directions, because a tree
+  // that always draws its files is a tree that never folded, and one that never
+  // draws them is a tree nothing can open.
+  assert.equal(rows(shut, "st-file").length, 0, "a shut folder still lists its files");
+  assert.equal(rows(stCodeTree(TREE_FILES, "src/routes/index.tsx", ALL_OPEN), "st-file").length, TREE_FILES.length,
+    "an open folder does not list its files");
+  // ONE FOLDER AT A TIME: opening Components must not open anything else.
+  const one = stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["part"]));
+  assert.equal(rows(one, "st-file").length, 1, "opening one folder opened another");
+  assert.ok(one.includes('data-srcname="src/routes/-parts/band-1-hero.tsx"'), "the folder that was opened is not the one that listed its files");
+});
+
+test("DRIVEN: a folder is a control — reachable, and it says whether it is open", () => {
+  const { stCodeTree } = TREE;
+  const html = stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["part"]));
+  // A BUTTON, not a div with a click handler. The tree is now navigable by
+  // keyboard and the state is announced; a `<div onclick>` is neither, and no
+  // assertion about the click handler can see the difference.
+  for (const key of ["page", "part", "asset", "shared"]) {
+    const at = html.indexOf('data-srcgroup="' + key + '"');
+    const head = html.slice(html.lastIndexOf("<", at), html.indexOf(">", at) + 1);
+    assert.match(head, /^<button type="button"/, "the " + key + " folder is not a button");
+    assert.match(head, key === "part" ? /aria-expanded="true"/ : /aria-expanded="false"/,
+      "the " + key + " folder does not say whether it is open");
+    assert.equal(/class="st-code-h on/.test(head), key === "part",
+      "the " + key + " folder's open class disagrees with what it announces");
+  }
+});
+
+test("DRIVEN: `null` is not an empty Set — the first draw opens the folder holding the open file", () => {
+  const { stOpenGroups, stCodeTree } = TREE;
+  // THE THIRD STATE. Until the customer folds anything there is no choice to
+  // remember and one folder is derived; an EMPTY SET is a customer who closed
+  // every folder, and re-deriving for them would re-open one on the next click,
+  // for ever. The recorded "cannot-tell must never read as a value".
+  assert.deepEqual([...stOpenGroups(TREE_FILES, "src/routes/index.tsx", null)], ["page"]);
+  assert.deepEqual([...stOpenGroups(TREE_FILES, "src/routes/index.tsx", new Set())], [],
+    "a customer who closed every folder gets one re-opened");
+  // DERIVED FROM THE OPEN FILE, never a hardcoded `page`. A rebuild can replace
+  // the file list while the chosen file is a component, so a fixed default would
+  // fold the folder holding the file being shown.
+  for (const [name, kind] of [["src/routes/-parts/band-1-hero.tsx", "part"], ["public/icon.svg", "asset"], ["package.json", "shared"]]) {
+    assert.deepEqual([...stOpenGroups(TREE_FILES, name, null)], [kind], name + " does not open its own folder");
+    assert.ok(stCodeTree(TREE_FILES, name, null).includes('data-srcname="' + name + '"'),
+      "the file on screen is in a folder the tree drew shut");
+  }
+  // A NAME THAT NAMES NOTHING falls to the first group rather than to none — an
+  // explorer that opens onto four shut folders is one a customer must click to
+  // see anything at all.
+  for (const junk of ["", "nope.tsx", null, undefined]) {
+    assert.deepEqual([...stOpenGroups(TREE_FILES, junk, null)], ["page"], JSON.stringify(junk));
+  }
+  // A CHOICE IS HONOURED WHATEVER IT HOLDS, including a key no group has.
+  assert.deepEqual([...stOpenGroups(TREE_FILES, "src/routes/index.tsx", new Set(["nope"]))], ["nope"]);
+  for (const junk of [[], "page", { has: () => true }, 0]) {
+    assert.deepEqual([...stOpenGroups(TREE_FILES, "src/routes/index.tsx", junk)], ["page"],
+      "a " + typeof junk + " was read as a stored choice");
+  }
+  assert.deepEqual([...stOpenGroups(null, "x", null)], ["page"], "a missing file list throws instead of drawing");
+});
+
+test("DRIVEN THROUGH THE TAB: a click really folds, and the fold survives the redraw", async () => {
+  // THE CHAIN, not the function. `stOpenGroups` answering correctly says nothing
+  // about whether anybody STORES what the click computed — a handler that builds
+  // a new Set and drops it leaves every case above green and the folder shut for
+  // ever. This repository's most-shipped failure, so it is driven end to end.
+  const clicks = new Map();
+  const host = {
+    innerHTML: "",
+    querySelectorAll(sel) {
+      const attr = sel.slice(1, -1);
+      const out = [...String(this.innerHTML).matchAll(new RegExp(attr + '="([^"]*)"', "g"))]
+        .map((m) => ({ dataset: { [attr === "data-srcgroup" ? "srcgroup" : "srcname"]: m[1] }, set onclick(f) { clicks.set(attr + ":" + m[1], f); } }));
+      return out;
+    },
+  };
+  const a = codeTab({
+    answer: { ok: true, pages: [{ path: "src/routes/index.tsx", source: "// page\n" }], assets: [{ path: "public/icon.svg", source: "<svg/>" }] },
+    open: "src/routes/index.tsx", host,
+  });
+  await a.t.run(a.site);
+  assert.equal(a.t.groups, null, "the tab stored a choice nobody made");
+  assert.equal(rows(host.innerHTML, "st-file").length, 1, "the first draw is not one folder open");
+
+  // THE CLICK OPENS THE OTHER FOLDER — and the one holding the open file stays
+  // open, which is what materialising the derived default before toggling buys.
+  clicks.get("data-srcgroup:asset")();
+  assert.deepEqual([...a.t.groups].sort(), ["asset", "page"], "the click did not store the fold");
+  assert.equal(rows(host.innerHTML, "st-file").length, 2, "the folder that was clicked did not open");
+
+  // AND SHUTTING IT AGAIN IS THE SAME CLICK. A handler that only ever adds is a
+  // folder that opens once and never closes.
+  clicks.get("data-srcgroup:asset")();
+  assert.deepEqual([...a.t.groups], ["page"], "a second click did not shut the folder");
+  assert.equal(rows(host.innerHTML, "st-file").length, 1);
+
+  // THE FOLD SURVIVES A RE-FETCH, because it is the customer's preference and
+  // not a property of the answer. A rebuild must not silently re-open folders.
+  clicks.get("data-srcgroup:page")();
+  assert.deepEqual([...a.t.groups], [], "every folder shut is not a state the tab can hold");
+  await a.t.run(a.site);
+  assert.deepEqual([...a.t.groups], [], "a re-fetch threw the customer's folds away");
+  assert.equal(rows(host.innerHTML, "st-file").length, 0, "a re-fetch re-opened a folder the customer shut");
+
+  // AND A CLICK NEVER GOES BACK TO THE NETWORK. One fetch, three clicks.
+  assert.equal(a.fetches(), 2, "a fold or a file pick re-fetched the whole project");
+});
+
+test("the folder's chevron turns, and its name wraps rather than truncating", () => {
+  // THE CLASS THE MARKUP WRITES IS THE CLASS THE SHEET PAINTS, asked in both
+  // directions — a rule on a class nothing draws is a rule that paints nothing.
+  const html = TREE.stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["page"]));
+  for (const cls of ["st-code-caret", "st-code-hn", "st-code-count"]) {
+    assert.ok(html.includes('class="' + cls + '"'), "the tree draws no " + cls);
+    assert.match(CSS, new RegExp("\\." + cls + " \\{"), "the sheet paints no " + cls);
+  }
+  assert.match(CSS, /\.st-code-h\.on \.st-code-caret \{[^}]*rotate\(-90deg\)/,
+    "the chevron never turns, so a folder looks shut whether it is or not");
+  assert.match(CSS, /\.st-code-h \{[^}]*cursor: pointer/, "a folder does not read as clickable");
+  assert.match(CSS, /\.st-code-h:hover \{/, "a folder gives no sign it can be pressed");
+  // THE NAME WRAPS. The column is 210px and the caret and the count take ~40 of
+  // it, so "SHARED WITH EVERY SITE" no longer fits on one line — and an ellipsis
+  // there reads as a heading somebody cut. `min-width: 0` is what lets a flex
+  // item shrink below its own text at all.
+  assert.match(CSS, /\.st-code-hn \{[^}]*min-width: 0/, "the folder name cannot shrink, so the count is pushed off the row");
+  assert.ok(!/\.st-code-hn \{[^}]*text-overflow/.test(CSS), "the folder name truncates instead of wrapping");
+  // THE COUNT IS HARD RIGHT, so four of them line up down the column.
+  assert.match(CSS, /\.st-code-count \{[^}]*margin-left: auto/, "the counts no longer line up");
+  // AND A FOLDED GROUP PUTS TWO HEADINGS SIDE BY SIDE, which the spacing rule
+  // has to know about — the old one only knew heading-after-file.
+  assert.match(CSS, /\.st-code-h \+ \.st-code-h[^{]*\{/, "two folded folders run together");
 });

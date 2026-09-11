@@ -21,9 +21,8 @@
  * *"don't dump thousands of unused kit components or compiled bundles"*):
  *
  *   IN  — the app's own scaffold and its configuration: the router, the server
- *         entry, the root route, the generated route tree, the data layer, the
- *         helpers, the hooks, and the four config files that decide how the
- *         project builds. ~18 files.
+ *         entry, the root route, the data layer, the helpers, the hooks, and the
+ *         four config files that decide how the project builds. 17 files.
  *   OUT — `src/components/**`: 3,394 kit files, 9.5 MB. A dependency, and no
  *         more part of a customer's project than `node_modules` is. Bundling it
  *         would also put 9.5 MB into every Worker isolate.
@@ -33,8 +32,21 @@
  *         any generated site and showing them would be showing a file that is
  *         not there.
  *   OUT — `src/site-brand.ts`. The template's copy is a STUB and the container
- *         overwrites it per build, so the shared copy is the one file here that
- *         would be actively misleading: it is site-specific by nature.
+ *         overwrites it per build, so the shared copy is site-specific by nature
+ *         and would be actively misleading.
+ *   OUT — `src/routeTree.gen.ts`, AND FINDING IT COST A RED CI RUN. It is not in
+ *         the repository at all: `builder/lovable/template/.gitignore` names it,
+ *         because TanStack's router generator WRITES it from whatever is in
+ *         `src/routes` — so every site's build makes its own, listing that
+ *         site's pages. It was in this list, and on a machine that had ever run
+ *         a real build it read perfectly and baked THAT machine's copy into the
+ *         committed module: a file no checkout has, showing routes no site has.
+ *         On a fresh checkout it is simply ENOENT, which is what CI said.
+ *
+ * SO A FOUNDATION FILE MUST BE ONE THE REPOSITORY ACTUALLY HAS, and the guard
+ * asks GIT rather than the filesystem — `fs.existsSync` is exactly the test that
+ * passed here while the file was untracked. Derived, so the next generated file
+ * cannot enter this list either.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -52,7 +64,6 @@ export const FOUNDATION_PATHS = [
   "src/router.tsx",
   "src/server.ts",
   "src/routes/__root.tsx",
-  "src/routeTree.gen.ts",
   "src/styles.css",
   "src/site-locale.ts",
   "src/site-runtime.ts",
