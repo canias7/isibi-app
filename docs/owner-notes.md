@@ -5239,3 +5239,56 @@ The proof for the naming fix is one build: type the Saltmarsh brief into the
 start box again. You've still got the name, so before today it would have
 revised the empty placeholder; now it should make a brand new site called
 `saltmarsh-kayak-co-2` and write its page in pieces.
+
+---
+
+## 2026-09-11 — the test build: three fixes proven in one go
+
+You typed the Saltmarsh brief into a fresh chat and it worked. The site is live
+at `saltmarsh-kayak-co-2` — 100 KB, the biggest page we've made, with the tide
+chart really on it: three put-ins, a fortnight of rows.
+
+### What it proved
+
+**The start box makes a new site now.** You still held the old name, so
+yesterday this same brief would have quietly revised the empty placeholder. It
+made `-2` instead.
+
+**The SafeImage fix held.** The first attempt died because a band imported a file
+that doesn't exist. This one compiled. Worth being honest about what that does
+and doesn't tell us: we shipped two things — telling the model where the file
+lives, and repairing a wrong path if it guesses. The model didn't guess this
+time, so only the first one got exercised.
+
+**And the queue really queued.** This is the one I'd been waiting for. The page
+came out as nine pieces against a container that holds eight, so one had to wait
+its turn — and the numbers say so plainly: the whole step took 381,833 ms while
+the longest single piece took 347,868. The step took *longer than anything in
+it*, which can only happen if something waited. It waited 33,965 ms, and the
+piece that freed up the slot took 33,860. A tenth of a second apart.
+
+### The honest bit
+
+Splitting barely helped. Yesterday's build was the same nine-piece shape, refused
+the split, and went out in one call at 407,694 ms. This one split and took
+390,123 — about 3% faster.
+
+The reason is simple: the tide chart alone took 348 seconds. All eight ordinary
+bands were finished in under 147. You can't go faster than your slowest piece, so
+giving it more slots wouldn't help — only making that one component faster would.
+
+### What it cost
+
+**31 credits**, 275 down to 244. Most expensive build we've measured. A rich page
+with a hand-written component is the top of the range, not the middle.
+
+### The chart
+
+Drawn and committed, both steps on one axis, in the style you picked. I also kept
+the script that draws it — `scripts/build-chart.mjs`. We had ten of these
+drawings and no way to redraw any of them; the numbers were retyped by hand every
+time, which is exactly the sort of thing that goes wrong quietly. The script now
+refuses to draw at all unless the numbers on the page add up to the numbers in
+the database.
+
+Still on your desk: the 19 credits from the two failed builds.

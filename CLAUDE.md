@@ -3397,6 +3397,53 @@ whole page went out in a single model call. `ben-crowe-guitar` measured that at
   slowest piece) still needs a plan of nine or more.
 - **AND THAT BUILD DIED IN VITE FOR AN UNRELATED REASON — see the section
   below.** A band imported `@/components/SafeImage`.
+- **THE QUEUE IS PROVEN LIVE, AND IT IS THE ONE MEASUREMENT NO EARLIER FAN-OUT
+  COULD HAVE PRODUCED.** `saltmarsh-kayak-co-2` (2026-09-11 17:39:56Z →
+  17:56:44Z, grok, `ok`, live at 200 with `x-site-version
+  01789149190518-sew2jd`, 100,659 bytes — the largest page this platform has
+  made) planned **8 bands + 1 part**, `wrote: 8`, `wroteParts: 1`. Nine pieces
+  against eight sockets, so one queued:
+
+  | piece | ms | | piece | ms |
+  |---|---|---|---|---|
+  | **p1 — the tide chart** | **347,868** | | b6 | 67,571 |
+  | b3 | 146,980 | | b5 | 56,881 |
+  | b1 | 124,013 | | b8 | 56,008 |
+  | b4 | 108,581 | | **b7** | **33,860** |
+  | b2 | 78,990 | | | |
+
+  The nine sum to **1,020,752 = `agentMs` exactly**. **`waveMs` is 381,833 —
+  33,965 ms LONGER than the slowest piece in it**, which is the tell this
+  section predicted and which is impossible under eight-or-fewer, where the two
+  are equal by construction. And the arithmetic names WHICH piece waited: the
+  part is sent after the bands, so p1 is request nine; it started at 381,833 −
+  347,868 = **33,965**, and the band that freed the first permit was **b7 at
+  33,860**. **105 ms apart.**
+- **AND `p1Ms` PROVES THE CLOCK STARTS AFTER THE PERMIT, not before it.** 347,868
+  is p1's own run and excludes its 33,965 ms wait — had the read been hoisted,
+  `agentMs` would have grown with the QUEUE rather than with the work and the
+  overlap would have flattered itself. That is the one line the pool could have
+  quietly broken, and a live row now says it did not. Overlap **638,919 ms**, the
+  largest measured here.
+- **THE REFUSAL IT REPLACED WOULD HAVE COST 3%, AND THAT IS THE HONEST HALF.**
+  `ben-crowe-guitar` was this same nine-piece shape, refused as `bands:wide` and
+  written in ONE call at `genMs` **407,694**. This one split: **390,123**, so
+  **17,571 ms saved — about 3%.** The split bought almost nothing **because the
+  part is the wall**: all eight bands finished inside 147 s and the tide chart
+  alone took 348 s. **A fan-out cannot beat its slowest piece**, so more sockets
+  buy nothing on this shape — only a faster part would. Worth knowing before
+  anybody reads `MAX_MODEL_FANOUT` as the lever.
+- **Drawn: `docs/edits/design-generate-saltmarsh-2.png`**, and **the renderer is
+  kept this time — `scripts/build-chart.mjs`, the first one in this repository.**
+  Ten drawings existed under `docs/edits` with zero generators: the markup was
+  hand-written each time, the numbers retyped out of the trace, and the source
+  thrown away — *"two lists of the same thing"* with a measurement as the subject,
+  in a file that already records a number drifting across four copies when only
+  three were corrected. The script **refuses to render** unless each panel's parts
+  sum to that panel's own `agentMs`, so a figure that drifts from the row is not a
+  chart that looks wrong, it is no chart at all. It still holds the numbers at the
+  top of the file; reading them out of `site_builds` by slug is the obvious next
+  step and is NOT done.
 
 ---
 
@@ -3502,6 +3549,15 @@ purely because its own earlier attempt had failed.**
 - **AND WRANGLER UPLOADED EXACTLY ONE ASSET — `/chat.js`** (1 new, 182 already
   uploaded), which is the tightest confirmation available that the browser half
   of the charging fix is the only `public/` byte that moved.
+- **PROVEN LIVE: `saltmarsh-kayak-co-2`.** The same brief, typed into a FRESH
+  chat (the old project `site_1789105350506_aavml` is bound to
+  `saltmarsh-kayak-co`, so typing there would have answered with the existing
+  site and built nothing — worth saying, because it is the one way to run this
+  test and get no test). The designer picked the held name again and the build
+  came out as a NEW site at `-2` rather than `bands:revise` against the
+  placeholder: **31 credits, 275 → 244**, live at 200, 100,659 bytes.
+  **Nothing walked the numbers past `-2`**, which is the ordinary case working;
+  the walk past several taken names is still only driven, not seen live.
 
 ---
 
@@ -3743,11 +3799,16 @@ placeholder, for 9 credits.
   does not export `SafeImage`; and each of the three call sites' parts repair cut
   in turn, plus the repaired parts computed and never forwarded to the compile.
 - Full suite **5,968**.
-- **Not proven live.** The push changes `worker.js`, which is a container image
-  input, so the container ROLLS and the 15–20 minute hold applies. The proof is
-  one build whose page reaches for a picture: it should compile, and if the model
-  guesses the path again the build response should carry a `repaired` entry
-  naming it rather than a placeholder.
+- **PROVEN LIVE by `saltmarsh-kayak-co-2` (2026-09-11 17:39Z)** — the SAME brief
+  that produced the failure, on a page of nine pieces that reaches for pictures
+  throughout. It compiled and published: `ok`, `page: "app"`, 100,659 bytes at
+  200. **The proof is the absence**: where the first attempt died in vite on
+  `@/components/SafeImage`, this one has no `repaired` entry and no placeholder,
+  so the module name in rule 7 was enough on its own and the repair pass was
+  never needed. **Which half did the work is therefore NOT settled** — naming the
+  path and repairing a bad one both ship, and this run only exercised the first.
+  A build that guesses the path anyway is what would exercise the second, and it
+  cannot be provoked on purpose.
 - **WHAT THIS DOES NOT FIX, and both are their own task.** The two builds took
   **19 credits between them** (9 + 10, ledger `build:…:deposit` and `:settle`,
   298 → 275) with **no reversal row for either**, and the second told the customer
@@ -5952,9 +6013,14 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 298 credits** (read off the ledger 2026-09-11 03:57Z, after
-  `ben-crowe-guitar` took 318 → 298 — **20 credits**, the richest first build
-  measured on this account and the one that hit `bands:wide`). Before it,
+- **Balance: 244 credits** (read off the ledger 2026-09-11 17:56Z, after
+  `saltmarsh-kayak-co-2` took 275 → 244 — **31 credits**, the most expensive
+  build measured on this account: `:deposit` 2, `:settle` 7, `:pages` 20, plus
+  ~2 for routing. Nine pieces and a hand-written tide chart is what that buys).
+  Before it, the two FAILED `saltmarsh-kayak-co` attempts took 298 → 275 with no
+  reversal row — the defect the charging fix closes, and **those 19 credits are
+  still owed**. Before those,
+  `ben-crowe-guitar` took 318 → 298 — **20 credits**, and
   `sowerby-forge` took 332 → 318 — the Stage B graph build, 14 credits.
   It was 502 on 2026-09-07 04:44Z, after run 42 took 503 → 502. It was topped
   up to 505 on 2026-09-06 19:12Z on the owner's
