@@ -4411,3 +4411,47 @@ That's the difference between this and the page split. **The page split is seven
 things at once, for its whole run** — 424 seconds of work in 93 seconds of
 clock. **The design split is two things at once, and only in the middle third.**
 Same idea, very different shape, and the shape is what decides whether it pays.
+
+## 2026-09-11 — three waves or one, and how many steps there really are
+
+**You asked how many steps the design step has. It's 23** — 23 questions on the
+tool, 15 of them compulsory. A first build skips one (`backend`, which only the
+add-on step uses), so **22 get answered**. I measured it rather than trusting my
+own notes, which have been one out before.
+
+**The three waves do NOT start together.** Wave 2 waits for wave 1 to finish,
+wave 3 waits for wave 2. Your drawing is one wave. `docs/edits/design-waves-shapes.png`
+puts the three shapes side by side on this build's real numbers:
+
+| shape | what the customer waits | vs today |
+|---|---|---|
+| today, three waves | 237.7s | — |
+| two waves | 154.3s | **83s faster** |
+| one wave (your drawing) | 132.4s | **105s faster, 44%** |
+
+**In one wave the design step is just its slowest agent** — `look`, at 132s.
+
+**What the waves are buying, so the trade is clear.** Each later agent is told
+what the earlier ones decided. Drop that and they each invent the business on
+their own — and the wordmark could be drawn for one name while the pages use a
+different one. That has actually happened here before (four builds in a row
+invented names for the wrong business). It isn't a theoretical risk.
+
+**And here's the thing I think matters most.** Look at these two:
+
+- `identity` answers **eleven** questions in **22 seconds**
+- `look` answers **four** questions in **132 seconds**
+
+So the number of questions tells you nothing. What costs time is the *kind* of
+answer. Naming a business and picking a language is quick. Drawing a logo is
+slow. Which means the current grouping was made on the wrong basis — we grouped
+by what depends on what, and never by what's actually slow.
+
+**The honest limit: I can't tell you which of `look`'s four is the 132 seconds.**
+Theme, stylesheet, logo, tab icon all go out in one call, so they share one
+number. Unlike everything else this week, there's no free way to find out.
+
+**Cheapest way to know**: make `look` two agents — the two drawings in one, the
+theme and stylesheet in the other. One ordinary build then says which half is
+slow, and that's the number that decides whether one wave is worth its risk.
+Not started; your call.

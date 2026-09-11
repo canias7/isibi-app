@@ -2491,6 +2491,35 @@ stored row.
   lines waiting at the barrier, and the real shape has exactly ONE, because
   three of the four agents run alone. That is the whole difference between this
   split (2-wide for part of its run) and the band split (7-wide for all of it).
+- **THE THREE SHAPES, COSTED ON THIS BUILD'S OWN NUMBERS —
+  `docs/edits/design-waves-shapes.png`** (owner, 2026-09-11: *"instead of three
+  waves, it should be one wave… the 3 waves start at the same time right?"* —
+  they do NOT: wave 2 starts when wave 1 ends). Today **237,686**; `detail`
+  joining the pair **154,300** (−83,386, 35%); all four at once, which is the
+  owner's drawing, **132,394** (−105,292, 44%). **In one wave the design step
+  simply IS its slowest agent.** What each shape COSTS is the coherence the
+  waves buy: `detail` in wave 2 writes `behavior`/`tsx` without knowing which
+  components the plan picked; one wave has all four inventing the business
+  independently, and the recorded failure there is real (*"four consecutive
+  nameless-CRM runs invented names for the wrong business"*) — the wordmark
+  drawn for a name the pages do not use.
+- **AND THE FIELD COUNT DOES NOT PREDICT THE TIME — measured, and it is the
+  fact that should decide any regrouping.** Re-derived through
+  `readSchemaTool()`: **23 properties, 15 required; a first build sends 22**
+  (`backend` dropped), and the waves claim exactly those 22. Per agent:
+  `identity` **11 fields in 21,906 ms**, `plan` 5 in 78,560, `look` **4 in
+  132,394**, `detail` 2 in 83,386. **Eleven questions in 22 seconds against
+  four in 132**, so grouping by how many fields an agent carries is grouping on
+  the wrong axis: what costs time is the KIND of answer — naming a business and
+  picking a language is fast, drawing an SVG is slow.
+- **AND THE INSTRUMENT STOPS AT THE AGENT, WHICH IS THE NEXT REAL LIMIT.** We
+  time agents, never fields, because an agent's fields go out in ONE call — so
+  whether `look`'s 132 s is the wordmark, the favicon or the stylesheet is
+  **unknowable without splitting them**, and unlike every measurement of the
+  last two days there is no free instrument for it. The cheapest informative
+  move is therefore to make `look` two agents (the two drawings apart from
+  theme/css) and read one ordinary build; that number is what decides whether
+  one wave is worth the coherence it costs. Owner's call, unstarted.
 - Two other readings off the same build, both free: **`bands:door`**, so the page
   was written in ONE call with the band canary off, exactly as expected — and
   that single call took **`genMs` 294,300**, well above `marlow-and-tide`'s
