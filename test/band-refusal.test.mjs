@@ -74,22 +74,24 @@ test("planRefusal names each of its walls, and answers nothing when the plan spl
   // A page the shape has no entry for is `thin` rather than a throw: "no plan
   // for this page" is a real answer that means "do not split it".
   assert.equal(planRefusal({ ...OK, shape: [{ path: "/prices", sections: ["a", "b"] }] }), "thin");
-  // `wide` IS WHAT REPLACED `tsx`, and it is a different question: bands and
-  // parts go out as ONE list, and the container holds at most
-  // `MAX_MODEL_FANOUT` calls. Refusing the SPLIT is right; dropping a band or a
-  // part to make the list fit would ship a page missing a section or importing
-  // a file nothing wrote.
+  // RE-ANCHORED 2026-09-11, NOT APPEASED, AND INVERTED (owner: "whatever the
+  // designer does then it should go to the generate, if the designer does 9 the
+  // generate needs 9 if 8, 8"). `wide` stood for one day between these two
+  // sessions: bands and parts went out as ONE list and `runFanout` ran the whole
+  // list at once, so a plan of more pieces than the container had sockets was
+  // refused the split entirely. `runFanout` QUEUES past its socket bound now,
+  // and `planRefusal` has no width test left — so these two cases assert the
+  // opposite of what they asserted this morning, on purpose, because the whole
+  // change is that these plans split.
   const eight = { ...OK, shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six", "sevn", "ate"] }] };
   const three = [{ name: "A", does: "a" }, { name: "B", does: "b" }, { name: "C", does: "c" }];
-  assert.equal(planRefusal(eight), "", "eight bands and no parts is exactly the bound and must split");
-  assert.equal(planRefusal({ ...eight, tsx: three }), "wide", "eleven calls were sent to a container that holds eight");
+  assert.equal(planRefusal(eight), "", "a full page of bands must split");
+  assert.equal(planRefusal({ ...eight, tsx: three }),
+    "", "eleven pieces were refused the split — the ninth queues, it is not a reason to write the page in one call");
   assert.equal(planRefusal({ ...OK, tsx: three }), "", "two bands and three parts is five calls and must split");
-  // COUNTED FROM THE PRODUCERS, never from their caps: a page that plans five
-  // bands and declares one part must never be refused for what it COULD have
-  // asked for.
   const six = { ...OK, shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six"] }] };
-  assert.equal(planRefusal({ ...six, tsx: three.slice(0, 2) }), "", "eight exactly must fit");
-  assert.equal(planRefusal({ ...six, tsx: three }), "wide", "nine must not");
+  assert.equal(planRefusal({ ...six, tsx: three.slice(0, 2) }), "", "eight exactly must split");
+  assert.equal(planRefusal({ ...six, tsx: three }), "", "nine must split too — that is the case this change exists for");
 });
 
 test("splitPlan is DERIVED from planRefusal and cannot disagree with it", () => {
@@ -137,13 +139,23 @@ test("bandRefusal answers the whole ladder, and the ORDER is the code's order", 
   // `sync`, because that is the wall it actually met. This is deliberately not
   // a ranking of which reason is most useful — a ranking would report a wall
   // the build never reached.
-  const wide = { shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six", "sevn", "ate"] }],
-    tsx: [{ name: "A", does: "a" }, { name: "B", does: "b" }, { name: "C", does: "c" }] };
-  assert.equal(bandRefusal({ ...OK, ...wide, canFire: false, pages: 3, door: false }), "sync");
-  assert.equal(bandRefusal({ ...OK, ...wide, pages: 3, door: false }), "pages");
-  assert.equal(bandRefusal({ ...OK, ...wide, door: false }), "wide",
+  //
+  // RE-ANCHORED 2026-09-11, NOT APPEASED. The plan-level refusal used here was
+  // `wide` — eleven pieces against eight sockets — and that refusal is gone,
+  // because the fan-out queues instead. WHICH plan wall this drives was never
+  // the property; that a plan wall is met BEFORE the door is. `thin` is the
+  // substitute and it is the same shape: a refusal `planRefusal` owns.
+  const bad = { shape: [{ path: "/", sections: ["only one band"] }] };
+  assert.equal(bandRefusal({ ...OK, ...bad, canFire: false, pages: 3, door: false }), "sync");
+  assert.equal(bandRefusal({ ...OK, ...bad, pages: 3, door: false }), "pages");
+  assert.equal(bandRefusal({ ...OK, ...bad, door: false }), "thin",
     "the plan's own wall is met before the door, which is where `planRefusal` sits in the chain");
   assert.equal(bandRefusal({ ...OK, door: false }), "door", "…and the door is the last wall standing");
+  // AND THE PLAN THAT USED TO MEET A WALL HERE NOW WALKS THROUGH IT — the whole
+  // ladder, on the widest plan the two producers can compose.
+  const widest = { shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six", "sevn", "ate"] }],
+    tsx: [{ name: "A", does: "a" }, { name: "B", does: "b" }, { name: "C", does: "c" }] };
+  assert.equal(bandRefusal({ ...OK, ...widest }), "", "eleven pieces were refused somewhere on the ladder");
 });
 
 test("BAND_REFUSALS is a CENSUS of the words bandRefusal can answer, both directions", () => {
@@ -163,7 +175,14 @@ test("BAND_REFUSALS is a CENSUS of the words bandRefusal can answer, both direct
   for (const fn of ["bandRefusal", "planRefusal"]) {
     for (const m of bodyOf(fn).matchAll(/return\s+"([a-z]+)"/g)) words.push(m[1]);
   }
-  assert.ok(words.length >= 7, `read only ${words.length} reason words out of the two producers — the scan is not alive`);
+  // THE FLOOR MOVED 7 → 6 WITH `wide`'s REMOVAL (2026-09-11), and that is the
+  // one number in this case that has to be re-read rather than derived. Derived
+  // from `BAND_REFUSALS` it would be circular: a word deleted from the producer
+  // AND the list moves both sides together and the floor would never notice.
+  // Six is `sync` · `pages` · `door` out of `bandRefusal` and `revise` · `route`
+  // · `thin` out of `planRefusal`; the floor's whole job is to prove the regex
+  // and the window still find them.
+  assert.ok(words.length >= 6, `read only ${words.length} reason words out of the two producers — the scan is not alive`);
   for (const w of words) {
     assert.ok(BAND_REFUSALS.includes(w), `bandRefusal can answer ${JSON.stringify(w)} and BAND_REFUSALS does not list it`);
   }

@@ -63,7 +63,9 @@ import {
 } from "./page-gen.mjs";
 import { modelsFor } from "./build-models.mjs";
 import { routeOf } from "./site-addon.mjs";
-import { MAX_MODEL_FANOUT } from "./model-fanout.mjs";
+// NO IMPORT FROM `model-fanout.mjs` ANY MORE (2026-09-11). This module used to
+// read `MAX_MODEL_FANOUT` for the `wide` refusal; the fan-out queues past that
+// bound now, so nothing here has a reason to know how many calls run at once.
 import { MAX_SECTIONS, MAX_TSX } from "./site-plan.mjs";
 
 /**
@@ -549,13 +551,26 @@ export const MIN_BANDS = 2;
  * change: a part is its own agent now, in the same fan-out, and there is nothing
  * left to refuse.
  *
- * `wide` IS WHAT REPLACED IT, and it is a different question. Bands and parts go
- * out as ONE list and the container holds at most `MAX_MODEL_FANOUT` calls, so
- * `MAX_SECTIONS` (8) plus `MAX_TSX` (3) can ask for more sockets than exist. The
- * answer is to refuse the SPLIT — one call still writes every one of them — and
- * never to drop a band or a part to make the list fit, which would ship a page
- * missing a section or importing a file nothing wrote. Asked BEFORE anything is
- * composed, so a refusal costs nothing.
+ * `wide` IS GONE TOO (2026-09-11, owner: "whatever the designer does then it
+ * should go to the generate, if the designer does 9 the generate needs 9 if 8,
+ * 8"). It stood for one day and refused a plan whose bands plus parts came to
+ * more than the container would hold — `MAX_SECTIONS` (8) plus `MAX_TSX` (3) is
+ * eleven against a bound of eight — so the page that most wants splitting, a
+ * rich one that also needs something the kit has not got, was exactly the page
+ * that could never split. Measured live on `ben-crowe-guitar`: `bands:wide`, and
+ * a single call of 407,694 ms, the longest page call this platform has recorded.
+ * `runFanout` QUEUES past its socket bound now, so eleven requests are eleven
+ * agents running eight at a time, and there is nothing left to refuse.
+ *
+ * NOT REPLACED BY A HIGHER CEILING HERE, deliberately. `MAX_FANOUT_REQS` (16) is
+ * the container's list bound and clears what these two producers can compose —
+ * `bandsOf` slices at `MAX_BANDS`, `partsOf` at `MAX_TSX` — so a refusal in this
+ * function could not fire for any input and would be a branch no sweep can kill
+ * and the next session deletes. `test/page-parts.test.mjs` asserts that
+ * clearance instead, so the day a product cap outgrows the list bound a test
+ * goes red. And it is not the only wall: a list the container will not take
+ * leaves the fire with no job id, which is `noFanoutError()` — the named
+ * fallback to the single call that an older image mid-rollout already produces.
  *
  * A REVISE IS NOT SPLIT EITHER. It hands the model the site's existing pages to
  * work from (`priorPages`), and a band is written against a plan rather than
@@ -576,10 +591,6 @@ export function planRefusal({ shape, route, tsx, priorPages, mode } = {}) {
   if (!bandFile(route)) return "route";
   const bands = bandsOf(shape, route).length;
   if (bands < MIN_BANDS) return "thin";
-  // THE WHOLE LIST HAS TO FIT IN ONE JOB — see `wide` above. Counted from the
-  // two producers rather than from their caps, so a page that plans five bands
-  // and declares one part is never refused for what it COULD have asked for.
-  if (bands + partsOf(tsx).length > MAX_MODEL_FANOUT) return "wide";
   return "";
 }
 
@@ -637,8 +648,13 @@ export function bandRefusal({ pages, canFire, door, shape, route, tsx, priorPage
  * the stage reader already recognises the way it recognises `prov:` and
  * `resume:`; the names stay short because `tr.at` truncates at 40 characters and
  * a truncated reason is a reason nobody can match on.
+ *
+ * `wide` CAME OFF 2026-09-11, and the census is what made removing it a decision
+ * rather than a leftover: the list is asserted in BOTH directions, so a word no
+ * producer can answer fails by staying. It is the first time that guard has
+ * fired in the subtracting direction on this list.
  */
-export const BAND_REFUSALS = ["sync", "pages", "wide", "revise", "route", "thin", "door", "nofanout"];
+export const BAND_REFUSALS = ["sync", "pages", "revise", "route", "thin", "door", "nofanout"];
 export const BAND_MARK = "bands:";
 
 /**

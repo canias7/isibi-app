@@ -59,7 +59,7 @@
 // Dockerfile has to COPY it: the Worker's module graph is the container's job
 // runtime, and `test/dockerfile.test.mjs` walks the imports.
 
-import { runFanout } from "./model-fanout.mjs";
+import { runFanout, permits } from "./model-fanout.mjs";
 import { usageOf } from "./page-gen.mjs";
 import {
   waveRequest,
@@ -311,32 +311,13 @@ export function needKnown(agent, byName, known) {
   return out;
 }
 
-/**
- * A permit pool. `MAX_GRAPH_INFLIGHT` calls may be in the air at once; the rest
- * queue and take a permit as one is released.
- *
- * Its own function so the bound can be DRIVEN — a source read cannot tell a
- * semaphore that admits eight from one that admits everybody, and that is the
- * recorded "a chain asserted by reading is asserted at the layer below the
- * break".
- */
-export function permits(n) {
-  const max = Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
-  let live = 0;
-  const waiting = [];
-  const release = () => {
-    live--;
-    const next = waiting.shift();
-    if (next) { live++; next(); }
-  };
-  return {
-    async take() {
-      if (live < max) { live++; return release; }
-      await new Promise((r) => waiting.push(r));
-      return release;
-    },
-  };
-}
+// THE PERMIT POOL MOVED TO `model-fanout.mjs` (2026-09-11) and is imported at
+// the head of this file. It was written here, for `MAX_GRAPH_INFLIGHT`; the band
+// fan-out now holds its own calls back with the same semaphore, and two copies
+// of one would be "two lists of the same thing" over a thing whose failure mode
+// is a hang. It went THERE rather than the other way round because that module
+// is dependency-free and the container imports it, and this file already imported
+// `runFanout` from it — so nothing new reached the image and there is no cycle.
 
 /**
  * Run the design as a graph.

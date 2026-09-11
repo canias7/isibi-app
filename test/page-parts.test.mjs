@@ -30,10 +30,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   partsOf, partStub, partsFromAnswers, partRequest, partPrompt, PART_TOOL, BAND_TOOL,
-  answerSource, slotName, planRefusal, generateSiteBands, bandMarks,
+  answerSource, slotName, planRefusal, splitPlan, generateSiteBands, bandMarks, MAX_BANDS,
 } from "../builder/page-bands.mjs";
 import { pageRulesFor, tsxDirective } from "../builder/page-gen.mjs";
-import { MAX_MODEL_FANOUT } from "../builder/model-fanout.mjs";
+import { MAX_MODEL_FANOUT, MAX_FANOUT_REQS } from "../builder/model-fanout.mjs";
 import { MAX_TSX } from "../builder/site-plan.mjs";
 
 const read = (p) => fs.readFileSync(new URL("../" + p, import.meta.url), "utf8");
@@ -270,23 +270,69 @@ test("one source reader for both kinds, and the slot says which is which", async
   assert.deepEqual(crossed.map((p) => !!p.stub), [true, true], "a band's answer was filed as a part");
 });
 
-test("the whole list has to fit in ONE job, and the bound has one home", () => {
-  // `wide` IS WHAT REPLACED `tsx` AS A REFUSAL. Refusing the SPLIT is right;
-  // dropping a band or a part to make the list fit would ship a page missing a
-  // section or importing a file nothing wrote.
+test("WHATEVER THE DESIGNER PLANS, THE GENERATE STEP TAKES — nothing is refused for its width", () => {
+  // RE-ANCHORED 2026-09-11, NOT APPEASED, AND INVERTED ON PURPOSE (owner:
+  // "whatever the designer does then it should go to the generate, if the
+  // designer does 9 the generate needs 9 if 8, 8"). This case used to assert
+  // that one piece over `MAX_MODEL_FANOUT` answered `wide`. That refusal stood
+  // for one day and its cost was structural: a page may plan `MAX_BANDS` (8)
+  // bands and a design may declare `MAX_TSX` (3) components, so the page that
+  // most wants splitting — a rich one that also needs something the kit has not
+  // got — was exactly the page that could never split. `ben-crowe-guitar`
+  // recorded `bands:wide` and a single call of 407,694 ms.
+  //
+  // THE REFUSAL BEING THERE WAS NEVER THE PROPERTY. The property is that every
+  // piece the designer planned gets its own agent, which is what this asserts
+  // now, at the widest plan the two producers can compose.
   const sections = (n) => Array.from({ length: n }, (_, i) => "band number " + i);
   const decls = (n) => Array.from({ length: n }, (_, i) => ({ name: "C" + i, does: "d" }));
-  const at = (b, p) => planRefusal({ shape: [{ path: "/", sections: sections(b) }], route: "/", mode: "build", tsx: decls(p) });
-  assert.equal(at(MAX_MODEL_FANOUT, 0), "", "exactly the bound must split");
-  assert.equal(at(MAX_MODEL_FANOUT - 1, 1), "", "exactly the bound must split, whatever the mix");
-  assert.equal(at(MAX_MODEL_FANOUT, 1), "wide", "one over the bound was sent to the container anyway");
+  const args = (b, p) => ({ shape: [{ path: "/", sections: sections(b) }], route: "/", mode: "build", tsx: decls(p) });
+  const at = (b, p) => planRefusal(args(b, p));
+  assert.equal(at(MAX_BANDS, 0), "", "a full page of bands must split");
+  assert.equal(at(MAX_BANDS, MAX_TSX), "", "the widest plan there is must split — this is the case the owner asked for");
+  assert.equal(at(MAX_MODEL_FANOUT + 1, 0), "", "a plan one over the SOCKET bound must split — the extra band queues");
   assert.equal(at(2, MAX_TSX), "", "a small page with every declaration must still split");
-  // DERIVED FROM THE ONE HOME, so the Worker's decision and the container's
+  // AND THE PIECES REALLY ARE ALL THERE — the count, not just the verdict, since
+  // a splitter that silently dropped the ninth piece would answer "" too.
+  assert.equal(
+    splitPlan(args(MAX_BANDS, MAX_TSX)).length + partsOf(decls(MAX_TSX)).length,
+    MAX_BANDS + MAX_TSX,
+    "the widest plan lost a piece on its way into the fan-out",
+  );
+
+  // THE CLEARANCE, WHICH IS WHAT REPLACED THE REFUSAL. `planRefusal` has no
+  // width test at all now, and that is only safe while the container's list
+  // bound is at least what these two producers can compose. Asserted here rather
+  // than claimed in a comment, so the day a product cap outgrows it a test goes
+  // red and somebody decides on purpose — instead of every such build quietly
+  // falling back to one call.
+  assert.ok(
+    MAX_BANDS + MAX_TSX <= MAX_FANOUT_REQS,
+    `a plan can compose ${MAX_BANDS + MAX_TSX} requests and the container takes ${MAX_FANOUT_REQS} — `
+    + "raise MAX_FANOUT_REQS, or the widest plans go back to being written in one call",
+  );
+  // A NEGATIVE ASSERTION MUST PROVE ITS OBSERVER IS ALIVE: no width refusal may
+  // come back into this function by any spelling, and the scan has to be looking
+  // at a function that really is there.
+  const body = blank(BANDS).slice(
+    blank(BANDS).indexOf("export function planRefusal("),
+    blank(BANDS).indexOf("export function splitPlan("),
+  );
+  assert.ok(body.length > 100, "the planRefusal body was not found — this scan proves nothing");
+  assert.match(body, /return "thin"/, "…and it is not the function this case means to read");
+  assert.ok(!/MAX_MODEL_FANOUT|MAX_FANOUT_REQS|MAX_TSX/.test(body),
+    "planRefusal refuses on width again — a plan the designer made is not the generate step's to decline");
+
+  // THE BOUND STILL HAS ONE HOME, so the Worker's decision and the container's
   // refusal cannot disagree about what fits.
   const fanoutMod = read("builder/model-fanout.mjs");
-  assert.match(fanoutMod, /export const MAX_MODEL_FANOUT/, "the bound is not exported from the module about fan-outs");
-  assert.match(blank(BANDS), /import \{[^}]*MAX_MODEL_FANOUT[^}]*\} from "\.\/model-fanout\.mjs";/,
-    "the page splitter carries its own copy of the container's bound");
+  assert.match(fanoutMod, /export const MAX_FANOUT_REQS/, "the list bound is not exported from the module about fan-outs");
+  assert.match(fanoutMod, /export const MAX_MODEL_FANOUT/, "the socket bound is not exported from the module about fan-outs");
+  // …and the splitter no longer needs to know EITHER. It used to import the
+  // socket bound for the refusal above; a module that knows a number it cannot
+  // act on is one edit from acting on it.
+  assert.ok(!/import \{[^}]*MAX_(MODEL_FANOUT|FANOUT_REQS)[^}]*\} from "\.\/model-fanout\.mjs";/.test(blank(BANDS)),
+    "the page splitter still reads a fan-out bound it has nothing left to do with");
 });
 
 test("THE CHAIN: the Worker hands the fan-out the declarations, not only the brief's copy of them", () => {

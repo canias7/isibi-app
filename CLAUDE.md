@@ -3208,6 +3208,170 @@ smaller one.**"* This is that change.
 - **STILL NOT PROVEN LIVE: the per-band and per-part numbers themselves**
   (`b1Ms` … `bNMs`, `parts`, `wroteParts`, `p1Ms`). The door is open now, so the
   next build whose plan fits inside 8 requests produces them.
+  **AND THE REASON A PLAN MIGHT NOT FIT IS GONE — the section below.**
+
+---
+
+### A LONG LIST QUEUES, IT IS NEVER REFUSED (2026-09-11, owner, on `bands:wide`:
+*"whatever the designer does then it should go to the egenerate , if the designer
+does 9 the generate need s9 if 8 , 8 , get it ?"* → *"yeah"*)
+
+**ONE NUMBER WAS ANSWERING TWO QUESTIONS, AND THAT IS THE WHOLE DEFECT.**
+`MAX_MODEL_FANOUT` (8) meant both *how many calls may be in the air at once* —
+a question about this process's sockets and memory — and *how long a list may
+one job carry*. Tied together, a plan of nine pieces could not be SENT, so
+instead of running nine we ran **one**: `planRefusal` answered `wide` and the
+whole page went out in a single model call. `ben-crowe-guitar` measured that at
+`genMs` **407,694**, the longest page call this platform has recorded, against
+`kestrel-bindery`'s seven-band **93,375**.
+
+- **THE TWO QUESTIONS ARE TWO CONSTANTS NOW.** `MAX_MODEL_FANOUT` keeps its
+  number and narrows to CONCURRENCY; `MAX_FANOUT_REQS` (16) is how long a list
+  one job may carry, and is what the container enforces and what nothing in the
+  Worker needs to pre-empt any more. Both live in `model-fanout.mjs` for the
+  standing reason — the container enforces and the Worker composes, and a bound
+  spelled twice is one the two sides can disagree about.
+- **`runFanout` HOLDS THE EXTRAS BACK.** Eleven requests are eleven agents:
+  eight start, the last three take a permit as one frees. **Driven, not read**:
+  eleven gated calls with a clock the test moves, peak concurrency asserted at
+  exactly 8, all eleven called, answers in the order they were asked.
+- **A LIST THAT FITS TAKES NO PERMIT AT ALL, and that is a property rather than
+  an optimisation.** `list.map(async …)` invokes every callback synchronously as
+  far as its first `await`, so a fan-out with nothing to queue behind starts
+  every call in ONE synchronous pass — which is exactly what the no-timer guards
+  rest on: `test/split-timing.test.mjs` says so in its own `driven` helper, whose
+  `gates` array is read with no await. An unconditional `await pool.take()`
+  pushes every start one microtask out, and eleven guards across three files go
+  red and have to await ticks or use timers — **and timers here have already
+  drifted under sweep load once and come back with the comment-only CONTROL
+  killed**, which this file rates worse than a miss. So the queue engages only
+  when there is something to queue, and **every fan-out shipping today behaves
+  byte for byte as it did before this change**. MEASURED both ways: 8 requests →
+  8 started synchronously, `waveMs` equal to the slowest call; 11 → 0 started
+  synchronously, peak 8, `waveMs` 110 against a slowest call of 80.
+- **THE CALL'S CLOCK STARTS AFTER ITS PERMIT, NEVER BEFORE IT**, and this is the
+  one line the pool could have quietly broken. `ms` is summed into `agentMs` —
+  "what this would have cost one after another" — so a clock started before the
+  permit would charge every waiter for the calls ahead of it, `agentMs` would
+  grow with the QUEUE rather than with the work, and the overlap
+  (`agentMs − waveMs`) would inflate itself: the longer the wait, the better the
+  split would appear to have done. Driven (`ms <= slowest`), and the mutant is a
+  PAIR, because hoisting the read alone into an unused variable is inert.
+- **AND THE COMMENT THAT PREDICTED THIS WAS RIGHT AND IS NOW CORRECTED IN
+  PLACE.** `runFanout`'s `waveMs` paragraph said the wall clock and `max(ms)`
+  agree today, and named the exact thing that would end that: *"the day anything
+  staggers them — a semaphore, a connection pool, a `callOne` that awaits before
+  it dials"*. The permit pool IS that semaphore. A comment still asserting the
+  old agreement is what sends the next session deriving the number from the
+  slowest call — wrong in the FLATTERING direction, which is the worst one for a
+  number somebody decides with.
+- **`permits` MOVED OUT OF `design-graph.mjs`** (where it was written for
+  `MAX_GRAPH_INFLIGHT`) into `model-fanout.mjs`. Two callers hold one back now,
+  and a second copy is "two lists of the same thing" over a semaphore, whose
+  failure mode is a hang. It went THERE rather than the other way round because
+  that module is dependency-free and the container imports it, and
+  `design-graph.mjs` already imported `runFanout` from it — so nothing new
+  reached the image and there is no cycle.
+- **`wide` IS DELETED, NOT LEFT UNREACHABLE.** `bandsOf` slices at `MAX_BANDS`
+  and `partsOf` at `MAX_TSX`, so with a list bound of 16 no input to
+  `planRefusal` could ever reach a width test again: it would be a branch no
+  sweep can kill, which reads as a test gap for ever and which the next session
+  deletes wondering what it was for. **The census in `page-bands.mjs` is what
+  made removing the word a decision rather than a leftover** — `BAND_REFUSALS`
+  is asserted in both directions, so a word no producer can answer fails by
+  staying. Second time that guard has fired in the subtracting direction.
+- **WHAT REPLACED IT IS A CLEARANCE GUARD, NOT A HIGHER CEILING.**
+  `test/page-parts.test.mjs` asserts `MAX_BANDS + MAX_TSX <= MAX_FANOUT_REQS`
+  (11 ≤ 16), so the day a product cap outgrows the list bound a test goes red and
+  somebody decides on purpose, instead of every wide build quietly going back to
+  one call. And it is not the only wall: a list the container will not take
+  leaves the fire with no job id, which is `noFanoutError()` — the named fallback
+  to the single call that an older image mid-rollout already produces, recorded
+  as `bands:nofanout`. So the failure mode of getting the number wrong is
+  today's behaviour, not a dead build.
+- **A HANG IS NOT A KILLED MUTANT, and two guards were written around that.** A
+  permit taken and never released does not fail — it never resolves, and a sweep
+  that stalls proves nothing and does not say so. Both driven cases assert that
+  every call STARTED **before** awaiting the fan-out, which is observable without
+  awaiting anything, and the bound case never awaits it at all. MEASURED: the
+  release mutant now dies in **0 seconds** with two failures where the first
+  draft of those guards hung until the runner was killed and reported three
+  unrelated cases as failures.
+- **Guards**: `test/model-fanout.test.mjs` 11 → 18 — the eleven-request queue
+  driven on gates with peak concurrency pinned; the failure case (three calls
+  throw, all eleven still start, the rest still answer) which is the only thing
+  that catches a permit released on the success path only; the fitting case as
+  the CONTROL, reading `started.length` with no await; the caller's bound driven
+  at 2, 100, junk and zero; and both constants asserted apart.
+  `test/page-parts.test.mjs`'s bound case INVERTED — the widest plan there is
+  must now split, and the pieces are COUNTED rather than the verdict read, since
+  a splitter that dropped the ninth piece would answer `""` too.
+- **Five older guards went red for the change and were re-anchored, not
+  appeased**, each naming the spelling that moved and two of them INVERTED on
+  purpose because the number they assert is the point of the change:
+  `band-refusal`'s wall list (`wide` → `""`, and the census floor 7 → 6, which is
+  the one number there that cannot be derived — derived from `BAND_REFUSALS` it
+  would be circular, since a word deleted from the producer AND the list moves
+  both sides together); `band-refusal`'s ORDER case, which used `wide` to prove a
+  plan wall is met before the door and uses `thin` now (WHICH plan wall was never
+  the property); `band-build`'s stored-args case (0 lines → 8);
+  `model-fanout`'s container-bound case, re-anchored for the SECOND time — it
+  pinned `MAX_MODEL_FANOUT` as the name the container imports, and the container
+  imports `MAX_FANOUT_REQS` instead; and `design-graph`'s `permits` import.
+- **AND `page-bands.mjs` NO LONGER IMPORTS FROM `model-fanout.mjs` AT ALL.** It
+  read the socket bound for the refusal that is gone; a module that knows a
+  number it cannot act on is one edit from acting on it. Asserted negatively,
+  with a live-observer floor.
+- **Sweep: 22 mutants, 22 killed, none survived, none unapplied, two comment-only
+  controls survived** — the pool deleted (a long list running every call at
+  once), the pool used for every list (the synchronous start gone), the queue
+  engaging one request early, the pool sized from the list so it admits
+  everybody, a caller widening the bound past the platform's own, a zero bound
+  taken literally so the whole fan-out serialises, the permit never given back,
+  the permit given back only on success so one failed band strands the queue, a
+  queued call charged for its wait, the wall clock read before the calls settle
+  so a queue costs nothing; the two bounds collapsed back into one, the list
+  bound no longer clearing what the producers compose, the socket bound widened
+  to a number nothing here has run, `permits` admitting everybody, a released
+  permit waking nobody; the container refusing on the socket bound again,
+  truncating instead of refusing, or declaring its own copy of the bound; the
+  width refusal back in `planRefusal` and its word back on the census; the
+  splitter dropping bands on the way in; and the design graph declaring its own
+  second copy of the pool.
+- **FOUR SURVIVED THE FIRST PASS AND NOT ONE WAS THE PRODUCT'S — three were
+  INERT and the fourth was a property nothing could see.** Each was MEASURED
+  before being believed, which is the recorded procedure.
+  **(1) `Number.isFinite(want) &&` on the socket bound — DELETED rather than kept
+  as a second defence.** Driven over forty caller shapes the two readings agree
+  every time, and the reason is algebra rather than the fixtures: `NaN > 0` is
+  already false so a junk bound falls back, `Infinity` is already clamped by the
+  `Math.min` on the same line, and `permits` floors anything left at 1. **Two
+  spellings of one wall are not two walls** — the smallest possible subject for
+  that rule — so the duplicate went and the mutant was replaced by one that DOES
+  change behaviour (`want >= 0`, which takes a zero bound literally and
+  serialises the whole fan-out). It dies.
+  **(2) The clock read hoisted above the permit — inert ALONE, fatal as a
+  PAIR.** Reading `now()` into an unused variable changes nothing; it is using it
+  that charges every waiter for the calls ahead of it. The two are one mutant now.
+  **(3) `splitPlan` slicing the band list at 8 — inert, measured:** `bandsOf`
+  already slices at `MAX_BANDS` (8), so a second slice under it cannot change any
+  answer. Replaced by a cut at 4, which loses sections off a wide plan and dies
+  against the piece COUNT.
+  **(4) `design-graph.mjs` declaring its own byte-identical copy of `permits` —
+  and this one was a real guard gap rather than an inert mutant.** Nothing
+  behavioural changes, which is precisely why no driven case could see it, and it
+  is exactly the failure this move exists to prevent: two copies of a semaphore
+  whose failure mode is a HANG, where fixing a release in one leaves the other
+  holding every caller past the bound for ever. A guard now reads the import and
+  refuses a local declaration, and the mutant dies.
+- Full suite **5,958**.
+- **Not proven live.** The push changes `worker.js`'s module graph, which is a
+  container image input, so the container ROLLS and the 15–20 minute hold
+  applies. The proof is one build whose design declares a component and whose
+  page plans a full set of bands — today that records `bands:wide` and one long
+  call; after this it should record a `bands` step carrying `bands`, `parts`,
+  `wrote`, `wroteParts` and a time per piece (`b1Ms` … `bNMs`, `p1Ms`), which is
+  the measurement the refusal has been preventing.
 
 ---
 
@@ -5446,7 +5610,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 5,953 (re-run on the merge commit `e36fc287`, 2026-09-11).
+  The unit suite is 5,958 (2026-09-11, the queue).
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

@@ -26,10 +26,16 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   DESIGN_GRAPH, GRAPH_AGENTS, GRAPH_FIELDS, MAX_GRAPH_INFLIGHT,
-  graphOrder, splitGraph, needKnown, permits, designInGraph,
+  graphOrder, splitGraph, needKnown, designInGraph,
 } from "../builder/design-graph.mjs";
 import { agentMark } from "../builder/design-waves.mjs";
-import { runFanout } from "../builder/model-fanout.mjs";
+// RE-ANCHORED 2026-09-11, NOT APPEASED. `permits` was written in
+// `design-graph.mjs` and now lives in `model-fanout.mjs`, because the band
+// fan-out holds its own calls back with the same semaphore and two copies of one
+// would be "two lists of the same thing" over a thing whose failure mode is a
+// hang. WHERE it is declared was never the property; that it admits exactly
+// `MAX_GRAPH_INFLIGHT` at once is, and that is what the case below drives.
+import { runFanout, permits } from "../builder/model-fanout.mjs";
 import { designGraphFor, designGraphEveryone } from "../builder/edit-job.mjs";
 import { makeTrace } from "../builder/trace.mjs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
@@ -399,6 +405,25 @@ test("needKnown reads only the needs' fields, whatever else has landed", () => {
   assert.deepEqual(needKnown(shape, byName, {}), {});
   assert.deepEqual(needKnown(null, byName, everything), {});
   assert.deepEqual(needKnown(shape, byName, "not an object"), {});
+});
+
+test("the permit pool has ONE home, shared rather than copied", () => {
+  // ADDED 2026-09-11 BECAUSE A SWEEP MUTANT SURVIVED THAT NOTHING COULD CATCH:
+  // `design-graph.mjs` declaring its own byte-identical copy of `permits`
+  // instead of importing it. Nothing behavioural changes — that is the point,
+  // and it is why a driven case cannot see it. Two copies of a semaphore is
+  // "two lists of the same thing" over a thing whose failure mode is a HANG:
+  // fix a release in one and the other keeps every caller past the bound waiting
+  // for a permit nobody gives back. The band fan-out holds its calls with this
+  // same pool, so there are two callers now and exactly one implementation.
+  const GRAPH = fs.readFileSync(new URL("../builder/design-graph.mjs", import.meta.url), "utf8");
+  assert.match(GRAPH, /import \{[^}]*\bpermits\b[^}]*\} from "\.\/model-fanout\.mjs";/,
+    "the design graph no longer imports the shared permit pool");
+  assert.ok(!/\bfunction permits\s*\(/.test(GRAPH),
+    "the design graph declares its own copy of the permit pool again");
+  // And it really is the module the container carries, not a third home.
+  const FANOUT = fs.readFileSync(new URL("../builder/model-fanout.mjs", import.meta.url), "utf8");
+  assert.match(FANOUT, /export function permits\(/, "the shared pool is gone from the module that owns it");
 });
 
 test("the permit pool admits its bound and no more, and releases", async () => {

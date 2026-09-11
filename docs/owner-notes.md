@@ -4974,3 +4974,61 @@ One thing that confirms an earlier note: the stylesheet took **29,763 ms** here
 against **93,013** on the last build. That entry said the 93 seconds was what
 `css` costs *when the brief asks for a look the theme does not give*, and that on
 a brief that does not ask it would be quick. This brief did not ask. It was.
+
+---
+
+## 2026-09-11 — built option 2: the queue
+
+You said it plainly: *"whatever the designer does then it should go to the
+generate, if the designer does 9 the generate needs 9 if 8, 8."* That is what
+this does.
+
+### What was wrong
+
+One number was answering two different questions. `MAX_MODEL_FANOUT` = 8 meant
+both *how many calls may be open at once* and *how long a list may be*. Because
+those were the same number, a plan of nine pieces could not be sent at all — so
+instead of running nine, we ran **one**, and the whole page went out in a single
+model call. That is `bands:wide`, and it is what cost `ben-crowe-guitar` nearly
+seven minutes.
+
+### What it does now
+
+The two questions are two numbers.
+
+- **8 calls at a time** — unchanged, and it is the only number about sockets and
+  memory. Seven-at-once is still the most this platform has ever actually run.
+- **Up to 16 in a list** — new. The fan-out takes the whole list and holds the
+  extra ones back; as each call finishes, the next starts.
+
+So eleven pieces is eleven agents: eight go immediately, and the last three go as
+slots free up. Nothing is dropped, nothing is refused, and nothing is written in
+one call because the number was awkward. **`bands:wide` is gone entirely** — the
+refusal word is deleted, not merely never reached.
+
+Sixteen is not a guess I want you to have to trust: the most a design can ever
+ask for is 8 bands + 3 components = 11, and there is a test that fails the day
+either of those caps grows past 16. So it cannot silently go back to the old
+behaviour.
+
+### The one thing that stays true
+
+The last piece in a queue of eleven still waits for a slot, so it is eleven
+agents but not eleven at the same instant. It is still far faster than one call
+writing the whole page. Going past 8 at once is a separate question and I have
+not touched it — nothing here has ever run more than 7 at once, so raising it
+would be guessing.
+
+### What a page that already fits does
+
+Exactly what it did yesterday, byte for byte. The queue only engages when there
+is something to queue, so every build shipping today is untouched.
+
+### How you will see it worked
+
+The next build whose design declares a component and plans a full page. Today
+that records `bands:wide` and one long call. After this it should record a
+`bands` step with a time for every single band and every component — `b1Ms`,
+`b2Ms`, … and `p1Ms` — which is a measurement we have never once been able to
+take, because the builds rich enough to be interesting were the ones being
+refused.

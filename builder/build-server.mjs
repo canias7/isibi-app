@@ -66,7 +66,7 @@ import { checkRender, screenshotHtml } from "./render-check.mjs";
 import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
 import { readCss, plainSelectors, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
-import { runFanout, fanoutTally, MAX_MODEL_FANOUT } from "./model-fanout.mjs";
+import { runFanout, fanoutTally, MAX_FANOUT_REQS } from "./model-fanout.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -144,9 +144,12 @@ const MODEL_JOBS = new Map();
 // refusing is better than holding whole model answers — megabytes each — for a
 // caller that has stopped listening.
 const MAX_MODEL_JOBS = 8;
-// `MAX_MODEL_FANOUT` is imported from `model-fanout.mjs`: the Worker has to
-// know the same bound before it composes a fan-out, and a bound spelled twice
-// is one the two sides can disagree about.
+// `MAX_FANOUT_REQS` is imported from `model-fanout.mjs`: the Worker has to know
+// the same bound before it composes a fan-out, and a bound spelled twice is one
+// the two sides can disagree about. `MAX_MODEL_FANOUT` — how many of those
+// requests run AT ONCE — is not needed here at all: `runFanout` holds the
+// others back itself, so this handler's only question is how long a list it is
+// willing to hold answers for.
 // LONGER THAN THE HOLD, ON PURPOSE. `MAX_BUSY_HOLD_MS` is thirty minutes, so a
 // container is stopped before an answer can age out from under a caller that is
 // still entitled to it; anything still here past this belongs to a build that
@@ -2061,7 +2064,14 @@ const server = http.createServer((req, res) => {
       // REFUSED RATHER THAN TRUNCATED. Silently dropping the ninth band is a
       // page missing a section with nothing anywhere saying so, and whoever
       // planned that band planned it for a reason.
-      if (mReqs && mReqs.length > MAX_MODEL_FANOUT) return send(res, 400, { ok: false, error: "too many reqs: " + mReqs.length + " over " + MAX_MODEL_FANOUT });
+      //
+      // THE LIST BOUND, NOT THE SOCKET BOUND (2026-09-11). This used to refuse
+      // anything over `MAX_MODEL_FANOUT`, which made one number answer two
+      // questions and meant a page planning nine pieces of work could not be
+      // split at all. `runFanout` queues past the socket bound now, so the wall
+      // here is only about how much this process will hold: `MAX_FANOUT_REQS`
+      // entries in the job's answer store, whatever order they arrive in.
+      if (mReqs && mReqs.length > MAX_FANOUT_REQS) return send(res, 400, { ok: false, error: "too many reqs: " + mReqs.length + " over " + MAX_FANOUT_REQS });
       if (mReqs && !mReqs.length) return send(res, 400, { ok: false, error: "reqs is empty" });
       if (!mReqs && (!mReq || typeof mReq !== "object")) return send(res, 400, { ok: false, error: "no req" });
       // The ceiling is ours, not the caller's — the same rule `/model` states.

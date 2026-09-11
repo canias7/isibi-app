@@ -138,12 +138,17 @@ test("splitPlan reads the stored design args and nothing else, so a resume re-de
   // ALL is the whole change.
   assert.equal(splitPlan({ ...args, tsx: [{ name: "ChordDiagram", does: "draws a chord" }] }).length, 3,
     "a declared component still refuses the split");
-  // …and the wall that DID replace it: the whole list has to fit in one job.
+  // …and the wall that briefly replaced it IS GONE TOO (2026-09-11, owner: "if
+  // the designer does 9 the generate needs 9 if 8, 8"). `wide` refused a plan
+  // whose bands plus parts came to more than the container's socket count, so
+  // the widest plans — the ones that most want splitting — were the ones that
+  // could never split. `runFanout` queues past that bound now. RE-ANCHORED by
+  // INVERTING, on purpose: the number this asserts is the point of the change.
   assert.equal(splitPlan({
     shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six", "sevn", "ate"] }],
     route: "/", mode: "build",
     tsx: [{ name: "A", does: "a" }, { name: "B", does: "b" }, { name: "C", does: "c" }],
-  }).length, 0, "eleven calls were sent to a container that holds eight");
+  }).length, 8, "the widest plan there is was refused the split, or lost a band on the way in");
   assert.equal(splitPlan({ ...args, mode: "revise" }).length, 0, "a revise must not split");
   assert.equal(splitPlan({ ...args, priorPages: [{ path: "index.tsx" }] }).length, 0, "a page rewrite must not split");
   assert.equal(splitPlan({ shape: [{ path: "/", sections: ["only one"] }], route: "/", mode: "build" }).length, 0,
