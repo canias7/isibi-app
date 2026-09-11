@@ -5224,3 +5224,18 @@ collides.
 
 I'd written that the chat↔site link lives in a column called `project_id`. It's
 `chat_id`. Checked against the live database rather than the migration.
+
+### Merged and live
+
+Both of today's fixes went out together at 17:16Z. The deploy was green in three
+minutes and the container really did roll — I read that off the deploy log
+itself rather than guessing it from how long the step took. Wrangler uploaded
+exactly one browser file, `chat.js`, which is the tightest confirmation that
+nothing else in the front end moved.
+
+The new code was serving by about 17:35Z.
+
+The proof for the naming fix is one build: type the Saltmarsh brief into the
+start box again. You've still got the name, so before today it would have
+revised the empty placeholder; now it should make a brand new site called
+`saltmarsh-kayak-co-2` and write its page in pieces.

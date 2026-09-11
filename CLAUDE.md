@@ -3489,6 +3489,19 @@ purely because its own earlier attempt had failed.**
   one long call; after this it should produce a NEW site at `<name>-2` and a
   `bands` step with a time per piece. `saltmarsh-kayak-co` is held and its brief
   is known, so the same brief is the test.
+- **MERGED AND DEPLOYED WITH THE CHARGING FIX BELOW** (owner: *"merge it"*).
+  `unit tests` runs 2443 and 2444 both green; main fast-forwarded `01202479` →
+  `abd2ecf3` at 17:16Z, carrying BOTH commits. **Deploy run 2089 green in
+  3m13s**: the gate set in 1 s; the **image step 2m15s** and the container
+  **ROLLED** — read off the LOG rather than inferred from the duration, which is
+  this file's own rule: `EDIT isibi-app-sitebuildcontainer`, `9b5005b6a9…37a9d`
+  → `f779f569…7b…8667`, `SUCCESS Modified application`, `Applied changes` at
+  **17:19:17Z**; the game app `no changes`. The drain was instant, Wrangler
+  27 s, all 24 secrets `Successfully created`, and the gate left to expire on
+  success. **The 15–20 minute hold ended ~17:34–17:39Z.**
+- **AND WRANGLER UPLOADED EXACTLY ONE ASSET — `/chat.js`** (1 new, 182 already
+  uploaded), which is the tightest confirmation available that the browser half
+  of the charging fix is the only `public/` byte that moved.
 
 ---
 
@@ -3603,6 +3616,8 @@ weren't charged."*
   balance should come back. **What this does NOT do is repay the 19 credits
   already taken** — that is a `credit_reverse` by ref on the two existing jobs,
   and it is the owner's call rather than a session's.
+- **MERGED AND DEPLOYED** — deploy 2089, recorded in full in the start-box
+  section above, which went out on the same fast-forward.
 
 ---
 
