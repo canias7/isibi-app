@@ -2766,9 +2766,9 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 6,039 (2026-09-12, the project-root census, the template
-  name guard, the preview-error channel and the code tree's icons and sort;
-  86.4 s local).
+  The unit suite is 6,048 (2026-09-12, the project-root census, the template
+  name guard, the preview-error channel, the code tree's icons and sort, and
+  the search box; 86.4 s local).
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
